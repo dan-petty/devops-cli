@@ -12,11 +12,19 @@ The shell of the harness reads the first word of a command only. `refused_argume
 words of a command that starts a program of the table. A program with access `read` changes no
 file, so it refuses a redirect to a file. `find` also refuses the arguments that run a program or
 change a file, and refuses a word with `$`, because the shell expands `-ex${U}ec` after the check.
+
+The step runs a verification command as a list of words, never through a shell. One form starts
+with `!`: the negative search `! git grep [options] <literal> [--] <path>...`, which passes when
+git finds no match (#3263). `read_negative_search` reads its words against one table: the
+options below, a literal of plain characters and relative paths. The gate of the stage job reads
+the same function, so a plan cannot pass the gate with a command that the step refuses.
 """
 
 from __future__ import annotations
 
+import re
 import shlex
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -29,6 +37,8 @@ from devops_cli.config.commands import (
     BIN_RUFF,
     BIN_UV,
 )
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS
+from devops_cli.lang import MESSAGES
 
 
 class ShellAccess(StrEnum):
@@ -69,6 +79,12 @@ _FIND_INSTEAD = (
 )
 _PYTHON_INSTEAD = "`uv run python`. Do not run `python -m pip`: the lockfile gives the dependencies"
 _LOCKFILE_INSTEAD = "nothing. The lockfile gives the dependencies"
+# The first word of a negative search. No shell runs it: the step does (see below).
+NEGATIVE_SEARCH_WORD = "!"
+_BANG_INSTEAD = (
+    "`git grep -n <literal> -- <paths>`. Read no output as a pass. The step runs a verification "
+    "command that starts with `!` itself, after your run"
+)
 
 SHELL_PROGRAMS: tuple[ShellProgram, ...] = (
     ShellProgram(BIN_GIT, ShellAccess.WRITE, "Read and change the repository."),
@@ -118,6 +134,7 @@ SHELL_REFUSALS: tuple[ShellRefusal, ...] = (
     ShellRefusal("pip3", _LOCKFILE_INSTEAD),
     ShellRefusal("rg", "the tool `grep`, or `grep` in the shell"),
     ShellRefusal("cd", "nothing. Every command runs in the checkout"),
+    ShellRefusal(NEGATIVE_SEARCH_WORD, _BANG_INSTEAD),
 )
 
 # The views of the two tables that the guard, the log and the tests read.
@@ -126,6 +143,20 @@ IMPLEMENT_ALLOWED_PROGRAMS: tuple[str, ...] = (*IMPLEMENT_SHELL_PROGRAMS, *VERIF
 IMPLEMENT_SHELL_REPLACEMENTS: dict[str, str] = {
     refusal.program: refusal.instead for refusal in SHELL_REFUSALS
 }
+
+# The negative search: `! git grep [options] <literal> [--] <path>...`. The step runs the words
+# after `!` and the search passes when git exits 1, which means no match. An option is one word of
+# these letters: line numbers, no binary files, fixed strings, any case, whole words, file names,
+# counts and a quiet run. No option reads a file (`-f`), opens a program (`-O`), leaves the
+# repository (`--no-index`) or takes a value (`-e`), so every other option is refused.
+NEGATIVE_SEARCH_START: tuple[str, ...] = (NEGATIVE_SEARCH_WORD, BIN_GIT, "grep")
+NEGATIVE_SEARCH_OPTION_LETTERS = "nIFiwlcq"
+NEGATIVE_SEARCH_LITERAL_SIGNS = "_ . : / = @ + , # % ~ -"
+_OPTION = re.compile(rf"-[{NEGATIVE_SEARCH_OPTION_LETTERS}]+")
+_LITERAL = re.compile(r"[\w .:/=@+,#%~-]+", re.ASCII)
+_PATH = re.compile(r"[\w.+@~*/-]+", re.ASCII)
+_PATHS_MARK = "--"
+_SHOWN_CHARS = 60
 
 PROGRAMS_PLACEHOLDER = "{{shell_programs}}"
 REFUSALS_PLACEHOLDER = "{{shell_refusals}}"
@@ -182,6 +213,111 @@ def refused_argument(command: str) -> tuple[ShellProgram, str] | None:
         return None
     word = _refused_word(program, words)
     return None if word is None else (program, word)
+
+
+def _is_path(word: str) -> bool:
+    """Whether `word` is a relative path inside the checkout: plain characters, no leading `-` or
+    `/`, no `..` part."""
+    return (
+        _PATH.fullmatch(word) is not None
+        and not word.startswith(("-", "/"))
+        and ".." not in word.split("/")
+    )
+
+
+@dataclass(frozen=True)
+class NegativeSearch:
+    """A negative search in the fixed shape, read from its words."""
+
+    options: tuple[str, ...]
+    literal: str
+    paths: tuple[str, ...]
+
+    @property
+    def argv(self) -> list[str]:
+        """The command that the step runs: the paths follow `--`, so git never reads one as a
+        revision."""
+        return [BIN_GIT, "grep", *self.options, self.literal, _PATHS_MARK, *self.paths]
+
+
+def _shown(word: str, limit: int = _SHOWN_CHARS) -> str:
+    """`word` for a reason: control characters and characters outside ASCII are escaped, and a long
+    word is cut. A reason never holds a raw line break or a NUL byte."""
+    text = word.encode("unicode_escape").decode("ascii")
+    return text if len(text) <= limit else f"{text[:limit]}..."
+
+
+def read_negative_search(words: Sequence[str]) -> NegativeSearch | str:
+    """The negative search in `words`, or the reason that the step refuses it. The words are `!`,
+    `git`, `grep`, options of `NEGATIVE_SEARCH_OPTION_LETTERS`, one literal, an optional `--` and at
+    least one path, and they hold at most `CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS` characters in all.
+    The reason is a sentence for the reason of the step and for the gate."""
+    texts = MESSAGES.roadmap
+    if tuple(words[:3]) != NEGATIVE_SEARCH_START:
+        return texts.search_reason_start
+    if sum(len(word) for word in words) > CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS:
+        return texts.search_reason_long.format(limit=CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS)
+    rest = list(words[3:])
+    options: list[str] = []
+    while rest and rest[0].startswith("-"):
+        if _OPTION.fullmatch(rest[0]) is None:
+            return texts.search_reason_option.format(
+                word=_shown(rest[0]),
+                letters=" ".join(f"-{c}" for c in NEGATIVE_SEARCH_OPTION_LETTERS),
+            )
+        options.append(rest.pop(0))
+    if not rest:
+        return texts.search_reason_no_text
+    literal = rest.pop(0)
+    if _LITERAL.fullmatch(literal) is None:
+        return texts.search_reason_literal.format(
+            word=_shown(literal), signs=NEGATIVE_SEARCH_LITERAL_SIGNS
+        )
+    if rest[:1] == [_PATHS_MARK]:
+        del rest[0]
+    if not rest:
+        return texts.search_reason_no_path
+    bad = next((word for word in rest if not _is_path(word)), None)
+    if bad is not None:
+        return texts.search_reason_path.format(word=_shown(bad))
+    return NegativeSearch(tuple(options), literal, tuple(rest))
+
+
+@dataclass(frozen=True)
+class Verification:
+    """A verification command that the step runs: the `argv` of the process, and whether it is a
+    negative search, which passes on exit 1 and not on exit 0."""
+
+    argv: list[str]
+    negative: bool = False
+
+
+def read_verification(command: str) -> Verification | str:
+    """The process that the step starts for the verification `command`, or the reason that it
+    refuses. The words are readable, and the first word is a program of the verification list or
+    the `!` of a negative search in the fixed shape. The step and the gate of the stage job read
+    this function, so no command is refused by one side only."""
+    texts = MESSAGES.roadmap
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return texts.verify_reason_unparsed
+    if not words:
+        return texts.verify_reason_unparsed
+    if words[0] == NEGATIVE_SEARCH_WORD:
+        found = read_negative_search(words)
+        return found if isinstance(found, str) else Verification(found.argv, negative=True)
+    if words[0] not in IMPLEMENT_ALLOWED_PROGRAMS:
+        return texts.verify_reason_program.format(
+            program=_shown(words[0]), allowed=", ".join(IMPLEMENT_ALLOWED_PROGRAMS)
+        )
+    return Verification(words)
+
+
+def verification_problem(command: str) -> str | None:
+    """Why the step cannot run the verification `command`, or None when it can."""
+    found = read_verification(command)
+    return found if isinstance(found, str) else None
 
 
 def programs_table() -> str:

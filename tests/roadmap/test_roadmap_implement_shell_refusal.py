@@ -87,6 +87,12 @@ def _refusal(
             "Instead of `rg`: the tool `grep`, or `grep` in the shell.",
         ),
         (
+            "! git grep -n x src/",
+            "Command '!' is not in the allowed list. "
+            "Instead of `!`: `git grep -n <literal> -- <paths>`. Read no output as a pass. "
+            "The step runs a verification command that starts with `!` itself, after your run.",
+        ),
+        (
             "cd src",
             "Command 'cd' is not in the allowed list. "
             "Instead of `cd`: nothing. Every command runs in the checkout.",

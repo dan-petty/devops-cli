@@ -101,6 +101,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
+    DEFAULT_ROADMAP_STAGE_TOOLSET,
     DEFAULT_RUNS_DATA_DIR,
     DEFAULT_SAMPLES_DATA_DIR,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
@@ -117,6 +118,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_TIMEOUT_SECONDS,
     DEFAULT_VALKEY_URL,
     DEFAULT_WORKSPACE_FILE,
+    StageToolset,
 )
 from devops_cli.config.env import (
     ENV_OTEL_EXPORTER_OTLP_ENDPOINT,
@@ -866,6 +868,10 @@ class RoadmapStageConfig(BaseModel):
         description="The most tokens that the inputs of one implementation step may hold: the step's instructions, the AGENTS.md of the repository and the documents it routes the group to, the item, the change folder and the packed files of one task group; `devops roadmap stage` splits a task group over it",
         default=DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
         ge=1000,
+    )
+    toolset: Annotated[StageToolset, Variable()] = Field(
+        description="The tools of a plan run of the stage job: `base` is the nine read-only tools that read the staged commit, and `extended` adds `references`, `read_issue` and `find_issues`. The last two read issues and pull requests of the repository on GitHub, with the token of the Service and no other permission",
+        default=DEFAULT_ROADMAP_STAGE_TOOLSET,
     )
 
     @field_validator("filter")
@@ -1742,6 +1748,11 @@ def get_cloudflare_api_token(settings: Settings) -> str | None:
 def get_service_webhook_secrets(settings: Settings) -> str | None:
     """Resolve the JSON mapping of repo to webhook secret."""
     return _resolve("service.webhook_secrets", settings)
+
+
+def get_mcp_token(settings: Settings) -> str | None:
+    """Resolve the bearer token of the streamable HTTP transport of `devops mcp serve`."""
+    return _resolve("mcp.token", settings)
 
 
 def get_firecrawl_api_key(settings: Settings | None = None) -> str | None:

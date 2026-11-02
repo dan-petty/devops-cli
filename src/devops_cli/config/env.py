@@ -145,6 +145,11 @@ CREDENTIALS: tuple[Credential, ...] = (
         "Mattermost incoming webhook token for the deploys channel (stored in OS keyring)",
     ),
     Credential(
+        "mcp.token",
+        "Bearer token that `devops mcp serve --transport streamable-http` requires from every "
+        "request, and refuses to start without (stored in OS keyring)",
+    ),
+    Credential(
         "mattermost.command_token",
         "Mattermost slash command token for the /roadmap command (stored in OS keyring)",
     ),

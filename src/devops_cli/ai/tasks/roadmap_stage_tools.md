@@ -1,4 +1,4 @@
-You have read-only tools for this task. Use them before you write the plan. Each tool reads the repository at the commit being planned. No tool writes a file, runs a command or opens a network connection.
+You have read-only tools for this task. Use them before you write the plan. Each tool reads the repository at the commit being planned. No tool writes a file or runs a command.
 
 The tools:
 

@@ -1783,6 +1783,9 @@ class MCPMessages:
     )
     export_dry_run: str = "Would write {count} tool schema(s) and instructions.md to {directory}"
     starting_sse: str = "Starting FastMCP server (SSE) on http://{host}:{port}..."
+    starting_http: str = (
+        "Starting FastMCP server (streamable HTTP, roles: {roles}) on http://{host}:{port}..."
+    )
     starting_stdio: str = "Starting FastMCP server (stdio) — devops-cli\n"
     table_title_tools: str = "Registered FastMCP Tools (devops-cli)"
     col_tool_name: str = "MCP Tool Name"
@@ -2311,13 +2314,20 @@ class RoadmapMessages:
         "Restored the tasks.md of the change {change}. A step only ticks the tasks of its own "
         "group."
     )
-    implement_stop_command_denied: str = (
-        "The verification command {command} is not allowed. {program} is not one of: {allowed}."
-    )
-    implement_stop_command_unparsed: str = (
-        "The verification command {command} is not a valid command line."
-    )
+    implement_stop_command_refused: str = "The verification command {command} is refused: {reason}."
     implement_stop_command_failed: str = "{command} exited with status {status}.\n{output}"
+    implement_stop_search_found: str = "{command} found a match, so the name is not gone.\n{output}"
+    search_reason_start: str = "it does not start with `! git grep`"
+    search_reason_option: str = "the option `{word}` is not allowed (the options are {letters})"
+    search_reason_no_text: str = "it gives no text to search"
+    search_reason_literal: str = (
+        "the text `{word}` is not a literal of letters, digits, spaces and the signs {signs}"
+    )
+    search_reason_no_path: str = "it gives no path"
+    search_reason_path: str = "the word `{word}` is not a path of the checkout"
+    verify_reason_unparsed: str = "it is not a valid command line"
+    search_reason_long: str = "it is longer than {limit} characters"
+    verify_reason_program: str = "`{program}` is not one of: {allowed}"
     implement_stop_command_timeout: str = "{command} ran out of time after {seconds} s."
     implement_formatted: str = "Formatted: {paths}"
     implement_stop_link: str = (
@@ -2955,6 +2965,15 @@ class RoadmapMessages:
         "`uv run devops`, such as `uv run devops ci test tests/roadmap/test_feature.py`, or is a "
         "`! git grep -n <name>` check that a name is gone. Give a command of one of these forms."
     )
+    stage_problem_verify_backtick: str = (
+        "Group {group} gives the `verify` command `{command}`, and it holds a backtick. The plan "
+        "writes the command in a code span, and a backtick ends that span. Give a command with no "
+        "backtick."
+    )
+    stage_problem_verify_run: str = (
+        "Group {group} gives the `verify` command `{command}`, and the step cannot run it: "
+        "{reason}. Give `uv run devops <command>` or `! git grep -n <name> src/ tests/`."
+    )
     stage_problem_test_path: str = (
         "Group {group} creates `{path}`, and the directory `{directory}` does not mirror the code "
         "that the plan changes. A new test goes in {expected}. Move it there."
@@ -2984,11 +3003,13 @@ class RoadmapMessages:
     stage_group_new: str = " (new)"
     stage_blank_text: str = "A task text holds only full stops and spaces."
     stage_bad_creates: str = "'{path}' is in creates, and it is not in changes."
-    stage_task_test: str = "{test}, and verify that `{verify}` fails on the base"
-    stage_task_pass: str = "{work}, and verify that `{verify}` passes"
+    # The implement step reads a verification command from the line `Verification:` under a task,
+    # and from no other text (`step_files`). So a task is its work, a line break, and that line.
+    stage_task_test: str = "{test}\n  - Verification: `{verify}` fails on the base"
+    stage_task_pass: str = "{work}\n  - Verification: `{verify}` passes"
     stage_task_process: str = "{work}, and run this check by hand: {process}"
     stage_task_documents: str = (
-        "{work}, run `{command}`, and verify that `uv run devops ci docs` passes"
+        "{work}, and run `{command}`\n  - Verification: `uv run devops ci docs` passes"
     )
     stage_kind_no_test: str = (
         "The group '{title}' has the kind behavior, and it has no test. "
@@ -3019,6 +3040,14 @@ class RoadmapMessages:
         "Keep one of them."
     )
     stage_title_lead: str = "plan #{number} "
+    stage_title_long: str = (
+        "The title of item {number} would have {length} characters after the colon, and the "
+        "limit is {limit}. The summary of the plan does not fit the number of this item."
+    )
+    stage_summary_long: str = (
+        "The summary has {length} characters in the title, and the limit is {limit}. "
+        "A handle or a link gets a code span in the title. Write a shorter summary."
+    )
     stage_pull_request_body: str = (
         "Plans #{number}\n\n{body}\n\nChange: `openspec/changes/{change}/`"
     )
