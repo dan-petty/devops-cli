@@ -31,12 +31,12 @@ from pathlib import Path, PurePosixPath
 from devops_cli.config.commands import BIN_DEVOPS, BIN_UV
 from devops_cli.config.constants import (
     CONST_PRE_COMMIT_PRE_PUSH_STAGE,
-    CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     CONST_ROADMAP_IMPLEMENT_SCOPED_ROWS,
     CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES,
     CONST_SOURCE_ROOT_DIR,
     CONST_TESTS_ROOT_DIR,
 )
+from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.test_selection import is_test_module, select_tests_for_sources
 from devops_cli.lang import MESSAGES
@@ -160,6 +160,7 @@ def _run_check(source: Path, check: ScopedCheck) -> ScopedResult:
     """Run one check in the checkout, outside any agent shell and with no token: the child is
     `uv`. A check that runs out of time failed."""
     shown = " ".join(check.argv)
+    limit = load_settings().roadmap.implement.command_timeout_seconds
     began = time.monotonic()
     try:
         done = run_subprocess(
@@ -167,13 +168,11 @@ def _run_check(source: Path, check: ScopedCheck) -> ScopedResult:
             cwd=source,
             env=dict(check.env) or None,
             quiet=True,
-            timeout=CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
+            timeout=limit,
         )
     except subprocess.TimeoutExpired:
         seconds = time.monotonic() - began
-        log = MESSAGES.roadmap.implement_stop_command_timeout.format(
-            command=shown, seconds=CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS
-        )
+        log = MESSAGES.roadmap.implement_stop_command_timeout.format(command=shown, seconds=limit)
         return ScopedResult(check.name, False, seconds, log, shown)
     seconds = time.monotonic() - began
     if done.returncode == 0:

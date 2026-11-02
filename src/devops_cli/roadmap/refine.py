@@ -71,16 +71,17 @@ nothing (#1526).
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import itertools
 import json
 import logging
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Final, Literal
 from urllib.parse import urlsplit
 
@@ -116,8 +117,11 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS,
     CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
     CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM,
+    CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL,
     CONST_ROADMAP_REFINE_MAX_REPLIES,
     CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS,
+    CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC,
+    CONST_ROADMAP_REFINE_MAX_SPECS,
     CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS,
     CONST_ROADMAP_REFINE_START_MARKER,
     CONST_ROADMAP_STATUS_NEW,
@@ -144,6 +148,7 @@ from devops_cli.roadmap.intake_model import IntakeModel, build_intake_model
 from devops_cli.roadmap.refine_investigation import (
     InvestigationStopped,
     InvestigationTools,
+    analysis_window,
     investigate,
 )
 from devops_cli.roadmap.store import (
@@ -535,7 +540,8 @@ def _asked_questions(body: str, covers: CoversQuestion | None) -> list[str]:
 # ── Git & Checkout Inspection ─────────────────────────────────────────────────
 
 
-def _git(checkout: Path, *args: str) -> tuple[int, str]:
+def git_result(checkout: Path, *args: str) -> tuple[int, str]:
+    """The exit code of `git <args>` in `checkout` and its output, or its error text on failure."""
     proc = run_subprocess(
         [BIN_GIT, "-C", str(checkout), *args],
         env={"GIT_TERMINAL_PROMPT": "0"},
@@ -562,7 +568,7 @@ def inspect_checkout(source: Path | str, expected_repo: str) -> str:
                 "expected": expected_repo[:256],
             },
         )
-    code_sha, sha = _git(path, "rev-parse", "HEAD")
+    code_sha, sha = git_result(path, "rev-parse", "HEAD")
     sha = sha.strip()
     if code_sha != 0 or not sha:
         raise GitHubOperationError(
@@ -582,10 +588,10 @@ _BACKTICK_IDENT_RE = re.compile(r"`([a-zA-Z_][a-zA-Z0-9_]{2,})`")
 
 
 def _read_git_file(source: Path, sha: str, path: str) -> str | None:
-    code_exists, _ = _git(source, "cat-file", "-e", f"{sha}:{path}")
+    code_exists, _ = git_result(source, "cat-file", "-e", f"{sha}:{path}")
     if code_exists != 0:
         return None
-    code_show, content = _git(source, "show", f"{sha}:{path}")
+    code_show, content = git_result(source, "show", f"{sha}:{path}")
     return content if code_show == 0 else None
 
 
@@ -598,12 +604,31 @@ def _slice_lines(content: str, start: int | None, end: int | None) -> str:
     return "\n".join(lines[s:e])
 
 
+def _cited_matches(body: str) -> Iterator[tuple[str, str | None, str | None]]:
+    """The path of each file that `body` cites with its line range, if any, once for each path.
+    A path with `..` or a leading `/` is no cited file."""
+    seen: set[str] = set()
+    for match in _CITED_PATH_RE.finditer(body):
+        path, start, end = match.group(1), match.group(2), match.group(3)
+        if ".." in path or path.startswith("/") or path in seen:
+            continue
+        seen.add(path)
+        yield path, start, end
+
+
+def cited_paths(body: str) -> list[str]:
+    """The files that `body` cites, in the order of the text, each once."""
+    return [path for path, _, _ in _cited_matches(body)]
+
+
+def cited_identifiers(body: str) -> list[str]:
+    """The identifiers that `body` cites in backticks, in the order of the text, each once."""
+    return list(dict.fromkeys(m.group(1) for m in _BACKTICK_IDENT_RE.finditer(body)))
+
+
 def _collect_cited_files(source: Path, sha: str, body: str) -> dict[str, str]:
     found: dict[str, str] = {}
-    for match in _CITED_PATH_RE.finditer(body):
-        path, start_s, end_s = match.group(1), match.group(2), match.group(3)
-        if ".." in path or path.startswith("/") or path in found:
-            continue
+    for path, start_s, end_s in _cited_matches(body):
         content = _read_git_file(source, sha, path)
         if content is not None:
             start = int(start_s) if start_s else None
@@ -615,10 +640,9 @@ def _collect_cited_files(source: Path, sha: str, body: str) -> dict[str, str]:
 
 
 def _collect_identifiers(source: Path, sha: str, body: str) -> list[str]:
-    raw_idents = {m.group(1) for m in _BACKTICK_IDENT_RE.finditer(body)}
     results: list[str] = []
-    for ident in sorted(raw_idents)[:5]:
-        code, out = _git(source, "grep", "-n", "-F", "-w", "-e", ident, sha, "--")
+    for ident in sorted(cited_identifiers(body))[:5]:
+        code, out = git_result(source, "grep", "-n", "-F", "-w", "-e", ident, sha, "--")
         if code == 0 and out:
             lines = out.splitlines()[:5]
             results.extend(lines)
@@ -627,11 +651,122 @@ def _collect_identifiers(source: Path, sha: str, body: str) -> list[str]:
     return results[:20]
 
 
+# The files of a test: under `tests/`, or named like a test (#3012).
+_TEST_DIR: Final[str] = "tests/"
+_TEST_FILE_PATTERNS: Final[tuple[str, ...]] = ("test_*.py", "*_test.py")
+# The files that name a symbol: Python files, which is where an item's symbols live (#3012).
+SYMBOL_PATHSPEC: Final[str] = "*.py"
+_SPECS_DIR: Final[str] = "openspec/specs"
+_REQUIREMENT_RE = re.compile(r"^### Requirement:[ \t]*(.+?)[ \t]*$", re.MULTILINE)
+# The root of the modules that a capability name covers, such as `src/devops_cli/roadmap/refine.py`.
+_PACKAGE_ROOT: Final[tuple[str, ...]] = ("src", "devops_cli")
+
+
+def _paths_of(output: str, sha: str) -> list[str]:
+    """The sorted paths in the NUL-ended (or line-ended) output of `git grep -l` at `sha`."""
+    items = output.split("\0") if "\0" in output else output.splitlines()
+    return sorted(item.removeprefix(f"{sha}:") for item in items if item)
+
+
+def _grep_files(
+    source: Path, sha: str, needles: Sequence[str], pathspec: str, *, word: bool = False
+) -> list[str]:
+    """The sorted paths of the files at `sha` under `pathspec` that hold one of `needles`."""
+    flags = ["-l", "-z", "-F", *(["-w"] if word else [])]
+    needle_args = [arg for needle in needles for arg in ("-e", needle)]
+    code, out = git_result(source, "grep", *flags, *needle_args, sha, "--", pathspec)
+    return _paths_of(out, sha) if code == 0 and out else []
+
+
+def _is_test_path(path: str) -> bool:
+    name = PurePosixPath(path).name
+    return path.startswith(_TEST_DIR) or any(
+        fnmatch.fnmatchcase(name, pattern) for pattern in _TEST_FILE_PATTERNS
+    )
+
+
+def _symbol_section(ident: str, paths: Sequence[str]) -> str | None:
+    """The tests, then the callers, that reference `ident`: at most the bound of paths in all,
+    and the count of those left out."""
+    tests = [p for p in paths if _is_test_path(p)]
+    callers = [p for p in paths if not _is_test_path(p)]
+    shown_tests = tests[:CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL]
+    room = CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL - len(shown_tests)
+    shown_callers = callers[:room]
+    if not shown_tests and not shown_callers:
+        return None
+    lines = [f"### Tests and callers of `{ident}`"]
+    for title, group in (("Tests:", shown_tests), ("Callers:", shown_callers)):
+        if group:
+            lines += [title, *(f"- {p}" for p in group)]
+    left_out = len(paths) - len(shown_tests) - len(shown_callers)
+    if left_out:
+        shown = len(paths) - left_out
+        lines.append(f"({shown} of {len(paths)} paths shown; {left_out} more left out)")
+    return "\n".join(lines)
+
+
+def _collect_symbol_sections(source: Path, sha: str, body: str) -> list[str]:
+    """For each identifier the item cites, the Python test files and caller files that name it."""
+    idents = sorted(cited_identifiers(body))[:5]
+    sections = (
+        _symbol_section(ident, _grep_files(source, sha, [ident], SYMBOL_PATHSPEC, word=True))
+        for ident in idents
+    )
+    return [section for section in sections if section]
+
+
+def _module_capability_key(path: str) -> str | None:
+    """The name `<package>-<module>` of a module of the package, such as `roadmap-refine` for
+    `src/devops_cli/roadmap/refine.py`: a capability of that name, or one whose name it begins
+    with, covers the module. None for a file outside the package."""
+    parts = PurePosixPath(path).with_suffix("").parts
+    if parts[:2] != _PACKAGE_ROOT or len(parts) < 3:
+        return None
+    named = [part for part in parts[2:] if part != "__init__"][-2:]
+    return "-".join(part.replace("_", "-") for part in named)
+
+
+def _capabilities_of_files(source: Path, sha: str, cited: Sequence[str]) -> list[str]:
+    """The sorted capabilities of the specs at `sha` that cover a cited file: by the name of its
+    module, or because the spec names its path."""
+    code, out = git_result(source, "ls-tree", "-r", "-z", "--name-only", sha, _SPECS_DIR)
+    if code != 0 or not out or not cited:
+        return []
+    listed = out.split("\0") if "\0" in out else out.splitlines()
+    known = {PurePosixPath(p).parent.name for p in listed if p.endswith("/spec.md")}
+    keys = {key for path in cited if (key := _module_capability_key(path))}
+    by_name = {c for c in known if any(k == c or k.startswith(f"{c}-") for k in keys)}
+    by_path = {PurePosixPath(p).parent.name for p in _grep_files(source, sha, cited, _SPECS_DIR)}
+    return sorted(by_name | (by_path & known))
+
+
+def _requirements_section(capability: str, text: str) -> str | None:
+    names = _REQUIREMENT_RE.findall(text)
+    if not names:
+        return None
+    shown = names[:CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC]
+    lines = [f"### Requirements of {capability}", *(f"- {name}" for name in shown)]
+    if len(shown) < len(names):
+        lines.append(f"({len(shown)} of {len(names)} requirements shown)")
+    return "\n".join(lines)
+
+
+def _collect_spec_requirements(source: Path, sha: str, cited: Sequence[str]) -> list[str]:
+    """For each spec that covers a cited file, the names of its requirements."""
+    capabilities = _capabilities_of_files(source, sha, cited)[:CONST_ROADMAP_REFINE_MAX_SPECS]
+    sections = (
+        _requirements_section(c, _read_git_file(source, sha, f"{_SPECS_DIR}/{c}/spec.md") or "")
+        for c in capabilities
+    )
+    return [section for section in sections if section]
+
+
 def _collect_repo_map(source: Path, sha: str, paths: Sequence[str]) -> list[str]:
     dirs = {str(Path(p).parent) for p in paths if "/" in p}
     files: list[str] = []
     for d in sorted(dirs):
-        code, out = _git(source, "ls-tree", "-r", "-z", "--name-only", sha, d)
+        code, out = git_result(source, "ls-tree", "-r", "-z", "--name-only", sha, d)
         if code == 0 and out:
             items = out.split("\0") if "\0" in out else out.splitlines()
             files.extend([f for f in items if f][:15])
@@ -655,7 +790,7 @@ def collect_context(
         sections.append(f"### CONTEXT.md\n{ctx}")
 
     # docs/adr/*.md
-    code_adr, adr_list = _git(source, "ls-tree", "-r", "-z", "--name-only", sha, "docs/adr")
+    code_adr, adr_list = git_result(source, "ls-tree", "-r", "-z", "--name-only", sha, "docs/adr")
     if code_adr == 0 and adr_list:
         adr_items = adr_list.split("\0") if "\0" in adr_list else adr_list.splitlines()
         for adr_path in [p for p in adr_items if p][:5]:
@@ -663,8 +798,14 @@ def collect_context(
             if adr_content:
                 sections.append(f"### {adr_path}\n{adr_content}")
 
-    # Cited files
+    # Tests and callers of each cited symbol, and the requirements of the specs of the cited
+    # files. They are short and bounded, so they come before the cited code, which the cut of the
+    # budget takes from the end first (#3012).
     cited = _collect_cited_files(source, sha, body)
+    sections.extend(_collect_symbol_sections(source, sha, body))
+    sections.extend(_collect_spec_requirements(source, sha, list(cited.keys())))
+
+    # Cited files
     for p, text in cited.items():
         sections.append(f"### Code: {p}\n{text}")
 
@@ -855,7 +996,7 @@ def _checkout_path(cited: str, source: Path, sha: str) -> str | None:
     path = match.group(1)
     if ".." in path or path.startswith("/"):
         return None
-    code, _ = _git(source, "cat-file", "-e", f"{sha}:{path}")
+    code, _ = git_result(source, "cat-file", "-e", f"{sha}:{path}")
     return path if code == 0 else None
 
 
@@ -1888,6 +2029,7 @@ def _investigate(
         json.dumps(document, ensure_ascii=False, indent=1),
         tools,
         RefinementProposal,
+        window=analysis_window(),
     )
     if isinstance(revised, InvestigationStopped):
         logger.warning(

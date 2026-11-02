@@ -116,11 +116,15 @@ def build_job(
     template: JobTemplate = DEFAULT_TEMPLATE,
     env: Mapping[str, str] | None = None,
     labels: Mapping[str, str] | None = None,
+    deadline: int | None = None,
+    annotations: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
-    """The Job the CronJob's template makes, with only args, name, labels and `env` changed.
+    """The Job the CronJob's template makes, with only args, name, labels, `env`, the deadline
+    and the annotations changed.
 
     The labels go on the Job and on its pods, so `-l app.kubernetes.io/name=devops-cli-job`
-    finds both.
+    finds both. The annotations go on the Job only. `deadline` replaces the
+    `activeDeadlineSeconds` of the template.
     """
     job_template = cronjob["spec"]["jobTemplate"]
     spec = copy.deepcopy(job_template["spec"])
@@ -131,4 +135,8 @@ def build_job(
     _with_env(container, env)
     metadata = _labelled(job_template.get("metadata"), labels)
     metadata.update(name=name, namespace=JOB_NAMESPACE)
+    if annotations:
+        metadata["annotations"] = {**metadata.get("annotations", {}), **annotations}
+    if deadline is not None:
+        spec["activeDeadlineSeconds"] = deadline
     return {"apiVersion": "batch/v1", "kind": "Job", "metadata": metadata, "spec": spec}

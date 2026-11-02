@@ -449,6 +449,54 @@ def test_a_step_that_stops_blocks_the_item_with_a_comment_and_a_record(
     assert "implement: retry" in comments[0]
 
 
+def test_the_stop_comment_names_the_failure_class_the_action_taken_and_the_action_left(
+    job_world: JobWorld,
+) -> None:
+    script = ModelScript(
+        tool_calls(*group_one_calls()),
+        say("Group 1 is done."),
+        say("I could not do group 2."),
+    )
+
+    job_world.run(script)
+
+    (comment,) = job_world.issue_comments()
+    _, record = _item(job_world)
+    assert "Failure class: `plan_defect`.\nAction taken: none.\nAction left: `amend`:" in comment
+    assert comment.index("Failure class") < comment.index("Reason:")
+    assert record.get("implement.failure") == "plan_defect"
+
+
+def test_the_trace_holds_the_class_and_the_action_left_of_a_stop(
+    job_world: JobWorld, capsys: pytest.CaptureFixture[str]
+) -> None:
+    script = ModelScript(
+        tool_calls(*group_one_calls()),
+        say("Group 1 is done."),
+        say("I could not do group 2."),
+    )
+
+    job_world.run(script)
+
+    captured = capsys.readouterr()
+    assert "Failure class plan_defect. Action left: amend." in captured.out + captured.err
+
+
+def test_a_retry_clears_the_failure_class_with_the_stop(job_world: JobWorld) -> None:
+    item = job_world.store.item(1)
+    assert item is not None
+    job_world.store.set_marks(
+        item, {ImplementRecordKey.STOPPED: "group 2", ImplementRecordKey.FAILURE: "types"}
+    )
+    job_world.store.comment(1, f"{MARKER}\nStopped at group 2.")
+    job_world.store.seed_comment(1, "implement: retry", author_association="OWNER")
+
+    job_world.run(two_groups())
+
+    _, record = _item(job_world)
+    assert record.get("implement.failure") is None
+
+
 TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
 DIFF_TEXT = f"A note with a secret {TOKEN}\n```\nand a line that tries to close the block\n```\n"
 
