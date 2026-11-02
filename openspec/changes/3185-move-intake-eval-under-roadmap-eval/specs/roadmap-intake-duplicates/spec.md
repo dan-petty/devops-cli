@@ -26,16 +26,43 @@ The CLI SHALL run the intake duplicate evaluation as `devops roadmap eval intake
 - **WHEN** The evaluation runs over the committed cases.
 - **THEN** It prints the score of each case with the precision and the recall of the duplicate verdict, and exits 0 when every case ran.
 
-### Requirement: The moved command is excluded from MCP by its new path
-The MCP exclusion list MUST hold `("roadmap", "eval", "intake")` and MUST NOT hold `("roadmap", "intake-eval")`.
+## MODIFIED Requirements
 
-#### Scenario: Every command is exposed or excluded
-- **WHEN** The test `test_all_cli_commands_are_either_exposed_or_excluded` runs.
-- **THEN** The test passes with no unaccounted command path and no extra command path.
+### Requirement: An evaluation run takes intake's verdict for each case
+`devops roadmap eval intake` SHALL run each case of the intake duplicate evaluation set through intake with the configured `analysis` model, one case at a time, and SHALL write nothing. For each case it SHALL seed a roadmap that holds the case's item as an item and plan intake for the case's candidate. The verdict SHALL be `duplicate` when the decision names the item as the possible original, `skipped` when intake skips the candidate, and `new item` otherwise.
 
-### Requirement: The command reference lists the new name
-The command matrix and the roadmap command reference SHALL list `devops roadmap eval intake` and MUST NOT list `devops roadmap intake-eval`.
+#### Scenario: A reply that names the item with no shared change
+- **WHEN** the model names the case's item as the original of a candidate and gives no shared change
+- **THEN** the verdict of that case is `new item`
 
-#### Scenario: The docs check passes
-- **WHEN** A developer runs `devops ci docs`.
-- **THEN** The check exits 0 and the documents hold the new command name.
+### Requirement: An evaluation run reports the score of the duplicate verdict
+`devops roadmap eval intake` SHALL print each case with the person's verdict, intake's verdict and whether they agree, then the count of cases that agree, and the precision and the recall of the `duplicate` verdict with the count of false duplicates.
+
+#### Scenario: A model that folds one related item
+- **WHEN** the model names the item with a shared change for each case that a person judged a duplicate, and for one case that a person judged a new item, and names no original for the other cases
+- **THEN** the command exits 0, the table shows that one case as failed, and the report gives a duplicate precision of 3 of 4, a recall of 3 of 3, and 1 false duplicate
+
+#### Scenario: A model that agrees with every case
+- **WHEN** the model names the item with a shared change for each case that a person judged a duplicate, and names no original for the other cases
+- **THEN** the command exits 0, every case agrees, and the report gives a duplicate precision of 3 of 3 and no false duplicate
+
+### Requirement: An evaluation run that cannot run a case says so
+When a case's model call fails, `devops roadmap eval intake` SHALL show that case with its error, SHALL go on with the other cases, and SHALL exit 1.
+
+#### Scenario: The model fails for one case
+- **WHEN** the model call of one case fails
+- **THEN** the table shows that case with its error, the other cases have their verdicts, and the command exits 1
+
+### Requirement: An evaluation run reads the labels of the checkout
+`devops roadmap eval intake` SHALL read the type labels from `.github/labels.yml` at the root of the checkout it runs in, and SHALL send no GitHub request and no embedding request. With no such file it SHALL stop before any model call with an error that names the file.
+
+#### Scenario: A checkout with no labels file
+- **WHEN** the command runs in a directory with no `.github/labels.yml`
+- **THEN** it exits 1 with an error that names `.github/labels.yml`, and the model gets no call
+
+### Requirement: An evaluation dry run makes no request
+`devops roadmap eval intake --dry-run` SHALL make no request and SHALL list each case with the one `analysis` call that a run makes for it.
+
+#### Scenario: The dry run of the set
+- **WHEN** `devops roadmap eval intake --dry-run` runs
+- **THEN** it lists the 16 cases and 16 `analysis` calls, and the model gets no call
