@@ -40,6 +40,7 @@ from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope
 from devops_cli.roadmap.refine import sanitize_text
+from devops_cli.roadmap.stage_criteria import PENDING_PERSON, StageCriterion, criterion_problems
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
 from devops_cli.roadmap.step_rules import rules_sections
@@ -279,6 +280,7 @@ class StageProposal(_Reply):
     rejected: list[StageRejection] = Field(default_factory=list)
     specs: list[StageSpec] = Field(default_factory=list)
     groups: list[StageGroup] = Field(default_factory=list, min_length=1)
+    criteria: list[StageCriterion] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -309,9 +311,11 @@ class StageProposal(_Reply):
 
 
 class StageSplit(_Reply):
-    """The model's answer to a split: every group of the change, in order."""
+    """The model's answer to a split: every group of the change, in order, and the `criteria`
+    list again, since a split moves the numbers of the groups."""
 
     groups: list[StageGroup] = Field(min_length=1)
+    criteria: list[StageCriterion] = Field(default_factory=list)
 
 
 def _says_shall_or_must(text: str) -> bool:
@@ -384,13 +388,17 @@ def check_proposal(
     tree: StagedTree,
     *,
     requirements: Mapping[str, Collection[str]] | None = None,
+    issue_body: str = "",
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
     `openspec/specs/`, `requirements` the requirement names of each base spec by capability, and
-    `tree` the files that exist when the change is written."""
+    `tree` the files that exist when the change is written. `issue_body` is the whole body of the
+    issue: each acceptance criterion in it needs an entry in `criteria` (#3019), and a body with
+    none needs no entry."""
     problems = _delta_problems(proposal, known, requirements or {})
     problems.extend(path_problems(proposal.groups, tree))
+    problems.extend(criterion_problems(proposal.criteria, issue_body, len(proposal.groups)))
     return problems
 
 
@@ -542,9 +550,23 @@ def group_text(index: int, group: StageGroup) -> str:
     return f"## {index}. {group.title}\n\n{files}\n\n{tasks}"
 
 
-def _tasks_file(groups: Sequence[StageGroup]) -> str:
+def _criteria_section(criteria: Sequence[StageCriterion]) -> str:
+    """The `## Criteria` section of `tasks.md`: one line for each acceptance criterion with the
+    group that delivers it, or `pending-person` and the reason. It is no task, so it has no box.
+    A plan with no criterion has no section."""
+    texts = MESSAGES.roadmap
+    lines = [
+        texts.stage_criteria_pending.format(criterion=_one_line(c.criterion), reason=c.reason)
+        if c.group == PENDING_PERSON
+        else texts.stage_criteria_line.format(criterion=_one_line(c.criterion), group=c.group)
+        for c in criteria
+    ]
+    return f"## {texts.stage_criteria_title}\n\n{_bullets(lines)}\n\n" if lines else ""
+
+
+def _tasks_file(groups: Sequence[StageGroup], criteria: Sequence[StageCriterion] = ()) -> str:
     sections = "\n".join(group_text(i, g) for i, g in enumerate(groups, start=1))
-    return f"# Tasks\n\n{sections}\n## Workflow follow-up\n\n- {MESSAGES.roadmap.stage_pending_review}\n"
+    return f"# Tasks\n\n{sections}\n{_criteria_section(criteria)}## Workflow follow-up\n\n- {MESSAGES.roadmap.stage_pending_review}\n"
 
 
 def render_change(
@@ -561,7 +583,7 @@ def render_change(
         f"{root}/.openspec.yaml": f"schema: spec-driven\ncreated: {created.isoformat()}\n{skip}",
         f"{root}/proposal.md": _proposal_file(proposal, known),
         f"{root}/design.md": _design_file(proposal),
-        f"{root}/tasks.md": _tasks_file(proposal.groups),
+        f"{root}/tasks.md": _tasks_file(proposal.groups, proposal.criteria),
     }
     for spec in proposal.specs:
         files[f"{root}/specs/{spec.capability}/spec.md"] = _spec_file(spec)
