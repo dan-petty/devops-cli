@@ -2520,6 +2520,18 @@ class RoadmapMessages:
         "will not run it. Fix the cause. Then comment `implement: retry`. The Service also "
         "clears the stop one time when a new runner image rolls out."
     )
+    implement_job_report_stalled: str = (
+        "\n\nThe Job made no progress for {seconds} seconds, so the Service ended it by its "
+        "deadline. Its log did not change in that time."
+    )
+    implement_deadline_extended: str = (
+        "The Service moved the deadline of Job {job} from {previous} to {seconds} seconds: "
+        "{reason}."
+    )
+    implement_deadline_stalled: str = (
+        "The log of Job {job} did not change for {silence} seconds. The Service ended the Job by "
+        "its deadline of {seconds} seconds."
+    )
     stop_clear_retry: str = (
         "{marker}\nCleared the stop at {stopped} by the rule `{rule}`: a person commented "
         "`implement: retry`. The item is {status} again, and the Service takes it in the next "

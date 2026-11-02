@@ -121,10 +121,13 @@ spec:
     - expression: has(object.spec.backoffLimit) && object.spec.backoffLimit == 0
       message: backoffLimit must be 0.
       reason: Forbidden
+    # The Service extends the deadline of its Job while the Job makes progress, up to
+    # `roadmap.implement.deadline_ceiling_seconds` (#3063). The cap is the most that setting may be
+    # (`CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS`); a test holds both.
     - expression: >-
         has(object.spec.activeDeadlineSeconds) && object.spec.activeDeadlineSeconds > 0 &&
-        object.spec.activeDeadlineSeconds <= 7200
-      message: The Job must set a deadline (activeDeadlineSeconds) of 7200 seconds at most.
+        object.spec.activeDeadlineSeconds <= 14400
+      message: The Job must set a deadline (activeDeadlineSeconds) of 14400 seconds at most.
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1
