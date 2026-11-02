@@ -11,6 +11,7 @@ import pytest
 
 from devops_cli import exceptions
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
+from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_STEP_TOKENS
 from devops_cli.exceptions import GitHubOperationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import ended_by_stop
@@ -155,7 +156,7 @@ def test_a_staged_item_gets_one_comment_and_a_record_and_keeps_its_status(
     assert f"branch `{BRANCH}`" in comment
     assert "draft pull request #5" in comment
     assert "1. Keep the last comment:" in comment
-    assert "budget of 40000 tokens" in comment
+    assert f"budget of {DEFAULT_ROADMAP_STAGE_STEP_TOKENS} tokens" in comment
     assert "did not run" not in comment
     item = store.item(1)
     assert item is not None
