@@ -1,11 +1,83 @@
 # Tasks
 
-## 1. x
+## 1. Mask private host names
 
-Reads: none. Changes: `src/devops_cli/roadmap/explain.py`.
+Reads: `src/devops_cli/security/sanitizer.py`, `tests/security/test_secret_redaction.py`. Changes: `src/devops_cli/security/sanitizer.py`, `tests/security/test_private_host_masking.py` (new).
 
-- [ ] 1.1 x, and verify that `openspec validate --strict` passes
+- [ ] 1.1 In `tests/security/test_private_host_masking.py`, add the tests of the two scenarios of the spec: `https://db.corp.internal/x`, `10.1.2.3` and `localhost` each give `<masked-host>` and the rest of the text is as it was; `example.com`, `198.51.100.7` and `config.local_value` come back unchanged. Verify that `uv run devops ci test tests/security/test_private_host_masking.py` fails on the base
+- [ ] 1.2 In `src/devops_cli/security/sanitizer.py`, add `mask_private_hosts(text)`: one compiled pattern of `PRIVATE_HOST_PATTERNS`, case-insensitive, that replaces each match with `<masked-host>`. Verify that `uv run devops ci test tests/security/test_private_host_masking.py tests/security/test_secret_redaction.py tests/telemetry/test_telemetry_llm_content.py` passes
+
+## 2. Write the trace module
+
+Reads: `src/devops_cli/roadmap/agent_run.py`, `src/devops_cli/roadmap/implement_tool_log.py`, `src/devops_cli/security/sanitizer.py`, `tests/roadmap/test_roadmap_limit_classes.py`. Changes: `src/devops_cli/roadmap/implement_trace.py` (new), `src/devops_cli/roadmap/agent_run.py`, `src/devops_cli/config/constants.py`, `tests/roadmap/test_roadmap_implement_trace.py` (new), `tests/roadmap/test_roadmap_limit_classes.py`.
+
+- [ ] 2.1 In `tests/roadmap/test_roadmap_implement_trace.py`, add tests over `ImplementTrace`: the four event types keep their order and their fields; `encode()` gives JSON with `events` and `dropped`; with more events than fit in `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters the value is not longer than the bound, holds the newest events whole and counts the others in `dropped`; `decode` gives the events back and raises one error class for text that is not JSON or not a list of events; two calls with the same argument have the same 12-character digest, another argument has another, and two calls that differ only in an `api_key` value have the same digest; a text with `Bearer abcdefghijklmnopqrstuvwxyz0123`, `db.corp.internal` and a line break comes out masked, cut and on one line. In `tests/roadmap/test_roadmap_limit_classes.py`, add the entry `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` (`kept`, "the record in the issue body, read by a person"). Verify that `uv run devops ci test tests/roadmap/test_roadmap_implement_trace.py tests/roadmap/test_roadmap_limit_classes.py` fails on the base
+- [ ] 2.2 In `src/devops_cli/roadmap/agent_run.py`, rename `_argument_json` to `argument_json` and add it to `__all__`. In `src/devops_cli/config/constants.py`, add `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS = 8192` with the reason beside it. In `src/devops_cli/roadmap/implement_trace.py`, add `TraceEvent` (the four types), `ImplementTrace` (a `step` label, `model_call`, `tool_call`, `check`, `retry`, `encode`) and `decode`; every text goes through `bounded_text`, `mask_private_hosts` and an escape to one line, and the digest is the first 12 characters of the SHA-256 of `argument_json`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_implement_trace.py tests/roadmap/test_roadmap_limit_classes.py tests/roadmap/test_roadmap_run_trace.py` passes
+
+## 3. Record the events of a step
+
+Reads: `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/implement_tool_log.py`, `src/devops_cli/roadmap/implement_trace.py`, `tests/support/model_script.py`, `tests/support/implement_step.py`. Changes: `src/devops_cli/roadmap/implement_tool_log.py`, `src/devops_cli/roadmap/implement_step.py`, `tests/roadmap/test_roadmap_implement_step_trace.py` (new).
+
+- [ ] 3.1 In `tests/roadmap/test_roadmap_implement_step_trace.py`, add tests over a `ModelScript` and the `process_fake` of `tests/support/implement_step.py`, one for each scenario of the spec: two replies give two `model` events with the tokens of each and the model name; a refused command and an `edit_file` with a missing `old_text` give a `tool` event `refused` with the program and a `tool` event `retry` with the reason; the same call twice has one digest and no event holds the command; a `ruff check` that exits 1, one repair round and a pass give the `check` 1, `retry`, `check` 0 events in order; a check that times out has no exit status; a reason with a bearer token and `db.corp.internal` is masked in the event (the masking test of the issue); a step run with no trace behaves as before. Verify that `uv run devops ci test tests/roadmap/test_roadmap_implement_step_trace.py` fails on the base
+- [ ] 3.2 In `src/devops_cli/roadmap/implement_tool_log.py`, give `ToolCallLog` an optional `trace` and add the `tool` event, with the digest of `argument_json(call)`, in `_note`. In `src/devops_cli/roadmap/implement_step.py`, add an optional `trace` argument to `run_step` and `run_fix_step` that `_attempt` puts in the `ToolCallLog`; add a `model` event for each reply of `_run_turn` (the seconds are the reply time minus the time of the request before it); add a `check` event in `_command_failure` and `_hooks_failure`; add a `retry` event for each repair round in `_attempt` and each send again in `_run_agent`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_implement_step_trace.py tests/roadmap/test_roadmap_implement_tool_log.py tests/roadmap/test_roadmap_implement_step.py tests/roadmap/test_roadmap_implement_step_repair.py tests/roadmap/test_roadmap_implement_eval_run.py` passes
+
+## 4. Add the record key of the trace
+
+Reads: `src/devops_cli/roadmap/store.py`, `tests/roadmap/test_roadmap_implement_records.py`, `tests/invariants/test_roadmap_workflow_doc.py`, `docs/ROADMAP_WORKFLOW.md`. Changes: `src/devops_cli/roadmap/store.py`, `tests/roadmap/test_roadmap_implement_records.py`, `docs/ROADMAP_WORKFLOW.md`.
+
+- [ ] 4.1 In `tests/roadmap/test_roadmap_implement_records.py`, add `ImplementRecordKey.TRACE` to the record that `set_marks` writes and to the record that `decode_job_record` reads from `implement.trace`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_implement_records.py` fails on the base
+- [ ] 4.2 In `src/devops_cli/roadmap/store.py`, add `TRACE = "implement.trace"` to `ImplementRecordKey` and to its docstring. Verify that `uv run devops ci test tests/roadmap/test_roadmap_implement_records.py` passes
+- [ ] 4.3 In `docs/ROADMAP_WORKFLOW.md`, add `implement.trace` and its meaning to the `Implement` row of the table of record keys, as the line for `implement.stopped`, `implement.failure` and `implement.spend` has them. Verify that `uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py` passes
+
+## 5. Keep the trace in the job record
+
+Reads: `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/roadmap/implement_scoped_ci.py`, `tests/roadmap/test_roadmap_implement_job.py`, `tests/support/roadmap_implement.py`. Changes: `src/devops_cli/roadmap/implement_scoped_ci.py`, `src/devops_cli/roadmap/implement_run.py`, `tests/roadmap/test_roadmap_implement_job_trace.py` (new).
+
+- [ ] 5.1 In `tests/roadmap/test_roadmap_implement_job_trace.py`, add tests over the `job_world` of `tests/support/roadmap_implement.py`, one for each scenario of the spec: a run to a ready pull request leaves `implement.trace` with `model` and `tool` events, a `check` event for the documents command and one for each scoped check; a stopped group leaves the events of the stop; the record after group 1 of 2 holds the events of group 1; a retry clears the trace of the last run before the first step; a run with more events than the bound leaves a value not longer than `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` and a `dropped` above 0. Verify that `uv run devops ci test tests/roadmap/test_roadmap_implement_job_trace.py` fails on the base
+- [ ] 5.2 In `src/devops_cli/roadmap/implement_scoped_ci.py`, add `status` (the exit status, or none for a timeout) to `ScopedResult`. In `src/devops_cli/roadmap/implement_run.py`, give `_ItemRun` an `ImplementTrace`, make `step` a property that sets the label of the trace, pass the trace to `run_step` and `run_fix_step`, add a `check` event in `_program`, for each scoped result and for a failed check of the pull request, add `trace` to `_record`, clear the key in `_start`, and write it with the marks of `stop` and `_ready`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_implement_job_trace.py tests/roadmap/test_roadmap_implement_job.py tests/roadmap/test_roadmap_implement_job_scoped.py tests/roadmap/test_roadmap_implement_planned.py` passes
+
+## 6. Render the table of the steps
+
+Reads: `src/devops_cli/roadmap/implement_trace.py`, `tests/roadmap/test_roadmap_limit_classes.py`. Changes: `src/devops_cli/roadmap/implement_trace.py`, `src/devops_cli/config/constants.py`, `tests/roadmap/test_roadmap_implement_trace_table.py` (new), `tests/roadmap/test_roadmap_limit_classes.py`.
+
+- [ ] 6.1 In `tests/roadmap/test_roadmap_implement_trace_table.py`, add tests over `summary_table`: one row for each step with the step, the status, the attempts, `4100/320` for 4,100 input and 320 output tokens, and the last failing command; a command with `a | b` gives `a \| b` in one cell; a command longer than `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS` is cut; more rows than `CONST_ROADMAP_IMPLEMENT_TABLE_ROWS` keep the newest; the last failing command of a step is that of its last `check` event with an exit status other than 0, and the check name when no event failed. In `tests/roadmap/test_roadmap_limit_classes.py`, add the entry `CONST_ROADMAP_IMPLEMENT_TABLE_ROWS` (`kept`, "GitHub comment of 65,536 characters, read by a person") and add the rows, at 300 characters each, to the sum of `test_the_texts_of_a_stop_fit_one_comment_of_65536_characters`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_implement_trace_table.py tests/roadmap/test_roadmap_limit_classes.py` fails on the base
+- [ ] 6.2 In `src/devops_cli/config/constants.py`, add `CONST_ROADMAP_IMPLEMENT_TABLE_ROWS = 30` with the reason beside it. In `src/devops_cli/roadmap/implement_trace.py`, add `SummaryRow` and `summary_table(rows)`, and the function that gives the last failing command of a step from the events. Verify that `uv run devops ci test tests/roadmap/test_roadmap_implement_trace_table.py tests/roadmap/test_roadmap_limit_classes.py` passes
+
+## 7. Show the table in the two comments
+
+Reads: `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_implement_job_scoped.py`, `tests/core/test_roadmap_implement_checks.py`, `tests/core/test_roadmap_implement_planned_run.py`. Changes: `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_implement_job_table.py` (new), `tests/roadmap/test_roadmap_implement_job_scoped.py`, `tests/core/test_roadmap_implement_checks.py`.
+
+- [ ] 7.1 In `tests/roadmap/test_roadmap_implement_job_table.py`, add tests over the `job_world`, one for each scenario of the spec: the comment on the pull request holds a table with a row for each step (2 attempts for one repair round) and the lines of the scoped checks; the stop comment of group 2 holds the row `group 2` with 2 attempts, `4100/320` and the `mypy` command, after the failure lines and before the reason; a failed check of the pull request gives a row for the step of the checks with the check name. Change the two tests that read the old line of a step: `tests/core/test_roadmap_implement_checks.py:255` (`"0 repair rounds" in comment`) and `tests/roadmap/test_roadmap_implement_job_scoped.py:370` (`line.startswith("- group 1 (The first group): done")`) read the row of the table. Verify that `uv run devops ci test tests/roadmap/test_roadmap_implement_job_table.py tests/roadmap/test_roadmap_implement_job_scoped.py tests/core/test_roadmap_implement_checks.py` fails on the base
+- [ ] 7.2 In `src/devops_cli/lang/en/messages.py`, delete `implement_pull_comment_line`, add the header and the row of the table, and add `{table}` to `implement_comment_stopped` between `{failure}` and `Reason:`. In `src/devops_cli/roadmap/implement_run.py`, delete `_outcome_line`; `_comment` renders the rows after its mark with `summary_table`, and `stop` renders the rows of every step and, when the stopped step has no outcome (a command of the job, a push, the checks), a row for it with the attempts of `_StopError.repair_rounds`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_implement_job_table.py tests/roadmap/test_roadmap_implement_job_scoped.py tests/core/test_roadmap_implement_checks.py tests/core/test_roadmap_implement_planned_run.py tests/roadmap/test_roadmap_implement_job.py` passes
+
+## 8. Read and print the trace of an item
+
+Reads: `src/devops_cli/roadmap/explain.py`, `src/devops_cli/roadmap/implement_trace.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_explain.py`. Changes: `src/devops_cli/roadmap/explain.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_explain.py`.
+
+- [ ] 8.1 In `tests/roadmap/test_roadmap_explain.py`, add tests over `read_trace` and `render_trace` with the `job_world` store: the record of an item with a trace of a model call, a tool call and a check gives three lines in that order, each with its step; `dropped` 12 gives a line that says 12 earlier events are not kept; an item with no `implement.trace` gives the line that says it has no trace; a value that is not JSON raises `RoadmapImplementError` that names `implement.trace`; the store records one read of the issue and no write. Verify that `uv run devops ci test tests/roadmap/test_roadmap_explain.py` fails on the base
+- [ ] 8.2 In `src/devops_cli/roadmap/explain.py`, add `read_trace(store, number)`, which reads the item once and decodes its `implement.trace`, and `render_trace`, which prints one line for each event and then the dropped count. In `src/devops_cli/lang/en/messages.py`, add the lines of the output and the error. Verify that `uv run devops ci test tests/roadmap/test_roadmap_explain.py` passes
+
+## 9. Add the option --trace to explain
+
+Reads: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/lang/en/help.py`, `tests/roadmap/test_roadmap_explain_command.py`. Changes: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/lang/en/help.py`, `tests/roadmap/test_roadmap_explain_command.py`.
+
+- [ ] 9.1 In `tests/roadmap/test_roadmap_explain_command.py`, add tests over the `cli` and `job_world` fixtures: `explain 7 --trace` prints the events oldest first and no `yes` or `no` of a job, exits 0, and the store records no write; an issue with no trace says so with exit 0; a value that is not JSON exits 1 and names `implement.trace`; `--trace --dry-run` makes no request and lists the read of the issue and no branch or change folder. Verify that `uv run devops ci test tests/roadmap/test_roadmap_explain_command.py` fails on the base
+- [ ] 9.2 In `src/devops_cli/commands/roadmap.py`, add the option `--trace` to `explain_cmd`: with it the command opens the store, calls `read_trace` and `render_trace`, and reads no clone. In `src/devops_cli/roadmap/request_plan.py`, make `explain_requests` list the one issue read when `trace` is true. In `src/devops_cli/lang/en/help.py`, add the help of the option. Verify that `uv run devops ci test tests/roadmap/test_roadmap_explain_command.py tests/ai/mcp/test_mcp.py` passes
+
+## 10. Write the documents
+
+Reads: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/implement.md`. Changes: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/implement.md`, `README.md` (generated), `docs/CLI_REFERENCE.md` (generated), `docs/commands/roadmap.md` (generated).
+
+- [ ] 10.1 In `docs/ROADMAP_WORKFLOW.md`, add `--trace` to the sentence on `devops roadmap explain`. In `docs/roadmap/implement.md`, add to the paragraph "A stop" the table of the steps and the trace, and say that the Job artifact is not kept. Run `uv run devops docs generate --sync-readme`. Verify that `uv run devops docs check` passes
+
+## Criteria
+
+- A run of the implement job writes the trace with the fields above.: group 5
+- `devops roadmap explain <issue> --trace` prints the last run's trace.: group 9
+- The stop comment shows the step, the attempt count, the tokens and the last failing command.: group 7
+- The trace holds no secret and no private host name (masking test).: group 3
 
 ## Workflow follow-up
 
+- The Job artifact of the issue text is not built: no artifact store exists. #3105 plans one and waits for the go verdict of ADR 0008.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
