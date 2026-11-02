@@ -1020,10 +1020,8 @@ def test_plan_item_plans_with_an_investigator(
         sha=stage_repo.git("rev-parse", "HEAD"),
     )
 
-    assert (isinstance(planned, StagedChange), script.tool_returns()[0]) == (
-        True,
-        "src/devops_cli",
-    )
+    assert script.tool_returns()[0] == "src/devops_cli"
+    assert type(planned) is StagedChange
 
 
 def test_plan_item_takes_a_client_or_an_investigator_and_not_both(
@@ -1041,3 +1039,5 @@ def test_plan_item_takes_a_client_or_an_investigator_and_not_both(
             checkout=stage_repo.clone,
             sha=sha,
         )
+
+    assert model_fake.call_count == 0
