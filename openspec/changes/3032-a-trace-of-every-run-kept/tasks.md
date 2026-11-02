@@ -4,7 +4,7 @@
 
 Reads: `src/devops_cli/security/sanitizer.py`, `tests/security/test_secret_redaction.py`. Changes: `src/devops_cli/security/sanitizer.py`, `tests/security/test_private_host_masking.py` (new).
 
-- [ ] 1.1 In `tests/security/test_private_host_masking.py`, add the tests of the two scenarios of the spec: `https://db.corp.internal/x`, `10.1.2.3` and `localhost` each give `<masked-host>` and the rest of the text is as it was; `example.com`, `198.51.100.7` and `config.local_value` come back unchanged. Verify that `uv run devops ci test tests/security/test_private_host_masking.py` fails on the base
+- [ ] 1.1 In `tests/security/test_private_host_masking.py`, add the tests of the two scenarios of the spec (no committed file may hold an address of RFC 1918 or a `.lan` host, `tests/invariants/test_committed_addresses.py`, so the tests use `127.0.0.1`, `localhost` and `.internal` names, and build any other private address at run time): `https://db.corp.internal/x`, `127.0.0.1` and `localhost` each give `<masked-host>` and the rest of the text is as it was; `example.com`, `198.51.100.7` and `config.local_value` come back unchanged. Verify that `uv run devops ci test tests/security/test_private_host_masking.py` fails on the base
 - [ ] 1.2 In `src/devops_cli/security/sanitizer.py`, add `mask_private_hosts(text)`: one compiled pattern of `PRIVATE_HOST_PATTERNS`, case-insensitive, that replaces each match with `<masked-host>`. Verify that `uv run devops ci test tests/security/test_private_host_masking.py tests/security/test_secret_redaction.py tests/telemetry/test_telemetry_llm_content.py` passes
 
 ## 2. Write the trace module
