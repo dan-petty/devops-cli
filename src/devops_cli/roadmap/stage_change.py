@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import string
 import textwrap
+import unicodedata
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -52,6 +53,13 @@ from devops_cli.roadmap.step_rules import rules_sections
 # revert add a line to the changelog, so a pull request that only plans an item has this type.
 _STAGING_TYPE: Final[str] = "docs(openspec)"
 _ELLIPSIS: Final[str] = "..."
+# A character shows nothing to a reader when its category is a space, a control, a format mark
+# (such as U+200B or U+FEFF), a surrogate, a private use or an unassigned mark, or when it is one
+# of the blank fillers that have a letter or a symbol category.
+_INVISIBLE_CATEGORIES: Final[frozenset[str]] = frozenset(
+    {"Cc", "Cf", "Cs", "Co", "Cn", "Zs", "Zl", "Zp"}
+)
+_BLANK_FILLERS: Final[str] = "\u2800\u115f\u1160\u3164\uffa0"
 # The most digits that the number of an issue has. The title of a plan is `docs(openspec): plan
 # #<number> <summary>` and its summary has at most `SUMMARY_MAX_CHARS` characters (#2714), so the
 # room for the model's summary depends on the digits. The schema cannot know the number, so its
@@ -321,8 +329,9 @@ class StageProposal(_Reply):
         and an emoji costs two. A summary with no text left is refused too. The reply that breaks
         it goes back to the model with the count and the limit, and `staging_title` cuts no summary
         that the schema accepts."""
-        shown = summary_length(safe_text(summary))
-        if not shown:
+        text = safe_text(summary)
+        shown = summary_length(text)
+        if not any(_shows_something(char) for char in text):
             raise ValueError(MESSAGES.roadmap.stage_summary_blank)
         if shown > STAGE_SUMMARY_MAX_CHARS:
             raise ValueError(
@@ -632,6 +641,11 @@ def render_change(
     for spec in proposal.specs:
         files[f"{root}/specs/{spec.capability}/spec.md"] = _spec_file(spec)
     return files
+
+
+def _shows_something(char: str) -> bool:
+    """Whether `char` shows something to a reader."""
+    return char not in _BLANK_FILLERS and unicodedata.category(char) not in _INVISIBLE_CATEGORIES
 
 
 def staging_title(number: int, summary: str) -> str:

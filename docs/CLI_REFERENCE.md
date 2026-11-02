@@ -6991,7 +6991,7 @@ devops pr describe [OPTIONS] <issue>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--summary`, `-s` | `string` | - | Summary of the title, at most 60 characters: what the change does. The command never cuts it. |
+| `--summary`, `-s` | `string` | - | Summary of the title, at most 60 characters (an emoji counts as two): what the change does. The command never cuts it. |
 | `--why` | `string` | - | Text of the body: what the change does, and why. The section Why of the proposal when omitted. |
 | `--attribution` | `string` | - | A paragraph for the end of the body, after the Change line. Repeat the option for more. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
@@ -7009,9 +7009,10 @@ adds the labels that the Conventional Commit title gives, as intake does: fix(ai
 and scope/ai.
 
 It opens nothing when the title or the body breaks the form of CONTRIBUTING.md section 4: a
-Conventional Commit title with a summary of at most 60 characters and a scope that
-.github/labels.yml declares, and a body of at most 1,000 characters that ends with Closes
-#\<issue\> and the Change line. devops pr describe builds a title and a body in that form.
+Conventional Commit title with a summary of at most 60 characters (an emoji counts as two)
+and a scope that .github/labels.yml declares, and a body of at most 1,000 characters that
+ends with Closes #\<issue\> and the Change line. devops pr describe builds a title and a body in
+that form.
 
 ```bash
 devops pr create [OPTIONS]
@@ -8246,7 +8247,7 @@ devops gh pr describe [OPTIONS] <issue>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--summary`, `-s` | `string` | - | Summary of the title, at most 60 characters: what the change does. The command never cuts it. |
+| `--summary`, `-s` | `string` | - | Summary of the title, at most 60 characters (an emoji counts as two): what the change does. The command never cuts it. |
 | `--why` | `string` | - | Text of the body: what the change does, and why. The section Why of the proposal when omitted. |
 | `--attribution` | `string` | - | A paragraph for the end of the body, after the Change line. Repeat the option for more. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
@@ -8264,9 +8265,10 @@ adds the labels that the Conventional Commit title gives, as intake does: fix(ai
 and scope/ai.
 
 It opens nothing when the title or the body breaks the form of CONTRIBUTING.md section 4: a
-Conventional Commit title with a summary of at most 60 characters and a scope that
-.github/labels.yml declares, and a body of at most 1,000 characters that ends with Closes
-#\<issue\> and the Change line. devops pr describe builds a title and a body in that form.
+Conventional Commit title with a summary of at most 60 characters (an emoji counts as two)
+and a scope that .github/labels.yml declares, and a body of at most 1,000 characters that
+ends with Closes #\<issue\> and the Change line. devops pr describe builds a title and a body in
+that form.
 
 ```bash
 devops gh pr create [OPTIONS]

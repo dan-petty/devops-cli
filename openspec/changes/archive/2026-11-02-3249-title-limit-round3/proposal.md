@@ -40,7 +40,7 @@ Findings that this change does not fix:
 
 - The pattern of the check is in `.github/workflows/pr-title.yml`: `subjectPattern: ^.{1,60}$`. The action `amannn/action-semantic-pull-request` builds the pattern with `new RegExp(subjectPattern)` and no flags, so `.` is one UTF-16 code unit and an astral character is two. The review ran the pattern in Node: 47 emoji give `false`.
 - On `origin/main`, `title_problems("feat(pr): " + 31 emoji)` finds no problem although the summary has 62 units, and `make_stage_proposal(summary=" ")` is accepted. The new tests fail on the base for these reasons.
-- `str.split()` folds `\u2028`, `\u2029`, `\x85` and the no-break space, which JavaScript `.` does not match (it stops at line terminators), so `safe_text` leaves no character that the pattern refuses.
+- `safe_text` folds each Python whitespace character into a space, so the title holds no `\r`, `\n`, U+2028 or U+2029. These four are the characters that JavaScript `.` does not match, so the pattern `^.{1,60}$` never meets one in a summary. JavaScript `.` does match the no-break space and U+0085, and Python folds both, which does no harm.
 
 ## Existing Tool Considered
 

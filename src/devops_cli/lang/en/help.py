@@ -956,7 +956,7 @@ class PRCommandHelp:
         "is the title, then a blank line, then the body."
     )
     describe_issue: str = "Number of the issue that the pull request closes."
-    describe_summary: str = "Summary of the title, at most 60 characters: what the change does. The command never cuts it."
+    describe_summary: str = "Summary of the title, at most 60 characters (an emoji counts as two): what the change does. The command never cuts it."
     describe_why: str = "Text of the body: what the change does, and why. The section Why of the proposal when omitted."
     describe_attribution: str = (
         "A paragraph for the end of the body, after the Change line. Repeat the option for more."

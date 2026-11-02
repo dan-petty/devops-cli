@@ -35,13 +35,16 @@ from devops_cli.roadmap.commit_title import commit_scope, commit_type
 # The most characters of the summary of a title (CONTRIBUTING.md, Naming): the part after
 # `<type>(<scope>): `, which the check `Semantic PR title` measures.
 SUMMARY_MAX_CHARS: Final[int] = 60
+# The characters that JavaScript `.` does not match, so that a title with one has no header.
+_LINE_BREAKS: Final[tuple[str, ...]] = ("\n", "\r", "\u2028", "\u2029")
 
 
 def summary_length(text: str) -> int:
     """The length of `text` as the check `Semantic PR title` counts it. Its pattern `^.{1,60}$`
     runs in JavaScript, where `.` is a UTF-16 code unit: a character outside the Basic
-    Multilingual Plane, such as an emoji, counts as two (#3249)."""
-    return len(text.encode("utf-16-le")) // 2
+    Multilingual Plane, such as an emoji, counts as two (#3249). A lone surrogate, which a byte
+    that is no UTF-8 gives in argv, counts as one, as it does in JavaScript."""
+    return len(text) + sum(ord(char) > 0xFFFF for char in text)
 
 
 # The most characters of a body before its trailers: the text, the `Closes` line and the `Change:`
@@ -135,11 +138,13 @@ def title_problems(title: str, declared: Collection[str] | None = None) -> list[
     and none when the title is right.
 
     The type is one of the Conventional Commit types, there is no `!`, and the summary has at most
-    `SUMMARY_MAX_CHARS` characters (`summary_length`), ends with no `...` and is no placeholder. A scope must have its
-    label in `declared`, the label names that `.github/labels.yml` holds. When `declared` is None
-    the scope is not checked against the labels, as in a dry run that reads no file."""
+    `SUMMARY_MAX_CHARS` characters (`summary_length`), ends with no `...` and is no placeholder.
+    The title is on one line: the parser of the check `Semantic PR title` refuses a title that has
+    a `\r`, a `\n`, a U+2028 or a U+2029. A scope must have its label in `declared`, the label
+    names that `.github/labels.yml` holds. When `declared` is None the scope is not checked against
+    the labels, as in a dry run that reads no file."""
     texts = MESSAGES.pr
-    if "\n" in title.strip():
+    if any(mark in title.strip() for mark in _LINE_BREAKS):
         return [texts.form_title_lines]
     found = _TITLE.fullmatch(title.strip())
     if found is None:
