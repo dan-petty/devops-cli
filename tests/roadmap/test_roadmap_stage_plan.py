@@ -46,7 +46,7 @@ from devops_cli.roadmap.stage_criteria import StageCriterion
 from devops_cli.roadmap.stage_paths import StagedTree
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
-from tests.support.builders import make_stage_proposal
+from tests.support.builders import make_stage_proposal, stage_summary_limit
 from tests.support.fakes.github import github_json
 from tests.support.roadmap_stage import (
     NO_FILES,
@@ -640,6 +640,44 @@ def test_a_reply_with_a_blank_documentation_that_stays_blank_stops_the_item_afte
     assert (failure.number, failure.error) == (item, "StructuredOutputValidationError")
     assert failure.reason == "1 schema violation(s)"
     assert len(model_fake.sent) == 2
+
+
+def _reply_with_summary(summary: str) -> str:
+    """A reply as the model writes it: JSON, with the sample summary replaced."""
+    return json.dumps(make_stage_proposal().model_dump() | {"summary": summary})
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_summary_over_the_limit_goes_back_to_the_model_with_both_counts(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    limit = stage_summary_limit()
+    model_fake.answer(_reply_with_summary("a" * (limit + 1)), make_stage_proposal())
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    sent = model_fake.sent[1].messages[-1].content
+    assert f"{limit + 1} characters in the title, and the limit is {limit}" in sent
+    assert len(plan.ready) == 1
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_summary_over_the_limit_twice_stops_that_item_and_the_run_goes_on(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    second = seed_stageable(store, "fix(roadmap): the job drops a label")
+    openspec.script_sequence(validate_args("2-the-job-drops-a-label"), VALID)
+    too_long = _reply_with_summary("a" * (stage_summary_limit() + 1))
+    model_fake.answer(too_long, too_long, make_stage_proposal())
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    assert [(f.number, f.error) for f in plan.failed] == [(item, "StructuredOutputValidationError")]
+    assert [c.target.item.number for c in plan.ready] == [second]
 
 
 @pytest.mark.parametrize("task", ["roadmap_stage_change.md", "roadmap_stage_split.md"])
