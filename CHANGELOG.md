@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.42.0](https://github.com/dan-petty/devops-cli/compare/v0.41.0...v0.42.0) (2026-11-02)
+
+
+### Features
+
+* **roadmap:** add tests and callers of cited symbols to context ([#3178](https://github.com/dan-petty/devops-cli/issues/3178)) ([6f648d5](https://github.com/dan-petty/devops-cli/commit/6f648d590a187632fe3e7dd1f1a66f3b29331315))
+* **roadmap:** the stage job verifies its plan with a model ([#3182](https://github.com/dan-petty/devops-cli/issues/3182)) ([fd0cc2f](https://github.com/dan-petty/devops-cli/commit/fd0cc2f53b63ac78b4bdb79f8824ae2c31043c00))
+
+
+### Bug Fixes
+
+* **roadmap:** the stage job refuses an unneeded spec delta ([#3177](https://github.com/dan-petty/devops-cli/issues/3177)) ([0c09a3a](https://github.com/dan-petty/devops-cli/commit/0c09a3a63f4e139b1d843d6cf65300c05addbbd5))
+
 ## [0.41.0](https://github.com/dan-petty/devops-cli/compare/v0.40.0...v0.41.0) (2026-11-02)
 
 
