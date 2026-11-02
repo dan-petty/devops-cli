@@ -26,7 +26,8 @@ Ready.
 **Plan.** For each item the job plans a `StageProposal` with an agent that reads the repository
 before it answers (`ai.for_task("analysis")`, prompt `roadmap_stage_change.md`, and the read-only
 tools of `stage_tools`, with the prompt `roadmap_stage_tools.md`, #3037). A plan run has a budget
-of tool calls and output tokens (`stage_toolbox`); a run that passes it fails the item. Without a
+of tool calls and requests (`stage_toolbox`), and its tools end when its messages fill the context
+window; a run that passes the budget fails the item. Without a
 `ToolboxModel` the planner makes the one call with no tool, as the tests and the option
 `--no-toolbox` of the golden-set run do. The job measures each task group
 (`stage_change.measure_groups`) and asks once for a split of the groups over `--step-tokens`. A group costs what its step reads: the
@@ -41,7 +42,12 @@ the reply, and `chat_structured` sends it back once (`_REPLY_RETURNS`). A reply 
 that is no file of the staged commit, and that no group up to its own creates (`stage_paths`), is
 sent back in the same way: the problem lists the files with the same name, and a second reply with
 a missing path stops the item, so no draft opens. The groups of a split are checked in the same
-way. `plan_item` plans one item with a given client and checkout: the golden set of the job runs
+way. After the checks, the model review of the plan (`stage_verify`, #3153) reads the issue, the
+plan and the files that the plan cites with the client of the task `verification`. A finding of
+the type `missing_path`, `false_premise` or `ignores_existing_code` that quotes its evidence sends
+the plan back to the planner once; every other finding goes into the comment of the item. The
+review never merges and never marks a draft ready. `plan_item` plans one item with a given client
+and checkout: the golden set of the job runs
 it on each case (`stage_eval_run`, #3028). The plan writes nothing to git or to GitHub. A model call
 that fails skips its item; rejected credentials stop the run.
 
@@ -108,6 +114,8 @@ from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
+from devops_cli.roadmap.refine_investigation import analysis_window
+from devops_cli.roadmap.return_item import apply_return, plan_return
 from devops_cli.roadmap.stage_change import (
     MeasuredGroup,
     StageProposal,
@@ -121,10 +129,21 @@ from devops_cli.roadmap.stage_change import (
     staging_title,
     write_change_files,
 )
+from devops_cli.roadmap.stage_criteria import criterion_problems
 from devops_cli.roadmap.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
+from devops_cli.roadmap.stage_probe import probe_premise
+from devops_cli.roadmap.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
+from devops_cli.roadmap.stage_verify import (
+    Finding,
+    VerificationInput,
+    findings_section,
+    return_problem,
+    returning,
+    verify,
+)
 from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore, StageRecordKey
 from devops_cli.security.sanitizer import mask_secrets, redact_text
 from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL, emit
@@ -473,7 +492,6 @@ _SPLIT_TASK: Final[str] = "roadmap_stage_split.md"
 # The model window is shared by the reply, the body of the item and the repository context.
 _WINDOW_SHARE_CONTEXT: Final[int] = 2
 _WINDOW_SHARE_BODY: Final[int] = 4
-_DEFAULT_WINDOW: Final[int] = 8192
 # A reply that fails its schema goes back to the model once, with the violations; a second one
 # stops the item.
 _REPLY_RETURNS: Final[int] = 1
@@ -487,7 +505,8 @@ class StagedChange:
     files by path from the repository root, the measure of each task group, whether
     `openspec validate` ran on it (it does not without the binary), the budget of the run, and
     what the plan runs of the toolbox did (#3037). The trace is empty for an item planned with one
-    call."""
+    call. `proposal` is the plan that the files render, and `findings` are the points that the
+    model review of the plan raised and that returned no plan (#3153): the comment lists them."""
 
     target: StageTarget
     title: str
@@ -496,7 +515,9 @@ class StagedChange:
     groups: tuple[MeasuredGroup, ...]
     validated: bool
     budget: int
+    proposal: StageProposal
     trace: RunTrace = field(default_factory=RunTrace)
+    findings: tuple[Finding, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -511,6 +532,15 @@ class OverBudget:
     def worst(self) -> MeasuredGroup:
         """The first group over the budget."""
         return next(group for group in self.groups if group.tokens > self.budget)
+
+
+@dataclass(frozen=True)
+class PremiseFailed:
+    """An item whose premise is false: the model's evidence, on one line. The job returns the item
+    to New and plans no change (#3011)."""
+
+    target: StageTarget
+    evidence: str
 
 
 @dataclass(frozen=True)
@@ -558,6 +588,7 @@ class StagePlan:
     budget: int = 0
     ready: tuple[StagedChange, ...] = ()
     over_budget: tuple[OverBudget, ...] = ()
+    returned: tuple[PremiseFailed, ...] = ()
     failed: tuple[StageFailure, ...] = ()
     left_out: tuple[LeftOut, ...] = ()
     removals: tuple[Removal, ...] = ()
@@ -598,18 +629,22 @@ class _Planner:
         client: StageClient,
         source: Path,
         sha: str,
-        known: frozenset[str],
+        specs: Mapping[str, BaseSpec],
         tree: StagedTree,
         budget: int,
         window: int,
         tool: OpenSpecTool | None,
         toolbox: ToolboxClient | None = None,
+        verifier: StageClient | None = None,
     ) -> None:
         self._client = client
         self._toolbox = toolbox
+        self._verifier = verifier
         self._source = source
         self._sha = sha
-        self._known = known
+        self._specs = specs
+        self._known = frozenset(specs)
+        self._requirements = {name: spec.requirements for name, spec in specs.items()}
         self._tree = tree
         self._budget = budget
         self._window = window
@@ -618,15 +653,33 @@ class _Planner:
         # Whether the model split the groups of the item in hand: it does so once for each item.
         self._split_asked = False
 
-    def plan(self, target: StageTarget) -> StagedChange | OverBudget:
-        """The change of `target`, or the group that stops it. A reply the checks refuse goes
-        back to the model once, with the problem. The model splits the groups at most once, so an
-        item costs three model calls at most."""
+    def plan(self, target: StageTarget) -> StagedChange | OverBudget | PremiseFailed:
+        """The change of `target`, the group that stops it, or the evidence that its premise is
+        false. A reply the checks refuse goes back to the model once, with the problem. The model
+        splits the groups at most once. With a verifier, the model review of the plan (#3153)
+        follows the checks and may return the plan once more. So an item costs three planner calls
+        at most without a verifier, four with one, and two calls of the verifier. A reply that
+        sets `premise_failed` ends the item at once, with no review."""
         self._split_asked = False
         if self._toolbox is not None:
             self._toolbox.traces.clear()
         request = self._request(target)
+        outcome = self._gated(target, request)
+        verifier = self._verifier
+        if isinstance(outcome, StagedChange) and verifier is not None:
+            outcome = self._verified(target, request, outcome, verifier)
+        if isinstance(outcome, StagedChange) and self._toolbox is not None:
+            return replace(outcome, trace=RunTrace.combined(self._toolbox.traces))
+        return outcome
+
+    def _gated(
+        self, target: StageTarget, request: Mapping[str, Any]
+    ) -> StagedChange | OverBudget | PremiseFailed:
+        """The change that passes the checks, with one return of a refused reply, or the evidence
+        that the premise is false."""
         proposal = self._ask(StageProposal, _CHANGE_TASK, request)
+        if proposal.premise_failed is not None:
+            return self._premise_failed(target, proposal.premise_failed)
         outcome = self._settle(target, proposal)
         if isinstance(outcome, _Refused):
             again = {
@@ -635,26 +688,84 @@ class _Planner:
                 "problem": outcome.problem,
             }
             proposal = self._ask(StageProposal, _CHANGE_TASK, again)
+            if proposal.premise_failed is not None:
+                return self._premise_failed(target, proposal.premise_failed)
             outcome = self._settle(target, proposal)
         if isinstance(outcome, _Refused):
             message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
             raise _stage_error(message, target)
-        if isinstance(outcome, StagedChange) and self._toolbox is not None:
-            return replace(outcome, trace=RunTrace.combined(self._toolbox.traces))
         return outcome
+
+    @staticmethod
+    def _premise_failed(target: StageTarget, evidence: str) -> PremiseFailed:
+        """The outcome for a reply that says the premise is false: the evidence on one line, a
+        secret masked, with no handle or link that pings anyone."""
+        return PremiseFailed(target, safe_text(mask_secrets(evidence)))
+
+    def _verified(
+        self,
+        target: StageTarget,
+        request: Mapping[str, Any],
+        change: StagedChange,
+        verifier: StageClient,
+    ) -> StagedChange | OverBudget | PremiseFailed:
+        """The change after the model review. A finding of a type that returns the plan, with a
+        quote that is in the input, sends the plan back to the planner once: the revised plan
+        passes the checks and the review again, a refused revision stops the item, and a reply
+        that sets `premise_failed` returns the item. Every
+        other finding, and every finding of the revised plan, stays on the change for the
+        comment."""
+        findings, returned = self._review(target, change, verifier)
+        if returned:
+            again = {
+                **request,
+                "previous": change.proposal.model_dump(),
+                "problem": return_problem(returned),
+            }
+            revised = self._ask(StageProposal, _CHANGE_TASK, again)
+            if revised.premise_failed is not None:
+                return self._premise_failed(target, revised.premise_failed)
+            outcome = self._settle(target, revised)
+            if isinstance(outcome, _Refused):
+                message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
+                raise _stage_error(message, target)
+            if isinstance(outcome, OverBudget):
+                return outcome
+            change = outcome
+            findings, _ = self._review(target, change, verifier)
+        return replace(change, findings=tuple(findings))
+
+    def _review(
+        self, target: StageTarget, change: StagedChange, verifier: StageClient
+    ) -> tuple[list[Finding], list[Finding]]:
+        """The findings of the model review of `change`, and those that return the plan."""
+        item = target.item
+        given = VerificationInput.of(
+            number=item.number,
+            title=item.title,
+            body=item.body,
+            plan=change.proposal.model_dump(mode="json"),
+            source=self._source,
+        )
+        findings = verify(verifier, given)
+        return findings, returning(findings, given)
 
     def _request(self, target: StageTarget) -> dict[str, Any]:
         item = target.item
-        return {
+        request: dict[str, Any] = {
             "number": item.number,
             "title": item.title,
             "body": truncate_to_token_limit(item.body, self._window // _WINDOW_SHARE_BODY),
             "context": collect_context(
                 self._source, self._sha, item.body, max_tokens=self._window // _WINDOW_SHARE_CONTEXT
             ),
-            "capabilities": sorted(self._known),
+            "capabilities": [self._specs[name].request_entry(name) for name in sorted(self._specs)],
             "budget": self._budget,
         }
+        probes = probe_premise(self._source, self._sha, item.body).text
+        if probes:
+            request["probes"] = probes
+        return request
 
     def _ask[M: BaseModel](self, schema: type[M], task: str, request: Mapping[str, Any]) -> M:
         return self._client.chat_structured(
@@ -669,7 +780,13 @@ class _Planner:
     ) -> StagedChange | OverBudget | _Refused:
         """The outcome for one reply: a change, a stop on the budget, or the problem that sends
         the reply back."""
-        problems = check_proposal(proposal, self._known, self._tree_of(target, proposal))
+        problems = check_proposal(
+            proposal,
+            self._known,
+            self._tree_of(target, proposal),
+            requirements=self._requirements,
+            issue_body=target.item.body,
+        )
         if problems:
             return _Refused(" ".join(problems), proposal)
         title = staging_title(target.item.number, proposal.summary)
@@ -681,6 +798,7 @@ class _Planner:
         if asked is not proposal:
             # The split gave new groups, and the model can bring old paths back with them.
             problems = path_problems(asked.groups, self._tree.with_files(files))
+            problems.extend(criterion_problems(asked.criteria, target.item.body, len(asked.groups)))
             if problems:
                 return _Refused(" ".join(problems), asked)
         proposal = asked
@@ -700,6 +818,7 @@ class _Planner:
             tuple(measured),
             self._tool is not None,
             self._budget,
+            proposal,
         )
 
     def _tree_of(self, target: StageTarget, proposal: StageProposal) -> StagedTree:
@@ -735,9 +854,10 @@ class _Planner:
                 {**m.group.model_dump(), "tokens": m.tokens, "over_budget": m.tokens > self._budget}
                 for m in measured
             ],
+            "criteria": [entry.model_dump() for entry in proposal.criteria],
         }
         split = self._ask(StageSplit, _SPLIT_TASK, asked)
-        proposal = proposal.model_copy(update={"groups": split.groups})
+        proposal = proposal.model_copy(update={"groups": split.groups, "criteria": split.criteria})
         files, measured = self._build(target, proposal)
         return proposal, files, measured
 
@@ -747,14 +867,6 @@ class _Planner:
         if self._tool is None:
             return None
         return validate_change(self._tool, self._source, change, files)
-
-
-def capabilities_of(source: Path) -> frozenset[str]:
-    """The names of the specs under `openspec/specs/` of the checkout."""
-    specs = source / "openspec" / "specs"
-    return (
-        frozenset(p.name for p in specs.iterdir() if p.is_dir()) if specs.is_dir() else frozenset()
-    )
 
 
 @contextmanager
@@ -783,9 +895,10 @@ def _failure_of(
 
 def _plan_each(
     planner: _Planner, targets: Iterable[StageTarget]
-) -> tuple[list[StagedChange], list[OverBudget], list[StageFailure]]:
+) -> tuple[list[StagedChange], list[OverBudget], list[PremiseFailed], list[StageFailure]]:
     ready: list[StagedChange] = []
     stopped: list[OverBudget] = []
+    returned: list[PremiseFailed] = []
     failed: list[StageFailure] = []
     for target in targets:
         try:
@@ -797,9 +910,11 @@ def _plan_each(
             continue
         if isinstance(outcome, OverBudget):
             stopped.append(outcome)
+        elif isinstance(outcome, PremiseFailed):
+            returned.append(outcome)
         else:
             ready.append(outcome)
-    return ready, stopped, failed
+    return ready, stopped, returned, failed
 
 
 def _pull_of(item: Item) -> int | None:
@@ -890,6 +1005,7 @@ def plan_stage(
     limit: int | None = None,
     step_tokens: int | None = None,
     model: LLMClient | ToolboxModel | None = None,
+    verifier: StageClient | None = None,
     why: bool = False,
 ) -> StagePlan:
     """Plans the stage of up to `limit` items without a write to git or to GitHub.
@@ -898,8 +1014,10 @@ def plan_stage(
     override `roadmap.stage.limit` and `roadmap.stage.step_tokens`. A client as `model` replaces
     the client of the `analysis` task and plans with the one call and no tool. A `ToolboxModel`
     plans with the read-only tools (#3037), and the client of the `analysis` task answers the call
-    that splits the groups. With `why`, the plan also lists the open items that the filter does
-    not name (#2911).
+    that splits the groups. A `verifier`, the client of the `verification` task, makes the model
+    review each plan after the checks (#3153); without one, the job makes no review call, as the
+    golden-set run of the planner does. With `why`, the plan also lists the open items that the
+    filter does not name (#2911).
     """
     checkout = Path(source)
     settings = load_settings()
@@ -933,14 +1051,17 @@ def plan_stage(
     else:
         client = model
     with openspec_tool() as tool:
-        planner = _planner_of(client, checkout, sha, budget=budget, tool=tool, toolbox=toolbox)
-        ready, stopped, failed = _plan_each(planner, selection.selected)
-    return replace(plan, ready=tuple(ready), over_budget=tuple(stopped), failed=tuple(failed))
-
-
-def analysis_window() -> int:
-    """The context window of the `analysis` task in tokens, or a default when no setting names it."""
-    return load_settings().ai.for_task("analysis").context_window or _DEFAULT_WINDOW
+        planner = _planner_of(
+            client, checkout, sha, budget=budget, tool=tool, toolbox=toolbox, verifier=verifier
+        )
+        ready, stopped, returned, failed = _plan_each(planner, selection.selected)
+    return replace(
+        plan,
+        ready=tuple(ready),
+        over_budget=tuple(stopped),
+        returned=tuple(returned),
+        failed=tuple(failed),
+    )
 
 
 def _planner_of(
@@ -951,10 +1072,12 @@ def _planner_of(
     budget: int,
     tool: OpenSpecTool | None,
     toolbox: ToolboxModel | None = None,
+    verifier: StageClient | None = None,
 ) -> _Planner:
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
     context window of the `analysis` task once. With a `toolbox` model, a plan run calls the
-    read-only tools on the checkout, and `client` answers the other calls."""
+    read-only tools on the checkout, and `client` answers the other calls. A `verifier` makes the
+    model review of each plan (#3153)."""
     window = analysis_window()
     runner = (
         None
@@ -966,11 +1089,12 @@ def _planner_of(
         toolbox=runner,
         source=checkout,
         sha=sha,
-        known=capabilities_of(checkout),
+        specs=read_base_specs(checkout),
         tree=StagedTree.read(checkout, operation=_GIT_OPERATION),
         budget=budget,
         window=window,
         tool=tool,
+        verifier=verifier,
     )
 
 
@@ -981,7 +1105,7 @@ def plan_item(
     checkout: Path,
     sha: str,
     step_tokens: int | None = None,
-) -> StagedChange | OverBudget:
+) -> StagedChange | OverBudget | PremiseFailed:
     """Plans `item` as the job does, in the checkout at `sha`, and writes nothing (#3028).
 
     The golden set of the stage job runs this on each case. A reply the checks refuse goes back to
@@ -1012,13 +1136,14 @@ _GIT_OPERATION: Final[str] = "roadmap.stage"
 
 @dataclass(frozen=True)
 class StageApplied:
-    """What a run wrote: the items it staged, the items it stopped on a group over the budget, and
-    the items whose writes failed."""
+    """What a run wrote: the items it staged, the items it stopped on a group over the budget, the
+    items it returned to New on a false premise, and the items whose writes failed."""
 
     staged: tuple[int, ...] = ()
     stopped: tuple[int, ...] = ()
     failed: tuple[StageFailure, ...] = ()
     removed: tuple[int, ...] = ()
+    returned: tuple[int, ...] = ()
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -1111,7 +1236,7 @@ def _notes(change: StagedChange) -> str:
     """The notes that end the comment of a staged item: the report of the plan runs, and a
     validation that did not run."""
     unvalidated = "" if change.validated else MESSAGES.roadmap.stage_comment_not_validated
-    return _run_report(change.trace) + unvalidated
+    return _run_report(change.trace) + unvalidated + findings_section(change.findings)
 
 
 def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChange) -> None:
@@ -1176,6 +1301,16 @@ def _stop_on_budget(store: RoadmapStore, stopped: OverBudget) -> None:
     )
 
 
+def _return_item(store: RoadmapStore, repo: str, returned: PremiseFailed) -> None:
+    """Return the item to New with the evidence, as `devops roadmap return` does: the comment goes
+    first, then the Status. The item gets no branch and no pull request."""
+    number = returned.target.item.number
+    comment = MESSAGES.roadmap.stage_comment_premise_failed.format(
+        marker=CONST_ROADMAP_STAGE_COMMENT_MARKER, evidence=returned.evidence
+    )
+    apply_return(store, plan_return(store, number, comment, repo))
+
+
 def _write_failure(item: Item, exc: DevOpsCLIError) -> StageFailure:
     """The failure of a write: the error's class and its message, credentials masked."""
     return StageFailure(item.number, item.title, type(exc).__name__, mask_secrets(str(exc)))
@@ -1226,6 +1361,7 @@ def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> 
     removed: list[int] = []
     staged: list[int] = []
     stopped: list[int] = []
+    returned: list[int] = []
     failed: list[StageFailure] = []
     phases = (
         (
@@ -1243,6 +1379,10 @@ def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> 
             staged,
         ),
         ([(o.target.item, partial(_stop_on_budget, store, o)) for o in plan.over_budget], stopped),
+        (
+            [(r.target.item, partial(_return_item, store, plan.repo, r)) for r in plan.returned],
+            returned,
+        ),
     )
     try:
         for writes, done in phases:
@@ -1250,7 +1390,9 @@ def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> 
     except ServiceStoppingError:
         raise_for_failed([*plan.failed, *failed])
         raise
-    return StageApplied(tuple(staged), tuple(stopped), tuple(failed), tuple(removed))
+    return StageApplied(
+        tuple(staged), tuple(stopped), tuple(failed), tuple(removed), tuple(returned)
+    )
 
 
 class StageResult(StrEnum):
@@ -1258,6 +1400,7 @@ class StageResult(StrEnum):
 
     STAGED = "staged"
     NEEDS_SPLIT = "needs_split"
+    RETURNED = "returned"
     FAILED = "failed"
     SKIPPED = "skipped"
 
@@ -1268,6 +1411,7 @@ def stage_results(plan: StagePlan, applied: StageApplied) -> dict[int, StageResu
     results = dict.fromkeys((left.number for left in plan.left_out), StageResult.SKIPPED)
     results |= dict.fromkeys(applied.staged, StageResult.STAGED)
     results |= dict.fromkeys(applied.stopped, StageResult.NEEDS_SPLIT)
+    results |= dict.fromkeys(applied.returned, StageResult.RETURNED)
     results |= dict.fromkeys(
         (failure.number for failure in (*plan.failed, *applied.failed)), StageResult.FAILED
     )
@@ -1317,6 +1461,12 @@ def render_stage_plan(plan: StagePlan) -> str:
         )
         for o in plan.over_budget
     ]
+    returned = [
+        texts.stage_returned_line.format(
+            number=r.target.item.number, title=r.target.item.title, evidence=r.evidence
+        )
+        for r in plan.returned
+    ]
     left = [
         texts.stage_left_line.format(number=x.number, title=x.title, reason=x.reason)
         for x in plan.left_out
@@ -1342,6 +1492,7 @@ def render_stage_plan(plan: StagePlan) -> str:
     ]
     lines += _section(texts.stage_heading_ready, ready)
     lines += _section(texts.stage_heading_over, over)
+    lines += _section(texts.stage_heading_returned, returned)
     lines += _section(texts.stage_heading_left, left)
     lines += _section(
         texts.item_heading_unmatched,
@@ -1353,7 +1504,7 @@ def render_stage_plan(plan: StagePlan) -> str:
     lines += _section(texts.stage_heading_failed, failed)
     lines += _section(texts.stage_heading_removals, removals)
     lines += _section(texts.stage_heading_kept, kept)
-    if not (ready or over or left or failed or removals or kept):
+    if not (ready or over or returned or left or failed or removals or kept):
         lines += ["", texts.stage_nothing]
     return "\n".join(lines)
 
@@ -1381,6 +1532,7 @@ __all__ = [
     "KeptBranch",
     "LeftOut",
     "OverBudget",
+    "PremiseFailed",
     "Removal",
     "StageApplied",
     "StageFailure",
