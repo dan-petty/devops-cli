@@ -405,7 +405,6 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("valkey", "set"), 30.0, False, False),
     (("valkey", "stats"), 30.0, True, False),
     (("vault", "get"), 60.0, True, False),
-    (("vault", "set"), 60.0, False, False),
     (("vault", "status"), 30.0, True, False),
     (("vault", "sync"), 60.0, False, False),
 )
@@ -576,6 +575,35 @@ CONST_MCP_UNDECLARED_PARAMETER_ECHO_LENGTH: Final[int] = 64
 # log keeps CONST_REDACTED_LOG_VALUE in their place (#899).
 CONST_FASTMCP_OPERATIONS_LOGGER: Final[str] = "fastmcp.server.mixins.mcp_operations"
 CONST_REDACTED_LOG_VALUE: Final[str] = "<redacted>"
+# A parameter name that holds one of these words suggests a secret value (SECURITY.md rule 12,
+# #3222). `key_values` is the `KEY=VALUE` list of `vault set`. The words match as substrings of the
+# lower-case name.
+CONST_MCP_SECRET_PARAMETER_WORDS: Final[tuple[str, ...]] = (
+    "password",
+    "passphrase",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "private_key",
+    "credential",
+    "bearer",
+    "key_values",
+)
+# The text parameters of the MCP tools whose name holds a secret word and whose value is no secret,
+# as (tool, parameter): the reason. A new entry needs a reason.
+CONST_MCP_SECRET_PARAMETER_ALLOWLIST: Final[dict[tuple[str, str], str]] = {
+    ("docker_sign", "oidc_token"): (
+        "Takes only `keyring:<name>`, a reference that the command resolves from the OS keyring. "
+        "The tool refuses the token itself."
+    ),
+    ("k8s_create_tls_secret", "secret_name"): (
+        "Names the Kubernetes Secret object to write. It holds no secret value."
+    ),
+    ("k8s_enable_tls", "secret_name"): (
+        "Names the Kubernetes Secret object to write. It holds no secret value."
+    ),
+}
 # Root commands whose module app takes the command's own name as its first argument:
 CONST_CLI_ROOT_LEVEL_COMMANDS: Final[frozenset[str]] = frozenset({"format", "lint"})
 # The command words that run a `devops review` command, which reads a tree devops-cli does not

@@ -900,10 +900,13 @@ class MCPCommandHelp:
     app: str = "FastMCP server and Model Context Protocol integrations."
     serve: str = "Launch FastMCP server to expose devops-cli tools to MCP clients."
     tools: str = "List all registered FastMCP tools and descriptions."
-    transport: str = "Transport protocol for FastMCP server (stdio | sse)."
-    host: str = "Host interface for SSE transport."
-    port: str = "Port number for SSE transport."
-    allow_remote: str = "Permit binding SSE transport to non-loopback network interfaces."
+    transport: str = (
+        "Transport protocol for FastMCP server (stdio | sse | streamable-http). "
+        "streamable-http serves one endpoint per job role and needs the mcp.token setting."
+    )
+    host: str = "Host interface for the sse and streamable-http transports."
+    port: str = "Port number for the sse and streamable-http transports."
+    allow_remote: str = "Permit binding a network transport to non-loopback network interfaces."
     export_schemas: str = "Export FastMCP tool JSON schemas and instructions for MCP clients."
     output_dir: str = "Destination directory for tool schema JSON files."
 

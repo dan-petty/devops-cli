@@ -1783,6 +1783,9 @@ class MCPMessages:
     )
     export_dry_run: str = "Would write {count} tool schema(s) and instructions.md to {directory}"
     starting_sse: str = "Starting FastMCP server (SSE) on http://{host}:{port}..."
+    starting_http: str = (
+        "Starting FastMCP server (streamable HTTP, roles: {roles}) on http://{host}:{port}..."
+    )
     starting_stdio: str = "Starting FastMCP server (stdio) — devops-cli\n"
     table_title_tools: str = "Registered FastMCP Tools (devops-cli)"
     col_tool_name: str = "MCP Tool Name"
