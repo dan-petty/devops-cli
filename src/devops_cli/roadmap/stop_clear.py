@@ -174,7 +174,12 @@ def _clear_one(
         return
     rule, new = decided
     status = derive_status(StatusFacts(plan_merged=plan_merged(current, planned)))
-    store.set_field(current, ItemField.STATUS, status, marks={ImplementRecordKey.STOPPED: None})
+    store.set_field(
+        current,
+        ItemField.STATUS,
+        status,
+        marks={ImplementRecordKey.STOPPED: None, ImplementRecordKey.FAILURE: None},
+    )
     store.comment(current.number, _comment(rule, current, status, new))
     cleared.append(current.number)
 

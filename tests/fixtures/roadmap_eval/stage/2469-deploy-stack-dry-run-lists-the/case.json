@@ -67,7 +67,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section holds claims, not evidence. It does not show a command output. It tells the implementer to run 'uv run pytest tests/test_k8s_logging_stack.py' later (wrong path and not the project's test command). It cites src/devops_cli/dry_run.py, but dry_run is a package.",
    "evidence": "git ls-tree origin/main: src/devops_cli/dry_run/__init__.py, decorator.py, models.py, requests.py, state.py; no src/devops_cli/dry_run.py. Feasibility text: 'First checks the implementation runs against the real system: uv run devops k8s deploy-stack --stack logging --dry-run ... and uv run pytest tests/test_k8s_logging_stack.py'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

@@ -34,7 +34,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section does not hold evidence. The issue says the key was never probed and that the first step of the fix is a probe of what gh sends and where (loopback server, temporary HOME, fake token). The plan only repeats the name-based claim and lists a reproduction command as a 'First check' to run later. It records no output of any command and does no gh probe. The issue's refine design chose 'refuse' as a best-practice decision, so the result is probably right, but AGENTS.md rule 2 asks for the premise to be checked and recorded.",
    "evidence": "Issue #2739 body: 'I did not probe this key. The name comes from the strings of the gh binary ... The first step of the fix is a probe'. proposal.md Feasibility: 'First check: run the reproduction command ... to confirm the key is currently accepted' (an instruction, not an observed result).",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

@@ -1,8 +1,10 @@
 # What the roadmap Service may do in namespace devops: create the implement Job from CronJob
-# devops-cli-runner, list Jobs and their pods, and read a pod's log. `resourceNames` limits `get`
-# only; `create` and `list` cover the namespace. A Job can take Secret `devops-cli` through
-# `envFrom`, which the Service pod holds already, so the Role gives no secret that the Service
-# does not have. It reads no Secret and creates nothing but Jobs.
+# devops-cli-runner, list Jobs, patch the deadline and the annotations of a Job while it makes
+# progress (#3063), list their pods, and read a pod's log. `resourceNames` limits `get` only:
+# the name of each Job is new, so `create`, `list` and `patch` cover the namespace. The policy
+# `roadmap-service-jobs` checks a patch as it checks a create. A Job can take Secret
+# `devops-cli` through `envFrom`, which the Service pod holds already, so the Role gives no
+# secret that the Service does not have. It reads no Secret and creates nothing but Jobs.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -14,7 +16,7 @@ metadata:
 rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]
-    verbs: ["create", "get", "list"]
+    verbs: ["create", "get", "list", "patch"]
   # The Job is built from this template.
   - apiGroups: ["batch"]
     resources: ["cronjobs"]

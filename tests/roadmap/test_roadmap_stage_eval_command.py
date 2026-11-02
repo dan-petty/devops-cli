@@ -71,8 +71,10 @@ def test_the_replay_exits_0_and_lists_what_each_gate_caught(cli: Cli) -> None:
 
     assert result.exit_code == 0, result.output
     assert "replay through the gates: 40 case(s), 3 good" in result.output
-    assert "paths  #3010  missing_path" in result.output
-    assert "Defects that wait for a gate" in result.output
+    assert "paths    #3010" in result.output
+    assert "spec_delta_wrong" in result.output
+    assert "Defects that a gate judges: 64 of 299 (21%)." in result.output
+    assert "Defects that wait for a gate" not in result.output
     assert "Good plans that every gate accepts: 3 of 3." in result.output
     assert "Result: every gate refuses what it must refuse." in result.output
 
@@ -82,8 +84,16 @@ def test_the_replay_as_json_holds_the_totals_of_each_gate(cli: Cli) -> None:
 
     report = json.loads(result.output)
     assert result.exit_code == 0
-    assert [(g["gate"], g["missed"]) for g in report["gates"]] == [("paths", 0), ("kind", 0)]
+    assert [(g["gate"], g["missed"]) for g in report["gates"]] == [
+        ("paths", 0),
+        ("kind", 0),
+        ("criteria", 0),
+    ]
     assert report["failures"] == []
+    assert report["defects"] == {"judged": 64, "known": 299}
+    assert {t["type"]: (t["caught"], t["missed"], t["unjudged"]) for t in report["types"]}[
+        "verify_form"
+    ] == (4, 0, 12)
 
 
 def test_a_replay_of_a_broken_set_exits_1_and_names_the_case(

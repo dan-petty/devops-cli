@@ -1,0 +1,62 @@
+# The refine job
+
+`devops roadmap refine` refines roadmap items to Ready. It is step 2 of [the roadmap workflow](../ROADMAP_WORKFLOW.md). The command help gives a summary only. This page gives the rest. The rules that a test checks are in the specs named at the end of this page.
+
+## What refine writes
+
+Refine uses the code and the documents of the repository. For an item it writes a proposed design, tasks and acceptance criteria. When the item is whole, it sets the Status to Ready.
+
+An item that refine cannot set to Ready gets one comment with its next step. The step is one of these:
+
+- The questions that a person answers.
+- The split that a person makes.
+- The open items that this item waits on.
+
+Refine looks at the item again after a reply, a body edit, or the close of those open items. It also looks again after a commit on the default branch that changes a file that the block cites. The report groups every item by its next step.
+
+## What refine investigates
+
+When a fact or a decision has no verified source, or a key question of the body has no answer, refine investigates it. It uses tools that read the code. For a public repository with a Firecrawl key, it also searches the web. The plan says when web search is off.
+
+A design question gets the best-practice option, with the options that refine compared. Only a decision that a person must make waits on a person.
+
+## Which items refine takes
+
+Without `--item`, refine takes items in this order, nearest place first:
+
+1. The New items of each open milestone, by due date and then by number.
+2. The P0 and P1 items of the backlog.
+3. The other New items of the backlog.
+
+Inside each place, the order is by priority. Only `--limit` stops a run. The number of Ready items does not stop it.
+
+In each open milestone, and among the P0 and P1 items of the backlog, refine also takes Ready items that it has no record of. It sets one of them back to New when it finds the item not ready.
+
+## Items that wait for a person
+
+Two kinds of item wait for a person. Only `--item` refines them:
+
+- An item that an account other than the owner, a member or a collaborator opened.
+- An item on which refine wrote 2 comments in the last 24 hours. It takes no place under `--limit` until the older comment is 24 hours old.
+
+`--item` refines an open New or Ready item even when nothing changed since its last round.
+
+## Parts that cannot be built now
+
+A part of an item can be one that nobody can build or decide now. When the rest of the item is Ready, refine moves that part to new issues through intake. Each new issue starts with `Split from #<issue>.`. Refine names the new issues in its Ready comment and records them as `refine.deferred`.
+
+An item that is too big for one pull request still waits for a person to split it.
+
+## Failures
+
+An item whose model call fails is skipped and reported. Refine still refines the other items, and then exits 1.
+
+## Where the rules are
+
+| Topic | Spec |
+| :--- | :--- |
+| The limit, the cap of comments, the items of an account without write access | [roadmap-refine](../../openspec/specs/roadmap-refine/spec.md) |
+| The investigation, the options of a decision, web search | [roadmap-refine](../../openspec/specs/roadmap-refine/spec.md) |
+| The next-step comment, the paths of a block, a change that ends a wait | [roadmap-refine](../../openspec/specs/roadmap-refine/spec.md) |
+| A deferred part and its filing through intake | [roadmap-refine](../../openspec/specs/roadmap-refine/spec.md) |
+| The labels and the record of an item | [roadmap-item-labels](../../openspec/specs/roadmap-item-labels/spec.md) |
