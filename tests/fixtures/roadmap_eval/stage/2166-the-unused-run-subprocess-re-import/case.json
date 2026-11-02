@@ -23,7 +23,7 @@
    "where": "proposal.md",
    "problem": "The premise is stale. The plan says ruff.py has a `run_subprocess` re-import to remove and says 15 F401 findings exist. This was no longer true when the plan was written. #1332 (PR #2827, merged 2026-10-30) removed all 15 sites. Task group 1 therefore removes nothing. Its text (\"line 23\") makes an implementer remove a different, used import. The issue comment of the implement job says the agent \"incorrectly removed one that was actually used\" and stopped at group 1.",
    "evidence": "git log origin/main --grep 1332 shows a1950694 'test(security): migrate security and crypto tests to edge fakes (#1332) (#2827)' dated 2026-10-30, an ancestor of the plan commit 739854ee (2026-11-01). `git show 82703bfb^:src/devops_cli/security/ruff.py | grep -n 'run_subprocess\\|noqa'` prints nothing. `git grep 'noqa: F401' origin/main -- src` prints nothing. `uv run ruff check --select F401 --ignore-noqa src` prints 'All checks passed!'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "false_premise",
@@ -31,7 +31,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section holds no evidence from a real run. Each bullet says 'confirmed by the issue body', 'stated to report 15 findings' or 'the context shows'. The last bullet lists commands to run later. AGENTS.md rule 2 and openspec/config.yaml require command output. A real run of the ruff command would have shown 0 findings, not 15.",
    "evidence": "proposal.md Feasibility: 'The command ... is stated to report 15 findings at b170358e' and 'First checks the implementation runs: rg -n ... uv run ruff check ... to confirm the count is 15 before removal.' The count on main is 0.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "false_premise",
@@ -39,7 +39,7 @@
    "where": "design.md",
    "problem": "The ceiling of 14 is wrong. The 14 sites that #1332 owned are gone, so the ceiling should be 0. A count-and-compare ceiling needs home-grown parsing and message code in ci.py. A plain `ruff check --select F401 --ignore-noqa src` row, which fails on any finding, covers the need with no counting. The plan hides extra code the issue does not need now.",
    "evidence": "design.md 'Set the ceiling at 14'. tasks.md 3.2 'counts the findings, and fails with a message naming the new sites when the count exceeds 14'. Issue #1332 state: closed. Ruff reports 0 findings on main. The issue itself says the ceiling 'goes to zero with #1332'.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "verify_form",

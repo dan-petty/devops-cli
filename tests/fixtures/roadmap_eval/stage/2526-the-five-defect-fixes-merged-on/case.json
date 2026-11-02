@@ -71,7 +71,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section makes claims that its own check commands do not support. It says CONTRIBUTING.md section 1 \"holds the process rules\" and the plan has a \"dependency section context\". CONTRIBUTING.md has no dependency section and no mention of CVE or sub-chart. The planned CVE sentence goes into \"Development Philosophy & Core Invariants\", where it does not fit, and it asks for a new rule (\"found and accepted\" with a CVE id in the PR body) that the issue does not request. No real evidence is given for the Loki claim either (for example the CVE reference in #2470).",
    "evidence": "grep -n -i 'known CVE\\|sub-chart\\|CVE' CONTRIBUTING.md returns no line. CONTRIBUTING.md headings: 1 Development Philosophy & Core Invariants, 2 Local Environment Setup, 3 Test-First, 4 Git Hygiene, 5 Naming, 6 Routine Tasks. Issue table: \"Loki runs from the grafana-community chart on Loki 3.7.9 (CVE-2026-21729)\". The refine body names \"CONTRIBUTING.md (dependency management)\".",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

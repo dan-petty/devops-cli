@@ -184,11 +184,12 @@ def test_a_defect_that_no_gate_judges_fails_nothing(cases: list[StageCase]) -> N
     assert replay.failures == []
 
 
-def test_the_gates_and_the_pending_gates_cover_each_type_once() -> None:
+def test_the_gates_and_the_pending_gates_cover_each_type_once_but_the_two_no_gate_judges() -> None:
     caught = {gate.catches for gate in GATES}
+    unjudged = {DefectType.OTHER, DefectType.FALSE_PREMISE}
 
     assert caught.isdisjoint(PENDING_GATES)
-    assert caught | set(PENDING_GATES) | {DefectType.OTHER} == set(DefectType)
+    assert caught | set(PENDING_GATES) | unjudged == set(DefectType)
 
 
 def test_the_replay_of_the_plan_of_2977_is_refused_for_the_spec_delta_of_a_tests_only_change(

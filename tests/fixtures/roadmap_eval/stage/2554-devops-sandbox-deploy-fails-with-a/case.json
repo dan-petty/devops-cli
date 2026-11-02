@@ -23,7 +23,7 @@
    "where": "proposal.md / tasks.md (group 3) / design.md",
    "problem": "The plan fixes the wrong call site. `devops sandbox deploy` runs `SandboxEngine.deploy`, then `_spawn_container`, in `src/devops_cli/sandbox/engine.py`. That code calls `engine.create_container` and wraps errors as 'Failed deploying sandbox container'. The plan adds the pull to `WorkloadSandboxRunner.run` in `src/devops_cli/docker/sandbox.py`. That runner serves `devops docker sandbox` and `devops test`, not `sandbox deploy`. After the plan is built, the reproduction in the issue (`devops sandbox deploy --name check --network-mode isolated`) still fails with the 404. The Feasibility section names the wrong file as the deploy path. Impact omits `src/devops_cli/sandbox/engine.py`.",
    "evidence": "git show origin/main:src/devops_cli/commands/sandbox.py: `inst = engine.deploy(cfg)`. git show origin/main:src/devops_cli/sandbox/engine.py lines 331-394: `def deploy(...)` -> `_spawn_container` -> `container = engine.create_container(**create_kwargs)`; line 381: `raise SandboxError(f\"Failed deploying sandbox container: {exc}\")` (this is the text in the issue's Actual output). `git grep WorkloadSandboxRunner origin/main -- src` lists only src/devops_cli/commands/docker.py, commands/test_cmd.py and docker/sandbox.py, with no hit in commands/sandbox.py or sandbox/. The only two create_container callers are docker/sandbox.py:295 and sandbox/engine.py:394.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "task_order",

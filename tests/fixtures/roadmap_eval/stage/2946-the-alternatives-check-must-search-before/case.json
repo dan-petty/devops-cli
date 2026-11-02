@@ -42,7 +42,7 @@
    "where": "tasks.md",
    "problem": "Task 2.2 says 'In the model reply handler ... give the model one additional turn'. No such handler exists, and nothing retries today. `_check_one` calls `investigate()` once. A refused reply (`_refusal` via `validate_reply`) becomes a `CheckFailure` at once. `investigate` (shared with refine) builds a pydantic-ai Agent with no output validator for this. The plan does not say where to add the retry: a pydantic-ai output validator or ModelRetry, a second `investigate` call, or a change to the shared `investigate`. This is the core of the issue and the plan leaves the design open. The issue's claim that a not-applicable-after-a-tool reply 'is rejected today' with a retry turn is not what the code does.",
    "evidence": "alternatives.py `_check_one` lines 677-706: one `investigate(...)` call, then `validate_reply`; `_refusal` returns a reason string that becomes `CheckFailure(item, refusal)`. refine_investigation.py `investigate` lines 231-272 has no search-before-verdict hook.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "ignores_existing_code",
@@ -82,7 +82,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section holds no evidence from the real system. It cites docs/TELEMETRY.md:81 and k8s/README.md:609, which only define the counter. It then repeats the issue's own numbers ('about 34 checks', 'about 4 searches') as if confirmed. It does not read the code (for example `_refusal` and `investigate`) to confirm that a retry turn can be built, and it does not query the metric or the three cited comments (#886, #1082, #1329). The last two Feasibility bullets are tasks, not evidence. AGENTS.md rule 2 requires the premise to be checked against the real system.",
    "evidence": "proposal.md '## Feasibility': bullets 1-6. The line refs exist (TELEMETRY.md:81 and k8s/README.md:609) but support only the counter definition.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

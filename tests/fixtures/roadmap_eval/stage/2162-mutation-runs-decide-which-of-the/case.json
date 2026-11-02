@@ -63,7 +63,7 @@
    "where": "proposal.md (Feasibility)",
    "problem": "Feasibility holds no own evidence. It repeats the issue ('confirmed by the issue evidence citing its --help output'), cites gitignored scratch files that no one else can read, and lists 'first checks' as future steps. Rule 2 asks for a confirmed premise. The key premise (a per-file --ignore run of mutmut gives per-file unique mutants) is never tested. The first bullet claims the 18 files exist 'confirmed by the directory tree', which is false for 14 of them (a stage check would have found it).",
    "evidence": "proposal.md Feasibility bullets 1-5; `git cat-file` shows 14 of the 18 paths missing. .data/ has 0 tracked files on origin/main (git ls-tree -r origin/main | grep -c '^\\.data' = 0).",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "spec_delta_wrong",
@@ -87,7 +87,7 @@
    "where": "design.md",
    "problem": "The design cites ADR 0005 as the 'pre-1.0 policy of deleting'. ADR 0005 is about review findings coming from tools. It lists deleted review stages, not a test-deletion policy. The source for the rule is AGENTS.md ('alpha ... removes the old path'). Also the 'Rejected alternatives' have no rejecting evidence (config rule: 'Record each rejected alternative with the evidence that rejected it'); the second repeats the Decisions text.",
    "evidence": "docs/adr/0005-review-findings-come-from-tools-not-models.md: '**Deleted, not kept behind flags (pre-1.0):** the persona review stage, the model verifier, ...'. openspec/config.yaml design rule.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",

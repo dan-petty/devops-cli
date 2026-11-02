@@ -21,7 +21,7 @@ from datetime import date
 from enum import StrEnum
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Final, Self
+from typing import Annotated, Any, Final, Self
 
 from pydantic import (
     AfterValidator,
@@ -29,6 +29,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    field_validator,
     model_validator,
 )
 
@@ -243,22 +244,69 @@ def _other_problems(group: StageGroup) -> list[str]:
     return [text.format(title=group.title) for broken, text in found if broken]
 
 
+# The keys of the plan: a reply that does not set `premise_failed` gives each of them.
+_PLAN_KEYS: Final[frozenset[str]] = frozenset(
+    {
+        "summary",
+        "pull_request_body",
+        "why",
+        "what_changes",
+        "skip_specs",
+        "feasibility",
+        "existing_tool",
+        "groups",
+    }
+)
+
+
 class StageProposal(_Reply):
     """The model's plan of the change. `summary` is the summary of the pull request title, and
     `pull_request_body` the what and why of its body. The scope and the type of the title are not
-    the model's: see `staging_title`."""
+    the model's: see `staging_title`.
 
-    summary: str = Field(min_length=1, max_length=SUMMARY_MAX_CHARS)
-    pull_request_body: str = Field(min_length=1, max_length=BODY_MAX_CHARS)
-    why: str
-    what_changes: list[str] = Field(min_length=1)
-    skip_specs: bool
-    feasibility: list[str] = Field(min_length=1)
-    existing_tool: str
+    A reply may instead set `premise_failed`, the evidence that the premise of the issue is false
+    (#3011). It then needs no plan, and the job returns the item. A reply with no
+    `premise_failed` must give every key of the plan."""
+
+    premise_failed: str | None = None
+    summary: str = Field("", min_length=1, max_length=SUMMARY_MAX_CHARS)
+    pull_request_body: str = Field("", min_length=1, max_length=BODY_MAX_CHARS)
+    why: str = ""
+    what_changes: list[str] = Field(default_factory=list, min_length=1)
+    skip_specs: bool = False
+    feasibility: list[str] = Field(default_factory=list, min_length=1)
+    existing_tool: str = ""
     decisions: list[StageDecision] = Field(default_factory=list)
     rejected: list[StageRejection] = Field(default_factory=list)
     specs: list[StageSpec] = Field(default_factory=list)
-    groups: list[StageGroup] = Field(min_length=1)
+    groups: list[StageGroup] = Field(default_factory=list, min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _evidence_alone(cls, data: Any) -> Any:
+        """A reply with evidence is only the evidence: the empty keys that a model writes for the
+        plan it does not give are dropped."""
+        if isinstance(data, dict) and str(data.get("premise_failed") or "").strip():
+            return {"premise_failed": data["premise_failed"]}
+        return data
+
+    @field_validator("premise_failed")
+    @classmethod
+    def _blank_is_none(cls, evidence: str | None) -> str | None:
+        """A blank text means no failure, as the model writes an empty key for none."""
+        return evidence.strip() or None if evidence is not None else None
+
+    @model_validator(mode="after")
+    def _plan_unless_premise_failed(self) -> Self:
+        if self.premise_failed is None:
+            missing = sorted(_PLAN_KEYS - self.model_fields_set)
+            if missing:
+                raise ValueError(
+                    " ".join(
+                        MESSAGES.roadmap.stage_premise_plan_missing.format(field=k) for k in missing
+                    )
+                )
+        return self
 
 
 class StageSplit(_Reply):
