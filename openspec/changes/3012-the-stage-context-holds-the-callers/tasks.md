@@ -6,7 +6,7 @@ Reads: `src/devops_cli/roadmap/refine.py` lines 575 to 800 (`collect_context` an
 
 This group is `behavior`. It adds the section "Tests and callers of `<ident>`" to the context, and the bound of 50 paths for each symbol.
 
-- [ ] 1.1 In `tests/roadmap/test_roadmap_refine.py`, make the git fake answer `git grep -l -z -F -e <needle>... <sha> -- <pathspec>`, and add the failing tests `test_a_cited_symbol_brings_its_tests_and_its_callers`, `test_a_symbol_with_no_other_file_adds_no_section` and `test_the_paths_of_one_symbol_are_bounded_and_the_cut_is_noted`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_refine.py -k "cited_symbol or bounded"` fails on the base
+- [x] 1.1 In `tests/roadmap/test_roadmap_refine.py`, make the git fake answer `git grep -l -z -F -e <needle>... <sha> -- <pathspec>`, and add the failing tests `test_a_cited_symbol_brings_its_tests_and_its_callers`, `test_a_symbol_with_no_other_file_adds_no_section` and `test_the_paths_of_one_symbol_are_bounded_and_the_cut_is_noted`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_refine.py -k "cited_symbol or bounded"` fails on the base
 - [ ] 1.2 Add `CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL` to `config/constants.py`. Add `_grep_files`, `_is_test_path`, `_symbol_section` and `_collect_symbol_sections` to `refine.py`, and call the last from `collect_context`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_refine.py -k "collect_context or cited_symbol or bounded"` passes
 
 ## 2. Name the requirements of the specs that cover a cited file
@@ -15,7 +15,7 @@ Reads: `src/devops_cli/roadmap/refine.py` lines 575 to 800, `openspec/specs/road
 
 This group is `behavior`. It adds the section "Requirements of `<capability>`" to the context, before the cited code, and keeps the context inside its budget.
 
-- [ ] 2.1 Add the failing tests `test_a_cited_file_brings_the_requirement_names_of_its_capability`, `test_a_cited_file_with_no_capability_adds_no_requirement_section` and `test_the_larger_context_stays_inside_the_token_budget`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_refine.py -k "requirement_names or no_capability"` fails on the base
+- [x] 2.1 Add the failing tests `test_a_cited_file_brings_the_requirement_names_of_its_capability`, `test_a_cited_file_with_no_capability_adds_no_requirement_section` and `test_the_larger_context_stays_inside_the_token_budget`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_refine.py -k "requirement_names or no_capability"` fails on the base
 - [ ] 2.2 Add `CONST_ROADMAP_REFINE_MAX_SPECS` and `CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC` to `config/constants.py`. Add `_module_capability_key`, `_capabilities_of_files`, `_requirements_section` and `_collect_spec_requirements` to `refine.py`, and put the two new kinds of section in `collect_context` before the cited code. Verify that `uv run devops ci test tests/roadmap/test_roadmap_refine.py -k "collect_context or cited or bounded or larger_context or capability"` passes
 
 ## 3. Keep the checks green and state the token cost
