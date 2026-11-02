@@ -2321,6 +2321,18 @@ class RoadmapMessages:
         "The verification command {command} is not a valid command line."
     )
     implement_stop_command_failed: str = "{command} exited with status {status}.\n{output}"
+    implement_stop_search_refused: str = "The negative search {command} is refused: {reason}."
+    implement_stop_search_found: str = "{command} found a match, so the name is not gone.\n{output}"
+    search_reason_start: str = "it does not start with `! git grep`"
+    search_reason_option: str = "the option `{word}` is not allowed (the options are {letters})"
+    search_reason_no_text: str = "it gives no text to search"
+    search_reason_literal: str = (
+        "the text `{word}` is not a literal of letters, digits, spaces and the signs {signs}"
+    )
+    search_reason_no_path: str = "it gives no path"
+    search_reason_path: str = "the word `{word}` is not a path of the checkout"
+    verify_reason_unparsed: str = "it is not a valid command line"
+    verify_reason_program: str = "`{program}` is not a program that the step runs"
     implement_stop_command_timeout: str = "{command} ran out of time after {seconds} s."
     implement_formatted: str = "Formatted: {paths}"
     implement_stop_link: str = (
@@ -2957,6 +2969,10 @@ class RoadmapMessages:
         "Group {group} gives the `verify` command `{command}`. A `verify` command starts with "
         "`uv run devops`, such as `uv run devops ci test tests/roadmap/test_feature.py`, or is a "
         "`! git grep -n <name>` check that a name is gone. Give a command of one of these forms."
+    )
+    stage_problem_verify_run: str = (
+        "Group {group} gives the `verify` command `{command}`, and the step cannot run it: "
+        "{reason}. Give `uv run devops <command>` or `! git grep -n <name> src/ tests/`."
     )
     stage_problem_test_path: str = (
         "Group {group} creates `{path}`, and the directory `{directory}` does not mirror the code "

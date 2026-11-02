@@ -295,7 +295,9 @@ def test_the_prompt_gives_verify_forms() -> None:
 
 @pytest.mark.parametrize("form", sorted(set(_verify_forms())))
 def test_each_verify_form_of_the_prompt_passes_the_form_check(form: str) -> None:
-    assert form_problems([_group(form)]) == []
+    """The prompt writes the name of a search as the placeholder `<name>`. The gate refuses the
+    placeholder as a literal (#3263), so the check gives it a name."""
+    assert form_problems([_group(form.replace("<name>", "old_name"))]) == []
 
 
 @pytest.mark.parametrize(
