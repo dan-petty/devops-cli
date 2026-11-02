@@ -730,7 +730,9 @@ def test_a_path_in_a_verify_command_is_checked_and_a_created_path_passes(
     openspec: OpenSpecFake,
 ) -> None:
     model_fake.answer(
-        _naming("src/devops_cli/sample.py", verify="uv run pytest tests/old/test_sample.py"),
+        _naming(
+            "src/devops_cli/sample.py", verify="uv run devops ci test tests/old/test_sample.py"
+        ),
         make_stage_proposal(),
     )
 

@@ -41,6 +41,7 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope
 from devops_cli.roadmap.refine import sanitize_text
 from devops_cli.roadmap.stage_criteria import PENDING_PERSON, StageCriterion, criterion_problems
+from devops_cli.roadmap.stage_form import form_problems
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
 from devops_cli.roadmap.step_rules import rules_sections
@@ -397,6 +398,7 @@ def check_proposal(
     issue: each acceptance criterion in it needs an entry in `criteria` (#3019), and a body with
     none needs no entry."""
     problems = _delta_problems(proposal, known, requirements or {})
+    problems.extend(form_problems(proposal.groups))
     problems.extend(path_problems(proposal.groups, tree))
     problems.extend(criterion_problems(proposal.criteria, issue_body, len(proposal.groups)))
     return problems
