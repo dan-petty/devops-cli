@@ -11,7 +11,7 @@ About 8 of 37 recent plans order their groups so that a group reads a path that 
 - A new test in the shape of #2996 asserts that the problem names the reading group and the creating group, and says which group to move.
 - A test asserts that a path no group creates keeps the message without a creating group.
 - The acceptance criterion "a plan whose groups create what they read passes" has a test already: `test_a_path_that_an_earlier_group_creates_passes_in_a_later_group`. This change adds none.
-- The `roadmap-stage` spec delta adds a sentence and a scenario: the problem names both groups.
+- The `roadmap-stage` spec delta adds one requirement with two scenarios: the problem names both groups, and a path that no group creates keeps its message.
 - Item 15 of `k8s/README.md` describes the check, so it gets the new sentence.
 - The change fits one pull request.
 
@@ -23,7 +23,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-stage`: The plan names files that exist at the staged commit
+- `roadmap-stage`: adds the requirement `A problem names the group that creates a missing path`. The requirement `The plan names files that exist at the staged commit` is already near the length limit, so it stays as it is.
 
 ## Impact
 
