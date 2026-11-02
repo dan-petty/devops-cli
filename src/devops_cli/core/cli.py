@@ -134,6 +134,8 @@ def _handle_lazy_proxy_dry_run(target: str, cmd_name: str, args: list[str]) -> N
         _delegate(mod_path, cmd_name, args)
         return
 
+    require_working_directory()
+
     import click
     import typer._click.exceptions as click_exc
 

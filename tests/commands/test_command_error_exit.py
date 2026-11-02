@@ -100,12 +100,14 @@ def test_a_command_run_from_a_removed_working_directory_stops_with_one_error_lin
     assert "The working directory does not exist." in lines[0]
 
 
+@pytest.mark.parametrize("args", [["scan"], ["--dry-run", "scan"]], ids=["run", "dry-run"])
 def test_a_command_group_run_from_a_removed_working_directory_stops_with_one_error_line(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Callable[..., Any]
+    args: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Callable[..., Any]
 ) -> None:
-    """`devops scan` reads the working directory when its module loads, before any callback runs."""
+    """`devops scan` reads the working directory when its module loads, before any callback runs,
+    and `devops --dry-run scan` loads the module to read its options."""
     _remove_working_directory(tmp_path, monkeypatch)
-    result = cli("scan")
+    result = cli(*args)
 
     lines = [line for line in result.output.splitlines() if line.strip()]
     assert (result.exit_code, len(lines), type(result.exception)) == (1, 1, SystemExit)
