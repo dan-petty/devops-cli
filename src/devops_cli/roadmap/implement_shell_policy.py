@@ -37,6 +37,7 @@ from devops_cli.config.commands import (
     BIN_RUFF,
     BIN_UV,
 )
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS
 from devops_cli.lang import MESSAGES
 
 
@@ -78,6 +79,12 @@ _FIND_INSTEAD = (
 )
 _PYTHON_INSTEAD = "`uv run python`. Do not run `python -m pip`: the lockfile gives the dependencies"
 _LOCKFILE_INSTEAD = "nothing. The lockfile gives the dependencies"
+# The first word of a negative search. No shell runs it: the step does (see below).
+NEGATIVE_SEARCH_WORD = "!"
+_BANG_INSTEAD = (
+    "`git grep -n <literal> -- <paths>`. Read no output as a pass. The step runs a verification "
+    "command that starts with `!` itself, after your run"
+)
 
 SHELL_PROGRAMS: tuple[ShellProgram, ...] = (
     ShellProgram(BIN_GIT, ShellAccess.WRITE, "Read and change the repository."),
@@ -127,6 +134,7 @@ SHELL_REFUSALS: tuple[ShellRefusal, ...] = (
     ShellRefusal("pip3", _LOCKFILE_INSTEAD),
     ShellRefusal("rg", "the tool `grep`, or `grep` in the shell"),
     ShellRefusal("cd", "nothing. Every command runs in the checkout"),
+    ShellRefusal(NEGATIVE_SEARCH_WORD, _BANG_INSTEAD),
 )
 
 # The views of the two tables that the guard, the log and the tests read.
@@ -141,7 +149,6 @@ IMPLEMENT_SHELL_REPLACEMENTS: dict[str, str] = {
 # these letters: line numbers, no binary files, fixed strings, any case, whole words, file names,
 # counts and a quiet run. No option reads a file (`-f`), opens a program (`-O`), leaves the
 # repository (`--no-index`) or takes a value (`-e`), so every other option is refused.
-NEGATIVE_SEARCH_WORD = "!"
 NEGATIVE_SEARCH_START: tuple[str, ...] = (NEGATIVE_SEARCH_WORD, BIN_GIT, "grep")
 NEGATIVE_SEARCH_OPTION_LETTERS = "nIFiwlcq"
 NEGATIVE_SEARCH_LITERAL_SIGNS = "_ . : / = @ + , # % ~ -"
@@ -149,6 +156,7 @@ _OPTION = re.compile(rf"-[{NEGATIVE_SEARCH_OPTION_LETTERS}]+")
 _LITERAL = re.compile(r"[\w .:/=@+,#%~-]+", re.ASCII)
 _PATH = re.compile(r"[\w.+@~*/-]+", re.ASCII)
 _PATHS_MARK = "--"
+_SHOWN_CHARS = 60
 
 PROGRAMS_PLACEHOLDER = "{{shell_programs}}"
 REFUSALS_PLACEHOLDER = "{{shell_refusals}}"
@@ -232,40 +240,63 @@ class NegativeSearch:
         return [BIN_GIT, "grep", *self.options, self.literal, _PATHS_MARK, *self.paths]
 
 
+def _shown(word: str, limit: int = _SHOWN_CHARS) -> str:
+    """`word` for a reason: control characters and characters outside ASCII are escaped, and a long
+    word is cut. A reason never holds a raw line break or a NUL byte."""
+    text = word.encode("unicode_escape").decode("ascii")
+    return text if len(text) <= limit else f"{text[:limit]}..."
+
+
 def read_negative_search(words: Sequence[str]) -> NegativeSearch | str:
     """The negative search in `words`, or the reason that the step refuses it. The words are `!`,
     `git`, `grep`, options of `NEGATIVE_SEARCH_OPTION_LETTERS`, one literal, an optional `--` and at
-    least one path. The reason is a sentence for the reason of the step and for the gate."""
+    least one path, and they hold at most `CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS` characters in all.
+    The reason is a sentence for the reason of the step and for the gate."""
     texts = MESSAGES.roadmap
     if tuple(words[:3]) != NEGATIVE_SEARCH_START:
         return texts.search_reason_start
+    if sum(len(word) for word in words) > CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS:
+        return texts.search_reason_long.format(limit=CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS)
     rest = list(words[3:])
     options: list[str] = []
     while rest and rest[0].startswith("-"):
         if _OPTION.fullmatch(rest[0]) is None:
             return texts.search_reason_option.format(
-                word=rest[0], letters=" ".join(f"-{c}" for c in NEGATIVE_SEARCH_OPTION_LETTERS)
+                word=_shown(rest[0]),
+                letters=" ".join(f"-{c}" for c in NEGATIVE_SEARCH_OPTION_LETTERS),
             )
         options.append(rest.pop(0))
     if not rest:
         return texts.search_reason_no_text
     literal = rest.pop(0)
     if _LITERAL.fullmatch(literal) is None:
-        return texts.search_reason_literal.format(word=literal, signs=NEGATIVE_SEARCH_LITERAL_SIGNS)
+        return texts.search_reason_literal.format(
+            word=_shown(literal), signs=NEGATIVE_SEARCH_LITERAL_SIGNS
+        )
     if rest[:1] == [_PATHS_MARK]:
         del rest[0]
     if not rest:
         return texts.search_reason_no_path
     bad = next((word for word in rest if not _is_path(word)), None)
     if bad is not None:
-        return texts.search_reason_path.format(word=bad)
+        return texts.search_reason_path.format(word=_shown(bad))
     return NegativeSearch(tuple(options), literal, tuple(rest))
 
 
-def verification_problem(command: str) -> str | None:
-    """Why the step cannot run the verification `command`, or None when it can: the words are
-    readable, and the first word is a program of the verification list or the negative search is
-    in the fixed shape."""
+@dataclass(frozen=True)
+class Verification:
+    """A verification command that the step runs: the `argv` of the process, and whether it is a
+    negative search, which passes on exit 1 and not on exit 0."""
+
+    argv: list[str]
+    negative: bool = False
+
+
+def read_verification(command: str) -> Verification | str:
+    """The process that the step starts for the verification `command`, or the reason that it
+    refuses. The words are readable, and the first word is a program of the verification list or
+    the `!` of a negative search in the fixed shape. The step and the gate of the stage job read
+    this function, so no command is refused by one side only."""
     texts = MESSAGES.roadmap
     try:
         words = shlex.split(command)
@@ -275,10 +306,18 @@ def verification_problem(command: str) -> str | None:
         return texts.verify_reason_unparsed
     if words[0] == NEGATIVE_SEARCH_WORD:
         found = read_negative_search(words)
-        return found if isinstance(found, str) else None
+        return found if isinstance(found, str) else Verification(found.argv, negative=True)
     if words[0] not in IMPLEMENT_ALLOWED_PROGRAMS:
-        return texts.verify_reason_program.format(program=words[0])
-    return None
+        return texts.verify_reason_program.format(
+            program=_shown(words[0]), allowed=", ".join(IMPLEMENT_ALLOWED_PROGRAMS)
+        )
+    return Verification(words)
+
+
+def verification_problem(command: str) -> str | None:
+    """Why the step cannot run the verification `command`, or None when it can."""
+    found = read_verification(command)
+    return found if isinstance(found, str) else None
 
 
 def programs_table() -> str:
