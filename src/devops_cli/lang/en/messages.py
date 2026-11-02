@@ -3170,10 +3170,12 @@ class RoadmapMessages:
     stage_eval_score_ended: str = "Cases by end: {ended}."
     stage_eval_dry_run: str = (
         "Dry run: no request was made. A run plans {cases} case(s) with the analysis model at "
-        "{gateway}, one case at a time:"
+        "{gateway}, {mode}, one case at a time:"
     )
+    stage_eval_mode_toolbox: str = "with the read-only toolbox"
+    stage_eval_mode_plain: str = "with one call and no tool"
     stage_eval_dry_run_case: str = "plan of the case {name}"
-    stage_eval_dry_run_repeat: str = "up to {count} calls for each case"
+    stage_eval_dry_run_repeat: str = "up to {count} requests for each case"
     stage_eval_stored: str = "Stored the report in {path}."
     stage_eval_failed: str = "{failed} case(s) could not run. The score counts them as not avoided."
     intake_spend: str = (

@@ -10,10 +10,12 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from devops_cli.ai.client import factory
 from devops_cli.roadmap.stage_eval_cases import CASES_DIRECTORY, StageCase, load_cases
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_stage import VALID_REPORT, StageRepo, validate_args
+from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
     from tests.support.fakes.model import ModelFake
@@ -156,6 +158,113 @@ def test_a_live_run_prints_the_score_and_stores_the_report(
     report = json.loads(Path(stored.strip()).read_text(encoding="utf-8"))
     assert (report["model"], report["cases"]) == ("m-1", 1)
     assert model_fake.call_count == 1
+
+
+def _live_run(
+    cli: Cli,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    cases: list[StageCase],
+    script: Script,
+    monkeypatch: pytest.MonkeyPatch,
+    *flags: str,
+) -> tuple[Any, list[str]]:
+    """A live run of one case whose model is `script`, and the names of the tasks whose pydantic-ai
+    model the command asked for."""
+    asked: list[str] = []
+
+    def task_model(name: str, *, settings: Any = None) -> Any:
+        asked.append(name)
+        return script.model()
+
+    monkeypatch.setattr(factory, "get_task_model", task_model)
+    folder = _live_set(tmp_path, stage_repo, cases)
+    result = _eval(
+        cli, "--cases", str(folder), "--source", str(stage_repo.clone), "--model", "m-1", *flags
+    )
+    return result, asked
+
+
+def test_a_live_run_plans_with_the_toolbox_unless_told_not_to(
+    cli: Cli,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec_fake: OpenSpecFake,
+    cases: list[StageCase],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    openspec_fake.script_sequence(validate_args(CHANGE), (0, VALID_REPORT))
+    script = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
+
+    result, asked = _live_run(cli, tmp_path, stage_repo, cases, script, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert (asked, script.tools_offered[0][:2], model_fake.call_count) == (
+        ["analysis"],
+        ["list_files", "read_file"],
+        0,
+    )
+    assert "Cases by end: staged 1" in result.output
+
+
+def test_a_live_run_with_no_toolbox_makes_one_request_and_offers_no_tool(
+    cli: Cli,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec_fake: OpenSpecFake,
+    cases: list[StageCase],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    openspec_fake.script_sequence(validate_args(CHANGE), (0, VALID_REPORT))
+    model_fake.answer(make_stage_proposal())
+    script = Script(make_stage_proposal())
+
+    result, asked = _live_run(cli, tmp_path, stage_repo, cases, script, monkeypatch, "--no-toolbox")
+
+    assert result.exit_code == 0, result.output
+    assert (asked, script.seen, model_fake.call_count) == ([], [], 1)
+    assert "Cases by end: staged 1" in result.output
+
+
+def test_both_modes_store_a_report_of_the_same_shape(
+    cli: Cli,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec_fake: OpenSpecFake,
+    cases: list[StageCase],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    openspec_fake.script_sequence(validate_args(CHANGE), (0, VALID_REPORT), (0, VALID_REPORT))
+    model_fake.answer(make_stage_proposal())
+    reports = []
+    for flags in ((), ("--no-toolbox",)):
+        result, _ = _live_run(
+            cli,
+            tmp_path / str(len(reports)),
+            stage_repo,
+            cases,
+            Script(make_stage_proposal()),
+            monkeypatch,
+            *flags,
+        )
+        stored = result.output.split("Stored the report in ")[1].split(".json")[0] + ".json"
+        reports.append(json.loads(Path(stored.strip()).read_text(encoding="utf-8")))
+
+    assert reports[0].keys() == reports[1].keys()
+    assert [row.keys() for row in reports[0]["rows"]] == [row.keys() for row in reports[1]["rows"]]
+
+
+def test_the_dry_run_names_the_toolbox_and_the_option_that_turns_it_off(
+    cli: Cli, cases: list[StageCase]
+) -> None:
+    on = _eval(cli, "--dry-run", "--case", cases[0].name)
+    off = _eval(cli, "--dry-run", "--no-toolbox", "--case", cases[0].name)
+
+    assert "with the read-only toolbox" in on.output
+    assert "with one call and no tool" in off.output
 
 
 def test_a_live_run_with_a_failed_case_exits_1(

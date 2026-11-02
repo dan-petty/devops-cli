@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from pydantic_ai.messages import ModelResponse, ToolCallPart, ToolReturnPart
 
 from devops_cli.ai.client.models import (
     AIClientError,
@@ -38,6 +39,7 @@ from devops_cli.roadmap.stage_eval_score import score_runs
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_stage import VALID_REPORT, StageRepo, validate_args
+from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stage import StageClient
@@ -104,6 +106,53 @@ def test_a_reply_with_a_missing_path_is_caught_and_the_second_reply_is_staged(
     assert run.first is not None
     assert run.first[GateName.KIND] == []
     assert "`tests/test_missing.py`" in run.first[GateName.PATHS][0]
+
+
+def test_a_case_with_a_toolbox_model_plans_with_the_tools_and_the_first_plan_is_judged(
+    cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
+) -> None:
+    """The model reads a file, gives a plan with a missing path, and gives a good plan after the
+    return. The recorder counts the two plan runs and keeps the first plan, which the gates judge."""
+    case = _live_case(cases, stage_repo)
+    stage_repo.track({"tests/security/test_sample.py": ""})
+    script = Script(
+        call("read_file", path="src/devops_cli/sample.py"),
+        _naming("tests/test_missing.py"),
+        make_stage_proposal(),
+    )
+
+    run = run_case(case, _client(model_fake), stage_repo.clone, toolbox=script.model())
+
+    read_back = [
+        str(part.content)
+        for message in script.seen[1]
+        for part in getattr(message, "parts", ())
+        if isinstance(part, ToolReturnPart)
+    ]
+    assert (run.outcome, run.calls, read_back[0].splitlines()[0]) == (
+        Outcome.STAGED,
+        2,
+        "1: def keep(comments):",
+    )
+    assert run.first is not None
+    assert "`tests/test_missing.py`" in run.first[GateName.PATHS][0]
+    assert model_fake.call_count == 0
+
+
+def test_a_plan_run_that_spends_its_budget_ends_the_case_refused_with_the_limit(
+    cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
+) -> None:
+    case = _live_case(cases, stage_repo)
+    read = ToolCallPart("read_file", {"path": "src/devops_cli/sample.py"})
+    script = Script(ModelResponse(parts=[read] * 31))
+
+    run = run_case(case, _client(model_fake), stage_repo.clone, toolbox=script.model())
+
+    assert (run.outcome, run.first, "tool_calls_limit" in run.reason) == (
+        Outcome.REFUSED,
+        None,
+        True,
+    )
 
 
 def test_a_first_reply_that_passes_has_no_problem(

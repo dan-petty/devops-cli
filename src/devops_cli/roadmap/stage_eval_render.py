@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from typing import Any
 
+from devops_cli.config.constants import CONST_ROADMAP_STAGE_MAX_REQUESTS
 from devops_cli.dry_run import PlannedRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.stage import CALLS_PER_ITEM_MAX
@@ -148,16 +149,24 @@ def replay_json(report: ReplayReport) -> str:
     return json.dumps(data, indent=2) + "\n"
 
 
-def planned_calls(cases: Sequence[StageCase], gateway: str) -> list[PlannedRequest]:
+def planned_calls(
+    cases: Sequence[StageCase], gateway: str, *, toolbox: bool = True
+) -> list[PlannedRequest]:
     """The model calls of a run, making none: the planner call of each case, with the calls it
-    may add."""
+    may add. With the toolbox, each of the two plan runs of a case can make
+    `CONST_ROADMAP_STAGE_MAX_REQUESTS` requests, and the split makes one."""
     texts = MESSAGES.roadmap
+    count = (
+        (CALLS_PER_ITEM_MAX - 1) * CONST_ROADMAP_STAGE_MAX_REQUESTS + 1
+        if toolbox
+        else CALLS_PER_ITEM_MAX
+    )
     return [
         PlannedRequest(
             method="POST",
             target=f"{gateway}/chat/completions",
             stdin=texts.stage_eval_dry_run_case.format(name=case.name),
-            repeat=texts.stage_eval_dry_run_repeat.format(count=CALLS_PER_ITEM_MAX),
+            repeat=texts.stage_eval_dry_run_repeat.format(count=count),
         )
         for case in cases
     ]
