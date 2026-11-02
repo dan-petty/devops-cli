@@ -104,7 +104,9 @@ from devops_cli.roadmap.implement_output_cap import output_cap_hooks
 from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_ALLOWED_PROGRAMS,
     IMPLEMENT_SHELL_PROGRAMS,
+    NEGATIVE_SEARCH_WORD,
     fill_prompt,
+    read_negative_search,
 )
 from devops_cli.roadmap.implement_shell_refusal import (
     argument_refusal_hooks,
@@ -793,15 +795,22 @@ def _unticked_failure(inputs: StepInputs) -> str | None:
     return MESSAGES.roadmap.implement_stop_unticked.format(task=unticked[0].text)
 
 
-def _command_failure(source: Path, argv: Sequence[str], shown: str) -> str | None:
-    """Run `argv` in the checkout. None when it exits 0, else why the step stops."""
+def _command_failure(
+    source: Path, argv: Sequence[str], shown: str, *, negative: bool = False
+) -> str | None:
+    """Run `argv` in the checkout. None when it exits 0, else why the step stops. A `negative`
+    search passes on exit 1 (git found no match), and a match (exit 0) is why it stops."""
     limit = load_settings().roadmap.implement.command_timeout_seconds
     try:
         done = run_subprocess(list(argv), cwd=source, quiet=True, timeout=limit)
     except subprocess.TimeoutExpired:
         return MESSAGES.roadmap.implement_stop_command_timeout.format(command=shown, seconds=limit)
-    if done.returncode == 0:
+    if done.returncode == (1 if negative else 0):
         return None
+    if negative and done.returncode == 0:
+        return MESSAGES.roadmap.implement_stop_search_found.format(
+            command=shown, output=_tail(done)
+        )
     return MESSAGES.roadmap.implement_stop_command_failed.format(
         command=shown, status=done.returncode, output=_tail(done)
     )
@@ -809,21 +818,29 @@ def _command_failure(source: Path, argv: Sequence[str], shown: str) -> str | Non
 
 def commands_failure(source: Path, commands: Iterable[str]) -> str | None:
     """Run each of `commands` in the checkout, in order: None when all exit 0, else why the first
-    that did not stops the run. A command whose program is not on the allowlist does not run. The
-    step runs the verification commands of a group, from the tasks as they were before the run."""
+    that did not stops the run. A command whose program is not on the allowlist does not run. A
+    command that starts with `!` runs only as the negative search of `read_negative_search`,
+    and passes when it finds nothing (#3263). The step runs the verification commands of a group,
+    from the tasks as they were before the run."""
     texts = MESSAGES.roadmap
     for command in commands:
         try:
             argv = shlex.split(command)
         except ValueError:
             return texts.implement_stop_command_unparsed.format(command=command)
-        if not argv or argv[0] not in IMPLEMENT_ALLOWED_PROGRAMS:
-            return texts.implement_stop_command_denied.format(
-                command=command,
-                program=argv[0] if argv else "",
-                allowed=", ".join(IMPLEMENT_ALLOWED_PROGRAMS),
-            )
-        failure = _command_failure(source, argv, command)
+        if argv and argv[0] == NEGATIVE_SEARCH_WORD:
+            search = read_negative_search(argv)
+            if isinstance(search, str):
+                return texts.implement_stop_search_refused.format(command=command, reason=search)
+            failure = _command_failure(source, search.argv, command, negative=True)
+        else:
+            if not argv or argv[0] not in IMPLEMENT_ALLOWED_PROGRAMS:
+                return texts.implement_stop_command_denied.format(
+                    command=command,
+                    program=argv[0] if argv else "",
+                    allowed=", ".join(IMPLEMENT_ALLOWED_PROGRAMS),
+                )
+            failure = _command_failure(source, argv, command)
         if failure is not None:
             return failure
     return None

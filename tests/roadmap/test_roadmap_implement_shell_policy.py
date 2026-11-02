@@ -20,15 +20,19 @@ from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_ALLOWED_PROGRAMS,
     IMPLEMENT_SHELL_PROGRAMS,
     IMPLEMENT_SHELL_REPLACEMENTS,
+    NEGATIVE_SEARCH_OPTION_LETTERS,
     PROGRAMS_PLACEHOLDER,
     REFUSALS_PLACEHOLDER,
     SHELL_PROGRAMS,
     SHELL_REFUSALS,
+    NegativeSearch,
     ShellAccess,
     fill_prompt,
     programs_table,
+    read_negative_search,
     refusals_table,
     refused_argument,
+    verification_problem,
 )
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -87,6 +91,10 @@ def test_each_read_only_program_has_the_access_read_and_no_other_program_has_it(
 
 def test_the_verification_commands_may_also_start_openspec_and_devops() -> None:
     assert IMPLEMENT_ALLOWED_PROGRAMS == (*IMPLEMENT_SHELL_PROGRAMS, "openspec", "devops")
+
+
+def test_the_negative_search_is_no_program_of_any_list() -> None:
+    assert "!" not in IMPLEMENT_ALLOWED_PROGRAMS
 
 
 def test_a_refused_program_is_not_an_allowed_program() -> None:
@@ -271,6 +279,24 @@ def test_a_read_only_program_reaches_the_process_edge_and_returns_its_output(
 
 
 @pytest.mark.parametrize(
+    "command", ["! git grep -n x src/", "!git grep -n x src/", "! rm -rf src/"]
+)
+def test_the_shell_of_the_agent_refuses_a_command_that_starts_with_a_bang(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    started: list[str],
+    command: str,
+) -> None:
+    script = ModelScript(tool_call("shell", command=command), say("Done."))
+
+    _step(store, checkout, script)
+
+    (answer,) = script.tool_answers()
+    assert ("not in the allowed list" in answer, [t for t in started if command in t]) == (True, [])
+
+
+@pytest.mark.parametrize(
     "command", ["grep -rn x src > out.txt", "cat a >> b", "ls > f", "find . -ex${U}ec echo {} +"]
 )
 def test_a_redirect_or_an_expansion_gives_a_refusal_and_starts_no_process(
@@ -289,6 +315,58 @@ def test_a_redirect_or_an_expansion_gives_a_refusal_and_starts_no_process(
         True,
         [],
     )
+
+
+# ── The negative search ───────────────────────────────────────────────────────────────────
+
+
+def test_the_options_of_a_negative_search_are_these_letters() -> None:
+    assert NEGATIVE_SEARCH_OPTION_LETTERS == "nIFiwlcq"
+
+
+@pytest.mark.parametrize("letter", NEGATIVE_SEARCH_OPTION_LETTERS)
+def test_each_option_of_a_negative_search_is_read(letter: str) -> None:
+    found = read_negative_search(["!", "git", "grep", f"-{letter}", "name", "src/"])
+
+    assert found == NegativeSearch((f"-{letter}",), "name", ("src/",))
+
+
+def test_a_negative_search_is_read_into_its_options_literal_and_paths() -> None:
+    found = read_negative_search(
+        ["!", "git", "grep", "-nI", "-w", "old name", "--", "src/", "tests/*.py"]
+    )
+
+    assert found == NegativeSearch(("-nI", "-w"), "old name", ("src/", "tests/*.py"))
+    assert isinstance(found, NegativeSearch)
+    assert found.argv == ["git", "grep", "-nI", "-w", "old name", "--", "src/", "tests/*.py"]
+
+
+def test_the_paths_of_the_run_follow_a_mark_also_when_the_command_has_none() -> None:
+    found = read_negative_search(["!", "git", "grep", "name", "src/"])
+
+    assert isinstance(found, NegativeSearch)
+    assert found.argv == ["git", "grep", "name", "--", "src/"]
+
+
+@pytest.mark.parametrize(
+    ("command", "runs"),
+    [
+        ("uv run devops ci", True),
+        ("devops docs check", True),
+        ("openspec validate x", True),
+        ("curl http://example.com", False),
+        ("uv run 'devops", False),
+        ("", False),
+        ("! git grep -n name src/", True),
+        ("! git grep -n name", False),
+        ("! rm -rf src/", False),
+        ("!git grep -n name src/", False),
+    ],
+)
+def test_the_verification_problem_is_none_exactly_when_the_step_runs_the_command(
+    command: str, runs: bool
+) -> None:
+    assert (verification_problem(command) is None) is runs
 
 
 # ── The prompt and the documents read the table ───────────────────────────────────────────
