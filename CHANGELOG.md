@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.43.0](https://github.com/dan-petty/devops-cli/compare/v0.42.1...v0.43.0) (2026-11-02)
+
+
+### Features
+
+* **roadmap:** map each acceptance criterion to a group ([#3180](https://github.com/dan-petty/devops-cli/issues/3180)) ([9639c02](https://github.com/dan-petty/devops-cli/commit/9639c020cb7ffcb3979dc776c33cab44f39379b7))
+* **roadmap:** the stage job probes the premise ([#3176](https://github.com/dan-petty/devops-cli/issues/3176)) ([b05e678](https://github.com/dan-petty/devops-cli/commit/b05e67834ba92f622862a8ceef57464591f570e6))
+
 ## [0.42.1](https://github.com/dan-petty/devops-cli/compare/v0.42.0...v0.42.1) (2026-11-02)
 
 

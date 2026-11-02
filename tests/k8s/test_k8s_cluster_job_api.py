@@ -7,6 +7,7 @@ manifest `k8s/devops/cronjob-runner.yaml`.
 from __future__ import annotations
 
 import copy
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -235,3 +236,108 @@ def test_the_log_tail_replaces_a_byte_that_is_not_utf_8(kube: FakeCluster) -> No
 
 def test_a_job_with_no_pod_has_an_empty_log_tail(kube: FakeCluster) -> None:
     assert ClusterJobs().log_tail("job-x", 40) == ""
+
+
+def test_a_listed_job_carries_its_start_time_its_deadline_and_its_annotations(
+    kube: FakeCluster,
+) -> None:
+    started = _job("devops-cli-runner-a", {"implement-repo": "aaaa"})
+    started["metadata"]["annotations"] = {"roadmap.devops-cli/progress-at": "1700000000"}
+    started["spec"] = {"activeDeadlineSeconds": 3600}
+    started["status"]["startTime"] = "2026-11-02T10:00:00Z"
+    kube.custom_objects.objects[JOBS] = [
+        started,
+        _job("devops-cli-runner-b", {"implement-repo": "aaaa"}),
+    ]
+
+    first, second = ClusterJobs().list_jobs({"implement-repo": "aaaa"})
+
+    assert (
+        first.started,
+        first.deadline,
+        dict(first.annotations),
+        second.started,
+        second.deadline,
+        dict(second.annotations),
+    ) == (
+        datetime(2026, 11, 2, 10, 0, tzinfo=UTC),
+        3600,
+        {"roadmap.devops-cli/progress-at": "1700000000"},
+        None,
+        None,
+        {},
+    )
+
+
+def test_a_job_is_created_with_the_deadline_and_the_annotations_given(kube: FakeCluster) -> None:
+    ClusterJobs().create(
+        ["roadmap"],
+        template=RUNNER_TEMPLATE,
+        deadline=3600,
+        annotations={"roadmap.devops-cli/progress-at": "1700000000"},
+    )
+
+    (job,) = kube.custom_objects.objects[JOBS]
+    assert (
+        job["spec"]["activeDeadlineSeconds"],
+        job["metadata"]["annotations"],
+    ) == (3600, {"roadmap.devops-cli/progress-at": "1700000000"})
+
+
+def test_a_job_keeps_the_deadline_of_the_template_when_the_caller_gives_none(
+    kube: FakeCluster,
+) -> None:
+    ClusterJobs().create(["roadmap"], template=RUNNER_TEMPLATE)
+
+    (job,) = kube.custom_objects.objects[JOBS]
+    assert (job["spec"]["activeDeadlineSeconds"], "annotations" in job["metadata"]) == (7200, False)
+
+
+def test_a_patch_sets_the_deadline_and_merges_the_annotations_of_the_job(
+    kube: FakeCluster,
+) -> None:
+    job = _job("devops-cli-runner-a", {"implement-repo": "aaaa"})
+    job["metadata"]["annotations"] = {"kept": "yes", "roadmap.devops-cli/progress": "old"}
+    job["spec"] = {"activeDeadlineSeconds": 3600, "backoffLimit": 0}
+    kube.custom_objects.objects[JOBS] = [job]
+
+    ClusterJobs().patch_job(
+        "devops-cli-runner-a", deadline=5400, annotations={"roadmap.devops-cli/progress": "new"}
+    )
+
+    (patched,) = kube.custom_objects.objects[JOBS]
+    (call,) = [c for c in kube.custom_objects.calls if c[0] == "patch_namespaced_custom_object"]
+    assert (
+        patched["spec"],
+        patched["metadata"]["annotations"],
+        call[1]["name"],
+        call[1]["plural"],
+    ) == (
+        {"activeDeadlineSeconds": 5400, "backoffLimit": 0},
+        {"kept": "yes", "roadmap.devops-cli/progress": "new"},
+        "devops-cli-runner-a",
+        "jobs",
+    )
+
+
+def test_a_patch_without_a_deadline_leaves_the_spec_alone(kube: FakeCluster) -> None:
+    job = _job("devops-cli-runner-a")
+    job["spec"] = {"activeDeadlineSeconds": 3600}
+    kube.custom_objects.objects[JOBS] = [job]
+
+    ClusterJobs().patch_job("devops-cli-runner-a", annotations={"a": "b"})
+
+    (call,) = [c for c in kube.custom_objects.calls if c[0] == "patch_namespaced_custom_object"]
+    assert call[1]["body"] == {"metadata": {"annotations": {"a": "b"}}}
+
+
+def test_a_refused_patch_is_an_error_that_names_the_action_and_the_status(
+    kube: FakeCluster,
+) -> None:
+    def refuse(*_: Any, **__: Any) -> Any:
+        raise api_exception(403, "Forbidden")
+
+    kube.custom_objects.patch_namespaced_custom_object = refuse  # type: ignore[method-assign]
+
+    with pytest.raises(ClusterJobError, match="patch Job in namespace devops: HTTP 403 Forbidden"):
+        ClusterJobs().patch_job("devops-cli-runner-a", deadline=5400)
