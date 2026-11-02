@@ -11,6 +11,7 @@ import pytest
 
 from devops_cli import exceptions
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
+from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_STEP_TOKENS
 from devops_cli.exceptions import GitHubOperationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import ended_by_stop
@@ -18,11 +19,14 @@ from devops_cli.roadmap.stage import (
     StageApplied,
     StageFailure,
     StagePlan,
+    StageResult,
     apply_stage,
     parse_filters,
     plan_stage,
+    render_stage_plan,
+    stage_results,
 )
-from devops_cli.roadmap.stage_change import StageSplit
+from devops_cli.roadmap.stage_change import StageProposal, StageSplit
 from devops_cli.roadmap.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.store import ItemField, StageRecordKey
 from tests.support.builders import make_stage_proposal
@@ -152,7 +156,7 @@ def test_a_staged_item_gets_one_comment_and_a_record_and_keeps_its_status(
     assert f"branch `{BRANCH}`" in comment
     assert "draft pull request #5" in comment
     assert "1. Keep the last comment:" in comment
-    assert "budget of 40000 tokens" in comment
+    assert f"budget of {DEFAULT_ROADMAP_STAGE_STEP_TOKENS} tokens" in comment
     assert "did not run" not in comment
     item = store.item(1)
     assert item is not None
@@ -467,3 +471,59 @@ def test_the_comment_holds_the_masked_argument_and_not_the_secret(
 
     (comment,) = _comments(store)
     assert (_SECRET in comment, "<masked-github-token>" in comment) == (False, True)
+
+
+def test_the_replay_of_2971_returns_the_item_with_the_evidence_and_opens_no_pull_request(
+    stage_repo: StageRepo, model_fake: ModelFake, github_api: GitHubApiFake
+) -> None:
+    """The issue cites `validate_url`, which a commit removed (#3011)."""
+    stage_repo.track({"src/devops_cli/urls.py": "def validate_url(url):\n    return url\n"})
+    stage_repo.git("rm", "-q", "src/devops_cli/urls.py")
+    stage_repo.git("commit", "-q", "-m", "remove validate_url")
+    stage_repo.git("push", "-q", "origin", "main")
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    number = seed_stageable(
+        store, "fix(http): validate_url lets a private address pass", body="Fix `validate_url`."
+    )
+    evidence = "`validate_url` has no definition at the staging commit. Commit removed it."
+    model_fake.answer(StageProposal.model_validate({"premise_failed": evidence}))
+
+    applied = _stage(store, stage_repo)
+
+    request = json.loads(model_fake.calls[0].prompt)
+    assert "remove validate_url" in request["probes"]
+    assert (applied.returned, applied.staged, applied.stopped, applied.failed) == (
+        (number,),
+        (),
+        (),
+        (),
+    )
+    (comment,) = _comments(store, number)
+    assert comment.startswith("<!-- devops roadmap stage -->\n")
+    assert comment.endswith(evidence)
+    item = store.item(number)
+    assert item is not None
+    assert item.status == "New"
+    assert StageRecordKey.BRANCH not in item.job_record
+    assert _pushed(stage_repo) == ["main"]
+    assert github_api.requested == []
+    assert model_fake.call_count == 1
+
+
+def test_a_returned_item_counts_under_the_result_returned(
+    stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    seed_stageable(store)
+    model_fake.answer(StageProposal.model_validate({"premise_failed": "The premise is false."}))
+    plan = plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(()),
+    )
+
+    applied = apply_stage(store, plan, source=stage_repo.clone)
+
+    assert stage_results(plan, applied) == {1: StageResult.RETURNED}
+    assert render_stage_plan(plan).count("## Returned: the premise is false") == 1

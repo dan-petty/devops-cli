@@ -16,11 +16,11 @@ The state of an Item is in labels on its issue ([ADR 0016](adr/0016-labels-hold-
 
 | Step | State after it | Service job | Agentic coder | Person | Gate |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| 1. Capture | `status/new` | Row `intake` places each candidate | `devops roadmap intake --title "<title>" --body-file <file> --confirm` | The same command, or a new issue on GitHub | None |
-| 2. Refine | `status/ready` | Rows `refine` and `alternatives` | `devops roadmap refine --item <number> --confirm` | The same command, and an answer to each open question in the issue | None |
-| 3. Plan | `status/ready` while the plan pull request is open, then `status/planned` | Row `stage` opens a draft plan pull request. Row `stage_ready` marks it ready when its checks pass | Write the change folder `openspec/changes/<issue>-<slug>/` as the first commit of the implementation branch | The same | G1 |
+| 1. Capture | `status/new` | Row `intake` places each candidate ([intake page](roadmap/intake.md)) | `devops roadmap intake --title "<title>" --body-file <file> --confirm` | The same command, or a new issue on GitHub | None |
+| 2. Refine | `status/ready` | Rows `refine` and `alternatives` ([refine page](roadmap/refine.md), [alternatives page](roadmap/alternatives.md)) | `devops roadmap refine --item <number> --confirm` | The same command, and an answer to each open question in the issue | None |
+| 3. Plan | `status/ready` while the plan pull request is open, then `status/planned` | Row `stage` opens a draft plan pull request ([stage page](roadmap/stage.md)). Row `stage_ready` marks it ready when its checks pass | Write the change folder `openspec/changes/<issue>-<slug>/` as the first commit of the implementation branch | The same | G1 |
 | 4. Claim | One `owner/*` label | Row `implement` sets `owner/service` when it makes a Job | `devops repos worktrees add <issue> --type <type> --slug <slug>` sets `owner/agent` | `devops roadmap claim <number> --as human --confirm` | None |
-| 5. Implement | `status/in-progress` | The runner Job runs one step for each task group | Tests first, then code, in a draft pull request made with `devops pr create` | The same | None |
+| 5. Implement | `status/in-progress` | The runner Job runs one step for each task group ([implement page](roadmap/implement.md)) | Tests first, then code, in a draft pull request made with `devops pr create` | The same | None |
 | 6. Verify | `status/in-review` | The runner Job watches the checks, runs bounded fix steps, and marks the pull request ready | `devops pr monitor <pr_number>`, then `devops pr ready <pr_number>` when the checks pass | The same | None |
 | 7. Review and merge | The issue is closed | None | None | Review, then merge | G2 |
 | 8. Release and learn | The release is out | None | None | Merge the release pull request. Read the release. File each problem as a new candidate | G3 |
@@ -30,9 +30,9 @@ Notes on the table:
 - A plan that an agent or a person writes is part of the one pull request that closes the issue. It has no separate gate G1. G1 exists for a plan that the Service stages.
 - A person can do every step of an agent or of the Service. A person's claim beats the Service's claim.
 - The command `devops roadmap explain <number>` says why the stage job and the implement job take an Item or leave it out. It names the first rule that fails for each job. It calls no model and writes nothing. The option `--why` on `devops roadmap stage` and `devops roadmap implement` lists the open Items that the filter does not name.
-- The command `devops roadmap inbox` lists what waits for a person, in the order of the gates. First the ready plan pull requests of the jobs (G1), the ready implementation pull requests of the jobs (G2) and the release pull request (G3). Then the Items in `status/blocked` with their cause, the claims with no activity for 7 days, and the labels of `.github/labels.yml` that the repository lacks. Each line has the number, the age and the one command or action that clears it. The pull requests of people and agents are in a second list. The command reads GitHub only and writes nothing. It does not list an image digest that is not rolled: `devops argo cd apps status devops` reads it.
+- The command `devops roadmap inbox` lists what waits for a person, in the order of the gates. Each line shows the one command or action that clears it. [The inbox page](roadmap/inbox.md) tells what it lists and reads.
 - The command `devops roadmap return <number> --comment "<evidence>" --confirm` sends an Item back to `status/new` when it cannot be built as written.
-- Refine moves a part of an Item that cannot be built or decided now to new issues when the rest of the Item is Ready (#2423). Each new issue starts with `Split from #<issue>.`. Refine names the new issues in its Ready comment and records them as `refine.deferred`. An Item that is too big for one pull request still waits for a person to split it.
+- Refine moves a part of an Item that cannot be built or decided now to new issues when the rest of the Item is Ready (#2423). [The refine page](roadmap/refine.md) tells how.
 
 ## The transitions
 
@@ -104,7 +104,7 @@ These are all the keys of the job record, by the job that writes them:
 | Stage | `stage.groups`, `stage.needs_split`, `stage.file_cap` | The task groups with their size, the group over the budget, and the cap of that measure |
 | Stage | `stage.ready` | The plan pull request that the Service has seen leave the draft state |
 | Implement | `implement.group`, `implement.sha`, `implement.branch`, `implement.pr` | The last group that passed, the last commit, the branch and the pull request |
-| Implement | `implement.stopped`, `implement.spend` | The step that stopped the Item, and the spend of its steps |
+| Implement | `implement.stopped`, `implement.failure`, `implement.spend` | The step that stopped the Item, the class of its failure, and the spend of its steps |
 | Implement | `implement.job`, `implement.job_state`, `implement.job_digest` | The runner Job that the Service made, its state after a round reported it, and the digest of the runner image that the Job ran |
 
 ## The stop and retry path
@@ -112,7 +112,7 @@ These are all the keys of the job record, by the job that writes them:
 The log comment, the suspension of a row and the other details are in [k8s/README.md](../k8s/README.md), Roadmap service step 16, and Runner Jobs.
 
 1. A step stops, a conflict arises, a command fails, or a check fails twice. The runner Job pushes the commits that passed and comments the stop on the issue.
-2. The Job sets `status/blocked` and records the step in `implement.stopped`. The Status function of the Service derives Blocked from that record, so the runner and the Service name the Status in one place.
+2. The Job sets `status/blocked` and records the step in `implement.stopped` and the class of the failure in `implement.failure`. The Status function of the Service derives Blocked from that record, so the runner and the Service name the Status in one place.
 3. A Job that ends with the Item still in progress, or Ready or Planned with no stop, is a stop that the runner could not write. The next round of row `implement` sets the Item to Blocked and records `implement.stopped` as `job`.
 4. The Service records the digest of the runner image in `implement.job_digest` when it makes a Job. The report comment of the Job names that digest. This is the digest of the stop.
 5. The Service makes no Job for a Blocked Item. Two rules take it out of Blocked, and a comment of the Service names the rule that ran:
@@ -121,6 +121,27 @@ The log comment, the suspension of a row and the other details are in [k8s/READM
 6. A clear removes `implement.stopped` and sets `status/ready`, or `status/planned` when the plan is on the default branch. The same round takes the Item again, with its branch and its draft pull request.
 
 Each new Job overwrites `implement.job_digest`. So a second stop on the same image finds equal digests, and only a retry clears it. A stop with no digest on record, and a template with no digest, are cleared by a retry only. The Service takes no Item that an agent or a person claimed, and it never clears a `status/blocked` label that a person set. The ledger of failed rounds is a different thing: it suspends a row after three failed rounds on the same input, and the stop path does not change it.
+
+## The failure classes
+
+A stop has a class (`roadmap/failure.py`, #3065). The classifier is a pure function of the error text, the exit status, the refusal of a tool, the name of the check and the last message of the agent. A failure that no rule matches is `ci_infra`. The stop comment names the class, the action taken and the action left, and the Job log holds one line with the class and the action left. The Service adds 1 to `devops_cli_service_implement_failures_total` with the label `class` when a round reports the Job. A Job that left the Item with no result gets the class of the tail of its log.
+
+| Class | Default action | Meaning |
+| :--- | :--- | :--- |
+| `provider` | `retry` | The model provider answered with an error or did not answer |
+| `parser` | `change_tier` | The provider could not parse a call of the model, or the output did not validate |
+| `test` | `repair` | A test failed |
+| `lint` | `repair` | A lint, format, hook or static check failed |
+| `types` | `repair` | `mypy` or another type check failed |
+| `plan_defect` | `amend` | The plan cannot be run as written: the step changed no file, left a task unticked, or its inputs do not fit the window |
+| `premise_false` | `return` | The premise of the Item is false |
+| `oom` | `raise_limit` | A process was killed for memory |
+| `timeout` | `retry` | A command, a model call or the watch of the checks ran out of time |
+| `refused_tool` | `wait` | A tool refused the calls of the agent, or came back as a retry too often |
+| `conflict` | `wait` | A rebase or the pull request has a merge conflict |
+| `ci_infra` | `retry` | The infrastructure failed, and every failure that no other class matches |
+
+The Job runs one action by itself: the fix rounds of `roadmap.implement.repair_rounds` for a failed check. The action left is the default of the class, or `wait` when the Job took that default already. A person runs the other actions. The issues #3060, #3062 and #3098 own their dispatch.
 
 ## The three gates
 
@@ -207,8 +228,21 @@ uv run devops roadmap eval stage --replay
 
 - **The live run** plans each case with the real stage planner and a checkout of the commit the plan was staged on. The planner has the read-only toolbox of the job (#3037): it reads the files of that commit, searches them, reads the git log and the base specs, and then gives its plan. It prints one row for each type of defect, and a score. It stores the report as JSON under the data directory, in `roadmap_eval/stage/`. `--no-toolbox` plans with one call and no tool, as the job did before the toolbox. Both modes print the same table and store a report of the same shape.
 - **How to read the score.** The planner sends a refused reply back, so the plan it ends with always passes the gates. The score therefore judges the first reply of the model. For a type of defect that a gate catches, `Cases` counts the plans that had it, `Avoided` counts the first replies that passed the gate, `Caught` counts the first replies that the gate refused, and `Rate` is `Avoided` over `Cases`. A type that no gate judges yet shows its count and a dash, because only a reviewer can judge it. `Score` is the share of avoided defects over all scored rows. A first reply that breaks the schema is sent back inside the client, so the run cannot see it. The `kind` row therefore shows its count and a dash too, and the replay measures that gate. A case whose model breaks the schema twice ends `failed`, and it counts as neither avoided nor caught.
-- **The replay** calls no model and reads no git. It runs the recorded plans through the gates and lists, for each gate, the known defects it catches. The `paths` gate is `check_proposal`, the check that the job runs on a reply: the path rule and the rules of the spec delta, with the capabilities of the case. All recorded plans passed the spec rules when they were staged, so these rules fail the replay only when they refuse a good plan. It exits 1 when a gate stops refusing a known-bad plan, or refuses a good plan. The test suite runs it on the whole set. A defect for a gate that does not exist yet is marked `pending`: the replay lists it and fails nothing. When the gate lands, its pull request sets the gate in the case files, and the replay checks it from then on.
+- **The replay** calls no model and reads no git. It runs the recorded plans through the gates and lists, for each gate, the known defects it catches. The `paths` gate is `check_proposal`, the check that the job runs on a reply: the path rule, the rules of the spec delta (#3013) with the capabilities of the case, and the form of the `verify` commands and of the new test files (#3015). It is one gate, as the job runs it, so it judges the defects of the types `missing_path`, `spec_delta_wrong` and `verify_form`; a defect that it refuses for another reason than a missing path holds the text of the problem as its `message`. The `criteria` gate (#3019) checks that the `criteria` list of the reply maps each acceptance criterion of the issue to a group or to `pending-person`. An acceptance criterion is a top-level item of the list under the heading `Acceptance criteria` in the text that a person wrote, before the refine block; an issue with no such list has none. The check reads the whole issue body, and a refused reply names the exact text to copy. A recorded plan has no `criteria` list, so the replay does not judge it, and its dropped-criterion defects have the gate `none`; the run of the model judges the gate on the first reply. It exits 1 when a gate stops refusing a known-bad plan, or refuses a good plan. The test suite runs it on the whole set. A defect for a gate that does not exist yet is marked `pending`: the replay lists it and fails nothing. No defect has this mark now. When a gate lands, its pull request sets the gate in the case files, and the replay checks it from then on. A recorded plan cannot show some defects of a type that a gate catches: the facts of a case hold a thinned tree and no text of the base specs, and the replay reads no code and no git. Such a defect has the gate `none` and a `reason` in `case.json`. This holds for the code that a plan ignores (`ignores_existing_code`: #3012 gives that code to the model as input and checks nothing on the reply) and for the order of the work (`task_order`: #3017 refuses only a path that a later group creates). The report prints, for each type of defect, the defects that a gate caught and missed, and the defects that no gate judges, and then the share of all the known defects that a gate judges. A change of a gate states these counts before and after.
 - **The rule.** A pull request that changes the stage prompt (`roadmap_stage_change.md`) or a check of the stage job (`check_proposal` and the gates it calls) states the score of the same model before and after the change. Use one model for both runs, and say which. To measure the toolbox, run the same model with and without `--no-toolbox` on the whole set, and state both scores.
+
+### Measure the verification pass
+
+After the gates, the stage job asks a model of the task `ai.tasks.verification` to review the plan with the issue and the start of each file that the plan cites (#3153). The same golden set measures it:
+
+```text
+uv run devops roadmap eval verify --model <model> --source <repository>
+uv run devops roadmap eval verify --case 2260 --dry-run
+```
+
+- **The run** reads the files that each recorded plan cites from the commit it was staged on, so `--source` must be a repository that holds those commits. It matches each finding to one labeled defect of the same type, the most serious defect first, and prints the recall of all labeled defects, the recall of the blocker and major ones, the recall for each type, and the findings on the 3 good plans. It stores the report, with the findings of each case, as JSON under the data directory, in `roadmap_eval/verify/`.
+- **How to read the score.** The match is by type and not by text, so a finding of the right type on the wrong spot counts. Read the findings in the report before you trust a high recall. A finding on a good plan is a false alarm. The score also counts those that would send the plan back to the planner.
+- **The rule.** A pull request that changes the verification prompt (`roadmap_stage_verify.md`) or the model of the task states the score of the model before and after the change.
 
 ## Checks of the implement job
 

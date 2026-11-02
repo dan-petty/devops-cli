@@ -45,7 +45,8 @@
    "where": "tasks.md groups 1-5 (new test files)",
    "problem": "The plan puts five new test files at the tests/ top level (tests/test_dry_run_uv.py and others). Every prior delivery puts command dry-run tests under tests/commands/ with a name like test_<group>_dry_run.py. None of the five files exists, and the plan has no task that creates a file in the repo convention.",
    "evidence": "Existing: tests/commands/test_argo_dry_run.py, test_pr_dry_run.py, test_cloudflare_dry_run.py, test_review_dry_run.py. MISSING on main: tests/test_dry_run_uv.py, test_dry_run_test_cmd.py, test_dry_run_mcp.py, test_dry_run_serve.py, test_dry_run_pipeline_ci.py.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The plan lists the flat test files in `changes`, and no group lists them in `creates`. The test-path rule reads `creates`."
   },
   {
    "type": "task_order",
@@ -53,7 +54,8 @@
    "where": "tasks.md group 8 versus groups 1-7",
    "problem": "The order breaks the ratchet test. Groups 1-7 add the dry_run_class to each command, but the paths stay in dry_run_gaps.json until group 8. The ratchet test reports an error for a classified command still in the gap list. So the test run after groups 1-7 fails. Also, task 8.1 asks for a failing test that the ratchet test 'fails on the base'. The ratchet test passes on base, so this check cannot hold. Each group should remove its own paths from the gap list, as the archived 2240 plan and the sibling plan 2258 do.",
    "evidence": "tests/invariants/test_dry_run_class_ratchet.py audit_dry_run_ratchet: 'Command ... has dry-run class ... but is still listed in tests/fixtures/dry_run_gaps.json. Remove this entry from the list.' Sibling plan 2258 task 1.2 removes the gap entries in the same group that adds the class.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The order fault is a test or code that a later group provides, not a path. The forward-read rule names only a path that a later group creates."
   },
   {
    "type": "false_premise",
@@ -61,7 +63,7 @@
    "where": "proposal.md Feasibility; design.md",
    "problem": "Rule 2 asks for evidence that the premise holds. Feasibility only lists checks the implementer will run later. It cites 'shown in context' and 'CHANGELOG shows 15+ prior deliveries'. The issue asks to decide, with evidence, whether the pass-through commands uv run and pipeline can list a plan. The design answers with CHANGELOG.md:1390 and tests/test_roadmap_dry_runs.py. Line 1390 of CHANGELOG.md is about 'Active marginalia' and 'Socratic inquiry' under devops ai research. It has no dry-run content. The second source does not exist. The decision for uv run (an arbitrary command with extra args and a possible implicit sync) and for pipeline (Dagger) has no real evidence.",
    "evidence": "git show origin/main:CHANGELOG.md lines 1385-1395: 'Active marginalia & epistemic scratchpad (devops ai research annotate)' and 'Socratic inquiry'. tests/test_roadmap_dry_runs.py is missing on main.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "verify_form",
@@ -69,7 +71,8 @@
    "where": "tasks.md (all verify commands)",
    "problem": "Verify commands use uv run pytest <file>. openspec/config.yaml asks for 'uv run devops ci test tests/test_<feature>.py', and sibling plan 2258 uses that form. Prior archived plans used uv run pytest with -n 0, so this is a weak finding, but the plan does not follow the config.",
    "evidence": "openspec/config.yaml line 33: 'name each task's verification command, such as uv run devops ci test tests/test_<feature>.py'.",
-   "gate": "pending"
+   "gate": "paths",
+   "message": "A `verify` command starts with `uv run devops`"
   },
   {
    "type": "other",

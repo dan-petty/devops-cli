@@ -34,7 +34,8 @@
    "where": "tasks.md tasks 1.1 and 1.2; proposal.md Feasibility",
    "problem": "Verify commands use `uv run pytest tests/test_pricing.py -x`. openspec/config.yaml asks for `uv run devops ci test <path>`, and docs/TESTING.md owns that command. The implement job could not run raw test commands: its shell refused cd, python and uv. The job stopped at group 1 after it wrote a scratch tmp_test.py to the repo root. The plan gave it no usable verify command.",
    "evidence": "openspec/config.yaml tasks rule: 'name each task's verification command, such as `uv run devops ci test tests/test_<feature>.py`'. Implement comment on #2462: 'Refused commands: cd 3, python 2, uv 1' and 'Stopped at group 1'. Issue labels now include status/blocked.",
-   "gate": "pending"
+   "gate": "paths",
+   "message": "A `verify` command starts with `uv run devops`"
   },
   {
    "type": "criterion_dropped",
@@ -42,7 +43,7 @@
    "where": "tasks.md task 1.1 and specs/ai-spend-pricing/spec.md",
    "problem": "The three spec scenarios say `devops ai cost report --by backend` exits 0 and shows `unknown`. The tasks test only _is_single_server_local and is_local. No task asserts the command or the table label. A guard test alone would not prove the scenarios. The plan also gives no test names, so the Feasibility check `-k unparseable` selects nothing unless the implementer picks that word.",
    "evidence": "src/devops_cli/commands/ai_cost.py _served_by_label (line 212) returns CONST_AI_BACKEND_HOST_UNKNOWN when served_by_authority returns None. I ran served_by_authority('http://[::1') and it returned None. tests/ai/spend/test_ai_spend_cli.py already has a cli('ai','cost','report','--by','backend') test at line 323 that could take a legacy-row case. config.yaml says 'Write only scenarios a test under tests/ can assert'. Task 1.1 lists no CLI-level test.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "false_premise",
@@ -50,7 +51,7 @@
    "where": "proposal.md ## Feasibility",
    "problem": "Feasibility is made of statements like 'The context shows ...'. It holds no command output. It never shows urlsplit('http://[::1') raising ValueError, or that the report path reaches this function. AGENTS.md rule 2 asks for evidence of the premise. The claims are true, but the section does not record the proof.",
    "evidence": "python3 -c \"from urllib.parse import urlsplit; urlsplit('http://[::1')\" raises ValueError('Invalid IPv6 URL'). The proposal has no such output. The first and second 'checks' are only future test runs.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "other",
@@ -66,7 +67,8 @@
    "where": "specs/ai-spend-pricing/spec.md, scenario 'Valid local backend still detected'",
    "problem": "The THEN clause says 'the backend column shows the resolved value'. That is vague. The test cannot assert a value that is not written. Name the expected label (localhost:11434).",
    "evidence": "spec.md line: '**THEN** The row is classified as local and the backend column shows the resolved value'.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The fault is a vague THEN clause. A person judges it."
   },
   {
    "type": "other",
