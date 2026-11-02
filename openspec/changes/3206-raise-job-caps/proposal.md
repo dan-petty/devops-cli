@@ -34,9 +34,9 @@ The change keeps these limits, with the reason in the table: every size that Git
 
 ## Impact
 
-- Code: `src/devops_cli/config/constants.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/roadmap/implement_step.py`, `implement_run.py`, `implement_hooks.py`, `implement_scoped_ci.py`, `implement_pull.py`, `stage_toolbox.py`, `stage.py`, `refine.py`, `refine_investigation.py`, `alternatives.py`.
+- Code: `k8s/README.md` (one default), `src/devops_cli/config/constants.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/roadmap/implement_step.py`, `implement_run.py`, `implement_hooks.py`, `implement_scoped_ci.py`, `implement_pull.py`, `stage_toolbox.py`, `stage.py`, `refine.py`, `refine_investigation.py`, `alternatives.py`.
 - Documents: `docs/ENV_VARS.md` and `docs/CONFIGURATION.md` (generated).
-- Tests: `tests/roadmap/test_roadmap_limit_classes.py` (new), `tests/roadmap/test_roadmap_implement_timeouts.py` (new), and the tests that held the old numbers.
+- Tests: `tests/roadmap/test_roadmap_limit_classes.py` (new), `tests/roadmap/test_roadmap_implement_timeouts.py` (new), the deadline tests (`tests/roadmap/test_roadmap_implement_deadline.py` and `tests/roadmap/test_roadmap_implement_deadline_settings.py`), and the tests that held the old numbers.
 - Specs: the capabilities above, by archive. `roadmap-implement-job` changes the two defaults of the deadline settings.
 - The stall and the extension of the progress-based Job deadline (#3063) follow the new watch: the stall is above the longest silent wait by 600 s (a test of that change holds the rule), so the defaults go from 2400 s and 3600 s to 4200 s and 5400 s. The change touches only those two defaults, their test and their spec text, not the deadline code.
 - Follow-up outside this change: `k8s/devops/configmap.example.yaml` sets `step_tokens: 40000`, so the Service keeps 40000 until a person removes the line.

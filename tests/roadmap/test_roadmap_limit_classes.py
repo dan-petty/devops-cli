@@ -333,7 +333,7 @@ def test_every_class_in_the_table_is_a_known_class_with_a_reason() -> None:
 
 @pytest.mark.parametrize("name", REMOVED)
 def test_a_removed_limit_does_not_come_back(name: str) -> None:
-    assert (hasattr(constants, name), hasattr(defaults, name)) == (False, False)
+    assert [module.__name__ for module in (constants, defaults) if name in vars(module)] == []
 
 
 # ── The limits fit the windows ────────────────────────────────────────────────────────────
