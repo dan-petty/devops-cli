@@ -161,6 +161,25 @@ _IMAGE_SCAN = (
     "release holds: {finding}. The scan stays as it is, so the image waits for a release without "
     "them (#3108). A Job cannot run the {rows}, so the pull request checks it."
 )
+# A hook of `.pre-commit-config.yaml` that runs a program from `NOT_IN_RUNNER`, with the programs
+# it runs. The Job leaves the hook out of the configuration it gives `pre-commit` when one of its
+# programs is not on PATH, because no agent can repair a missing program. The checks of the pull
+# request run the hook (#3134). A test holds that each program is in `NOT_IN_RUNNER`.
+HOOK_PROGRAMS: dict[str, tuple[str, ...]] = {
+    "devops-ci-workflows-pre-push": ("actionlint",),
+}
+
+
+def hooks_without_programs(search_path: str | None = None) -> tuple[str, ...]:
+    """The ids of the hooks of `HOOK_PROGRAMS` that a program is missing for, found on
+    `search_path` (the PATH of the process when None)."""
+    return tuple(
+        hook
+        for hook, programs in HOOK_PROGRAMS.items()
+        if any(shutil.which(program, path=search_path) is None for program in programs)
+    )
+
+
 NOT_IN_RUNNER: dict[str, str] = {
     "kubectl": _NO_CLUSTER,
     "kustomize": _NO_CLUSTER,

@@ -532,11 +532,15 @@ The test modules of the scoped tests check SHALL be those that the selector of `
 - **THEN** `devops ci test` ran with the changed test module only, and the comment says that the others are left to the required checks of CI
 
 ### Requirement: Every hook run reads the configuration of the default branch
-Every `pre-commit` call of the job SHALL name, with `--config`, a copy of the `.pre-commit-config.yaml` of the default branch, never the file of the checkout. The job SHALL run no hook when the default branch holds none.
+Every `pre-commit` call of the job SHALL name, with `--config`, a copy of the `.pre-commit-config.yaml` of the default branch, never the file of the checkout. The job SHALL run no hook when the default branch holds none. The copy SHALL leave out a hook whose program the runner image does not hold and that is not on PATH, because no agent can repair a missing program; the checks of the pull request run that hook.
 
 #### Scenario: The agent edits the hook configuration
 - **WHEN** the agent writes `repos: []` to `.pre-commit-config.yaml`
 - **THEN** every `pre-commit` call names the copy of the configuration of the default branch with `--config`
+
+#### Scenario: A hook whose program is missing
+- **WHEN** the default branch configuration holds the hook `devops-ci-workflows-pre-push` and `actionlint` is not on PATH
+- **THEN** the copy holds every other hook and not that one
 
 ### Requirement: A failed scoped check gets fix steps, and an exhausted budget stops the item
 A failed scoped check SHALL start a fix step with the name and the log of the check. Then the job SHALL generate the documentation again, commit its changes, and run the scoped checks again. The job SHALL run at most `roadmap.implement.repair_rounds` fix steps for the scoped checks. When no round is left, or a fix step stops, the job SHALL stop the item at the step `scoped checks` and push nothing. An error or a command that runs out of time there SHALL push nothing too.
