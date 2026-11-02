@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.46.1](https://github.com/dan-petty/devops-cli/compare/v0.46.0...v0.46.1) (2026-11-02)
+
+
+### Performance Improvements
+
+* **roadmap:** raise the soft caps and timeouts of the jobs ([#3223](https://github.com/dan-petty/devops-cli/issues/3223)) ([bc0434e](https://github.com/dan-petty/devops-cli/commit/bc0434eebac536a75f81c69e3ee080b1623bf2ea))
+
 ## [0.46.0](https://github.com/dan-petty/devops-cli/compare/v0.45.0...v0.46.0) (2026-11-02)
 
 
