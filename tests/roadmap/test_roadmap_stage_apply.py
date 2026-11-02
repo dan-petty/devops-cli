@@ -35,6 +35,7 @@ from tests.support.roadmap_stage import (
     seed_stageable,
     validate_args,
 )
+from tests.support.scripted_model import Script, call
 from tests.support.service_stop import stop_error
 
 if TYPE_CHECKING:
@@ -72,7 +73,11 @@ def valid_openspec(openspec_fake: OpenSpecFake) -> OpenSpecFake:
 
 
 def _stage(
-    store: InMemoryRoadmapStore, repo: StageRepo, *, step_tokens: int | None = None
+    store: InMemoryRoadmapStore,
+    repo: StageRepo,
+    *,
+    step_tokens: int | None = None,
+    investigator: Script | None = None,
 ) -> StageApplied:
     plan = plan_stage(
         store,
@@ -80,6 +85,7 @@ def _stage(
         source=repo.clone,
         filters=parse_filters(()),
         step_tokens=step_tokens,
+        investigator=investigator.model() if investigator else None,
     )
     return apply_stage(store, plan, source=repo.clone)
 
@@ -376,3 +382,87 @@ def test_a_run_with_nothing_to_stage_writes_nothing(
     assert (applied.staged, applied.stopped, applied.failed) == ((), (), ())
     assert github_api.requested == []
     assert model_fake.call_count == 0
+
+
+# ── The report of the plan run (#3037) ────────────────────────────────────────
+
+_SECRET = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_lists_the_tool_calls_and_the_counts_of_the_plan_run(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    script = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
+
+    applied = _stage(store, stage_repo, investigator=script)
+
+    (comment,) = _comments(store)
+    assert applied.staged == (1,)
+    assert "The plan run made 2 model request(s)" in comment
+    assert '1. `read_file({"path":"src/devops_cli/sample.py"})`' in comment
+    assert "input tokens" in comment
+    assert "output tokens" in comment
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_of_an_item_that_made_no_tool_call_says_so(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    _stage(store, stage_repo, investigator=Script(make_stage_proposal()))
+
+    (comment,) = _comments(store)
+    assert "The plan run made 1 model request(s)" in comment
+    assert "The model made no tool call." in comment
+
+
+def test_the_comment_of_an_item_planned_with_one_call_has_no_report(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    model_fake.answer(make_stage_proposal())
+
+    _stage(store, stage_repo)
+
+    (comment,) = _comments(store)
+    assert "plan run" not in comment
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_of_an_item_with_two_plan_runs_lists_the_calls_of_both_and_sums_the_counts(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    stage_repo.track({"tests/security/test_scanner_tool_executor.py": ""})
+    group = make_stage_proposal().groups[0]
+    refused = make_stage_proposal(
+        groups=[
+            group.model_copy(
+                update={"changes": [*group.changes, "tests/test_scanner_tool_executor.py"]}
+            )
+        ]
+    )
+    script = Script(
+        call("list_files", directory="src"),
+        refused,
+        call("read_file", path="src/devops_cli/sample.py"),
+        make_stage_proposal(),
+    )
+
+    _stage(store, stage_repo, investigator=script)
+
+    (comment,) = _comments(store)
+    assert "The plan run made 4 model request(s)" in comment
+    first = comment.index("1. `list_files(")
+    second = comment.index("2. `read_file(")
+    assert first < second
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_holds_the_masked_argument_and_not_the_secret(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    script = Script(call("search_code", text=_SECRET), make_stage_proposal())
+
+    _stage(store, stage_repo, investigator=script)
+
+    (comment,) = _comments(store)
+    assert (_SECRET in comment, "<masked-github-token>" in comment) == (False, True)

@@ -56,7 +56,7 @@ import json
 import shutil
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from functools import partial
@@ -102,6 +102,7 @@ from devops_cli.github.client import CreatedPull
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
+from devops_cli.roadmap.agent_run import RunTrace
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_type
@@ -484,7 +485,9 @@ CALLS_PER_ITEM_MAX: Final[int] = 3
 class StagedChange:
     """A change ready to write: the target, the title and the body of its draft pull request, the
     files by path from the repository root, the measure of each task group, whether
-    `openspec validate` ran on it (it does not without the binary), and the budget of the run."""
+    `openspec validate` ran on it (it does not without the binary), the budget of the run, and
+    what the plan runs of the toolbox did (#3037). The trace is empty for an item planned with one
+    call."""
 
     target: StageTarget
     title: str
@@ -493,6 +496,7 @@ class StagedChange:
     groups: tuple[MeasuredGroup, ...]
     validated: bool
     budget: int
+    trace: RunTrace = field(default_factory=RunTrace)
 
 
 @dataclass(frozen=True)
@@ -599,8 +603,10 @@ class _Planner:
         budget: int,
         window: int,
         tool: OpenSpecTool | None,
+        toolbox: ToolboxClient | None = None,
     ) -> None:
         self._client = client
+        self._toolbox = toolbox
         self._source = source
         self._sha = sha
         self._known = known
@@ -617,6 +623,8 @@ class _Planner:
         back to the model once, with the problem. The model splits the groups at most once, so an
         item costs three model calls at most."""
         self._split_asked = False
+        if self._toolbox is not None:
+            self._toolbox.traces.clear()
         request = self._request(target)
         proposal = self._ask(StageProposal, _CHANGE_TASK, request)
         outcome = self._settle(target, proposal)
@@ -631,6 +639,8 @@ class _Planner:
         if isinstance(outcome, _Refused):
             message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
             raise _stage_error(message, target)
+        if isinstance(outcome, StagedChange) and self._toolbox is not None:
+            return replace(outcome, trace=RunTrace.combined(self._toolbox.traces))
         return outcome
 
     def _request(self, target: StageTarget) -> dict[str, Any]:
@@ -940,11 +950,11 @@ def _planner_of(
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
     context window of the `analysis` task once. With an `investigator`, a plan run calls the
     read-only tools on the checkout, and `client` answers the other calls."""
-    if investigator is not None:
-        client = ToolboxClient(investigator, client, checkout, sha)
+    toolbox = None if investigator is None else ToolboxClient(investigator, client, checkout, sha)
     window = load_settings().ai.for_task("analysis").context_window or _DEFAULT_WINDOW
     return _Planner(
-        client=client,
+        client=toolbox or client,
+        toolbox=toolbox,
         source=checkout,
         sha=sha,
         known=capabilities_of(checkout),
@@ -1074,9 +1084,36 @@ def _groups_recorded(groups: Sequence[MeasuredGroup]) -> str:
     return json.dumps([[m.group.title, m.tokens] for m in groups], ensure_ascii=False)
 
 
+def _run_report(trace: RunTrace) -> str:
+    """The report of the plan runs of an item: the counts and each tool call, in order. It is
+    empty for an item that was planned with one call, which made no run of the toolbox."""
+    if not trace.requests:
+        return ""
+    texts = MESSAGES.roadmap
+    calls = [
+        texts.stage_comment_call.format(
+            index=index, name=call.name, argument=call.argument.replace("`", "'")
+        )
+        for index, call in enumerate(trace.tool_calls, start=1)
+    ]
+    listed = (
+        texts.stage_comment_calls.format(calls="\n".join(calls))
+        if calls
+        else texts.stage_comment_no_calls
+    )
+    return texts.stage_comment_run.format(
+        requests=trace.requests,
+        input_tokens=trace.input_tokens,
+        output_tokens=trace.output_tokens,
+        calls=listed,
+    )
+
+
 def _notes(change: StagedChange) -> str:
-    """The note that ends the comment of a staged item: a validation that did not run."""
-    return "" if change.validated else MESSAGES.roadmap.stage_comment_not_validated
+    """The notes that end the comment of a staged item: the report of the plan runs, and a
+    validation that did not run."""
+    unvalidated = "" if change.validated else MESSAGES.roadmap.stage_comment_not_validated
+    return _run_report(change.trace) + unvalidated
 
 
 def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChange) -> None:

@@ -2630,6 +2630,14 @@ class RoadmapMessages:
         "of each step, for a budget of {budget} tokens:\n\n{groups}{notes}"
     )
     stage_comment_group: str = "{index}. {title}: {tokens} tokens"
+    # The report of the plan run of the toolbox (#3037), after the task groups.
+    stage_comment_run: str = (
+        "\n\nThe plan run made {requests} model request(s), and used {input_tokens} input tokens "
+        "and {output_tokens} output tokens. {calls}"
+    )
+    stage_comment_calls: str = "The tool calls, in order:\n\n{calls}"
+    stage_comment_no_calls: str = "The model made no tool call."
+    stage_comment_call: str = "{index}. `{name}({argument})`"
     stage_comment_not_validated: str = (
         "\n\nThe `openspec` binary was not on PATH, so `openspec validate` did not run. The "
         "OpenSpec gate of CI judges the change."

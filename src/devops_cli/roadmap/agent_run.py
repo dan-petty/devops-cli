@@ -4,7 +4,7 @@ that keeps a long reply inside the gateway's tunnel, and the spend record of a r
 from __future__ import annotations
 
 import re
-from collections.abc import AsyncIterable, Collection, Mapping, Sequence
+from collections.abc import AsyncIterable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
@@ -138,6 +138,19 @@ class RunTrace:
     input_tokens: int = 0
     output_tokens: int = 0
     violations: int = 0
+
+    @classmethod
+    def combined(cls, traces: Iterable[RunTrace]) -> RunTrace:
+        """One trace for all `traces`, in order: their tool calls joined and their counts summed.
+        The violations are those of the last trace that had any."""
+        total = cls()
+        for trace in traces:
+            total.tool_calls.extend(trace.tool_calls)
+            total.requests += trace.requests
+            total.input_tokens += trace.input_tokens
+            total.output_tokens += trace.output_tokens
+            total.violations = trace.violations or total.violations
+        return total
 
     def absorb(self, messages: Sequence[ModelMessage], *, tools: Collection[str]) -> None:
         """Add the run of `messages` to the trace. `tools` are the names of the function tools of
