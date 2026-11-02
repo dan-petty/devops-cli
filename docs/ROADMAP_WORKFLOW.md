@@ -210,6 +210,7 @@ The programs that the shell refuses, and what to run instead:
 | `pip3` | nothing. The lockfile gives the dependencies |
 | `rg` | the tool `grep`, or `grep` in the shell |
 | `cd` | nothing. Every command runs in the checkout |
+| `!` | `git grep -n <literal> -- <paths>`. Read no output as a pass. The step runs a verification command that starts with `!` itself, after your run |
 
 The runner image holds the tools that the gate and the hooks need, listed in `RUNNER_TOOLS` in `src/devops_cli/roadmap/runner_tools.py`. The image leaves out `actionlint`, `shellcheck` and Trivy, because the image scan fails on the newest release of each (#3108), and it leaves out npm, so a Job cannot run the `audit` row, the `actionlint` row or the IaC scan of Trivy. The pull request runs them. The shell can start only the programs above. The checks of a group run them through `uv run`.
 

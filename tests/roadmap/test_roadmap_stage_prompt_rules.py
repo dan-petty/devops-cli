@@ -160,6 +160,15 @@ def test_the_summary_limit_of_the_prompt_is_the_limit_of_the_schema_and_fits_the
     assert make_stage_proposal(summary=summary).summary == summary
 
 
+def test_the_prompt_says_that_the_limit_counts_the_summary_as_the_title_shows_it() -> None:
+    """A handle, a link or a comment opener gets more characters in the title, so the model
+    writes none of them in a summary that is near the limit (#3249)."""
+    (bullet,) = re.findall(r"- `summary`:[^\n]*", _PROMPT)
+
+    assert "handle" in bullet
+    assert "link" in bullet
+
+
 def test_the_summary_limit_of_the_code_is_the_one_of_the_contributing_guide() -> None:
     found = re.search(r"summary[^.]*?has at most (\d+) characters", _CONTRIBUTING)
     assert found is not None

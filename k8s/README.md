@@ -1144,7 +1144,7 @@ Expose homelab Kubernetes services securely to the internet without public ports
 
 ```
                                   Cloudflare Edge
-[Client / Browser] ──── HTTPS ───▶ [DNS: *.homelab.<domain>]
+[Client / Browser] ──── HTTPS ───▶ [DNS: *.<domain>]
                                          │
                                   [Access SSO / Zero Trust]
                                          │
@@ -1161,29 +1161,29 @@ Expose homelab Kubernetes services securely to the internet without public ports
                  ┌─────────────────┘           └─────────────────────────────────┐
                  ▼                                                               ▼
      k8s / Namespace: llm                         k8s / Namespaces: monitoring, argocd, gitea, mattermost
-  [chat.homelab.<domain>] ──▶ open-webui       [grafana.homelab.<domain>]    ──▶ grafana
-  [ai.homelab.<domain>]   ──▶ llm-gateway      [argocd.homelab.<domain>]     ──▶ argocd
-                                               [git.homelab.<domain>]        ──▶ gitea-http
-                                               [mattermost.homelab.<domain>] ──▶ mattermost
+  [chat.<domain>] ──▶ open-webui               [grafana.<domain>]    ──▶ grafana
+  [ai.<domain>]   ──▶ llm-gateway              [argocd.<domain>]     ──▶ argocd
+                                               [git.<domain>]        ──▶ gitea-http
+                                               [mattermost.<domain>] ──▶ mattermost
 ```
 
 ### 1. Cloudflare Dashboard Tunnel Configuration
 
 1. In **Cloudflare Zero Trust** (`Networks` > `Tunnels`), select your tunnel (e.g. `homelab`).
 2. Add a **Public Hostname**:
-   - **Subdomain**: `*.homelab`
+   - **Subdomain**: `*`
    - **Domain**: `<domain>` (e.g. `example.com`)
    - **Path**: *(empty)*
    - **Type**: `HTTP`
    - **URL**: `traefik.kube-system.svc.cluster.local:80` (or `traefik.ingress.svc.cluster.local:80`)
    - **Additional Settings** > **HTTP Settings**:
-     - **HTTP Host Header**: *(Leave blank)* — this preserves the client's original host header (e.g. `chat.homelab.<domain>`) so Traefik can route it.
+     - **HTTP Host Header**: *(Leave blank)* — this preserves the client's original host header (e.g. `chat.<domain>`) so Traefik can route it.
 
 ### 2. Cloudflare Zero Trust Access Policy
 
 1. In **Access** > **Applications**, add a **Self-Hosted Application**:
    - **Application Name**: `Homelab Wildcard`
-   - **Application Domain**: `*.homelab.<domain>`
+   - **Application Domain**: `*.<domain>`
 2. Define an **Access Policy** (e.g. Action: `Allow`, Include: `Emails` or `Email Domain`).
 
 ### 3. In-Cluster Deployment

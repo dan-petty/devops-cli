@@ -13,7 +13,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal, overload
 
-from annotated_types import MaxLen
 from pydantic import BaseModel
 
 from devops_cli.ai.review.adjudication import Verdict
@@ -159,11 +158,7 @@ def make_stage_proposal(**overrides: Any) -> StageProposal:
 
 def stage_summary_limit() -> int:
     """The most characters that the schema of the stage plan accepts in `summary`."""
-    (limit,) = (
-        m.max_length
-        for m in StageProposal.model_fields["summary"].metadata
-        if isinstance(m, MaxLen)
-    )
+    limit: int = StageProposal.model_json_schema()["properties"]["summary"]["maxLength"]
     return limit
 
 

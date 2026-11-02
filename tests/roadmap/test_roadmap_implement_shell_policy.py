@@ -278,6 +278,13 @@ def test_a_read_only_program_reaches_the_process_edge_and_returns_its_output(
     assert [text for text in started if command in text] != []
 
 
+def test_the_prompt_tells_the_agent_that_the_step_runs_the_bang_commands_itself() -> None:
+    prompt = _prompt()
+
+    assert "A verification command that starts with `!`" in prompt
+    assert "| `!` |" in prompt
+
+
 @pytest.mark.parametrize(
     "command", ["! git grep -n x src/", "!git grep -n x src/", "! rm -rf src/"]
 )

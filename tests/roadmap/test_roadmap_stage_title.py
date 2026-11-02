@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.pull_form import title_problems
 from devops_cli.roadmap.stage import parse_filters, plan_stage
@@ -21,6 +22,8 @@ from tests.support.builders import make_stage_proposal, stage_summary_limit
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tests.support.fakes.model import ModelFake
     from tests.support.fakes.openspec import OpenSpecFake
 
@@ -46,18 +49,31 @@ def test_a_staging_title_has_the_type_docs_openspec_the_issue_and_the_summary() 
     )
 
 
-@pytest.mark.parametrize("number", [7, 2656, 123456])
-def test_the_summary_of_a_staging_title_has_at_most_sixty_characters_and_is_cut_at_a_word(
+@pytest.mark.parametrize("number", [7, 2656, LARGEST_NUMBER])
+def test_a_staging_title_cuts_nothing_and_refuses_a_summary_that_does_not_fit(
     number: int,
 ) -> None:
+    """A cut summary ends with `...`, which the form check refuses (#3249): the title is built
+    whole or not at all."""
     assert len(LONG_SUMMARY) < SUMMARY_MAX_CHARS
 
-    title = staging_title(number, LONG_SUMMARY + " as the user asked")
+    with pytest.raises(RoadmapStageError, match="characters after the colon") as raised:
+        staging_title(number, LONG_SUMMARY + " as the user asked")
 
-    summary = _summary_of(title)
-    assert len(summary) <= SUMMARY_MAX_CHARS
-    assert summary.startswith(f"plan #{number} Report a clear error")
-    assert summary.endswith("...")
+    assert raised.value.failed_items == (number,)
+
+
+def test_a_number_with_more_digits_than_the_schema_supports_stops_the_item_and_cuts_nothing() -> (
+    None
+):
+    """The schema accepts 47 characters, which is the room for 6 digits. A number of 7 digits
+    leaves less, so the title fails loud instead of ending with `...`."""
+    summary = "a" * stage_summary_limit()
+
+    with pytest.raises(RoadmapStageError, match="characters after the colon") as raised:
+        staging_title(10**6, summary)
+
+    assert raised.value.failed_items == (10**6,)
 
 
 @pytest.mark.parametrize("number", [1, 42, 999, 3249, 12345, LARGEST_NUMBER])
@@ -91,15 +107,49 @@ def test_the_constants_of_the_limit_name_the_largest_number_that_the_schema_supp
     )
 
 
+def test_the_schema_refuses_a_summary_that_is_too_long_for_the_title_and_names_both_counts() -> (
+    None
+):
+    limit = stage_summary_limit()
+
+    with pytest.raises(ValueError, match=rf"{limit + 1} characters in the title.*limit is {limit}"):
+        make_stage_proposal(summary="a" * (limit + 1))
+
+
 def test_the_schema_refuses_a_summary_that_the_title_would_cut_after_the_handle_has_a_code_span() -> (
     None
 ):
     """A handle gets two backticks in the title, so a summary at the limit grows past the room."""
-    summary = "a" * (stage_summary_limit() - len("@maintainer") - 1) + " @maintainer"
+    limit = stage_summary_limit()
+    summary = "a" * (limit - len("@maintainer") - 1) + " @maintainer"
 
-    assert len(summary) == stage_summary_limit()
-    with pytest.raises(ValueError, match="characters in the title"):
+    assert len(summary) == limit
+    with pytest.raises(ValueError, match=rf"{limit + 2} characters in the title.*limit is {limit}"):
         make_stage_proposal(summary=summary)
+
+
+@pytest.mark.parametrize(
+    "spare",
+    [
+        lambda full: full + " ",
+        lambda full: full + "\n",
+        lambda full: "  " + full,
+        lambda full: full[:20] + " " * 10 + full[21:],
+        lambda full: full[:1] + "\t" * 12 + full[2:],
+    ],
+)
+def test_the_schema_measures_the_summary_as_the_title_shows_it_so_spare_whitespace_costs_nothing(
+    spare: Callable[[str], str],
+) -> None:
+    """The limit counts the one-line text of the title, so a trailing newline or a run of spaces
+    that the title collapses does not make the model write the reply again."""
+    limit = stage_summary_limit()
+    summary = spare("a" * limit)
+
+    proposal = make_stage_proposal(summary=summary)
+
+    assert len(summary) > limit
+    assert title_problems(staging_title(1, proposal.summary), DECLARED) == []
 
 
 def test_a_summary_with_a_handle_has_it_in_a_code_span_so_that_the_title_pings_no_one() -> None:

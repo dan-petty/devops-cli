@@ -2314,14 +2314,8 @@ class RoadmapMessages:
         "Restored the tasks.md of the change {change}. A step only ticks the tasks of its own "
         "group."
     )
-    implement_stop_command_denied: str = (
-        "The verification command {command} is not allowed. {program} is not one of: {allowed}."
-    )
-    implement_stop_command_unparsed: str = (
-        "The verification command {command} is not a valid command line."
-    )
+    implement_stop_command_refused: str = "The verification command {command} is refused: {reason}."
     implement_stop_command_failed: str = "{command} exited with status {status}.\n{output}"
-    implement_stop_search_refused: str = "The negative search {command} is refused: {reason}."
     implement_stop_search_found: str = "{command} found a match, so the name is not gone.\n{output}"
     search_reason_start: str = "it does not start with `! git grep`"
     search_reason_option: str = "the option `{word}` is not allowed (the options are {letters})"
@@ -2332,7 +2326,8 @@ class RoadmapMessages:
     search_reason_no_path: str = "it gives no path"
     search_reason_path: str = "the word `{word}` is not a path of the checkout"
     verify_reason_unparsed: str = "it is not a valid command line"
-    verify_reason_program: str = "`{program}` is not a program that the step runs"
+    search_reason_long: str = "it is longer than {limit} characters"
+    verify_reason_program: str = "`{program}` is not one of: {allowed}"
     implement_stop_command_timeout: str = "{command} ran out of time after {seconds} s."
     implement_formatted: str = "Formatted: {paths}"
     implement_stop_link: str = (
@@ -3045,6 +3040,10 @@ class RoadmapMessages:
         "Keep one of them."
     )
     stage_title_lead: str = "plan #{number} "
+    stage_title_long: str = (
+        "The title of item {number} would have {length} characters after the colon, and the "
+        "limit is {limit}. The summary of the plan does not fit the number of this item."
+    )
     stage_summary_long: str = (
         "The summary has {length} characters in the title, and the limit is {limit}. "
         "A handle or a link gets a code span in the title. Write a shorter summary."
