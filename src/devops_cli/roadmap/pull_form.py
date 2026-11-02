@@ -61,8 +61,9 @@ _ATTRIBUTION: Final[re.Pattern[str]] = re.compile(
     r"^(?:Co-Authored-By:|Claude-Session:|\W*Generated (?:with|by)\b)|claude\.ai/code/session",
     re.IGNORECASE | re.MULTILINE,
 )
-# What the pull request template leaves in a body that nobody edited.
-_TEMPLATE_TEXT: Final[re.Pattern[str]] = re.compile(r"<!--|<issue>|<date>|<slug>|<summary>")
+# What the pull request template leaves in a body that nobody edited: its comment. A name in angle
+# brackets in the `Closes` line or the `Change:` line is no match of those two lines.
+_TEMPLATE_COMMENT: Final[str] = "<!--"
 # The texts that a model writes when it has nothing to write. A text is a placeholder when it is
 # one of these, with no case and no punctuation around it.
 _PLACEHOLDERS: Final[frozenset[str]] = frozenset(
@@ -207,7 +208,7 @@ def body_problems(body: str) -> list[str]:
                 "\n".join(lines[:closes_at]), "\n".join(lines[: change_at + 1])
             )
             problems += _trailer_problems("\n".join(lines[change_at + 1 :]))
-    if _TEMPLATE_TEXT.search(body):
+    if _TEMPLATE_COMMENT in body:
         problems.append(texts.form_template_text)
     if "BREAKING CHANGE" in body:
         problems.append(texts.form_body_breaking)

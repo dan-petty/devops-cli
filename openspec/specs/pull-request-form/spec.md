@@ -72,7 +72,7 @@ A body SHALL be, in this order: a text of at least 20 characters (what the chang
 - **THEN** the rules find one problem, and its text names the length and the limit
 
 ### Requirement: The body closes one issue and holds no stand-in text
-The body SHALL hold no closing reference other than its `Closes` line, no attribution line before `Closes`, no text of the pull request template (`<!--`, `<issue>`, `<date>`, `<slug>`, `<summary>`), no `BREAKING CHANGE`, and no placeholder as its text.
+The body SHALL hold no closing reference other than its `Closes` line, no attribution line before `Closes`, no comment of the pull request template (`<!--`), no `BREAKING CHANGE`, and no placeholder as its text.
 
 #### Scenario: Two issues
 - **WHEN** the text says `fixes #12` and the body has the line `Closes #3198`
@@ -88,7 +88,7 @@ The body SHALL hold no closing reference other than its `Closes` line, no attrib
 
 #### Scenario: Template text
 - **WHEN** the body keeps the comment of the pull request template
-- **THEN** the rules find one problem, and its text says that the body keeps text of the template
+- **THEN** the rules find one problem, and its text says that the body keeps the comment of the template
 
 #### Scenario: A breaking change footer
 - **WHEN** the body holds `BREAKING CHANGE:`

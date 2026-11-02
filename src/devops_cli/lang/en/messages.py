@@ -1130,8 +1130,7 @@ class PRMessages:
         "attribution lines there."
     )
     form_template_text: str = (
-        "The body keeps text of the template: a comment `<!-- -->` or a name in angle brackets "
-        "such as `<issue>`. Write the real text."
+        "The body keeps the comment of the template, `<!-- -->`. Delete it and write the real text."
     )
     form_body_breaking: str = (
         "The body has `BREAKING CHANGE`. Before 1.0.0 nothing is a breaking change."

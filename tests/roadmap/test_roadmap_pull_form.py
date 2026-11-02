@@ -154,9 +154,14 @@ def test_a_body_that_keeps_the_template_comment_is_refused() -> None:
     assert ["template" in p for p in body_problems(body)] == [True]
 
 
-def test_a_body_that_keeps_a_template_name_is_refused() -> None:
+def test_a_change_line_that_keeps_the_names_of_the_template_is_refused() -> None:
     body = f"{WHY}\n\nCloses #3198\n\nChange: `openspec/changes/archive/<date>-<issue>-<slug>/`"
-    assert any("template" in p for p in body_problems(body))
+    assert [("no line `Change:`" in p) for p in body_problems(body)] == [True]
+
+
+def test_a_text_may_name_the_closes_line_in_a_code_span() -> None:
+    body = f"{WHY} It ends the body with `Closes #<issue>`.\n\nCloses #3198\n\nChange: `{CHANGE}/`"
+    assert body_problems(body) == []
 
 
 def test_a_breaking_change_footer_is_refused() -> None:
