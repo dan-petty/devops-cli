@@ -24,6 +24,18 @@ The job leaves out an item that is not Ready, and some other items: for example 
 
 A task group over the step budget goes back to the model once. A group that is still over the budget stops the item. `--step-tokens` replaces the setting `roadmap.stage.step_tokens` for one run.
 
+## The tools of the planner
+
+The model plans with read-only tools. The toolset `base` has nine tools that read the staged commit: `list_files`, `read_file`, `search_code`, `git_log`, `git_show`, `file_symbols`, `callers`, `repo_map` and `read_spec`. The setting `roadmap.stage.toolset` (variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET`) is `extended` by default. It adds three tools:
+
+| Tool | What it does | When the prompt tells the model to call it |
+| :--- | :--- | :--- |
+| `references` | Lists every file of the staged commit that holds a text, with the count of lines in each file. The count has no cap for a file. The list keeps at most 60 files, taken in turn from the source, the tests, the specs, the documents and the other files. | The issue renames, moves or removes a name. |
+| `read_issue` | Reads one issue or pull request of the repository: state, title, labels, the first 1500 characters of the body, the last 3 comments, and for a closed item whether a merged pull request closed it. | For each `#N` that the issue names. |
+| `find_issues` | Lists at most 10 open issues and pull requests of the repository that name some words, each as `#N state title`. | Before the plan says what it depends on, parks or overlaps. |
+
+The two GitHub tools only read. They use the client and the App token of the Service, so they add no permission and no host. The tool masks secrets in the text from GitHub, cuts it, and marks it as data. The prompt tells the model that this text is no instruction. A failure of GitHub (no such item, the rate limit, no connection) is an answer as text, and the run goes on. With `base` the model has no GitHub tool, and the job needs no GitHub read for the plan. The golden-set run (`devops roadmap eval stage`) has no GitHub client, so its GitHub tools answer that GitHub is not available.
+
 ## The verification pass
 
 After the checks, a model of the task `ai.tasks.verification` reviews the plan with the issue and the files that the plan cites. A finding of the type `missing_path`, `false_premise` or `ignores_existing_code` that quotes its evidence sends the plan back once. Every other finding goes into the comment, and the draft still opens. The requirement "A verification pass follows the gates" of [roadmap-stage](../../openspec/specs/roadmap-stage/spec.md) holds the rules, and [the roadmap workflow](../ROADMAP_WORKFLOW.md#measure-the-verification-pass) tells how to score the pass.
@@ -44,4 +56,4 @@ Each run also removes the draft and the branch of a closed item, when only the i
 
 ## Where the rules are
 
-[roadmap-stage](../../openspec/specs/roadmap-stage/spec.md) holds the filter, the items that the job leaves out, the branch, the commit and the draft pull request, the budget of a group, the validation of the change, the failure of one item, the `stage_ready` row, and the read-only toolbox of the planner. [roadmap-stage-eval](../../openspec/specs/roadmap-stage-eval/spec.md) holds the golden set that scores the job, and [the roadmap workflow](../ROADMAP_WORKFLOW.md#measure-the-stage-job) tells when a pull request must state the score.
+[roadmap-stage](../../openspec/specs/roadmap-stage/spec.md) holds the filter, the items that the job leaves out, the branch, the commit and the draft pull request, the budget of a group, the validation of the change, the failure of one item, the `stage_ready` row, and the read-only toolbox of the planner, with its two toolsets. [roadmap-stage-eval](../../openspec/specs/roadmap-stage-eval/spec.md) holds the golden set that scores the job, and [the roadmap workflow](../ROADMAP_WORKFLOW.md#measure-the-stage-job) tells when a pull request must state the score.

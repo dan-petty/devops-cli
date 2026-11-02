@@ -67,7 +67,7 @@ from devops_cli.roadmap.agent_run import (
 logger = logging.getLogger(__name__)
 
 # The exit code `_git` gives a command that ran out of time, as timeout(1) does.
-_TIMED_OUT = 124
+GIT_TIMED_OUT = 124
 _GIT_TIMEOUT_SECONDS = 15
 # `git grep` stops at this many matches in one file, one more than a tool answer keeps, so `cut`
 # still says that lines are left out. A file of millions of matching lines costs no more than this.
@@ -154,7 +154,7 @@ class InvestigationTools:
     searches: int = 0
 
     def _git(self, *args: str) -> tuple[int, bytes]:
-        """The exit code and the output of one git command; `_TIMED_OUT` when it ran out of time.
+        """The exit code and the output of one git command; `GIT_TIMED_OUT` when it ran out of time.
         An argument that holds a NUL byte, which no git argument can hold, runs nothing."""
         if any("\0" in arg for arg in args):
             return 1, b""
@@ -167,7 +167,7 @@ class InvestigationTools:
                 quiet=True,
             )
         except subprocess.TimeoutExpired:
-            return _TIMED_OUT, b""
+            return GIT_TIMED_OUT, b""
         return proc.returncode, cast(bytes | None, proc.stdout) or b""
 
     def search_code(self, text: str) -> str:
@@ -191,7 +191,7 @@ class InvestigationTools:
             self.sha,
             "--",
         )
-        if code == _TIMED_OUT:
+        if code == GIT_TIMED_OUT:
             return "The search ran out of time. Search for a less common text."
         decoded = out.decode("utf-8", errors="replace").splitlines()
         lines = [line.removeprefix(f"{self.sha}:") for line in decoded]

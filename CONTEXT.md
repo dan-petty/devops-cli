@@ -111,7 +111,7 @@ An open, maintained tool or library that covers the need of an item, in whole or
 _Avoid_: competitor, substitute
 
 **Staging**:
-Making a Ready item Staged: a branch, an OpenSpec change in task groups that each fit one step, and a draft pull request that plans the item and closes no issue. The pull request has the type `docs(openspec)`, because a plan is no fix and adds no changelog line. The branch keeps the type of the issue. The planner reads the repository before it writes the plan: it has read-only tools (list files, read a file, search, git log and show, the symbols of a file, the callers of a symbol, a repository map and a base spec), and it works within a budget of tool calls and output tokens. The comment of the staged item reports the tool calls and the tokens of the plan run.
+Making a Ready item Staged: a branch, an OpenSpec change in task groups that each fit one step, and a draft pull request that plans the item and closes no issue. The pull request has the type `docs(openspec)`, because a plan is no fix and adds no changelog line. The branch keeps the type of the issue. The planner reads the repository before it writes the plan: it has read-only tools (list files, read a file, search, git log and show, the symbols of a file, the callers of a symbol, a repository map and a base spec; with the toolset `extended` also the files that hold a name, and a read of an issue or a pull request and a search of open items on GitHub), and it works within a budget of tool calls and output tokens. The comment of the staged item reports the tool calls and the tokens of the plan run.
 _Avoid_: scaffolding, pre-work
 
 **Staged**:

@@ -23,6 +23,7 @@ from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.context_packer import ContextPacker
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config import settings
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
@@ -46,6 +47,7 @@ from devops_cli.roadmap.stage_paths import StagedTree
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
 from tests.support.builders import make_stage_proposal
+from tests.support.fakes.github import github_json
 from tests.support.roadmap_stage import (
     NO_FILES,
     STAGE_REPO,
@@ -64,6 +66,7 @@ if TYPE_CHECKING:
 
     from devops_cli.ai.client.unified import LLMClient
     from devops_cli.roadmap.stage import StageClient
+    from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.model import ModelFake, ModelFakeReplies
     from tests.support.fakes.openspec import OpenSpecFake
 
@@ -984,6 +987,48 @@ def test_the_toolbox_planner_reads_a_file_and_then_gives_its_plan(
         1,
         "1: def keep(comments):",
     )
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_toolbox_planner_reads_an_issue_of_the_repository_on_github(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    openspec: OpenSpecFake,
+    github_api: GitHubApiFake,
+) -> None:
+    github_api.route(
+        "GET",
+        f"/repos/{STAGE_REPO}/issues/3207",
+        github_json(
+            {"number": 3207, "title": "feat: park #3060", "state": "open", "body": "Parks."}
+        ),
+    )
+    script = Script(call("read_issue", number=3207), make_stage_proposal())
+
+    plan = _toolbox_plan(store, stage_repo, script)
+
+    assert (len(plan.ready), script.tool_returns()[0].splitlines()[1]) == (
+        1,
+        "#3207 issue, open: feat: park #3060",
+    )
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_base_toolset_gives_the_planner_no_github_tool(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    openspec: OpenSpecFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_TOOLSET", "base")
+    settings.reset_settings_cache()
+    script = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
+
+    _toolbox_plan(store, stage_repo, script)
+
+    assert not {"read_issue", "find_issues", "references"} & set(script.tools_offered[0])
 
 
 @pytest.mark.usefixtures("model_fake")
