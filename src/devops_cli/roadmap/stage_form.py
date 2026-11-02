@@ -35,22 +35,26 @@ _TEST_MODULE_PREFIX: Final[str] = "test_"
 _PYTHON_SUFFIX: Final[str] = ".py"
 
 
-def _verify_problem(number: int, command: str) -> str | None:
-    """The problem of the `verify` command of group `number`, or None when it has the project form
-    and the step runs it. A command of another form gets the forms to use. A command of the project
-    form that the step refuses gets the reason of the step."""
+def _verify_problems(number: int, command: str) -> list[str]:
+    """The problems of the `verify` command of group `number`: a backtick, which ends the code span
+    that the plan writes it in, and a form that the step does not run. A command of the project
+    form that the step refuses gets the reason of the step. A command with both faults gets both
+    problems, as the job asks the model once."""
     command = command.strip()
     texts = MESSAGES.roadmap
+    problems: list[str] = []
     if "`" in command:
-        return texts.stage_problem_verify_backtick.format(group=number, command=command)
+        problems.append(texts.stage_problem_verify_backtick.format(group=number, command=command))
     first = command.split(maxsplit=1)[0] if command else ""
     if first != NEGATIVE_SEARCH_WORD and not (
         command == _VERIFY_PREFIX or command.startswith(f"{_VERIFY_PREFIX} ")
     ):
-        return texts.stage_problem_verify.format(group=number, command=command)
-    if (reason := verification_problem(command)) is None:
-        return None
-    return texts.stage_problem_verify_run.format(group=number, command=command, reason=reason)
+        problems.append(texts.stage_problem_verify.format(group=number, command=command))
+    elif (reason := verification_problem(command)) is not None:
+        problems.append(
+            texts.stage_problem_verify_run.format(group=number, command=command, reason=reason)
+        )
+    return problems
 
 
 def _mirror_directories(groups: Sequence[StageGroup]) -> list[PurePosixPath]:
@@ -85,8 +89,8 @@ def form_problems(groups: Sequence[StageGroup]) -> list[str]:
     mirrors = _mirror_directories(groups)
     problems: list[str] = []
     for number, group in enumerate(groups, start=1):
-        if group.verify is not None and (problem := _verify_problem(number, group.verify)):
-            problems.append(problem)
+        if group.verify is not None:
+            problems.extend(_verify_problems(number, group.verify))
         for created in group.creates:
             path = PurePosixPath(created)
             folder = path.parent

@@ -230,9 +230,9 @@ def test_a_line_break_in_the_reason_of_a_criterion_adds_no_group_and_no_command(
 def test_a_verify_command_with_a_backtick_is_refused_with_the_reason(verify: str) -> None:
     group = StageGroup.model_validate({**OTHER, "verify": verify})
 
-    (problem,) = form_problems([group])
+    problem = form_problems([group])[0]
 
-    assert problem.startswith(f"Group 1 gives the `verify` command `{verify}`")
+    assert problem.startswith(f"Group 1 gives the `verify` command `` {verify} ``")
     assert "holds a backtick" in problem
 
 
