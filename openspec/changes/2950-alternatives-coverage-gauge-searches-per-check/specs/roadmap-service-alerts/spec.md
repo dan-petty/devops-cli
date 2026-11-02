@@ -1,16 +1,41 @@
 ## ADDED Requirements
 
-### Requirement: Alert on no alternatives search
-The alert rules SHALL hold the alert `RoadmapServiceAlternativesNotSearching`, which fires when `increase(devops_cli_firecrawl_searches_total[3d]) == 0` and `devops_cli_roadmap_alternatives_unchecked_items > 0`, and its annotation SHALL name the repository of the gauge.
+### Requirement: No alternatives search with unchecked items warns
+`RoadmapServiceAlternativesNotSearching` SHALL fire, by `repo`, after 1 hour in which the last value of `devops_cli_roadmap_alternatives_unchecked_items` in 7 days is above 0 and the Service has sent no Firecrawl search in 3 days, of any `result`, also when no search series exists. The count of searches SHALL add the first value of a series that starts in the 3 days. The summary SHALL name the repository and the count of items.
 
-#### Scenario: Three days with no search and unchecked items
-- **WHEN** The promtool unit test feeds no increase of `devops_cli_firecrawl_searches_total` over 3 days and a gauge of 2 for one repository
-- **THEN** the alert is in the firing state and its annotation names that repository
+#### Scenario: Three days with no search
+- **WHEN** `promtool test rules` evaluates a gauge of 2 for `example/app`, a `402` series that does not grow, and no `ok` series
+- **THEN** the alert fires with `repo` `example/app`, and the summary names `example/app` and 2 items
+
+#### Scenario: No search series at all
+- **WHEN** `promtool test rules` evaluates a gauge of 2 for `example/app` and no search series
+- **THEN** the alert fires with `repo` `example/app`
 
 #### Scenario: A search in the window
-- **WHEN** The promtool unit test feeds an increase of `devops_cli_firecrawl_searches_total` within 3 days and a gauge of 2 for one repository
-- **THEN** the alert is not in the firing state
+- **WHEN** `promtool test rules` evaluates a gauge of 2 and an `ok` search 1 day before the evaluation
+- **THEN** the alert stays quiet
+
+#### Scenario: A series that starts in the window
+- **WHEN** `promtool test rules` evaluates a gauge of 2 and a new `ok` series whose first value is 3, 10 hours before the evaluation
+- **THEN** the alert stays quiet
 
 #### Scenario: No unchecked items
-- **WHEN** The promtool unit test feeds no increase of `devops_cli_firecrawl_searches_total` over 3 days and a gauge of 0 for one repository
-- **THEN** the alert is not in the firing state
+- **WHEN** `promtool test rules` evaluates a gauge of 0 and no search series
+- **THEN** the alert stays quiet
+
+#### Scenario: A search of another job
+- **WHEN** `promtool test rules` evaluates a gauge of 2 for `example/app` and searches of the job `devops-cli` that grow
+- **THEN** the alert fires, since the searches of a workstation do not count
+
+#### Scenario: An old gauge
+- **WHEN** `promtool test rules` evaluates a gauge whose last sample is 180 hours old, and no search series
+- **THEN** the alert stays quiet, and it fires when the last sample is 100 hours old
+
+## MODIFIED Requirements
+
+### Requirement: The Service's activity has its own alert group
+The rule group `roadmap-service-activity` in `k8s/monitoring/prometheus-values.yaml`, apart from the group `roadmap-service`, SHALL hold the warning alerts `RoadmapServiceGitHubWritesHigh`, `RoadmapServiceSelfDeliveriesHigh`, `RoadmapServiceFirecrawlRefused` and `RoadmapServiceAlternativesNotSearching`. promtool SHALL accept them. Each SHALL select only the Service's job and point to the section "Roadmap service" of `k8s/README.md`.
+
+#### Scenario: The selectors of the group
+- **WHEN** a test reads the selectors of the group
+- **THEN** each `devops_cli_` selector has `job="roadmap-service"`
