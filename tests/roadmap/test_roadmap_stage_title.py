@@ -9,10 +9,15 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.pull_form import title_problems
 from devops_cli.roadmap.stage import parse_filters, plan_stage
-from devops_cli.roadmap.stage_change import SUMMARY_MAX_CHARS, delivery_title, staging_title
+from devops_cli.roadmap.stage_change import (
+    SUMMARY_MAX_CHARS,
+    delivery_title,
+    staging_title,
+)
 from devops_cli.roadmap.store import ItemField
-from tests.support.builders import make_stage_proposal
+from tests.support.builders import make_stage_proposal, stage_summary_limit
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo
 
 if TYPE_CHECKING:
@@ -23,7 +28,11 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 LONG_SUMMARY = "Report a clear error when a merge key is unset in the file"
 # The label names that .github/labels.yml declares, as far as these tests need them.
-DECLARED = ("scope/cli", "scope/config", "scope/roadmap")
+DECLARED = ("scope/cli", "scope/config", "scope/openspec", "scope/roadmap")
+
+
+# The largest number that the schema supports: the lead of the title is longest for it.
+LARGEST_NUMBER = 999999
 
 
 def _summary_of(title: str) -> str:
@@ -49,6 +58,48 @@ def test_the_summary_of_a_staging_title_has_at_most_sixty_characters_and_is_cut_
     assert len(summary) <= SUMMARY_MAX_CHARS
     assert summary.startswith(f"plan #{number} Report a clear error")
     assert summary.endswith("...")
+
+
+@pytest.mark.parametrize("number", [1, 42, 999, 3249, 12345, LARGEST_NUMBER])
+def test_a_summary_of_the_most_characters_that_the_schema_accepts_gives_a_title_the_form_accepts(
+    number: int,
+) -> None:
+    """The job built a title that its own form check refused (#3249): the schema accepted 60
+    characters, the lead of the title took some, and the cut summary ended with `...`."""
+    summary = "a" * stage_summary_limit()
+
+    title = staging_title(number, make_stage_proposal(summary=summary).summary)
+
+    assert (title.endswith(summary), title_problems(title, DECLARED)) == (True, [])
+
+
+def test_the_limit_of_the_schema_is_the_room_that_the_title_leaves_for_the_largest_number() -> None:
+    lead = _summary_of(staging_title(LARGEST_NUMBER, ""))
+
+    assert stage_summary_limit() == SUMMARY_MAX_CHARS - len(lead)
+    assert len(_summary_of(staging_title(LARGEST_NUMBER, "a" * stage_summary_limit()))) == (
+        SUMMARY_MAX_CHARS
+    )
+
+
+def test_the_constants_of_the_limit_name_the_largest_number_that_the_schema_supports() -> None:
+    from devops_cli.roadmap.stage_change import ISSUE_NUMBER_DIGITS, STAGE_SUMMARY_MAX_CHARS
+
+    assert (10**ISSUE_NUMBER_DIGITS - 1, STAGE_SUMMARY_MAX_CHARS) == (
+        LARGEST_NUMBER,
+        stage_summary_limit(),
+    )
+
+
+def test_the_schema_refuses_a_summary_that_the_title_would_cut_after_the_handle_has_a_code_span() -> (
+    None
+):
+    """A handle gets two backticks in the title, so a summary at the limit grows past the room."""
+    summary = "a" * (stage_summary_limit() - len("@maintainer") - 1) + " @maintainer"
+
+    assert len(summary) == stage_summary_limit()
+    with pytest.raises(ValueError, match="characters in the title"):
+        make_stage_proposal(summary=summary)
 
 
 def test_a_summary_with_a_handle_has_it_in_a_code_span_so_that_the_title_pings_no_one() -> None:

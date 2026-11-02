@@ -3022,6 +3022,10 @@ class RoadmapMessages:
         "Keep one of them."
     )
     stage_title_lead: str = "plan #{number} "
+    stage_summary_long: str = (
+        "The summary has {length} characters in the title, and the limit is {limit}. "
+        "A handle or a link gets a code span in the title. Write a shorter summary."
+    )
     stage_pull_request_body: str = (
         "Plans #{number}\n\n{body}\n\nChange: `openspec/changes/{change}/`"
     )
