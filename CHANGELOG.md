@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.48.4](https://github.com/dan-petty/devops-cli/compare/v0.48.3...v0.48.4) (2026-11-02)
+
+
+### Bug Fixes
+
+* **roadmap:** a text of the plan cannot add a group or a section ([#3289](https://github.com/dan-petty/devops-cli/issues/3289)) ([41929c3](https://github.com/dan-petty/devops-cli/commit/41929c328f7bc37dc39227706c163e8db9696f86))
+* **roadmap:** count the title summary like the CI check ([#3286](https://github.com/dan-petty/devops-cli/issues/3286)) ([707775f](https://github.com/dan-petty/devops-cli/commit/707775ff58b70a04bd8a9bd807577267eba06b18))
+
 ## [0.48.3](https://github.com/dan-petty/devops-cli/compare/v0.48.2...v0.48.3) (2026-11-02)
 
 
