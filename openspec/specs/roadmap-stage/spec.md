@@ -557,7 +557,7 @@ A `behavior` group SHALL render `n.1` as its failing test, `n.2` as its implemen
 
 #### Scenario: A deletion that keeps behavior
 - **WHEN** an `other` group deletes a definition and its `verify` is a `git grep` that must print nothing
-- **THEN** its first task names the deletion, and the line under it holds the `git grep` and says "passes", and no task asks for a test
+- **THEN** its first task names the deletion, the line under it holds the `git grep` and says "passes", and no task asks for a test or says "fails on the base"
 
 #### Scenario: A manual check
 - **WHEN** an `other` group has a `process`
@@ -1034,3 +1034,25 @@ The prompt of a run with the toolset `extended` SHALL tell the model to call `re
 #### Scenario: The base prompt
 - **WHEN** the system text of a run with the toolset `base` is built
 - **THEN** it names none of `references`, `read_issue` and `find_issues`
+
+### Requirement: A text of a group stays on one line
+The `title`, `test`, `implementation`, `documentation`, `verify` and `process` of a task group, and the `reason` of a criterion, SHALL be written to `tasks.md` on one line. A line break in one of them SHALL add no line, no task, no group and no `Verification:` line.
+
+#### Scenario: A line break and a command
+- **WHEN** the `implementation` of a group holds a line break and a line `- Verification: ` with a command
+- **THEN** the `verification_commands` of the parsed group are the `verify` of the group and the check of the documents, and no more
+
+#### Scenario: A line break in a title
+- **WHEN** the `title` of a group holds a blank line and a line `- [ ] 9.9 Extra`
+- **THEN** `tasks.md` holds one group and the task list is that of the group
+
+#### Scenario: A line break in the reason of a criterion
+- **WHEN** the `reason` of a `pending-person` criterion holds a line `## 2. Extra`
+- **THEN** `tasks.md` holds one group
+
+### Requirement: A verify command holds no backtick
+`form_problems` SHALL give a problem for a `verify` command that holds a backtick, and the problem SHALL say that it holds a backtick.
+
+#### Scenario: A backtick in a command
+- **WHEN** the `verify` of a group is ``uv run devops ci test `x` ``
+- **THEN** `form_problems` gives one problem, and it says that the command holds a backtick

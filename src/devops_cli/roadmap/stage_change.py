@@ -106,8 +106,19 @@ def _capability_name(name: str) -> str:
 
 
 RepositoryPath = Annotated[str, AfterValidator(_repository_path)]
-# A text of a task group: at least one character once the whitespace around it is stripped.
-Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+def _one_line(text: str) -> str:
+    """The text on one line, so that a text of the reply adds no line, no task, no group and no
+    `Verification:` line to `tasks.md`."""
+    return " ".join(text.split())
+
+
+# A text of a task group: at least one character once the whitespace around it is stripped, and on
+# one line in `tasks.md`.
+Text = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1), AfterValidator(_one_line)
+]
 
 
 def _sentence(text: str) -> str:
@@ -120,12 +131,12 @@ def _sentence(text: str) -> str:
 
 
 # The text of a task that the writer joins to the words after it: it ends in no full stop.
-Sentence = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(_sentence)]
-
-
-def _one_line(text: str) -> str:
-    """The text on one line, so that a task of `tasks.md` stays one list item."""
-    return " ".join(text.split())
+Sentence = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True),
+    AfterValidator(_one_line),
+    AfterValidator(_sentence),
+]
 
 
 # The steps of a manual check: at least one character, and on one line in `tasks.md`.
@@ -583,7 +594,9 @@ def _criteria_section(criteria: Sequence[StageCriterion]) -> str:
     A plan with no criterion has no section."""
     texts = MESSAGES.roadmap
     lines = [
-        texts.stage_criteria_pending.format(criterion=_one_line(c.criterion), reason=c.reason)
+        texts.stage_criteria_pending.format(
+            criterion=_one_line(c.criterion), reason=_one_line(c.reason or "")
+        )
         if c.group == PENDING_PERSON
         else texts.stage_criteria_line.format(criterion=_one_line(c.criterion), group=c.group)
         for c in criteria

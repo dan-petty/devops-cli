@@ -41,6 +41,8 @@ def _verify_problem(number: int, command: str) -> str | None:
     form that the step refuses gets the reason of the step."""
     command = command.strip()
     texts = MESSAGES.roadmap
+    if "`" in command:
+        return texts.stage_problem_verify_backtick.format(group=number, command=command)
     first = command.split(maxsplit=1)[0] if command else ""
     if first != NEGATIVE_SEARCH_WORD and not (
         command == _VERIFY_PREFIX or command.startswith(f"{_VERIFY_PREFIX} ")
