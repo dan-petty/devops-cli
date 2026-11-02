@@ -96,7 +96,7 @@ The job SHALL open a draft pull request whose title is `docs(openspec): plan #<i
 - **THEN** the title after the colon has at most 60 characters, and the summary is cut at a word
 
 ### Requirement: The job measures each task group
-The job SHALL measure each task group with tiktoken: the tokens of the group's instructions, the item, the change folder, the `AGENTS.md` of the repository, the routed sections of its documents, and the files that the tasks of the group name in code spans, each packed as the implement step packs it, at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. The budget SHALL be `roadmap.stage.step_tokens`, default 40000, and `--step-tokens` SHALL override it for one run.
+The job SHALL measure each task group with tiktoken: the tokens of the group's instructions, the item, the change folder, the `AGENTS.md` of the repository, the routed sections of its documents, and the files that the tasks of the group name in code spans, each packed as the implement step packs it, at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. The budget SHALL be `roadmap.stage.step_tokens`, default 64000, and `--step-tokens` SHALL override it for one run.
 
 #### Scenario: A group is measured
 - **WHEN** the model gives a group whose task names a file of the repository
@@ -233,7 +233,7 @@ The model lane of the Service SHALL hold the row `stage` after the row `refine`.
 - **THEN** its `Due:` line lists `stage` after `refine`, and no request is made
 
 ### Requirement: The settings name the filter, the limit and the step budget
-The settings `roadmap.stage.filter`, `roadmap.stage.limit` and `roadmap.stage.step_tokens` SHALL set what the stage job takes. Each SHALL have the variable `DEVOPS_CLI_ROADMAP_STAGE_FILTER`, `DEVOPS_CLI_ROADMAP_STAGE_LIMIT` or `DEVOPS_CLI_ROADMAP_STAGE_STEP_TOKENS`. The defaults SHALL be the filter `status=ready`, the limit 3 and the step budget 40000. The example ConfigMap of the Service SHALL hold the default filter.
+The settings `roadmap.stage.filter`, `roadmap.stage.limit` and `roadmap.stage.step_tokens` SHALL set what the stage job takes. Each SHALL have the variable `DEVOPS_CLI_ROADMAP_STAGE_FILTER`, `DEVOPS_CLI_ROADMAP_STAGE_LIMIT` or `DEVOPS_CLI_ROADMAP_STAGE_STEP_TOKENS`. The defaults SHALL be the filter `status=ready`, the limit 3 and the step budget 64000, half of the default window of the implement task. The example ConfigMap of the Service SHALL hold the default filter.
 
 #### Scenario: The defaults
 - **WHEN** no config file and no variable sets a `roadmap.stage` setting
@@ -266,11 +266,15 @@ A filter entry SHALL be `family=value` over a label family of the stage job. The
 - **THEN** the plan holds the Ready bugs, at most 2
 
 ### Requirement: Each item of a stage round counts once by its result
-A stage round, whether the Service or the command runs it, SHALL add 1 to `devops_cli_roadmap_stage_total` for each item it handled, with the label `result`: `staged` for an item written as a branch and a draft, `needs_split` for an item stopped on a group over the budget, `failed` for an item that failed in the plan or in the writes, and `skipped` for an item the job left out with a reason. An item SHALL count under one result.
+A stage round, whether the Service or the command runs it, SHALL add 1 to `devops_cli_roadmap_stage_total` for each item it handled, with the label `result`: `staged` for an item written as a branch and a draft, `needs_split` for an item stopped on a group over the budget, `returned` for an item returned to New on a false premise, `failed` for an item that failed in the plan or in the writes, and `skipped` for an item the job left out with a reason. An item SHALL count under one result.
 
 #### Scenario: Four results in one round
 - **WHEN** a round stages one item, stops one on the budget, fails one in the model call, and leaves one out for an open dependency
 - **THEN** the counter has one point each for `staged`, `needs_split`, `failed` and `skipped`
+
+#### Scenario: A returned item
+- **WHEN** a round returns one item to New on a false premise, besides the four items above
+- **THEN** the counter also has one point for `returned`, and each item counts under one result
 
 #### Scenario: A plan with no write
 - **WHEN** `devops roadmap stage --plan` runs
@@ -495,6 +499,17 @@ The job SHALL check each path of the reply against the tracked files of the stag
 - **THEN** the job finds no missing path
 - **AND** a path of `reads` or `changes` with no folder is still checked
 
+### Requirement: A problem names the group that creates a missing path
+When a later group lists a missing path in `creates`, the problem SHALL name the group that names the path and the first later group that creates it, and SHALL tell the model to move the creating group before the reading group. A path that no group creates SHALL keep the problem without a creating group.
+
+#### Scenario: A path that only a later group creates
+- **WHEN** group 1 reads `tests/test_new.py` and only group 3 lists it in `creates`
+- **THEN** the problem names group 1 and group 3, and tells the model to move group 3 before group 1
+
+#### Scenario: A path that no group creates
+- **WHEN** group 1 reads `tests/test_new.py` and no group lists it in `creates`
+- **THEN** the problem names group 1 and names no creating group
+
 ### Requirement: The comment and the record of a staged item
 The job SHALL post one comment on the issue with the marker `<!-- devops roadmap stage -->` that names the branch, the pull request, the groups with their measures and the budget. The job SHALL record `stage.branch`, `stage.pr`, `stage.sha` and `stage.groups` in the job record. The job SHALL NOT change the Status of the item.
 
@@ -567,19 +582,19 @@ The planner of the stage job SHALL plan with an agent that has exactly these too
 - **THEN** it names each tool of the toolbox
 
 ### Requirement: A plan run has a budget
-A plan run of the toolbox SHALL make at most 30 tool calls and use at most 50000 output tokens. The run SHALL offer no tool to a request when fewer than 4 tool calls are left, so the model gives its plan. A run that passes a limit SHALL fail the item with a reason. The job SHALL plan the other items, and SHALL open no draft pull request for the failed item.
+A plan run of the toolbox SHALL make at most `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` tool calls and `CONST_ROADMAP_STAGE_MAX_REQUESTS` model requests. It SHALL set no count of output tokens: the context window ends the tools of a run. The run SHALL offer no tool to a request when fewer than 4 tool calls are left, so the model gives its plan. A run that passes a limit SHALL fail the item with a reason. The job SHALL plan the other items, and SHALL open no draft pull request for the failed item.
 
 #### Scenario: The tool call limit
-- **WHEN** one reply of the model in a plan run holds 31 parallel tool calls
+- **WHEN** one reply of the model in a plan run holds one more parallel tool call than `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS`
 - **THEN** the item fails, and the reason names `tool_calls_limit`
 
 #### Scenario: The tools are gone near the limit
-- **WHEN** the model has made 27 tool calls, one in each turn
+- **WHEN** the model has made `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` minus 3 tool calls, one in each turn
 - **THEN** the next request offers no tool, and a valid plan in the reply stages the item
 
 #### Scenario: The output token limit
-- **WHEN** the replies of the model in one plan run hold more than 50000 output tokens
-- **THEN** the item fails, and the reason names `output_tokens_limit`
+- **WHEN** the replies of the model in one plan run hold more than 50000 output tokens, and the last reply is a valid plan
+- **THEN** the item is staged
 
 #### Scenario: A run inside the budget
 - **WHEN** the model reads two files and then answers with a valid plan
@@ -594,14 +609,14 @@ A plan run SHALL offer no tool to a request when the tokens of its messages, wit
 
 #### Scenario: A model that reads a big file in every turn
 - **WHEN** a plan run has a window of 12000 tokens and the model reads a file of 120 long lines in every turn
-- **THEN** a request offers no tool before the budget of 27 calls, no request passes the window, and the plan stages the item
+- **THEN** a request offers no tool before the budget of tool calls, no request passes the window, and the plan stages the item
 
 #### Scenario: A run with no window
 - **WHEN** a run is given no window
 - **THEN** only the budget of tool calls takes the tools away
 
 ### Requirement: The tools read a checkout that is the staged commit
-The toolbox SHALL refuse a checkout whose HEAD is not the staged commit, or that has a change that is not committed or a file that git does not track, before any model call. The failure SHALL be a `RoadmapStageError`. A tool SHALL read the size of a file before it reads the file, SHALL refuse a file of more than 2000000 bytes, and SHALL number only the lines that it returns. `search_code` and `callers` SHALL stop at 121 matches in one file.
+The toolbox SHALL refuse a checkout whose HEAD is not the staged commit, or that has a change that is not committed or a file that git does not track, before any model call. The failure SHALL be a `RoadmapStageError`. A tool SHALL read the size of a file before it reads the file, SHALL refuse a file of more than 2000000 bytes, and SHALL number only the lines that it returns. `search_code` and `callers` SHALL stop at one more than `CONST_ROADMAP_REFINE_TOOL_MAX_LINES` matches in one file.
 
 #### Scenario: A modified file
 - **WHEN** the checkout holds a modified tracked file
@@ -612,15 +627,15 @@ The toolbox SHALL refuse a checkout whose HEAD is not the staged commit, or that
 - **THEN** it answers that the file is too large to read
 
 #### Scenario: A file with many matches
-- **WHEN** a file holds 360 lines that match `callers`
-- **THEN** the answer holds 120 lines and says that lines are left out
+- **WHEN** a file holds three times `CONST_ROADMAP_REFINE_TOOL_MAX_LINES` lines that match `callers`
+- **THEN** the answer holds `CONST_ROADMAP_REFINE_TOOL_MAX_LINES` lines and says that lines are left out
 
 ### Requirement: The map and the spec tools give short answers
-`repo_map` SHALL give one line for each of at most 20 files, with the path and the names of the top-level symbols, cut to 180 characters. It SHALL end with a line that says so when the directory holds more files. `read_spec` SHALL read the capabilities, the requirement names and the requirement text from the JSON of `openspec list --specs` and `openspec show --type spec`. It SHALL answer as text when OpenSpec is not installed.
+`repo_map` SHALL give one line for each of at most `CONST_ROADMAP_STAGE_MAP_MAX_FILES` files, with the path and the names of the top-level symbols, cut to 180 characters. It SHALL end with a line that says so when the directory holds more files. `read_spec` SHALL read the capabilities, the requirement names and the requirement text from the JSON of `openspec list --specs` and `openspec show --type spec`. It SHALL answer as text when OpenSpec is not installed.
 
 #### Scenario: A directory with more files than the limit
-- **WHEN** `repo_map` maps a directory of 25 Python files
-- **THEN** the answer has 20 file lines and a last line that says that files are left out
+- **WHEN** `repo_map` maps a directory of `CONST_ROADMAP_STAGE_MAP_MAX_FILES` plus 5 Python files
+- **THEN** the answer has `CONST_ROADMAP_STAGE_MAP_MAX_FILES` file lines and a last line that says that files are left out
 
 #### Scenario: A requirement
 - **WHEN** `read_spec` gets a capability and a requirement name
@@ -630,7 +645,7 @@ The toolbox SHALL refuse a checkout whose HEAD is not the staged commit, or that
 When a request offers no tool, a call of the model to a function tool SHALL get a retry prompt, and the run SHALL go on. The run SHALL fail the item when the model calls a gone tool a third time, because the tool retry limit is 2. The reason of the failure SHALL name the retry limit, and no budget limit. It holds no tool name, because the name of a tool in an error message is text that the model chose.
 
 #### Scenario: One call after the tools are gone
-- **WHEN** the model has made 27 tool calls, calls `read_file` once in a request that offers no tool, and then gives a valid plan
+- **WHEN** the model has made `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` minus 3 tool calls, calls `read_file` once in a request that offers no tool, and then gives a valid plan
 - **THEN** the item is staged
 
 #### Scenario: Two calls after the tools are gone
@@ -642,7 +657,7 @@ When a request offers no tool, a call of the model to a function tool SHALL get 
 - **THEN** the item fails, and the reason names the retry limit 2, and no budget limit
 
 ### Requirement: The budget is for each plan run
-A plan run SHALL be one model call for a plan. The budget of a plan run SHALL be for that run, not for the item. The planner can make a second plan run for one item, when the checks of the job refuse the first plan. That second run SHALL start with a new budget, so one item can use 60 tool calls and 100000 output tokens at most. The model call that splits the groups of an item SHALL use no tool and SHALL have no tool budget.
+A plan run SHALL be one model call for a plan. The budget of a plan run SHALL be for that run, not for the item. The planner can make a second plan run for one item, when the checks of the job refuse the first plan. That second run SHALL start with a new budget, so one item can use twice `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` tool calls at most. The model call that splits the groups of an item SHALL use no tool and SHALL have no tool budget.
 
 #### Scenario: The budget is for each plan run
 - **WHEN** the first plan run of an item makes 20 tool calls, the checks refuse its plan, and the second plan run makes 20 tool calls
@@ -674,6 +689,62 @@ The comment of an item that the toolbox planned SHALL report all plan runs of th
 - **WHEN** a tool call has an argument that looks like a secret
 - **THEN** the comment holds the masked text and not the secret
 
+### Requirement: A verification pass follows the gates
+When the caller gives a verifier, the planner SHALL make one verification call for each plan after the plan passes `check_proposal` and `validate_change`, and before the job opens the draft pull request. The verifier SHALL be the client of the task slot `ai.tasks.verification`. The request SHALL hold the issue, the plan, and the capped start of each file that the plan cites. The pass SHALL NOT merge a pull request and SHALL NOT mark one ready.
+
+#### Scenario: A plan that passes the gates
+- **WHEN** a plan passes the gates and the verifier finds nothing
+- **THEN** the verifier gets one request with the issue, the plan and the cited files, and the job opens the draft pull request
+
+#### Scenario: A long cited file
+- **WHEN** a plan cites a file with more tokens than `CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS`
+- **THEN** the request holds only the first tokens of that file
+
+#### Scenario: A plan that fails the gates
+- **WHEN** the gates refuse a plan twice
+- **THEN** the verifier gets no request
+
+#### Scenario: No pull request is merged or marked ready
+- **WHEN** the pass ends with findings
+- **THEN** the draft pull request stays a draft and the job makes no merge call
+
+### Requirement: A finding has one of the nine defect types
+A verification reply SHALL hold findings, and each finding SHALL have a `type` that is one of `missing_path`, `false_premise`, `spec_delta_wrong`, `verify_form`, `task_order`, `criterion_dropped`, `ignores_existing_code`, `contrived_test` and `other`, a place, a problem and a quote. The prompt of the pass SHALL name the same nine types.
+
+#### Scenario: An unknown type
+- **WHEN** the verifier names a finding type outside the nine types on both tries
+- **THEN** the item stops with the class `StructuredOutputValidationError` and the job opens no pull request
+
+#### Scenario: The prompt and the schema agree
+- **WHEN** the prompt of the pass is read
+- **THEN** it names each of the nine types and no other type
+
+### Requirement: An evidence-backed finding returns the plan once
+A finding of type `missing_path`, `false_premise` or `ignores_existing_code` whose quote is in the issue, the plan or a cited file SHALL return the plan to the planner once, with the finding as the problem. The revised plan SHALL pass the gates and the verification again. The planner SHALL NOT return a plan for a second time.
+
+#### Scenario: A false premise with a quote
+- **WHEN** the verifier returns a `false_premise` finding whose quote is in the issue
+- **THEN** the planner gets a second request with the finding as `problem` and the first plan as `previous`, and the job opens the draft pull request with the revised plan
+
+#### Scenario: A quote that is not in the input
+- **WHEN** the verifier returns a `false_premise` finding whose quote is in none of the issue, the plan and the cited files
+- **THEN** the planner gets no second request and the finding goes into the comment
+
+#### Scenario: The revised plan has a finding too
+- **WHEN** the revised plan gets a `missing_path` finding with a quote
+- **THEN** the planner makes no third request and the finding goes into the comment
+
+### Requirement: Other findings go into the comment
+The job SHALL list each finding that does not return the plan in the comment that names the draft pull request, with its type, place, problem and quote. The text of a finding SHALL be on one line, with a handle, a link or a reference to another repository in a code span. The job SHALL open the draft pull request.
+
+#### Scenario: A contrived test finding
+- **WHEN** the verifier returns a `contrived_test` finding
+- **THEN** the comment lists the finding and the draft pull request is open
+
+#### Scenario: No finding
+- **WHEN** the verifier returns no finding
+- **THEN** the comment holds no findings section
+
 ### Requirement: Refuse a spec delta that the changed paths do not need
 `check_proposal` SHALL refuse a proposal with `skip_specs: false` when every path of every group's `changes` starts with `tests/`, `.github/workflows/`, `docs/` or `openspec/`.
 
@@ -702,3 +773,151 @@ The stage job SHALL give the model the purpose and the requirement names of ever
 #### Scenario: The input lists a capability
 - **WHEN** The stage job builds the model input for a proposal
 - **THEN** the input holds the purpose and the requirement names of each capability
+
+### Requirement: A verify command has the project form
+`check_proposal` SHALL refuse a group whose `verify` command does not start with `uv run devops` as a whole word, unless it starts with `! git grep `.
+
+#### Scenario: A pytest verify command is refused
+- **WHEN** a group gives the `verify` command `uv run pytest tests/roadmap/test_stage.py`
+- **THEN** `check_proposal` returns a problem that names the command and the accepted forms
+
+#### Scenario: A devops command or a negative search is accepted
+- **WHEN** a group gives the `verify` command `uv run devops ci test tests/roadmap/test_stage.py` or `! git grep -n old_name src/ tests/`
+- **THEN** `check_proposal` returns no problem about the `verify` command
+
+### Requirement: A new test module sits in a mirror directory
+`check_proposal` SHALL refuse a path in `creates` that is a test module under `tests/` unless it is in `tests/invariants/` or in the directory that mirrors the package of a source file that the plan changes.
+
+#### Scenario: A flat test path is refused
+- **WHEN** a group creates `tests/test_stage.py` and the plan changes `src/devops_cli/roadmap/stage.py`
+- **THEN** `check_proposal` returns a problem that names the path and the directory `tests/roadmap`
+
+#### Scenario: A mirrored or an invariant test path is accepted
+- **WHEN** a group creates `tests/roadmap/test_stage.py` or `tests/invariants/test_source_tree.py`
+- **THEN** `check_proposal` returns no problem about the test path
+
+### Requirement: The prompt and the rules give a mirrored test path
+The stage prompt and `openspec/config.yaml` SHALL give only example test paths whose folder under `tests/` mirrors a package of `src/devops_cli/`.
+
+#### Scenario: Every example path is mirrored
+- **WHEN** a test reads the stage prompt and `openspec/config.yaml`
+- **THEN** each example test path has a folder under `tests/` that mirrors a package of `src/devops_cli/`
+
+### Requirement: Criteria mapping in the stage reply
+The stage reply SHALL hold a `criteria` list in which each entry gives the text of one acceptance criterion of the issue and either the number of the group that delivers it or `pending-person` with a reason. An acceptance criterion SHALL be a top-level item of a list under a heading `Acceptance criteria` in the text of the issue body that a person wrote, before the block of the refine job. An issue with no such list SHALL have no criterion.
+
+#### Scenario: Every criterion is mapped
+- **WHEN** The issue has three acceptance criteria and the reply's `criteria` list holds an entry for each, with a group number or `pending-person` and a reason
+- **THEN** `check_proposal` returns no problem for the criteria mapping
+
+#### Scenario: The list of the refine block is not read
+- **WHEN** The issue body holds a list under `Acceptance criteria` in the refine block as well, and the reply maps the items of the list that a person wrote
+- **THEN** `check_proposal` returns no problem for the criteria mapping
+
+#### Scenario: The issue has no acceptance list
+- **WHEN** The issue body has no heading `Acceptance criteria` and the reply's `criteria` list is empty
+- **THEN** `check_proposal` returns no problem for the criteria mapping
+
+#### Scenario: A pending-person entry has no reason
+- **WHEN** An entry of `criteria` gives `pending-person` and a blank reason
+- **THEN** the reply breaks the schema and goes back to the model
+
+### Requirement: An unmapped criterion is refused
+`check_proposal` SHALL refuse a reply that leaves an acceptance criterion of the issue with no entry in `criteria`, and an entry that names a group the plan does not have. The problem SHALL quote the exact text of the criterion. The check SHALL read the whole body of the issue.
+
+#### Scenario: One of three criteria is unmapped
+- **WHEN** The issue has three acceptance criteria and the reply's `criteria` list maps only two
+- **THEN** `check_proposal` returns a problem that quotes the text of the unmapped criterion
+
+#### Scenario: The retry copies the text
+- **WHEN** The first reply leaves a criterion out and the second reply maps it
+- **THEN** the second request to the model holds the problem with the exact text, and the item is staged
+
+#### Scenario: An entry names a group that does not exist
+- **WHEN** An entry of `criteria` names group 3 and the plan has 2 groups
+- **THEN** `check_proposal` returns a problem that names the criterion and the count of groups
+
+### Requirement: Criteria section in tasks.md
+The `tasks.md` of a staged plan SHALL hold a `## Criteria` section before `## Workflow follow-up`. It SHALL list each criterion with the number of the group that delivers it, or `pending-person` with the reason, as bullets with no checkbox.
+
+#### Scenario: Staged plan shows the mapping
+- **WHEN** A plan is rendered with criteria mapped to groups
+- **THEN** `tasks.md` holds a `## Criteria` section with one line for each criterion and its delivering group number or `pending-person` with the reason
+
+#### Scenario: A plan with no criterion has no section
+- **WHEN** A plan is rendered with an empty `criteria` list
+- **THEN** `tasks.md` holds no `## Criteria` section
+
+### Requirement: A split moves the criteria with the groups
+The split request SHALL hold the `criteria` list, the split reply SHALL give it again with the numbers of the new groups, and the job SHALL check it as it checks the first reply.
+
+#### Scenario: A split renumbers the groups
+- **WHEN** The model splits a group and gives the criteria with the new group numbers
+- **THEN** `tasks.md` shows the new numbers
+
+### Requirement: The replay judges the criteria gate on plans with a criteria list
+The golden-set replay SHALL run the `criteria` gate on a plan that has a `criteria` list, and SHALL not judge a recorded plan that has none.
+
+#### Scenario: A plan leaves a criterion out
+- **WHEN** The replay runs a plan with a `criteria` list that leaves one criterion of its issue out
+- **THEN** the `criteria` gate refuses the plan
+
+#### Scenario: A recorded plan has no list
+- **WHEN** The replay runs a recorded plan with no `criteria` key
+- **THEN** the `criteria` gate finds no problem
+
+### Requirement: The job probes the premise at the staging commit
+Before the model call, the stage job SHALL probe each path and each identifier that the issue cites at the staging commit, and SHALL put the probe text in the model input under the key `probes`. The job SHALL take the cited items from the same extraction as the context of the model. A missing path SHALL be probed for the commit that deleted or renamed it, and an identifier with no definition for the commit that last added or removed its text.
+
+#### Scenario: Probe output is in the model input
+- **WHEN** the job plans an issue that cites a file of the staging commit and a function that the commit defines
+- **THEN** the model input holds `probes` with a line that says the file is present and a line that names the definition of the function
+
+#### Scenario: A removed identifier names its removal commit
+- **WHEN** the issue cites `validate_url`, which a commit removed from the history before the staging commit
+- **THEN** `probes` says that the identifier has no definition and names that commit
+
+#### Scenario: A removed path names its removal commit
+- **WHEN** the issue cites a path that a commit deleted
+- **THEN** `probes` says that the path is missing and names the commit that deleted it
+
+#### Scenario: A thing that never existed
+- **WHEN** the issue cites a path that no commit ever held
+- **THEN** `probes` says that the path is missing and that no commit in the history deleted or renamed it
+
+#### Scenario: A backtick text that is no path and no identifier
+- **WHEN** the issue holds the backtick texts `git log -S x`, `owner/repo` and the number 0.41
+- **THEN** `probes` holds no line for any of them
+
+### Requirement: The probes are bounded and read-only
+The probes of one item SHALL run at most 10 git commands. When the issue cites more items than the bound allows, the probe SHALL stop at the bound and list the items it did not probe. Every probe command SHALL be `git cat-file`, `git grep` or `git log`, and no probe SHALL change the checkout.
+
+#### Scenario: The bound stops the probes
+- **WHEN** the issue cites 12 paths that the commit holds
+- **THEN** the probe runs 10 commands and `probes` lists 2 paths as not probed
+
+#### Scenario: Only reading commands
+- **WHEN** the probe runs for an issue that cites a missing path, a missing identifier and a present path
+- **THEN** every command it ran is `cat-file`, `grep` or `log`, and `git status --porcelain` of the checkout is empty
+
+### Requirement: A false premise returns the item
+When the model reply sets `premise_failed` with evidence, the stage job SHALL comment the evidence on the issue and set its Status to New, as `devops roadmap return` does, and SHALL make no branch and no pull request for the item. The job SHALL ask for no plan from such a reply.
+
+#### Scenario: Replay of #2971
+- **WHEN** the job plans an issue that cites `validate_url`, which a commit removed, and the model replies with `premise_failed` and the evidence
+- **THEN** the issue gets the evidence as a comment and the Status New, and the repository gets no branch and no pull request
+
+#### Scenario: A plan with a true premise
+- **WHEN** the model reply sets no `premise_failed`
+- **THEN** the job stages the change as before
+
+#### Scenario: A reply with no plan and no premise_failed
+- **WHEN** the model reply sets no `premise_failed` and holds no groups
+- **THEN** the reply fails the schema and goes back to the model once
+
+### Requirement: The prompt asks feasibility to quote the probes
+The prompt of the stage job SHALL tell the model that `probes` holds the result of read-only commands at the staging commit, SHALL ask `feasibility` to quote the lines of `probes` that confirm the premise, and SHALL tell the model to set `premise_failed` only when the probes or the inputs show that the premise of the issue is false.
+
+#### Scenario: The prompt names the probes
+- **WHEN** the stage prompt loads
+- **THEN** it names `probes` and `premise_failed`, and asks `feasibility` to quote the probes

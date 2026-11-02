@@ -13,10 +13,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from devops_cli.config.constants import (
-    CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
-    CONST_ROADMAP_IMPLEMENT_HOOK_OUTPUT_CHARS,
-)
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_HOOK_OUTPUT_CHARS
+from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS
 from devops_cli.exceptions import GitOperationError
 from devops_cli.roadmap.implement_hooks import (
     HookRun,
@@ -273,7 +271,7 @@ def test_a_stage_that_runs_out_of_time_is_a_failure_that_no_repair_fixes(
 
     assert failure is not None
     assert (failure.repairable, len(_stage_runs(programs))) == (False, 1)
-    assert f"ran out of time after {CONST_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS} s" in (
+    assert f"ran out of time after {DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS} s" in (
         failure.output
     )
 

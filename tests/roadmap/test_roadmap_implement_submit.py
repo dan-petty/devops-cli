@@ -18,13 +18,16 @@ import yaml
 from kubernetes.client.rest import ApiException
 from markdown_it import MarkdownIt
 
+from devops_cli.config.constants import CONST_SERVICE_METRIC_IMPLEMENT_FAILURES
 from devops_cli.config.env import setting_variables
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement import parse_implement_filters, plan_implement
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, JobOutcome
 from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField
+from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.kubernetes import FakeCluster, pod
 from tests.support.paths import REPO_ROOT
@@ -387,6 +390,69 @@ def test_a_job_that_failed_stops_an_item_that_is_in_progress_and_no_job_is_made_
         "implement: retry" in comment,
         len(_creates(kube)),
     ) == ("Blocked", "failed", "job", True, True, 1)
+
+
+def _failures(failure_class: str) -> float:
+    """The count of the Service's counter of failures for `failure_class`."""
+    return GLOBAL_METRICS.get_counter(
+        CONST_SERVICE_METRIC_IMPLEMENT_FAILURES, labels={"class": failure_class}
+    )
+
+
+def test_a_stop_that_the_runner_wrote_is_counted_once_under_its_class(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    store.set_field(
+        _held(store, number),
+        ItemField.STATUS,
+        "Blocked",
+        marks={ImplementRecordKey.STOPPED: "group 2", ImplementRecordKey.FAILURE: "parser"},
+    )
+    _end(kube, "Failed")
+    before = (_failures("parser"), _failures("oom"))
+
+    _round(store, staged_repo)
+    _round(store, staged_repo)
+
+    assert (_failures("parser") - before[0], _failures("oom") - before[1]) == (1, 0)
+    assert _record(store, number)["implement.failure"] == "parser"
+
+
+def test_a_job_that_left_no_result_gets_the_class_of_its_log_in_the_record_the_comment_and_the_count(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    name = _jobs(kube)[0]["metadata"]["name"]
+    store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
+    _end(kube, "Failed")
+    kube.core.answers["list_namespaced_pod"] = [pod(f"{name}-x1", namespace="devops")]
+    kube.core.answers["read_namespaced_pod_log"] = "Killed process 4242 (python): out of memory\n"
+    before = _failures("oom")
+
+    _round(store, staged_repo)
+
+    (comment,) = [c for c in _comments(store, number) if c.startswith(MARKER)]
+    assert _failures("oom") - before == 1
+    assert _record(store, number)["implement.failure"] == "oom"
+    assert "Failure class: `oom`.\nAction taken: none.\nAction left: `raise_limit`:" in comment
+
+
+def test_a_job_that_ended_with_a_result_is_no_failure(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    store.set_field(_held(store, number), ItemField.STATUS, "In Review")
+    _end(kube, "Complete")
+    before = sum(_failures(klass.value) for klass in FailureClass)
+
+    _round(store, staged_repo)
+
+    assert sum(_failures(klass.value) for klass in FailureClass) == before
+    assert _record(store, number).get("implement.failure") is None
 
 
 def test_a_job_that_ended_and_left_the_item_ready_and_unstopped_stops_it_too(

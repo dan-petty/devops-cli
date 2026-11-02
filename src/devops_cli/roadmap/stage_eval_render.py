@@ -25,8 +25,9 @@ def _count(value: int | None) -> str:
 
 
 def render_replay(report: ReplayReport) -> str:
-    """The replay as text: what each gate caught, the defects that wait for a gate, the defects no
-    gate judges, the good plans, and each failure."""
+    """The replay as text: what each gate caught, the counts of each type of defect, the share of
+    the defects that a gate judges, the defects that wait for a gate, the good plans, and each
+    failure."""
     texts = MESSAGES.roadmap
     good, goods = report.good()
     lines = [texts.stage_eval_replay_title.format(cases=len(report.replays), good=goods), ""]
@@ -35,28 +36,39 @@ def render_replay(report: ReplayReport) -> str:
         texts.stage_eval_replay_row.format(
             gate=total.gate.name,
             reference=total.gate.reference,
-            type=total.gate.catches,
             known=total.known,
             caught=total.caught,
             missed=total.missed,
         )
         for total in report.totals()
     ]
-    pending = report.count(DefectStatus.PENDING)
-    lines += ["", texts.stage_eval_replay_pending]
+    judged, known = report.judged()
+    lines += ["", texts.stage_eval_replay_types_header]
     lines += [
-        texts.stage_eval_replay_pending_row.format(
-            type=kind, count=count, reference=pending_reference(kind)
+        texts.stage_eval_replay_types_row.format(
+            type=total.type,
+            caught=total.caught,
+            missed=total.missed,
+            pending=total.pending,
+            unjudged=total.unjudged,
+            total=total.total,
         )
-        for kind, count in pending.items()
+        for total in report.by_type()
     ]
-    unjudged = report.count(DefectStatus.UNJUDGED)
     lines.append(
-        texts.stage_eval_replay_unjudged.format(
-            types=", ".join(f"{kind} {count}" for kind, count in unjudged.items())
-            or texts.stage_eval_no_value
+        texts.stage_eval_replay_share.format(
+            judged=judged, total=known, percent=_percent(judged / known if known else None)
         )
     )
+    pending = report.count(DefectStatus.PENDING)
+    if pending:
+        lines += ["", texts.stage_eval_replay_pending]
+        lines += [
+            texts.stage_eval_replay_pending_row.format(
+                type=kind, count=count, reference=pending_reference(kind)
+            )
+            for kind, count in pending.items()
+        ]
     lines += ["", texts.stage_eval_replay_good.format(good=good, cases=goods)]
     failures = report.failures
     lines.append(
@@ -124,10 +136,23 @@ def score_json(score: StageScore, *, gateway: str, taken: str) -> str:
 
 
 def replay_json(report: ReplayReport) -> str:
-    """The replay as JSON: the totals of each gate, and the failures."""
+    """The replay as JSON: the totals of each gate and of each type, the share of the defects that
+    a gate judges, and the failures."""
     good, goods = report.good()
+    judged, known = report.judged()
     data: dict[str, Any] = {
         "cases": len(report.replays),
+        "defects": {"judged": judged, "known": known},
+        "types": [
+            {
+                "type": str(total.type),
+                "caught": total.caught,
+                "missed": total.missed,
+                "pending": total.pending,
+                "unjudged": total.unjudged,
+            }
+            for total in report.by_type()
+        ],
         "gates": [
             {
                 "gate": str(total.gate.name),

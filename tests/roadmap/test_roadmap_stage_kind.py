@@ -204,6 +204,15 @@ def test_the_stage_prompt_states_the_rules_that_the_validator_checks() -> None:
     assert "`! git grep -n <name> src/ tests/`" in prompt
 
 
+def test_the_stage_prompt_asks_feasibility_to_quote_the_probes_and_names_premise_failed() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "`probes`" in prompt
+    assert "quote the lines of `probes`" in prompt
+    assert "`premise_failed`" in prompt
+    assert "no commit ever held" in prompt
+
+
 def test_the_implement_prompt_writes_the_test_first_only_for_a_group_with_a_test_task() -> None:
     prompt = load_task_prompt("roadmap_implement_step.md")
 

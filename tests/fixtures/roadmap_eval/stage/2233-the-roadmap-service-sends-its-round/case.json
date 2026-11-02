@@ -23,7 +23,7 @@
    "where": "proposal.md",
    "problem": "The Feasibility section confirms the premise from the #814 archive. That archive says the opposite: it did NOT build these gauges, because #2399 moved the roadmap to labels and the Service no longer does a per-round GraphQL budget read. Its pause value (service_pause_until) was also deleted. The plan quotes the archive for the pause value but leaves out its conclusion. No proof exists that a per-round closing GraphQL budget read still happens in the Service.",
    "evidence": "openspec/changes/archive/2026-10-28-814-github-request-metrics/tasks.md: 'Not built: the gauge devops_cli_service_paused_until_seconds. The Service does not run (#1562), and #1647 and #2399 change why it pauses.' Its proposal.md: 'The gauge of the GraphQL points left and the spend by repository of each Service round ... #2399 moves the roadmap state to labels and milestones, and no roadmap job reads or writes the board after it.' The 2399 archive proposal lists as deleted: 'the GraphQL budget probe and spend line of the store, log_round_spend, service_pause_until'. git grep -n 'service_pause_until' origin/main -- src tests returns nothing.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "false_premise",
@@ -31,7 +31,7 @@
    "where": "tasks.md",
    "problem": "Group 2 asks for emit() calls 'where the Service logs the round pause end time' and 'where the Service logs the GraphQL budget' in src/devops_cli/roadmap/run.py. run.py has neither point. The only pause log is MESSAGES.serve.rounds_paused in RoundPause.after in src/devops_cli/server/service.py (a different file and class, which holds the pause time as a datetime in self._until). No code logs GraphQL points left after a round. The variables paused_until and remaining_points do not exist. An implementer would have to invent a new GraphQL read per round, which is new code and not what the issue asked for, or would stop.",
    "evidence": "git show origin/main:src/devops_cli/roadmap/run.py | grep -n -i 'pause\\|remaining\\|graphql' returns no match. git grep -n 'rounds_paused' origin/main -- src finds the log in server/service.py:383 (RoundPause.after). The remaining GraphQL budget readers (project_read.graphql_budget_args, owner_lookup.py:42 on failure, projects.py:846 for the board probe) are not part of any Service round.",
-   "gate": "pending"
+   "gate": "none"
   },
   {
    "type": "missing_path",
@@ -59,7 +59,8 @@
    "where": "tasks.md",
    "problem": "Task 3.1 asks to verify a 'no code test' by showing that uv run devops ci test tests/test_telemetry_instruments.py fails on the base. No test is written that checks the TELEMETRY.md table, so that run cannot fail for the reason given. The failing-first rule is not met for the doc group. The proposal also leaves the existing TELEMETRY.md text unfixed: line 38 says 'The roadmap Service sends none' (gauges), which the change makes false. AGENTS.md rule 8 requires fixing that sentence in the same PR.",
    "evidence": "tasks.md 3.1: 'No code test; ... and verify that `uv run devops ci test tests/test_telemetry_instruments.py` fails on the base'. docs/TELEMETRY.md:38-39: 'The roadmap Service sends none, because its token cannot read traffic.'",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The command cannot fail for the reason given. A person judges it."
   },
   {
    "type": "other",
@@ -75,7 +76,8 @@
    "where": "design.md",
    "problem": "The design says 'Use the existing emit() ... path' and that the Service context provides attributes. The Service's own metrics (queue depth, job suspended, budget limit and spent) go through GLOBAL_METRICS.set_gauge on the Service /metrics, and service.py/run.py use no emit(). The plan does not weigh these two paths, and the repository has a check against one gauge name on two paths (test_no_gauge_reaches_prometheus_through_two_paths). The rejected-alternatives list names no evidence for the choice.",
    "evidence": "git grep -n 'emit(' origin/main -- src/devops_cli/server/service.py src/devops_cli/roadmap/run.py returns nothing; run.py:998 uses GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_JOB_SUSPENDED, ...); tests/telemetry/test_telemetry_instruments.py:253 test_no_gauge_reaches_prometheus_through_two_paths.",
-   "gate": "pending"
+   "gate": "none",
+   "reason": "The check reads only the reply and the file names of the case. #3012 gives the model the tests and callers of a cited symbol as input, and no check on the reply sees code that exists."
   },
   {
    "type": "other",

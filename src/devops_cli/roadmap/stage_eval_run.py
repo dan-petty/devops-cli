@@ -36,7 +36,9 @@ from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.clone_git import git
 from devops_cli.roadmap.stage import (
     OverBudget,
+    PremiseFailed,
     StageClient,
+    StagedChange,
     analysis_window,
     openspec_tool,
     plan_item,
@@ -61,6 +63,7 @@ class Outcome(StrEnum):
     STAGED = "staged"
     REFUSED = "refused"
     OVER_BUDGET = "over_budget"
+    RETURNED = "returned"
     FAILED = "failed"
 
 
@@ -131,7 +134,16 @@ def _first_reply_problems(
     files = render_change(case.change, reply, known, created=datetime.now(UTC).date())
     tree = StagedTree.read(source, operation=_OPERATION).with_files(files)
     requirements = {name: spec.requirements for name, spec in specs.items()}
-    return run_gates(PlanUnderTest.of_reply(reply, tree, known, requirements))
+    return run_gates(PlanUnderTest.of_reply(reply, tree, known, requirements, case.issue_body))
+
+
+def _planned_as(planned: StagedChange | OverBudget | PremiseFailed) -> tuple[Outcome, str]:
+    """How a case ended when the planner gave an outcome and raised no error."""
+    if isinstance(planned, OverBudget):
+        return Outcome.OVER_BUDGET, MESSAGES.roadmap.stage_eval_over_budget
+    if isinstance(planned, PremiseFailed):
+        return Outcome.RETURNED, MESSAGES.roadmap.stage_eval_returned
+    return Outcome.STAGED, ""
 
 
 def _ended(exc: Exception) -> tuple[Outcome, str]:
@@ -182,11 +194,7 @@ def run_case(
                 sha=case.base_commit,
                 step_tokens=step_tokens,
             )
-            outcome, reason = (
-                (Outcome.OVER_BUDGET, MESSAGES.roadmap.stage_eval_over_budget)
-                if isinstance(planned, OverBudget)
-                else (Outcome.STAGED, "")
-            )
+            outcome, reason = _planned_as(planned)
         except AICredentialsError:
             raise
         except (AIClientError, RoadmapStageError, ToolExecutionError) as exc:

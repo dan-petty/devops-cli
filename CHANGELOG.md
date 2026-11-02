@@ -2,6 +2,75 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.47.0](https://github.com/dan-petty/devops-cli/compare/v0.46.1...v0.47.0) (2026-11-02)
+
+
+### Features
+
+* **mcp:** serve role-scoped tools over streamable HTTP ([#3233](https://github.com/dan-petty/devops-cli/issues/3233)) ([6923473](https://github.com/dan-petty/devops-cli/commit/69234732a44a750d3468a3ffadaf17eb7d15ec51))
+* **security:** refuse a secret value as an MCP tool parameter ([#3232](https://github.com/dan-petty/devops-cli/issues/3232)) ([360a8c6](https://github.com/dan-petty/devops-cli/commit/360a8c6da4eb143e7c76b6c53aa29d297356dfd3))
+
+## [0.46.1](https://github.com/dan-petty/devops-cli/compare/v0.46.0...v0.46.1) (2026-11-02)
+
+
+### Performance Improvements
+
+* **roadmap:** raise the soft caps and timeouts of the jobs ([#3223](https://github.com/dan-petty/devops-cli/issues/3223)) ([bc0434e](https://github.com/dan-petty/devops-cli/commit/bc0434eebac536a75f81c69e3ee080b1623bf2ea))
+
+## [0.46.0](https://github.com/dan-petty/devops-cli/compare/v0.45.0...v0.46.0) (2026-11-02)
+
+
+### Features
+
+* **pr:** build and check the title and body of a pull request ([#3213](https://github.com/dan-petty/devops-cli/issues/3213)) ([9bd6448](https://github.com/dan-petty/devops-cli/commit/9bd64486745a92f84560df3881e473567552e931))
+
+## [0.45.0](https://github.com/dan-petty/devops-cli/compare/v0.44.0...v0.45.0) (2026-11-02)
+
+
+### Features
+
+* **roadmap:** extend the runner Job deadline on progress ([#3196](https://github.com/dan-petty/devops-cli/issues/3196)) ([db97495](https://github.com/dan-petty/devops-cli/commit/db97495f8999134eab31c532bb8812f629a368e3))
+
+## [0.44.0](https://github.com/dan-petty/devops-cli/compare/v0.43.0...v0.44.0) (2026-11-02)
+
+
+### Features
+
+* **roadmap:** classify a failure and name its class in the stop ([#3195](https://github.com/dan-petty/devops-cli/issues/3195)) ([fd09aa4](https://github.com/dan-petty/devops-cli/commit/fd09aa4410735b0e15b6eab872ce42d49ea4117e))
+
+
+### Bug Fixes
+
+* **roadmap:** the stage job refuses a pytest verify command ([#3189](https://github.com/dan-petty/devops-cli/issues/3189)) ([19a0878](https://github.com/dan-petty/devops-cli/commit/19a0878873fc2ceea2abb0c737c5202ed62c2793))
+
+## [0.43.0](https://github.com/dan-petty/devops-cli/compare/v0.42.1...v0.43.0) (2026-11-02)
+
+
+### Features
+
+* **roadmap:** map each acceptance criterion to a group ([#3180](https://github.com/dan-petty/devops-cli/issues/3180)) ([9639c02](https://github.com/dan-petty/devops-cli/commit/9639c020cb7ffcb3979dc776c33cab44f39379b7))
+* **roadmap:** the stage job probes the premise ([#3176](https://github.com/dan-petty/devops-cli/issues/3176)) ([b05e678](https://github.com/dan-petty/devops-cli/commit/b05e67834ba92f622862a8ceef57464591f570e6))
+
+## [0.42.1](https://github.com/dan-petty/devops-cli/compare/v0.42.0...v0.42.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **roadmap:** name the creating group of a forward read ([#3179](https://github.com/dan-petty/devops-cli/issues/3179)) ([64a8b00](https://github.com/dan-petty/devops-cli/commit/64a8b00402e6e5b0ae31644be59476d339083731))
+
+## [0.42.0](https://github.com/dan-petty/devops-cli/compare/v0.41.0...v0.42.0) (2026-11-02)
+
+
+### Features
+
+* **roadmap:** add tests and callers of cited symbols to context ([#3178](https://github.com/dan-petty/devops-cli/issues/3178)) ([6f648d5](https://github.com/dan-petty/devops-cli/commit/6f648d590a187632fe3e7dd1f1a66f3b29331315))
+* **roadmap:** the stage job verifies its plan with a model ([#3182](https://github.com/dan-petty/devops-cli/issues/3182)) ([fd0cc2f](https://github.com/dan-petty/devops-cli/commit/fd0cc2f53b63ac78b4bdb79f8824ae2c31043c00))
+
+
+### Bug Fixes
+
+* **roadmap:** the stage job refuses an unneeded spec delta ([#3177](https://github.com/dan-petty/devops-cli/issues/3177)) ([0c09a3a](https://github.com/dan-petty/devops-cli/commit/0c09a3a63f4e139b1d843d6cf65300c05addbbd5))
+
 ## [0.41.0](https://github.com/dan-petty/devops-cli/compare/v0.40.0...v0.41.0) (2026-11-02)
 
 

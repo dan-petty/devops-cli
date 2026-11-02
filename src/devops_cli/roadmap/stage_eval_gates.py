@@ -1,11 +1,23 @@
 """The deterministic gates of the stage job, and the replay of a recorded plan through them (#3028).
 
 A gate finds one type of defect in a plan with no model. `paths` is the check of the job on a plan
-(`check_proposal`): the path gate (#3010), where every path a group names is a file of the staged
-commit or a group creates it, and the rules of the spec delta, which use the capabilities of the
-case. `kind` is the kind rule
-(#3005): a group that the schema of the reply refuses. Gates that do not exist yet (#3011 to #3019)
-are in `PENDING_GATES`: a defect that one of them will catch is listed, and it fails nothing.
+(`check_proposal`): the path gate (#3010), the rules of the spec delta that use the capabilities of
+the case (#3013), and the form of the `verify` commands and of the new test files (#3015). It runs as
+one gate, as the job runs it, so it refuses a defect of the types `missing_path`, `spec_delta_wrong`
+and `verify_form`. A defect that it refuses for another reason than a missing path holds the
+`message` of the problem. `kind` is the kind rule
+(#3005): a group that the schema of the reply refuses. `criteria` is the criteria rule (#3019): an
+acceptance criterion of the issue that the `criteria` list leaves out. A recorded plan has no such
+list, so the replay does not judge it, and its defects of this type have the gate `none`.
+`PENDING_GATES` lists the types for which a gate is planned and not built: a defect of such a type
+is marked `pending`, and it fails nothing. It is empty now (#3208).
+A false premise has no gate here: the job probes it at the staging commit before the plan
+(`stage_probe`, #3011), and the replay reads no git, so a defect of that type has the gate `none`.
+A defect of a type that a gate catches can still have the gate `none`, with a `reason`: the
+recorded plan cannot show it. The facts of a case hold a thinned tree, a case holds no text of the
+base specs, and the replay reads no code, so it cannot see code that exists (#3012 gives that code
+to the model as input and checks nothing on the reply) or the order of the work in a group (#3017
+refuses only a path that a later group creates).
 
 `replay_case` runs the gates on the plan of a case, as the job runs them on a reply, and checks
 each known defect against the gate that must refuse it. The replay reads no git and makes no model
@@ -29,6 +41,7 @@ from devops_cli.roadmap.stage_change import (
     StageSpec,
     check_proposal,
 )
+from devops_cli.roadmap.stage_criteria import StageCriterion, criterion_problems
 from devops_cli.roadmap.stage_eval_cases import (
     Defect,
     DefectType,
@@ -51,6 +64,10 @@ class PlanUnderTest:
     known: frozenset[str]
     tree: StagedTree
     requirements: Mapping[str, Collection[str]] = field(default_factory=dict)
+    issue_body: str = ""
+    # Whether the plan has a `criteria` list. A plan recorded before #3019 has none: it was never
+    # asked for a mapping, so the criteria gate has nothing to judge in it.
+    mapped: bool = False
 
     @classmethod
     def of_case(cls, case: StageCase) -> PlanUnderTest:
@@ -59,8 +76,18 @@ class PlanUnderTest:
         problems: list[str] = []
         groups = [_group_of(raw, problems) for raw in case.groups]
         specs = [spec for raw in case.plan["specs"] if (spec := _spec_of(raw, problems))]
-        proposal = StageProposal.model_construct(**{**case.plan, "specs": specs, "groups": groups})
-        return cls(proposal, tuple(problems), frozenset(case.facts.capabilities), case.tree())
+        criteria = [StageCriterion.model_validate(raw) for raw in case.plan.get("criteria", [])]
+        proposal = StageProposal.model_construct(
+            **{**case.plan, "specs": specs, "groups": groups, "criteria": criteria}
+        )
+        return cls(
+            proposal,
+            tuple(problems),
+            frozenset(case.facts.capabilities),
+            case.tree(),
+            issue_body=case.issue_body,
+            mapped="criteria" in case.plan,
+        )
 
     @classmethod
     def of_reply(
@@ -69,10 +96,13 @@ class PlanUnderTest:
         tree: StagedTree,
         known: Collection[str],
         requirements: Mapping[str, Collection[str]] | None = None,
+        issue_body: str = "",
     ) -> PlanUnderTest:
-        """The plan of a reply that passed the schema, with the tree it was staged on and the
-        requirement names of the base spec of each capability."""
-        return cls(proposal, (), frozenset(known), tree, requirements or {})
+        """The plan of a reply that passed the schema, with the tree it was staged on, the
+        requirement names of the base spec of each capability, and the body of the issue."""
+        return cls(
+            proposal, (), frozenset(known), tree, requirements or {}, issue_body, mapped=True
+        )
 
 
 def _group_of(raw: Mapping[str, Any], problems: list[str]) -> StageGroup:
@@ -107,11 +137,20 @@ class Gate:
 
 
 def _path_gate(plan: PlanUnderTest) -> list[str]:
-    """The checks of the job on a plan (`check_proposal`): the path rule and the rules of the spec
-    delta, which refuses a spec delta that the changed paths do not need (#3013). A recorded case
-    holds the names of the capabilities and no requirement names, so a replay of a case does not
-    judge a duplicate requirement."""
+    """The checks of the job on a plan (`check_proposal`): the path rule, the rules of the spec
+    delta, which refuse a spec delta that the changed paths do not need (#3013), and the form of
+    the `verify` commands and of the new test files (#3015). A recorded case holds the names of the
+    capabilities and no requirement names, so a replay of a case does not judge a duplicate
+    requirement."""
     return check_proposal(plan.proposal, plan.known, plan.tree, requirements=plan.requirements)
+
+
+def _criteria_gate(plan: PlanUnderTest) -> list[str]:
+    """The criteria rule (#3019): every acceptance criterion of the issue has an entry in the
+    `criteria` list of the plan. A plan with no list (a recorded one) is not judged."""
+    if not plan.mapped:
+        return []
+    return criterion_problems(plan.proposal.criteria, plan.issue_body, len(plan.proposal.groups))
 
 
 def _kind_gate(plan: PlanUnderTest) -> list[str]:
@@ -121,16 +160,12 @@ def _kind_gate(plan: PlanUnderTest) -> list[str]:
 GATES: Final[tuple[Gate, ...]] = (
     Gate(GateName.PATHS, "#3010", DefectType.MISSING_PATH, _path_gate),
     Gate(GateName.KIND, "#3005", DefectType.CONTRIVED_TEST, _kind_gate),
+    Gate(GateName.CRITERIA, "#3019", DefectType.CRITERION_DROPPED, _criteria_gate),
 )
-# The gates that are not built yet, by the type of defect they will catch.
-PENDING_GATES: Final[Mapping[DefectType, str]] = {
-    DefectType.FALSE_PREMISE: "#3011",
-    DefectType.IGNORES_EXISTING_CODE: "#3012",
-    DefectType.SPEC_DELTA_WRONG: "#3013",
-    DefectType.VERIFY_FORM: "#3015",
-    DefectType.TASK_ORDER: "#3017",
-    DefectType.CRITERION_DROPPED: "#3019",
-}
+# The gates that are not built yet, by the type of defect they will catch, with the issue that
+# plans each. #3012, #3013, #3015 and #3017 built theirs, and the replay judged the defects of
+# their types (#3208), so the list is empty until a new gate is planned.
+PENDING_GATES: Final[Mapping[DefectType, str]] = {}
 _GATE_BY_TYPE: Final[Mapping[DefectType, Gate]] = {gate.catches: gate for gate in GATES}
 
 
@@ -244,6 +279,28 @@ class GateTotals:
 
 
 @dataclass(frozen=True)
+class TypeTotals:
+    """What the replay found for one type of defect: the defects a gate caught or missed, the
+    defects that wait for a gate, and the defects that no gate judges."""
+
+    type: DefectType
+    caught: int
+    missed: int
+    pending: int
+    unjudged: int
+
+    @property
+    def judged(self) -> int:
+        """The defects that a gate judged."""
+        return self.caught + self.missed
+
+    @property
+    def total(self) -> int:
+        """All the known defects of the type."""
+        return self.judged + self.pending + self.unjudged
+
+
+@dataclass(frozen=True)
 class ReplayReport:
     """The replay of the whole set."""
 
@@ -267,6 +324,31 @@ class ReplayReport:
             )
             for gate in GATES
         ]
+
+    def by_type(self) -> list[TypeTotals]:
+        """The totals of each type that has a known defect, in the order of `DefectType`. A defect
+        with the status `stale` counts as pending: it waits for a gate that it does not name."""
+        outcomes = [o for replay in self.replays for o in replay.outcomes]
+        totals: list[TypeTotals] = []
+        for kind in DefectType:
+            statuses = [o.status for o in outcomes if o.defect.type is kind]
+            if statuses:
+                totals.append(
+                    TypeTotals(
+                        kind,
+                        caught=statuses.count(DefectStatus.CAUGHT),
+                        missed=statuses.count(DefectStatus.MISSED),
+                        pending=statuses.count(DefectStatus.PENDING)
+                        + statuses.count(DefectStatus.STALE),
+                        unjudged=statuses.count(DefectStatus.UNJUDGED),
+                    )
+                )
+        return totals
+
+    def judged(self) -> tuple[int, int]:
+        """The known defects that a gate judged (caught or missed), and all the known defects."""
+        totals = self.by_type()
+        return sum(t.judged for t in totals), sum(t.total for t in totals)
 
     def count(self, status: DefectStatus) -> dict[DefectType, int]:
         """The defects with `status`, by type, for the types that have some."""
