@@ -123,6 +123,7 @@ from devops_cli.roadmap.stage_change import (
 )
 from devops_cli.roadmap.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
+from devops_cli.roadmap.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
 from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore, StageRecordKey
@@ -598,7 +599,7 @@ class _Planner:
         client: StageClient,
         source: Path,
         sha: str,
-        known: frozenset[str],
+        specs: Mapping[str, BaseSpec],
         tree: StagedTree,
         budget: int,
         window: int,
@@ -609,7 +610,9 @@ class _Planner:
         self._toolbox = toolbox
         self._source = source
         self._sha = sha
-        self._known = known
+        self._specs = specs
+        self._known = frozenset(specs)
+        self._requirements = {name: spec.requirements for name, spec in specs.items()}
         self._tree = tree
         self._budget = budget
         self._window = window
@@ -652,7 +655,7 @@ class _Planner:
             "context": collect_context(
                 self._source, self._sha, item.body, max_tokens=self._window // _WINDOW_SHARE_CONTEXT
             ),
-            "capabilities": sorted(self._known),
+            "capabilities": [self._specs[name].request_entry(name) for name in sorted(self._specs)],
             "budget": self._budget,
         }
 
@@ -669,7 +672,12 @@ class _Planner:
     ) -> StagedChange | OverBudget | _Refused:
         """The outcome for one reply: a change, a stop on the budget, or the problem that sends
         the reply back."""
-        problems = check_proposal(proposal, self._known, self._tree_of(target, proposal))
+        problems = check_proposal(
+            proposal,
+            self._known,
+            self._tree_of(target, proposal),
+            requirements=self._requirements,
+        )
         if problems:
             return _Refused(" ".join(problems), proposal)
         title = staging_title(target.item.number, proposal.summary)
@@ -747,14 +755,6 @@ class _Planner:
         if self._tool is None:
             return None
         return validate_change(self._tool, self._source, change, files)
-
-
-def capabilities_of(source: Path) -> frozenset[str]:
-    """The names of the specs under `openspec/specs/` of the checkout."""
-    specs = source / "openspec" / "specs"
-    return (
-        frozenset(p.name for p in specs.iterdir() if p.is_dir()) if specs.is_dir() else frozenset()
-    )
 
 
 @contextmanager
@@ -966,7 +966,7 @@ def _planner_of(
         toolbox=runner,
         source=checkout,
         sha=sha,
-        known=capabilities_of(checkout),
+        specs=read_base_specs(checkout),
         tree=StagedTree.read(checkout, operation=_GIT_OPERATION),
         budget=budget,
         window=window,
