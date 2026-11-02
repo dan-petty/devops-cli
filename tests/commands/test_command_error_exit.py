@@ -100,10 +100,10 @@ def test_a_command_run_from_a_removed_working_directory_stops_with_one_error_lin
     assert "The working directory does not exist." in lines[0]
 
 
-def test_a_callback_that_runs_as_a_command_stops_with_one_error_line_from_a_removed_working_directory(
+def test_a_command_group_run_from_a_removed_working_directory_stops_with_one_error_line(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Callable[..., Any]
 ) -> None:
-    """`devops scan` is a callback with `invoke_without_command=True`: it ends as a command does."""
+    """`devops scan` reads the working directory when its module loads, before any callback runs."""
     _remove_working_directory(tmp_path, monkeypatch)
     result = cli("scan")
 
