@@ -81,7 +81,7 @@ async def test_create_devops_mcp_toolset() -> None:
         "k8s_pods": "k8s",
         "docker_images": "docker",
         "scan_trivy": "scan",
-        "vault_set": "vault",
+        "vault_get": "vault",
     }
     assert not (set(gated) & tool_names)
     for domain in set(gated.values()):

@@ -108,7 +108,6 @@ def test_fastmcp_tools_registration() -> None:
         # HashiCorp Vault
         "vault_status",
         "vault_get",
-        "vault_set",
         "vault_sync",
         # GitHub Projects, Pages, Issues & Views
         "gh_views_sync",
@@ -267,7 +266,7 @@ def test_fastmcp_tool_annotations_and_mutating_floor() -> None:
         "review_pr",
         "tf_apply",
         "valkey_flush",
-        "vault_set",
+        "valkey_set",
     }
     wrong_floor = sorted(
         name for name in floor_expected_false if hints_by_name.get(name) is not False
@@ -713,7 +712,7 @@ def test_fastmcp_docker_sign_tool() -> None:
             image="example.com/app:1.0.0",
             key="/path/to/key.key",
             keyless=False,
-            oidc_token="token123",
+            oidc_token="keyring:cosign_oidc",
             annotation=["env=prod"],
             upload=False,
             dry_run=True,
@@ -730,13 +729,14 @@ def test_fastmcp_docker_sign_tool() -> None:
                 "--key",
                 "/path/to/key.key",
                 "--keyed",
+                "--oidc-token",
+                "keyring:cosign_oidc",
                 "--annotation",
                 "env=prod",
                 "--no-upload",
                 "--dry-run",
             ],
             timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
-            env={"COSIGN_IDENTITY_TOKEN": "token123"},
         )
 
 
@@ -1182,9 +1182,9 @@ async def test_a_strict_refusal_is_rendered_like_a_schema_refusal(
 
 
 async def test_a_refused_secret_never_reaches_the_reply(handler_runner) -> None:
-    """An invalid `vault_set` returned the secret it was given in its error text."""
-    _, reply = await _call("vault_set", {"path": "secret/app", "key_values": _SECRET_SENTINEL})
-    assert ("Parameter: `key_values`" in reply, "sentinel-4b1d" in reply) == (True, False)
+    """An invalid call returned the secret it was given in its error text."""
+    _, reply = await _call("valkey_set", {"key": ["bad"], "value": _SECRET_SENTINEL})
+    assert ("Parameter: `key`" in reply, "sentinel-4b1d" in reply) == (True, False)
 
 
 async def test_an_undeclared_parameter_name_is_masked_and_bounded(handler_runner) -> None:
@@ -1202,7 +1202,7 @@ def test_no_rejected_input_reaches_a_log_record(fastmcp_log, handler_runner) -> 
     """FastMCP logs a refused call's pydantic error count and types, never the input.
 
     This holds FastMCP to that. It calls past the middleware, as FastMCP itself does once
-    middleware has run, so pydantic refuses a malformed `vault_set` and FastMCP logs.
+    middleware has run, so pydantic refuses a malformed `valkey_set` and FastMCP logs.
     """
     import asyncio
 
@@ -1210,9 +1210,9 @@ def test_no_rejected_input_reaches_a_log_record(fastmcp_log, handler_runner) -> 
 
     from devops_cli.ai.mcp.server import mcp
 
-    arguments = {"path": "secret/app", "key_values": _SECRET_SENTINEL}
+    arguments = {"key": ["bad"], "value": _SECRET_SENTINEL}
     with pytest.raises(FastMCPValidationError) as raised:
-        asyncio.run(mcp.call_tool("vault_set", arguments, run_middleware=False))
+        asyncio.run(mcp.call_tool("valkey_set", arguments, run_middleware=False))
     assert raised.value is not None
     assert (
         "Invalid arguments for tool" in fastmcp_log.text,
@@ -1223,14 +1223,14 @@ def test_no_rejected_input_reaches_a_log_record(fastmcp_log, handler_runner) -> 
 async def test_no_tool_argument_reaches_a_debug_record(fastmcp_log) -> None:
     """FastMCP logs every tool call's arguments at DEBUG.
 
-    With `FASTMCP_LOG_LEVEL=DEBUG`, that wrote a `vault_set` secret to the log.
+    With `FASTMCP_LOG_LEVEL=DEBUG`, that wrote the value of a `valkey_set` call to the log.
     """
     from unittest.mock import patch
 
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as runner:
-        await _call("vault_set", {"path": "secret/app", "key_values": [_SECRET_SENTINEL]})
+        await _call("valkey_set", {"key": "session", "value": _SECRET_SENTINEL})
     assert (
-        "Handler called: call_tool vault_set" in fastmcp_log.text,
+        "Handler called: call_tool valkey_set" in fastmcp_log.text,
         "sentinel-4b1d" in fastmcp_log.text,
         runner.call_count,
     ) == (True, False, 1)
@@ -1631,22 +1631,21 @@ def test_a_delegated_command_receives_the_end_of_options_marker(monkeypatch) -> 
 
 
 def test_the_vault_tools_take_no_address() -> None:
-    """A client must never choose which Vault a tool asks: `vault_get`, `vault_set` and
-    `vault_sync` send the user's Vault token there, and `vault_status` sends a request to it."""
+    """A client must never choose which Vault a tool asks: `vault_get` and `vault_sync`
+    send the user's Vault token there, and `vault_status` sends a request to it."""
     import inspect
 
     from devops_cli.ai.mcp import server
 
     parameters = {
         name: set(inspect.signature(getattr(server, name)).parameters)
-        for name in ("vault_get", "vault_set", "vault_sync", "vault_status")
+        for name in ("vault_get", "vault_sync", "vault_status")
     }
     assert (
         "vault_addr" not in parameters["vault_get"],
-        "vault_addr" not in parameters["vault_set"],
         "vault_addr" not in parameters["vault_sync"],
         "vault_addr" not in parameters["vault_status"],
-    ) == (True, True, True, True)
+    ) == (True, True, True)
 
 
 def test_fastmcp_k8s_security_stream(monkeypatch: pytest.MonkeyPatch) -> None:
