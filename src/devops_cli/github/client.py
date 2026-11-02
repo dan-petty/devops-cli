@@ -127,6 +127,68 @@ class _IssueSearchPage(BaseModel):
     items: list[IssueSearchHit]
 
 
+class IssueView(BaseModel):
+    """One issue or pull request as the issues endpoint reads it (#3238): its state and title, its
+    labels, its body (null when empty), how many comments it holds, and the `pull_request` object
+    that only a pull request has, which carries the time it merged."""
+
+    number: int
+    title: str
+    state: str
+    state_reason: str | None = None
+    body: str | None = None
+    comments: int = 0
+    labels: list[_LabelName] = Field(default_factory=list)
+    pull_request: dict[str, Any] | None = None
+
+    @property
+    def label_names(self) -> list[str]:
+        """The names of the labels."""
+        return [label.name for label in self.labels]
+
+    @property
+    def is_pull_request(self) -> bool:
+        """Whether the item is a pull request."""
+        return self.pull_request is not None
+
+    @property
+    def merged_at(self) -> str | None:
+        """When the pull request merged, or None for an issue and for a pull request not merged."""
+        merged = (self.pull_request or {}).get("merged_at")
+        return merged if isinstance(merged, str) else None
+
+
+class _LabelName(BaseModel):
+    name: str
+
+
+class _CommentText(BaseModel):
+    body: str = ""
+
+
+class _IssueEvent(BaseModel):
+    event: str
+    commit_id: str | None = None
+
+
+class OpenItem(BaseModel):
+    """One open issue or pull request that a search found (#3238)."""
+
+    number: int
+    title: str
+    state: str
+    pull_request: dict[str, Any] | None = None
+
+    @property
+    def is_pull_request(self) -> bool:
+        """Whether the item is a pull request."""
+        return self.pull_request is not None
+
+
+class _OpenItemPage(BaseModel):
+    items: list[OpenItem]
+
+
 class JobRunTime(BaseModel):
     """How long a job took in one workflow run, from its start to its end (#2699)."""
 
@@ -440,6 +502,51 @@ class GitHubClient:
             (j.seconds for j in jobs if j.name == job and j.conclusion in _JOB_ENDED_CONCLUSIONS),
             None,
         )
+
+    # ── Issue reads of the stage planner (#3238) ──────────────────────────────
+
+    def get_issue(self, repo: str, number: int) -> IssueView:
+        """The issue or pull request `number`, raising `GitHubNotFoundError` when `repo` has none."""
+        path = _repo_path(repo, f"issues/{number}")
+        return _read_as(IssueView, self._session.rest("GET", path), path=path)
+
+    def get_last_comments(self, repo: str, number: int, *, total: int, count: int) -> list[str]:
+        """The bodies of the last `count` comments of the issue, oldest first. `total` is the
+        number of comments the issue holds. The last page is read, and the page before it when
+        the last one holds fewer than `count`."""
+        if total <= 0 or count <= 0:
+            return []
+        per_page = DEFAULT_GH_REST_PER_PAGE
+        last_page = -(-total // per_page)
+        bodies: list[str] = []
+        for page in range(last_page, max(0, last_page - 2), -1):
+            path = _repo_path(repo, f"issues/{number}/comments?per_page={per_page}&page={page}")
+            listing = self._session.rest("GET", path)
+            bodies = [_read_as(_CommentText, item, path=path).body for item in listing] + bodies
+            if len(bodies) >= count:
+                break
+        return bodies[-count:]
+
+    def get_closing_pull(self, repo: str, number: int) -> int | None:
+        """The number of the merged pull request that closed the issue, or None when the issue was
+        closed by hand, is open, or the pull request of the closing commit did not merge. The
+        closing commit is the one of the issue's last `closed` event."""
+        path = _repo_path(repo, f"issues/{number}/events?per_page={DEFAULT_GH_REST_PER_PAGE}")
+        events = [_read_as(_IssueEvent, item, path=path) for item in self._session.paginate(path)]
+        closing = [event.commit_id for event in events if event.event == "closed"]
+        if not closing or closing[-1] is None:
+            return None
+        merged = [pull for pull in self.get_commit_pulls(repo, closing[-1]) if pull.merged_at]
+        return merged[0].number if merged else None
+
+    def search_open_items(self, repo: str, terms: str, *, limit: int) -> list[OpenItem]:
+        """At most `limit` open issues and pull requests of `repo` whose text holds `terms`, from
+        GitHub's issue search. A colon and a quote leave the terms first, so they name no search
+        qualifier such as `repo:` of another repository."""
+        words = " ".join(terms.replace(":", " ").replace('"', " ").split())
+        query = f"{words} repo:{repo} is:open"
+        path = f"/search/issues?{urlencode({'q': query, 'per_page': limit})}"
+        return _read_as(_OpenItemPage, self._session.rest("GET", path), path=path).items
 
     def create_issue_comment(self, repo: str, number: int, body: str) -> None:
         """Post `body` as a comment on the issue or pull request `number`."""

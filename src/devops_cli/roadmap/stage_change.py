@@ -13,8 +13,10 @@ reads.
 
 from __future__ import annotations
 
+import re
 import string
 import textwrap
+import unicodedata
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -36,10 +38,11 @@ from pydantic import (
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.constants import CONST_ROADMAP_SCOPE_LABEL_PREFIX
 from devops_cli.core.paths import safe_resolve_subpath
+from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope
-from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS
+from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length
 from devops_cli.roadmap.refine import sanitize_text
 from devops_cli.roadmap.stage_criteria import PENDING_PERSON, StageCriterion, criterion_problems
 from devops_cli.roadmap.stage_form import form_problems
@@ -51,6 +54,21 @@ from devops_cli.roadmap.step_rules import rules_sections
 # revert add a line to the changelog, so a pull request that only plans an item has this type.
 _STAGING_TYPE: Final[str] = "docs(openspec)"
 _ELLIPSIS: Final[str] = "..."
+# A character shows nothing to a reader when its category is a space, a control, a format mark
+# (such as U+200B or U+FEFF), a surrogate, a private use or an unassigned mark, or when it is one
+# of the blank fillers that have a letter or a symbol category.
+_INVISIBLE_CATEGORIES: Final[frozenset[str]] = frozenset(
+    {"Cc", "Cf", "Cs", "Co", "Cn", "Zs", "Zl", "Zp"}
+)
+_BLANK_FILLERS: Final[str] = "\u2800\u115f\u1160\u3164\uffa0"
+# The most digits that the number of an issue has. The title of a plan is `docs(openspec): plan
+# #<number> <summary>` and its summary has at most `SUMMARY_MAX_CHARS` characters (#2714), so the
+# room for the model's summary depends on the digits. The schema cannot know the number, so its
+# limit is the room for the longest number, and a shorter number leaves room over (#3249).
+ISSUE_NUMBER_DIGITS: Final[int] = 6
+STAGE_SUMMARY_MAX_CHARS: Final[int] = SUMMARY_MAX_CHARS - summary_length(
+    MESSAGES.roadmap.stage_title_lead.format(number=10**ISSUE_NUMBER_DIGITS - 1)
+)
 # The most characters of the body of a pull request: it is the message of the squash commit.
 BODY_MAX_CHARS: Final[int] = 800
 # The fewest characters of the Purpose of a new capability, so archive never writes TBD.
@@ -97,8 +115,55 @@ def _capability_name(name: str) -> str:
 
 
 RepositoryPath = Annotated[str, AfterValidator(_repository_path)]
-# A text of a task group: at least one character once the whitespace around it is stripped.
-Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+def _one_line(text: str) -> str:
+    """The text on one line, so that a text of the reply adds no line, no task, no group, no
+    section and no `Verification:` line to a file of the change. Each run of white space, a line
+    break of markdown (`\\n`, `\\r`) and one of `str.splitlines` among them, becomes one space."""
+    return " ".join(text.split())
+
+
+def _join_lines(text: str) -> str:
+    """The text on one line, with each line break as one space and every other space kept: a
+    command may hold two spaces in a quoted word."""
+    return " ".join(text.splitlines())
+
+
+# What starts a block in markdown, at the start of a line: a heading, a quote, a list marker or a
+# box, a rule, a fence, a comment of HTML.
+_BLOCK_START: Final[re.Pattern[str]] = re.compile(
+    r"#{1,6}(?:\s|$)|>|[-*+](?:\s|$)|\d{1,9}[.)](?:\s|$)|\[[ xX]\]"
+    r"|(?:-{3,}|_{3,}|\*{3,}|={3,}|~{3,}|`{3,})|<!--"
+)
+
+
+def _block_free(text: str) -> str:
+    """The text, which starts with no block syntax, as a file of the change writes it at the start
+    of a line."""
+    if _BLOCK_START.match(text):
+        raise ValueError(MESSAGES.roadmap.stage_bad_block_start.format(text=text[:40]))
+    return text
+
+
+# A text of a task group: at least one character once the whitespace around it is stripped, and on
+# one line in `tasks.md`.
+Text = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1), AfterValidator(_one_line)
+]
+# A command: on one line, with its spaces kept.
+Command = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1), AfterValidator(_join_lines)
+]
+# A text of a file of the change that is not a task: on one line, and at the start of a line only
+# when it starts with no block syntax.
+Line = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(_one_line)]
+LineStart = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True),
+    AfterValidator(_one_line),
+    AfterValidator(_block_free),
+]
 
 
 def _sentence(text: str) -> str:
@@ -111,12 +176,12 @@ def _sentence(text: str) -> str:
 
 
 # The text of a task that the writer joins to the words after it: it ends in no full stop.
-Sentence = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(_sentence)]
-
-
-def _one_line(text: str) -> str:
-    """The text on one line, so that a task of `tasks.md` stays one list item."""
-    return " ".join(text.split())
+Sentence = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True),
+    AfterValidator(_one_line),
+    AfterValidator(_sentence),
+]
 
 
 # The steps of a manual check: at least one character, and on one line in `tasks.md`.
@@ -126,22 +191,23 @@ Process = Annotated[
 
 
 class _Reply(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # A text that is set after validation is folded too, as the writer of the files trusts it.
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
 
 class StageScenario(_Reply):
     """One scenario of a requirement, in the shape of an OpenSpec scenario."""
 
-    name: str
-    when: str
-    then: str
+    name: Line
+    when: Line
+    then: Line
 
 
 class StageRequirement(_Reply):
     """One requirement of a spec delta; `text` says SHALL or MUST, in capitals."""
 
-    name: str
-    text: str
+    name: Line
+    text: LineStart
     scenarios: list[StageScenario] = Field(min_length=1)
 
 
@@ -149,7 +215,7 @@ class StageSpec(_Reply):
     """The delta of one capability. `purpose` is set for a new capability only."""
 
     capability: Annotated[str, AfterValidator(_capability_name)]
-    purpose: str | None = None
+    purpose: LineStart | None = None
     added: list[StageRequirement] = Field(default_factory=list)
     modified: list[StageRequirement] = Field(default_factory=list)
 
@@ -157,15 +223,15 @@ class StageSpec(_Reply):
 class StageDecision(_Reply):
     """A design decision and its reason."""
 
-    decision: str
-    reason: str
+    decision: Line
+    reason: Line
 
 
 class StageRejection(_Reply):
     """An alternative the design rejected, and the evidence that rejected it."""
 
-    alternative: str
-    evidence: str
+    alternative: Line
+    evidence: Line
 
 
 class GroupKind(StrEnum):
@@ -195,7 +261,7 @@ class StageGroup(_Reply):
     test: Sentence | None = None
     implementation: Sentence
     documentation: Sentence | None = None
-    verify: Text | None = None
+    verify: Command | None = None
     process: Process | None = None
 
     @model_validator(mode="after")
@@ -268,13 +334,15 @@ class StageProposal(_Reply):
     `premise_failed` must give every key of the plan."""
 
     premise_failed: str | None = None
-    summary: str = Field("", min_length=1, max_length=SUMMARY_MAX_CHARS)
+    # The limit counts the text as the title shows it (see `_summary_fits_the_title`), so the schema
+    # gives it as `maxLength` for the model and checks it in the validator, not with `max_length`.
+    summary: str = Field("", min_length=1, json_schema_extra={"maxLength": STAGE_SUMMARY_MAX_CHARS})
     pull_request_body: str = Field("", min_length=1, max_length=BODY_MAX_CHARS)
-    why: str = ""
-    what_changes: list[str] = Field(default_factory=list, min_length=1)
+    why: LineStart = ""
+    what_changes: list[Line] = Field(default_factory=list, min_length=1)
     skip_specs: bool = False
-    feasibility: list[str] = Field(default_factory=list, min_length=1)
-    existing_tool: str = ""
+    feasibility: list[Line] = Field(default_factory=list, min_length=1)
+    existing_tool: LineStart = ""
     decisions: list[StageDecision] = Field(default_factory=list)
     rejected: list[StageRejection] = Field(default_factory=list)
     specs: list[StageSpec] = Field(default_factory=list)
@@ -289,6 +357,27 @@ class StageProposal(_Reply):
         if isinstance(data, dict) and str(data.get("premise_failed") or "").strip():
             return {"premise_failed": data["premise_failed"]}
         return data
+
+    @field_validator("summary")
+    @classmethod
+    def _summary_fits_the_title(cls, summary: str) -> str:
+        """The title shows the summary as `safe_text` writes it: on one line, and with a code span
+        for a handle or a link. The limit counts that text in the units of the check `Semantic PR
+        title` (`summary_length`), so spare whitespace costs nothing, a handle costs its code span
+        and an emoji costs two. A summary with no text left is refused too. The reply that breaks
+        it goes back to the model with the count and the limit, and `staging_title` cuts no summary
+        that the schema accepts."""
+        text = safe_text(summary)
+        shown = summary_length(text)
+        if not any(_shows_something(char) for char in text):
+            raise ValueError(MESSAGES.roadmap.stage_summary_blank)
+        if shown > STAGE_SUMMARY_MAX_CHARS:
+            raise ValueError(
+                MESSAGES.roadmap.stage_summary_long.format(
+                    length=shown, limit=STAGE_SUMMARY_MAX_CHARS
+                )
+            )
+        return summary
 
     @field_validator("premise_failed")
     @classmethod
@@ -537,7 +626,10 @@ def _task_texts(group: StageGroup) -> list[str]:
 
 
 def group_text(index: int, group: StageGroup) -> str:
-    """The group as `tasks.md` holds it, numbered `index`: its files, and the tasks of its kind."""
+    """The group as `tasks.md` holds it, numbered `index`: its files, and the tasks of its kind.
+    `group` is a validated group: its texts are on one line (`_one_line`), and `verify` holds no
+    backtick (`form_problems`). A group built with `model_construct` skips that check, and no
+    caller renders one."""
     texts = MESSAGES.roadmap
     files = texts.stage_group_files.format(
         reads=_paths(group.reads) or texts.stage_group_no_reads,
@@ -553,10 +645,14 @@ def group_text(index: int, group: StageGroup) -> str:
 def _criteria_section(criteria: Sequence[StageCriterion]) -> str:
     """The `## Criteria` section of `tasks.md`: one line for each acceptance criterion with the
     group that delivers it, or `pending-person` and the reason. It is no task, so it has no box.
-    A plan with no criterion has no section."""
+    A line starts with a fixed word and holds the folded text of the criterion, which comes from
+    the issue: a criterion `## 2. X` is no heading of the file. A plan with no criterion has no
+    section."""
     texts = MESSAGES.roadmap
     lines = [
-        texts.stage_criteria_pending.format(criterion=_one_line(c.criterion), reason=c.reason)
+        texts.stage_criteria_pending.format(
+            criterion=_one_line(c.criterion), reason=_one_line(c.reason or "")
+        )
         if c.group == PENDING_PERSON
         else texts.stage_criteria_line.format(criterion=_one_line(c.criterion), group=c.group)
         for c in criteria
@@ -590,15 +686,29 @@ def render_change(
     return files
 
 
+def _shows_something(char: str) -> bool:
+    """Whether `char` shows something to a reader."""
+    return char not in _BLANK_FILLERS and unicodedata.category(char) not in _INVISIBLE_CATEGORIES
+
+
 def staging_title(number: int, summary: str) -> str:
     """The title of the draft pull request of item `number`: `docs(openspec): plan #<number>
-    <summary>`. The summary is cut at a word, so that the part after the colon has at most
-    `SUMMARY_MAX_CHARS` characters (#2714). It is on one line, with a handle or a link in a code
-    span, so it pings no one."""
+    <summary>`. It is on one line, with a handle or a link in a code span, so it pings no one. The
+    part after the colon has at most `SUMMARY_MAX_CHARS` characters (#2714). A summary that the
+    schema accepts (`STAGE_SUMMARY_MAX_CHARS`) always fits, for a number of `ISSUE_NUMBER_DIGITS`
+    digits or fewer. The title is never cut, because a cut text ends with `...` and the form check
+    refuses it (#3249): a summary that does not fit stops the item with `RoadmapStageError`."""
     lead = MESSAGES.roadmap.stage_title_lead.format(number=number)
-    room = SUMMARY_MAX_CHARS - len(lead)
-    shortened = textwrap.shorten(safe_text(summary), room, placeholder=_ELLIPSIS)
-    return f"{_STAGING_TYPE}: {lead}{shortened}"
+    shown = safe_text(summary)
+    length = summary_length(lead + shown)
+    if length > SUMMARY_MAX_CHARS:
+        raise RoadmapStageError(
+            MESSAGES.roadmap.stage_title_long.format(
+                number=number, length=length, limit=SUMMARY_MAX_CHARS
+            ),
+            failed_items=[number],
+        )
+    return f"{_STAGING_TYPE}: {lead}{shown}"
 
 
 def delivery_title(issue_title: str, declared: Collection[str]) -> str:

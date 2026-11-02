@@ -1,5 +1,6 @@
-"""Tests for the planner client that calls the tools (#3037): the run that offers the nine tools of
-the toolbox, its budget, its trace and its errors.
+"""Tests for the planner client that calls the tools (#3037, #3238): the run that offers the tools of
+the toolbox, its budget, its trace and its errors. The runs of the budget and the trace use the
+nine tools of the toolset `base`; the toolset tests use `extended`, the default.
 
 pydantic-ai's `FunctionModel` answers each model request from a `Script`, so no test reaches a
 model. The tools read a temporary git repository.
@@ -28,10 +29,12 @@ from devops_cli.ai.client.models import (
 )
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config import settings
 from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS,
     CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
 )
+from devops_cli.config.defaults import StageToolset
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.roadmap.stage_change import StageProposal, StageSplit
 from devops_cli.roadmap.stage_toolbox import ToolboxClient
@@ -52,6 +55,7 @@ _TOOLS = [
     "repo_map",
     "read_spec",
 ]
+_EXTENDED_TOOLS = [*_TOOLS, "references", "read_issue", "find_issues"]
 _PLAN = make_stage_proposal()
 # The calls after which a request offers no tool: fewer than a turn of calls is left.
 _LAST_WITH_TOOLS = (
@@ -91,9 +95,11 @@ def checkout(tmp_path: Path) -> tuple[Path, str]:
     return root, _git(root, "rev-parse", "HEAD")
 
 
-def _client(checkout: tuple[Path, str], script: Script) -> ToolboxClient:
+def _client(
+    checkout: tuple[Path, str], script: Script, toolset: StageToolset = "base"
+) -> ToolboxClient:
     source, sha = checkout
-    return ToolboxClient(script.model(), _Inner(), source, sha)
+    return ToolboxClient(script.model(), _Inner(), source, sha, toolset=toolset)
 
 
 def _plan(client: ToolboxClient) -> Any:
@@ -227,9 +233,18 @@ def test_the_tools_prompt_names_exactly_the_tools_of_the_toolbox(
     checkout: tuple[Path, str],
 ) -> None:
     source, sha = checkout
-    names = [tool.name for tool in StageTools(source, sha).tools()]
+    base = [tool.name for tool in StageTools(source, sha, toolset="base").tools()]
+    extended = [tool.name for tool in StageTools(source, sha).tools()]
+    base_prompt = load_task_prompt("roadmap_stage_tools.md")
+    extended_prompt = base_prompt + load_task_prompt("roadmap_stage_tools_extended.md")
 
-    assert names == _TOOLS
+    assert (
+        base,
+        extended,
+        [name for name in base if f"`{name}`" not in base_prompt],
+        [name for name in extended if f"`{name}`" not in extended_prompt],
+        [name for name in extended if name not in base and f"`{name}`" in base_prompt],
+    ) == (_TOOLS, _EXTENDED_TOOLS, [], [], [])
 
 
 def test_a_failed_model_call_raises_the_clients_own_error(checkout: tuple[Path, str]) -> None:
@@ -301,7 +316,12 @@ def test_a_window_takes_the_tools_away_before_the_messages_pass_it(
 
     offered = [len(tools) for tools in script.tools_offered]
     last = ModelMessagesTypeAdapter.dump_json(script.seen[-1]).decode()
-    assert (plan, offered[0], offered[-1], 1 < len(offered) < 27) == (_PLAN, 9, 0, True)
+    assert (plan, offered[0], offered[-1], 1 < len(offered) < 27) == (
+        _PLAN,
+        len(_EXTENDED_TOOLS),
+        0,
+        True,
+    )
     assert count_tokens(last) < window
 
 
@@ -313,7 +333,9 @@ def test_a_run_with_no_window_keeps_the_tools_until_the_budget_takes_them(
 
     _plan(ToolboxClient(script.model(), _Inner(), source, sha))
 
-    assert [len(tools) for tools in script.tools_offered] == [9] * _LAST_WITH_TOOLS + [0]
+    assert [len(tools) for tools in script.tools_offered] == [
+        len(_EXTENDED_TOOLS)
+    ] * _LAST_WITH_TOOLS + [0]
 
 
 def test_a_checkout_that_is_not_the_staged_commit_is_refused_before_a_run(
@@ -327,3 +349,50 @@ def test_a_checkout_that_is_not_the_staged_commit_is_refused_before_a_run(
         ToolboxClient(script.model(), _Inner(), source, sha)
 
     assert script.seen == []
+
+
+def test_the_default_toolset_offers_twelve_tools_and_its_prompt_says_when_to_call_three(
+    checkout: tuple[Path, str],
+) -> None:
+    source, sha = checkout
+    script = Script(_read(), _PLAN)
+    client = ToolboxClient(script.model(), _Inner(), source, sha)
+
+    _plan(client)
+
+    request = script.seen[0][-1]
+    assert isinstance(request, ModelRequest)
+    instructions = request.instructions or ""
+    assert (
+        script.tools_offered[0],
+        load_task_prompt("roadmap_stage_tools_extended.md") in instructions,
+    ) == (_EXTENDED_TOOLS, True)
+
+
+def test_the_base_toolset_offers_nine_tools_and_its_prompt_names_no_other(
+    checkout: tuple[Path, str],
+) -> None:
+    script = Script(_read(), _PLAN)
+
+    _plan(_client(checkout, script, "base"))
+
+    request = script.seen[0][-1]
+    assert isinstance(request, ModelRequest)
+    instructions = request.instructions or ""
+    assert (
+        script.tools_offered[0],
+        [name for name in _EXTENDED_TOOLS[len(_TOOLS) :] if name in instructions],
+    ) == (_TOOLS, [])
+
+
+def test_the_setting_chooses_the_toolset_when_the_caller_names_none(
+    checkout: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, sha = checkout
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_TOOLSET", "base")
+    settings.reset_settings_cache()
+    script = Script(_read(), _PLAN)
+
+    _plan(ToolboxClient(script.model(), _Inner(), source, sha))
+
+    assert script.tools_offered[0] == _TOOLS

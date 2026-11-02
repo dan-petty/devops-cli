@@ -6,7 +6,7 @@ The form of the title and the body of a pull request in this repository: the rul
 ## Requirements
 
 ### Requirement: The title has a type, a declared scope and a short summary
-A title SHALL have the form `<type>(<scope>): <summary>` or `<type>: <summary>`. The type SHALL be one of the types of the project. The scope, when there is one, SHALL be a scope whose `scope/<scope>` label `.github/labels.yml` declares, or `main`. The title SHALL have no `!`. The summary SHALL have at most 60 characters, SHALL NOT end with `...` or `…`, and SHALL NOT be a placeholder such as `x` or `placeholder`.
+A title SHALL have the form `<type>(<scope>): <summary>` or `<type>: <summary>`. The type SHALL be one of the types of the project. The scope, when there is one, SHALL be a scope whose `scope/<scope>` label `.github/labels.yml` declares, or `main`. The title SHALL have no `!`. The summary SHALL have at most 60 UTF-16 code units, as the check `Semantic PR title` counts them (an emoji is two), SHALL NOT end with `...` or `…`, and SHALL NOT be a placeholder such as `x` or `placeholder`.
 
 #### Scenario: A title in the form
 - **WHEN** the title is `feat(pr): check the form of a pull request` and the labels declare `scope/pr`
@@ -35,6 +35,10 @@ A title SHALL have the form `<type>(<scope>): <summary>` or `<type>: <summary>`.
 #### Scenario: No scope check without the labels
 - **WHEN** the rules check `feat(zzz-unknown): build it` and are given no label names
 - **THEN** the rules find no problem
+
+#### Scenario: An emoji counts as two
+- **WHEN** the summary of the title is 31 emoji, which are 31 characters and 62 UTF-16 code units
+- **THEN** the rules find one problem, and its text names the length 62 and the limit 60
 
 ### Requirement: The body ends with Closes and the Change line
 A body SHALL be, in this order: a text of at least 20 characters (what the change does, and why), the line `Closes #<issue>`, the line `Change:` with the folder of the same issue in a code span, and then the attribution lines, if any. The text, `Closes` and `Change:` SHALL have at most 1,000 characters together, and the lines after them at most 400.

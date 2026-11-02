@@ -38,7 +38,7 @@ from devops_cli.roadmap.stage_change import (
 from devops_cli.roadmap.stage_criteria import PENDING_PERSON, StageCriterion
 from devops_cli.roadmap.stage_form import form_problems
 from devops_cli.roadmap.stage_paths import StagedTree
-from tests.support.builders import make_stage_proposal
+from tests.support.builders import make_stage_proposal, stage_summary_limit
 from tests.support.paths import REPO_ROOT
 
 _CHANGE_PROMPT = "roadmap_stage_change.md"
@@ -54,8 +54,8 @@ _DOCUMENTS = {
     "docs/TESTING.md": _TESTING,
     "openspec/config.yaml": _CONFIG,
 }
-# The largest issue number that the title has to hold with its lead: five digits.
-_LARGEST_NUMBER = 99999
+# The largest issue number that the title has to hold with its lead.
+_LARGEST_NUMBER = 999999
 _CODE_SPAN = re.compile(r"`([^`]+)`")
 # The keys that a sentence lists: `a`, `b` and `c`.
 _KEY_LIST = re.compile(r"((?:`\w+`(?:, | and |, and )?)+)")
@@ -147,17 +147,28 @@ def _prompt_limit(key: str) -> int:
     return int(found.group(1))
 
 
-def test_the_summary_limit_of_the_prompt_leaves_room_for_the_lead_of_the_title() -> None:
+def test_the_summary_limit_of_the_prompt_is_the_limit_of_the_schema_and_fits_the_title() -> None:
     """The job writes `docs(openspec): plan #<number> <summary>`; the part after the colon has
-    at most `SUMMARY_MAX_CHARS` characters (CONTRIBUTING.md, Naming), so the summary the prompt
-    asks for must fit after the longest lead, or the job cuts it."""
+    at most `SUMMARY_MAX_CHARS` characters (CONTRIBUTING.md, Naming). The prompt names the one
+    limit of the schema, which fits after the longest lead, so the job cuts no summary (#3249)."""
     limit = _prompt_limit("summary")
     summary = "a" * limit
     lead = staging_title(_LARGEST_NUMBER, "").split(": ", 1)[1]
 
-    assert limit <= SUMMARY_MAX_CHARS - len(lead)
+    assert limit == stage_summary_limit() == SUMMARY_MAX_CHARS - len(lead)
     assert staging_title(_LARGEST_NUMBER, summary).endswith(summary)
     assert make_stage_proposal(summary=summary).summary == summary
+
+
+def test_the_prompt_says_that_the_limit_counts_the_summary_as_the_title_shows_it() -> None:
+    """A handle or a link gets a code span in the title, and an emoji has two units for the check
+    `Semantic PR title`, so the model writes none of them near the limit (#3249). Each claim is
+    pinned, so a change of the sentence fails here."""
+    (bullet,) = re.findall(r"- `summary`:[^\n]*", _PROMPT)
+
+    assert "The limit counts the summary as the title shows it." in bullet
+    assert "which adds characters, so write no handle or link in the summary." in bullet
+    assert "An emoji counts as two characters." in bullet
 
 
 def test_the_summary_limit_of_the_code_is_the_one_of_the_contributing_guide() -> None:
@@ -295,7 +306,9 @@ def test_the_prompt_gives_verify_forms() -> None:
 
 @pytest.mark.parametrize("form", sorted(set(_verify_forms())))
 def test_each_verify_form_of_the_prompt_passes_the_form_check(form: str) -> None:
-    assert form_problems([_group(form)]) == []
+    """The prompt writes the name of a search as the placeholder `<name>`. The gate refuses the
+    placeholder as a literal (#3263), so the check gives it a name."""
+    assert form_problems([_group(form.replace("<name>", "old_name"))]) == []
 
 
 @pytest.mark.parametrize(

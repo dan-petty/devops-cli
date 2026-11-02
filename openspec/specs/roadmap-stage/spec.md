@@ -77,7 +77,7 @@ For each item the job SHALL make the branch `<type>/<issue>-<slug>` at `origin/<
 - **THEN** the branch is pushed with one commit by the session identity, and the commit holds the change folder
 
 ### Requirement: A staged item gets a draft pull request
-The job SHALL open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The part of the title after the colon SHALL have at most 60 characters. The job SHALL NOT mark the pull request ready: the row `stage_ready` of the Service does.
+The job SHALL open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The part of the title after the colon SHALL have at most 60 characters, and the job SHALL NOT cut it: the schema keeps a summary short enough for an issue number of up to 6 digits, and a longer number stops that item with an error. The job SHALL NOT mark the pull request ready: the row `stage_ready` of the Service does.
 
 #### Scenario: The draft opens
 - **WHEN** the job stages a Ready bug
@@ -91,9 +91,29 @@ The job SHALL open a draft pull request whose title is `docs(openspec): plan #<i
 - **WHEN** the job stages item 12, a bug, and item 13, a feature
 - **THEN** the title of each draft starts with `docs(openspec): plan #12 ` and `docs(openspec): plan #13 `, and the branch of each keeps the type of its issue
 
+#### Scenario: A summary at the limit
+- **WHEN** the model gives a summary of the most characters that the schema accepts (47: the room after `plan #<issue> ` for an issue number of 6 digits) for item 7 and for item 3249
+- **THEN** the title holds the whole summary, ends with no `...`, and passes the form check of titles, and the planner prompt names the same limit
+
 #### Scenario: A long summary
-- **WHEN** the model gives a summary of 60 characters for item 2656
-- **THEN** the title after the colon has at most 60 characters, and the summary is cut at a word
+- **WHEN** the model gives a summary that has more than 47 characters as the title shows it, such as 48 characters, or 47 characters with a handle that gets a code span
+- **THEN** the schema refuses the reply, the reply goes back to the model with the count and the limit, and a second refusal stops that item only
+
+#### Scenario: Spare whitespace costs nothing
+- **WHEN** the model gives a summary of 47 characters followed by a new line
+- **THEN** the schema accepts the reply, because the title shows the text on one line
+
+#### Scenario: A number of 7 digits
+- **WHEN** the job builds the title of item 1000000 for a summary of 47 characters
+- **THEN** the job stops that item with an error that names the limit, and the title is not cut
+
+#### Scenario: An emoji counts as two
+- **WHEN** the model gives a summary of 24 emoji, which are 24 characters and 48 UTF-16 code units
+- **THEN** the schema refuses the reply, because the check `Semantic PR title` counts 48 units
+
+#### Scenario: A blank summary
+- **WHEN** the model gives a summary of spaces and new lines only
+- **THEN** the schema refuses the reply, because the title would show no summary
 
 ### Requirement: The job measures each task group
 The job SHALL measure each task group with tiktoken: the tokens of the group's instructions, the item, the change folder, the `AGENTS.md` of the repository, the routed sections of its documents, and the files that the tasks of the group name in code spans, each packed as the implement step packs it, at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. The budget SHALL be `roadmap.stage.step_tokens`, default 64000, and `--step-tokens` SHALL override it for one run.
@@ -541,19 +561,27 @@ A task group of the reply SHALL have a `kind`: `behavior` or `other`. A `behavio
 - **THEN** the reply fails the schema
 
 ### Requirement: A task group renders the tasks of its kind
-A `behavior` group SHALL render `n.1` as its failing test with the words "fails on the base", `n.2` as its implementation, and `n.3` as its documentation when `documentation` is set. An `other` group SHALL render `n.1` as its implementation with its `verify` or its `process`, and `n.2` as its documentation when `documentation` is set. An `other` group SHALL render no test and no words "fails on the base". A group with no `documentation` SHALL render no documentation task.
+A `behavior` group SHALL render `n.1` as its failing test, `n.2` as its implementation, and `n.3` as its documentation when `documentation` is set. An `other` group SHALL render `n.1` as its implementation with its `verify` or its `process`, and `n.2` as its documentation when `documentation` is set. A task with a command SHALL write it on a line `- Verification: ` under the task, as a code span that `step_files` reads. A group with no `documentation` SHALL render no documentation task.
 
 #### Scenario: A deletion that keeps behavior
 - **WHEN** an `other` group deletes a definition and its `verify` is a `git grep` that must print nothing
-- **THEN** its first task names the deletion and the `git grep`, and no task asks for a test
+- **THEN** its first task names the deletion, the line under it holds the `git grep` and says "passes", and no task asks for a test or says "fails on the base"
 
 #### Scenario: A manual check
 - **WHEN** an `other` group has a `process`
-- **THEN** its first task holds the steps of the process
+- **THEN** its first task holds the steps of the process, and it has no `Verification:` line
 
 #### Scenario: A behavior group
 - **WHEN** a `behavior` group has a `test`
-- **THEN** its first task is the test and says "fails on the base"
+- **THEN** its first task is the test, and the line under it holds the `verify` command and says "fails on the base"
+
+#### Scenario: The step reads the command
+- **WHEN** the text that `group_text` writes for a group with a `verify` is parsed with `parse_task_groups`
+- **THEN** `verification_commands` of the parsed group holds the `verify` of the group
+
+#### Scenario: A group with documentation
+- **WHEN** a group has a `documentation` task
+- **THEN** its last task holds the command that regenerates the documents, and its `Verification:` line holds `uv run devops ci docs`
 
 ### Requirement: The prompts and the validator name the same kinds
 The stage prompt and the split prompt SHALL name each value of the kind and each field of a task group. The implement prompt SHALL tell the step to write the failing test first only when its group has a test task.
@@ -563,10 +591,10 @@ The stage prompt and the split prompt SHALL name each value of the kind and each
 - **THEN** the guard test fails
 
 ### Requirement: The planner has a read-only toolbox
-The planner of the stage job SHALL plan with an agent that has exactly these tools: `list_files`, `read_file`, `search_code`, `git_log`, `git_show`, `file_symbols`, `callers`, `repo_map` and `read_spec`. Each tool SHALL read the staged commit through git, read files of the checkout, or read a spec through OpenSpec. The toolbox SHALL hold no tool that writes a file, runs a shell command or opens a network connection. A tool SHALL answer a bad argument as text and SHALL NOT raise.
+The planner of the stage job SHALL plan with an agent that has the tools of the toolset `roadmap.stage.toolset`. The toolset `base` SHALL have exactly `list_files`, `read_file`, `search_code`, `git_log`, `git_show`, `file_symbols`, `callers`, `repo_map` and `read_spec`. The toolset `extended` SHALL add `references`, `read_issue` and `find_issues`. No tool SHALL write a file or run a shell command. A tool SHALL answer a bad argument as text and SHALL NOT raise.
 
 #### Scenario: The tool set
-- **WHEN** the toolbox is built for a checkout and a commit
+- **WHEN** the toolbox is built for a checkout and a commit with the toolset `base`
 - **THEN** the names of its tools are exactly the nine above, and `search_web` is not one of them
 
 #### Scenario: A path outside the repository
@@ -579,7 +607,7 @@ The planner of the stage job SHALL plan with an agent that has exactly these too
 
 #### Scenario: The prompt names the tools
 - **WHEN** the system text of a toolbox run is built
-- **THEN** it names each tool of the toolbox
+- **THEN** it names each tool of the toolset of the run and no tool of the other toolset
 
 ### Requirement: A plan run has a budget
 A plan run of the toolbox SHALL make at most `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS` tool calls and `CONST_ROADMAP_STAGE_MAX_REQUESTS` model requests. It SHALL set no count of output tokens: the context window ends the tools of a run. The run SHALL offer no tool to a request when fewer than 4 tool calls are left, so the model gives its plan. A run that passes a limit SHALL fail the item with a reason. The job SHALL plan the other items, and SHALL open no draft pull request for the failed item.
@@ -775,7 +803,7 @@ The stage job SHALL give the model the purpose and the requirement names of ever
 - **THEN** the input holds the purpose and the requirement names of each capability
 
 ### Requirement: A verify command has the project form
-`check_proposal` SHALL refuse a group whose `verify` command does not start with `uv run devops` as a whole word, unless it starts with `! git grep `.
+`check_proposal` SHALL refuse a group whose `verify` command does not start with `uv run devops` as a whole word, unless it is a negative search. It SHALL refuse a `verify` command of the project form that the implement step refuses to run, and the problem SHALL hold the reason of the step. The reason SHALL come from the table that the step reads, so that the gate and the step cannot differ.
 
 #### Scenario: A pytest verify command is refused
 - **WHEN** a group gives the `verify` command `uv run pytest tests/roadmap/test_stage.py`
@@ -784,6 +812,14 @@ The stage job SHALL give the model the purpose and the requirement names of ever
 #### Scenario: A devops command or a negative search is accepted
 - **WHEN** a group gives the `verify` command `uv run devops ci test tests/roadmap/test_stage.py` or `! git grep -n old_name src/ tests/`
 - **THEN** `check_proposal` returns no problem about the `verify` command
+
+#### Scenario: A negative search that the step refuses
+- **WHEN** a group gives the `verify` command `! git grep -n name src/ | cat` or `! git grep -O name src/`
+- **THEN** `check_proposal` returns a problem that names the command and the reason that the step gives
+
+#### Scenario: A verify command that the step runs
+- **WHEN** a group gives any of the commands `uv run devops ci`, `uv run devops docs check`, `! git grep -n absent_name src/ tests/` and `! git grep -nI -F old_name -- src/ tests/`
+- **THEN** `check_proposal` returns no problem, and the step runs each of them
 
 ### Requirement: A new test module sits in a mirror directory
 `check_proposal` SHALL refuse a path in `creates` that is a test module under `tests/` unless it is in `tests/invariants/` or in the directory that mirrors the package of a source file that the plan changes.
@@ -838,15 +874,19 @@ The stage reply SHALL hold a `criteria` list in which each entry gives the text 
 - **THEN** `check_proposal` returns a problem that names the criterion and the count of groups
 
 ### Requirement: Criteria section in tasks.md
-The `tasks.md` of a staged plan SHALL hold a `## Criteria` section before `## Workflow follow-up`. It SHALL list each criterion with the number of the group that delivers it, or `pending-person` with the reason, as bullets with no checkbox.
+The `tasks.md` of a staged plan SHALL hold a `## Criteria` section before `## Workflow follow-up`. It SHALL list each criterion as a bullet with no checkbox, and each bullet SHALL start with a fixed word: `Group <n>:` and the criterion, or `Pending person:`, the criterion and the reason. A criterion that reads as a heading or a task SHALL add no group and no task.
 
 #### Scenario: Staged plan shows the mapping
 - **WHEN** A plan is rendered with criteria mapped to groups
-- **THEN** `tasks.md` holds a `## Criteria` section with one line for each criterion and its delivering group number or `pending-person` with the reason
+- **THEN** `tasks.md` holds a `## Criteria` section with one line for each criterion, as `Group <n>: <criterion>` or `Pending person: <criterion>, <reason>`
 
 #### Scenario: A plan with no criterion has no section
 - **WHEN** A plan is rendered with an empty `criteria` list
 - **THEN** `tasks.md` holds no `## Criteria` section
+
+#### Scenario: A criterion that reads as a heading
+- **WHEN** a criterion of the issue is `## 2. Cleanup`
+- **THEN** the gate accepts the entry that copies it, and `tasks.md` holds the group 1 only
 
 ### Requirement: A split moves the criteria with the groups
 The split request SHALL hold the `criteria` list, the split reply SHALL give it again with the numbers of the new groups, and the job SHALL check it as it checks the first reply.
@@ -921,3 +961,144 @@ The prompt of the stage job SHALL tell the model that `probes` holds the result 
 #### Scenario: The prompt names the probes
 - **WHEN** the stage prompt loads
 - **THEN** it names `probes` and `premise_failed`, and asks `feasibility` to quote the probes
+
+### Requirement: The setting toolset chooses the tools of a plan run
+The setting `roadmap.stage.toolset` SHALL be `base` or `extended`, with the variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET`. The default SHALL be `extended`. The settings SHALL refuse any other value and name it. The example ConfigMap of the Service SHALL set the key. The toolset `base` SHALL have no GitHub tool and SHALL need no GitHub client.
+
+#### Scenario: The default
+- **WHEN** no config file and no variable sets `roadmap.stage.toolset`
+- **THEN** the toolset is `extended`, and a plan run offers twelve tools
+
+#### Scenario: The base toolset
+- **WHEN** the variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET` is `base`
+- **THEN** a plan run offers the nine tools, and none of `references`, `read_issue` and `find_issues`
+
+#### Scenario: A value that is none of the two
+- **WHEN** the variable is `wide`
+- **THEN** loading the settings fails with a message that names the variable and the values `base` and `extended`
+
+### Requirement: The tool references counts a text in every file of the commit
+`references(name)` SHALL run `git grep -n -I -F` for the text over the whole staged commit with no cap for a file. It SHALL answer the count of files and lines, and for each file its path, its exact count of lines and its first five line numbers. It SHALL answer as text for a name that is empty, longer than 100 characters, or not one line.
+
+#### Scenario: Every file with its count
+- **WHEN** a name is in a source file, a test, a fixture, a spec, two documents and a manifest, and one file holds it 400 times
+- **THEN** the answer lists each of the eight files with its count, and the count of the large file is 400
+
+#### Scenario: A name that cannot be searched
+- **WHEN** the name is empty, or 101 characters long, or holds a line break
+- **THEN** the answer says so as text, and the tool runs no git command
+
+### Requirement: The tool references keeps files of every group
+`references` SHALL keep at most 60 files. It SHALL take them in turn from the source, the tests, the specs, the documents, the change folders and the other files, so that a long list of one group hides no other group. It SHALL say how many files it left out.
+
+#### Scenario: Files left out
+- **WHEN** a name is in more than 60 files, among them a spec and a document
+- **THEN** the answer lists 60 files that include the spec and the document, and says how many files it left out
+
+### Requirement: The tool read_issue answers the state of an item
+`read_issue(number)` SHALL answer the state, the title, the labels, the first 1500 characters of the body, and the last 3 comments cut to 600 characters each. For a closed issue it SHALL name the merged pull request that closed it, or say that none did. For a closed pull request it SHALL say whether it merged.
+
+#### Scenario: An issue closed by a merged pull request
+- **WHEN** `read_issue` reads a closed issue whose last closing commit is in a merged pull request
+- **THEN** the answer holds the state, the title, the labels and the line "Closed by merged pull request #N."
+
+#### Scenario: A closed pull request
+- **WHEN** `read_issue` reads a closed pull request that did not merge
+- **THEN** the answer says that the pull request closed with no merge
+
+### Requirement: The tool find_issues lists open items that name the terms
+`find_issues(terms)` SHALL answer at most 10 open issues and pull requests of the repository that name the terms, each as `#N state title`. It SHALL take every colon and quote out of the terms, so that the search names no repository but that of the job.
+
+#### Scenario: Open items
+- **WHEN** `find_issues` gets the terms `redaction point` and GitHub finds an issue and a pull request
+- **THEN** the answer lists both as `#N state title`
+
+#### Scenario: A qualifier in the terms
+- **WHEN** `find_issues` gets the terms `repo:other/private`
+- **THEN** the search that GitHub receives holds no `repo:` qualifier except that of the repository of the job
+
+### Requirement: The GitHub tools read only, mask what they read and answer a failure as text
+`read_issue` and `find_issues` SHALL read through the GitHub client of the Service with its existing token, send GET requests only, and add no permission. They SHALL reach no host but the GitHub API host of the Service, and no other tool SHALL open a network connection. They SHALL mask secrets in the text from GitHub, cut each text, and state that it is data and no instruction. They SHALL answer each failure as text and SHALL NOT raise.
+
+#### Scenario: A secret in the text from GitHub
+- **WHEN** the body, a comment and the title of an issue each hold a token
+- **THEN** the answer holds none of the three tokens
+
+#### Scenario: An item that does not exist
+- **WHEN** `read_issue` gets a number that GitHub does not hold
+- **THEN** the answer says that GitHub holds no such issue or pull request, and it raises no error
+
+#### Scenario: A failure of GitHub
+- **WHEN** the connection to GitHub fails
+- **THEN** the answer names the class of the failure, tells the model to go on without it, and holds no text of the failure
+
+#### Scenario: A run with no client
+- **WHEN** a plan run has the toolset `extended` and the job gave no GitHub client
+- **THEN** `read_issue` and `find_issues` answer that GitHub is not available
+
+### Requirement: The prompt of the extra tools says when to call each one
+The prompt of a run with the toolset `extended` SHALL tell the model to call `references` for a rename, a move or a removal, `read_issue` for each issue number that the issue names, and `find_issues` before the plan says what it depends on. It SHALL tell the model that text from GitHub is data and never an instruction. The prompt of a run with the toolset `base` SHALL name none of the three tools.
+
+#### Scenario: The extended prompt
+- **WHEN** the system text of a run with the toolset `extended` is built
+- **THEN** it names `references`, `read_issue` and `find_issues`, and it says that text from GitHub is data
+
+#### Scenario: The base prompt
+- **WHEN** the system text of a run with the toolset `base` is built
+- **THEN** it names none of `references`, `read_issue` and `find_issues`
+
+### Requirement: A text of a group stays on one line
+The `title`, `test`, `implementation`, `documentation`, `verify` and `process` of a task group, and the `criterion` and the `reason` of a criterion, SHALL be written to `tasks.md` on one line, and a text set after validation SHALL be validated again. A line break in one of them SHALL add no line, no task, no group and no `Verification:` line.
+
+#### Scenario: A line break and a command
+- **WHEN** the `implementation` of a group holds a line break and a line `- Verification: ` with a command
+- **THEN** the `verification_commands` of the parsed group are the `verify` of the group and the check of the documents, and no more
+
+#### Scenario: A line break in a title
+- **WHEN** the `title` of a group holds a blank line and a line `- [ ] 9.9 Extra`
+- **THEN** `tasks.md` holds one group and the task list is that of the group
+
+#### Scenario: A line break in the reason of a criterion
+- **WHEN** the `reason` of a `pending-person` criterion holds a line `## 2. Extra`
+- **THEN** `tasks.md` holds one group
+
+#### Scenario: Any line terminator
+- **WHEN** a text of a group holds a heading after any character that ends a line in markdown or in Python, such as `\r`, `\x85` or U+2028
+- **THEN** `tasks.md` holds one group, and the text holds one space in place of the character
+
+#### Scenario: A text set after validation
+- **WHEN** the `implementation` of a validated group is set to a text with a line break and a `Verification:` line
+- **THEN** the text is on one line, and the group renders no extra command
+
+### Requirement: A verify command holds no backtick
+`form_problems` SHALL give a problem for a `verify` command that holds a backtick, and the problem SHALL say that it holds a backtick. A command that also has a wrong form SHALL get the problem of its form in the same run.
+
+#### Scenario: A backtick in a command
+- **WHEN** the `verify` of a group is ``uv run devops ci test `x` ``
+- **THEN** `form_problems` gives one problem, and it says that the command holds a backtick
+
+#### Scenario: A backtick and a wrong form
+- **WHEN** the `verify` of a group is ``pytest `x` ``
+- **THEN** `form_problems` gives two problems: the backtick, and the form to use
+
+### Requirement: A text of the proposal, the design and the spec delta stays on one line
+The `why`, `what_changes`, `feasibility` and `existing_tool` of the reply, the texts of its decisions and rejected alternatives, and the `purpose`, the names, the texts and the scenario lines of its spec deltas, SHALL be written on one line. A text that is written at the start of a line SHALL start with no mark of markdown: a heading, a quote, a list marker, a box, a rule, a fence or a comment. The reply that breaks the rule fails the schema.
+
+#### Scenario: A removed section in a requirement
+- **WHEN** the `text` of a requirement holds a line break, a heading `## REMOVED Requirements` and a requirement
+- **THEN** the `spec.md` of the delta holds the headings Purpose, ADDED Requirements and the one requirement, and no REMOVED section
+
+#### Scenario: A text that starts with a heading
+- **WHEN** the `why` of the reply is `## REMOVED Requirements`
+- **THEN** the reply fails the schema, and the error says that the text starts with a mark of markdown
+
+#### Scenario: A line break in a bullet
+- **WHEN** an item of `feasibility` holds a blank line and a heading
+- **THEN** the item is one line
+
+### Requirement: A verify command keeps its spaces
+The `verify` of a task group SHALL be written on one line by joining its lines with one space, and SHALL keep every other space of the command.
+
+#### Scenario: Two spaces in a word
+- **WHEN** the `verify` is `! git grep -n 'a  b'` and a line break and `src/`
+- **THEN** the `verify` of the group is `! git grep -n 'a  b' src/`

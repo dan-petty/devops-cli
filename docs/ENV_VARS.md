@@ -83,6 +83,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_MATTERMOST_ALERTS_HOOK` | `mattermost.alerts_hook` | 🔒 Yes | Mattermost incoming webhook token for the alerts channel (stored in OS keyring) |
 | `DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN` | `mattermost.command_token` | 🔒 Yes | Mattermost slash command token for the /roadmap command (stored in OS keyring) |
 | `DEVOPS_CLI_MATTERMOST_DEPLOYS_HOOK` | `mattermost.deploys_hook` | 🔒 Yes | Mattermost incoming webhook token for the deploys channel (stored in OS keyring) |
+| `DEVOPS_CLI_MCP_TOKEN` | `mcp.token` | 🔒 Yes | Bearer token that `devops mcp serve --transport streamable-http` requires from every request, and refuses to start without (stored in OS keyring) |
 | `DEVOPS_CLI_OPENROUTER_API_KEY` | `openrouter.api_key` | 🔒 Yes | OpenRouter API key that `devops k8s push-secrets` writes to the LLM gateway Secret (stored in OS keyring) |
 | `DEVOPS_CLI_PROMETHEUS_URL` | `prometheus.url` | No | Prometheus service URL |
 | `DEVOPS_CLI_QDRANT_API_KEY` | `qdrant.api_key` | 🔒 Yes | Qdrant API key (stored in OS keyring) |
@@ -101,6 +102,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_ROADMAP_STAGE_FILTER` | `roadmap.stage.filter` | No | The labels of the items that the stage job takes, as entries `family=value` over the families status, priority, type, value and effort: the values of one family are alternatives, and the families all apply; the job also takes Ready items only |
 | `DEVOPS_CLI_ROADMAP_STAGE_LIMIT` | `roadmap.stage.limit` | No | The most items that one run of the stage job takes |
 | `DEVOPS_CLI_ROADMAP_STAGE_STEP_TOKENS` | `roadmap.stage.step_tokens` | No | The most tokens that the inputs of one implementation step may hold: the step's instructions, the AGENTS.md of the repository and the documents it routes the group to, the item, the change folder and the packed files of one task group; `devops roadmap stage` splits a task group over it |
+| `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET` | `roadmap.stage.toolset` | No | The tools of a plan run of the stage job: `base` is the nine read-only tools that read the staged commit, and `extended` adds `references`, `read_issue` and `find_issues`. The last two read issues and pull requests of the repository on GitHub, with the token of the Service and no other permission |
 | `DEVOPS_CLI_RUNS_INDEX_PASSWORD` | `runs.index_password` | 🔒 Yes | Run index Valkey password (stored in OS keyring) |
 | `DEVOPS_CLI_RUNS_INDEX_URL` | `runs.index_url` | No | Valkey holding the run index shared by workstations (set by `devops ai runs connect`) |
 | `DEVOPS_CLI_SANDBOX_EXCLUDE_HOME_DIR` | `sandbox.exclude_home_dir` | No | Exclude user home directory entirely from sandbox access (/home/**/* and ~/**/*) |

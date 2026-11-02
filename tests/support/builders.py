@@ -156,6 +156,12 @@ def make_stage_proposal(**overrides: Any) -> StageProposal:
     return _validated(StageProposal, _STAGE_PROPOSAL, overrides)
 
 
+def stage_summary_limit() -> int:
+    """The most characters that the schema of the stage plan accepts in `summary`."""
+    limit: int = StageProposal.model_json_schema()["properties"]["summary"]["maxLength"]
+    return limit
+
+
 def _validated[ModelT: BaseModel](
     model: type[ModelT], defaults: dict[str, Any], overrides: dict[str, Any]
 ) -> ModelT:
