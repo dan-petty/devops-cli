@@ -225,6 +225,11 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 KeyringSource.for_credential("anthropic.api_key"),
                 required=False,
             ),
+            SecretEntry(
+                "openrouter-api-key",
+                KeyringSource.for_credential("openrouter.api_key"),
+                required=False,
+            ),
         ),
         restarts=(Workload("deployment", "llm-gateway"),),
         labels={"app.kubernetes.io/name": "llm-gateway"},
