@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.47.0](https://github.com/dan-petty/devops-cli/compare/v0.46.1...v0.47.0) (2026-11-02)
+
+
+### Features
+
+* **mcp:** serve role-scoped tools over streamable HTTP ([#3233](https://github.com/dan-petty/devops-cli/issues/3233)) ([6923473](https://github.com/dan-petty/devops-cli/commit/69234732a44a750d3468a3ffadaf17eb7d15ec51))
+* **security:** refuse a secret value as an MCP tool parameter ([#3232](https://github.com/dan-petty/devops-cli/issues/3232)) ([360a8c6](https://github.com/dan-petty/devops-cli/commit/360a8c6da4eb143e7c76b6c53aa29d297356dfd3))
+
 ## [0.46.1](https://github.com/dan-petty/devops-cli/compare/v0.46.0...v0.46.1) (2026-11-02)
 
 
