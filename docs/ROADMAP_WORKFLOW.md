@@ -30,9 +30,9 @@ Notes on the table:
 - A plan that an agent or a person writes is part of the one pull request that closes the issue. It has no separate gate G1. G1 exists for a plan that the Service stages.
 - A person can do every step of an agent or of the Service. A person's claim beats the Service's claim.
 - The command `devops roadmap explain <number>` says why the stage job and the implement job take an Item or leave it out. It names the first rule that fails for each job. It calls no model and writes nothing. The option `--why` on `devops roadmap stage` and `devops roadmap implement` lists the open Items that the filter does not name.
-- The command `devops roadmap inbox` lists what waits for a person, in the order of the gates. First the ready plan pull requests of the jobs (G1), the ready implementation pull requests of the jobs (G2) and the release pull request (G3). Then the Items in `status/blocked` with their cause, the claims with no activity for 7 days, and the labels of `.github/labels.yml` that the repository lacks. Each line has the number, the age and the one command or action that clears it. The pull requests of people and agents are in a second list. The command reads GitHub only and writes nothing. It does not list an image digest that is not rolled: `devops argo cd apps status devops` reads it.
+- The command `devops roadmap inbox` lists what waits for a person, in the order of the gates. Each line shows the one command or action that clears it. [The inbox page](roadmap/inbox.md) tells what it lists and reads.
 - The command `devops roadmap return <number> --comment "<evidence>" --confirm` sends an Item back to `status/new` when it cannot be built as written.
-- Refine moves a part of an Item that cannot be built or decided now to new issues when the rest of the Item is Ready (#2423). Each new issue starts with `Split from #<issue>.`. Refine names the new issues in its Ready comment and records them as `refine.deferred`. An Item that is too big for one pull request still waits for a person to split it.
+- Refine moves a part of an Item that cannot be built or decided now to new issues when the rest of the Item is Ready (#2423). [The refine page](roadmap/refine.md) tells how.
 
 ## The transitions
 
