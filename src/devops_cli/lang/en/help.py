@@ -1269,6 +1269,17 @@ class RoadmapCommandHelp:
     eval_stage_source: str = (
         "Repository that holds the staging commits of the cases. Default: this checkout."
     )
+    eval_verify: str = (
+        "Score the model verification pass of the stage job on the golden set. For each case "
+        "the pass reads the issue, the recorded plan and the start of each file that the plan "
+        "cites, read from the staging commit, and returns findings of the nine defect types. "
+        "The command prints the recall of the labeled defects (all, and the blocker and major "
+        "ones), the recall for each type, and the findings on the good plans. It matches each "
+        "finding to one labeled defect of the same type. It stores the report as JSON under "
+        "the data directory. It calls the model of the verification task through the gateway, "
+        "one call per case. A change of the model or of the prompt states this score."
+    )
+    eval_verify_model: str = "Model for the verification task. Without it, the configured model."
     run: str = (
         "Run the roadmap jobs that are due, in order: metrics, then intake, refine and "
         "the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at "
@@ -1469,7 +1480,11 @@ class RoadmapCommandHelp:
         "or a worktree holds, an item whose plan is on the default branch or whose change is "
         "archived there, and an item whose text looks like a secret; the plan says why. A "
         "task group over the budget goes back to the model once, and a group still over it stops "
-        "the item. An item whose model call fails is skipped and reported, the others are still "
+        "the item. After the checks, a model of the verification task reviews the plan with the "
+        "issue and the files it cites. A finding of the type missing_path, false_premise or "
+        "ignores_existing_code that quotes its evidence sends the plan back once; every other "
+        "finding goes into the comment, and the draft still opens. An item whose model call "
+        "fails is skipped and reported, the others are still "
         "staged, and the command then exits 1. Each run also removes the draft and the branch of "
         "a closed item when only the identity of the session wrote to them."
     )

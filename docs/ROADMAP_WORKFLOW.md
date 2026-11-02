@@ -210,6 +210,19 @@ uv run devops roadmap eval stage --replay
 - **The replay** calls no model and reads no git. It runs the recorded plans through the gates and lists, for each gate, the known defects it catches. The `paths` gate is `check_proposal`, the check that the job runs on a reply: the path rule and the rules of the spec delta, with the capabilities of the case. All recorded plans passed the spec rules when they were staged, so these rules fail the replay only when they refuse a good plan. The `criteria` gate (#3019) checks that the `criteria` list of the reply maps each acceptance criterion of the issue to a group or to `pending-person`. An acceptance criterion is a top-level item of the list under the heading `Acceptance criteria` in the text that a person wrote, before the refine block; an issue with no such list has none. The check reads the whole issue body, and a refused reply names the exact text to copy. A recorded plan has no `criteria` list, so the replay does not judge it, and its dropped-criterion defects have the gate `none`; the run of the model judges the gate on the first reply. It exits 1 when a gate stops refusing a known-bad plan, or refuses a good plan. The test suite runs it on the whole set. A defect for a gate that does not exist yet is marked `pending`: the replay lists it and fails nothing. When the gate lands, its pull request sets the gate in the case files, and the replay checks it from then on.
 - **The rule.** A pull request that changes the stage prompt (`roadmap_stage_change.md`) or a check of the stage job (`check_proposal` and the gates it calls) states the score of the same model before and after the change. Use one model for both runs, and say which. To measure the toolbox, run the same model with and without `--no-toolbox` on the whole set, and state both scores.
 
+### Measure the verification pass
+
+After the gates, the stage job asks a model of the task `ai.tasks.verification` to review the plan with the issue and the start of each file that the plan cites (#3153). The same golden set measures it:
+
+```text
+uv run devops roadmap eval verify --model <model> --source <repository>
+uv run devops roadmap eval verify --case 2260 --dry-run
+```
+
+- **The run** reads the files that each recorded plan cites from the commit it was staged on, so `--source` must be a repository that holds those commits. It matches each finding to one labeled defect of the same type, the most serious defect first, and prints the recall of all labeled defects, the recall of the blocker and major ones, the recall for each type, and the findings on the 3 good plans. It stores the report, with the findings of each case, as JSON under the data directory, in `roadmap_eval/verify/`.
+- **How to read the score.** The match is by type and not by text, so a finding of the right type on the wrong spot counts. Read the findings in the report before you trust a high recall. A finding on a good plan is a false alarm. The score also counts those that would send the plan back to the planner.
+- **The rule.** A pull request that changes the verification prompt (`roadmap_stage_verify.md`) or the model of the task states the score of the model before and after the change.
+
 ## Checks of the implement job
 
 The runner Job runs the checks that a person runs in the devcontainer, from the same definitions (#3043).
