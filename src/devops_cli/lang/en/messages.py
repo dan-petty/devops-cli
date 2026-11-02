@@ -3044,6 +3044,7 @@ class RoadmapMessages:
         "The title of item {number} would have {length} characters after the colon, and the "
         "limit is {limit}. The summary of the plan does not fit the number of this item."
     )
+    stage_summary_blank: str = "The summary has no text. Write a summary of the plan."
     stage_summary_long: str = (
         "The summary has {length} characters in the title, and the limit is {limit}. "
         "A handle or a link gets a code span in the title. Write a shorter summary."

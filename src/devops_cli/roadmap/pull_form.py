@@ -35,6 +35,15 @@ from devops_cli.roadmap.commit_title import commit_scope, commit_type
 # The most characters of the summary of a title (CONTRIBUTING.md, Naming): the part after
 # `<type>(<scope>): `, which the check `Semantic PR title` measures.
 SUMMARY_MAX_CHARS: Final[int] = 60
+
+
+def summary_length(text: str) -> int:
+    """The length of `text` as the check `Semantic PR title` counts it. Its pattern `^.{1,60}$`
+    runs in JavaScript, where `.` is a UTF-16 code unit: a character outside the Basic
+    Multilingual Plane, such as an emoji, counts as two (#3249)."""
+    return len(text.encode("utf-16-le")) // 2
+
+
 # The most characters of a body before its trailers: the text, the `Closes` line and the `Change:`
 # line, as the squash message takes them. It is the limit that the implement job already holds.
 BODY_MAX_CHARS: Final[int] = CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS
@@ -113,10 +122,9 @@ def _summary_problems(summary: str) -> list[str]:
     if is_placeholder(summary):
         return [texts.form_placeholder.format(part="summary", text=summary.strip())]
     problems = []
-    if len(summary) > SUMMARY_MAX_CHARS:
-        problems.append(
-            texts.form_summary_long.format(length=len(summary), limit=SUMMARY_MAX_CHARS)
-        )
+    length = summary_length(summary)
+    if length > SUMMARY_MAX_CHARS:
+        problems.append(texts.form_summary_long.format(length=length, limit=SUMMARY_MAX_CHARS))
     if summary.rstrip().endswith(("...", "\u2026")):
         problems.append(texts.form_summary_cut)
     return problems
@@ -127,7 +135,7 @@ def title_problems(title: str, declared: Collection[str] | None = None) -> list[
     and none when the title is right.
 
     The type is one of the Conventional Commit types, there is no `!`, and the summary has at most
-    `SUMMARY_MAX_CHARS` characters, ends with no `...` and is no placeholder. A scope must have its
+    `SUMMARY_MAX_CHARS` characters (`summary_length`), ends with no `...` and is no placeholder. A scope must have its
     label in `declared`, the label names that `.github/labels.yml` holds. When `declared` is None
     the scope is not checked against the labels, as in a dry run that reads no file."""
     texts = MESSAGES.pr

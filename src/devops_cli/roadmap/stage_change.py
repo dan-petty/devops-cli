@@ -40,7 +40,7 @@ from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope
-from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS
+from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length
 from devops_cli.roadmap.refine import sanitize_text
 from devops_cli.roadmap.stage_criteria import PENDING_PERSON, StageCriterion, criterion_problems
 from devops_cli.roadmap.stage_form import form_problems
@@ -57,7 +57,7 @@ _ELLIPSIS: Final[str] = "..."
 # room for the model's summary depends on the digits. The schema cannot know the number, so its
 # limit is the room for the longest number, and a shorter number leaves room over (#3249).
 ISSUE_NUMBER_DIGITS: Final[int] = 6
-STAGE_SUMMARY_MAX_CHARS: Final[int] = SUMMARY_MAX_CHARS - len(
+STAGE_SUMMARY_MAX_CHARS: Final[int] = SUMMARY_MAX_CHARS - summary_length(
     MESSAGES.roadmap.stage_title_lead.format(number=10**ISSUE_NUMBER_DIGITS - 1)
 )
 # The most characters of the body of a pull request: it is the message of the squash commit.
@@ -316,10 +316,14 @@ class StageProposal(_Reply):
     @classmethod
     def _summary_fits_the_title(cls, summary: str) -> str:
         """The title shows the summary as `safe_text` writes it: on one line, and with a code span
-        for a handle or a link. The limit counts that text, so spare whitespace costs nothing and
-        a handle costs its code span. The reply that breaks it goes back to the model with both
-        counts, and `staging_title` cuts no summary that the schema accepts."""
-        shown = len(safe_text(summary))
+        for a handle or a link. The limit counts that text in the units of the check `Semantic PR
+        title` (`summary_length`), so spare whitespace costs nothing, a handle costs its code span
+        and an emoji costs two. A summary with no text left is refused too. The reply that breaks
+        it goes back to the model with the count and the limit, and `staging_title` cuts no summary
+        that the schema accepts."""
+        shown = summary_length(safe_text(summary))
+        if not shown:
+            raise ValueError(MESSAGES.roadmap.stage_summary_blank)
         if shown > STAGE_SUMMARY_MAX_CHARS:
             raise ValueError(
                 MESSAGES.roadmap.stage_summary_long.format(
@@ -639,10 +643,11 @@ def staging_title(number: int, summary: str) -> str:
     refuses it (#3249): a summary that does not fit stops the item with `RoadmapStageError`."""
     lead = MESSAGES.roadmap.stage_title_lead.format(number=number)
     shown = safe_text(summary)
-    if len(lead) + len(shown) > SUMMARY_MAX_CHARS:
+    length = summary_length(lead + shown)
+    if length > SUMMARY_MAX_CHARS:
         raise RoadmapStageError(
             MESSAGES.roadmap.stage_title_long.format(
-                number=number, length=len(lead) + len(shown), limit=SUMMARY_MAX_CHARS
+                number=number, length=length, limit=SUMMARY_MAX_CHARS
             ),
             failed_items=[number],
         )
