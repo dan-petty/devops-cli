@@ -117,18 +117,19 @@ DELETION_OF_FILES: dict[str, Any] = {
 
 
 def _task_lines(*groups: dict[str, Any]) -> list[str]:
-    """The task lines that `group_text` writes for `groups`, numbered from group 1."""
+    """The task lines that `group_text` writes for `groups`, numbered from group 1, each with the
+    line `Verification:` under it."""
     text = "\n".join(
         group_text(index, StageGroup.model_validate(group))
         for index, group in enumerate(groups, start=1)
     )
-    return [line for line in text.splitlines() if line.startswith("- [ ] ")]
+    return [line for line in text.splitlines() if line.startswith(("- [ ] ", "  - Verification:"))]
 
 
 def test_a_deletion_that_keeps_behavior_renders_one_task_with_its_command_and_no_test() -> None:
     assert _task_lines(OTHER) == [
-        "- [ ] 1.1 Delete `unused_probe` from `StreamingTokenProcessor`, and verify that "
-        "`! git grep -n -w unused_probe src/ tests/ docs/` passes"
+        "- [ ] 1.1 Delete `unused_probe` from `StreamingTokenProcessor`",
+        "  - Verification: `! git grep -n -w unused_probe src/ tests/ docs/` passes",
     ]
 
 
@@ -138,8 +139,8 @@ def test_the_groups_of_the_mutation_report_plan_render_with_no_contrived_test() 
     assert lines == [
         "- [ ] 1.1 Run `uv run devops ci mutate` and write one row for each test file, and run "
         "this check by hand: Open the report. Check that a row names each of the 18 test files.",
-        "- [ ] 2.1 Delete each test file with no unique mutant in the report, and verify that "
-        "`uv run devops ci test tests/commands` passes",
+        "- [ ] 2.1 Delete each test file with no unique mutant in the report",
+        "  - Verification: `uv run devops ci test tests/commands` passes",
     ]
 
 
@@ -153,10 +154,10 @@ def test_an_other_group_renders_no_test_and_no_failure_on_the_base(group: dict[s
 
 def test_a_behavior_group_renders_its_failing_test_first_and_then_its_implementation() -> None:
     assert _task_lines(BEHAVIOR) == [
-        "- [ ] 1.1 Write `test_the_job_keeps_the_last_comment` in `tests/test_sample.py`, and "
-        "verify that `uv run devops ci test tests/test_sample.py` fails on the base",
-        "- [ ] 1.2 Keep the last comment in `src/devops_cli/sample.py`, and verify that "
-        "`uv run devops ci test tests/test_sample.py` passes",
+        "- [ ] 1.1 Write `test_the_job_keeps_the_last_comment` in `tests/test_sample.py`",
+        "  - Verification: `uv run devops ci test tests/test_sample.py` fails on the base",
+        "- [ ] 1.2 Keep the last comment in `src/devops_cli/sample.py`",
+        "  - Verification: `uv run devops ci test tests/test_sample.py` passes",
     ]
 
 
@@ -177,12 +178,12 @@ def test_a_group_with_documentation_renders_the_documentation_task_after_its_wor
 
     lines = _task_lines(documented)
 
-    assert len(lines) == number
-    assert lines[-1] == (
-        f"- [ ] 1.{number} Document the change in `docs/TESTING.md`, run "
-        "`uv run devops docs generate --sync-readme`, and verify that "
-        "`uv run devops ci docs` passes"
-    )
+    assert len([line for line in lines if line.startswith("- [ ] ")]) == number
+    assert lines[-2:] == [
+        f"- [ ] 1.{number} Document the change in `docs/TESTING.md`, and run "
+        "`uv run devops docs generate --sync-readme`",
+        "  - Verification: `uv run devops ci docs` passes",
+    ]
 
 
 # ── The prompts and the validator ─────────────────────────────────────────────

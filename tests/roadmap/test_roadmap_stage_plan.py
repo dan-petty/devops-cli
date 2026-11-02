@@ -510,13 +510,10 @@ def test_a_rendered_group_has_no_double_stop_and_no_task_that_starts_with_a_comm
     assert ".." not in tasks
     assert ".," not in tasks
     assert [line for line in tasks.splitlines() if line.startswith("- [ ] 1.")] == [
-        "- [ ] 1.1 Write the test, and verify that `uv run devops ci test tests/test_sample.py` "
-        "fails on the base",
-        "- [ ] 1.2 Keep the last comment, and verify that "
-        "`uv run devops ci test tests/test_sample.py` passes",
-        "- [ ] 1.3 Document the fix in `docs/TESTING.md`, run "
-        "`uv run devops docs generate --sync-readme`, and "
-        "verify that `uv run devops ci docs` passes",
+        "- [ ] 1.1 Write the test",
+        "- [ ] 1.2 Keep the last comment",
+        "- [ ] 1.3 Document the fix in `docs/TESTING.md`, and run "
+        "`uv run devops docs generate --sync-readme`",
     ]
 
 
