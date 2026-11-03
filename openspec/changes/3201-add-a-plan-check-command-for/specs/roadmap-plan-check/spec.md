@@ -48,7 +48,7 @@ The command SHALL print each problem with its file, its rule and the message of 
 - **THEN** stdout holds no problem line and the exit code is 0.
 
 ### Requirement: Plan-check checks the title of the pull request
-The command SHALL report a problem when the pull request title is not of the form `docs(openspec): plan #<issue> <summary>`, or when its summary is longer than `SUMMARY_MAX_CHARS`.
+The command SHALL report a problem when the pull request title is not of the form `docs(openspec): plan #<issue> <summary>`, or when the text after the colon is longer than `SUMMARY_MAX_CHARS`.
 
 #### Scenario: A wrong title is reported
 - **WHEN** the pull request title is `feat(roadmap): add plan-check`
@@ -108,3 +108,10 @@ The `--dry-run` option MUST print each GitHub request and MUST make none.
 #### Scenario: Dry run lists the requests
 - **WHEN** the command runs with `--dry-run`
 - **THEN** the output lists each request and the test records no GitHub API call.
+
+### Requirement: Plan-check reports a file that it cannot read
+The command SHALL report a problem that names the file when the plan reader cannot parse it, and SHALL go on to check the other files.
+
+#### Scenario: An unreadable tasks file is reported
+- **WHEN** the `tasks.md` of the change folder has a group with no `Changes:` line
+- **THEN** the output names `tasks.md` and the exit code is 1.

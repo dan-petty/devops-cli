@@ -11,6 +11,7 @@ The review of a plan pull request is manual, and the checklist drifts between pr
 - Report each problem with its file, its rule and the message of the stage job, and exit 1 when the command finds one.
 - Add the checks of the pull request: the title form, the body length and its `Plans #` reference, and the conclusion of the `Semantic PR title` check.
 - Report a `MODIFIED` requirement whose base spec text changed since the plan commit.
+- Run in a checkout: the command fetches the head of the pull request and reads the folder with git, because `validate_change` and `StagedTree` need a checkout. A file that the reader cannot parse is one problem and no crash.
 - Add `--json` for an agent and `--dry-run`, which prints the GitHub requests and sends none.
 - Carry a spec delta: the command, its options and its messages are observable behavior.
 - The change fits one pull request.
@@ -19,7 +20,7 @@ The review of a plan pull request is manual, and the checklist drifts between pr
 
 ### New Capabilities
 
-- `roadmap-plan-check`: Plan-check reads the change folder at the pull request head, The plan reader builds a StageProposal from a change folder, Plan-check runs the stage gates with no model, Plan-check reports each stage problem, Plan-check checks the title of the pull request, Plan-check checks the body of the pull request, Plan-check reads the Semantic PR title check, Plan-check reports a base spec that moved since the plan, Plan-check prints JSON, Plan-check dry run makes no request
+- `roadmap-plan-check`: Plan-check reads the change folder at the pull request head, The plan reader builds a StageProposal from a change folder, Plan-check runs the stage gates with no model, Plan-check reports each stage problem, Plan-check checks the title of the pull request, Plan-check checks the body of the pull request, Plan-check reads the Semantic PR title check, Plan-check reports a base spec that moved since the plan, Plan-check prints JSON, Plan-check dry run makes no request, Plan-check reports a file that it cannot read
 
 ### Modified Capabilities
 
