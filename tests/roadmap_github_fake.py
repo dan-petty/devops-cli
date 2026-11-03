@@ -68,6 +68,7 @@ class GitHubFake:
         self.pulls: dict[int, dict[str, Any]] = {}
         self.label_catalog: list[dict[str, Any]] = []
         self.comments: dict[int, list[str]] = {}
+        self.releases: list[dict[str, Any]] = []
         self.repositories: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {}
         self.calls: list[list[str]] = []
         self.stdins: list[str | None] = []
@@ -144,6 +145,28 @@ class GitHubFake:
             "head": {"ref": head_ref, "sha": "0" * 40},
             "updated_at": self.issues[number]["updated_at"],
         }
+
+    def seed_release(
+        self,
+        tag: str,
+        body: str,
+        published_at: datetime,
+        *,
+        draft: bool = False,
+        prerelease: bool = False,
+    ) -> None:
+        """Release `tag` with the changelog `body`, published at `published_at`. The listing of
+        `releases` gives the seeded ones newest first, as GitHub does."""
+        self.releases.append(
+            {
+                "tag_name": tag,
+                "html_url": f"https://github.com/{self.repo}/releases/tag/{tag}",
+                "body": body,
+                "published_at": _wire(published_at),
+                "draft": draft,
+                "prerelease": prerelease,
+            }
+        )
 
     def seed_label(self, name: str, color: str, description: str | None = "") -> None:
         """A label of the repository; GitHub gives a missing description as null."""
@@ -332,7 +355,7 @@ class GitHubFake:
             return [] if parts[1] == "popular" else {"count": 0, "uniques": 0}
         if parts[0] == "milestones":
             return self.milestones if page == 1 else []
-        if parts[0] in ("pulls", "labels"):
+        if parts[0] in ("pulls", "labels", "releases"):
             return self._catalog(parts[0], query, page)
         if parts == ["issues"]:
             labels = [arg.split("=", 1)[1] for arg in args if arg.startswith("labels[]=")]
@@ -340,16 +363,20 @@ class GitHubFake:
         return self._issue_route(method, int(parts[1]), parts[2:], fields, page, stdin)
 
     def _catalog(self, kind: str, query: dict[str, str], page: int) -> list[dict[str, Any]]:
-        """A page of the pull request listing, the open ones by default, or of the labels."""
-        listed = (
-            list(self.label_catalog)
-            if kind == "labels"
-            else [
-                pull
-                for pull in self.pulls.values()
-                if query.get("state", "open") in ("all", pull["state"])
-            ]
-        )
+        """A page of the pull request listing, the open ones by default, of the labels, or of the
+        releases, newest first."""
+        if kind == "releases":
+            listed = sorted(self.releases, key=lambda r: r["published_at"], reverse=True)
+        else:
+            listed = (
+                list(self.label_catalog)
+                if kind == "labels"
+                else [
+                    pull
+                    for pull in self.pulls.values()
+                    if query.get("state", "open") in ("all", pull["state"])
+                ]
+            )
         per_page = int(query.get("per_page", "30"))
         return listed[(page - 1) * per_page : page * per_page]
 

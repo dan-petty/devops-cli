@@ -362,7 +362,13 @@ def test_the_row_follows_implement_on_the_status_lane_needs_no_clone_and_is_due_
         STAGE_READY_ROW.needs_clone,
         STAGE_READY_ROW.first_run_due,
         STAGE_READY_ROW.interval,
-    ) == (["metrics", "implement", "stage_ready"], False, False, True, timedelta(minutes=3))
+    ) == (
+        ["metrics", "implement", "stage_ready", "release_comments"],
+        False,
+        False,
+        True,
+        timedelta(minutes=3),
+    )
 
 
 def test_a_round_of_the_row_marks_the_green_draft_ready(

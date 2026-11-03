@@ -8,7 +8,7 @@ Nothing of this exists. On 2026-11-02, 12 releases were published (7 on 2026-11-
 
 ## What Changes
 
-- A new row `release_comments` joins the status lane after `stage_ready`. It calls no model and needs no clone. It is due every 10 minutes and on a first run.
+- A new row `release_comments` joins the status lane after `stage_ready`. It calls no model and needs no clone. It is due every 11 minutes and on a first run.
 - Each round reads the 30 newest releases of the repository (1 request) and keeps the ones that are published within the last 12 hours, are not a draft and are not a prerelease.
 - For a release that the ledger does not hold as done, the row reads the pull request numbers `(#N)` in the release body, the body of each pull request, and each issue that a closing keyword names (`Closes #N`, `Fixes #N`, `Resolves #N`). An issue that is closed and is not a pull request gets the comment `Released in <tag>`, once. The marker `<!-- devops roadmap release <tag> released -->` heads the comment. The row posts no comment on an issue that already holds the marker.
 - The row reads the digest that the tags of the release name for the `service` and `runner` images in the registry `ghcr.io`, and the digests that Deployment `roadmap-service` and CronJob `devops-cli-runner` run now. When both match, it posts `Live since <time>` once on each issue of the release, headed by the marker `<!-- devops roadmap release <tag> live -->`. The time is the time of the round, in UTC, to the minute. When the cluster runs the digests of a newer release, the older releases of the list are live too.

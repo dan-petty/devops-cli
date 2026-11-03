@@ -30,6 +30,7 @@ from devops_cli.k8s.service import KubernetesService, read_pod_log_text
 from devops_cli.lang import MESSAGES
 
 _BATCH = ("batch", "v1")
+_APPS = ("apps", "v1")
 _NOT_FOUND = 404
 
 
@@ -133,6 +134,30 @@ class ClusterJobs:
         refuses the read.
         """
         return image_digest(self.cronjob(template), template)
+
+    def deployment_digest(self, name: str, container: str) -> str | None:
+        """The digest in the image of `container` of Deployment `name`: the text after the `@`,
+        as `sha256:<hex>`, or None when the image names no digest. Image Updater writes it there.
+
+        Raises ClusterJobError when the Deployment is missing, has no such container, or the API
+        refuses the read.
+        """
+        try:
+            deployment = self._service.custom_objects_api().get_namespaced_custom_object(
+                *_APPS, JOB_NAMESPACE, "deployments", name
+            )
+        except api_error_type() as error:
+            if getattr(error, "status", None) == _NOT_FOUND:
+                raise ClusterJobError(
+                    MESSAGES.k8s.job_deployment_missing.format(deployment=name)
+                ) from error
+            raise self._refused("read Deployment", error) from error
+        for candidate in deployment["spec"]["template"]["spec"]["containers"]:
+            if candidate.get("name") == container:
+                return str(candidate.get("image", "")).partition("@")[2] or None
+        raise ClusterJobError(
+            MESSAGES.k8s.job_deployment_no_container.format(deployment=name, container=container)
+        )
 
     def list_jobs(self, labels: Mapping[str, str]) -> tuple[ClusterJob, ...]:
         """The Jobs that carry every one of `labels`, selected by the API server."""
