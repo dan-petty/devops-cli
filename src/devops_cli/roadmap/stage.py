@@ -17,7 +17,7 @@ It also leaves out an item that an agent or a person claimed with an `owner/*` l
 (the model reads the body), an item whose "Dependencies" section names an open issue, a held item
 (`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit that `origin` lacks), an item whose plan is already on the default branch or whose
 change is archived there (`planned.read_planned_changes`, one read of the tree for the round), an
-item whose title gives no branch name, an item whose text looks like a secret, and an item whose
+item whose title gives no branch name or whose summary is over `SUMMARY_MAX_CHARS` units (#3369), an item whose text looks like a secret, and an item whose
 record holds `stage.needs_split` made with the file cap of now (`stage.file_cap`): a stop under
 another measure does not count. A run takes at most `--limit`
 items, highest priority first. `--item` takes the one item it names when that item is open and
@@ -114,7 +114,7 @@ from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
-from devops_cli.roadmap.pull_form import title_problems
+from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
 from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
 from devops_cli.roadmap.refine_investigation import analysis_window
@@ -395,9 +395,13 @@ class _Judge:
         )
 
     def _title(self, item: Item) -> str | None:
+        texts = MESSAGES.roadmap
         if commit_type(item.title) is None:
-            return MESSAGES.roadmap.stage_left_title_type
-        return None if _slug_of(item.title) else MESSAGES.roadmap.stage_left_title_slug
+            return texts.stage_left_title_type
+        length = summary_length(item.title.partition(":")[2].strip())
+        if length > SUMMARY_MAX_CHARS:
+            return texts.stage_left_title_long.format(length=length, limit=SUMMARY_MAX_CHARS)
+        return None if _slug_of(item.title) else texts.stage_left_title_slug
 
     def _dependency(self, item: Item) -> str | None:
         open_issues = [
