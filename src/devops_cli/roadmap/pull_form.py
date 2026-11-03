@@ -60,6 +60,13 @@ _RELEASE_SCOPE: Final[str] = "main"
 _TITLE: Final[re.Pattern[str]] = re.compile(
     r"(?P<type>[a-z]+)(?:\((?P<scope>[^()\s]+)\))?(?P<bang>!?): (?P<summary>\S.*)"
 )
+# The first word and issue number of a summary, such as `plan #2950 Add coverage`: the word before
+# the number, the number (ASCII digits), and the text after them. Words before the word, spaces
+# before the number, a colon after it and a dash before the text do not hide the repeat (#3255).
+_LEAD: Final[re.Pattern[str]] = re.compile(
+    r"(?:\S+\s+)*?(?P<word>[^\W\d_][\w-]*)\s+#(?P<number>[0-9]+)(?![0-9])[\s:\u2013\u2014-]*"
+    r"(?P<rest>.*)"
+)
 _CLOSES_LINE: Final[re.Pattern[str]] = re.compile(r"Closes #(?P<issue>\d+)")
 _PLANS_LINE: Final[re.Pattern[str]] = re.compile(r"Plans #(?P<issue>\d+)")
 # GitHub closes the issue that follows one of these words, with an optional colon.
@@ -121,6 +128,24 @@ def _declared_scopes(declared: Collection[str]) -> set[str]:
     }
 
 
+def _repeat_problems(summary: str) -> list[str]:
+    """What a summary that starts with `<word> #<number>` repeats: the word as the first word of
+    the text after the number (`plan #2950 plan coverage`), or the number in that text. A later
+    use of the word is not judged, because `plan #3200 Refuse a plan that ...` is a right title."""
+    texts = MESSAGES.pr
+    found = _LEAD.match(summary)
+    if found is None:
+        return []
+    word, number, rest = found["word"], found["number"], found["rest"]
+    problems = []
+    first = rest.split(maxsplit=1)[0].strip(_PLACEHOLDER_EDGES) if rest else ""
+    if first.casefold() == word.casefold():
+        problems.append(texts.form_title_repeat_word.format(word=word, number=number))
+    if re.search(rf"#{number}(?![0-9])", rest):
+        problems.append(texts.form_title_repeat_number.format(number=number))
+    return problems
+
+
 def _summary_problems(summary: str) -> list[str]:
     texts = MESSAGES.pr
     if is_placeholder(summary):
@@ -131,7 +156,7 @@ def _summary_problems(summary: str) -> list[str]:
         problems.append(texts.form_summary_long.format(length=length, limit=SUMMARY_MAX_CHARS))
     if summary.rstrip().endswith(("...", "\u2026")):
         problems.append(texts.form_summary_cut)
-    return problems
+    return [*problems, *_repeat_problems(summary)]
 
 
 def title_problems(title: str, declared: Collection[str] | None = None) -> list[str]:

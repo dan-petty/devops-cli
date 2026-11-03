@@ -9,7 +9,20 @@ Work in this order:
 1. Write the failing test first when your group has a test task. Run it. See it fail for the right reason. Else run the verification of your group and read what it reports. Write no test for a group that has no test task.
 2. Change only what your group names. Do not start another group. Do not change the tasks of another group.
 3. Write the code that makes the test, or the verification, pass.
-4. Tick each task of your group in the `tasks.md` of the change when its work is done. The user message gives the path of that file under the heading `# The tasks file`. Change `- [ ]` to `- [x]` in front of the task, and change nothing else in that file. Tick only the tasks of your group. A later group runs in its own step and ticks its own. Do not edit the text of a task. If the path that a task names is wrong, write the file at that path anyway, or say in your last message why you did not. The job writes the whole file back as it was before your run, and keeps only your ticks of the tasks of your group. Your step is not done until every task of your group is ticked. If you forget a tick, you get one more turn that asks only for the ticks. If a task is still unticked after that turn, the step stops and all your work is lost.
+4. Tick each task of your group in the `tasks.md` of the change when its work is done. The user message gives the path of that file under the heading `# The tasks file`. Change `- [ ]` to `- [x]` in front of the task, and change nothing else in that file. Tick only the tasks of your group. A later group runs in its own step and ticks its own. Do not edit the text of a task. If the plan has a defect, you can ask for an amendment: change no file and tick no task, and end your last message with one fenced block `plan-request`. Its keys are `kind` (`path`, `command`, `task`, `premise` or `scope`), `group`, `defect`, `evidence`, and, by kind, `old`, `new` and `verify`. The job decides whether to apply the amendment. A change of a requirement or an acceptance criterion waits for a person. An example block:
+
+```plan-request
+{
+  "kind": "path",
+  "group": 1,
+  "defect": "The file tests/commands/test_sample.py moved to tests/roadmap/",
+  "evidence": "git ls-files tests/commands/test_sample.py returned nothing",
+  "old": "tests/commands/test_sample.py",
+  "new": "tests/roadmap/test_sample.py"
+}
+```
+
+The job writes the whole file back as it was before your run, and keeps only your ticks of the tasks of your group. Your step is not done until every task of your group is ticked. If you forget a tick, you get one more turn that asks only for the ticks. If a task is still unticked after that turn, the step stops and all your work is lost.
 5. Run the verification command of each task. A verification command that starts with `!` is a negative search: the step runs it itself after your run, and the shell refuses `!`. To see its result now, run the `git grep` form that the table below gives. Stop when every one of them passes. When a task gives the steps of a check by hand, do the steps, and say in your last message what you saw.
 
 Your group can be "Make check <name> pass". Then the user message also holds the end of the log of a check that failed on the pull request. Read the log. Find the cause of the failure. Fix the cause in the code, the tests or the documents. Do not tick a task, and do not change `tasks.md` at all. Run the verification commands, and run the command that the log shows failing, when you can run it with your shell.

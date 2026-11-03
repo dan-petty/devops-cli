@@ -270,7 +270,13 @@ def test_the_tasks_of_a_stage_group_of_each_kind_make_a_plan(tmp_path: Path) -> 
     """The stage job writes a `tasks.md` that passes, also for groups with no test task (#3005)."""
     behavior = make_stage_proposal().groups[0]
     other = behavior.model_copy(
-        update={"kind": GroupKind.OTHER, "test": None, "documentation": None, "creates": []}
+        update={
+            "kind": GroupKind.OTHER,
+            "test": None,
+            "documentation": None,
+            "creates": [],
+            "creates_lines": {},
+        }
     )
     process = other.model_copy(update={"verify": None, "process": "Read the report."})
     proposal = make_stage_proposal(groups=[behavior, other, process])

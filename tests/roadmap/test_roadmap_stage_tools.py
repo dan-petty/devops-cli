@@ -532,9 +532,9 @@ def _lines(name: str, count: int, *, start: int = 1) -> str:
 
 @pytest.fixture
 def referenced(repo: Path) -> StageTools:
-    """The repository with the name `intake-eval` in a source file, a test, a fixture, a spec, two
+    """The repository with the name `eval-intake` in a source file, a test, a fixture, a spec, two
     documents and a manifest, and a file that holds it 400 times."""
-    name = "intake-eval"
+    name = "eval-intake"
     _commit(
         repo,
         "name",
@@ -555,8 +555,8 @@ def referenced(repo: Path) -> StageTools:
 def test_references_lists_every_file_that_holds_a_name_with_its_count(
     referenced: StageTools,
 ) -> None:
-    assert referenced.references("intake-eval").splitlines() == [
-        "References to 'intake-eval': files 8, lines 419.",
+    assert referenced.references("eval-intake").splitlines() == [
+        "References to 'eval-intake': files 8, lines 419.",
         "src/devops_cli/intake.py: 3 (lines 1, 2, 3)",
         "src/many.py: 400 (lines 1, 2, 3, 4, 5, ...)",
         "tests/fixtures/cases.json: 1 (line 1)",

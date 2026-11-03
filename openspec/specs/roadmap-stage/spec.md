@@ -199,7 +199,7 @@ A model call that fails SHALL skip its item. The job SHALL stage the other items
 - **THEN** the plan leaves the item out, and the model reads none of its text
 
 ### Requirement: A failed write stops one item
-A write that fails, also the comment on an item stopped on the budget, SHALL stop its item with the reason and SHALL NOT stop the other writes. The job SHALL fail after the other writes and name each item that failed.
+A write that fails, also the comment on an item stopped on the budget, SHALL stop its item with the reason and SHALL NOT stop the other writes. The job SHALL fail after the other writes and name each item that failed. The labels of the draft pull request are the one exception: a label that GitHub refuses stops no item (requirement "The draft pull request gets the labels of its title").
 
 #### Scenario: The comment of a stopped item fails
 - **WHEN** two items stop on the budget and the comment on the first fails
@@ -429,14 +429,14 @@ The row SHALL read the pull request again before it marks, and SHALL leave a dra
 - **THEN** the round stops at once and sends no request for the pull requests that follow
 
 ### Requirement: One function decides, and one function marks
-`ready_to_mark` SHALL be the only function that decides whether a recorded draft is marked. The row SHALL mark with `mark_ready`, the function the implement job uses, and SHALL record `stage.ready` with the number of the pull request, so that no later round reads it.
+`draft_readiness` SHALL be the only function that decides whether a recorded draft is marked. The row SHALL mark with `mark_ready`, the function the implement job uses, and SHALL record `stage.ready` with the number of the pull request, so that no later round reads it.
 
 #### Scenario: The implement job and the row mark the same way
 - **WHEN** the implement job and the row each mark a pull request ready
 - **THEN** both run `gh pr ready <number> --repo <repo>`
 
 #### Scenario: The decision is replaced
-- **WHEN** a test replaces `ready_to_mark` with a function that returns false
+- **WHEN** a test replaces `draft_readiness` in `stage_ready` with a function that answers refuse
 - **THEN** the round marks no pull request
 
 ### Requirement: The job leaves out an item that an agent or a person claimed
@@ -1082,7 +1082,7 @@ The `title`, `test`, `implementation`, `documentation`, `verify` and `process` o
 - **THEN** `form_problems` gives two problems: the backtick, and the form to use
 
 ### Requirement: The paths of a negative search are checked against the staged commit
-`check_proposal` SHALL read the paths of a `verify` command that is a negative search from the reader of the step, and SHALL refuse a path that is no file or folder of the staged commit and that no group up to its own creates. The path `.` SHALL not be judged. A glob SHALL be judged by the files that it matches.
+`check_proposal` SHALL read the paths of a `verify` command that is a negative search from the reader of the step, and SHALL refuse a path that is no file or folder of the staged commit and that no group up to its own creates. A path that ends in `/` SHALL be a folder. The path `.` SHALL not be judged. A glob SHALL be judged by the files that it matches.
 
 #### Scenario: A folder that is not in the commit
 - **WHEN** a group gives the `verify` command `! git grep -n hello scr/ testz/` and the commit has `src/` and `tests/` only
@@ -1092,8 +1092,12 @@ The `title`, `test`, `implementation`, `documentation`, `verify` and `process` o
 - **WHEN** a group gives the `verify` command `! git grep -n old_name src/ tests/`, `! git grep -n x -- .` or `! git grep -n x -- tests/newdir`, and the plan creates `tests/newdir/test_new.py`
 - **THEN** `check_proposal` returns no problem about the paths
 
+#### Scenario: A file with a trailing slash
+- **WHEN** a group gives the `verify` command `! git grep -n devops README.md/` and `README.md` is a file of the commit
+- **THEN** `check_proposal` returns a problem for `README.md`
+
 ### Requirement: A text of the proposal, the design and the spec delta stays on one line
-The `why`, `what_changes`, `feasibility` and `existing_tool` of the reply, the texts of its decisions and rejected alternatives, and the `purpose`, the names, the texts and the scenario lines of its spec deltas, SHALL be written on one line. A text that is written at the start of a line SHALL start with no mark of markdown: a heading, a quote, a list marker, a box, a rule, a fence or a comment. The reply that breaks the rule fails the schema.
+The `why`, `what_changes`, `feasibility` and `existing_tool` of the reply, the texts of its decisions and rejected alternatives, and the `purpose`, the names, the texts and the scenario lines of its spec deltas, SHALL be written on one line, and U+FEFF SHALL count as white space. A text at the start of a line SHALL start with no mark of markdown: a heading, a quote, a list marker, a box, a rule, a fence or an HTML tag. The reply that breaks the rule fails the schema.
 
 #### Scenario: A removed section in a requirement
 - **WHEN** the `text` of a requirement holds a line break, a heading `## REMOVED Requirements` and a requirement
@@ -1107,9 +1111,233 @@ The `why`, `what_changes`, `feasibility` and `existing_tool` of the reply, the t
 - **WHEN** an item of `feasibility` holds a blank line and a heading
 - **THEN** the item is one line
 
+#### Scenario: A mark after U+FEFF
+- **WHEN** the `purpose` of a spec is U+FEFF, `##`, U+FEFF and `REMOVED Requirements`
+- **THEN** the reply fails the schema
+
+#### Scenario: An HTML tag
+- **WHEN** the `existing_tool` of the reply starts with `<pre>`
+- **THEN** the reply fails the schema
+
 ### Requirement: A verify command keeps its spaces
 The `verify` of a task group SHALL be written on one line by joining its lines with one space, and SHALL keep every other space of the command.
 
 #### Scenario: Two spaces in a word
 - **WHEN** the `verify` is `! git grep -n 'a  b'` and a line break and `src/`
 - **THEN** the `verify` of the group is `! git grep -n 'a  b' src/`
+
+### Requirement: The draft pull request gets the labels of its title
+After the job records an item, it SHALL add to its draft pull request the `type/*` label and the `scope/*` label that the title gives, each only when `.github/labels.yml` on the default branch declares it. A label that GitHub refuses SHALL NOT delete the branch, close the draft or unset the record. The comment of the item SHALL name each label not added and the reason. Rejected credentials SHALL stop the run.
+
+#### Scenario: The title gives a type and a scope
+- **WHEN** the job stages item 1 and the labels file declares `type/docs` and `scope/openspec`
+- **THEN** the draft holds `type/docs` and `scope/openspec` and no other label
+
+#### Scenario: A label is refused and the branch stays
+- **WHEN** GitHub refuses `type/docs` for the draft
+- **THEN** the remote branch exists, the draft is open, and the record holds `stage.branch`, `stage.pr`, `stage.sha` and `stage.groups`
+
+#### Scenario: A label is refused and the comment says so
+- **WHEN** GitHub refuses `type/docs` for the draft and accepts `scope/openspec`
+- **THEN** the one comment of the item names the pull request, `type/docs` and the reason, and the draft holds `scope/openspec`
+
+#### Scenario: Rejected credentials
+- **WHEN** GitHub answers the label call with HTTP 401
+- **THEN** the run stops with the unauthenticated error and the comment has no label note
+
+#### Scenario: A dry run
+- **WHEN** `devops roadmap stage --dry-run` runs
+- **THEN** the plan lists the read of `.github/labels.yml` and the request that adds a label to the draft, and the run makes no request
+
+### Requirement: A split reply is checked for the form of its commands
+The job SHALL check the groups of a split reply for the form of their `verify` commands, as it checks the groups of a plan, and SHALL send a reply with a problem back to the model once.
+
+#### Scenario: A split group with two commands
+- **WHEN** a split group has a `verify` of ``uv run devops ci test tests/x.py` and `git push origin HEAD``
+- **THEN** the reply goes back to the model with the `verify` problem, and the model is asked once more
+
+### Requirement: A task of a group holds more than one word
+`form_problems` SHALL give a problem for each `test`, `implementation` or `documentation` text of a group that holds one word or less, with a code span counted as one word. The problem SHALL name the group by its number and its title, and the part of the text.
+
+#### Scenario: A bare filename as the first task
+- **WHEN** the `test` of a behavior group is `src/devops_cli/roadmap/stage_form.py`
+- **THEN** `form_problems` gives one problem, and it names the group and the part `test`
+
+#### Scenario: A single word as the work
+- **WHEN** the `implementation` of a group is `Refactor`
+- **THEN** `form_problems` gives one problem that names the part `implementation`
+
+#### Scenario: A code span alone
+- **WHEN** the `test` of a group is a path in a code span
+- **THEN** `form_problems` gives one problem
+
+#### Scenario: A task with a verb and an object
+- **WHEN** the `test` of a group is `Add a test in tests/roadmap/test_roadmap_stage_form.py for a bare filename task`
+- **THEN** `form_problems` gives no problem for the task
+
+### Requirement: A plan text is no placeholder
+The stage job SHALL refuse a plan whose `why`, `existing_tool`, `feasibility` line, decision or task text is shorter than `PLAN_FIELD_MIN_CHARS` or holds only a placeholder word.
+
+#### Scenario: Short why is refused
+- **WHEN** A plan gives `why` as `x`.
+- **THEN** `check_proposal` returns a problem that names `why` and the minimum length.
+
+#### Scenario: Placeholder existing tool is refused
+- **WHEN** A plan gives `existing_tool` as `todo`.
+- **THEN** `check_proposal` returns a problem that names `existing_tool` and the placeholder rule.
+
+#### Scenario: Short feasibility line is refused
+- **WHEN** A plan gives a `feasibility` line `x`.
+- **THEN** `check_proposal` returns a problem that names `feasibility` and the minimum length.
+
+#### Scenario: A short real sentence is accepted
+- **WHEN** A plan gives `why` as `No alternative.`
+- **THEN** `check_proposal` returns no placeholder problem for `why`.
+
+#### Scenario: The placeholder rule is the rule of the pull request form
+- **WHEN** The content gate judges the text `TBD`.
+- **THEN** It refuses the text through `is_placeholder` of `src/devops_cli/roadmap/pull_form.py`.
+
+### Requirement: Feasibility quotes a probe line
+When `probes` is not empty, the stage job SHALL refuse a `feasibility` list that holds no line of `probes` word for word.
+
+#### Scenario: No quoted probe
+- **WHEN** `probes` holds `def f(): pass` and `feasibility` holds `The function exists.`
+- **THEN** `check_proposal` returns a problem that names `feasibility` and the quote rule.
+
+#### Scenario: Exact probe quote
+- **WHEN** `probes` holds `def f(): pass` and `feasibility` holds `The probe shows def f(): pass.`
+- **THEN** `check_proposal` returns no quote problem.
+
+#### Scenario: A job that read no probe is not judged
+- **WHEN** `probes` is empty and `feasibility` holds `The function exists.`
+- **THEN** `check_proposal` returns no quote problem.
+
+### Requirement: Existing tool holds a build cost
+A plan that sets `builds_own` to true SHALL give a token count and a time in `existing_tool`.
+
+#### Scenario: Build cost missing
+- **WHEN** `builds_own` is true and `existing_tool` is `Pydantic can set a minimum length.`
+- **THEN** `check_proposal` returns a problem that names `existing_tool` and the cost rule.
+
+#### Scenario: Build cost given
+- **WHEN** `builds_own` is true and `existing_tool` is `Cost to build: about 80k tokens and 4 hours.`
+- **THEN** `check_proposal` returns no cost problem.
+
+#### Scenario: A plan that adopts a tool needs no cost
+- **WHEN** `builds_own` is false and `existing_tool` is `Pydantic covers the need.`
+- **THEN** `check_proposal` returns no cost problem.
+
+### Requirement: The summary of a plan is not cut
+The stage plan SHALL refuse a `summary` that is longer than `STAGE_SUMMARY_MAX_CHARS` or that ends with `...`.
+
+#### Scenario: Long summary
+- **WHEN** A reply gives a `summary` of `STAGE_SUMMARY_MAX_CHARS` plus one characters.
+- **THEN** The schema returns a problem that names `summary` and the limit.
+
+#### Scenario: Cut summary
+- **WHEN** A reply gives a `summary` that ends with `...`.
+- **THEN** The schema returns a problem that names `summary` and the cut rule.
+
+### Requirement: A title holds the full summary
+`staging_title` and `delivery_title` SHALL use the full summary and SHALL add no `...`.
+
+#### Scenario: Long delivery summary
+- **WHEN** `delivery_title` receives `feat(roadmap): a summary that is longer than the bound of the title`.
+- **THEN** The returned title ends with the full summary and holds no added `...`.
+
+#### Scenario: Staging title holds the summary
+- **WHEN** `staging_title` receives item 3200 and the summary `Refuse placeholder text`.
+- **THEN** The returned title is `docs(openspec): plan #3200 Refuse placeholder text`.
+
+### Requirement: The replay judges a placeholder plan
+The stage replay SHALL catch a recorded placeholder plan as a defect of type `other` through the `content` gate.
+
+#### Scenario: Gate lookup
+- **WHEN** The replay asks `gate_for(DefectType.OTHER)`.
+- **THEN** The answer is `GateName.CONTENT`, not `none` or `pending`.
+
+#### Scenario: Placeholder case replayed
+- **WHEN** A golden-set case holds a placeholder in `why` and an `other` defect with the gate `content`.
+- **THEN** `replay_case` marks the defect `caught` and reports no failure.
+
+#### Scenario: Placeholder case no longer refused
+- **WHEN** The plan of that case holds real text in every field that the content gate reads.
+- **THEN** `replay_case` marks the `content` defect `missed` and reports a failure.
+
+### Requirement: The group measure and the Job use one token counter
+The stage SHALL count the tokens of a task group with the same tiktoken encoding as the implement Job, and SHALL raise an error that names the missing tiktoken cache when the encoding cannot be loaded.
+
+#### Scenario: Both paths count the same text
+- **WHEN** The stage and the implement Job count the same task-group text and the tiktoken cache is present
+- **THEN** Both give the same token count
+
+#### Scenario: The token cache is missing
+- **WHEN** A plan run measures a task group and the tiktoken cache is missing
+- **THEN** The run fails with an error that names the missing cache and no character count is used
+
+### Requirement: A created file counts its estimated lines
+The stage SHALL add 32 tokens for each estimated line of a path in the `creates` of a task group to the token count of that group, and SHALL refuse a group whose `creates` path has no line estimate with an error that names the path.
+
+#### Scenario: A group creates a 1,500-line file
+- **WHEN** A task group has a `creates_lines` entry with a 1,500-line estimate and no other input
+- **THEN** The stage counts the group as at least 48,000 tokens and refuses it as over a 40,000-token budget
+
+#### Scenario: A creates path has no estimate
+- **WHEN** A task group creates a file and the reply gives no line estimate for that path
+- **THEN** The stage refuses the group with an error that names the path
+
+### Requirement: The staging prompt states the budget and the estimate rule
+The staging prompt SHALL name the `budget` of the run as the most tokens of one step and the rule that each `creates` path carries a line estimate.
+
+#### Scenario: The prompt states both limits
+- **WHEN** The staging prompt of a plan run is loaded
+- **THEN** It names the `budget` of the run and the line-estimate rule for each `creates` path
+
+### Requirement: The stage job checks the form of the plan title
+The stage job SHALL run `title_problems` on the title that it builds for the plan. A reply whose title has a problem SHALL go back to the model once with the problems, and a second reply with a problem SHALL stop the item.
+
+#### Scenario: A summary that repeats plan
+- **WHEN** the first reply has the summary `plan the form of a task`
+- **THEN** the job sends the problem that names the word `plan` to the model, and the second reply sets the title
+
+#### Scenario: A summary with the issue number
+- **WHEN** the reply has the summary `Stop #1 dropping a comment` for issue 1, and the second reply is the same
+- **THEN** the job sends a problem that names `#1`, and the item makes no plan
+
+### Requirement: A task group writes no living spec
+A `StageGroup` SHALL reject a path under `openspec/specs/` in `changes` or in `creates`, with a validation error that names the path and says that only `openspec archive` writes living specs. A path under `openspec/specs/` in `reads` SHALL stay accepted.
+
+#### Scenario: A group lists a living spec in changes
+- **WHEN** A `StageGroup` lists `openspec/specs/config-commands/spec.md` in `changes` and `creates`
+- **THEN** validation fails, and the error names `openspec/specs/config-commands/spec.md` and says that only `openspec archive` writes living specs
+
+#### Scenario: A group lists a living spec in creates
+- **WHEN** A `StageGroup` lists `openspec/specs/new-capability/spec.md` in `changes` and `creates`
+- **THEN** validation fails, and the error names `openspec/specs/new-capability/spec.md`
+
+#### Scenario: A group writes a source file and reads a living spec
+- **WHEN** A `StageGroup` lists `src/devops_cli/sample.py` in `changes` and `openspec/specs/config-commands/spec.md` in `reads`
+- **THEN** validation succeeds
+
+### Requirement: The stage prompt states the living-spec rule
+The stage prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` SHALL state that a task group never puts a path under `openspec/specs/` in `changes` or in `creates`, and that `openspec archive` writes living specs.
+
+#### Scenario: The prompt holds the living-spec rule
+- **WHEN** a test reads `src/devops_cli/ai/tasks/roadmap_stage_change.md`
+- **THEN** the text says that a task group must not change or create a file under `openspec/specs/`, and that `openspec archive` writes living specs
+
+### Requirement: A title whose summary is over the limit is refused
+The stage job SHALL refuse an item whose issue title has a Conventional Commit type and a summary longer than `SUMMARY_MAX_CHARS` UTF-16 code units, counted by `summary_length`.
+
+#### Scenario: A summary of 61 UTF-16 units is refused
+- **WHEN** A Ready item has a valid Conventional Commit type and a title summary of 61 UTF-16 code units
+- **THEN** The stage job leaves the item out, and its reason names the current length and the limit of 60
+
+#### Scenario: A summary of 60 UTF-16 units passes the length check
+- **WHEN** A Ready item has a valid Conventional Commit type and a title summary of 60 UTF-16 code units
+- **THEN** The stage job does not refuse the item for the length of its summary
+
+#### Scenario: A title with no type keeps its reason
+- **WHEN** A Ready item has a title with no Conventional Commit type and a summary longer than the limit
+- **THEN** The stage job leaves the item out and its reason names the missing type, not the length of the summary

@@ -33,6 +33,12 @@ class LLMInferenceError(DevOpsCLIError, ValueError):
         super().__init__(message, exit_code=exit_code, details=err_details)
 
 
+class TokenCountError(LLMInferenceError):
+    """Raised when the tiktoken encoding is unavailable, so no exact token count exists."""
+
+    error_code = "TOKEN_COUNT_ERROR"
+
+
 class ModelGatewayUnreachableError(LLMInferenceError):
     """Raised when a model call through the gateway fails, so the command decided and wrote nothing."""
 

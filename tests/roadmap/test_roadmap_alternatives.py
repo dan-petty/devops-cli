@@ -265,6 +265,61 @@ def test_unchecked_items_come_before_stale_items_and_the_limit_caps_the_run(
     ) == ([first, second, stale], [fresh])
 
 
+def _first_pass(store: InMemoryRoadmapStore, *, first_pass_limit: int | None) -> list[int]:
+    selection = select_items(
+        store,
+        item_number=None,
+        limit=5,
+        first_pass_limit=first_pass_limit,
+        recheck_days=30,
+        retry_days=3,
+        now=NOW,
+    )
+    return [item.number for item in selection.selected]
+
+
+def test_unchecked_items_take_the_first_pass_limit(store: InMemoryRoadmapStore) -> None:
+    numbers = [_item(store, f"Item {n}") for n in range(25)]
+
+    assert _first_pass(store, first_pass_limit=20) == numbers[:20]
+
+
+def test_checked_items_only_take_the_limit(store: InMemoryRoadmapStore) -> None:
+    for n in range(8):
+        _mark_checked(store, _item(store, f"Item {n}"), days=40)
+
+    assert len(_first_pass(store, first_pass_limit=20)) == 5
+
+
+def test_stale_items_join_a_first_pass_after_the_unchecked_ones(
+    store: InMemoryRoadmapStore,
+) -> None:
+    unchecked = [_item(store, f"New {n}") for n in range(3)]
+    stale = [_item(store, f"Old {n}") for n in range(10)]
+    for age, number in enumerate(stale):
+        _mark_checked(store, number, days=90 - age)
+
+    assert _first_pass(store, first_pass_limit=20) == unchecked + stale
+
+
+def test_items_in_the_retry_delay_do_not_hold_the_first_pass(
+    store: InMemoryRoadmapStore,
+) -> None:
+    for n in range(2):
+        _mark_failed(store, _item(store, f"Failed {n}"), days=1)
+    for n in range(8):
+        _mark_checked(store, _item(store, f"Old {n}"), days=40)
+
+    assert len(_first_pass(store, first_pass_limit=20)) == 5
+
+
+def test_no_first_pass_limit_keeps_the_limit(store: InMemoryRoadmapStore) -> None:
+    for n in range(25):
+        _item(store, f"Item {n}")
+
+    assert len(_first_pass(store, first_pass_limit=None)) == 5
+
+
 def test_stale_items_are_taken_oldest_check_first(store: InMemoryRoadmapStore) -> None:
     newer = _item(store, "Newer check")
     older = _item(store, "Older check")
@@ -1603,6 +1658,8 @@ def test_the_row_checks_at_most_the_limit_of_the_setting_and_the_command_uses_it
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     numbers = [_item(store, f"Item {n}") for n in range(4)]
+    for number in numbers:
+        _mark_checked(store, number, days=40)
     config(roadmap={"alternatives": {"limit": 2}})
     _answer_with(monkeypatch, _searching(AlternativesReply(verdict=Verdict.NONE)))
 
@@ -1629,6 +1686,68 @@ def test_the_limit_setting_defaults_to_five_and_is_at_least_one(
         AlternativesConfig(limit=0)
     assert len(raised.value.errors()) > 0
     assert load_settings().roadmap.alternatives.limit == 5
+
+
+def test_the_first_pass_limit_setting_defaults_to_twenty_and_is_at_least_one(
+    config: Callable[..., Any],
+) -> None:
+    from pydantic import ValidationError
+
+    from devops_cli.config.settings import AlternativesConfig, load_settings
+
+    config()
+    with pytest.raises(ValidationError) as raised:
+        AlternativesConfig(first_pass_limit=0)
+    assert len(raised.value.errors()) > 0
+    assert load_settings().roadmap.alternatives.first_pass_limit == 20
+
+
+def test_the_row_checks_the_first_pass_limit_while_items_lack_a_check(
+    store: InMemoryRoadmapStore,
+    web_key: None,
+    config: Callable[..., Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    numbers = [_item(store, f"Item {n}") for n in range(25)]
+    config()
+    _answer_with(monkeypatch, _searching(AlternativesReply(verdict=Verdict.NONE)))
+
+    _alternatives_row().runner(store=store, repo=REPO)
+
+    assert [n for n in numbers if store.comments_on(n)] == numbers[:20]
+
+
+def test_the_row_checks_the_limit_when_every_item_has_a_check(
+    store: InMemoryRoadmapStore,
+    web_key: None,
+    config: Callable[..., Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    numbers = [_item(store, f"Item {n}") for n in range(8)]
+    for number in numbers:
+        _mark_checked(store, number, days=40)
+    config()
+    _answer_with(monkeypatch, _searching(AlternativesReply(verdict=Verdict.NONE)))
+
+    _alternatives_row().runner(store=store, repo=REPO)
+
+    assert len([n for n in numbers if store.comments_on(n)]) == 5
+
+
+def test_an_explicit_limit_replaces_the_first_pass_limit(
+    store: InMemoryRoadmapStore,
+    web_key: None,
+    config: Callable[..., Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for n in range(25):
+        _item(store, f"Item {n}")
+    config()
+    _answer_with(monkeypatch, _searching(AlternativesReply(verdict=Verdict.NONE)))
+
+    plan = plan_alternatives(store, repo=REPO, limit=3, now=NOW)
+
+    assert len(plan.checks) == 3
 
 
 def test_total_failure_a_failed_check_records_its_item_and_the_row_succeeds(
@@ -1743,6 +1862,8 @@ def test_the_commands_limit_option_has_no_default_of_its_own(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     numbers = [_item(roadmap_store, f"Item {n}") for n in range(3)]
+    for number in numbers:
+        _mark_checked(roadmap_store, number, days=40)
     config(roadmap={"alternatives": {"limit": 1}})
     _answer_with(monkeypatch, _searching(AlternativesReply(verdict=Verdict.NONE)))
 
