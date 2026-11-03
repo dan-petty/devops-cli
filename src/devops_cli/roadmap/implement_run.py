@@ -728,8 +728,8 @@ class _ItemRun:
             tasks_path = self.path / CONST_OPENSPEC_ARCHIVE_DIR / archived / "tasks.md"
             tasks_text = tasks_path.read_text(encoding="utf-8") if tasks_path.is_file() else ""
             change = ChangeFacts(archived=True, tasks_text=tasks_text)
-        elif active := find_change(self.path, self.number):
-            active_tasks = self.path / CONST_OPENSPEC_CHANGES_DIR / active / "tasks.md"
+        elif active := self._active_change():
+            active_tasks = active / "tasks.md"
             tasks_text = active_tasks.read_text(encoding="utf-8") if active_tasks.is_file() else ""
             change = ChangeFacts(archived=False, tasks_text=tasks_text)
         else:

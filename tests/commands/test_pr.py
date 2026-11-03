@@ -609,6 +609,54 @@ def test_pr_ready_marks_branch_with_no_issue_without_reading_item(
     assert _readied(draft)
 
 
+def test_check_readiness_adds_readiness_blocker_when_draft_readiness_refuses(
+    cli: Callable[..., Any], github: _GitHub, roadmap_store: InMemoryRoadmapStore
+) -> None:
+    """When draft readiness refuses (e.g. unticked task group), check-readiness adds a blocker naming it."""
+    for i in range(1, 7):
+        roadmap_store.seed_issue(f"issue {i}")
+    roadmap_store.seed_issue(
+        "Issue 7",
+        body=with_record("", encode_job_record({}, {ImplementRecordKey.PR: "335"})),
+        fields={ItemField.PRIORITY: "P2-Medium"},
+    )
+    github.pull(
+        _pr(
+            draft=True,
+            head={
+                "ref": "fix/7-x",
+                "sha": _HEAD,
+                "repo": {"full_name": _REPO, "default_branch": "main"},
+            },
+        )
+    )
+    archived_tasks_path = "openspec/changes/archive/2026-10-23-7-x/tasks.md"
+    github.files({"filename": archived_tasks_path, "status": "added"})
+    route_file(github.api, _REPO, archived_tasks_path, _HEAD, _TASKS_UNTICKED)
+
+    exit_code, output = _readiness(cli, "--allow-draft")
+    assert exit_code == 1, output
+    assert "PR #335 is not ready: Task group 2, Group two, has a task that is not ticked." in output
+
+
+def test_check_readiness_adds_readiness_blocker_when_reading_draft_fails(
+    cli: Callable[..., Any], github: _GitHub, unreadable_github_roadmap: Any
+) -> None:
+    """When reading draft fails with an error, check-readiness adds an unread blocker."""
+    github.pull(
+        _pr(
+            head={
+                "ref": "fix/7-x",
+                "sha": _HEAD,
+                "repo": {"full_name": _REPO, "default_branch": "main"},
+            },
+        )
+    )
+    exit_code, output = _readiness(cli)
+    assert exit_code == 1, output
+    assert "PR #335 is not ready: the roadmap item could not be read" in output
+
+
 @pytest.mark.parametrize(
     ("scenario", "code"),
     [

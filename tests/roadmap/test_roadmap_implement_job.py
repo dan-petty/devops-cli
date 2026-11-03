@@ -9,6 +9,7 @@ and `gh` are faked at their edges.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -955,3 +956,42 @@ def test_running_check_at_ready_stops_the_job(
     assert record.get("implement.stopped") == "ready"
     (comment,) = job_world.issue_comments()
     assert "a check runs" in comment.lower()
+
+
+def test_unarchived_active_change_stops_at_ready(job_world: JobWorld) -> None:
+    """When the change folder was not archived and remains under openspec/changes/, ready refuses."""
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops openspec archive"),
+        ProcessAnswer(stdout="skipped archive\n"),
+    )
+    applied = job_world.run(two_groups())
+    assert (applied.stopped, job_world.pull.ready_calls) == ((1,), [])
+    status, record = _item(job_world)
+    assert status == "Blocked"
+    assert record.get("implement.stopped") == "ready"
+    (comment,) = job_world.issue_comments()
+    assert "not archived" in comment.lower()
+
+
+def test_missing_change_folder_stops_at_ready(job_world: JobWorld) -> None:
+    """When neither archive nor active change folder exists, ready refuses with change missing."""
+
+    def remove_change(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        assert call.cwd is not None
+        change = command_text(call).split()[-1]
+        source = call.cwd / "openspec" / "changes" / change
+        if source.exists():
+            shutil.rmtree(source)
+        return subprocess.CompletedProcess(call.argv, 0, stdout="removed\n")
+
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops openspec archive"),
+        ProcessAnswer(side_effect=remove_change),
+    )
+    applied = job_world.run(two_groups())
+    assert (applied.stopped, job_world.pull.ready_calls) == ((1,), [])
+    status, record = _item(job_world)
+    assert status == "Blocked"
+    assert record.get("implement.stopped") == "ready"
+    (comment,) = job_world.issue_comments()
+    assert "missing" in comment.lower()
