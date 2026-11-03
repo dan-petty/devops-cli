@@ -200,7 +200,7 @@ def test_the_jobs_run_as_an_account_with_no_token_and_no_role() -> None:
     )
 
 
-def test_the_role_of_the_service_holds_four_rules_and_one_binding() -> None:
+def test_the_role_of_the_service_holds_five_rules_and_one_binding() -> None:
     role = _object("Role", "roadmap-service-jobs")
     binding = _object("RoleBinding", "roadmap-service-jobs")
 
@@ -221,6 +221,12 @@ def test_the_role_of_the_service_holds_four_rules_and_one_binding() -> None:
                 "apiGroups": ["batch"],
                 "resources": ["cronjobs"],
                 "resourceNames": ["devops-cli-runner"],
+                "verbs": ["get"],
+            },
+            {
+                "apiGroups": ["apps"],
+                "resources": ["deployments"],
+                "resourceNames": ["roadmap-service"],
                 "verbs": ["get"],
             },
             {"apiGroups": [""], "resources": ["pods"], "verbs": ["list"]},

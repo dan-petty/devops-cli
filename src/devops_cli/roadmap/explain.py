@@ -23,12 +23,20 @@ from typing import Final, NamedTuple
 
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.settings import load_settings
+from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git.worktree_add import read_remote_heads
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement import plan_implement
+from devops_cli.roadmap.implement_trace import (
+    ImplementTrace,
+    TraceDecodeError,
+    TraceEvent,
+    TraceEventKind,
+    decode,
+)
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.stage import LeftOut, StageFilter, read_stage_selection
-from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore
+from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, Item, RoadmapStore
 
 _GIT_OPERATION: Final[str] = "roadmap.explain"
 
@@ -192,4 +200,79 @@ def render_explanation(explained: Explanation) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["Explanation", "JobVerdict", "explain_item", "render_explanation"]
+def read_trace(store: RoadmapStore, number: int) -> ImplementTrace | None:
+    """The trace of the last run of the implement job for issue `number` (#3032), or None when the
+    record holds none. It reads the one issue and nothing else. Raises `RoadmapImplementError`
+    for an issue that is no item, and for a value of `implement.trace` that is no trace."""
+    item = store.item(number)
+    if item is None:
+        raise RoadmapImplementError(MESSAGES.roadmap.item_left_not_item)
+    text = item.job_record.get(ImplementRecordKey.TRACE)
+    if not text:
+        return None
+    try:
+        return decode(text)
+    except TraceDecodeError as error:
+        raise RoadmapImplementError(
+            MESSAGES.roadmap.explain_trace_unreadable.format(number=number, error=error)
+        ) from error
+
+
+def _event_line(event: TraceEvent) -> str:
+    """One line for an event: its step, its kind and its fields."""
+    texts = MESSAGES.roadmap
+    fields = event.fields
+    step = event.step or "-"
+    match event.kind:
+        case TraceEventKind.MODEL:
+            return texts.explain_trace_model.format(
+                step=step,
+                model=fields.get("model", ""),
+                tokens_in=fields.get("tokens_in", 0),
+                tokens_out=fields.get("tokens_out", 0),
+                seconds=fields.get("seconds", 0),
+            )
+        case TraceEventKind.TOOL:
+            program = fields.get("program")
+            reason = fields.get("reason")
+            return texts.explain_trace_tool.format(
+                step=step,
+                tool=fields.get("tool", ""),
+                program=texts.explain_trace_tool_program.format(program=program) if program else "",
+                outcome=fields.get("outcome", ""),
+                reason=texts.explain_trace_tool_reason.format(reason=reason) if reason else "",
+            )
+        case TraceEventKind.CHECK:
+            result = (
+                texts.explain_trace_check_timeout
+                if fields.get("timeout")
+                else texts.explain_trace_check_status.format(status=fields.get("status", ""))
+            )
+            return texts.explain_trace_check.format(
+                step=step, command=fields.get("command", ""), result=result
+            )
+        case TraceEventKind.RETRY:
+            return texts.explain_trace_retry.format(step=step, reason=fields.get("reason", ""))
+
+
+def render_trace(trace: ImplementTrace | None, *, number: int) -> str:
+    """The trace as the report of `explain --trace`: one line for each event, oldest first, then
+    the count that the bound dropped. A line says that the issue has no trace when `trace` is
+    None."""
+    texts = MESSAGES.roadmap
+    if trace is None:
+        return texts.explain_trace_none.format(number=number)
+    lines = [_event_line(event) for event in trace.events]
+    if trace.dropped:
+        lines.append(texts.explain_trace_dropped.format(count=trace.dropped))
+    return "\n".join(lines)
+
+
+__all__ = [
+    "Explanation",
+    "JobVerdict",
+    "explain_item",
+    "read_trace",
+    "render_explanation",
+    "render_trace",
+]

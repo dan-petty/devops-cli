@@ -37,7 +37,7 @@ from devops_cli.config.commands import (
     BIN_RUFF,
     BIN_UV,
 )
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS
 from devops_cli.lang import MESSAGES
 
 
@@ -291,12 +291,24 @@ class Verification:
     negative: bool = False
 
 
+def _is_argument(word: str) -> bool:
+    """Whether `word` can be an argument of a process: no NUL byte, and it encodes to UTF-8."""
+    if "\0" in word:
+        return False
+    try:
+        word.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def read_verification(command: str) -> Verification | str:
     """The process that the step starts for the verification `command`, or the reason that it
-    refuses. The words are readable, they hold at most `CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS`
-    characters in all (a longer argument list fails `execve` with E2BIG), and the first word is a
-    program of the verification list or the `!` of a negative search in the fixed shape. The step and the gate of the stage job read
-    this function, so no command is refused by one side only."""
+    refuses. The words are readable and can be arguments (no NUL byte, no lone surrogate: both
+    raise in `execve`), they hold at most `CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS` characters in all
+    (a longer argument list fails `execve` with E2BIG), and the first word is a program of the
+    verification list or the `!` of a negative search in the fixed shape. The step and the gate of
+    the stage job read this function, so no command is refused by one side only."""
     texts = MESSAGES.roadmap
     try:
         words = shlex.split(command)
@@ -304,8 +316,10 @@ def read_verification(command: str) -> Verification | str:
         return texts.verify_reason_unparsed
     if not words:
         return texts.verify_reason_unparsed
-    if sum(len(word) for word in words) > CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS:
-        return texts.verify_reason_long.format(limit=CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS)
+    if any(not _is_argument(word) for word in words):
+        return texts.verify_reason_bytes
+    if sum(len(word) for word in words) > CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS:
+        return texts.verify_reason_long.format(limit=CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS)
     if words[0] == NEGATIVE_SEARCH_WORD:
         found = read_negative_search(words)
         return found if isinstance(found, str) else Verification(found.argv, negative=True)

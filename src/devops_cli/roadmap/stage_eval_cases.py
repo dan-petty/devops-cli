@@ -37,10 +37,14 @@ How the cases were made (2026-11-01):
 - `facts.json` holds the files that the plan names, the files with the same name as a missing
   path, and one file for each suffix and each top folder of the tree. The gate gives the same
   answer on these files as on the full tree, so a replay needs no deep clone.
+- The case of #3167 is a plan that the stage job staged with `x` in each text and `true` as its
+  verify command, and that a person closed (#3200). Its `merge_commit` is the head commit of the
+  pull request, and its scores are the lowest, set by hand. The `content` gate refuses its texts,
+  and the `paths` gate refuses its verify command.
 - The 3 cases that start with `good-` are the plans of #2992, #2859 and #2858 with the one wrong
   path corrected. They have no defect, and every gate must accept them.
 
-The set is 160 files and about 1 MB. It holds no secret, no private host name and no private
+The set is about 165 files and about 1 MB. It holds no secret, no private host name and no private
 address.
 """
 
@@ -89,6 +93,7 @@ class GateName(StrEnum):
     PATHS = "paths"
     KIND = "kind"
     CRITERIA = "criteria"
+    CONTENT = "content"
     PENDING = "pending"
     NONE = "none"
 

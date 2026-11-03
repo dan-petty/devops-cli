@@ -1,10 +1,11 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
-The due table runs the status lane's rows, metrics, implement and stage_ready, before the model
-lane's, intake, refine, stage and alternatives, so a burst of candidates never holds back the
-metrics (#1360), and a slow model never holds back the implement or stage_ready row (#2757,
-#2865). The row stage_ready marks a green stage draft pull request ready. `devops roadmap run`
-runs the whole table in one round. The Service runs each lane in its own worker and its own clone
+The due table runs the status lane's rows, metrics, implement, stage_ready and release_comments,
+before the model lane's, intake, refine, stage and alternatives, so a burst of candidates never
+holds back the metrics (#1360), and a slow model never holds back the implement or stage_ready row
+(#2757, #2865). The row stage_ready marks a green stage draft pull request ready. The row
+release_comments comments the version, and the time it runs, on the issues of a release (#2917).
+`devops roadmap run` runs the whole table in one round. The Service runs each lane in its own worker and its own clone
 (`service_jobs`), so a status-lane round never waits for a model-bound one (#1532); both lanes
 read and write the repository's one `schedule.json`. The Service's ledger of failed rounds is
 kept beside the repositories' schedules (`service_state_dir`), so a restart keeps it (#2474).
@@ -15,7 +16,8 @@ decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every 3
 run, and in a round where intake placed a critical fix or a P0 item (#1515). Stage, the row after
 refine, is due every 37 minutes, on a first run, and in a round where refine set an item Ready (#2659).
 The alternatives row is due every 719 minutes and on a first run, and checks at most
-`roadmap.alternatives.limit` items (#2652). Every clone tracks origin's default branch.
+`roadmap.alternatives.first_pass_limit` items while an item has no check, else
+`roadmap.alternatives.limit` items after (#2652). Every clone tracks origin's default branch.
 
 A subscribed webhook event runs the update scoped to it at once (`run_scoped_update`, ADR 0017):
 `issues` opened, edited or reopened runs intake of that one issue on the model lane. A scoped
@@ -70,6 +72,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INTAKE_LIMIT,
     DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES,
     DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
@@ -113,6 +116,9 @@ from devops_cli.roadmap.intake import (
 # import it for the first time together, so import it at module level, in the Service's main
 # thread, before any worker starts (#2535).
 from devops_cli.roadmap.refine import apply_refine, plan_refine, raise_for_failed_items
+from devops_cli.roadmap.release_comments import comment_releases
+from devops_cli.roadmap.release_feed import GitHubReleaseFeed
+from devops_cli.roadmap.release_roll import cluster_digests
 
 # `stage` imports the model client, which imports pydantic_ai too: import it here for the same
 # reason (#2659).
@@ -605,12 +611,42 @@ def _run_stage_ready_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> J
     return JobOutcome()
 
 
+def _run_release_comments_adapter(
+    store: RoadmapStore,
+    *,
+    repo: str,
+    repo_dir: Path,
+    now: datetime,
+    **_: Any,
+) -> JobOutcome:
+    """Comment the version on each closed issue of a recent release, and the time its images run
+    in the cluster (#2917). The row calls no model and needs no clone; its ledger
+    `release_comments.json` lies beside `schedule.json`. It fails, once both comments are
+    posted, when the cluster or the registry could not be read."""
+    from devops_cli.config.constants import CONST_ROADMAP_RELEASE_LEDGER_FILENAME
+    from devops_cli.http.client import new_http_client
+    from devops_cli.http.egress import EgressLevel
+    from devops_cli.k8s.cluster_job_api import ClusterJobs
+
+    with new_http_client(level=EgressLevel.PUBLIC) as client:
+        comment_releases(
+            store,
+            GitHubReleaseFeed(repo),
+            ledger_path=repo_dir / CONST_ROADMAP_RELEASE_LEDGER_FILENAME,
+            now=now,
+            roll=lambda: cluster_digests(ClusterJobs()),
+            client=client,
+        )
+    return JobOutcome()
+
+
 def _run_alternatives_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOutcome:
-    """Check at most `roadmap.alternatives.limit` open items for an open tool that covers them
-    (#2652). A failed check is recorded in its item's job record and the others are written; the
+    """Check at most `roadmap.alternatives.first_pass_limit` open items while one has no check, else
+    `roadmap.alternatives.limit` open items, for an open tool that covers them (#2652).
+    A failed check is recorded in its item's job record and the others are written; the
     job fails, naming the items, only when it tried items and checked none (#2949). A repository
     the check is off for, such as a private one, costs a visibility read and nothing else."""
-    plan = plan_alternatives(store, repo=repo, limit=load_settings().roadmap.alternatives.limit)
+    plan = plan_alternatives(store, repo=repo)
     if plan.off_reason:
         logger.info("The alternatives check of %s is off: %s", repo, plan.off_reason)
     if plan.has_writes:
@@ -683,13 +719,20 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
         runner=_run_stage_ready_adapter,
         first_run_due=True,
     ),
+    JobRow(
+        name="release_comments",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES),
+        runner=_run_release_comments_adapter,
+        first_run_due=True,
+    ),
 )
 """The rows that call no model: the one that refreshes the metrics, the one that submits the
 implement Job, which only talks to the Kubernetes API and GitHub, and the one that marks a green
-stage pull request ready, which only talks to GitHub. The model runs in the Job, so a model-lane
+stage pull request ready, which only talks to GitHub, and the one that comments a release on its
+issues, which talks to GitHub, the registry and the Kubernetes API. The model runs in the Job, so a model-lane
 round that is still running never delays the rows (#2757, #2865). `stage_ready` follows
 `implement`, so a Staged item with a green draft gets its Job first, and the row leaves a pull
-request that a Job works on alone."""
+request that a Job works on alone. `release_comments` comes last: it waits for no other row."""
 
 TRIAGE_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
@@ -795,10 +838,11 @@ def build_stub_table(
     include_stage: bool | None = None,
     include_implement: bool | None = None,
     include_stage_ready: bool | None = None,
+    include_release_comments: bool | None = None,
 ) -> tuple[JobRow, ...]:
     """The due table's rows, in its order, each running `runners`' stub for its job: metrics,
-    implement, stage_ready, intake, refine, stage and alternatives. Intake is always in; the
-    others are added when asked for or given a stub."""
+    implement, stage_ready, release_comments, intake, refine, stage and alternatives. Intake is
+    always in; the others are added when asked for or given a stub."""
     r = runners or {}
     add_refine = include_refine if include_refine is not None else ("refine" in r)
     add_metrics = include_metrics if include_metrics is not None else ("metrics" in r)
@@ -806,6 +850,11 @@ def build_stub_table(
     add_implement = include_implement if include_implement is not None else ("implement" in r)
     add_stage_ready = (
         include_stage_ready if include_stage_ready is not None else ("stage_ready" in r)
+    )
+    add_release_comments = (
+        include_release_comments
+        if include_release_comments is not None
+        else ("release_comments" in r)
     )
     add_alternatives = (
         include_alternatives if include_alternatives is not None else ("alternatives" in r)
@@ -816,6 +865,7 @@ def build_stub_table(
         "stage": add_stage,
         "implement": add_implement,
         "stage_ready": add_stage_ready,
+        "release_comments": add_release_comments,
         "alternatives": add_alternatives,
     }
     return tuple(

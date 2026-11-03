@@ -71,13 +71,15 @@ class ScopedTests:
 @dataclass(frozen=True)
 class ScopedResult:
     """The end of one run of a scoped check: whether it passed, how many seconds it took, and the
-    end of its output when it failed."""
+    end of its output when it failed. `status` is the exit status of the command, and none when it
+    ran out of time (#3032)."""
 
     name: str
     passed: bool
     seconds: float
     log: str = ""
     command: str = ""
+    status: int | None = None
 
 
 def paths_for_tests(names: Iterable[str]) -> list[str]:
@@ -173,11 +175,18 @@ def _run_check(source: Path, check: ScopedCheck) -> ScopedResult:
     except subprocess.TimeoutExpired:
         seconds = time.monotonic() - began
         log = MESSAGES.roadmap.implement_stop_command_timeout.format(command=shown, seconds=limit)
-        return ScopedResult(check.name, False, seconds, log, shown)
+        return ScopedResult(check.name, False, seconds, log, shown, None)
     seconds = time.monotonic() - began
     if done.returncode == 0:
-        return ScopedResult(check.name, True, seconds, command=shown)
-    return ScopedResult(check.name, False, seconds, output_text(done.stdout, done.stderr), shown)
+        return ScopedResult(check.name, True, seconds, command=shown, status=0)
+    return ScopedResult(
+        check.name,
+        False,
+        seconds,
+        output_text(done.stdout, done.stderr),
+        shown,
+        done.returncode,
+    )
 
 
 def run_scoped_checks(source: Path, checks: Sequence[ScopedCheck]) -> list[ScopedResult]:

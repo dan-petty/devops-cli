@@ -10,6 +10,7 @@ import pytest
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.roadmap.stage_change import StageGroup, StageProposal, check_proposal
+from devops_cli.roadmap.stage_form import form_problems
 from devops_cli.roadmap.stage_paths import StagedTree
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
@@ -28,7 +29,12 @@ VERIFY_PROBLEM = (
 def _plan(*changes: str, creates: tuple[str, ...] = (), verify: str | None = None) -> StageProposal:
     """The sample proposal, with one group that changes `changes` and creates `creates`."""
     base = make_stage_proposal().groups[0].model_dump()
-    update: dict[str, Any] = {"reads": [], "changes": list(changes), "creates": list(creates)}
+    update: dict[str, Any] = {
+        "reads": [],
+        "changes": list(changes),
+        "creates": list(creates),
+        "creates_lines": {path: 10 for path in creates},
+    }
     sourced = any(path.startswith("src/") for path in changes)
     if not sourced:
         update |= {"kind": "other", "test": None}
@@ -167,6 +173,54 @@ def test_a_test_that_already_exists_is_not_judged() -> None:
     plan = _plan(CODE, FLAT)
 
     assert _problems(plan) == []
+
+
+# ── A task holds more than one word (#3255) ───────────────────────────────────
+
+SENTENCE = "Add a test in tests/roadmap/test_roadmap_stage_form.py for a bare filename task"
+
+
+def _group(**update: Any) -> StageGroup:
+    base = make_stage_proposal().groups[0].model_dump()
+    return StageGroup.model_validate({**base, **update})
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "src/devops_cli/roadmap/stage_form.py",
+        "Refactor",
+        "`tests/roadmap/test_stage.py`",
+        "a.py",
+        "`uv run devops ci`",
+    ],
+)
+def test_a_bare_first_task_is_refused_and_names_the_group(text: str) -> None:
+    (problem,) = form_problems([_group(title="Keep the comment", test=text)])
+
+    assert problem.startswith("Group 1 (Keep the comment) has the test task")
+    assert text in problem
+    assert "one word" in problem
+
+
+@pytest.mark.parametrize("part", ["implementation", "documentation"])
+def test_a_bare_work_or_document_task_is_refused_with_its_part(part: str) -> None:
+    (problem,) = form_problems([_group(**{part: "stage_form.py"})])
+
+    assert f"has the {part} task" in problem
+
+
+def test_a_task_with_a_verb_and_an_object_is_accepted() -> None:
+    group = _group(test=SENTENCE, implementation="Add `form_problems`", documentation="Document it")
+
+    assert form_problems([group]) == []
+
+
+def test_a_bare_task_reaches_the_model_through_check_proposal() -> None:
+    plan = _plan(CODE, MIRRORED, creates=(MIRRORED,))
+    plan.groups[0].test = "tests/roadmap/test_stage.py"
+
+    assert any("one word" in problem for problem in _problems(plan))
 
 
 # ── The examples of the prompt and of the rules ───────────────────────────────

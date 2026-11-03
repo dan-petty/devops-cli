@@ -65,3 +65,8 @@ data:
         limit: 3
         step_tokens: 64000
         toolset: extended
+      # The alternatives row takes `first_pass_limit` items in a round while an item has no
+      # check, and `limit` items after, when every item has a check and a round only rechecks.
+      alternatives:
+        limit: 5
+        first_pass_limit: 20
