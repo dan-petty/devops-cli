@@ -13,7 +13,7 @@ A new `devops` command or a new test touches several places whose rules are scat
 - The MCP coverage test derives its excluded commands from the command tree, so a new command needs no hand entry.
 - The hand-written class of the docs inventory becomes the complement of its other classes, so a new page needs no hand entry.
 - The layout section of `docs/TESTING.md` states the mirror path as the one test-location rule and drops the flat-file fallback.
-- A skill names both scaffold commands, held by an invariant test.
+- A skill names both scaffold commands in each agent skill root (`.claude/skills/` and `.agents/skills/`), held by an invariant test.
 - The change fits one pull request.
 
 ## Capabilities
@@ -30,7 +30,7 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/config/constants.py`, `src/devops_cli/docs/markdown_argv_collector.py`, `src/devops_cli/commands/new.py`, `src/devops_cli/main.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/scaffold/__init__.py`, `src/devops_cli/scaffold/templates.py`
-- Documents: `docs/TESTING.md`, `.claude/skills/new-scaffold/SKILL.md`
+- Documents: `docs/TESTING.md`, `.claude/skills/new-scaffold/SKILL.md`, `.agents/skills/new-scaffold/SKILL.md`
 - Tests: `tests/docs/test_docs_inventory.py`, `tests/ai/mcp/test_mcp.py`, `tests/commands/test_new.py`, `tests/invariants/test_skills.py`
 
 ## Feasibility

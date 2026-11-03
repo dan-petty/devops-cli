@@ -11,6 +11,10 @@
 - **Print only the manual steps that remain.**: A list that the change derives needs no edit, so a checklist entry for it would send the reader to a file that must stay as it is.
 - **Write each template as text held in one module and render it with the paths that the command computes.**: The command computes every target path, so the path rule lives in one place and the refused case is checked before any write.
 
+- **Commit the skill in `.claude/skills/` and `.agents/skills/`, and test that both hold the same text.**: The project commits its OpenSpec skills in each agent root (`.claude`, `.agents`, `.kilocode`), and an agent reads only its own root, so a skill in one root reaches one agent.
+
+- **Write no entry in a docs page of the group.**: The issue asks for the docs page entry when it exists, but `docs/commands/*.md` is in the `generated` class of `CONST_DOCS_INVENTORY`, so `devops docs generate --sync-readme` writes it, and a hand edit would be overwritten. The checklist names that command.
+
 ## Rejected alternatives
 
 - **Copier or Cookiecutter as the template engine of the scaffold.**: Both render files and neither edits a command module, an entry of the language folder or a derived list. Copier's update mode also rewrites a file, against the no-overwrite rule of the issue.

@@ -74,8 +74,8 @@ The scaffold SHALL write no file when any target path exists, SHALL name each ex
 - **THEN** The output lists the group module, the language entry and the test module, and no file changes on disk.
 
 ### Requirement: A skill names both scaffold commands
-A skill document under `.claude/skills/` SHALL name `devops new command` and `devops new test`.
+A skill document under each of `.claude/skills/` and `.agents/skills/` SHALL name `devops new command` and `devops new test`.
 
 #### Scenario: The skill names both commands
-- **WHEN** A test reads every skill document under `.claude/skills/`.
-- **THEN** At least one document names `devops new command` and `devops new test`.
+- **WHEN** A test reads the skill documents of `.claude/skills/` and of `.agents/skills/`.
+- **THEN** The skill of each root names `devops new command` and `devops new test`, and the two skills hold the same text.

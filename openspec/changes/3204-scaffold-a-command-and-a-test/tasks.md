@@ -45,9 +45,9 @@ Reads: `src/devops_cli/commands/new.py`, `tests/commands/test_new.py`, `src/devo
 
 ## 6. Add the skill that calls both scaffold commands
 
-Reads: `AGENTS.md`, `tests/invariants/test_agents_md_claims.py`. Changes: `.claude/skills/new-scaffold/SKILL.md` (new), `tests/invariants/test_skills.py` (new).
+Reads: `AGENTS.md`, `tests/invariants/test_agents_md_claims.py`. Changes: `.claude/skills/new-scaffold/SKILL.md` (new), `.agents/skills/new-scaffold/SKILL.md` (new), `tests/invariants/test_skills.py` (new).
 
-- [ ] 6.1 Write a short skill that names `devops new command` and `devops new test` and sends the reader to the checklist that the scaffold prints. Add an invariant test that reads every skill document and fails when none names both commands
+- [ ] 6.1 Write a short skill in `.claude/skills/new-scaffold/SKILL.md` and the same skill in `.agents/skills/new-scaffold/SKILL.md`, because the project commits its agent skills in each agent root and an agent reads only its own. The skill names `devops new command` and `devops new test` and sends the reader to the checklist that the scaffold prints. Add an invariant test that fails when the skill of either root does not name both commands, or when the two roots hold different text
   - Verification: `uv run devops ci test tests/invariants/test_skills.py` passes
 
 ## Workflow follow-up
