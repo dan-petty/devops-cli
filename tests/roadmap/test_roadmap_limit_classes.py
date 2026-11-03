@@ -180,6 +180,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "the policy that says a tool is maintained",
     ),
     "DEFAULT_ROADMAP_ALTERNATIVES_LIMIT": ("kept", "items of one round"),
+    "DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT": (
+        "setting",
+        "items of one round while an item has no check",
+    ),
     "DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS": ("other", "the age at which a check is old"),
     "DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS": (
         "other",
