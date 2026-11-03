@@ -41,6 +41,7 @@ from devops_cli.github.branch_update import (
     plan_update_all_prs,
     plan_update_single_pr,
 )
+from devops_cli.github.client import PullStatus
 from devops_cli.github.defect_classifier import (
     PRHardeningAudit,
     audit_pr_hardening,
@@ -48,8 +49,8 @@ from devops_cli.github.defect_classifier import (
 )
 from devops_cli.github.error_classifier import is_gh_rate_limited
 from devops_cli.github.merge_readiness import (
-    CHECK_FAILURE_KINDS,
     AdvisoryLevel,
+    Blocker,
     BlockerKind,
     MergeReadiness,
     ReadinessOptions,
@@ -99,6 +100,7 @@ from devops_cli.output import (
 )
 from devops_cli.roadmap import pull_labels
 from devops_cli.roadmap.github_store import issue_args, label_args, repository_file_args
+from devops_cli.roadmap.implement_pull import Answer, draft_readiness, read_draft
 from devops_cli.roadmap.pull_status import set_delivered_status
 from devops_cli.roadmap.title_labels import requested_labels
 
@@ -1280,20 +1282,8 @@ def _handle_pr_ready_failure(stderr_text: str, number: int) -> None:
     print_error(f"Failed to mark PR #{number} ready: {clean_err or 'Unknown error'}", safe=True)
 
 
-def _ready_check_blockers(number: int, verdict: MergeReadiness) -> None:
-    """Stop `pr ready` on the verdict's checks: exit 1 when one failed or could not be read, 8
-    while one runs."""
-    failed = [b for b in verdict.blocking if b.kind in CHECK_FAILURE_KINDS]
-    pending = [b for b in verdict.blocking if b.kind is BlockerKind.CHECKS_PENDING]
-    for blocker in failed or pending:
-        print_error(f"Cannot mark PR #{number} as ready for review: {blocker.text}", safe=True)
-    if failed or pending:
-        print_info("Pass --force to override failing check verification.")
-        raise typer.Exit(1 if failed else 8)
-
-
 def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[str, Any]) -> None:
-    """Hold `pr ready` to the merge-readiness verdict's checks, and warn of each other blocker.
+    """Hold `pr ready` to draft readiness, and warn of each other blocker.
 
     Ready for review says the work is done and its checks pass; the merge itself stays gated by
     `check-readiness`, the required checks and a person. The pull request is a draft until this
@@ -1302,7 +1292,25 @@ def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[st
     verdict = assess_merge_readiness(
         pr_data, owner, repo_name, number, options=ReadinessOptions(allow_draft=True)
     )
-    _ready_check_blockers(number, verdict)
+    repo = f"{owner}/{repo_name}"
+    pull = PullStatus.model_validate(pr_data)
+    try:
+        draft = read_draft(repo, number, pull=pull, checks=verdict.checks, declared=True)
+    except Exception as exc:
+        print_error(f"Cannot mark PR #{number} as ready for review: {exc}", safe=True)
+        print_info("Pass --force to override failing check verification.")
+        raise typer.Exit(1) from exc
+
+    readiness = draft_readiness(draft)
+    if readiness.answer is Answer.REFUSE:
+        print_error(f"Cannot mark PR #{number} as ready for review: {readiness.reason}", safe=True)
+        print_info("Pass --force to override failing check verification.")
+        raise typer.Exit(1)
+    if readiness.answer is Answer.WAIT:
+        print_error(f"Cannot mark PR #{number} as ready for review: {readiness.reason}", safe=True)
+        print_info("Pass --force to override failing check verification.")
+        raise typer.Exit(8)
+
     for blocker in verdict.blocking:
         print_warning(f"Still blocks the merge: {blocker.text}")
 
@@ -1349,11 +1357,12 @@ def ready_pr(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Mark a draft pull request as ready for review once its checks pass.
+    """Mark a draft pull request as ready for review once draft readiness allows it.
 
-    It exits 1 when a check failed or could not be read and 8 while one runs. Every other
-    blocker of the merge-readiness verdict prints as a warning. --force skips the checks. It
-    sets the Status of the roadmap item the pull request closes to In Review.
+    It exits 1 for a refusal and 8 while a check runs. For an implement pull request, it names
+    each unticked task group. Every other blocker of the merge-readiness verdict prints as a
+    warning. --force skips the readiness check. It sets the Status of the roadmap item the pull
+    request closes to In Review.
     """
     if dry_run or is_dry_run():
         plan = plan_pr_ready(number, repo=repo)
@@ -1611,14 +1620,15 @@ def check_readiness(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
+    """Validate PR merge readiness: conflicts, draft state, checks, review threads, grounding
+    and draft readiness.
 
     Grounding applies where the base holds openspec/changes/. The PR targets the default branch.
     It closes exactly one issue, an open issue of its own repository that holds a priority/*
     label: a roadmap item. GitHub closes that issue when the PR merges. The PR
     adds openspec/changes/archive/<date>-<issue>-<slug>/, which uv run devops openspec archive
     writes for that issue's change. Only that archive writes openspec/specs/ and
-    openspec/changes/archive/.
+    openspec/changes/archive/. An implement pull request must have every task group ticked.
     """
     if dry_run or is_dry_run():
         target_repo = _target_repo(repo)
@@ -1640,9 +1650,27 @@ def check_readiness(
         allow_replied_threads=allow_replied_threads,
         allow_pending_checks=allow_pending_checks,
     )
-    _render_merge_readiness(
-        assess_merge_readiness(pr_data, owner, repo_name, pr_num, options=options), pr_num
-    )
+    verdict = assess_merge_readiness(pr_data, owner, repo_name, pr_num, options=options)
+    pull = PullStatus.model_validate(pr_data)
+    is_draft = pr_data.get("draft", False)
+    repo_slug = f"{owner}/{repo_name}"
+    try:
+        draft = read_draft(repo_slug, pr_num, pull=pull, checks=None, declared=not is_draft)
+        readiness = draft_readiness(draft)
+        if readiness.answer is Answer.REFUSE:
+            blocker = Blocker(
+                BlockerKind.READINESS,
+                MESSAGES.pr.readiness_blocked.format(number=pr_num, reason=readiness.reason),
+            )
+            verdict = dataclasses.replace(verdict, blocking=(*verdict.blocking, blocker))
+    except Exception as exc:
+        blocker = Blocker(
+            BlockerKind.READINESS,
+            MESSAGES.pr.readiness_unread.format(number=pr_num, error=exc),
+        )
+        verdict = dataclasses.replace(verdict, blocking=(*verdict.blocking, blocker))
+
+    _render_merge_readiness(verdict, pr_num)
 
 
 # =============================================================================

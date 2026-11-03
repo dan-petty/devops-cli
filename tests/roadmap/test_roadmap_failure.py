@@ -125,6 +125,11 @@ FROM_THE_JOB = [
         id="plan-unticked",
     ),
     pytest.param(
+        FailureEvidence(text="Task group 2, Route the stage row, has a task that is not ticked."),
+        FailureClass.PLAN_DEFECT,
+        id="plan-unticked-group",
+    ),
+    pytest.param(
         FailureEvidence(text=TEXTS.implement_stop_no_change, agent=AGENT_2175),
         FailureClass.PREMISE_FALSE,
         id="premise-already-deleted",

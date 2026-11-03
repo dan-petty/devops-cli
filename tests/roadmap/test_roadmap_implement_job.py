@@ -21,6 +21,7 @@ from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.config import constants
 from devops_cli.exceptions import RoadmapImplementError
 from devops_cli.git.worktree_add import worktree_directory
+from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.roadmap.implement import parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement_run import apply_implement, raise_for_failed
 from devops_cli.roadmap.store import ImplementRecordKey
@@ -35,6 +36,7 @@ from tests.support.roadmap_implement import (
     TASKS_PATH,
     TICKED_FIRST,
     JobWorld,
+    archive_effect,
     docs_effect,
     group_one_calls,
     group_two_calls,
@@ -903,3 +905,53 @@ def test_a_claim_made_while_a_group_runs_beats_the_stop_of_that_group(
     assert (record.get("implement.stopped"), _owner(world)) == (None, ["owner/human"])
     assert status != "Ready"
     assert "human claimed the item" in comment
+
+
+def test_unticked_task_in_archived_change_stops_at_ready(job_world: JobWorld) -> None:
+    def unticked_archive(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        res = archive_effect(call)
+        assert call.cwd is not None
+        change = command_text(call).split()[-1]
+        target_tasks = (
+            call.cwd / "openspec" / "changes" / "archive" / f"2026-10-29-{change}" / "tasks.md"
+        )
+        content = target_tasks.read_text(encoding="utf-8")
+        target_tasks.write_text(
+            content.replace("- [x] Document", "- [ ] Document"), encoding="utf-8"
+        )
+        return res
+
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops openspec archive"),
+        ProcessAnswer(side_effect=unticked_archive),
+    )
+
+    applied = job_world.run(two_groups())
+
+    assert (applied.stopped, job_world.pull.ready_calls) == ((1,), [])
+    status, record = _item(job_world)
+    assert status == "Blocked"
+    assert record.get("implement.stopped") == "ready"
+    (comment,) = job_world.issue_comments()
+    assert "2" in comment
+    assert "Failure class: `plan_defect`" in comment
+
+
+def test_running_check_at_ready_stops_the_job(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement_run.read_check_runs",
+        lambda *_args, **_kwargs: CheckVerdictSummary(
+            items=[PRCheckItem(name="Lint", bucket=CheckBucket.PENDING)]
+        ),
+    )
+
+    applied = job_world.run(two_groups())
+
+    assert (applied.stopped, job_world.pull.ready_calls) == ((1,), [])
+    status, record = _item(job_world)
+    assert status == "Blocked"
+    assert record.get("implement.stopped") == "ready"
+    (comment,) = job_world.issue_comments()
+    assert "a check runs" in comment.lower()
