@@ -523,7 +523,7 @@ def _implement_step(
         implement_step.render_outcome(outcome, target, fmt)
         return
 
-    from devops_cli.ai.client.factory import get_task_model
+    from devops_cli.ai.client.factory import get_task_model, get_tier_model
 
     with _exit_on_failure("Could not run the step"):
         _, store = _open_store(target)
@@ -534,6 +534,7 @@ def _implement_step(
             source=checkout,
             model=get_task_model("implement"),
             window=task.context_window,
+            model_for_tier=get_tier_model,
         )
     implement_step.render_outcome(outcome, target, fmt)
     if outcome.status is implement_step.StepStatus.STOPPED:
@@ -662,7 +663,7 @@ def _implement_job(
         print_info(MESSAGES.roadmap.preview_only)
         return
 
-    from devops_cli.ai.client.factory import get_task_model
+    from devops_cli.ai.client.factory import get_task_model, get_tier_model
 
     with _exit_on_failure("Could not run the job"):
         applied = apply_implement(
@@ -671,6 +672,7 @@ def _implement_job(
             source=clone,
             model=get_task_model("implement"),
             window=load_settings().ai.for_task("implement").context_window,
+            model_for_tier=get_tier_model,
         )
     print_success(
         MESSAGES.roadmap.implement_job_applied.format(

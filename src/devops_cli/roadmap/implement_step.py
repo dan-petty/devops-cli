@@ -26,7 +26,7 @@ import subprocess
 import tempfile
 import time
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from http import HTTPStatus
@@ -64,6 +64,7 @@ from devops_cli.config.commands import (
     BIN_UV,
 )
 from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_PROVIDER,
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_PRE_COMMIT_COMMIT_STAGE,
     CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS,
@@ -100,6 +101,12 @@ from devops_cli.roadmap.agent_run import (
     model_call_error,
     record_run_spend,
 )
+from devops_cli.roadmap.failure import (
+    ACTION_BY_CLASS,
+    FailureAction,
+    FailureEvidence,
+    classify_failure,
+)
 from devops_cli.roadmap.implement_hooks import commit_stage
 from devops_cli.roadmap.implement_output_cap import output_cap_hooks
 from devops_cli.roadmap.implement_shell_policy import (
@@ -132,6 +139,17 @@ if TYPE_CHECKING:
 
 _CHANGE_DOCUMENTS = ("proposal.md", "design.md", "tasks.md")
 _PROMPT = "roadmap_implement_step.md"
+
+
+class StepClass(StrEnum):
+    """The class of a step, which selects its ladder of model tiers (#3060): a group of a change
+    is `edit`, the fix of a failed check is `repair`, and `plan` and `review` are the classes of
+    the steps that plan and review an item."""
+
+    PLAN = "plan"
+    EDIT = "edit"
+    REPAIR = "repair"
+    REVIEW = "review"
 
 
 class ItemReader(Protocol):
@@ -325,6 +343,24 @@ class StepStatus(StrEnum):
     STOPPED = "stopped"
 
 
+class TierSpend(BaseModel):
+    """The requests and tokens that one tier of the ladder spent for a step (#3060)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    requests: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    def plus(self, run: _Run) -> TierSpend:
+        """This spend and the spend of `run`."""
+        return TierSpend(
+            requests=self.requests + run.requests,
+            input_tokens=self.input_tokens + run.input_tokens,
+            output_tokens=self.output_tokens + run.output_tokens,
+        )
+
+
 class StepOutcome(BaseModel):
     """The report of a step. `reason` is why a stopped step stopped: the class and the message of
     the pydantic-ai error that ended the run, with the counts of refused and retried tool calls
@@ -333,7 +369,9 @@ class StepOutcome(BaseModel):
     `CONST_ROADMAP_IMPLEMENT_DIFF_CHARS` characters, and `diff_cut` says that it was cut (#2721).
     `tool_calls` counts the tool calls of the replies (#3030). `removed` lists the stray files that
     the step deleted (#3092). `repair_rounds` counts the extra turns that the step used (#3043).
-    `planned_requests` are the requests a dry run lists."""
+    `tier` is the last tier that the step ran on, `tiers` names every tier it attempted, and
+    `tier_spend` holds the requests and tokens of each tier (#3060). `planned_requests` are the
+    requests a dry run lists."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -352,6 +390,9 @@ class StepOutcome(BaseModel):
     output_tokens: int = 0
     removed: tuple[str, ...] = ()
     repair_rounds: int = 0
+    tier: str = ""
+    tiers: tuple[str, ...] = ()
+    tier_spend: dict[str, TierSpend] = {}
     dry_run: bool = False
     planned_requests: tuple[str, ...] = ()
 
@@ -417,6 +458,45 @@ def request_timeout_seconds() -> float:
     return load_settings().roadmap.implement.request_timeout_seconds
 
 
+def _ladder_tiers(step_class: StepClass, ladder: Sequence[str] | None = None) -> list[str]:
+    """The tiers of `step_class`, weakest first: the `ladder` argument, else the setting
+    `roadmap.implement.ladder`. A repeated or empty name counts once or not at all. An empty list
+    runs the step on the model it was given, with no tier name (#3060)."""
+    names = ladder
+    if names is None:
+        names = load_settings().roadmap.implement.ladder.get(step_class.value, ())
+    return list(dict.fromkeys(name.strip() for name in names if name.strip()))
+
+
+def _gateway_tier_health(tiers: Sequence[str]) -> dict[str, bool]:
+    """Whether the gateway serves each tier now (#3060). A process that sends its steps to no
+    gateway has no tier health to read, and every tier is healthy."""
+    settings = load_settings()
+    names = list(tiers)
+    if settings.ai.provider != CONST_AI_GATEWAY_PROVIDER:
+        return dict.fromkeys(names, True)
+    from devops_cli.ai.gateway import GatewayRouter
+
+    return GatewayRouter(config=settings.ai).tier_health(names)
+
+
+def _tier_for_attempt(
+    tiers: Sequence[str],
+    attempt: int,
+    tier_health: Callable[[Sequence[str]], Mapping[str, bool]],
+) -> tuple[str, int]:
+    """The first tier at or after `attempt` that the gateway reports healthy, and its index.
+    When no tier from `attempt` is healthy, the tier of `attempt` itself: the call reports the
+    failure, and a health endpoint that is down stops no step (#3060)."""
+    if not tiers:
+        return "", attempt
+    health = tier_health(tiers)
+    for index in range(min(attempt, len(tiers)), len(tiers)):
+        if health.get(tiers[index], True):
+            return tiers[index], index
+    return tiers[min(attempt, len(tiers) - 1)], min(attempt, len(tiers) - 1)
+
+
 def build_agent(
     model: Any, source: Path, instructions: str, window: int, home: Path, log: ToolCallLog
 ) -> Agent[None, str]:
@@ -457,7 +537,8 @@ class _Run:
     """What a turn left: why it ended early (the class and the message of the pydantic-ai error,
     with the counts of `ToolCallLog`, or empty), the last text of the model, what it spent, and
     the conversation to continue when it ended, and the conversation to resume when a new send of
-    the request can fix the error that ended it (#2794)."""
+    the request can fix the error that ended it (#2794). `provider_error` says that a failed model
+    call ended it, which moves the step to the next tier (#3060)."""
 
     reason: str
     last_message: str
@@ -467,6 +548,7 @@ class _Run:
     tool_calls: int = 0
     conversation: Conversation | None = None
     resend: Conversation | None = None
+    provider_error: bool = False
 
     def then(self, later: _Run) -> _Run:
         """This turn followed by `later`, which continued its conversation: the end and the last
@@ -480,6 +562,7 @@ class _Run:
             tool_calls=self.tool_calls + later.tool_calls,
             conversation=later.conversation,
             resend=later.resend,
+            provider_error=self.provider_error or later.provider_error,
         )
 
 
@@ -615,6 +698,7 @@ def _run_turn(
     kept = resend = None
     cut: list[ModelResponse] = []
     error: AICredentialsError | None = None
+    provider_error = False
     started = time.monotonic()
     with capture_run_messages() as messages:
         try:
@@ -637,6 +721,7 @@ def _run_turn(
             else:
                 reason, last = _model_call_reason(exc, log), _last_text(messages)
                 resend = _resend_after(exc, messages, conversation)
+                provider_error = True
         finally:
             replies = [*_new_replies(messages, conversation), *cut]
             record_run_spend(model, replies, time.monotonic() - started, stage="implement")
@@ -651,6 +736,7 @@ def _run_turn(
         tool_calls=_tool_calls(replies),
         conversation=kept,
         resend=resend,
+        provider_error=provider_error,
     )
 
 
@@ -1179,21 +1265,65 @@ def _extra_turn(
     return run, _exit_failure(source, inputs, start, log)
 
 
+def _moves_tier(run: _Run) -> bool:
+    """Whether another tier may serve the step (#3060). A run that ended on a provider error
+    moves down the ladder, as does a failure whose class selects `change_tier`, such as a parser
+    failure. A failed check or a missing tick keeps its tier and spends a repair round."""
+    if run.provider_error:
+        return True
+    if not run.reason:
+        return False
+    klass = classify_failure(FailureEvidence(text=run.reason))
+    return ACTION_BY_CLASS[klass] is FailureAction.CHANGE_TIER
+
+
 def _attempt(
-    source: Path, model: Any, window: int, inputs: StepInputs, item: int, start: str
+    source: Path,
+    model: Any,
+    window: int,
+    inputs: StepInputs,
+    item: int,
+    start: str,
+    *,
+    tiers: Sequence[str],
+    model_for_tier: Callable[[str], Any] | None,
+    tier_health: Callable[[Sequence[str]], Mapping[str, bool]],
 ) -> StepOutcome:
-    """Run the agent, then judge the exit and commit. A failed check or a missing tick gets an
-    extra turn while one of the `roadmap.implement.repair_rounds` rounds is left."""
+    """Run the agent one tier at a time, then judge the exit and commit. A failed check or a
+    missing tick gets an extra turn while one of the `roadmap.implement.repair_rounds` rounds is
+    left. A run that ends on a provider error or on a class that selects `change_tier` moves to the
+    next healthy tier at once, spends no repair round, and discards the checkout of the failed
+    attempt (#3060)."""
     budget = load_settings().roadmap.implement.repair_rounds
     rounds = 0
+    tool_calls = 0
+    total = TierSpend()
+    spent: dict[str, TierSpend] = {}
+    tried: list[str] = []
+    attempt = 0
     with tempfile.TemporaryDirectory(prefix="devops-implement-home-") as home:
         log = ToolCallLog(source)
-        agent = build_agent(model, source, inputs.instructions, window, Path(home), log)
-        run = _turn(agent, model, log, inputs.message)
-        failure = _Failure(run.reason) if run.reason else _exit_failure(source, inputs, start, log)
-        while rounds < budget and (ask := _extra_ask(source, inputs, failure, log)) is not None:
-            run, failure = _extra_turn(agent, model, log, source, inputs, start, run, ask)
-            rounds += 1
+        while True:
+            tier, attempt = _tier_for_attempt(tiers, attempt, tier_health)
+            if tier:
+                tried.append(tier)
+            tier_model = model_for_tier(tier) if model_for_tier is not None and tier else model
+            agent = build_agent(tier_model, source, inputs.instructions, window, Path(home), log)
+            run = _turn(agent, tier_model, log, inputs.message)
+            failure = (
+                _Failure(run.reason) if run.reason else _exit_failure(source, inputs, start, log)
+            )
+            while rounds < budget and (ask := _extra_ask(source, inputs, failure, log)) is not None:
+                run, failure = _extra_turn(agent, tier_model, log, source, inputs, start, run, ask)
+                rounds += 1
+            total = total.plus(run)
+            tool_calls += run.tool_calls
+            if tier:
+                spent[tier] = spent.get(tier, TierSpend()).plus(run)
+            if failure is None or not _moves_tier(run) or attempt + 1 >= len(tiers):
+                break
+            _reset(source, start)
+            attempt += 1
     reason = failure.reason if failure else ""
     outcome = StepOutcome(
         item=item,
@@ -1201,12 +1331,15 @@ def _attempt(
         title=inputs.group.title,
         status=StepStatus.STOPPED,
         last_message=run.last_message,
-        requests=run.requests,
-        tool_calls=run.tool_calls,
-        input_tokens=run.input_tokens,
-        output_tokens=run.output_tokens,
+        requests=total.requests,
+        tool_calls=tool_calls,
+        input_tokens=total.input_tokens,
+        output_tokens=total.output_tokens,
         removed=tuple(log.removed),
         repair_rounds=rounds,
+        tier=tried[-1] if tried else "",
+        tiers=tuple(tried),
+        tier_spend=spent,
     )
     reason = reason or _unticked_failure(inputs) or ""
     commit = ""
@@ -1224,10 +1357,14 @@ def run_step(
     item: int,
     group: int,
     source: Path,
-    model: Any,
     window: int,
+    model: Any = None,
     fix: FixRequest | None = None,
     hooks: Path | None = None,
+    step_class: StepClass = StepClass.EDIT,
+    ladder: Sequence[str] | None = None,
+    model_for_tier: Callable[[str], Any] | None = None,
+    tier_health: Callable[[Sequence[str]], Mapping[str, bool]] | None = None,
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
@@ -1239,16 +1376,33 @@ def run_step(
     step makes the failed check pass and ticks no task (`run_fix_step`). `hooks` is the trusted
     configuration of the hooks of the project (`trusted_config`): the step runs its `pre-commit`
     stage as an exit check, and none when `hooks` is None (#3043).
+
+    The step runs the ladder of `step_class` (#3060): `ladder` names the tiers, else the setting
+    `roadmap.implement.ladder` does. `model_for_tier` builds the model of one tier; without it,
+    every tier runs on `model`. `tier_health` reads the gateway's health of each tier before an
+    attempt; without it, the gateway is read when `ai.provider` is `gateway`.
     """
     inputs = replace(
         build_step_inputs(store, item=item, group=group, source=source, window=window, fix=fix),
         hooks=hooks,
     )
+    if model is None and model_for_tier is None:
+        raise RoadmapImplementError(MESSAGES.roadmap.implement_no_model)
     _require_clean(source)
     start = _head(source)
     done = False
     try:
-        outcome = _attempt(source, model, window, inputs, item, start)
+        outcome = _attempt(
+            source,
+            model,
+            window,
+            inputs,
+            item,
+            start,
+            tiers=_ladder_tiers(step_class, ladder),
+            model_for_tier=model_for_tier,
+            tier_health=tier_health or _gateway_tier_health,
+        )
         done = outcome.status is StepStatus.DONE
         return outcome
     finally:
@@ -1262,22 +1416,29 @@ def run_fix_step(
     item: int,
     fix: FixRequest,
     source: Path,
-    model: Any,
     window: int,
+    model: Any = None,
     hooks: Path | None = None,
+    ladder: Sequence[str] | None = None,
+    model_for_tier: Callable[[str], Any] | None = None,
+    tier_health: Callable[[Sequence[str]], Mapping[str, bool]] | None = None,
 ) -> StepOutcome:
     """Run the fix of the failed check `fix` for item `item` in the checkout `source`: a step
     whose group is "Make check <name> pass". It commits as `<that title> (#<item>)` when the
-    exit checks pass, and `tasks.md` is as it was."""
+    exit checks pass, and `tasks.md` is as it was. Its ladder is the `repair` ladder (#3060)."""
     return run_step(
         store,
         item=item,
         group=CONST_ROADMAP_IMPLEMENT_FIX_GROUP,
         source=source,
-        model=model,
         window=window,
+        model=model,
         fix=fix,
         hooks=hooks,
+        step_class=StepClass.REPAIR,
+        ladder=ladder,
+        model_for_tier=model_for_tier,
+        tier_health=tier_health,
     )
 
 
@@ -1336,6 +1497,8 @@ def render_outcome(outcome: StepOutcome, repo: str, fmt: str) -> None:
         labels["repair_rounds"]: str(outcome.repair_rounds),
         labels["last_message"]: escape_text(outcome.last_message),
     }
+    if outcome.tiers:
+        rows[labels["tiers"]] = escape_text(", ".join(outcome.tiers))
     if outcome.removed:
         rows[labels["removed"]] = escape_text(", ".join(outcome.removed))
     title = texts.implement_title.format(

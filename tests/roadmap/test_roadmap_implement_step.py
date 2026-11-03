@@ -2229,3 +2229,100 @@ def test_a_process_that_survives_the_end_of_the_step_stops_the_step(
 
     with pytest.raises(RoadmapImplementError, match="survived"):
         _step(store, checkout, ModelScript(say("Done.")))
+
+
+# ── The model tier ladder (#3060) ─────────────────────────────────────────────────────────
+
+
+def test_a_provider_error_on_tier_one_moves_the_step_to_tier_two_and_succeeds(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
+) -> None:
+    """The failed attempt spends no repair round, and the trace names both tiers."""
+    config(roadmap={"implement": {"ladder": {"edit": ["devops-coder", "devops-reasoning"]}}})
+    script = ModelScript(
+        ModelAPIError("example-model", "The provider broke."),
+        tool_calls(*the_whole_group()),
+        say("Done."),
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert (
+        outcome.status,
+        outcome.reason,
+        outcome.repair_rounds,
+        outcome.tier,
+        outcome.tiers,
+    ) == (StepStatus.DONE, "", 0, "devops-reasoning", ("devops-coder", "devops-reasoning"))
+    assert outcome.tier_spend["devops-coder"].requests >= 1
+    assert outcome.tier_spend["devops-reasoning"].input_tokens > 0
+    assert outcome.tier_spend["devops-reasoning"].output_tokens > 0
+
+
+def test_a_parser_failure_moves_the_step_to_the_next_tier_without_a_repair_round(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
+) -> None:
+    config(roadmap={"implement": {"ladder": {"edit": ["devops-coder", "devops-reasoning"]}}})
+    script = ModelScript(
+        UnexpectedModelBehavior("Ollama_chatException: failed to parse the tool call"),
+        tool_calls(*the_whole_group()),
+        say("Done."),
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.repair_rounds, outcome.tiers) == (
+        StepStatus.DONE,
+        0,
+        ("devops-coder", "devops-reasoning"),
+    )
+
+
+def test_an_unhealthy_tier_is_skipped(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."))
+
+    outcome = run_step(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        ladder=["devops-coder", "devops-reasoning"],
+        tier_health=lambda names: {"devops-coder": False, "devops-reasoning": True},
+    )
+
+    assert (outcome.status, outcome.tier, outcome.tiers) == (
+        StepStatus.DONE,
+        "devops-reasoning",
+        ("devops-reasoning",),
+    )
+
+
+def test_a_fix_step_runs_the_repair_ladder(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
+) -> None:
+    config(roadmap={"implement": {"ladder": {"repair": ["devops-coder", "devops-reasoning"]}}})
+    script = ModelScript(
+        ModelAPIError("example-model", "The provider broke."),
+        tool_calls(write_call("src/sample.py", SHOUT_CODE)),
+        say("Fixed."),
+    )
+
+    outcome = _fix(store, checkout, script)
+
+    assert (outcome.status, outcome.tiers) == (
+        StepStatus.DONE,
+        ("devops-coder", "devops-reasoning"),
+    )

@@ -9,7 +9,9 @@ The command has two forms:
 
 ## A step
 
-The agent of a step is the Coder of pydantic-ai. It runs on the model of the task `ai.tasks.implement`.
+The agent of a step is the Coder of pydantic-ai. It runs on the tiers of the ladder of its class. A group is the class `edit`, and a fix step is the class `repair`. The setting `roadmap.implement.ladder` maps each class to a list of tiers, weakest first. The default is the local gateway group `devops-coder`.
+
+A tier is a local gateway group, a hosted group that the setting names, or an `ollama:<tag>` model. A local tier goes to the configured gateway whatever `ai.provider` is, so it never reaches a hosted provider. The command reads the gateway health of the tiers before an attempt and skips a tier that the gateway reports unhealthy. A run that ends on a provider error, or on a failure class that selects `change_tier` such as `parser`, moves the step to the next tier and spends no repair round. A repair round stays on its tier. The report names every tier that the step attempted, and the run record holds the requests and tokens of each tier.
 
 **Inputs.** The agent gets these inputs:
 

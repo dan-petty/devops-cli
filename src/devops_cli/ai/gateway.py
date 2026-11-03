@@ -11,6 +11,7 @@ import logging
 import os
 import tempfile
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Final
 
@@ -31,7 +32,7 @@ from devops_cli.config.defaults import (
     DEFAULT_OLLAMA_CLUSTER_URL,
 )
 from devops_cli.config.settings import AIConfig, load_settings
-from devops_cli.exceptions import ConfigurationError, ValidationError
+from devops_cli.exceptions import ConfigurationError, DevOpsCLIError, ValidationError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel, configured_level
 from devops_cli.http.urls import get_url_origin
@@ -588,6 +589,36 @@ class GatewayRouter:
                 backend_counts=_count_backends(self._active_routes),
                 details=details,
             )
+
+    def tier_health(
+        self,
+        virtual_models: Sequence[str],
+        timeout: float = DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
+    ) -> dict[str, bool]:
+        """Whether the gateway serves each of `virtual_models` now (#3060).
+
+        The health of the gateway is read once, before the tiers are chosen. A virtual model
+        whose route is unhealthy, or that the gateway has no route for, is unhealthy. A name that
+        is no virtual model of the gateway is healthy: the gateway does not route it, so the step
+        chooses it as it is. A gateway that cannot be reached makes no call here: every virtual
+        model is unhealthy, and the step falls back to its whole ladder.
+        """
+        names = list(dict.fromkeys(virtual_models))
+        if not names:
+            return {}
+        try:
+            status = self.probe_gateway(timeout=timeout)
+        except DevOpsCLIError, OSError:
+            return dict.fromkeys(names, False)
+        route_health = {route.virtual_model: route.healthy for route in status.active_routes}
+        return {
+            name: (
+                status.healthy and route_health.get(name, False)
+                if name in CONST_AI_GATEWAY_VIRTUAL_MODELS
+                else True
+            )
+            for name in names
+        }
 
     def trigger_failover(
         self,

@@ -228,20 +228,28 @@ def left_action(klass: FailureClass, taken: FailureAction | None) -> FailureActi
     return FailureAction.WAIT if taken is default else default
 
 
-def failure_lines(klass: FailureClass, *, repair_rounds: int = 0) -> str:
+def failure_lines(klass: FailureClass, *, repair_rounds: int = 0, tier_changes: int = 0) -> str:
     """The three lines of a stop comment: the class, the action taken and the action left. The job
-    has taken `repair` when it ran `repair_rounds` fix rounds before it stopped, and no action
-    else."""
+    has taken `change_tier` when it moved the step to another tier before it stopped, `repair` when
+    it ran `repair_rounds` fix rounds and no tier move, and no action else."""
     texts = MESSAGES.roadmap
-    taken = FailureAction.REPAIR if repair_rounds > 0 else None
+    taken = (
+        FailureAction.CHANGE_TIER
+        if tier_changes > 0
+        else FailureAction.REPAIR
+        if repair_rounds > 0
+        else None
+    )
     left = left_action(klass, taken)
+    if taken is FailureAction.CHANGE_TIER:
+        taken_text = texts.implement_failure_taken_change_tier.format(moves=tier_changes)
+    elif taken is FailureAction.REPAIR:
+        taken_text = texts.implement_failure_taken_repair.format(rounds=repair_rounds)
+    else:
+        taken_text = texts.implement_failure_taken_none
     return texts.implement_failure_lines.format(
         failure_class=klass.value,
-        taken=(
-            texts.implement_failure_taken_repair.format(rounds=repair_rounds)
-            if taken is not None
-            else texts.implement_failure_taken_none
-        ),
+        taken=taken_text,
         left=texts.implement_failure_action_text[left.value],
     )
 
