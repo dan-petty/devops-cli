@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.48.5](https://github.com/dan-petty/devops-cli/compare/v0.48.4...v0.48.5) (2026-11-03)
+
+
+### Bug Fixes
+
+* **pr:** judge a plan pull request by the rules of a plan ([#3310](https://github.com/dan-petty/devops-cli/issues/3310)) ([fc16309](https://github.com/dan-petty/devops-cli/commit/fc163094271d2bfd136523db03b6d232e2546244))
+* **pr:** open a plan pull request with a Plans line ([#3315](https://github.com/dan-petty/devops-cli/issues/3315)) ([eb2ab82](https://github.com/dan-petty/devops-cli/commit/eb2ab82aac0ec867bf9ef7f856192eb1cd8ca111))
+* **roadmap:** name a refused verification command safely ([#3293](https://github.com/dan-petty/devops-cli/issues/3293)) ([252adc8](https://github.com/dan-petty/devops-cli/commit/252adc832f802eea4cef9ff253c0fd9f085730da))
+
 ## [0.48.4](https://github.com/dan-petty/devops-cli/compare/v0.48.3...v0.48.4) (2026-11-02)
 
 
