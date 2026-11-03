@@ -328,14 +328,14 @@ def test_a_fix_step_that_edits_the_text_of_a_task_leaves_the_tasks_as_they_were(
     )
 
 
-def test_the_instructions_say_not_to_edit_the_text_of_a_task_and_what_to_do_with_a_wrong_path(
+def test_the_instructions_say_not_to_edit_the_text_of_a_task_and_how_to_ask_for_an_amendment(
     store: InMemoryRoadmapStore, checkout: Path
 ) -> None:
     inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
 
     assert (
-        "Do not edit the text of a task. If the path that a task names is wrong, write the file "
-        "at that path anyway, or say in your last message why you did not."
+        "Do not edit the text of a task. If the plan has a defect, you can ask for an amendment: "
+        "change no file and tick no task, and end your last message with one fenced block `plan-request`."
     ) in inputs.instructions
 
 

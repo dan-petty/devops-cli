@@ -84,6 +84,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `OtlpExportError` | `TELEMETRY_ERROR` | `1` | Telemetry | Raised when the collector does not take an OTLP export, with the failure as its message. |
 | `OtlpProtocolError` | `TELEMETRY_ERROR` | `1` | Telemetry | Raised when the OTLP protocol or endpoint asks for gRPC, which devops-cli does not send. |
 | `OutputCapReached` | `OUTPUT_CAP_REACHED` | `15` | Ai | A model reply ended with the finish reason `length`: the model did not stop, and the output |
+| `OverWindowError` | `ROADMAP_IMPLEMENT_REFUSED` | `1` | Roadmap | Raised when the inputs of an implement step measure more than the window allows (#3057). |
 | `PoolLoadError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.pool_load | Prometheus could not answer a pool load query. |
 | `QdrantClientError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.rag.qdrant | Raised when an interaction with Qdrant fails. |
 | `RegistryReadError` | `DOCKER_REGISTRY_READ_ERROR` | `1` | Docker | Raised when an image registry gives no digest for a tag: no anonymous pull, or no tag. |

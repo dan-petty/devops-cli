@@ -2648,6 +2648,7 @@ class RoadmapMessages:
     )
     implement_failure_taken_none: str = "none"
     implement_failure_taken_repair: str = "`repair`, {rounds} fix round(s)"
+    implement_failure_taken_amend: str = "`amend`"
     implement_failure_action_text: dict[str, str] = field(
         default_factory=lambda: {
             "retry": "`retry`: run the item again",
@@ -2719,6 +2720,56 @@ class RoadmapMessages:
         "| {step} | {status} | {attempts} | {tokens_in}/{tokens_out} | {command} |"
     )
     implement_table_no_command: str = "-"
+    implement_amend_bullet: str = (
+        "- Group {group}, {kind}: {defect}. Evidence: {evidence}. {change}"
+    )
+    implement_amend_comment_line: str = (
+        "- Group {group} amendment ({kind}): {defect}. Evidence: {evidence}. {change}"
+    )
+    implement_amend_refused_scope: str = "A scope change waits for a person."
+    implement_amend_refused_premise: str = "A premise failure returns the item."
+    implement_amend_refused_done: str = "Group {group} has no unticked task."
+    implement_amend_refused_path_name: str = (
+        "A path request gives a missing file the name of a tracked file with the same file name."
+    )
+    implement_amend_refused_path_status: str = (
+        "The old path must be an untracked code span of the group not marked (new), and the new "
+        "path must be tracked."
+    )
+    implement_amend_refused_command_paths: str = (
+        "The paths of the verification command must match the original command in order."
+    )
+    implement_amend_refused_command_form: str = (
+        "A verification command must start with `uv run devops` and be runnable by the step."
+    )
+    implement_amend_refused_criteria: str = "An amendment cannot change the criteria section."
+    implement_amend_refused_no_group: str = "The plan has no group {group}."
+    implement_comment_premise_failed: str = (
+        "{marker}\nThe implement job returned the item to New. A step found that the premise "
+        "of the issue does not hold, so the job wrote no compensating code.\n\n"
+        "Evidence:\n\n{evidence}"
+    )
+    implement_stop_question_empty_premise: str = (
+        "The agent asked to return the item on a premise failure, but gave no evidence."
+    )
+    implement_stop_question_scope: str = (
+        "The agent asked for a scope change: {defect}. Evidence: {evidence}"
+    )
+    implement_stop_question_refused: str = (
+        "The plan request was refused: {rule}. Defect: {defect}. Evidence: {evidence}"
+    )
+    implement_stop_question_second: str = (
+        "A second plan request was received for group {group}: {defect}. Evidence: {evidence}"
+    )
+    implement_commit_split: str = "docs(openspec): split group {group} (#{number})"
+    implement_stop_split_missing: str = (
+        "A group is over the limit of the step, and no splitter is configured."
+    )
+    implement_stop_split_second: str = "A second group is over the limit of the step."
+    implement_stop_split_over_budget: str = (
+        "A group of the split reply is over the limit of the step: {title} ({tokens} tokens)."
+    )
+    implement_stop_split_invalid: str = "The split reply has problems: {problems}"
     implement_pull_comment_scoped: str = "- scoped check {name}: {result}, {seconds:.0f} s"
     implement_pull_comment_scoped_note: str = "- scoped check tests: {note}"
     implement_scoped_tests_uncovered: str = "not run, because no test covers the changed files"
@@ -2959,7 +3010,9 @@ class RoadmapMessages:
             "worktree_new": "the worktree on a new branch at the fetched default branch",
             "rebase": "rebase the staged branch onto the fetched default branch",
             "model_step": "the implement model runs one task group",
+            "model_split": "the stage model splits a group that is over the limit of the step",
             "commit": "commit the files of the task group",
+            "amend": "commit the plan amendment",
             "docs": "regenerate the documentation of the change",
             "archive": "archive the change",
             "push": "push the branch with a lease on its remote tip",
@@ -2986,6 +3039,9 @@ class RoadmapMessages:
             "run_log": "a check fails",
             "model_fix": "a check fails, for the first time",
             "ready": "the checks pass",
+            "amend": "a step asks for an amendment",
+            "split": "the inputs of a group measure more than the limit of the step",
+            "return": "a step finds the premise false",
             "stop": "a step stops the item",
             "unlabel": "the pull request holds a label that the new title does not give",
             "removal": "the pull request holds a label that the new title does not give",

@@ -662,6 +662,7 @@ def _implement_job(
         print_info(MESSAGES.roadmap.preview_only)
         return
 
+    from devops_cli.ai.client import get_llm_client
     from devops_cli.ai.client.factory import get_task_model
 
     with _exit_on_failure("Could not run the job"):
@@ -671,6 +672,7 @@ def _implement_job(
             source=clone,
             model=get_task_model("implement"),
             window=load_settings().ai.for_task("implement").context_window,
+            splitter=get_llm_client(task="analysis"),
         )
     print_success(
         MESSAGES.roadmap.implement_job_applied.format(

@@ -121,7 +121,6 @@ from devops_cli.roadmap.return_item import apply_return, plan_return
 from devops_cli.roadmap.stage_change import (
     MeasuredGroup,
     StageProposal,
-    StageSplit,
     check_proposal,
     closing_keyword_in,
     measure_groups,
@@ -138,6 +137,7 @@ from devops_cli.roadmap.stage_github import StageGitHub
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage_probe import probe_premise
 from devops_cli.roadmap.stage_specs import BaseSpec, read_base_specs
+from devops_cli.roadmap.stage_split import ask_split
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
 from devops_cli.roadmap.stage_verify import (
@@ -492,7 +492,6 @@ def select_stageable(
 # ── The plan of one item ──────────────────────────────────────────────────────
 
 _CHANGE_TASK: Final[str] = "roadmap_stage_change.md"
-_SPLIT_TASK: Final[str] = "roadmap_stage_split.md"
 # The model window is shared by the reply, the body of the item and the repository context.
 _WINDOW_SHARE_CONTEXT: Final[int] = 2
 _WINDOW_SHARE_BODY: Final[int] = 4
@@ -861,7 +860,7 @@ class _Planner:
             ],
             "criteria": [entry.model_dump() for entry in proposal.criteria],
         }
-        split = self._ask(StageSplit, _SPLIT_TASK, asked)
+        split = ask_split(self._client, asked)
         proposal = proposal.model_copy(update={"groups": split.groups, "criteria": split.criteria})
         files, measured = self._build(target, proposal)
         return proposal, files, measured
