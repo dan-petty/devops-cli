@@ -209,6 +209,19 @@ def test_the_status_is_set_when_a_label_is_refused(
     assert (result.exit_code, status.call_args.args) == (1, (REPO, pull, "In Progress"))
 
 
+def test_create_exits_1_and_names_pull_request_when_label_issue_unauthenticated(
+    runner: CliRunner, roadmap_store: InMemoryRoadmapStore, pull: int, status: MagicMock
+) -> None:
+    from devops_cli.exceptions.git import GitHubUnauthenticatedError
+
+    with patch.object(
+        roadmap_store, "label_issue", side_effect=GitHubUnauthenticatedError("bad token")
+    ):
+        result, _ = _create(runner, "fix(ai): a title")
+    assert result.exit_code == 1
+    assert f"#{pull}" in result.stderr
+
+
 @pytest.mark.usefixtures("status")
 def test_the_rest_fallback_gives_the_labels_too(
     runner: CliRunner, roadmap_store: InMemoryRoadmapStore, pull: int

@@ -10,8 +10,9 @@ import pytest
 
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.pull_form import title_problems
-from devops_cli.roadmap.stage import parse_filters, plan_stage
+from devops_cli.roadmap.stage import parse_filters, plan_stage, select_stageable
 from devops_cli.roadmap.stage_change import (
     SUMMARY_MAX_CHARS,
     StageProposal,
@@ -42,6 +43,59 @@ LARGEST_NUMBER = 999999
 def _summary_of(title: str) -> str:
     """The part after `<type>(<scope>): `, which the check `Semantic PR title` measures."""
     return title.partition(": ")[2]
+
+
+def _stage(store: InMemoryRoadmapStore):
+    return select_stageable(
+        store,
+        filters=parse_filters(("status=ready",)),
+        holder_of=lambda _issue, _branch: None,
+        planned=PlannedChanges("main", {}, {}),
+        limit=3,
+    )
+
+
+def test_an_item_whose_title_summary_is_over_the_limit_is_left_out_with_both_counts() -> None:
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    number = store.seed_issue(
+        f"fix(roadmap): {'a' * SUMMARY_MAX_CHARS}b",
+        fields={ItemField.STATUS: "Ready", ItemField.PRIORITY: "P1-High"},
+    )
+
+    selection = _stage(store)
+
+    assert selection.selected == ()
+    (left,) = selection.left_out
+    assert left.number == number
+    assert f"has {SUMMARY_MAX_CHARS + 1} characters" in left.reason
+    assert f"limit is {SUMMARY_MAX_CHARS}" in left.reason
+
+
+def test_an_item_whose_title_summary_is_exactly_the_limit_is_not_left_out_for_its_length() -> None:
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    number = store.seed_issue(
+        f"fix(roadmap): {'a' * SUMMARY_MAX_CHARS}",
+        fields={ItemField.STATUS: "Ready", ItemField.PRIORITY: "P1-High"},
+    )
+
+    selection = _stage(store)
+
+    assert [target.item.number for target in selection.selected] == [number]
+    assert selection.left_out == ()
+
+
+def test_a_title_with_no_type_keeps_its_reason_when_its_summary_is_over_the_limit() -> None:
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    number = store.seed_issue(
+        f"the job drops a comment {'a' * SUMMARY_MAX_CHARS}",
+        fields={ItemField.STATUS: "Ready", ItemField.PRIORITY: "P1-High"},
+    )
+
+    (left,) = _stage(store).left_out
+
+    assert left.number == number
+    assert "Conventional Commit type" in left.reason
+    assert "limit is" not in left.reason
 
 
 def test_a_staging_title_has_the_type_docs_openspec_the_issue_and_the_summary() -> None:
@@ -272,17 +326,13 @@ def test_the_delivery_title_is_the_title_of_the_issue() -> None:
     )
 
 
-def test_the_delivery_title_keeps_the_type_and_the_scope_and_cuts_the_summary_at_a_word() -> None:
-    title = delivery_title(
-        "perf(roadmap): " + "read the tree of the default branch once " * 3, DECLARED
-    )
+def test_the_delivery_title_keeps_the_type_and_the_scope_and_the_whole_summary() -> None:
+    summary = "read the tree of the default branch once " * 3
+    title = delivery_title("perf(roadmap): " + summary, DECLARED)
 
-    head, _, summary = title.partition(": ")
-    assert (head, len(summary) <= SUMMARY_MAX_CHARS, summary.endswith("...")) == (
-        "perf(roadmap)",
-        True,
-        True,
-    )
+    assert title == f"perf(roadmap): {summary.strip()}"
+    assert len(summary.strip()) > SUMMARY_MAX_CHARS
+    assert not title.endswith("...")
 
 
 def test_the_delivery_title_drops_the_mark_of_a_breaking_change() -> None:

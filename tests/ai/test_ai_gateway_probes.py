@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
-from devops_cli.ai.gateway import probe_gateway_liveliness_and_models
+from devops_cli.ai.gateway import (
+    GatewayRoute,
+    GatewayRouter,
+    GatewayStatus,
+    probe_gateway_liveliness_and_models,
+)
 from devops_cli.ai.gateway_probes import (
     DeepRecallEvaluator,
     ExplicitProhibitionEvaluator,
@@ -15,6 +21,7 @@ from devops_cli.ai.gateway_probes import (
     build_capability_probes,
     score_deployment_probes,
 )
+from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions import ValidationError
 from tests.web_fakes import StubWeb
 
@@ -143,3 +150,82 @@ def test_probe_gateway_liveliness_and_models(stub_web: StubWeb) -> None:
     stub_web.respond("GET", "http://192.0.2.10:4000/model/info", 403, "Forbidden")
     with pytest.raises(ValidationError, match="rejected model info query"):
         probe_gateway_liveliness_and_models("http://192.0.2.10:4000", {}, 5.0)
+
+
+def _status(*routes: GatewayRoute, healthy: bool = True) -> GatewayStatus:
+    return GatewayStatus(
+        healthy=healthy,
+        gateway_url="https://gateway.example.com",
+        active_routes=list(routes),
+    )
+
+
+def _route(name: str, *, healthy: bool = True) -> GatewayRoute:
+    return GatewayRoute(
+        virtual_model=name,
+        target_model="qwen3-coder:30b",
+        backend_type="ollama",
+        backend_url="https://gateway.example.com",
+        healthy=healthy,
+    )
+
+
+def test_tier_health_skips_a_virtual_model_whose_route_is_unhealthy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tier that the gateway reports unhealthy is not chosen (#3060)."""
+    router = GatewayRouter(
+        config=AIConfig(gateway_url="https://gateway.example.com"),
+        state_file=tmp_path / "state.json",
+    )
+    monkeypatch.setattr(
+        router,
+        "probe_gateway",
+        lambda **_: _status(_route("devops-coder", healthy=False), _route("devops-reasoning")),
+    )
+
+    assert router.tier_health(["devops-coder", "devops-reasoning"]) == {
+        "devops-coder": False,
+        "devops-reasoning": True,
+    }
+
+
+def test_tier_health_counts_a_name_that_the_gateway_does_not_route_as_healthy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An `ollama:` model or a hosted group is not the gateway's to report on (#3060)."""
+    router = GatewayRouter(
+        config=AIConfig(gateway_url="https://gateway.example.com"),
+        state_file=tmp_path / "state.json",
+    )
+    monkeypatch.setattr(
+        router, "probe_gateway", lambda **_: _status(_route("devops-coder"), healthy=True)
+    )
+
+    assert router.tier_health(["devops-coder", "ollama:qwen3-coder:30b", "claude-haiku-5-5"]) == {
+        "devops-coder": True,
+        "ollama:qwen3-coder:30b": True,
+        "claude-haiku-5-5": True,
+    }
+
+
+def test_tier_health_reports_every_virtual_model_unhealthy_when_the_gateway_is_down(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    router = GatewayRouter(state_file=tmp_path / "state.json")
+
+    def refuse(**_: object) -> GatewayStatus:
+        raise ValidationError("the gateway is down")
+
+    monkeypatch.setattr(router, "probe_gateway", refuse)
+
+    assert router.tier_health(["devops-coder", "devops-reasoning"]) == {
+        "devops-coder": False,
+        "devops-reasoning": False,
+    }
+
+
+def test_tier_health_of_no_tier_returns_no_reading(tmp_path: Path) -> None:
+    router = GatewayRouter(state_file=tmp_path / "state.json")
+
+    assert router.tier_health([]) == {}

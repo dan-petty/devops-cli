@@ -507,7 +507,7 @@ def test_a_possible_duplicate_a_person_planned_or_an_older_one_is_placed_and_sta
 
 # The evaluation set's cases that hold a recorded reply: candidates intake folded for a shared
 # theme, with the model's answers of that run, and duplicates a person closed, with answers
-# written from the person's comment. `devops roadmap intake-eval` runs every case live.
+# written from the person's comment. `devops roadmap eval intake` runs every case live.
 JUDGEMENTS: list[dict[str, Any]] = [
     case
     for case in json.loads(DUPLICATE_CASES.read_text(encoding="utf-8"))["cases"]

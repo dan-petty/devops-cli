@@ -20,6 +20,7 @@ from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS
 from devops_cli.core.command_resolver import resolve_devops_argv
 from devops_cli.roadmap.stage_change import (
     BODY_MAX_CHARS,
+    CREATED_LINE_TOKENS,
     PURPOSE_MIN_CHARS,
     SUMMARY_MAX_CHARS,
     GroupKind,
@@ -125,6 +126,16 @@ def test_the_keys_of_a_group_in_the_prompts_are_the_fields_of_a_group(task: str)
 
 
 @pytest.mark.parametrize("task", [_CHANGE_PROMPT, _SPLIT_PROMPT])
+def test_the_prompts_state_the_budget_and_the_line_estimate_rule(task: str) -> None:
+    prompt = load_task_prompt(task)
+
+    assert "`creates_lines`" in prompt
+    assert f"{CREATED_LINE_TOKENS} tokens for each estimated line" in prompt
+    assert "`creates` with no estimate is refused" in prompt
+    assert "`budget`" in prompt
+
+
+@pytest.mark.parametrize("task", [_CHANGE_PROMPT, _SPLIT_PROMPT])
 def test_the_prompts_name_the_kinds_of_a_group_as_the_enum_does(task: str) -> None:
     prompt = load_task_prompt(task)
     clause = re.search(r"`kind`, `(\w+)` or `(\w+)`", prompt)
@@ -135,6 +146,14 @@ def test_the_prompts_name_the_kinds_of_a_group_as_the_enum_does(task: str) -> No
 
 def test_the_prompt_names_the_value_of_a_criterion_that_only_a_person_delivers() -> None:
     assert f"`{PENDING_PERSON}`" in _PROMPT
+
+
+def test_the_split_prompt_says_what_a_group_with_text_means() -> None:
+    prompt = load_task_prompt(_SPLIT_PROMPT)
+    assert (
+        "A group with `text` has the markdown text of the group from `tasks.md` in place of the "
+        "fields of a staged group."
+    ) in prompt
 
 
 # ── The limits ────────────────────────────────────────────────────────────────
@@ -373,3 +392,11 @@ def test_the_prompt_and_the_document_keep_the_same_phrase_of_a_rule(
 ) -> None:
     assert phrase in _DOCUMENTS[document], f"{document} no longer says: {phrase}"
     assert phrase in _PROMPT, f"the prompt no longer says: {phrase}"
+
+
+# ── The living-spec rule (#3295) ─────────────────────────────────────────────
+
+
+def test_the_prompt_states_the_living_spec_rule() -> None:
+    assert "A task group must not change or create a file under `openspec/specs/`" in _PROMPT
+    assert "`openspec archive` writes the living specs" in _PROMPT

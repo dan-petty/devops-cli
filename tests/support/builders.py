@@ -141,6 +141,7 @@ _STAGE_PROPOSAL: dict[str, Any] = {
             "reads": ["src/devops_cli/sample.py"],
             "changes": ["src/devops_cli/sample.py", "tests/test_sample.py"],
             "creates": ["tests/test_sample.py"],
+            "creates_lines": {"tests/test_sample.py": 40},
             "test": "Write `test_the_job_keeps_the_last_comment` in `tests/test_sample.py`",
             "implementation": "Keep the last comment in `src/devops_cli/sample.py`",
             "documentation": None,
