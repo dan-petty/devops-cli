@@ -642,7 +642,7 @@ def group_text(index: int, group: StageGroup) -> str:
     return f"## {index}. {group.title}\n\n{files}\n\n{tasks}"
 
 
-def _criteria_section(criteria: Sequence[StageCriterion]) -> str:
+def criteria_section(criteria: Sequence[StageCriterion]) -> str:
     """The `## Criteria` section of `tasks.md`: one line for each acceptance criterion with the
     group that delivers it, or `pending-person` and the reason. It is no task, so it has no box.
     A line starts with a fixed word and holds the folded text of the criterion, which comes from
@@ -658,6 +658,9 @@ def _criteria_section(criteria: Sequence[StageCriterion]) -> str:
         for c in criteria
     ]
     return f"## {texts.stage_criteria_title}\n\n{_bullets(lines)}\n\n" if lines else ""
+
+
+_criteria_section = criteria_section
 
 
 def _tasks_file(groups: Sequence[StageGroup], criteria: Sequence[StageCriterion] = ()) -> str:

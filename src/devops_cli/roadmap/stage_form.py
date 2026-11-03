@@ -47,6 +47,12 @@ _PYTHON_SUFFIX: Final[str] = ".py"
 _CODE_SPAN: Final[re.Pattern[str]] = re.compile(r"`[^`]*`")
 
 
+def is_valid_verify(command: str) -> bool:
+    """Whether `command` starts with `uv run devops` as a whole word."""
+    command = command.strip()
+    return command == _VERIFY_PREFIX or command.startswith(f"{_VERIFY_PREFIX} ")
+
+
 def _verify_problems(number: int, command: str) -> list[str]:
     """The problems of the `verify` command of group `number`: a backtick, which ends the code span
     that the plan writes it in, and a form that the step does not run. A command of the project
@@ -59,9 +65,7 @@ def _verify_problems(number: int, command: str) -> list[str]:
     if "`" in command:
         problems.append(texts.stage_problem_verify_backtick.format(group=number, command=named))
     first = command.split(maxsplit=1)[0] if command else ""
-    if first != NEGATIVE_SEARCH_WORD and not (
-        command == _VERIFY_PREFIX or command.startswith(f"{_VERIFY_PREFIX} ")
-    ):
+    if first != NEGATIVE_SEARCH_WORD and not is_valid_verify(command):
         problems.append(texts.stage_problem_verify.format(group=number, command=named))
     elif (reason := verification_problem(command)) is not None:
         problems.append(

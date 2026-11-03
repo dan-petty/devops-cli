@@ -325,6 +325,15 @@ def test_the_lines_of_a_stop_name_the_class_the_action_taken_and_the_action_left
     ]
 
 
+def test_failure_lines_names_amend_taken_and_wait_left() -> None:
+    lines = failure_lines(FailureClass.PLAN_DEFECT, taken=FailureAction.AMEND)
+    assert lines.splitlines() == [
+        "Failure class: `plan_defect`.",
+        "Action taken: `amend`.",
+        "Action left: `wait`: wait for a person.",
+    ]
+
+
 # ── A refused verification command is a refused tool (#3263) ──────────────────────────────
 
 

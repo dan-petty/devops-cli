@@ -141,7 +141,28 @@ A stop has a class (`roadmap/failure.py`, #3065). The classifier is a pure funct
 | `conflict` | `wait` | A rebase or the pull request has a merge conflict |
 | `ci_infra` | `retry` | The infrastructure failed, and every failure that no other class matches |
 
-The Job runs one action by itself: the fix rounds of `roadmap.implement.repair_rounds` for a failed check. The action left is the default of the class, or `wait` when the Job took that default already. A person runs the other actions. The issues #3060, #3062 and #3098 own their dispatch.
+The Job runs these actions by itself:
+- the fix rounds of `roadmap.implement.repair_rounds` for a failed check,
+- `amend` for a request of the kinds `path`, `command` and `task`,
+- `return` for a `premise` request,
+- the split of a group whose inputs exceed the context window.
+
+The action left is the default of the class, or `wait` when the Job took that default already. A person runs the other actions. The issues #3060, #3062 and #3098 own their dispatch.
+
+## Amendments
+
+A stopped step can request a small change of its plan. The last message of the step must end with a JSON block that has the info string `plan-request`. The job judges the request with deterministic rules before it stops the item.
+
+The judge applies only these kinds of requests:
+- `path`: replace a missing path with a tracked file that has the same file name. The old path must not be marked `(new)` in the group.
+- `command`: replace a verification command with a permitted program that starts with `uv run devops`. The new command must keep the paths in the same order.
+- `task`: append one unticked task at the end of the group, with the next task number.
+
+An amendment changes only the text of an unticked group in `tasks.md` and the section `## Amendments`. It never changes `proposal.md`, `design.md`, files under `specs/`, the section `## Criteria`, a ticked task or files outside the change folder. The job applies at most one amendment for each group. It commits the change, adds a bullet to `## Amendments`, and runs the group again.
+
+When the input tokens of a group exceed the limit, the job splits the group once for each item. It calls the stage split prompt to make new groups under the limit. It renumbers the later groups and criteria, records the amendment, and runs the new groups.
+
+A `scope` request, an empty premise, a second request for a group, or a request that breaks a rule stops the item. The job sets `status/blocked`, records `implement.failure` as `plan_defect`, and leaves the action `wait`. The stop comment asks a person the question and quotes the request, the defect and the evidence. The plan does not change.
 
 ## The three gates
 

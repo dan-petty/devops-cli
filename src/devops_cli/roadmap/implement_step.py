@@ -91,7 +91,7 @@ from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.process_hardening import end_leftover_processes
 from devops_cli.exceptions.ai_pydantic import OutputCapReached
-from devops_cli.exceptions.roadmap import RoadmapImplementError
+from devops_cli.exceptions.roadmap import OverWindowError, RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
 from devops_cli.roadmap.agent_run import (
@@ -299,13 +299,15 @@ def build_step_inputs(
     tokens = count_tokens(instructions) + count_tokens(message)
     limit = window - CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS
     if tokens > limit:
-        raise RoadmapImplementError(
+        raise OverWindowError(
             MESSAGES.roadmap.implement_over_window.format(
                 measured=tokens,
                 limit=limit,
                 window=window,
                 reserve=CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
-            )
+            ),
+            measured=tokens,
+            limit=limit,
         )
     return StepInputs(
         group=chosen,
