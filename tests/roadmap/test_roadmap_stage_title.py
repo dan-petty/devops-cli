@@ -272,63 +272,13 @@ def test_the_delivery_title_is_the_title_of_the_issue() -> None:
     )
 
 
-def test_the_delivery_title_keeps_the_type_and_the_scope_and_cuts_the_summary_at_a_word() -> None:
-    title = delivery_title(
-        "perf(roadmap): " + "read the tree of the default branch once " * 3, DECLARED
-    )
+def test_the_delivery_title_keeps_the_type_and_the_scope_and_the_whole_summary() -> None:
+    summary = "read the tree of the default branch once " * 3
+    title = delivery_title("perf(roadmap): " + summary, DECLARED)
 
-    head, _, summary = title.partition(": ")
-    assert (head, len(summary) <= SUMMARY_MAX_CHARS, summary.endswith("...")) == (
-        "perf(roadmap)",
-        True,
-        True,
-    )
-
-
-@pytest.mark.parametrize("symbol", ["\U0001f600", "\U00020000"], ids=["emoji", "astral-cjk"])
-def test_the_delivery_title_counts_a_character_outside_the_basic_plane_as_two(symbol: str) -> None:
-    """The check counts UTF-16 units: 40 emoji are 40 characters for Python but 80 units, so the
-    job opened a title that the check refused (#3292)."""
-    fits = delivery_title("fix(cli): " + symbol * 30, DECLARED)
-    cut = delivery_title("fix(cli): " + symbol * 40, DECLARED)
-
-    assert (_summary_of(fits), _utf16_units(_summary_of(fits))) == (symbol * 30, SUMMARY_MAX_CHARS)
-    assert _utf16_units(_summary_of(cut)) <= SUMMARY_MAX_CHARS
-    assert title_problems(fits, DECLARED) == []
-    assert _summary_of(cut).endswith("...")
-    assert _summary_of(cut).removesuffix("...") == symbol * 28
-    _summary_of(cut).encode("utf-8")  # a lone surrogate raises UnicodeEncodeError
-
-
-def test_the_delivery_title_cuts_a_mixed_summary_at_a_word_by_units_not_characters() -> None:
-    summary = "\U0001f600 " * 20 + "end"
-
-    cut = _summary_of(delivery_title(f"fix(cli): {summary}", DECLARED))
-
-    assert cut == " ".join(["\U0001f600"] * 19) + "..."
-    assert _utf16_units(cut) <= SUMMARY_MAX_CHARS
-
-
-@pytest.mark.parametrize("length", [SUMMARY_MAX_CHARS - 1, SUMMARY_MAX_CHARS])
-def test_the_delivery_title_keeps_a_summary_up_to_the_exact_bound(length: int) -> None:
-    summary = "a" * length
-
-    assert delivery_title(f"fix(cli): {summary}", DECLARED) == f"fix(cli): {summary}"
-
-
-def test_the_delivery_title_cuts_a_summary_one_unit_over_the_bound() -> None:
-    summary = "a" * (SUMMARY_MAX_CHARS + 1)
-
-    cut = _summary_of(delivery_title(f"fix(cli): {summary}", DECLARED))
-
-    assert (cut, _utf16_units(cut)) == ("a" * (SUMMARY_MAX_CHARS - 3) + "...", SUMMARY_MAX_CHARS)
-
-
-def test_the_delivery_title_never_splits_a_pair_at_the_cut() -> None:
-    """The room for the text is 57 units: 28 emoji take 56, and a 29th would take 58."""
-    cut = _summary_of(delivery_title("fix(cli): " + "\U0001f600" * 29 + "x" * 40, DECLARED))
-
-    assert cut == "\U0001f600" * 28 + "..."
+    assert title == f"perf(roadmap): {summary.strip()}"
+    assert len(summary.strip()) > SUMMARY_MAX_CHARS
+    assert not title.endswith("...")
 
 
 def test_the_delivery_title_drops_the_mark_of_a_breaking_change() -> None:

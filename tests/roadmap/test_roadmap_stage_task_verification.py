@@ -143,6 +143,9 @@ def _is_valid(raw: dict[str, Any]) -> bool:
 
 
 FIXTURE_GROUPS = _fixture_groups()
+# The plan of pull request 3167 gives `true` as its verify command (#3200): the gate `paths` refuses
+# it, and the step refuses it too, so it is the one plan of the set that the step cannot run.
+REFUSED_PLANS: frozenset[str] = frozenset({"3167-a-comment-by-a-person-on"})
 
 
 def test_the_golden_set_holds_the_five_groups_of_the_plan_of_2175() -> None:
@@ -244,6 +247,8 @@ def test_a_verify_command_with_a_backtick_is_refused_with_the_reason(verify: str
 def test_the_step_can_run_each_command_of_a_staged_plan(
     name: str, number: int, group: StageGroup
 ) -> None:
+    if name in REFUSED_PLANS:
+        pytest.skip("The plan is a known defect: the step refuses its command.")
     commands = _parsed(number, group).verification_commands
 
     assert [verification_problem(command) for command in commands] == [None] * len(commands)

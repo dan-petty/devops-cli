@@ -1,0 +1,76 @@
+{
+ "summary": "x",
+ "pull_request_body": "x",
+ "why": "x",
+ "what_changes": [
+  "x"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "x"
+ ],
+ "existing_tool": "x",
+ "decisions": [],
+ "rejected": [],
+ "specs": [
+  {
+   "capability": "roadmap-service-limits",
+   "purpose": null,
+   "added": [],
+   "modified": [
+    {
+     "name": "A job that fails each round is suspended",
+     "text": "A roadmap job that failed `DEFAULT_SERVICE_MAX_FAILED_ROUNDS` rounds in a row on the same input SHALL NOT run again until its input changes, and a success SHALL clear its count. The input of a round SHALL hold the newest comment that a person made on an Item of the row after the row's last success, and SHALL hold no comment that the Service's own account made. The log line that suspends a job SHALL name the cause of each of those rounds, and a cause of a round that an earlier process counted SHALL read as `unknown`.",
+     "scenarios": [
+      {
+       "name": "Polls after the limit",
+       "when": "a job has failed its limit of rounds and only polls follow",
+       "then": "the job does not run and the round succeeds"
+      },
+      {
+       "name": "A webhook after the limit",
+       "when": "a webhook trigger follows",
+       "then": "the job runs again"
+      },
+      {
+       "name": "A person's comment after the limit",
+       "when": "a job has failed its limit of rounds and a person comments on one of its Items",
+       "then": "the job's input differs from the input it failed on, and the job runs again"
+      },
+      {
+       "name": "The Service's own comment after the limit",
+       "when": "a job has failed its limit of rounds and the Service's account comments on one of its Items",
+       "then": "the job's input is the one it failed on, and the job does not run"
+      },
+      {
+       "name": "The cause of the suspension",
+       "when": "a job fails three rounds in a row, with the errors `GitHubOperationError`, `RoadmapRefineError` and `GitHubOperationError`",
+       "then": "the log line that suspends the job names those three causes in that order"
+      },
+      {
+       "name": "A file written by the running version",
+       "when": "the ledger file holds records in the format that the running version writes, and a new process starts over it",
+       "then": "the start succeeds and the ledger holds those records, and the file that the new process writes reads with the type that the running version uses"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "groups": [
+  {
+   "title": "x",
+   "reads": [],
+   "changes": [
+    "src/devops_cli/roadmap/run.py"
+   ],
+   "creates": [],
+   "test": null,
+   "implementation": "x",
+   "documentation": null,
+   "verify": "true",
+   "process": null,
+   "kind": "other"
+  }
+ ]
+}
