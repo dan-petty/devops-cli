@@ -64,8 +64,10 @@ Reads: the test modules of `tests/roadmap/`, `tests/roadmap/__snapshots__/`. Cha
 
 Reads: `src/devops_cli/roadmap/__init__.py`, `tests/invariants/test_source_tree.py`, `docs/TESTING.md`. Changes: `tests/invariants/test_source_tree.py`.
 
-- [ ] 9.1 Add to `tests/invariants/test_source_tree.py` a test that lists the module names at the top level of `src/devops_cli/roadmap/` and of its subpackages and asserts that no top-level name starts with `intake`, `refine`, `stage` or `implement`, that each job subpackage holds a module, and that `stores/` holds `store.py`, `github_store.py` and `memory_store.py`. Add a test that searches the Python files of `src/` and `tests/` for an import, a `monkeypatch.setattr` path or a logger name that names a moved module as a direct child of `devops_cli.roadmap`, and asserts no match. Add a test that parses `src/devops_cli/roadmap/__init__.py` and asserts its body holds one docstring and no import, assignment, class or function
+- [ ] 9.1 Add to `tests/invariants/test_source_tree.py` a test that lists the module names at the top level of `src/devops_cli/roadmap/` and of its subpackages and asserts that no top-level name starts with `intake`, `refine`, `stage` or `implement`, that each job subpackage holds a module, and that `stores/` holds `store.py`, `github_store.py` and `memory_store.py`. Add a test that searches the Python files of `src/` and `tests/` for an import, a `monkeypatch.setattr` path or a logger name that names a moved module as a direct child of `devops_cli.roadmap`, and asserts no match. Add a test that parses `src/devops_cli/roadmap/__init__.py` and asserts its body holds one docstring and no import, assignment, class or function. Add a test that lists the test modules of `tests/roadmap/` and asserts that a test module with a job prefix sits under the job directory and that each moved test module has its snapshot file in the `__snapshots__` directory beside it. Add a test that runs `git log --follow --oneline` on a moved module path and asserts that the log holds the commit that created the module at its old path
   - Verification: `uv run devops ci test tests/invariants/test_source_tree.py`
+- [ ] 9.2 Run the full gate on the changed tree and verify that it passes
+  - Verification: `uv run devops ci`
 
 ## 10. Document the roadmap package layout
 
