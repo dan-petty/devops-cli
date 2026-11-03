@@ -30,22 +30,6 @@ devops roadmap intake [OPTIONS]
 
 ---
 
-## `devops roadmap intake-eval`
-
-**Run the intake duplicate evaluation set against the configured analysis model and print the score of each case. For each case intake plans the candidate in a roadmap that holds the case's item and nothing else, and writes nothing. The run makes one analysis call for each case, one at a time, and no embedding or GitHub request; it reads the type labels from .github/labels.yml of this checkout. It prints whether intake agrees with the person's verdict for each case, and the precision and the recall of the duplicate verdict. It exits 0 when every case ran, and 1 when a case could not run.**
-
-```bash
-devops roadmap intake-eval [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--dry-run` | `boolean` | - | Make no request: list the cases and the analysis call that a run makes for each. |
-
----
-
 ## `devops roadmap refine`
 
 **Refine roadmap items to Ready: investigate open questions with tools that read the code and the documentation, then write the design, tasks and acceptance criteria to GitHub. Without --confirm, refine prints its plan only. Details: docs/roadmap/refine.md.**
@@ -329,6 +313,20 @@ devops roadmap eval implement [OPTIONS]
 | `--dry-run` | `boolean` | - | Make no request: list the fixtures and the model requests of the steps. Nothing is cloned and no model runs. |
 | `--check-only` | `boolean` | - | Make no model call: evaluate the four properties that a diff decides on each recorded result of each fixture, and exit 1 when a result fails other properties than its record says. This is the offline mode. |
 | `--run-commands` | `boolean` | - | With --check-only: clone the base, apply each recorded diff and run the two properties that run commands. |
+
+### `devops roadmap eval intake`
+
+**Run the intake duplicate evaluation set against the configured analysis model and print the score of each case. For each case intake plans the candidate in a roadmap that holds the case's item and nothing else, and writes nothing. The run makes one analysis call for each case, one at a time, and no embedding or GitHub request; it reads the type labels from .github/labels.yml of this checkout. It prints whether intake agrees with the person's verdict for each case, and the precision and the recall of the duplicate verdict. It exits 0 when every case ran, and 1 when a case could not run.**
+
+```bash
+devops roadmap eval intake [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Make no request: list the cases and the analysis call that a run makes for each. |
 
 ### `devops roadmap eval verify`
 

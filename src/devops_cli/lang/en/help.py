@@ -1219,7 +1219,7 @@ class RoadmapCommandHelp:
         "Make no request, to GitHub or a model: print the requests a run makes, in order, with "
         "placeholders for values a read gives."
     )
-    intake_eval: str = (
+    eval_intake: str = (
         "Run the intake duplicate evaluation set against the configured analysis model and "
         "print the score of each case. For each case intake plans the candidate in a roadmap "
         "that holds the case's item and nothing else, and writes nothing. The run makes one "
@@ -1229,7 +1229,7 @@ class RoadmapCommandHelp:
         "recall of the duplicate verdict. It exits 0 when every case ran, and 1 when a case "
         "could not run."
     )
-    intake_eval_dry_run: str = (
+    eval_intake_dry_run: str = (
         "Make no request: list the cases and the analysis call that a run makes for each."
     )
     eval_app: str = (
