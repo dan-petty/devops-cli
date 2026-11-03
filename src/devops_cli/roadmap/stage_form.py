@@ -84,7 +84,7 @@ def _task_problems(number: int, group: StageGroup) -> list[str]:
             group=number,
             title=group.title,
             part=part,
-            text=shown(text, CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS),
+            text=shown(text, CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS),
         )
         for part, text in parts
         if text is not None and len(_CODE_SPAN.sub("x", text).split()) < 2
