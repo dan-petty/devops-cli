@@ -46,7 +46,7 @@ import json
 import re
 import subprocess
 import textwrap
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
@@ -180,8 +180,9 @@ class _StopError(Exception):
     """An item stops: the job's own signal, caught where the item's run ends. `push` says whether
     the commits that passed are worth pushing. `diff` is the diff of the work that a stopped step
     discarded, and `diff_cut` says that it was cut (#2721). `status` is the exit status of the command
-    that failed, `check` the name of the check that failed, and `repair_rounds` the fix rounds that
-    the job ran before it stopped: they are the evidence of the failure class (#3065)."""
+    that failed, `check` the name of the check that failed, `repair_rounds` the fix rounds that
+    the job ran before it stopped, and `tier_changes` the tier moves of the step: they are the
+    evidence of the failure class (#3065, #3060)."""
 
     def __init__(
         self,
@@ -195,6 +196,7 @@ class _StopError(Exception):
         status: int | None = None,
         check: str = "",
         repair_rounds: int = 0,
+        tier_changes: int = 0,
         failure_class: FailureClass | None = None,
         action_left: FailureAction | None = None,
     ) -> None:
@@ -208,6 +210,7 @@ class _StopError(Exception):
         self.status = status
         self.check = check
         self.repair_rounds = repair_rounds
+        self.tier_changes = tier_changes
         self.failure_class = failure_class
         self.action_left = action_left
 
@@ -256,7 +259,8 @@ class ImplementApplied:
 
 
 def _stopped_by(step: str, outcome: StepOutcome) -> _StopError:
-    """The stop of an item for a step that stopped, with the diff of its discarded work."""
+    """The stop of an item for a step that stopped, with the diff of its discarded work and the
+    tier moves that the step made before it stopped."""
     return _StopError(
         step,
         outcome.reason,
@@ -264,6 +268,7 @@ def _stopped_by(step: str, outcome: StepOutcome) -> _StopError:
         diff=outcome.diff,
         diff_cut=outcome.diff_cut,
         repair_rounds=outcome.repair_rounds,
+        tier_changes=max(0, len(outcome.tiers) - 1),
     )
 
 
@@ -383,6 +388,7 @@ class _ItemRun:
     model: Any
     window: int
     default: str
+    model_for_tier: Callable[[str], Any] | None = None
     splitter: Any = None
     split_done: bool = False
     change: str = ""
@@ -438,11 +444,22 @@ class _ItemRun:
         return held
 
     def _spend(self) -> str:
+        """The spend of every step, itemized under the tier that served it (#3060)."""
+        tiers: dict[str, dict[str, int]] = {}
+        for outcome in self.outcomes:
+            for tier, spend in outcome.tier_spend.items():
+                held = tiers.setdefault(
+                    tier, {"requests": 0, "input_tokens": 0, "output_tokens": 0}
+                )
+                held["requests"] += spend.requests
+                held["input_tokens"] += spend.input_tokens
+                held["output_tokens"] += spend.output_tokens
         return json.dumps(
             {
                 "requests": sum(o.requests for o in self.outcomes),
                 "input_tokens": sum(o.input_tokens for o in self.outcomes),
                 "output_tokens": sum(o.output_tokens for o in self.outcomes),
+                "tiers": tiers,
             }
         )
 
@@ -805,6 +822,7 @@ class _ItemRun:
                     model=self.model,
                     window=self.window,
                     hooks=self._hooks_config(),
+                    model_for_tier=self.model_for_tier,
                     trace=self.trace,
                 )
             except OverWindowError as err:
@@ -1114,6 +1132,7 @@ class _ItemRun:
             model=self.model,
             window=self.window,
             hooks=self._hooks_config(),
+            model_for_tier=self.model_for_tier,
             trace=self.trace,
         )
         self.outcomes.append(outcome)
@@ -1223,7 +1242,9 @@ class _ItemRun:
             )
         )
         taken: FailureAction | None = None
-        if stop.repair_rounds:
+        if stop.tier_changes:
+            taken = FailureAction.CHANGE_TIER
+        elif stop.repair_rounds:
             taken = FailureAction.REPAIR
         elif any(_step_label(a.group) == stop.step for a in self.amendments):
             taken = FailureAction.AMEND
@@ -1240,7 +1261,11 @@ class _ItemRun:
                 marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
                 step=stop.step,
                 failure=failure_lines(
-                    klass, repair_rounds=stop.repair_rounds, taken=taken, left=left
+                    klass,
+                    repair_rounds=stop.repair_rounds,
+                    taken=taken,
+                    left=left,
+                    tier_changes=stop.tier_changes,
                 ),
                 table=self._stop_table(stop),
                 reason=reason,
@@ -1297,6 +1322,7 @@ def _implement_item(
     *,
     model: Any,
     window: int,
+    model_for_tier: Callable[[str], Any] | None = None,
     splitter: Any = None,
 ) -> _Ended:
     """Run one item: how its run ended (`_Ended`)."""
@@ -1310,6 +1336,7 @@ def _implement_item(
             model,
             window,
             default,
+            model_for_tier=model_for_tier,
             splitter=splitter,
         )
         try:
@@ -1335,6 +1362,7 @@ def apply_implement(
     source: Path | str,
     model: Any,
     window: int,
+    model_for_tier: Callable[[str], Any] | None = None,
     splitter: Any = None,
 ) -> ImplementApplied:
     """Run each selected item of the plan, one after the other. A stopped item does not stop the
@@ -1359,6 +1387,7 @@ def apply_implement(
                 target,
                 model=model,
                 window=window,
+                model_for_tier=model_for_tier,
                 splitter=splitter,
             )
         except AICredentialsError, GitHubUnauthenticatedError:

@@ -151,3 +151,26 @@ def get_task_model(task: str, *, settings: Settings | None = None) -> Any:
     task_config = active_settings.ai.for_task(task)
     task_settings = active_settings.model_copy(update={"ai": task_config})
     return resolve_pydantic_ai_model(task_config.model, settings=task_settings)
+
+
+def get_tier_model(tier: str, *, settings: Settings | None = None) -> Any:
+    """The pydantic-ai model that serves one tier of the implement ladder (#3060).
+
+    A gateway group, local or hosted, is sent to the configured gateway whatever `ai.provider`
+    is, so a local tier never reaches a hosted provider and a hosted group is reached only when
+    the ladder names it. An `ollama:<tag>` tier is the local model of that tag. The client
+    override of a test wins, as it does in `get_task_model`.
+    """
+    from pydantic_ai.models import Model
+
+    if isinstance(_client_override, Model):
+        return _client_override
+
+    from devops_cli.ai.pydantic_ai_bridge import resolve_pydantic_ai_model
+    from devops_cli.config.settings import load_settings
+
+    active_settings = settings or load_settings()
+    if tier.strip().startswith("ollama:"):
+        return resolve_pydantic_ai_model(tier.strip(), settings=active_settings)
+    gateway = active_settings.ai.gateway_provider
+    return resolve_pydantic_ai_model(f"{gateway}:{tier.strip()}", settings=active_settings)

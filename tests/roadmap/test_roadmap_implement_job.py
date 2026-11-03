@@ -929,6 +929,47 @@ def test_a_claim_made_while_a_group_runs_beats_the_stop_of_that_group(
     assert "human claimed the item" in comment
 
 
+# ── The model tier ladder (#3060) ─────────────────────────────────────────────────────────
+
+
+def test_the_record_itemizes_the_spend_under_the_tier_that_served_it(
+    job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    config(roadmap={"implement": {"ladder": {"edit": ["devops-coder", "devops-reasoning"]}}})
+    script = ModelScript(
+        ModelAPIError("example-model", "The provider broke."), *two_groups().replies
+    )
+
+    job_world.run(script)
+
+    _, record = _item(job_world)
+    spend = json.loads(record["implement.spend"] or "{}")
+    assert (set(spend["tiers"]), spend["tiers"]["devops-reasoning"]["input_tokens"] > 0) == (
+        {"devops-coder", "devops-reasoning"},
+        True,
+    )
+    assert spend["requests"] == sum(tier["requests"] for tier in spend["tiers"].values())
+
+
+def test_the_stop_comment_of_a_tier_change_names_the_tier_move(
+    job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    config(roadmap={"implement": {"ladder": {"edit": ["devops-coder", "devops-reasoning"]}}})
+    script = ModelScript(
+        ModelAPIError("example-model", "The provider broke."),
+        ModelHTTPError(
+            400, "example-model", {"message": "Ollama_chatException: failed to parse the reply"}
+        ),
+    )
+
+    applied = job_world.run(script)
+
+    comment = job_world.issue_comments()[0]
+    assert (applied.stopped, applied.failed) == ((1,), ())
+    assert "Action taken: `change_tier`, 1 tier move(s)." in comment
+    assert "Action left: `wait`" in comment
+
+
 def test_unticked_task_in_archived_change_stops_at_ready(job_world: JobWorld) -> None:
     def unticked_archive(call: ProcessCall) -> subprocess.CompletedProcess[str]:
         res = archive_effect(call)

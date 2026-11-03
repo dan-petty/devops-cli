@@ -2426,6 +2426,7 @@ class RoadmapMessages:
             "tool_calls": "Tool calls",
             "input_tokens": "Input tokens",
             "output_tokens": "Output tokens",
+            "tiers": "Model tiers",
             "repair_rounds": "Repair rounds",
             "last_message": "Last message of the agent",
             "removed": "Removed stray files",
@@ -2648,6 +2649,7 @@ class RoadmapMessages:
     )
     implement_failure_taken_none: str = "none"
     implement_failure_taken_repair: str = "`repair`, {rounds} fix round(s)"
+    implement_failure_taken_change_tier: str = "`change_tier`, {moves} tier move(s)"
     implement_failure_taken_amend: str = "`amend`"
     implement_failure_action_text: dict[str, str] = field(
         default_factory=lambda: {
@@ -2798,6 +2800,7 @@ class RoadmapMessages:
         "The title is `{title}`."
     )
     implement_step_needs_item: str = "A step needs --item with --group."
+    implement_no_model: str = "A step needs a model or a factory of the tiers of the ladder."
     implement_step_job_options: str = (
         "--filter, --plan, --confirm and --why are options of the job. With --group, the command runs "
         "one step and takes only --item, --source, --format and --dry-run. To run the job for "

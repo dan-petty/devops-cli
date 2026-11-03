@@ -253,16 +253,22 @@ def failure_lines(
     repair_rounds: int = 0,
     taken: FailureAction | None = None,
     left: FailureAction | None = None,
+    tier_changes: int = 0,
 ) -> str:
     """The three lines of a stop comment: the class, the action taken and the action left. The job
-    has taken `repair` when it ran `repair_rounds` fix rounds before it stopped, `amend` when it
-    applied an amendment, and no action else."""
+    has taken `change_tier` when it moved the step to another tier before it stopped, `repair` when
+    it ran `repair_rounds` fix rounds and no tier move, `amend` when it applied an amendment, and
+    no action else."""
     texts = MESSAGES.roadmap
+    if taken is None and tier_changes > 0:
+        taken = FailureAction.CHANGE_TIER
     if taken is None and repair_rounds > 0:
         taken = FailureAction.REPAIR
     if left is None:
         left = left_action(klass, taken)
-    if taken is FailureAction.REPAIR:
+    if taken is FailureAction.CHANGE_TIER:
+        taken_text = texts.implement_failure_taken_change_tier.format(moves=max(tier_changes, 1))
+    elif taken is FailureAction.REPAIR:
         taken_text = texts.implement_failure_taken_repair.format(rounds=repair_rounds)
     elif taken is FailureAction.AMEND:
         taken_text = texts.implement_failure_taken_amend
