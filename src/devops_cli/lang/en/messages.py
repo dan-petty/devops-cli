@@ -1105,6 +1105,14 @@ class PRMessages:
         "The summary ends with `...`. A cut summary reads as broken. Write a shorter summary."
     )
     form_placeholder: str = "The {part} is a placeholder: `{text}`. Write what the change does."
+    form_title_repeat_word: str = (
+        "The summary of the title repeats the word `{word}` that comes before `#{number}`. Start "
+        "the summary with a word that says what the change does."
+    )
+    form_title_repeat_number: str = (
+        "The summary of the title repeats the issue number `#{number}` that the title already "
+        "gives. Write the number once."
+    )
     form_closes_missing: str = "The body has no line `Closes #<issue>`."
     form_plans_missing: str = "The body has no single line `Plans #{issue}`."
     form_plan_closes: str = "A plan pull request closes no issue: use the line `Plans #<issue>`, and no closing keyword."
@@ -3042,6 +3050,11 @@ class RoadmapMessages:
     stage_problem_verify_run: str = (
         "Group {group} gives the `verify` command `{command}`, and the step cannot run it: "
         "{reason}. Give `uv run devops <command>` or `! git grep -n <name> src/ tests/`."
+    )
+    stage_problem_task: str = (
+        "Group {group} ({title}) has the {part} task `{text}`, and it holds one word. A task "
+        "holds a verb and an object, such as `Add a test in tests/roadmap/test_feature.py for "
+        "<behavior>`. Write the task as a sentence."
     )
     stage_problem_test_path: str = (
         "Group {group} creates `{path}`, and the directory `{directory}` does not mirror the code "
