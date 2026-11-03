@@ -187,8 +187,8 @@ def draft_readiness(
         if checks_outcome is not None:
             return checks_outcome
 
-    for extra in extra_checks:
-        outcome = extra(draft)
+    for extra_check in extra_checks:
+        outcome = extra_check(draft)
         if outcome.answer is not Answer.READY:
             return outcome
 
