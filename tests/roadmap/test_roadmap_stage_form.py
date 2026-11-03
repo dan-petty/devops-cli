@@ -182,7 +182,13 @@ def _group(**update: Any) -> StageGroup:
 
 @pytest.mark.parametrize(
     "text",
-    ["src/devops_cli/roadmap/stage_form.py", "Refactor", "`tests/roadmap/test_stage.py`", "a.py"],
+    [
+        "src/devops_cli/roadmap/stage_form.py",
+        "Refactor",
+        "`tests/roadmap/test_stage.py`",
+        "a.py",
+        "`uv run devops ci`",
+    ],
 )
 def test_a_bare_first_task_is_refused_and_names_the_group(text: str) -> None:
     (problem,) = form_problems([_group(title="Keep the comment", test=text)])

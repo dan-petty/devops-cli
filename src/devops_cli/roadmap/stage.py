@@ -114,6 +114,7 @@ from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
+from devops_cli.roadmap.pull_form import title_problems
 from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
 from devops_cli.roadmap.refine_investigation import analysis_window
@@ -793,6 +794,8 @@ class _Planner:
         if problems:
             return _Refused(" ".join(problems), proposal)
         title = staging_title(target.item.number, proposal.summary)
+        if problems := title_problems(title):
+            return _Refused(" ".join(problems), proposal)
         body = pull_request_body(target.item.number, target.change, proposal)
         keyword = closing_keyword_in(f"{title}\n{body}")
         if keyword is not None:
