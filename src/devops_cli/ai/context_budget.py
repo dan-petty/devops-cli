@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import functools
 import logging
-import math
 import os
 import tempfile
 from collections.abc import Iterator
@@ -20,6 +19,7 @@ from devops_cli.config.defaults import (
     DEFAULT_TIKTOKEN_FALLBACK_CACHE_DIRS,
     DEFAULT_TIKTOKEN_MODEL,
 )
+from devops_cli.exceptions.ai import TokenCountError
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ def _tiktoken_cache_env(cache_dir: Path) -> Iterator[None]:
 
 @functools.lru_cache(maxsize=16)
 def _get_tiktoken_encoding(model: str = DEFAULT_TIKTOKEN_MODEL) -> Any:
-    """Retrieve cached tiktoken encoding instance with graceful fallback."""
+    """Retrieve cached tiktoken encoding instance, or None when it cannot be loaded."""
     cache_dir = _resolve_tiktoken_cache_dir()
     try:
         import tiktoken
@@ -69,7 +69,7 @@ def _get_tiktoken_encoding(model: str = DEFAULT_TIKTOKEN_MODEL) -> Any:
     except Exception as exc:
         logger.warning(
             "Failed to load tiktoken encoding for model %s from cache directory %s (%s); "
-            "falling back to character heuristic.",
+            "the token count fails.",
             model,
             cache_dir,
             exc,
@@ -83,24 +83,34 @@ def reset_tiktoken_encoding_cache() -> None:
 
 
 def get_tiktoken_encoding(model: str = DEFAULT_TIKTOKEN_MODEL) -> Any:
-    """Retrieve cached tiktoken encoding instance with graceful fallback."""
+    """Retrieve cached tiktoken encoding instance, or None when it cannot be loaded."""
     return _get_tiktoken_encoding(model)
 
 
 def count_tokens(text: str, model: str = DEFAULT_TIKTOKEN_MODEL) -> int:
-    """Count exact BPE tokens for text, with robust heuristic fallback."""
+    """Count exact BPE tokens for text.
+
+    The stage and the implement Job share this count. When the tiktoken encoding is unavailable,
+    raise `TokenCountError` with the cache directory instead of counting characters, so the two
+    paths cannot give different measures of the same text.
+    """
     if not text:
         return 0
 
     encoding = _get_tiktoken_encoding(model)
-    if encoding is not None:
-        try:
-            return len(encoding.encode(text, disallowed_special=()))
-        except Exception:
-            pass
-
-    # Heuristic fallback (average 4 characters per token in code/prose)
-    return max(1, math.ceil(len(text) / 4))
+    if encoding is None:
+        raise TokenCountError(
+            "The tiktoken encoding is unavailable, so no exact token count exists. "
+            "Install the encoding cache in the directory that TIKTOKEN_CACHE_DIR names: "
+            f"{_resolve_tiktoken_cache_dir()}."
+        )
+    try:
+        return len(encoding.encode(text, disallowed_special=()))
+    except Exception as exc:
+        raise TokenCountError(
+            f"The tiktoken encoding for model {model} cannot count the text: {exc}. "
+            f"The cache directory is {_resolve_tiktoken_cache_dir()}."
+        ) from exc
 
 
 def count_file_tokens(file_path: Path, model: str = DEFAULT_TIKTOKEN_MODEL) -> int:
@@ -109,10 +119,10 @@ def count_file_tokens(file_path: Path, model: str = DEFAULT_TIKTOKEN_MODEL) -> i
         return 0
     try:
         content = file_path.read_text(encoding="utf-8", errors="replace")
-        return count_tokens(content, model=model)
     except Exception as exc:
         logger.debug("Failed reading file %s for token counting: %s", file_path, exc)
         return 0
+    return count_tokens(content, model=model)
 
 
 def truncate_to_token_limit(
@@ -130,20 +140,17 @@ def truncate_to_token_limit(
         return text
 
     encoding = _get_tiktoken_encoding(model)
-    if encoding is not None:
-        try:
-            tokens = encoding.encode(text, disallowed_special=())
-            suffix_tokens = encoding.encode(suffix, disallowed_special=())
-            budget = max(0, max_tokens - len(suffix_tokens))
-            truncated_tokens = tokens[:budget]
-            decoded_str = str(encoding.decode(truncated_tokens))
-            return f"{decoded_str}{suffix}"
-        except Exception:
-            pass
-
-    # Character fallback truncation
-    char_budget = max(0, (max_tokens * 4) - len(suffix))
-    return text[:char_budget] + suffix
+    if encoding is None:
+        raise TokenCountError(
+            "The tiktoken encoding is unavailable, so the text cannot be truncated to a token "
+            f"budget. Install the encoding cache in {_resolve_tiktoken_cache_dir()}."
+        )
+    tokens = encoding.encode(text, disallowed_special=())
+    suffix_tokens = encoding.encode(suffix, disallowed_special=())
+    budget = max(0, max_tokens - len(suffix_tokens))
+    truncated_tokens = tokens[:budget]
+    decoded_str = str(encoding.decode(truncated_tokens))
+    return f"{decoded_str}{suffix}"
 
 
 def validate_and_budget_prompt(

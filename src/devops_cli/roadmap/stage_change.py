@@ -72,6 +72,9 @@ STAGE_SUMMARY_MAX_CHARS: Final[int] = SUMMARY_MAX_CHARS - summary_length(
 BODY_MAX_CHARS: Final[int] = 800
 # The fewest characters of the Purpose of a new capability, so archive never writes TBD.
 PURPOSE_MIN_CHARS: Final[int] = 50
+# The tokens of one estimated line of a file that a task group creates. The stage adds them to the
+# measure of the group, so a large new file counts before the implement Job reads it (#3265).
+CREATED_LINE_TOKENS: Final[int] = 32
 # The fewest characters of a text of the plan that stands for a sentence: `why`, `existing_tool`, a
 # line of `feasibility`, a decision and a task. `No alternative.` has 15, and `x` or `todo` has
 # fewer (#3200).
@@ -127,6 +130,8 @@ def _capability_name(name: str) -> str:
 
 
 RepositoryPath = Annotated[str, AfterValidator(_repository_path)]
+# The estimated number of lines of a file that a task group creates.
+LineCount = Annotated[int, Field(ge=1)]
 
 
 # U+FEFF is white space for the JavaScript `\\s` that `openspec` reads, and it is none for
@@ -263,7 +268,8 @@ class GroupKind(StrEnum):
 
 class StageGroup(_Reply):
     """One task group of the change: the work of one implementation step. A group changes at
-    least one file. `creates` lists the paths of `changes` that the step makes.
+    least one file. `creates` lists the paths of `changes` that the step makes, and `creates_lines`
+    gives the estimated number of lines of each of those paths.
 
     The `kind` sets the tasks. A `behavior` group has a `test` and a `verify` that runs it, and
     changes a path under `src/`. An `other` group has no `test`, and one of `verify` (a command
@@ -275,6 +281,7 @@ class StageGroup(_Reply):
     reads: list[RepositoryPath] = Field(default_factory=list)
     changes: list[RepositoryPath] = Field(min_length=1)
     creates: list[RepositoryPath] = Field(default_factory=list)
+    creates_lines: dict[RepositoryPath, LineCount] = Field(default_factory=dict)
     test: Sentence | None = None
     implementation: Sentence
     documentation: Sentence | None = None
@@ -286,6 +293,16 @@ class StageGroup(_Reply):
         for path in self.creates:
             if path not in self.changes:
                 raise ValueError(MESSAGES.roadmap.stage_bad_creates.format(path=path))
+        return self
+
+    @model_validator(mode="after")
+    def _creates_have_line_estimates(self) -> Self:
+        for path in self.creates:
+            if path not in self.creates_lines:
+                raise ValueError(MESSAGES.roadmap.stage_creates_no_estimate.format(path=path))
+        for path in self.creates_lines:
+            if path not in self.creates:
+                raise ValueError(MESSAGES.roadmap.stage_estimate_not_creates.format(path=path))
         return self
 
     @model_validator(mode="after")
@@ -860,12 +877,18 @@ def measure_groups(
     shared: Sequence[str],
 ) -> list[MeasuredGroup]:
     """The measure of each group: the tokens of `shared` (the item and the files of the change
-    folder), of the group's own text, and of the files and the rules that its step reads under
-    `root`."""
+    folder), of the group's own text, of the files and the rules that its step reads under `root`,
+    and of the estimated lines of each file that it creates."""
     shared_tokens = sum(count_tokens(text) for text in shared)
     texts = [group_text(index, group) for index, group in enumerate(groups, start=1)]
     return [
-        MeasuredGroup(group, shared_tokens + count_tokens(text) + _read_tokens(root, text))
+        MeasuredGroup(
+            group,
+            shared_tokens
+            + count_tokens(text)
+            + _read_tokens(root, text)
+            + sum(group.creates_lines.values()) * CREATED_LINE_TOKENS,
+        )
         for group, text in zip(groups, texts, strict=True)
     ]
 

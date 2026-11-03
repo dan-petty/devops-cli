@@ -37,6 +37,7 @@ def _group(**update: object) -> StageGroup:
         "verify": "uv run devops ci test tests/test_sample.py",
     }
     fields = {"title": "Keep the last comment", **base, **update}
+    fields.setdefault("creates_lines", {path: 10 for path in fields["creates"]})
     if not any(str(path).startswith("src/") for path in fields["changes"]):
         fields = {**fields, "kind": update.get("kind", "other"), "test": update.get("test")}
     return make_stage_proposal().groups[0].model_validate(fields)

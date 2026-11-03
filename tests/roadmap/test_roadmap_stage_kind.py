@@ -16,6 +16,7 @@ BEHAVIOR: dict[str, Any] = {
     "reads": ["src/devops_cli/sample.py"],
     "changes": ["src/devops_cli/sample.py", "tests/test_sample.py"],
     "creates": ["tests/test_sample.py"],
+    "creates_lines": {"tests/test_sample.py": 40},
     "test": "Write `test_the_job_keeps_the_last_comment` in `tests/test_sample.py`",
     "implementation": "Keep the last comment in `src/devops_cli/sample.py`",
     "documentation": None,
@@ -64,7 +65,10 @@ def test_an_other_group_with_a_process_and_no_command_is_valid() -> None:
         ({"test": None}, "has the kind behavior, and it has no test"),
         ({"verify": None}, "has the kind behavior, and it has no verify"),
         ({"process": "Look at the output."}, "has a process"),
-        ({"changes": ["docs/TESTING.md"], "creates": []}, "changes no path under src/"),
+        (
+            {"changes": ["docs/TESTING.md"], "creates": [], "creates_lines": {}},
+            "changes no path under src/",
+        ),
         ({"kind": "mixed"}, "Input should be 'behavior' or 'other'"),
     ],
 )
@@ -103,6 +107,7 @@ REPORT: dict[str, Any] = {
     "title": "Write the mutation report",
     "changes": ["openspec/changes/2162-x/mutation-report.md"],
     "creates": ["openspec/changes/2162-x/mutation-report.md"],
+    "creates_lines": {"openspec/changes/2162-x/mutation-report.md": 20},
     "implementation": "Run `uv run devops ci mutate` and write one row for each test file",
     "verify": None,
     "process": "Open the report.\nCheck that a row names each of the 18 test files.",

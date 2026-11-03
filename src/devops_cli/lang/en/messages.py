@@ -3172,6 +3172,11 @@ class RoadmapMessages:
     )
     stage_blank_text: str = "A task text holds only full stops and spaces."
     stage_bad_creates: str = "'{path}' is in creates, and it is not in changes."
+    stage_creates_no_estimate: str = (
+        "'{path}' is in creates, and it has no line estimate. Give its estimated number of lines "
+        "in creates_lines."
+    )
+    stage_estimate_not_creates: str = "'{path}' is in creates_lines, and it is not in creates."
     stage_bad_living_spec: str = (
         "'{path}' is under openspec/specs/, and only openspec archive writes living specs. "
         "Name a file of the change folder instead."
