@@ -23,7 +23,7 @@ The state of an Item is in labels on its issue ([ADR 0016](adr/0016-labels-hold-
 | 5. Implement | `status/in-progress` | The runner Job runs one step for each task group ([implement page](roadmap/implement.md)) | Tests first, then code, in a draft pull request made with `devops pr create` | The same | None |
 | 6. Verify | `status/in-review` | The runner Job watches the checks, runs bounded fix steps, and asks the readiness function to mark the pull request ready | `devops pr monitor <pr_number>`, then `devops pr ready <pr_number>`, which asks the same function | The same | None |
 | 7. Review and merge | The issue is closed | None | None | Review, then merge | G2 |
-| 8. Release and learn | The release is out | None | None | Merge the release pull request. Read the release. File each problem as a new candidate | G3 |
+| 8. Release and learn | The release is out | Row `release_comments` comments `Released in <version>` and `Live since <time>` on each closed issue that the release carries | None | Merge the release pull request. Read the release. File each problem as a new candidate | G3 |
 
 Notes on the table:
 
@@ -287,7 +287,6 @@ Tracker [#2908](https://github.com/dan-petty/devops-cli/issues/2908) holds the w
 | :--- | :--- | :--- |
 | #2913 | The manual path | `devops roadmap implement` outside the runner makes the runner Job, and `--repo` is needed once |
 | #2867 | 6 Verify | A model evaluator marks a draft ready when it matches its issue and the project rules |
-| #2917 | 8 Release and learn | A release comments its version and its deploy time on each issue it carries |
 | #2919 | All | Metrics show the age of stuck Items, and one alert fires |
 | #2968 | All | The counts of `devops roadmap inbox` are gauges with a Grafana panel, and the inbox lists an image digest that is not rolled |
 | #3028 | 3 Plan | A sister command of the group `devops roadmap eval` scores the stage job on a golden set of plan cases |

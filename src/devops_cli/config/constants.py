@@ -3238,6 +3238,21 @@ CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS: Final[tuple[str, ...]] = (
 CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
 # The Service's intake record beside schedule.json: what intake decided and left (#1360).
 CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"
+# The release_comments row's ledger beside schedule.json: which releases hold their comments (#2917).
+CONST_ROADMAP_RELEASE_LEDGER_FILENAME: Final[str] = "release_comments.json"
+# The releases that the release_comments row comments on: those published within this many hours
+# of a round, out of the newest `CONST_ROADMAP_RELEASE_COMMENTS_LIST` (#2917).
+CONST_ROADMAP_RELEASE_COMMENTS_WINDOW_HOURS: Final[int] = 12
+CONST_ROADMAP_RELEASE_COMMENTS_LIST: Final[int] = 30
+# The first line of each comment of the release_comments row, with the tag and the pass
+# (`released` or `live`) filled in. A comment that holds the line is the record that the row posted
+# it (#2917).
+CONST_ROADMAP_RELEASE_MARKER: Final[str] = "<!-- devops roadmap release {tag} {kind} -->"
+# The Service and runner images that a release publishes, as `<prefix>/<image>:<tag>` (#2917).
+CONST_ROADMAP_RELEASE_IMAGE_PREFIX: Final[str] = "ghcr.io/dan-petty/devops-cli"
+# The Deployment of the Service and the container in it that run the Service image (#2917).
+CONST_ROADMAP_SERVICE_DEPLOYMENT: Final[str] = "roadmap-service"
+CONST_ROADMAP_SERVICE_CONTAINER: Final[str] = "service"
 CONST_ROADMAP_RUN_CLONE_DIRNAME: Final[str] = "clone"
 # The triage lane's clone beside it, so the triage lane's checkout never touches another lane's clone (#1534).
 CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME: Final[str] = "triage-clone"

@@ -711,6 +711,8 @@ class K8sMessages:
         "could push to the same branch. Wait for the Job to end, or follow it with: "
         "kubectl -n devops logs -f job/<name>. No Job was created."
     )
+    job_deployment_missing: str = "Deployment devops/{deployment} not found."
+    job_deployment_no_container: str = "Deployment devops/{deployment} has no container {container}"
     job_cronjob_missing: str = (
         "CronJob devops/{cronjob} not found. Deploy it first: "
         "devops k8s deploy-stack --stack devops"
@@ -2863,6 +2865,16 @@ class RoadmapMessages:
     stage_failed: str = "the stage job failed for {count} item(s): {items}"
     stage_failed_item: str = "#{number} ({error}{reason})"
     stage_ready_failed: str = "the stage_ready row failed for {count} pull request(s): {items}"
+    release_comment_released: str = "Released in {tag}: {url}"
+    release_comment_live: str = "Live since {time}"
+    release_ledger_unreadable: str = (
+        "The release ledger {path} can't be read ({reason}), so the release_comments row does "
+        "not run. Repair it, or remove it: the next round then reads the comments of each issue "
+        "and posts none twice."
+    )
+    release_roll_failed: str = (
+        "the release_comments row could not check the images of {count} release(s): {releases}"
+    )
     status_sync_failed: str = "the Status of {count} item(s) could not be set: {items}"
     stage_plain_note: str = (
         "Stage without a mode flag runs as --plan: it reads GitHub and calls the model, and "
