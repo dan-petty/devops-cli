@@ -14,6 +14,7 @@ from devops_cli.roadmap.pull_form import title_problems
 from devops_cli.roadmap.stage import parse_filters, plan_stage
 from devops_cli.roadmap.stage_change import (
     SUMMARY_MAX_CHARS,
+    StageProposal,
     delivery_title,
     staging_title,
 )
@@ -61,6 +62,24 @@ def test_a_staging_title_cuts_nothing_and_refuses_a_summary_that_does_not_fit(
         staging_title(number, LONG_SUMMARY + " as the user asked")
 
     assert raised.value.failed_items == (number,)
+
+
+def test_the_guard_of_the_title_counts_units_so_a_number_with_seven_digits_refuses_emoji() -> None:
+    """24 emoji are 24 characters and 48 units: with the lead of 14 the title has 62 units, and the
+    guard is the only gate here, because the schema blocks the reply first for a smaller number."""
+    with pytest.raises(RoadmapStageError, match="would have 62 characters after the colon"):
+        staging_title(10**6, "\U0001f600" * 24)
+
+
+@pytest.mark.parametrize("invisible", ["\u200b", "\ufeff", "\u2063", "\xad", "\u2800", "\u3164"])
+def test_the_schema_refuses_a_summary_that_shows_nothing_to_a_reader(invisible: str) -> None:
+    with pytest.raises(ValueError, match="The summary has no text"):
+        make_stage_proposal(summary=invisible * 3)
+
+
+def test_the_schema_message_tells_that_an_emoji_counts_as_two() -> None:
+    with pytest.raises(ValueError, match="an emoji counts as two"):
+        make_stage_proposal(summary="\U0001f600" * 24)
 
 
 def test_a_number_with_more_digits_than_the_schema_supports_stops_the_item_and_cuts_nothing() -> (
@@ -150,6 +169,62 @@ def test_the_schema_measures_the_summary_as_the_title_shows_it_so_spare_whitespa
 
     assert len(summary) > limit
     assert title_problems(staging_title(1, proposal.summary), DECLARED) == []
+
+
+def _utf16_units(text: str) -> int:
+    """The length that `^.{1,60}$` of the check `Semantic PR title` measures: JavaScript counts
+    UTF-16 code units, and a character outside the Basic Multilingual Plane has two."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+@pytest.mark.parametrize("symbol", ["\U0001f600", "\U00020000"], ids=["emoji", "astral-cjk"])
+def test_the_limit_counts_a_character_outside_the_basic_plane_as_two_like_the_ci_check(
+    symbol: str,
+) -> None:
+    """47 emoji are 47 characters for Python but 94 units for the CI check, which refuses the
+    title (#3249). The limit counts units, so half as many fit, and the title passes both."""
+    limit = stage_summary_limit()
+    fits = symbol * (limit // 2)
+
+    title = staging_title(LARGEST_NUMBER, make_stage_proposal(summary=fits).summary)
+
+    assert _utf16_units(_summary_of(title)) <= SUMMARY_MAX_CHARS
+    assert title_problems(title, DECLARED) == []
+    with pytest.raises(ValueError, match=rf"{limit // 2 * 2 + 2} characters in the title"):
+        make_stage_proposal(summary=symbol * (limit // 2 + 1))
+
+
+@pytest.mark.parametrize("blank", [" ", "\n", "\t \xa0", "\u2028"])
+def test_the_schema_refuses_a_summary_that_has_no_text_once_the_title_shows_it(
+    blank: str,
+) -> None:
+    """The title of a blank summary is `plan #12 ` with nothing after the number."""
+    with pytest.raises(ValueError, match="The summary has no text"):
+        make_stage_proposal(summary=blank)
+
+
+def test_the_json_schema_of_the_summary_holds_both_bounds_for_the_model() -> None:
+    schema = StageProposal.model_json_schema()["properties"]["summary"]
+
+    assert (schema["minLength"], schema["maxLength"]) == (1, stage_summary_limit())
+
+
+def test_the_title_error_names_the_count_and_the_limit_for_a_number_that_is_too_large() -> None:
+    summary = "a" * stage_summary_limit()
+
+    with pytest.raises(
+        RoadmapStageError,
+        match=r"The title of item 1000000 would have 61 characters after the colon, "
+        r"and the limit is 60\.",
+    ):
+        staging_title(10**6, summary)
+
+
+def test_the_summary_error_tells_that_a_handle_or_a_link_gets_a_code_span() -> None:
+    summary = "a" * (stage_summary_limit() - len("@maintainer") - 1) + " @maintainer"
+
+    with pytest.raises(ValueError, match="A handle or a link gets a code span in the title"):
+        make_stage_proposal(summary=summary)
 
 
 def test_a_summary_with_a_handle_has_it_in_a_code_span_so_that_the_title_pings_no_one() -> None:

@@ -1215,9 +1215,10 @@ def create_pr(
     and scope/ai.
 
     It opens nothing when the title or the body breaks the form of CONTRIBUTING.md section 4: a
-    Conventional Commit title with a summary of at most 60 characters and a scope that
-    .github/labels.yml declares, and a body of at most 1,000 characters that ends with Closes
-    #<issue> and the Change line. devops pr describe builds a title and a body in that form.
+    Conventional Commit title with a summary of at most 60 characters (an emoji counts as two)
+    and a scope that .github/labels.yml declares, and a body of at most 1,000 characters that
+    ends with Closes #<issue> and the Change line. devops pr describe builds a title and a body in
+    that form.
     """
     if dry_run or is_dry_run():
         _form_checked(title, body, repo, base, offline=True)

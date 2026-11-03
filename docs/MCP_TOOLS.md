@@ -1502,7 +1502,7 @@ Print the title and the body of the pull request that delivers an issue. The fir
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `issue` | `integer` | Yes | - | Number of the issue that the pull request closes. |
-| `summary` | `string` | Yes | - | Summary of the title, at most 60 characters: what the change does. The command never cuts it. |
+| `summary` | `string` | Yes | - | Summary of the title, at most 60 characters (an emoji counts as two): what the change does. The command never cuts it. |
 | `why` | `string` | No | - | Text of the body: what the change does, and why. The section Why of the proposal when omitted. |
 | `attribution` | `array[string]` | No | - | A paragraph for the end of the body, after the Change line. Repeat the option for more. |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |

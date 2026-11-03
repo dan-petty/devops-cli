@@ -1095,7 +1095,8 @@ class PRMessages:
         "label, or declare the label in the same pull request."
     )
     form_summary_long: str = (
-        "The summary has {length} characters. The limit is {limit}. Write a shorter summary."
+        "The summary has {length} characters (an emoji counts as two). The limit is {limit}. "
+        "Write a shorter summary."
     )
     form_summary_cut: str = (
         "The summary ends with `...`. A cut summary reads as broken. Write a shorter summary."
@@ -2953,8 +2954,9 @@ class RoadmapMessages:
         'The criterion "{criterion}" is pending-person and has no reason.'
     )
     stage_criteria_title: str = "Criteria"
-    stage_criteria_line: str = "{criterion}: group {group}"
-    stage_criteria_pending: str = "{criterion}: pending-person, {reason}"
+    # A line starts with a fixed word, so that a criterion cannot start a block (a heading or a task).
+    stage_criteria_line: str = "Group {group}: {criterion}"
+    stage_criteria_pending: str = "Pending person: {criterion}, {reason}"
     stage_problem_path: str = (
         "Group {group} names `{path}` in {place}. The staged commit has no such file, and no "
         "group up to group {group} creates it. {hint} Name a file that exists, or make the group "
@@ -2966,9 +2968,9 @@ class RoadmapMessages:
         "`! git grep -n <name>` check that a name is gone. Give a command of one of these forms."
     )
     stage_problem_verify_backtick: str = (
-        "Group {group} gives the `verify` command `{command}`, and it holds a backtick. The plan "
-        "writes the command in a code span, and a backtick ends that span. Give a command with no "
-        "backtick."
+        "Group {group} gives the `verify` command `` {command} ``, and it holds a backtick. The "
+        "plan writes the command in a code span, and a backtick ends that span. Give a command "
+        "with no backtick."
     )
     stage_problem_verify_run: str = (
         "Group {group} gives the `verify` command `{command}`, and the step cannot run it: "
@@ -3001,6 +3003,10 @@ class RoadmapMessages:
     # The empty value of `reads` ends in no stop of its own: `stage_group_files` ends the sentence.
     stage_group_no_reads: str = "none"
     stage_group_new: str = " (new)"
+    stage_bad_block_start: str = (
+        "The text '{text}' starts with a mark of markdown (a heading, a quote, a list marker, a "
+        "box, a rule, a fence or a comment). Start it with a word."
+    )
     stage_blank_text: str = "A task text holds only full stops and spaces."
     stage_bad_creates: str = "'{path}' is in creates, and it is not in changes."
     # The implement step reads a verification command from the line `Verification:` under a task,
@@ -3044,9 +3050,11 @@ class RoadmapMessages:
         "The title of item {number} would have {length} characters after the colon, and the "
         "limit is {limit}. The summary of the plan does not fit the number of this item."
     )
+    stage_summary_blank: str = "The summary has no text. Write a summary of the plan."
     stage_summary_long: str = (
         "The summary has {length} characters in the title, and the limit is {limit}. "
-        "A handle or a link gets a code span in the title. Write a shorter summary."
+        "A handle or a link gets a code span in the title, and an emoji counts as two. "
+        "Write a shorter summary."
     )
     stage_pull_request_body: str = (
         "Plans #{number}\n\n{body}\n\nChange: `openspec/changes/{change}/`"
