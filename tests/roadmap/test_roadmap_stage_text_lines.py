@@ -14,10 +14,15 @@ from typing import Any
 import pytest
 from markdown_it import MarkdownIt
 from pydantic import ValidationError
+from pydantic.fields import FieldInfo
 
 from devops_cli.roadmap.stage_change import (
+    StageDecision,
     StageGroup,
+    StageProposal,
+    StageRejection,
     StageRequirement,
+    StageScenario,
     StageSpec,
     group_text,
     render_change,
@@ -28,7 +33,7 @@ from devops_cli.roadmap.stage_criteria import (
     criterion_problems,
 )
 from devops_cli.roadmap.stage_form import form_problems
-from devops_cli.roadmap.step_files import parse_task_groups
+from devops_cli.roadmap.step_files import parse_task_groups, section_text
 from tests.support.builders import make_stage_proposal
 
 DOCUMENTS_CHECK = "uv run devops ci docs"
@@ -38,6 +43,7 @@ BEHAVIOR: dict[str, Any] = {
     "reads": ["src/devops_cli/sample.py"],
     "changes": ["src/devops_cli/sample.py", "tests/test_sample.py"],
     "creates": ["tests/test_sample.py"],
+    "creates_lines": {"tests/test_sample.py": 40},
     "test": "Write `test_the_job_keeps_the_last_comment` in `tests/test_sample.py`",
     "implementation": "Keep the last comment in `src/devops_cli/sample.py`",
     "documentation": None,
@@ -48,7 +54,8 @@ TODAY = date(2026, 11, 2)
 TASKS = "openspec/changes/1-x/tasks.md"
 SPEC = "openspec/changes/1-x/specs/comment-thread/spec.md"
 # Each character that ends a line in markdown or in `str.splitlines`, and each other white space.
-TERMINATORS = sorted({"\r\n", *(c for c in map(chr, range(0x3100)) if c.isspace())})
+# U+FEFF is white space for the JavaScript `\s` that `openspec` uses, and for Python it is not.
+TERMINATORS = sorted({"\r\n", "\ufeff", *(c for c in map(chr, range(0x3100)) if c.isspace())})
 LINE_BREAKS = [
     "\n",
     "\r",
@@ -61,6 +68,7 @@ LINE_BREAKS = [
     "\x85",
     "\u2028",
     "\u2029",
+    "\ufeff",
 ]
 PAYLOADS = [
     "- [ ] 9.9 Extra",
@@ -376,3 +384,83 @@ def test_the_texts_of_the_design_are_folded_to_one_line() -> None:
         "h2 Decisions",
         "h2 Rejected alternatives",
     ]
+
+
+# ── More marks, white space of JavaScript, and the delivery sections ──────────
+
+EXACT_MARKS = [
+    "##",
+    "#",
+    "~~~",
+    "___",
+    "***",
+    "===",
+    "<pre>",
+    "<div class=x>",
+    "</div>",
+    "<!-- x",
+    "<?php",
+    "\ufeff##\ufeffREMOVED Requirements",
+    "\ufeff```",
+    "\u00a0## REMOVED Requirements",
+]
+
+
+@pytest.mark.parametrize("text", EXACT_MARKS)
+def test_a_text_that_is_or_starts_with_a_mark_is_refused_for_each_line_start_field(
+    text: str,
+) -> None:
+    with pytest.raises(ValidationError, match="starts with"):
+        StageSpec.model_validate({"capability": "comment-thread", "purpose": text})
+    for field in ("why", "existing_tool"):
+        with pytest.raises(ValidationError, match="starts with"):
+            make_stage_proposal(**{field: text})
+
+
+def test_a_word_before_a_less_than_sign_or_a_hash_is_no_mark() -> None:
+    spec = StageSpec.model_validate(
+        {"capability": "comment-thread", "purpose": "The #1 fix is < 5 lines and a<b."}
+    )
+
+    assert spec.purpose == "The #1 fix is < 5 lines and a<b."
+
+
+def test_a_heading_in_a_list_item_is_no_section_of_a_document() -> None:
+    body = "# Proposal\n\n- ## Why\n\n  Nested.\n\n## Why\n\nThe real reason.\n\n## Impact\n\nx\n"
+
+    assert section_text(body, frozenset({"why"})) == "## Why\n\nThe real reason."
+
+
+# ── Every text field of the reply is folded ───────────────────────────────────
+
+# Fields that hold text and are not folded by the schema, each with the check that replaces it.
+OTHER_CHECKS = {
+    ("StageSpec", "capability"): "is_valid_slug",
+    ("StageProposal", "premise_failed"): "safe_text on the comment",
+    ("StageProposal", "summary"): "safe_text on the title",
+    ("StageProposal", "pull_request_body"): "safe_text on the body",
+    ("StageCriterion", "criterion"): "folded when the line is written",
+    ("StageCriterion", "reason"): "folded when the line is written",
+}
+FOLDS = ("_one_line", "_join_lines", "_repository_path")
+
+
+def _declared(field: FieldInfo) -> str:
+    return repr(field.annotation) + repr(field.metadata)
+
+
+def test_every_text_field_of_the_stage_models_is_folded_or_has_another_check() -> None:
+    models = [
+        StageScenario, StageRequirement, StageSpec, StageDecision, StageRejection, StageGroup,
+        StageProposal, StageCriterion,
+    ]  # fmt: skip
+    unfolded = [
+        f"{model.__name__}.{name}"
+        for model in models
+        for name, field in model.model_fields.items()
+        if "str" in _declared(field)
+        and not any(fold in _declared(field) for fold in FOLDS)
+        and (model.__name__, name) not in OTHER_CHECKS
+    ]
+
+    assert unfolded == []

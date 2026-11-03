@@ -490,6 +490,10 @@ def label_args(repo: str, number: Number, label: str) -> list[str]:
     return ["api", "-X", "POST", f"repos/{repo}/issues/{number}/labels", "-f", f"labels[]={label}"]
 
 
+def unlabel_args(repo: str, number: Number, label: str) -> list[str]:
+    return ["api", "-X", "DELETE", f"repos/{repo}/issues/{number}/labels/{_segment(label)}"]
+
+
 def advisory_args(value: str) -> list[str]:
     return ["api", f"advisories/{_segment(value)}"]
 
@@ -785,6 +789,17 @@ class GitHubRoadmapStore(RoadmapStore):
         if kept is not None and label not in kept.labels:
             self._all = (self._all or {}) | {
                 number: kept.model_copy(update={"labels": (*kept.labels, label)})
+            }
+
+    def unlabel_issue(self, number: int, label: str) -> None:
+        """Remove `label` from issue or pull request `number`; GitHub keeps its other labels."""
+        self._write(unlabel_args(self._repo, number, label), f"unlabel #{number} {label}")
+        kept = (self._all or {}).get(number)
+        if kept is not None and label in kept.labels:
+            self._all = (self._all or {}) | {
+                number: kept.model_copy(
+                    update={"labels": tuple(held for held in kept.labels if held != label)}
+                )
             }
 
     def evidence_holds(self, evidence: Evidence) -> bool:

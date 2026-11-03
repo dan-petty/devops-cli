@@ -9,6 +9,7 @@ and `gh` are faked at their edges.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -21,6 +22,7 @@ from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.config import constants
 from devops_cli.exceptions import RoadmapImplementError
 from devops_cli.git.worktree_add import worktree_directory
+from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.roadmap.implement import parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement_run import apply_implement, raise_for_failed
 from devops_cli.roadmap.store import ImplementRecordKey
@@ -35,6 +37,7 @@ from tests.support.roadmap_implement import (
     TASKS_PATH,
     TICKED_FIRST,
     JobWorld,
+    archive_effect,
     docs_effect,
     group_one_calls,
     group_two_calls,
@@ -259,6 +262,27 @@ def test_the_title_of_the_pull_request_has_no_scope_that_the_labels_file_lacks(
     assert patched["title"] == "fix: the job drops a comment"
 
 
+def test_a_title_that_the_check_refuses_stops_the_item_before_the_job_writes_it(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The job keeps the whole summary of the issue (#3200), and the check limits the summary to
+    60 UTF-16 units (#3292). A long summary stops the item, so no title reaches the check."""
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement_run.delivery_title", lambda *_args: "Add a flag: "
+    )
+
+    applied = job_world.run(two_groups())
+
+    status, record = _item(job_world)
+    assert (applied.stopped, status, record.get("implement.stopped")) == (
+        (1,),
+        "Blocked",
+        "pull request",
+    )
+    assert job_world.sent("PATCH", f"pulls/{PULL}") == []
+    assert "not in the form" in job_world.issue_comments()[0]
+
+
 def test_the_changes_of_the_archive_and_the_documents_are_in_the_pushed_tree(
     job_world: JobWorld,
 ) -> None:
@@ -287,8 +311,8 @@ def test_the_outcome_of_each_step_is_one_comment_on_the_pull_request_and_not_in_
     assert len(comments) == 1
     body = comments[0]["body"]
     assert body.startswith(MARKER)
-    assert "The first group" in body
-    assert "The second group" in body
+    assert "| group 1 | done |" in body
+    assert "| group 2 | done |" in body
     assert "Group 1 is done" not in job_world.sent("PATCH", f"pulls/{PULL}")[0]["body"]
 
 
@@ -681,15 +705,15 @@ def test_a_conflict_on_the_rebase_before_the_push_pushes_the_commits_that_passed
 
 
 def test_a_step_that_stops_does_not_stop_the_next_item(job_world: JobWorld) -> None:
-    push_staged_branch(job_world.repo, number=2)
     second = seed_staged(job_world.store, pull=6)
+    push_staged_branch(job_world.repo, number=second)
     route_pull_status(job_world.api, pull=6)
     script = ModelScript(say("Stuck."))
 
     applied = job_world.run(script, limit=2)
 
-    assert (second, applied.stopped, applied.failed) == (2, (1, 2), ())
-    assert [_item(job_world, n)[0] for n in (1, 2)] == ["Blocked", "Blocked"]
+    assert (second, applied.stopped, applied.failed) == (second, (1, second), ())
+    assert [_item(job_world, n)[0] for n in (1, second)] == ["Blocked", "Blocked"]
 
 
 def test_a_commit_the_agent_cannot_make_without_a_change_stops_at_the_group(
@@ -903,3 +927,243 @@ def test_a_claim_made_while_a_group_runs_beats_the_stop_of_that_group(
     assert (record.get("implement.stopped"), _owner(world)) == (None, ["owner/human"])
     assert status != "Ready"
     assert "human claimed the item" in comment
+
+
+# ── The model tier ladder (#3060) ─────────────────────────────────────────────────────────
+
+
+def test_the_record_itemizes_the_spend_under_the_tier_that_served_it(
+    job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    config(roadmap={"implement": {"ladder": {"edit": ["devops-coder", "devops-reasoning"]}}})
+    script = ModelScript(
+        ModelAPIError("example-model", "The provider broke."), *two_groups().replies
+    )
+
+    job_world.run(script)
+
+    _, record = _item(job_world)
+    spend = json.loads(record["implement.spend"] or "{}")
+    assert (set(spend["tiers"]), spend["tiers"]["devops-reasoning"]["input_tokens"] > 0) == (
+        {"devops-coder", "devops-reasoning"},
+        True,
+    )
+    assert spend["requests"] == sum(tier["requests"] for tier in spend["tiers"].values())
+
+
+def test_the_stop_comment_of_a_tier_change_names_the_tier_move(
+    job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    config(roadmap={"implement": {"ladder": {"edit": ["devops-coder", "devops-reasoning"]}}})
+    script = ModelScript(
+        ModelAPIError("example-model", "The provider broke."),
+        ModelHTTPError(
+            400, "example-model", {"message": "Ollama_chatException: failed to parse the reply"}
+        ),
+    )
+
+    applied = job_world.run(script)
+
+    comment = job_world.issue_comments()[0]
+    assert (applied.stopped, applied.failed) == ((1,), ())
+    assert "Action taken: `change_tier`, 1 tier move(s)." in comment
+    assert "Action left: `wait`" in comment
+
+
+def test_unticked_task_in_archived_change_stops_at_ready(job_world: JobWorld) -> None:
+    def unticked_archive(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        res = archive_effect(call)
+        assert call.cwd is not None
+        change = command_text(call).split()[-1]
+        target_tasks = (
+            call.cwd / "openspec" / "changes" / "archive" / f"2026-10-29-{change}" / "tasks.md"
+        )
+        content = target_tasks.read_text(encoding="utf-8")
+        target_tasks.write_text(
+            content.replace("- [x] Document", "- [ ] Document"), encoding="utf-8"
+        )
+        return res
+
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops openspec archive"),
+        ProcessAnswer(side_effect=unticked_archive),
+    )
+
+    applied = job_world.run(two_groups())
+
+    assert (applied.stopped, job_world.pull.ready_calls) == ((1,), [])
+    status, record = _item(job_world)
+    assert status == "Blocked"
+    assert record.get("implement.stopped") == "ready"
+    (comment,) = job_world.issue_comments()
+    assert "2" in comment
+    assert "Failure class: `plan_defect`" in comment
+
+
+def test_running_check_at_ready_stops_the_job(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement_run.read_check_runs",
+        lambda *_args, **_kwargs: CheckVerdictSummary(
+            items=[PRCheckItem(name="Lint", bucket=CheckBucket.PENDING)]
+        ),
+    )
+
+    applied = job_world.run(two_groups())
+
+    assert (applied.stopped, job_world.pull.ready_calls) == ((1,), [])
+    status, record = _item(job_world)
+    assert status == "Blocked"
+    assert record.get("implement.stopped") == "ready"
+    (comment,) = job_world.issue_comments()
+    assert "a check runs" in comment.lower()
+
+
+def test_unarchived_active_change_stops_at_ready(job_world: JobWorld) -> None:
+    """When the change folder was not archived and remains under openspec/changes/, ready refuses."""
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops openspec archive"),
+        ProcessAnswer(stdout="skipped archive\n"),
+    )
+    applied = job_world.run(two_groups())
+    assert (applied.stopped, job_world.pull.ready_calls) == ((1,), [])
+    status, record = _item(job_world)
+    assert status == "Blocked"
+    assert record.get("implement.stopped") == "ready"
+    (comment,) = job_world.issue_comments()
+    assert "not archived" in comment.lower()
+
+
+def test_missing_change_folder_stops_at_ready(job_world: JobWorld) -> None:
+    """When neither archive nor active change folder exists, ready refuses with change missing."""
+
+    def remove_change(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        assert call.cwd is not None
+        change = command_text(call).split()[-1]
+        source = call.cwd / "openspec" / "changes" / change
+        if source.exists():
+            shutil.rmtree(source)
+        return subprocess.CompletedProcess(call.argv, 0, stdout="removed\n")
+
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops openspec archive"),
+        ProcessAnswer(side_effect=remove_change),
+    )
+    applied = job_world.run(two_groups())
+    assert (applied.stopped, job_world.pull.ready_calls) == ((1,), [])
+    status, record = _item(job_world)
+    assert status == "Blocked"
+    assert record.get("implement.stopped") == "ready"
+    (comment,) = job_world.issue_comments()
+    assert "missing" in comment.lower()
+
+
+def test_implement_replaces_staging_labels_with_new_title_labels(job_world: JobWorld) -> None:
+    status = {
+        "state": "open",
+        "draft": True,
+        "merged": False,
+        "title": "docs(openspec): plan #1 Stop the job dropping a comment",
+        "head": {"ref": BRANCH, "sha": ""},
+        "base": {"ref": "main", "sha": "basesha"},
+        "labels": [
+            {"name": "type/docs"},
+            {"name": "scope/openspec"},
+            {"name": "scope/ai"},
+        ],
+    }
+    route_pull_status(job_world.api, status)
+    pr_issue = job_world.store._roadmap.issues[PULL]
+    job_world.store._roadmap.issues[PULL] = pr_issue.model_copy(
+        update={"labels": ("type/docs", "scope/openspec", "scope/ai")}
+    )
+
+    applied = job_world.run(two_groups())
+
+    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    assert set(job_world.store._roadmap.issues[PULL].labels) == {
+        "type/bug",
+        "scope/roadmap",
+        "scope/ai",
+    }
+    unlabels = [w for w in job_world.store._roadmap.job_writes if w.operation == "unlabel_issue"]
+    assert len(unlabels) == 2
+
+
+def test_implement_with_no_labels_held_sends_no_delete(job_world: JobWorld) -> None:
+    status = {
+        "state": "open",
+        "draft": True,
+        "merged": False,
+        "title": "docs(openspec): plan #1 Stop the job dropping a comment",
+        "head": {"ref": BRANCH, "sha": ""},
+        "base": {"ref": "main", "sha": "basesha"},
+        "labels": [],
+    }
+    route_pull_status(job_world.api, status)
+    pr_issue = job_world.store._roadmap.issues[PULL]
+    job_world.store._roadmap.issues[PULL] = pr_issue.model_copy(update={"labels": ()})
+
+    applied = job_world.run(two_groups())
+
+    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    unlabels = [w for w in job_world.store._roadmap.job_writes if w.operation == "unlabel_issue"]
+    assert unlabels == []
+
+
+def test_implement_refused_label_comments_on_pull_and_marks_ready(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devops_cli.exceptions.git import GitHubOperationError
+
+    status = {
+        "state": "open",
+        "draft": True,
+        "merged": False,
+        "title": "docs(openspec): plan #1 Stop the job dropping a comment",
+        "head": {"ref": BRANCH, "sha": ""},
+        "base": {"ref": "main", "sha": "basesha"},
+        "labels": [{"name": "type/docs"}],
+    }
+    route_pull_status(job_world.api, status)
+
+    def fail_label(number: int, label: str) -> None:
+        raise GitHubOperationError("refused label write", operation="label_issue")
+
+    monkeypatch.setattr(job_world.store, "label_issue", fail_label)
+
+    applied = job_world.run(two_groups())
+
+    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    assert len(job_world.pull.ready_calls) == 1
+    comments = job_world.sent("POST", f"issues/{PULL}/comments")
+    assert any(
+        "refused label write" in c.get("body", "") or "type/bug" in c.get("body", "")
+        for c in comments
+    )
+
+
+def test_implement_unauthenticated_label_error_stops_item(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devops_cli.exceptions.git import GitHubUnauthenticatedError
+
+    def unauth_label(number: int, label: str) -> None:
+        raise GitHubUnauthenticatedError("bad token", operation="label_issue")
+
+    monkeypatch.setattr(job_world.store, "label_issue", unauth_label)
+
+    with pytest.raises(GitHubUnauthenticatedError, match="bad token"):
+        job_world.run(two_groups())
+
+
+def test_planned_item_holds_labels_and_removes_none(planned_world: JobWorld) -> None:
+    applied = planned_world.run(two_groups())
+
+    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    assert set(planned_world.store._roadmap.issues[PULL].labels) == {"type/bug", "scope/roadmap"}
+    unlabels = [
+        w for w in planned_world.store._roadmap.job_writes if w.operation == "unlabel_issue"
+    ]
+    assert unlabels == []

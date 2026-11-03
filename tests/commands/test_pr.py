@@ -20,6 +20,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from devops_cli.roadmap.memory_store import (
+    InMemoryRoadmapStore,
+    encode_job_record,
+    with_record,
+)
+from devops_cli.roadmap.store import ImplementRecordKey, ItemField
 from tests.copilot_review_payloads import (
     CHANGES_RECOMMENDED,
     FIRST_REVIEW_ID,
@@ -31,7 +37,7 @@ from tests.copilot_review_payloads import (
     work_started,
 )
 from tests.support.fakes.clock import ClockFake
-from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.support.fakes.github import GitHubApiFake, github_json, route_file
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 _REPO = "dan-petty/devops-cli"
@@ -67,7 +73,10 @@ def _pr(**overrides: object) -> dict[str, Any]:
 
 
 def _threads_page(*threads: dict[str, Any]) -> str:
-    page = {"nodes": list(threads), "pageInfo": {"hasNextPage": False, "endCursor": None}}
+    page = {
+        "nodes": list(threads),
+        "pageInfo": {"hasNextPage": False, "endCursor": None},
+    }
     return json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": page}}}})
 
 
@@ -94,7 +103,8 @@ class _GitHub:
         self.pull(_pr())
         self.checks({"name": "CI", "status": "completed", "conclusion": "success"})
         self.answer(
-            "/status", ProcessAnswer(stdout=json.dumps({"state": "success", "statuses": []}))
+            "/status",
+            ProcessAnswer(stdout=json.dumps({"state": "success", "statuses": []})),
         )
         self.files(_ARCHIVE_704)
         self.answer(_THREADS, ProcessAnswer(stdout=_threads_page()))
@@ -121,7 +131,9 @@ class _GitHub:
 
     def files(self, *files: dict[str, str]) -> None:
         self.api.route(
-            "GET", f"/repos/{_REPO}/pulls/335/files?per_page=100", github_json(list(files))
+            "GET",
+            f"/repos/{_REPO}/pulls/335/files?per_page=100",
+            github_json(list(files)),
         )
 
     def threads(self, *threads: dict[str, Any]) -> None:
@@ -161,6 +173,7 @@ def _running(github: _GitHub) -> None:
             0,
             "PR #335 satisfies merge readiness: 0 conflicts, 0 unresolved threads.",
         ),
+        (lambda g: g.pull(_pr(body="x" * 1001)), (), 0, "1,001"),
         (
             lambda g: g.pull(_pr(merged=True, state="closed")),
             (),
@@ -260,6 +273,7 @@ def _running(github: _GitHub) -> None:
     ],
     ids=[
         "ready",
+        "long-body",
         "merged",
         "closed",
         "conflicts",
@@ -334,7 +348,10 @@ expiry = "2099-12-31"
 
 
 def test_a_pr_touching_a_suppressed_file_warns_and_still_passes(
-    cli: Callable[..., Any], github: _GitHub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    cli: Callable[..., Any],
+    github: _GitHub,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The warning names the review.toml suppression of the working directory's repository that
     the PR touches (#1150), for a person to re-check its reason, and blocks nothing."""
@@ -355,7 +372,12 @@ def test_a_pr_touching_a_suppressed_file_warns_and_still_passes(
 _REVIEWS = f"/repos/{_REPO}/pulls/335/reviews?per_page=100"
 _TIMELINE = f"/repos/{_REPO}/issues/335/timeline?per_page=100"
 _CHECK_RUNS = f"/repos/{_REPO}/commits/{_HEAD}/check-runs?per_page=100"
-_APPROVAL = {"id": 1, "user": {"login": "maintainer"}, "state": "APPROVED", "commit_id": _HEAD}
+_APPROVAL = {
+    "id": 1,
+    "user": {"login": "maintainer"},
+    "state": "APPROVED",
+    "commit_id": _HEAD,
+}
 
 
 @pytest.fixture
@@ -370,7 +392,16 @@ def monitored(github: _GitHub, clock: ClockFake) -> _GitHub:
 def _monitor(cli: Callable[..., Any], *flags: str) -> tuple[int, str]:
     """Run `devops pr monitor 335` and return its exit code and its output on one line."""
     result = cli(
-        "pr", "monitor", "335", "--repo", _REPO, "--interval", "60", "--settle-timeout", "0", *flags
+        "pr",
+        "monitor",
+        "335",
+        "--repo",
+        _REPO,
+        "--interval",
+        "60",
+        "--settle-timeout",
+        "0",
+        *flags,
     )
     return result.exit_code, " ".join(result.output.split())
 
@@ -406,7 +437,8 @@ def draft(github: _GitHub) -> _GitHub:
         )
 
     github.gh.answer(
-        lambda call: " ".join(call.argv).endswith(_PULL), ProcessAnswer(side_effect=pull)
+        lambda call: " ".join(call.argv).endswith(_PULL),
+        ProcessAnswer(side_effect=pull),
     )
     github.answer("pr ready", ProcessAnswer())
     return github
@@ -447,6 +479,184 @@ def test_pr_ready_exits_on_the_checks_of_the_verdict(
         setup(draft)
     exit_code, output = _ready(cli)
     assert (exit_code, _readied(draft)) == (code, marked), output
+
+
+_TASKS_UNTICKED = """# Tasks
+
+## 1. Group one
+- [x] 1.1 Done
+
+## 2. Group two
+- [ ] 2.1 Not done
+"""
+
+_TASKS_TICKED = """# Tasks
+
+## 1. Group one
+- [x] 1.1 Done
+
+## 2. Group two
+- [x] 2.1 Done
+"""
+
+
+def _set_draft_pull(draft: _GitHub, **overrides: Any) -> None:
+    def pull(_call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            [], 0, stdout=json.dumps(_pr(draft=not _readied(draft), **overrides))
+        )
+
+    draft.gh.answer(
+        lambda call: " ".join(call.argv).endswith(_PULL),
+        ProcessAnswer(side_effect=pull),
+    )
+
+
+def test_pr_ready_refuses_implement_pull_request_with_unticked_task_group(
+    cli: Callable[..., Any], draft: _GitHub, roadmap_store: InMemoryRoadmapStore
+) -> None:
+    """A draft on branch fix/7-x whose item holds implement.pr 335 and whose tasks.md at the
+    head has group 2 unticked: pr ready exits 1, prints group 2, and runs no gh pr ready."""
+    for i in range(1, 7):
+        roadmap_store.seed_issue(f"issue {i}")
+    roadmap_store.seed_issue(
+        "Issue 7",
+        body=with_record("", encode_job_record({}, {ImplementRecordKey.PR: "335"})),
+        fields={ItemField.PRIORITY: "P2-Medium"},
+    )
+    _set_draft_pull(
+        draft,
+        head={
+            "ref": "fix/7-x",
+            "sha": _HEAD,
+            "repo": {"full_name": _REPO, "default_branch": "main"},
+        },
+    )
+    archived_tasks_path = "openspec/changes/archive/2026-10-23-7-x/tasks.md"
+    draft.files({"filename": archived_tasks_path, "status": "added"})
+    route_file(draft.api, _REPO, archived_tasks_path, _HEAD, _TASKS_UNTICKED)
+
+    exit_code, output = _ready(cli)
+    assert exit_code == 1, output
+    assert "Task group 2, Group two, has a task that is not ticked." in output
+    assert not _readied(draft)
+
+
+def test_pr_ready_marks_complete_implement_pull_request(
+    cli: Callable[..., Any], draft: _GitHub, roadmap_store: InMemoryRoadmapStore
+) -> None:
+    """The same draft with every group ticked in the archived tasks.md: exit 0 and gh pr ready ran."""
+    for i in range(1, 7):
+        roadmap_store.seed_issue(f"issue {i}")
+    roadmap_store.seed_issue(
+        "Issue 7",
+        body=with_record("", encode_job_record({}, {ImplementRecordKey.PR: "335"})),
+        fields={ItemField.PRIORITY: "P2-Medium"},
+    )
+    _set_draft_pull(
+        draft,
+        head={
+            "ref": "fix/7-x",
+            "sha": _HEAD,
+            "repo": {"full_name": _REPO, "default_branch": "main"},
+        },
+    )
+    archived_tasks_path = "openspec/changes/archive/2026-10-23-7-x/tasks.md"
+    draft.files({"filename": archived_tasks_path, "status": "added"})
+    route_file(draft.api, _REPO, archived_tasks_path, _HEAD, _TASKS_TICKED)
+
+    exit_code, output = _ready(cli)
+    assert exit_code == 0, output
+    assert _readied(draft)
+
+
+def test_pr_ready_refused_item_read_stops_unless_forced(
+    cli: Callable[..., Any], draft: _GitHub, unreadable_github_roadmap: Any
+) -> None:
+    """A refused read of the item: exit 1 with the error, and with --force the pull request is marked."""
+    _set_draft_pull(
+        draft,
+        head={
+            "ref": "fix/7-x",
+            "sha": _HEAD,
+            "repo": {"full_name": _REPO, "default_branch": "main"},
+        },
+    )
+
+    exit_code, output = _ready(cli)
+    assert exit_code == 1, output
+    assert "HTTP 503: Service Unavailable" in output
+    assert not _readied(draft)
+
+    exit_code_forced, output_forced = _ready(cli, "--force")
+    assert exit_code_forced == 0, output_forced
+    assert _readied(draft)
+
+
+def test_pr_ready_marks_branch_with_no_issue_without_reading_item(
+    cli: Callable[..., Any], draft: _GitHub
+) -> None:
+    """A branch that names no issue: exit 0 with no read of the item."""
+    _set_draft_pull(
+        draft,
+        head={
+            "ref": "feat/no-issue-branch",
+            "sha": _HEAD,
+            "repo": {"full_name": _REPO, "default_branch": "main"},
+        },
+    )
+
+    exit_code, output = _ready(cli)
+    assert exit_code == 0, output
+    assert _readied(draft)
+
+
+def test_check_readiness_adds_readiness_blocker_when_draft_readiness_refuses(
+    cli: Callable[..., Any], github: _GitHub, roadmap_store: InMemoryRoadmapStore
+) -> None:
+    """When draft readiness refuses (e.g. unticked task group), check-readiness adds a blocker naming it."""
+    for i in range(1, 7):
+        roadmap_store.seed_issue(f"issue {i}")
+    roadmap_store.seed_issue(
+        "Issue 7",
+        body=with_record("", encode_job_record({}, {ImplementRecordKey.PR: "335"})),
+        fields={ItemField.PRIORITY: "P2-Medium"},
+    )
+    github.pull(
+        _pr(
+            draft=True,
+            head={
+                "ref": "fix/7-x",
+                "sha": _HEAD,
+                "repo": {"full_name": _REPO, "default_branch": "main"},
+            },
+        )
+    )
+    archived_tasks_path = "openspec/changes/archive/2026-10-23-7-x/tasks.md"
+    github.files({"filename": archived_tasks_path, "status": "added"})
+    route_file(github.api, _REPO, archived_tasks_path, _HEAD, _TASKS_UNTICKED)
+
+    exit_code, output = _readiness(cli, "--allow-draft")
+    assert exit_code == 1, output
+    assert "PR #335 is not ready: Task group 2, Group two, has a task that is not ticked." in output
+
+
+def test_check_readiness_adds_readiness_blocker_when_reading_draft_fails(
+    cli: Callable[..., Any], github: _GitHub, unreadable_github_roadmap: Any
+) -> None:
+    """When reading draft fails with an error, check-readiness adds an unread blocker."""
+    github.pull(
+        _pr(
+            head={
+                "ref": "fix/7-x",
+                "sha": _HEAD,
+                "repo": {"full_name": _REPO, "default_branch": "main"},
+            },
+        )
+    )
+    exit_code, output = _readiness(cli)
+    assert exit_code == 1, output
+    assert "PR #335 is not ready: the roadmap item could not be read" in output
 
 
 @pytest.mark.parametrize(
@@ -536,7 +746,11 @@ def test_pr_ready_reports_a_draft_that_is_already_ready(
     cli: Callable[..., Any], github: _GitHub
 ) -> None:
     exit_code, output = _ready(cli)
-    assert (exit_code, _readied(github), "already marked ready for review" in output) == (
+    assert (
+        exit_code,
+        _readied(github),
+        "already marked ready for review" in output,
+    ) == (
         0,
         False,
         True,
@@ -552,7 +766,9 @@ def test_pr_ready_reports_a_draft_that_is_already_ready(
             id="rate-limit",
         ),
         pytest.param(
-            "gh: Too Many Requests (HTTP 429)", "gh: Too Many Requests (HTTP 429)", id="429"
+            "gh: Too Many Requests (HTTP 429)",
+            "gh: Too Many Requests (HTTP 429)",
+            id="429",
         ),
         pytest.param(
             "gh: Please retry your request again later. (HTTP 403)",
@@ -592,7 +808,15 @@ def test_the_monitor_prints_its_result_in_each_format_with_thread_bodies_masked(
     thread["comments"]["nodes"][0]["body"] = f"Token leaked: {_TOKEN} in config"
     monitored.threads(thread)
     result = cli(
-        "pr", "monitor", "335", "--repo", _REPO, "--settle-timeout", "0", "--format", output_format
+        "pr",
+        "monitor",
+        "335",
+        "--repo",
+        _REPO,
+        "--settle-timeout",
+        "0",
+        "--format",
+        output_format,
     )
     exit_code = json.loads(result.output)["exit_code"] if output_format == "json" else None
     assert (
@@ -618,7 +842,15 @@ def test_an_unreadable_copilot_state_is_a_blocker_once_the_checks_settle(
     """A Copilot state the monitor cannot read is no proof that Copilot asked for nothing."""
     monitored.api.route("GET", _TIMELINE, github_json({"message": "rate limit"}, status=403))
     result = cli(
-        "pr", "monitor", "335", "--repo", _REPO, "--settle-timeout", "0", "--format", "json"
+        "pr",
+        "monitor",
+        "335",
+        "--repo",
+        _REPO,
+        "--settle-timeout",
+        "0",
+        "--format",
+        "json",
     )
     copilot = json.loads(result.output)["status"]["copilot_status"]
     assert (result.exit_code, copilot["state"], bool(copilot["unread_reason"])) == (
@@ -646,7 +878,12 @@ def _copilot_passes(github: _GitHub, *, second_body: str, then: list[object]) ->
     [
         pytest.param(NO_CHANGES, [], False, 0, "READY FOR MERGING", id="ready"),
         pytest.param(
-            NO_CHANGES, [work_started()], False, 3, "Copilot review still active", id="third-pass"
+            NO_CHANGES,
+            [work_started()],
+            False,
+            3,
+            "Copilot review still active",
+            id="third-pass",
         ),
         pytest.param(
             CHANGES_RECOMMENDED,
@@ -656,7 +893,14 @@ def _copilot_passes(github: _GitHub, *, second_body: str, then: list[object]) ->
             "Copilot review requested changes",
             id="unresolved-thread",
         ),
-        pytest.param(CHANGES_RECOMMENDED, [], False, 0, "READY FOR MERGING", id="changes-resolved"),
+        pytest.param(
+            CHANGES_RECOMMENDED,
+            [],
+            False,
+            0,
+            "READY FOR MERGING",
+            id="changes-resolved",
+        ),
     ],
 )
 def test_the_monitor_reads_1283s_recorded_copilot_passes(
