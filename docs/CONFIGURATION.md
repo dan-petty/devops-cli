@@ -268,7 +268,7 @@ roadmap configuration settings.
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
-| `alternatives` | `AlternativesConfig` | `limit=5 recheck_days=30 retry_days=3` | - | - |
+| `alternatives` | `AlternativesConfig` | `limit=5 first_pass_limit=20 recheck_days=30 retry_days=3` | - | - |
 | `stage` | `RoadmapStageConfig` | `filter=['status=ready'] limit=3 step_tokens=64000 toolset='extended'` | - | - |
 | `implement` | `RoadmapImplementConfig` | `in_runner=False repair_rounds=3 request_timeout_seconds=1200 command_timeout_seconds=1800 monitor_timeout_seconds=3600 deadline_stall_seconds=4200 deadline_extension_seconds=5400 deadline_ceiling_seconds=14400` | - | - |
 
