@@ -21,8 +21,13 @@ from collections.abc import Sequence
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Final
 
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement_shell_policy import NEGATIVE_SEARCH_WORD, verification_problem
+from devops_cli.roadmap.implement_shell_policy import (
+    NEGATIVE_SEARCH_WORD,
+    shown,
+    verification_problem,
+)
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stage_change import StageGroup
@@ -41,18 +46,19 @@ def _verify_problems(number: int, command: str) -> list[str]:
     form that the step refuses gets the reason of the step. A command with both faults gets both
     problems, as the job asks the model once."""
     command = command.strip()
+    named = shown(command, CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS)
     texts = MESSAGES.roadmap
     problems: list[str] = []
     if "`" in command:
-        problems.append(texts.stage_problem_verify_backtick.format(group=number, command=command))
+        problems.append(texts.stage_problem_verify_backtick.format(group=number, command=named))
     first = command.split(maxsplit=1)[0] if command else ""
     if first != NEGATIVE_SEARCH_WORD and not (
         command == _VERIFY_PREFIX or command.startswith(f"{_VERIFY_PREFIX} ")
     ):
-        problems.append(texts.stage_problem_verify.format(group=number, command=command))
+        problems.append(texts.stage_problem_verify.format(group=number, command=named))
     elif (reason := verification_problem(command)) is not None:
         problems.append(
-            texts.stage_problem_verify_run.format(group=number, command=command, reason=reason)
+            texts.stage_problem_verify_run.format(group=number, command=named, reason=reason)
         )
     return problems
 

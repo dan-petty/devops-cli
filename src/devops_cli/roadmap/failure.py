@@ -108,6 +108,23 @@ _EXIT_STATUS: Final[Mapping[int, FailureClass]] = MappingProxyType(
 _FLAGS = re.IGNORECASE | re.MULTILINE
 
 
+def _text_around(template: str, *fields: str) -> str:
+    """A pattern for the text of `template`, with `.*` for each of `fields` and the text between
+    the fields kept as it is. The rule then follows the message and cannot drift from it."""
+    pattern = re.escape(template)
+    for name in fields:
+        pattern = pattern.replace(re.escape(f"{{{name}}}"), ".*", 1)
+    return pattern
+
+
+# A verification command that the step refuses: its message names the command and then the reason,
+# and the reason may list `mypy` and `ruff`, so this rule comes before the rules for a type check
+# (#3263).
+_REFUSED_COMMAND: Final[str] = _text_around(
+    MESSAGES.roadmap.implement_stop_command_refused, "command", "reason"
+)
+
+
 def _rule(klass: FailureClass, pattern: str) -> tuple[FailureClass, re.Pattern[str]]:
     return klass, re.compile(pattern, _FLAGS)
 
@@ -144,8 +161,8 @@ _CAUSE_RULES: Final[tuple[tuple[FailureClass, re.Pattern[str]], ...]] = (
     # command (#2735). "Refused commands: 0" is a count of none.
     _rule(
         FailureClass.REFUSED_TOOL,
-        r"exceeded max retries|Refused commands: (?!0\b)|command \S+ is not allowed"
-        r"|refused by (the )?policy",
+        r"exceeded max retries|Refused commands: (?!0\b)|refused by (the )?policy"
+        f"|{_REFUSED_COMMAND}",
     ),
 )
 
