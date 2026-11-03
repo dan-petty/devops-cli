@@ -135,6 +135,7 @@ from devops_cli.roadmap.implement_trace import (
     last_failing_command,
     summary_table,
 )
+from devops_cli.roadmap.pull_form import title_problems
 from devops_cli.roadmap.pull_labels import (
     add_pull_labels,
     declared_labels,
@@ -915,11 +916,12 @@ class _ItemRun:
         the archive. A draft that GitHub refuses takes the branch off `origin` again, so no branch
         stays without a pull request, and stops the item with nothing left to push."""
         texts = MESSAGES.roadmap
+        title = self._delivery_title()
         self._git("push", "-u", "origin", self.branch)
         try:
             created = get_github_session().client.create_draft_pull(
                 self.repo,
-                title=self._delivery_title(),
+                title=title,
                 body=texts.implement_pull_body_draft.format(number=self.number),
                 head=self.branch,
                 base=self.default,
@@ -936,9 +938,21 @@ class _ItemRun:
 
     def _delivery_title(self) -> str:
         """The title of the pull request: the title of the issue, with a scope that
-        `.github/labels.yml` declares on the default branch and no other (#2800)."""
+        `.github/labels.yml` declares on the default branch and no other (#2800). The check
+        `Semantic PR title` counts the summary in UTF-16 units, so a long summary stops the item
+        before the job writes a title that the check refuses (#3292)."""
         declared = declared_labels(self.store, ref=None)
-        return delivery_title(self.target.item.title, declared)
+        title = delivery_title(self.target.item.title, declared)
+        problems = title_problems(title, declared)
+        if problems:
+            raise _StopError(
+                self.step,
+                MESSAGES.roadmap.implement_stop_title_refused.format(
+                    problems=" ".join(problems), title=title
+                ),
+                push=False,
+            )
+        return title
 
     def _archived_name(self) -> str:
         """The folder `openspec archive` made for the change: `<date>-<issue>-<slug>`."""

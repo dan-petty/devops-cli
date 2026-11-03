@@ -2793,6 +2793,10 @@ class RoadmapMessages:
         "GitHub did not open the draft pull request of `{branch}`: {output}. The job removed the "
         "branch from origin."
     )
+    implement_stop_title_refused: str = (
+        "The title of the pull request does not pass the check `Semantic PR title`: {problems} "
+        "The title is `{title}`."
+    )
     implement_step_needs_item: str = "A step needs --item with --group."
     implement_step_job_options: str = (
         "--filter, --plan, --confirm and --why are options of the job. With --group, the command runs "

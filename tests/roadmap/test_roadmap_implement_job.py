@@ -262,6 +262,27 @@ def test_the_title_of_the_pull_request_has_no_scope_that_the_labels_file_lacks(
     assert patched["title"] == "fix: the job drops a comment"
 
 
+def test_a_title_that_the_check_refuses_stops_the_item_before_the_job_writes_it(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The job keeps the whole summary of the issue (#3200), and the check limits the summary to
+    60 UTF-16 units (#3292). A long summary stops the item, so no title reaches the check."""
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement_run.delivery_title", lambda *_args: "Add a flag: "
+    )
+
+    applied = job_world.run(two_groups())
+
+    status, record = _item(job_world)
+    assert (applied.stopped, status, record.get("implement.stopped")) == (
+        (1,),
+        "Blocked",
+        "pull request",
+    )
+    assert job_world.sent("PATCH", f"pulls/{PULL}") == []
+    assert "not in the form" in job_world.issue_comments()[0]
+
+
 def test_the_changes_of_the_archive_and_the_documents_are_in_the_pushed_tree(
     job_world: JobWorld,
 ) -> None:
