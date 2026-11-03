@@ -655,6 +655,8 @@ class _Planner:
         self._today: date = datetime.now(UTC).date()
         # Whether the model split the groups of the item in hand: it does so once for each item.
         self._split_asked = False
+        # The lines of the premise probe of the item in hand, for the quote rule of `feasibility`.
+        self._probe_lines: tuple[str, ...] = ()
 
     def plan(self, target: StageTarget) -> StagedChange | OverBudget | PremiseFailed:
         """The change of `target`, the group that stops it, or the evidence that its premise is
@@ -765,9 +767,11 @@ class _Planner:
             "capabilities": [self._specs[name].request_entry(name) for name in sorted(self._specs)],
             "budget": self._budget,
         }
-        probes = probe_premise(self._source, self._sha, item.body).text
-        if probes:
-            request["probes"] = probes
+        probe = probe_premise(self._source, self._sha, item.body)
+        # The checks of the reply read the same lines as the model (#3200): `feasibility` quotes one.
+        self._probe_lines = probe.lines
+        if probe.text:
+            request["probes"] = probe.text
         return request
 
     def _ask[M: BaseModel](self, schema: type[M], task: str, request: Mapping[str, Any]) -> M:
@@ -789,6 +793,7 @@ class _Planner:
             self._tree_of(target, proposal),
             requirements=self._requirements,
             issue_body=target.item.body,
+            probes=self._probe_lines,
         )
         if problems:
             return _Refused(" ".join(problems), proposal)

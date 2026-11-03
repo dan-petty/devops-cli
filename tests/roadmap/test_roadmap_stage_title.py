@@ -272,17 +272,13 @@ def test_the_delivery_title_is_the_title_of_the_issue() -> None:
     )
 
 
-def test_the_delivery_title_keeps_the_type_and_the_scope_and_cuts_the_summary_at_a_word() -> None:
-    title = delivery_title(
-        "perf(roadmap): " + "read the tree of the default branch once " * 3, DECLARED
-    )
+def test_the_delivery_title_keeps_the_type_and_the_scope_and_the_whole_summary() -> None:
+    summary = "read the tree of the default branch once " * 3
+    title = delivery_title("perf(roadmap): " + summary, DECLARED)
 
-    head, _, summary = title.partition(": ")
-    assert (head, len(summary) <= SUMMARY_MAX_CHARS, summary.endswith("...")) == (
-        "perf(roadmap)",
-        True,
-        True,
-    )
+    assert title == f"perf(roadmap): {summary.strip()}"
+    assert len(summary.strip()) > SUMMARY_MAX_CHARS
+    assert not title.endswith("...")
 
 
 def test_the_delivery_title_drops_the_mark_of_a_breaking_change() -> None:
