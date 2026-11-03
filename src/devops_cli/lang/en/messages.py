@@ -3172,6 +3172,10 @@ class RoadmapMessages:
     )
     stage_blank_text: str = "A task text holds only full stops and spaces."
     stage_bad_creates: str = "'{path}' is in creates, and it is not in changes."
+    stage_bad_living_spec: str = (
+        "'{path}' is under openspec/specs/, and only openspec archive writes living specs. "
+        "Name a file of the change folder instead."
+    )
     # The implement step reads a verification command from the line `Verification:` under a task,
     # and from no other text (`step_files`). So a task is its work, a line break, and that line.
     stage_task_test: str = "{test}\n  - Verification: `{verify}` fails on the base"
