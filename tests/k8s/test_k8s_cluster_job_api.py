@@ -341,3 +341,52 @@ def test_a_refused_patch_is_an_error_that_names_the_action_and_the_status(
 
     with pytest.raises(ClusterJobError, match="patch Job in namespace devops: HTTP 403 Forbidden"):
         ClusterJobs().patch_job("devops-cli-runner-a", deadline=5400)
+
+
+DEPLOYMENTS = ("apps", "v1", "deployments")
+SERVICE_DIGEST = "sha256:" + "5" * 64
+
+
+def _deployment(image: str) -> dict[str, Any]:
+    return {
+        "metadata": {"name": "roadmap-service", "namespace": "devops"},
+        "spec": {"template": {"spec": {"containers": [{"name": "service", "image": image}]}}},
+    }
+
+
+def test_the_digest_of_a_deployment_is_the_text_after_the_at_of_its_container_image(
+    cluster: FakeCluster,
+) -> None:
+    image = f"ghcr.io/example/devops-cli/service@{SERVICE_DIGEST}"
+    cluster.custom_objects.objects[DEPLOYMENTS] = [_deployment(image)]
+
+    assert ClusterJobs().deployment_digest("roadmap-service", "service") == SERVICE_DIGEST
+
+
+def test_an_image_with_no_digest_gives_none(cluster: FakeCluster) -> None:
+    cluster.custom_objects.objects[DEPLOYMENTS] = [
+        _deployment("ghcr.io/example/devops-cli/service")
+    ]
+
+    assert ClusterJobs().deployment_digest("roadmap-service", "service") is None
+
+
+def test_a_missing_deployment_and_a_missing_container_raise(cluster: FakeCluster) -> None:
+    with pytest.raises(ClusterJobError, match="Deployment devops/roadmap-service not found"):
+        ClusterJobs().deployment_digest("roadmap-service", "service")
+
+    cluster.custom_objects.objects[DEPLOYMENTS] = [_deployment("ghcr.io/e/s@" + SERVICE_DIGEST)]
+    with pytest.raises(ClusterJobError, match="no container sidecar"):
+        ClusterJobs().deployment_digest("roadmap-service", "sidecar")
+
+
+def test_a_refused_read_of_a_deployment_raises(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(*_: Any, **__: Any) -> Any:
+        raise api_exception(403, "Forbidden")
+
+    monkeypatch.setattr(cluster.custom_objects, "get_namespaced_custom_object", refuse)
+
+    with pytest.raises(ClusterJobError, match="read Deployment in namespace devops: HTTP 403"):
+        ClusterJobs().deployment_digest("roadmap-service", "service")

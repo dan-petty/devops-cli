@@ -244,6 +244,10 @@ class StoreRequests:
         args = gh.label_args(self.repo, _number(subject), _p("label"))
         return [self.gh(args, "label", subject=subject)]
 
+    def unlabel_issue(self, subject: str) -> Requests:
+        args = gh.unlabel_args(self.repo, _number(subject), _p("label"))
+        return [self.gh(args, "unlabel", subject=subject)]
+
     def create_issue(self, subject: str, labels: Sequence[str] = ()) -> Requests:
         args = gh.create_issue_args(self.repo, _p("title"), _p("body"), labels)
         return [self.gh(args, "create_issue", subject=subject)]
@@ -552,6 +556,8 @@ def stage_requests(
         git("commit", tree, "commit", "-q", "-m", _p("title"), repeat=each_item),
         git("push", tree, "push", "-q", "-u", "origin", branch, repeat=each_item),
         other("REST write", "pull", "POST", pulls),
+        *within(store.file(CONST_ROADMAP_LABELS_PATH, None), repeat=each_item),
+        *within(store.label_issue(_p("pull")), repeat=each_item),
         git(
             "delete_failed",
             clone,
@@ -647,7 +653,8 @@ def implement_requests(
             f"origin/main..origin/{branch}",
             when=cond["staged"],
         ),
-        other("GET", "pull_status", "GET", pulls, when=cond["staged"]),
+        other("GET", "pull", "GET", pulls, when=cond["staged"]),
+        *store.file(CONST_ROADMAP_LABELS_PATH, None),
     ]
     writes = [
         git(
@@ -678,7 +685,11 @@ def implement_requests(
         *within(store.set_marks(target), cond["clear_stop"], repeat=each_item),
         git("rebase", tree, "rebase", "origin/main"),
         other("model", "model_step", "model", repeat=each_group),
+        other("model", "model_split", "model", when=cond["split"], repeat=each_item),
         git("commit", tree, "commit", "-m", _p("title"), repeat=each_group),
+        git("amend", tree, "commit", "-m", _p("title"), when=cond["amend"], repeat=each_group),
+        *within(store.comment(target), cond["return"], repeat=each_item),
+        *within(store.set_field(target, "Status"), cond["return"], repeat=each_item),
         other("process", "docs", "uv", "run", "devops", "docs", "generate", "--sync-readme"),
         git("commit", tree, "commit", "-m", _p("title"), when=cond["docs_commit"]),
         other("process", "archive", "uv", "run", "devops", "openspec", "archive", _p("change")),
@@ -702,6 +713,8 @@ def implement_requests(
         ),
         other("REST write", "body", "PATCH", pulls),
         other("REST write", "pull_comment", "POST", f"{issues}/{_p('pull')}/comments"),
+        *within(store.label_issue(_p("pull")), repeat=each_item),
+        *within(store.unlabel_issue(_p("pull")), cond["unlabel"], repeat=each_item),
         other("process", "watch", "gh", "pr", "checks", _p("pull")),
         other("process", "run_log", "gh", "run", "view", "--log-failed", when=cond["run_log"]),
         other("model", "model_fix", "model", when=cond["model_fix"]),
@@ -714,13 +727,15 @@ def implement_requests(
 
 
 def explain_requests(
-    repo: str, *, item: int
+    repo: str, *, item: int, trace: bool = False
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap explain` reads, in order (#2911). It makes no write and no model call.
     It reads what the plan of the implement job reads, which covers the clone, the issues, the
     branches and the change folders, and the open issue that a stage item depends on. The
     command reads the heads of `origin` and the plans once and gives them to both jobs, so the list
-    holds each read once."""
+    holds each read once. With `trace` it reads the one issue and nothing else (#3032)."""
+    if trace:
+        return tuple(StoreRequests(repo).issue(f"#{item}")), ()
     reads, _ = implement_requests(repo, item=item)
     blockers = within(
         StoreRequests(repo).issue(_p("blocker")), repeat=MESSAGES.roadmap.plan_repeat["blocker"]

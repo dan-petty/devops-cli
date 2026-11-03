@@ -40,3 +40,63 @@ No readiness command SHALL block a pull request because its branch is behind its
 #### Scenario: The branch is behind
 - **WHEN** GitHub reports `mergeable: true` and `mergeable_state: behind`, and nothing else blocks
 - **THEN** the verdict has no blocker
+
+### Requirement: pr ready asks the readiness function
+`devops pr ready` SHALL ask `draft_readiness` for the pull request, with the word of the author given. It SHALL exit 1 for a refusal and name each unticked task group of an implement pull request, and SHALL exit 8 for a wait. `--force` SHALL skip the question. A read of the item that fails SHALL stop the command with exit 1 and the error.
+
+#### Scenario: A partial implement pull request
+- **WHEN** a person runs `devops pr ready` for a draft whose item holds `implement.pr` of it and whose `tasks.md` has an unticked group 2
+- **THEN** the command exits 1, prints group 2, and marks nothing
+
+#### Scenario: The exit codes of the checks stay
+- **WHEN** the draft has a running check, a failed check, or unread checks
+- **THEN** the command exits 8, 1 and 1
+
+#### Scenario: A branch with no item
+- **WHEN** the head branch names no issue and the checks pass
+- **THEN** the command marks the pull request ready as before
+
+#### Scenario: The record cannot be read
+- **WHEN** GitHub refuses the read of the item that the head branch names
+- **THEN** the command exits 1 with the error, and `--force` marks the pull request ready
+
+### Requirement: check-readiness names the unticked group
+`devops pr check-readiness` SHALL add one blocker and exit non-zero when `draft_readiness` refuses an implement pull request, and the blocker SHALL name each unticked task group. It SHALL add none for a pull request with no recorded item. A read of the item that fails SHALL be a blocker that names the error.
+
+#### Scenario: A partial implement pull request blocks
+- **WHEN** a user runs `devops pr check-readiness` for an implement pull request with an unticked group
+- **THEN** the command exits non-zero and prints the name of the group
+
+#### Scenario: A complete implement pull request
+- **WHEN** every group of the archived `tasks.md` is ticked and the other rules pass
+- **THEN** the command adds no readiness blocker
+
+#### Scenario: A pull request with no recorded item
+- **WHEN** the head branch names no issue
+- **THEN** the command adds no readiness blocker and reads no item
+
+### Requirement: A long pull request body gets a warning
+`devops pr check-readiness` SHALL print one warning when the body of the pull request, without its trailer lines, is longer than 1,000 characters. The warning SHALL name the length, the limit and `CONTRIBUTING.md` section 4. A trailer line is a line that starts with `Closes`, `Change:`, `Fail-to-pass:`, `Co-authored-by:` or `Signed-off-by:`, and it SHALL NOT count toward the length. A body that GitHub reports as `null` SHALL count as empty.
+
+#### Scenario: The body is at the limit
+- **WHEN** the body before the trailer lines is exactly 1,000 characters
+- **THEN** the verdict holds no advisory
+
+#### Scenario: The body is over the limit
+- **WHEN** the body before the trailer lines is 1,001 characters
+- **THEN** the verdict holds one WARNING advisory that names 1,001, 1,000 and `CONTRIBUTING.md` section 4
+
+#### Scenario: Trailer lines do not count
+- **WHEN** the body is 1,000 characters of text followed by a `Closes` line, a `Change:` line, a `Fail-to-pass:` line, a `Co-authored-by:` line and a `Signed-off-by:` line
+- **THEN** the verdict holds no advisory
+
+#### Scenario: The body is empty
+- **WHEN** the REST payload of the pull request has `body` set to `null`
+- **THEN** the verdict holds no advisory
+
+### Requirement: The body warning blocks nothing
+The warning for a long body SHALL NOT change the exit code of `devops pr check-readiness`.
+
+#### Scenario: A long body and no blocker
+- **WHEN** the body is 1,001 characters and nothing else blocks the pull request
+- **THEN** `devops pr check-readiness` prints the warning and exits 0

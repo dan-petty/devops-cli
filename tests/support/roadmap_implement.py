@@ -45,8 +45,12 @@ BODY = (
 
 # The labels file of the repository: it declares the scope of `TITLE`, and no other scope.
 LABELS_FILE = """\
+- name: type/docs
+  color: 0075CA
 - name: type/bug
   color: D73A4A
+- name: scope/openspec
+  color: 0E8A16
 - name: scope/roadmap
   color: 0E8A16
 """
@@ -75,7 +79,15 @@ SHOUT = '"""Shout."""\n\n\ndef shout(text: str) -> str:\n    """Shout `text`."""
 SHOUT_DOC = "# Context\nThe shout function upper-cases a text.\n"
 TASKS_PATH = f"{CHANGE_DIR}/tasks.md"
 
-OPEN_DRAFT = {"state": "open", "draft": True, "merged": False}
+OPEN_DRAFT = {
+    "state": "open",
+    "draft": True,
+    "merged": False,
+    "title": "docs(openspec): plan #1 Stop the job dropping a comment",
+    "head": {"ref": BRANCH, "sha": ""},
+    "base": {"ref": "main", "sha": ""},
+    "labels": [],
+}
 
 
 def branch_of(number: int) -> str:
@@ -436,7 +448,13 @@ class JobWorld:
         )
 
     def run(
-        self, script: ModelScript, *, limit: int = 1, item: int | None = None
+        self,
+        script: ModelScript,
+        *,
+        limit: int = 1,
+        item: int | None = None,
+        splitter: Any = None,
+        window: int = WINDOW,
     ) -> ImplementApplied:
         """Plan and apply a run with the scripted model."""
         return apply_implement(
@@ -444,7 +462,8 @@ class JobWorld:
             self.plan(item=item, limit=limit),
             source=self.repo.clone,
             model=script.model(),
-            window=WINDOW,
+            window=window,
+            splitter=splitter,
         )
 
     def issue_comments(self, number: int = 1) -> list[str]:
@@ -513,6 +532,9 @@ def _world(
         )
     roadmap_store.seed_file(".github/labels.yml", LABELS_FILE)
     seed_staged(roadmap_store, record=not planned)
+    for i in range(2, 5):
+        roadmap_store.seed_issue(f"placeholder {i}")
+    roadmap_store.seed_pull("staging PR", head_ref=BRANCH, draft=True)
     return JobWorld(repo, roadmap_store, api, programs, PullFake(api, programs, repo), clock)
 
 

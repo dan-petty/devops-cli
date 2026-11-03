@@ -8,11 +8,13 @@ A label goes on through the issues labels endpoint, which GitHub also uses for p
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import yaml
 from pydantic import ValidationError
 
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
 from devops_cli.github.labels import LabelSpec
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import store as roadmap_store
@@ -42,23 +44,26 @@ def declared_labels(store: roadmap_store.RoadmapStore, *, ref: str | None) -> tu
     return tuple(spec.name for spec in declared_specs(store, ref=ref))
 
 
-def read_title_labels(repo: str, title: str, *, ref: str | None) -> TitleLabels:
-    """The labels that `title` gives, checked against `.github/labels.yml` of `repo` on `ref` (the
+def read_title_labels(
+    store: roadmap_store.RoadmapStore, title: str, *, ref: str | None
+) -> TitleLabels:
+    """The labels that `title` gives, checked against `.github/labels.yml` of `store` on `ref` (the
     default branch when None). A file that is missing, or is no list of label specs, or a read that
     fails, raises `GitHubOperationError` that names the file."""
-    declared = declared_labels(roadmap_store.get_roadmap_store(repo), ref=ref)
+    declared = declared_labels(store, ref=ref)
     return title_labels(title, declared)
 
 
-def add_pull_labels(repo: str, pull: int, labels: tuple[str, ...]) -> None:
-    """Add each of `labels` to pull request `pull` of `repo`. Every label is tried. When any
+def add_pull_labels(store: roadmap_store.RoadmapStore, pull: int, labels: tuple[str, ...]) -> None:
+    """Add each of `labels` to pull request `pull` of `store`. Every label is tried. When any
     fails, the error names the labels that were not added and the reasons, and the labels that
     were added stay."""
-    store = roadmap_store.get_roadmap_store(repo)
     refused: dict[str, str] = {}
     for label in labels:
         try:
             store.label_issue(pull, label)
+        except GitHubUnauthenticatedError:
+            raise
         except GitHubOperationError as exc:
             refused[label] = str(exc)
     if refused:
@@ -68,3 +73,38 @@ def add_pull_labels(repo: str, pull: int, labels: tuple[str, ...]) -> None:
             operation="pr.labels",
             details={"pull": pull, "labels": ", ".join(refused)[:256]},
         )
+
+
+def remove_pull_labels(
+    store: roadmap_store.RoadmapStore, pull: int, labels: tuple[str, ...]
+) -> None:
+    """Remove each of `labels` from pull request `pull` of `store`. Every label is tried. When any
+    fails, the error names the labels that were not removed and the reasons, and the labels that
+    were removed stay."""
+    refused: dict[str, str] = {}
+    for label in labels:
+        try:
+            store.unlabel_issue(pull, label)
+        except GitHubUnauthenticatedError:
+            raise
+        except GitHubOperationError as exc:
+            refused[label] = str(exc)
+    if refused:
+        reasons = "; ".join(dict.fromkeys(refused.values()))
+        raise GitHubOperationError(
+            MESSAGES.pr.labels_unremoved.format(labels=", ".join(refused), error=reasons),
+            operation="pr.labels",
+            details={"pull": pull, "labels": ", ".join(refused)[:256]},
+        )
+
+
+def stale_labels(
+    held: Sequence[str],
+    old: TitleLabels | Sequence[str],
+    new: TitleLabels | Sequence[str],
+) -> tuple[str, ...]:
+    """The held labels that `old` gave and `new` does not give, in the order of `held`, and none
+    of a label that `old` did not give."""
+    old_labels = set(old.labels if isinstance(old, TitleLabels) else old)
+    new_labels = set(new.labels if isinstance(new, TitleLabels) else new)
+    return tuple(label for label in held if label in old_labels and label not in new_labels)

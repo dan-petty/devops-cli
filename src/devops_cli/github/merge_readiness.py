@@ -33,7 +33,12 @@ from devops_cli.config.constants import (
 )
 from devops_cli.core.repo import find_repo_root
 from devops_cli.exceptions.git import GitHubOperationError
-from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, read_commit_checks
+from devops_cli.github.check_verdict import (
+    CheckBucket,
+    CheckVerdictSummary,
+    read_check_runs,
+    read_commit_checks,
+)
 from devops_cli.github.client import PullRequestFile
 from devops_cli.github.error_classifier import gh_http_status
 from devops_cli.github.pr_threads import (
@@ -88,9 +93,15 @@ class BlockerKind(StrEnum):
     THREADS = "threads"
     THREADS_UNREAD = "threads_unread"
     GROUNDING = "grounding"
+    READINESS = "readiness"
 
 
 CHECK_FAILURE_KINDS = frozenset({BlockerKind.CHECKS_FAILING, BlockerKind.CHECKS_UNREAD})
+
+# The most characters of a body before its trailers: what the squash commit keeps on `main`.
+_PR_BODY_MAX_CHARS = 1000
+# A line that starts with one of these is a trailer line that does not count toward the body.
+_TRAILER_PREFIXES = ("Closes", "Change:", "Fail-to-pass:", "Co-authored-by:", "Signed-off-by:")
 
 
 class Blocker(NamedTuple):
@@ -227,6 +238,25 @@ def _judge_draft(verdict: _Verdict, pr_data: dict[str, Any], pr_num: int, allow:
         )
 
 
+def _judge_body_length(verdict: _Verdict, pr_data: dict[str, Any], pr_num: int) -> None:
+    """Warn when the body, without its trailer lines, is longer than the limit (#2585).
+
+    The squash merge makes the body the commit message on `main`; the warning reaches the writer,
+    often an agent, before `devops pr ready`. It blocks nothing.
+    """
+    body = str(pr_data.get("body") or "")
+    text = "\n".join(
+        line for line in body.splitlines() if not line.startswith(_TRAILER_PREFIXES)
+    ).strip()
+    if len(text) <= _PR_BODY_MAX_CHARS:
+        return
+    verdict.warn(
+        MESSAGES.pr.pr_body_too_long.format(
+            number=pr_num, length=len(text), limit=_PR_BODY_MAX_CHARS
+        )
+    )
+
+
 def _judge_checks(
     verdict: _Verdict,
     head_sha: str,
@@ -235,12 +265,18 @@ def _judge_checks(
     repo_name: str,
     reads: _Reads,
 ) -> None:
-    """Failing or unread checks block; running ones block unless excused."""
+    """Failing or unread checks block; running ones block unless excused.
+
+    With `commit_statuses` off, the checks are the check runs only: a token without the `statuses`
+    permission reads them, and no request goes to the commit status endpoint (#2877)."""
     if not head_sha:
         return
-    checks = read_commit_checks(
-        owner, repo_name, head_sha, runner=reads.runner, session=reads.session
-    )
+    if reads.commit_statuses:
+        checks = read_commit_checks(
+            owner, repo_name, head_sha, runner=reads.runner, session=reads.session
+        )
+    else:
+        checks = read_check_runs(owner, repo_name, head_sha, session=reads.session)
     verdict.checks = checks
     if checks.unread_reason:
         verdict.block(
@@ -514,6 +550,7 @@ class _Reads:
     options: ReadinessOptions
     runner: GhRun
     session: GitHubSession | None
+    commit_statuses: bool = True
 
 
 def assess_merge_readiness(
@@ -526,6 +563,7 @@ def assess_merge_readiness(
     runner: GhRun = run_gh,
     session: GitHubSession | None = None,
     review_root: Path | None = None,
+    commit_statuses: bool = True,
 ) -> MergeReadiness:
     """Judge pull request `pr_num`, whose REST payload is `pr_data`, for merge readiness.
 
@@ -533,14 +571,16 @@ def assess_merge_readiness(
     where the item rules apply, the base's change directory and the issues the PR closes.
     `review_root` is the checkout whose review.toml suppressions the perimeter advisory reads;
     without it, the repository of the working directory, found only when the PR changes a file.
-    A merged PR is ready and nothing is read.
+    With `commit_statuses` off, the checks are the check runs only, for a token that holds no
+    `statuses` permission. A merged PR is ready and nothing is read.
     """
     if pr_data.get("merged") is True:
         return MergeReadiness()
-    reads = _Reads(options or ReadinessOptions(), runner, session)
+    reads = _Reads(options or ReadinessOptions(), runner, session, commit_statuses)
     verdict = _Verdict()
     _judge_mergeable(verdict, pr_data, pr_num, reads.options.allow_blocked_state)
     _judge_draft(verdict, pr_data, pr_num, reads.options.allow_draft)
+    _judge_body_length(verdict, pr_data, pr_num)
     head_sha = str(pr_data.get("head", {}).get("sha") or "")
     _judge_checks(verdict, head_sha, pr_num, owner, repo_name, reads)
     _judge_threads(verdict, pr_num, owner, repo_name, reads)
