@@ -249,10 +249,9 @@ def test_each_repair_round_after_the_push_is_in_a_comment_on_the_pull_request(
 
     comments = _comments(job_world)
     assert len(comments) == 3
-    assert "- fix (" not in comments[0]
+    assert "| fix |" not in comments[0]
     for comment in comments[1:]:
-        assert f"- fix (Make check {CHECK} pass): done" in comment
-        assert "0 repair rounds" in comment
+        assert "| fix | done | 1 |" in comment
         assert "scoped check static: passed" in comment
 
 

@@ -47,7 +47,7 @@ import subprocess
 import textwrap
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -117,6 +117,12 @@ from devops_cli.roadmap.implement_step import (
     find_change,
     run_fix_step,
     run_step,
+)
+from devops_cli.roadmap.implement_trace import (
+    ImplementTrace,
+    SummaryRow,
+    last_failing_command,
+    summary_table,
 )
 from devops_cli.roadmap.pull_labels import (
     add_pull_labels,
@@ -303,13 +309,15 @@ class _ItemRun:
     model: Any
     window: int
     default: str
-    step: str = ""
     change: str = ""
     outcomes: list[StepOutcome] = field(default_factory=list)
     # Every run of a scoped check (#3043), in order, the failed runs too, and the notes that say why
     # the tests check was narrower than the changed files.
     scoped: list[ScopedResult] = field(default_factory=list)
     scoped_notes: list[str] = field(default_factory=list)
+    # The trace of the run (#3032): the events of the steps and of the commands of the job.
+    trace: ImplementTrace = field(default_factory=ImplementTrace)
+    _step: str = field(default="", init=False, repr=False)
     # The draft pull request: the target's, or for a Planned item the one `_publish` opens.
     pull: int | None = field(init=False)
 
@@ -317,6 +325,16 @@ class _ItemRun:
         self.pull = self.target.pull
 
     # ── Small helpers ──
+
+    @property
+    def step(self) -> str:
+        """The step that runs now. It labels the events of the trace."""
+        return self._step
+
+    @step.setter
+    def step(self, value: str) -> None:
+        self._step = value
+        self.trace.step = value
 
     @property
     def number(self) -> int:
@@ -354,7 +372,9 @@ class _ItemRun:
             "sha": ImplementRecordKey.SHA,
             "spend": ImplementRecordKey.SPEND,
         }
-        self.store.set_marks(self._fresh(), {keys[name]: value for name, value in marks.items()})
+        written: dict[Any, str | None] = {keys[name]: value for name, value in marks.items()}
+        written[ImplementRecordKey.TRACE] = self.trace.encode()
+        self.store.set_marks(self._fresh(), written)
 
     def _program(self, argv: Sequence[str]) -> None:
         """Run a command of the project in the worktree, outside any agent shell. Raises
@@ -365,8 +385,10 @@ class _ItemRun:
         try:
             done = run_subprocess(list(argv), cwd=self.path, quiet=True, timeout=limit)
         except subprocess.TimeoutExpired as exc:
+            self.trace.check(shown, None)
             reason = texts.implement_stop_program_timeout.format(command=shown, seconds=limit)
             raise _StopError(self.step, reason) from exc
+        self.trace.check(shown, done.returncode)
         if done.returncode != 0:
             output = _tail(f"{done.stdout or ''}{done.stderr or ''}")
             reason = texts.implement_stop_program_failed.format(
@@ -401,7 +423,10 @@ class _ItemRun:
 
     def _start(self) -> None:
         self.step = MESSAGES.roadmap.implement_step_names["rebase"]
-        marks: dict[Any, str | None] = {ImplementRecordKey.BRANCH: self.branch}
+        marks: dict[Any, str | None] = {
+            ImplementRecordKey.BRANCH: self.branch,
+            ImplementRecordKey.TRACE: None,
+        }
         if self.pull is not None:
             marks[ImplementRecordKey.PR] = str(self.pull)
         if self.target.retry:
@@ -476,6 +501,7 @@ class _ItemRun:
                 model=self.model,
                 window=self.window,
                 hooks=self._hooks_config(),
+                trace=self.trace,
             )
             self.outcomes.append(outcome)
             if outcome.status is StepStatus.STOPPED:
@@ -524,6 +550,8 @@ class _ItemRun:
         checks = scoped_checks(self.default, tests.paths, config=self._hooks_config())
         results = run_scoped_checks(self.path, checks)
         self.scoped.extend(results)
+        for result in results:
+            self.trace.check(result.command, result.status)
         return next((result for result in results if not result.passed), None)
 
     def _scoped_checks(self) -> None:
@@ -649,15 +677,14 @@ class _ItemRun:
         return _Mark(len(self.outcomes), len(self.scoped), len(self.scoped_notes))
 
     def _comment(self, pull: int, since: _Mark) -> None:
-        """Comment on the pull request with the steps, the scoped runs and the notes that came
-        after `since`: the repair rounds are in the trace (#3043)."""
+        """Comment on the pull request with the table of the steps, the scoped runs and the notes
+        that came after `since`: the repair rounds are in the attempts of the table (#3043)."""
         texts = MESSAGES.roadmap
-        lines = [
-            *(self._outcome_line(outcome) for outcome in self.outcomes[since.outcomes :]),
-            *self._scoped_lines(since),
-        ]
+        table = summary_table(self._row(outcome) for outcome in self.outcomes[since.outcomes :])
+        lines = "\n".join(self._scoped_lines(since))
+        body = "\n\n".join(part for part in (table, lines) if part)
         comment = texts.implement_pull_comment.format(
-            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, lines="\n".join(lines) or "-"
+            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, lines=body or "-"
         )
         get_github_session().client.comment_on_pull(self.repo, pull, comment)
 
@@ -681,17 +708,40 @@ class _ItemRun:
         ]
         return [*runs, *notes]
 
-    def _outcome_line(self, outcome: StepOutcome) -> str:
-        texts = MESSAGES.roadmap
-        commit = texts.implement_pull_comment_commit.format(commit=outcome.commit[:12])
-        return texts.implement_pull_comment_line.format(
-            step=_step_label(outcome.group) if outcome.group else texts.implement_step_fix,
-            title=outcome.title,
+    def _row(self, outcome: StepOutcome) -> SummaryRow:
+        """The row of the table for a step: its attempts are the first turn and the repair
+        rounds, and its last failing command is in the trace."""
+        step = _step_label(outcome.group) if outcome.group else MESSAGES.roadmap.implement_step_fix
+        return SummaryRow(
+            step=step,
             status=outcome.status.value,
-            requests=outcome.requests,
-            rounds=outcome.repair_rounds,
-            commit=commit if outcome.commit else "",
+            attempts=1 + outcome.repair_rounds,
+            tokens_in=outcome.input_tokens,
+            tokens_out=outcome.output_tokens,
+            command=last_failing_command(self.trace.events, step),
         )
+
+    def _stop_table(self, stop: _StopError) -> str:
+        """The table of every step of the run for the stop comment. The step that stopped is in
+        it, with the name of the failed check of the pull request when no command failed. A stop
+        that has no outcome, as a command of the job, a push or the checks, gets a row of its
+        own, with the repair rounds of the stop as its attempts."""
+        rows = [self._row(outcome) for outcome in self.outcomes]
+        failing = last_failing_command(self.trace.events, stop.step, stop.check)
+        if rows and rows[-1].step == stop.step and self.outcomes[-1].status is StepStatus.STOPPED:
+            rows[-1] = replace(rows[-1], command=failing)
+        else:
+            rows.append(
+                SummaryRow(
+                    step=stop.step,
+                    status=StepStatus.STOPPED.value,
+                    attempts=1 + stop.repair_rounds,
+                    tokens_in=0,
+                    tokens_out=0,
+                    command=failing,
+                )
+            )
+        return summary_table(rows)
 
     def _checks(self, pull: int) -> None:
         """Watch the checks. A failed check gets a fix step, a push and a new watch, at most
@@ -730,6 +780,7 @@ class _ItemRun:
             model=self.model,
             window=self.window,
             hooks=self._hooks_config(),
+            trace=self.trace,
         )
         self.outcomes.append(outcome)
         if outcome.status is StepStatus.STOPPED:
@@ -772,6 +823,7 @@ class _ItemRun:
             ImplementRecordKey.SHA: head,
             ImplementRecordKey.PR: str(pull),
             ImplementRecordKey.SPEND: self._spend(),
+            ImplementRecordKey.TRACE: self.trace.encode(),
         }
         self.store.set_field(
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_REVIEW, marks=marks
@@ -842,6 +894,7 @@ class _ItemRun:
                 marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
                 step=stop.step,
                 failure=failure_lines(klass, repair_rounds=stop.repair_rounds),
+                table=self._stop_table(stop),
                 reason=reason,
                 last=last or texts.implement_comment_last_none,
                 diff=_diff_section(stop),
@@ -852,6 +905,7 @@ class _ItemRun:
             ImplementRecordKey.STOPPED: stop.step,
             ImplementRecordKey.FAILURE: klass.value,
             ImplementRecordKey.SPEND: self._spend(),
+            ImplementRecordKey.TRACE: self.trace.encode(),
         }
         if self.pull is not None:
             marks[ImplementRecordKey.PR] = str(self.pull)
