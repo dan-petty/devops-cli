@@ -834,16 +834,12 @@ def _unticked_failure(inputs: StepInputs) -> str | None:
 
 
 def _command_failure(
-<<<<<<< HEAD
-    source: Path, argv: Sequence[str], named: str, *, negative: bool = False
-=======
     source: Path,
     argv: Sequence[str],
-    shown: str,
+    named: str,
     *,
     negative: bool = False,
     trace: ImplementTrace | None = None,
->>>>>>> origin/main
 ) -> str | None:
     """Run `argv` in the checkout. None when it exits 0, else why the step stops. A `negative`
     search passes on exit 1 (git found no match), and a match (exit 0) is why it stops. With a
@@ -852,15 +848,11 @@ def _command_failure(
     try:
         done = run_subprocess(list(argv), cwd=source, quiet=True, timeout=limit)
     except subprocess.TimeoutExpired:
-<<<<<<< HEAD
-        return MESSAGES.roadmap.implement_stop_command_timeout.format(command=named, seconds=limit)
-=======
         if trace is not None:
-            trace.check(shown, None)
-        return MESSAGES.roadmap.implement_stop_command_timeout.format(command=shown, seconds=limit)
+            trace.check(named, None)
+        return MESSAGES.roadmap.implement_stop_command_timeout.format(command=named, seconds=limit)
     if trace is not None:
-        trace.check(shown, done.returncode)
->>>>>>> origin/main
+        trace.check(named, done.returncode)
     if done.returncode == (1 if negative else 0):
         return None
     if negative and done.returncode == 0:
