@@ -1,0 +1,117 @@
+## Purpose
+How `devops roadmap plan-check` judges a plan pull request: the change folder that it reads at the head of the pull request, the stage gates it runs with no model, the checks of the pull request itself, and how it reports each problem to a person and to an agent.
+
+## ADDED Requirements
+
+### Requirement: Plan-check reads the change folder at the pull request head
+`devops roadmap plan-check <pull-request>` SHALL read the change folder of the pull request from its head commit.
+
+#### Scenario: The head commit supplies the change folder
+- **WHEN** the pull request head holds `openspec/changes/3201-plan-check/` and its base does not
+- **THEN** the command reads `proposal.md`, `tasks.md` and each spec delta from the head commit.
+
+#### Scenario: The change folder is found by the issue of the body
+- **WHEN** the body holds `Plans #3201` and the head holds `openspec/changes/3201-plan-check/` and `openspec/changes/3199-other/`
+- **THEN** the command reads `openspec/changes/3201-plan-check/` and no other folder.
+
+#### Scenario: A missing or doubled change folder is a problem
+- **WHEN** the head holds no change folder for the issue of the body
+- **THEN** the command prints a problem that names the issue and exits 1.
+
+### Requirement: The plan reader builds a StageProposal from a change folder
+The plan reader SHALL build a `StageProposal` from the files of a change folder, with the same gate inputs as the proposal that `render_change` wrote.
+
+#### Scenario: A rendered change reads back
+- **WHEN** `render_change` writes a valid proposal with groups, specs and criteria
+- **THEN** the reader gives a `StageProposal` whose `groups`, `specs`, `criteria` and `skip_specs` equal the original.
+
+#### Scenario: A change folder with no criteria section reads back with no criterion
+- **WHEN** `tasks.md` holds no `## Criteria` section
+- **THEN** the `StageProposal` of the reader holds an empty `criteria` list.
+
+### Requirement: Plan-check runs the stage gates with no model
+The command MUST run `check_proposal` and `validate_change` on the change folder of the pull request and MUST build no model client.
+
+#### Scenario: The gates run with no model
+- **WHEN** the command checks a valid plan
+- **THEN** the test records a call to `check_proposal` and a call to `validate_change`, and no call that builds a model client.
+
+### Requirement: Plan-check reports each stage problem
+The command SHALL print each problem with its file, its rule and the message of the stage job, and SHALL exit 1 when it finds one.
+
+#### Scenario: A missing path gives the stage message
+- **WHEN** a group changes `src/devops_cli/roadmap/missing.py`, which the head tree does not hold
+- **THEN** stdout holds the path and the missing-path message of `MESSAGES.roadmap`, and the exit code is 1.
+
+#### Scenario: A valid plan prints no problem and exits 0
+- **WHEN** the change folder passes `check_proposal` and `validate_change`
+- **THEN** stdout holds no problem line and the exit code is 0.
+
+### Requirement: Plan-check checks the title of the pull request
+The command SHALL report a problem when the pull request title is not of the form `docs(openspec): plan #<issue> <summary>`, or when the text after the colon is longer than `SUMMARY_MAX_CHARS`.
+
+#### Scenario: A wrong title is reported
+- **WHEN** the pull request title is `feat(roadmap): add plan-check`
+- **THEN** the output names the title rule and the exit code is 1.
+
+#### Scenario: A title in the staging form passes
+- **WHEN** the pull request title is the title that `staging_title` builds for the issue
+- **THEN** the command reports no title problem.
+
+### Requirement: Plan-check checks the body of the pull request
+The command SHALL report a problem when the body is longer than `BODY_MAX_CHARS`, holds no `Plans #<issue>` reference, or holds a closing keyword before an issue reference.
+
+#### Scenario: A missing plan reference is reported
+- **WHEN** the pull request body holds no `Plans #` line
+- **THEN** the output names the body rule and the exit code is 1.
+
+#### Scenario: A closing keyword is reported
+- **WHEN** the pull request body holds `Closes #3201`
+- **THEN** the output names the closing keyword and the exit code is 1.
+
+#### Scenario: A long body is reported
+- **WHEN** the body is longer than `BODY_MAX_CHARS` characters
+- **THEN** the output names the body length rule and the exit code is 1.
+
+### Requirement: Plan-check reads the Semantic PR title check
+The command MUST report the `Semantic PR title` check as a problem unless its conclusion is `success`.
+
+#### Scenario: A failed check is reported
+- **WHEN** the pull request has a `Semantic PR title` check with conclusion `failure`
+- **THEN** the output names the check and the exit code is 1.
+
+#### Scenario: A missing check is reported
+- **WHEN** the pull request has no `Semantic PR title` check
+- **THEN** the output names the missing check and the exit code is 1.
+
+### Requirement: Plan-check reports a base spec that moved since the plan
+The command SHALL report each `MODIFIED` requirement whose text in the base spec at the plan commit differs from its text at the pull request base.
+
+#### Scenario: A changed base requirement is reported
+- **WHEN** the base spec at the plan commit holds `The job SHALL stage one item.` and the base holds `The job SHALL stage two items.` for the same requirement
+- **THEN** the output names the capability, the requirement and the moved text, and the exit code is 1.
+
+#### Scenario: A removed base requirement is reported
+- **WHEN** the base spec at the pull request base holds no requirement of that name
+- **THEN** the output names the capability and the requirement and the exit code is 1.
+
+### Requirement: Plan-check prints JSON
+The `--json` option SHALL print the problems as a JSON array of objects with `path`, `rule` and `message`.
+
+#### Scenario: JSON output parses
+- **WHEN** the command finds one problem and runs with `--json`
+- **THEN** stdout parses as a JSON array with one object that has `path`, `rule` and `message`.
+
+### Requirement: Plan-check dry run makes no request
+The `--dry-run` option MUST print each GitHub request and MUST make none.
+
+#### Scenario: Dry run lists the requests
+- **WHEN** the command runs with `--dry-run`
+- **THEN** the output lists each request and the test records no GitHub API call.
+
+### Requirement: Plan-check reports a file that it cannot read
+The command SHALL report a problem that names the file when the plan reader cannot parse it, and SHALL go on to check the other files.
+
+#### Scenario: An unreadable tasks file is reported
+- **WHEN** the `tasks.md` of the change folder has a group with no `Changes:` line
+- **THEN** the output names `tasks.md` and the exit code is 1.
