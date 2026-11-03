@@ -89,7 +89,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | `false` | Uninstall the k8s infrastructure / LLM stack and delete namespaces. |
 | [`k8s_tempo_info`](#k8s-tempo-info) | `true` | Retrieve Tempo distributed tracing HTTP API URL and OTLP trace endpoints. |
 | [`k8s_validate`](#k8s-validate) | `true` | Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform. |
-| [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.  Grounding applies where the base holds openspec/changes/. The PR targets the default branch. It closes exactly one issue, an open issue of its own repository that holds a priority/* label: a roadmap item. GitHub closes that issue when the PR merges. The PR adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive writes for that issue's change. Only that archive writes openspec/specs/ and openspec/changes/archive/. |
+| [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: conflicts, draft state, checks, review threads, grounding and draft readiness.  Grounding applies where the base holds openspec/changes/. The PR targets the default branch. It closes exactly one issue, an open issue of its own repository that holds a priority/* label: a roadmap item. GitHub closes that issue when the PR merges. The PR adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive writes for that issue's change. Only that archive writes openspec/specs/ and openspec/changes/archive/. An implement pull request must have every task group ticked. |
 | [`pr_checks`](#pr-checks) | `true` | Check remote CI quality gate status on a pull request. |
 | [`pr_close`](#pr-close) | `false` | Close a pull request. |
 | [`pr_describe`](#pr-describe) | `true` | Print the title and the body of the pull request that delivers an issue. The first line is the title, then a blank line, then the body. |
@@ -97,7 +97,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`pr_edit`](#pr-edit) | `false` | Edit pull request base branch, title, body, or milestone. |
 | [`pr_list`](#pr-list) | `true` | List pull requests with base targeting and review status. |
 | [`pr_monitor`](#pr-monitor) | `true` | Wait until the checks of a PR settle, then name every blocker of its merge.  While a check runs or a Copilot review is active, it waits. Then it reports the blockers of the merge-readiness verdict and of its review gate (requested changes, Copilot's review, an approval of the head with --require-reviews). Exit 0: ready; 1: a check failed or could not be read; 2: another blocker; 3: the timeout passed first. |
-| [`pr_ready`](#pr-ready) | `false` | Mark a draft pull request as ready for review once its checks pass.  It exits 1 when a check failed or could not be read and 8 while one runs. Every other blocker of the merge-readiness verdict prints as a warning. --force skips the checks. It sets the Status of the roadmap item the pull request closes to In Review. |
+| [`pr_ready`](#pr-ready) | `false` | Mark a draft pull request as ready for review once draft readiness allows it.  It exits 1 for a refusal and 8 while a check runs. For an implement pull request, it names each unticked task group. Every other blocker of the merge-readiness verdict prints as a warning. --force skips the readiness check. It sets the Status of the roadmap item the pull request closes to In Review. |
 | [`pr_threads_list`](#pr-threads-list) | `true` | List PR review discussion threads, file locations, and comments. |
 | [`pr_threads_reply`](#pr-threads-reply) | `false` | Post an in-thread reply to a PR review discussion thread. |
 | [`pr_threads_resolve`](#pr-threads-resolve) | `false` | Programmatically mark one or more PR review discussion threads as resolved. |
@@ -113,7 +113,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`review_stats`](#review-stats) | `true` | Compute and display review accuracy statistics across saved sessions. |
 | [`roadmap_intake`](#roadmap-intake) | `false` | Turn each open issue with no priority label into a roadmap item, or file a new candidate: intake sets the labels, adds a reason comment and names a possible duplicate for a person to close. It writes nothing without --confirm. Details: docs/roadmap/intake.md. |
 | [`roadmap_refine`](#roadmap-refine) | `true` | Refine roadmap items to Ready: investigate open questions with tools that read the code and the documentation, then write the design, tasks and acceptance criteria to GitHub. Without --confirm, refine prints its plan only. Details: docs/roadmap/refine.md. |
-| [`roadmap_run`](#roadmap-run) | `true` | Run the roadmap jobs that are due, in order: metrics, then intake, refine and the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every 31 minutes, on a first run, and after an intake that placed a critical fix or a P0 item; the alternatives check is due every 719 minutes and on a first run, and checks at most roadmap.alternatives.limit items. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
+| [`roadmap_run`](#roadmap-run) | `true` | Run the roadmap jobs that are due, in order: metrics, then intake, refine and the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every 31 minutes, on a first run, and after an intake that placed a critical fix or a P0 item; the alternatives check is due every 719 minutes and on a first run, and checks at most roadmap.alternatives.first_pass_limit items while an item has no check, and roadmap.alternatives.limit items after. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
 | [`sandbox_deploy`](#sandbox-deploy) | `false` | Deploy an isolated background container sandbox with security containment. |
 | [`sandbox_exec`](#sandbox-exec) | `false` | Execute a command inside an active sandbox container. |
 | [`sandbox_network_policy`](#sandbox-network-policy) | `true` | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
@@ -1437,14 +1437,15 @@ Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform.
 
 ### `pr_check_readiness`
 
-Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
+Validate PR merge readiness: conflicts, draft state, checks, review threads, grounding
+and draft readiness.
 
 Grounding applies where the base holds openspec/changes/. The PR targets the default branch.
 It closes exactly one issue, an open issue of its own repository that holds a priority/*
 label: a roadmap item. GitHub closes that issue when the PR merges. The PR
 adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive
 writes for that issue's change. Only that archive writes openspec/specs/ and
-openspec/changes/archive/.
+openspec/changes/archive/. An implement pull request must have every task group ticked.
 
 **Annotations:** `readOnlyHint: true`
 
@@ -1502,7 +1503,7 @@ Print the title and the body of the pull request that delivers an issue. The fir
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `issue` | `integer` | Yes | - | Number of the issue that the pull request closes. |
-| `summary` | `string` | Yes | - | Summary of the title, at most 60 characters: what the change does. The command never cuts it. |
+| `summary` | `string` | Yes | - | Summary of the title, at most 60 characters (an emoji counts as two): what the change does. The command never cuts it. |
 | `why` | `string` | No | - | Text of the body: what the change does, and why. The section Why of the proposal when omitted. |
 | `attribution` | `array[string]` | No | - | A paragraph for the end of the body, after the Change line. Repeat the option for more. |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
@@ -1582,11 +1583,12 @@ be read; 2: another blocker; 3: the timeout passed first.
 
 ### `pr_ready`
 
-Mark a draft pull request as ready for review once its checks pass.
+Mark a draft pull request as ready for review once draft readiness allows it.
 
-It exits 1 when a check failed or could not be read and 8 while one runs. Every other
-blocker of the merge-readiness verdict prints as a warning. --force skips the checks. It
-sets the Status of the roadmap item the pull request closes to In Review.
+It exits 1 for a refusal and 8 while a check runs. For an implement pull request, it names
+each unticked task group. Every other blocker of the merge-readiness verdict prints as a
+warning. --force skips the readiness check. It sets the Status of the roadmap item the pull
+request closes to In Review.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1901,7 +1903,7 @@ Refine roadmap items to Ready: investigate open questions with tools that read t
 
 ### `roadmap_run`
 
-Run the roadmap jobs that are due, in order: metrics, then intake, refine and the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every 31 minutes, on a first run, and after an intake that placed a critical fix or a P0 item; the alternatives check is due every 719 minutes and on a first run, and checks at most roadmap.alternatives.limit items. Without --confirm, or with --dry-run, prints the due list and runs nothing.
+Run the roadmap jobs that are due, in order: metrics, then intake, refine and the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every 31 minutes, on a first run, and after an intake that placed a critical fix or a P0 item; the alternatives check is due every 719 minutes and on a first run, and checks at most roadmap.alternatives.first_pass_limit items while an item has no check, and roadmap.alternatives.limit items after. Without --confirm, or with --dry-run, prints the due list and runs nothing.
 
 **Annotations:** `readOnlyHint: true`
 

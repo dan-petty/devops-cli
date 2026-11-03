@@ -8,6 +8,8 @@ pull request in that issue. The others are the messages that the job itself writ
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from devops_cli.lang import MESSAGES
@@ -21,6 +23,9 @@ from devops_cli.roadmap.failure import (
     failure_lines,
     left_action,
 )
+from devops_cli.roadmap.implement_step import commands_failure
+from tests.support.fakes.process import ProcessFake
+from tests.support.implement_step import make_checkout
 
 TEXTS = MESSAGES.roadmap
 
@@ -118,6 +123,11 @@ FROM_THE_JOB = [
         FailureEvidence(text=TEXTS.implement_stop_unticked.format(task="2.1")),
         FailureClass.PLAN_DEFECT,
         id="plan-unticked",
+    ),
+    pytest.param(
+        FailureEvidence(text="Task group 2, Route the stage row, has a task that is not ticked."),
+        FailureClass.PLAN_DEFECT,
+        id="plan-unticked-group",
     ),
     pytest.param(
         FailureEvidence(text=TEXTS.implement_stop_no_change, agent=AGENT_2175),
@@ -325,3 +335,98 @@ def test_a_tier_change_that_did_not_work_is_taken_and_leaves_wait() -> None:
         "Action taken: `change_tier`, 1 tier move(s).",
         "Action left: `wait`: wait for a person.",
     ]
+
+
+def test_failure_lines_names_amend_taken_and_wait_left() -> None:
+    lines = failure_lines(FailureClass.PLAN_DEFECT, taken=FailureAction.AMEND)
+    assert lines.splitlines() == [
+        "Failure class: `plan_defect`.",
+        "Action taken: `amend`.",
+        "Action left: `wait`: wait for a person.",
+    ]
+
+
+# ── A refused verification command is a refused tool (#3263) ──────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "curl http://example.com",
+        "curl",
+        "python",
+        "rg",
+        "docker buildx build .",
+        "uv run 'devops",
+        "! git grep -O name src/",
+        "! git grep -n name src/ | cat",
+        "! git grep -n name",
+        "grep -n zz " + "a" * 3000,
+    ],
+    ids=[
+        "program",
+        "one-word",
+        "python",
+        "rg",
+        "multi-word",
+        "unparsed",
+        "option",
+        "shape-pipe",
+        "no-path",
+        "too-long",
+    ],
+)
+def test_a_refused_verification_command_is_a_refused_tool_that_waits_for_a_person(
+    tmp_path: Path, implement_programs: ProcessFake, command: str
+) -> None:
+    """The text lists `mypy` and `ruff` among the allowed programs, and the rules for a type check
+    read that word. The rule for a refused command comes first, from the text of the message."""
+    reason = commands_failure(make_checkout(tmp_path), [command])
+
+    assert reason is not None
+    klass = classify_failure(FailureEvidence(text=reason))
+    assert (klass, action_for(klass)) == (FailureClass.REFUSED_TOOL, FailureAction.WAIT)
+
+
+def test_the_rule_for_a_refused_command_is_the_message_of_the_step() -> None:
+    reason = TEXTS.implement_stop_command_refused.format(command="x y", reason="mypy is a word")
+
+    assert classify_failure(FailureEvidence(text=reason)) is FailureClass.REFUSED_TOOL
+
+
+def test_a_verification_command_that_ran_and_failed_is_not_a_refused_tool() -> None:
+    reason = TEXTS.implement_stop_command_failed.format(
+        command="uv run mypy --strict -- a.py", status=1, output="a.py:1: error: x  [misc]"
+    )
+
+    assert classify_failure(FailureEvidence(text=reason)) is FailureClass.TYPES
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python -m pytest tests/roadmap/test_rate_limit.py",
+        "! git grep -n 'timed out' src/ -x",
+        "! git grep -n x src/ -k 'out of memory'",
+        "! git grep -n x src/ -k 'merge conflict'",
+        "! git grep -n x src/ -k JSONDecodeError",
+        "curl https://example.com/ModelHTTPError",
+    ],
+    ids=["rate-limit", "timed-out", "out-of-memory", "merge-conflict", "parser", "provider"],
+)
+def test_a_word_of_a_refused_command_does_not_change_its_class(
+    tmp_path: Path, implement_programs: ProcessFake, command: str
+) -> None:
+    """The echoed command can hold the words of any other rule, so the rule for a refused command
+    is read first, at the start of the text."""
+    reason = commands_failure(make_checkout(tmp_path), [command])
+
+    assert reason is not None
+    klass = classify_failure(FailureEvidence(text=reason))
+    assert (klass, action_for(klass)) == (FailureClass.REFUSED_TOOL, FailureAction.WAIT)
+
+
+def test_a_refused_command_inside_a_longer_text_is_not_the_rule_for_a_refused_command() -> None:
+    inner = TEXTS.implement_stop_command_refused.format(command="x", reason="y")
+
+    assert classify_failure(FailureEvidence(text=f"timed out\n{inner}")) is FailureClass.TIMEOUT

@@ -6,7 +6,7 @@ The form of the title and the body of a pull request in this repository: the rul
 ## Requirements
 
 ### Requirement: The title has a type, a declared scope and a short summary
-A title SHALL have the form `<type>(<scope>): <summary>` or `<type>: <summary>`. The type SHALL be one of the types of the project. The scope, when there is one, SHALL be a scope whose `scope/<scope>` label `.github/labels.yml` declares, or `main`. The title SHALL have no `!`. The summary SHALL have at most 60 characters, SHALL NOT end with `...` or `…`, and SHALL NOT be a placeholder such as `x` or `placeholder`.
+A title SHALL have the form `<type>(<scope>): <summary>` or `<type>: <summary>`. The type SHALL be one of the types of the project. The scope, when there is one, SHALL be a scope whose `scope/<scope>` label `.github/labels.yml` declares, or `main`. The title SHALL have no `!`. The summary SHALL have at most 60 UTF-16 code units, as the check `Semantic PR title` counts them (an emoji is two), SHALL NOT end with `...` or `…`, and SHALL NOT be a placeholder such as `x` or `placeholder`.
 
 #### Scenario: A title in the form
 - **WHEN** the title is `feat(pr): check the form of a pull request` and the labels declare `scope/pr`
@@ -36,8 +36,12 @@ A title SHALL have the form `<type>(<scope>): <summary>` or `<type>: <summary>`.
 - **WHEN** the rules check `feat(zzz-unknown): build it` and are given no label names
 - **THEN** the rules find no problem
 
+#### Scenario: An emoji counts as two
+- **WHEN** the summary of the title is 31 emoji, which are 31 characters and 62 UTF-16 code units
+- **THEN** the rules find one problem, and its text names the length 62 and the limit 60
+
 ### Requirement: The body ends with Closes and the Change line
-A body SHALL be, in this order: a text of at least 20 characters (what the change does, and why), the line `Closes #<issue>`, the line `Change:` with the folder of the same issue in a code span, and then the attribution lines, if any. The text, `Closes` and `Change:` SHALL have at most 1,000 characters together, and the lines after them at most 400.
+The body of a delivery (a pull request whose title is no plan) SHALL be, in this order: a text of at least 20 characters (what the change does, and why), the line `Closes #<issue>`, the line `Change:` with the folder of the same issue in a code span, and then the attribution lines, if any. The text, `Closes` and `Change:` SHALL have at most 1,000 characters together, and the lines after them at most 400.
 
 #### Scenario: A body in the form
 - **WHEN** the body is a sentence, `Closes #3198` and a `Change:` line for issue 3198
@@ -226,3 +230,37 @@ The summary pattern and the scope list of `.github/workflows/pr-title.yml` SHALL
 #### Scenario: The pattern and the scopes
 - **WHEN** a test reads `pr-title.yml` and `.github/labels.yml`
 - **THEN** the pattern is `^.{1,60}$`, each scope of the workflow passes the check of the title, and a summary of 61 characters does not
+
+### Requirement: A plan body has the Plans line and no closing keyword
+`devops pr create` SHALL judge the body of a pull request whose title is `docs(openspec): plan #<issue> <summary>` by the form of a plan: exactly one line `Plans #<issue>` that names the issue of the title, no closing reference, and a `Change:` line with the active change folder of the same issue. The command SHALL NOT ask a plan body for a `Closes` line.
+
+#### Scenario: A plan body in the form opens a draft
+- **WHEN** the title is `docs(openspec): plan #3236 revise scope` and the body has the line `Plans #3236` and the line `Change: \`openspec/changes/3236-x/\``
+- **THEN** the command opens a draft pull request.
+
+#### Scenario: A plan body that closes its issue opens nothing
+- **WHEN** the body of that plan has the lines `Plans #3236` and `Closes #3236`
+- **THEN** the command prints that a plan closes no issue and opens nothing.
+
+#### Scenario: A delivery title keeps the Closes rule
+- **WHEN** the title is `feat(pr): check the form` and the body has no `Closes` line
+- **THEN** the command prints that the body has no `Closes` line and opens nothing.
+
+### Requirement: A title repeats no word and no issue number
+When the summary of a title starts with a word and an issue number (`<word> #<number>`), the rules SHALL give a problem if the first word after the number is that word, and a problem if the text after the number holds the same number. The comparison of the word SHALL ignore case. A later use of the word SHALL NOT be a problem.
+
+#### Scenario: A repeated leading word
+- **WHEN** the title is `docs(openspec): plan #2950 plan alternatives coverage telemetry`
+- **THEN** the rules find one problem, and its text names the word `plan`
+
+#### Scenario: A repeated issue number
+- **WHEN** the title is `docs(openspec): plan #2950 Add coverage for #2950`
+- **THEN** the rules find one problem, and its text names `#2950`
+
+#### Scenario: A title with a new leading word
+- **WHEN** the title is `docs(openspec): plan #2950 Add alternatives coverage telemetry`
+- **THEN** the rules find no problem
+
+#### Scenario: A later use of the word
+- **WHEN** the title is `docs(openspec): plan #3200 Refuse placeholder and cut plan text`
+- **THEN** the rules find no problem

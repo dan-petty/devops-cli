@@ -7,8 +7,9 @@ the group that names it creates it. The groups are in order, so a group sees the
 groups before it and of itself.
 
 A group names paths in four places: `reads`, `changes`, the code spans of its three tasks, and the
-words of `verify`. Only the code spans of a task count, as the implement step reads those and no
-other text (`step_files`). A word is a path when its last name ends in a suffix that a tracked file
+words of `verify`. The paths of a negative search are the paths of its fixed shape (#3263). Only
+the code spans of a task count, as the implement step reads those and no other text
+(`step_files`). A word is a path when its last name ends in a suffix that a tracked file
 has, or when its first folder is a top-level name of the tree. A word with no folder is no path:
 it is a search pattern or a fixture that a test writes at run time (`ruff.toml`), and the implement
 step accepts a name that holds no file as a file it creates. A label such as `status/blocked`, a
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import posixpath
 import re
+import shlex
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
 from enum import StrEnum
@@ -30,6 +32,7 @@ from typing import TYPE_CHECKING, Final, Self
 
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import git
+from devops_cli.roadmap.implement_shell_policy import NEGATIVE_SEARCH_WORD, read_negative_search
 from devops_cli.roadmap.step_files import code_spans
 
 if TYPE_CHECKING:
@@ -95,6 +98,10 @@ class StagedTree:
             return True
         return has_magic(path) and any(fnmatchcase(file, path) for file in self._files)
 
+    def has_folder(self, path: str) -> bool:
+        """Whether the tree holds the folder `path`."""
+        return path.rstrip("/") in self._folders
+
     def same_name(self, path: str) -> list[str]:
         """The files of the tree with the file name of `path`, sorted, at most `SAME_NAME_MAX`."""
         return self._by_name.get(PurePosixPath(path).name, [])[:SAME_NAME_MAX]
@@ -115,6 +122,29 @@ class StagedTree:
         return [path for word in text.split() if (path := self.as_path(word)) is not None]
 
 
+def _keep_slash(path: str) -> str:
+    """`path` in normal form, with the trailing slash kept: a path that ends in `/` is a folder,
+    and `README.md/` matches nothing in git."""
+    return posixpath.normpath(path) + ("/" if path.endswith("/") else "")
+
+
+def _verify_paths(verify: str, tree: StagedTree) -> list[str]:
+    """The paths that the `verify` command names. A negative search names its paths for sure: the
+    reader of the step gives them, one-folder words such as `src/` included, which `as_path`
+    leaves alone. A path that is no file of the commit and that no group creates would make the
+    search find nothing, and the check pass. `.` is the whole tree. Any other command names the
+    words that look like paths."""
+    try:
+        words = shlex.split(verify)
+    except ValueError:
+        return tree.paths_in(verify)
+    if words[:1] == [NEGATIVE_SEARCH_WORD] and not isinstance(
+        found := read_negative_search(words), str
+    ):
+        return [_keep_slash(path) for path in found.paths if posixpath.normpath(path) != "."]
+    return tree.paths_in(verify)
+
+
 def _named(group: StageGroup, tree: StagedTree) -> Iterator[tuple[_Place, str]]:
     """Each path that `group` names, with the place."""
     yield from ((_Place.READS, path) for path in group.reads)
@@ -122,7 +152,7 @@ def _named(group: StageGroup, tree: StagedTree) -> Iterator[tuple[_Place, str]]:
     for text in (group.test, group.implementation, group.documentation, group.process):
         for span in code_spans(text or ""):
             yield from ((_Place.TASK, path) for path in tree.paths_in(span))
-    yield from ((_Place.VERIFY, path) for path in tree.paths_in(group.verify or ""))
+    yield from ((_Place.VERIFY, path) for path in _verify_paths(group.verify or "", tree))
 
 
 def _problem(number: int, place: _Place, path: str, tree: StagedTree, later: int | None) -> str:
@@ -166,7 +196,8 @@ def path_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]:
             created |= {path, *_folders_of(path)}
         for place, named in _named(group, tree):
             path = named.rstrip("/")
-            if path in reported or path in created or tree.has(path):
+            exists = tree.has_folder(path) if named.endswith("/") else tree.has(path)
+            if path in reported or path in created or exists:
                 continue
             reported.add(path)
             problems.append(_problem(number, place, path, tree, creators.get(path)))

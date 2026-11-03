@@ -378,6 +378,18 @@ class InMemoryRoadmapStore(RoadmapStore):
             self._relabel(issue, (*issue.labels, label))
         self._log("label_issue", number, value=label)
 
+    def unlabel_issue(self, number: int, label: str) -> None:
+        """Remove `label` from issue or pull request `number`, keeping its other labels."""
+        issue = self._require_issue(number, "roadmap.issue.unlabel", pull_request=True)
+        if label not in issue.labels:
+            raise GitHubOperationError(
+                f"#{number} does not hold the label '{label}'.",
+                operation="roadmap.issue.unlabel",
+                details={"number": number, "label": label},
+            )
+        self._relabel(issue, tuple(held for held in issue.labels if held != label))
+        self._log("unlabel_issue", number, value=label)
+
     def evidence_holds(self, evidence: Evidence) -> bool:
         """Whether the evidence was seeded as one GitHub confirms."""
         return evidence in self._roadmap.evidence

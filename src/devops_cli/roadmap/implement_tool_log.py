@@ -64,12 +64,20 @@ from devops_cli.roadmap.agent_run import bounded_text
 from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_ALLOWED_PROGRAMS,
     IMPLEMENT_SHELL_REPLACEMENTS,
+    NEGATIVE_SEARCH_WORD,
 )
+from devops_cli.roadmap.implement_trace import ImplementTrace, argument_digest
 from devops_cli.security.sanitizer import sanitize_command_args_for_display
 
 # The first words that the log may show. They are fixed in the code, so no text of the model
-# reaches the log, and the count of the programs in the reason stays small by design.
-_KNOWN_PROGRAMS = frozenset((*IMPLEMENT_ALLOWED_PROGRAMS, *IMPLEMENT_SHELL_REPLACEMENTS))
+# reaches the log, and the count of the programs in the reason stays small by design. The `!` of a
+# negative search is not one: the words after it are free text, so the log says "other".
+_KNOWN_PROGRAMS = frozenset(
+    (
+        *IMPLEMENT_ALLOWED_PROGRAMS,
+        *(word for word in IMPLEMENT_SHELL_REPLACEMENTS if word != NEGATIVE_SEARCH_WORD),
+    )
+)
 
 
 class ToolOutcome(StrEnum):
@@ -244,7 +252,8 @@ class ToolCallLog:
     commands by program, and `retried` the other retries, over all turns of the step. `reasons`
     holds the last reasons of the retries of each tool (#2866), and `ended_on` the tool whose
     retries ended the run. `root` is the checkout: a reason shows the `path` argument of a call
-    only when the checkout holds that path. A log with no root shows no path."""
+    only when the checkout holds that path. A log with no root shows no path. With a `trace`, each call is also an event of it (#3032):
+    this log is the one place that knows a refusal by policy from another retry."""
 
     root: Path | None = None
     refused: Counter[str] = field(default_factory=Counter[str])
@@ -252,6 +261,7 @@ class ToolCallLog:
     reasons: dict[str, deque[str]] = field(default_factory=dict[str, deque[str]])
     ended_on: str = ""
     removed: list[str] = field(default_factory=list[str])
+    trace: ImplementTrace | None = None
 
     def removed_strays(self, names: Sequence[str]) -> None:
         """Keep the names of the stray files that the step deleted (#3092), masked and cut as the
@@ -299,8 +309,19 @@ class ToolCallLog:
         """The capability for the agent of the step."""
         return Hooks(tool_execute=self._execute, tool_validate_error=self._invalid)
 
-    def _note(self, tool: str, program: str, outcome: ToolOutcome, reason: str = "") -> None:
-        """Count a refusal or a retry, keep its reason, and write the line of the call."""
+    def _note(
+        self,
+        tool: str,
+        program: str,
+        outcome: ToolOutcome,
+        reason: str = "",
+        *,
+        digest: str = "",
+    ) -> None:
+        """Count a refusal or a retry, keep its reason, add the event of the call to the trace,
+        and write the line of the call."""
+        if self.trace is not None:
+            self.trace.tool_call(tool, program, digest, str(outcome), reason)
         if outcome is ToolOutcome.REFUSED:
             self.refused[program] += 1
         self.retried += outcome is ToolOutcome.RETRY
@@ -353,12 +374,13 @@ class ToolCallLog:
                 program,
                 ToolOutcome.REFUSED if refused else ToolOutcome.RETRY,
                 logged_reason(error, args, self.root),
+                digest=argument_digest(call),
             )
             raise
         except ToolFailedError:
-            self._note(call.tool_name, program, ToolOutcome.FAILED)
+            self._note(call.tool_name, program, ToolOutcome.FAILED, digest=argument_digest(call))
             raise
-        self._note(call.tool_name, program, ToolOutcome.OK)
+        self._note(call.tool_name, program, ToolOutcome.OK, digest=argument_digest(call))
         return result
 
     async def _invalid(
@@ -373,5 +395,5 @@ class ToolCallLog:
     ) -> ValidatedToolArgs:
         """Write the line of a call whose arguments failed validation, and pass on the error. The
         arguments are not valid, so the line has no program."""
-        self._note(call.tool_name, "", ToolOutcome.RETRY)
+        self._note(call.tool_name, "", ToolOutcome.RETRY, digest=argument_digest(call))
         raise error

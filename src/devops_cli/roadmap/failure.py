@@ -108,6 +108,26 @@ _EXIT_STATUS: Final[Mapping[int, FailureClass]] = MappingProxyType(
 _FLAGS = re.IGNORECASE | re.MULTILINE
 
 
+def _text_around(template: str, *fields: str) -> str:
+    """A pattern for the text of `template`, with `.*` for each of `fields` and the text between
+    the fields kept as it is. The rule then follows the message and cannot drift from it."""
+    pattern = re.escape(template)
+    for name in fields:
+        pattern = pattern.replace(re.escape(f"{{{name}}}"), ".*", 1)
+    return pattern
+
+
+# A verification command that the step refuses: its message names the command and then the reason.
+# The command can hold the words of any other rule (`timed out`, `rate limit`), and the reason can
+# list `mypy` and `ruff`, so this rule is read first, and only at the start of the text (#3263).
+_REFUSED_COMMAND: Final[str] = _text_around(
+    MESSAGES.roadmap.implement_stop_command_refused, "command", "reason"
+)
+
+
+_REFUSED_AT_START: Final[re.Pattern[str]] = re.compile(rf"\A{_REFUSED_COMMAND}", _FLAGS)
+
+
 def _rule(klass: FailureClass, pattern: str) -> tuple[FailureClass, re.Pattern[str]]:
     return klass, re.compile(pattern, _FLAGS)
 
@@ -144,8 +164,7 @@ _CAUSE_RULES: Final[tuple[tuple[FailureClass, re.Pattern[str]], ...]] = (
     # command (#2735). "Refused commands: 0" is a count of none.
     _rule(
         FailureClass.REFUSED_TOOL,
-        r"exceeded max retries|Refused commands: (?!0\b)|command \S+ is not allowed"
-        r"|refused by (the )?policy",
+        r"exceeded max retries|Refused commands: (?!0\b)|refused by (the )?policy",
     ),
 )
 
@@ -174,8 +193,8 @@ _PREMISE = re.compile(
 # The plan cannot be run as written: the step changed nothing, left a task unticked, or its inputs
 # do not fit the window.
 _PLAN = re.compile(
-    r"changed no file|task of the group is not ticked|inputs of the step measure"
-    r"|not a file on the default branch",
+    r"changed no file|task of the group is not ticked|has a task that is not ticked"
+    r"|inputs of the step measure|not a file on the default branch",
     _FLAGS,
 )
 
@@ -204,7 +223,7 @@ def classify_failure(evidence: FailureEvidence) -> FailureClass:
     by_signal = _EXIT_STATUS.get(evidence.exit_status) if evidence.exit_status else None
     if by_signal is not None:
         return by_signal
-    if evidence.refusal.strip():
+    if evidence.refusal.strip() or _REFUSED_AT_START.search(evidence.text):
         return FailureClass.REFUSED_TOOL
     found = _first(_CAUSE_RULES, evidence.text) or _first(_CHECK_RULES, evidence.text)
     if found is not None:
@@ -228,23 +247,33 @@ def left_action(klass: FailureClass, taken: FailureAction | None) -> FailureActi
     return FailureAction.WAIT if taken is default else default
 
 
-def failure_lines(klass: FailureClass, *, repair_rounds: int = 0, tier_changes: int = 0) -> str:
+def failure_lines(
+    klass: FailureClass,
+    *,
+    repair_rounds: int = 0,
+    taken: FailureAction | None = None,
+    left: FailureAction | None = None,
+    tier_changes: int = 0,
+) -> str:
     """The three lines of a stop comment: the class, the action taken and the action left. The job
     has taken `change_tier` when it moved the step to another tier before it stopped, `repair` when
-    it ran `repair_rounds` fix rounds and no tier move, and no action else."""
+    it ran `repair_rounds` fix rounds and no tier move, `amend` when it applied an amendment, and
+    no action else."""
     texts = MESSAGES.roadmap
-    taken = (
-        FailureAction.CHANGE_TIER
-        if tier_changes > 0
-        else FailureAction.REPAIR
-        if repair_rounds > 0
-        else None
-    )
-    left = left_action(klass, taken)
+    if taken is None and tier_changes > 0:
+        taken = FailureAction.CHANGE_TIER
+    if taken is None and repair_rounds > 0:
+        taken = FailureAction.REPAIR
+    if left is None:
+        left = left_action(klass, taken)
     if taken is FailureAction.CHANGE_TIER:
-        taken_text = texts.implement_failure_taken_change_tier.format(moves=tier_changes)
+        taken_text = texts.implement_failure_taken_change_tier.format(moves=max(tier_changes, 1))
     elif taken is FailureAction.REPAIR:
         taken_text = texts.implement_failure_taken_repair.format(rounds=repair_rounds)
+    elif taken is FailureAction.AMEND:
+        taken_text = texts.implement_failure_taken_amend
+    elif taken is not None:
+        taken_text = f"`{taken.value}`"
     else:
         taken_text = texts.implement_failure_taken_none
     return texts.implement_failure_lines.format(

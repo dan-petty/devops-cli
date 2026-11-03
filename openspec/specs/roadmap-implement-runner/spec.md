@@ -94,7 +94,7 @@ The Job and its pod of `run-job --template runner` SHALL carry the label `implem
 - **THEN** the command exits 1, names the running Job, and creates no Job
 
 ### Requirement: The Service creates Jobs through a narrow Role
-ServiceAccount `roadmap-service` SHALL be the account of the Service pod. A Role in namespace `devops` SHALL allow `create`, `get`, `list` and `patch` on `jobs`, `get` on `cronjobs` named `devops-cli-runner`, `list` on `pods` and `get` on `pods/log`, and nothing else. A RoleBinding SHALL bind the Role to the account and to no other subject. The Service pod SHALL mount a projected service-account token with `expirationSeconds` 3600. The pods of Jobs SHALL keep no token.
+ServiceAccount `roadmap-service` SHALL be the account of the Service pod. A Role in namespace `devops` SHALL allow `create`, `get`, `list` and `patch` on `jobs`; `get` on `cronjobs` named `devops-cli-runner` and on `deployments` named `roadmap-service`; `list` on `pods`; `get` on `pods/log`; and nothing else. A RoleBinding SHALL bind the Role to the account only. The Service pod SHALL mount a projected token with `expirationSeconds` 3600. The pods of Jobs SHALL keep no token.
 
 #### Scenario: The manifests are read
 - **WHEN** a test reads the rendered `k8s/devops` kustomization

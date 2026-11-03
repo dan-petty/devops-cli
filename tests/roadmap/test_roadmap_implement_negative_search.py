@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS
 from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_ALLOWED_PROGRAMS,
     NEGATIVE_SEARCH_LITERAL_SIGNS,
@@ -81,6 +81,9 @@ START = "it does not start with `! git grep`"
 OPTIONS = "(the options are -n -I -F -i -w -l -c -q)"
 
 
+NUL_REASON = "a word holds a NUL byte or a character that cannot be encoded"
+
+
 def _literal(word: str) -> str:
     return f"the text `{word}` is not a literal of letters, digits, spaces and the signs _ . : / = @ + , # % ~ -"
 
@@ -115,9 +118,9 @@ def _path(word: str) -> str:
         ("! git grep -n caf\u00e9 src/", _literal("caf\\xe9")),
         ("! git grep -n foo \uff53rc/", _path("\\uff53rc/")),
         ("! git grep -n foo src\u00e9/", _path("src\\xe9/")),
-        ("! git grep -n 'a\x00b' src/", _literal("a\\x00b")),
+        ("! git grep -n 'a\x00b' src/", NUL_REASON),
         ("! git grep -n 'a\tb' src/", _literal("a\\tb")),
-        ("! git grep -n foo 'a\x00b'", _path("a\\x00b")),
+        ("! git grep -n foo 'a\x00b'", NUL_REASON),
         ("! git grep -n foo 'src/\\x'", _path("src/\\\\x")),
         ("! git grep -O name src/", f"the option `-O` is not allowed {OPTIONS}"),
         (
@@ -144,8 +147,9 @@ def _path(word: str) -> str:
 def test_a_negative_search_outside_the_fixed_shape_is_refused_and_starts_no_process(
     checkout: Path, programs: ProcessFake, command: str, reason: str
 ) -> None:
+    named = command.encode("unicode_escape").decode("ascii")
     assert commands_failure(checkout, [command]) == (
-        f"The verification command {command} is refused: {reason}."
+        f"The verification command {named} is refused: {reason}."
     )
     assert programs_run(programs, "git") == []
 
@@ -167,7 +171,7 @@ def test_a_search_longer_than_the_limit_is_refused_and_starts_no_process(
 ) -> None:
     """A word of 300000 characters made `execve` fail with E2BIG, and the step crashed. The limit
     counts the characters of all the words, and the stop shows the command cut to the limit."""
-    limit = CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS
+    limit = CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS
     words = len("!") + len("git") + len("grep") + len("-n") + len("src/")
     long = f"! git grep -n {'a' * 300000} src/"
     edge = f"! git grep -n {'a' * (limit - words)} src/"

@@ -107,6 +107,14 @@ The job SHALL open a draft pull request whose title is `docs(openspec): plan #<i
 - **WHEN** the job builds the title of item 1000000 for a summary of 47 characters
 - **THEN** the job stops that item with an error that names the limit, and the title is not cut
 
+#### Scenario: An emoji counts as two
+- **WHEN** the model gives a summary of 24 emoji, which are 24 characters and 48 UTF-16 code units
+- **THEN** the schema refuses the reply, because the check `Semantic PR title` counts 48 units
+
+#### Scenario: A blank summary
+- **WHEN** the model gives a summary of spaces and new lines only
+- **THEN** the schema refuses the reply, because the title would show no summary
+
 ### Requirement: The job measures each task group
 The job SHALL measure each task group with tiktoken: the tokens of the group's instructions, the item, the change folder, the `AGENTS.md` of the repository, the routed sections of its documents, and the files that the tasks of the group name in code spans, each packed as the implement step packs it, at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. The budget SHALL be `roadmap.stage.step_tokens`, default 64000, and `--step-tokens` SHALL override it for one run.
 
@@ -191,7 +199,7 @@ A model call that fails SHALL skip its item. The job SHALL stage the other items
 - **THEN** the plan leaves the item out, and the model reads none of its text
 
 ### Requirement: A failed write stops one item
-A write that fails, also the comment on an item stopped on the budget, SHALL stop its item with the reason and SHALL NOT stop the other writes. The job SHALL fail after the other writes and name each item that failed.
+A write that fails, also the comment on an item stopped on the budget, SHALL stop its item with the reason and SHALL NOT stop the other writes. The job SHALL fail after the other writes and name each item that failed. The labels of the draft pull request are the one exception: a label that GitHub refuses stops no item (requirement "The draft pull request gets the labels of its title").
 
 #### Scenario: The comment of a stopped item fails
 - **WHEN** two items stop on the budget and the comment on the first fails
@@ -421,14 +429,14 @@ The row SHALL read the pull request again before it marks, and SHALL leave a dra
 - **THEN** the round stops at once and sends no request for the pull requests that follow
 
 ### Requirement: One function decides, and one function marks
-`ready_to_mark` SHALL be the only function that decides whether a recorded draft is marked. The row SHALL mark with `mark_ready`, the function the implement job uses, and SHALL record `stage.ready` with the number of the pull request, so that no later round reads it.
+`draft_readiness` SHALL be the only function that decides whether a recorded draft is marked. The row SHALL mark with `mark_ready`, the function the implement job uses, and SHALL record `stage.ready` with the number of the pull request, so that no later round reads it.
 
 #### Scenario: The implement job and the row mark the same way
 - **WHEN** the implement job and the row each mark a pull request ready
 - **THEN** both run `gh pr ready <number> --repo <repo>`
 
 #### Scenario: The decision is replaced
-- **WHEN** a test replaces `ready_to_mark` with a function that returns false
+- **WHEN** a test replaces `draft_readiness` in `stage_ready` with a function that answers refuse
 - **THEN** the round marks no pull request
 
 ### Requirement: The job leaves out an item that an agent or a person claimed
@@ -866,15 +874,19 @@ The stage reply SHALL hold a `criteria` list in which each entry gives the text 
 - **THEN** `check_proposal` returns a problem that names the criterion and the count of groups
 
 ### Requirement: Criteria section in tasks.md
-The `tasks.md` of a staged plan SHALL hold a `## Criteria` section before `## Workflow follow-up`. It SHALL list each criterion with the number of the group that delivers it, or `pending-person` with the reason, as bullets with no checkbox.
+The `tasks.md` of a staged plan SHALL hold a `## Criteria` section before `## Workflow follow-up`. It SHALL list each criterion as a bullet with no checkbox, and each bullet SHALL start with a fixed word: `Group <n>:` and the criterion, or `Pending person:`, the criterion and the reason. A criterion that reads as a heading or a task SHALL add no group and no task.
 
 #### Scenario: Staged plan shows the mapping
 - **WHEN** A plan is rendered with criteria mapped to groups
-- **THEN** `tasks.md` holds a `## Criteria` section with one line for each criterion and its delivering group number or `pending-person` with the reason
+- **THEN** `tasks.md` holds a `## Criteria` section with one line for each criterion, as `Group <n>: <criterion>` or `Pending person: <criterion>, <reason>`
 
 #### Scenario: A plan with no criterion has no section
 - **WHEN** A plan is rendered with an empty `criteria` list
 - **THEN** `tasks.md` holds no `## Criteria` section
+
+#### Scenario: A criterion that reads as a heading
+- **WHEN** a criterion of the issue is `## 2. Cleanup`
+- **THEN** the gate accepts the entry that copies it, and `tasks.md` holds the group 1 only
 
 ### Requirement: A split moves the criteria with the groups
 The split request SHALL hold the `criteria` list, the split reply SHALL give it again with the numbers of the new groups, and the job SHALL check it as it checks the first reply.
@@ -1036,7 +1048,7 @@ The prompt of a run with the toolset `extended` SHALL tell the model to call `re
 - **THEN** it names none of `references`, `read_issue` and `find_issues`
 
 ### Requirement: A text of a group stays on one line
-The `title`, `test`, `implementation`, `documentation`, `verify` and `process` of a task group, and the `reason` of a criterion, SHALL be written to `tasks.md` on one line. A line break in one of them SHALL add no line, no task, no group and no `Verification:` line.
+The `title`, `test`, `implementation`, `documentation`, `verify` and `process` of a task group, and the `criterion` and the `reason` of a criterion, SHALL be written to `tasks.md` on one line, and a text set after validation SHALL be validated again. A line break in one of them SHALL add no line, no task, no group and no `Verification:` line.
 
 #### Scenario: A line break and a command
 - **WHEN** the `implementation` of a group holds a line break and a line `- Verification: ` with a command
@@ -1050,9 +1062,115 @@ The `title`, `test`, `implementation`, `documentation`, `verify` and `process` o
 - **WHEN** the `reason` of a `pending-person` criterion holds a line `## 2. Extra`
 - **THEN** `tasks.md` holds one group
 
+#### Scenario: Any line terminator
+- **WHEN** a text of a group holds a heading after any character that ends a line in markdown or in Python, such as `\r`, `\x85` or U+2028
+- **THEN** `tasks.md` holds one group, and the text holds one space in place of the character
+
+#### Scenario: A text set after validation
+- **WHEN** the `implementation` of a validated group is set to a text with a line break and a `Verification:` line
+- **THEN** the text is on one line, and the group renders no extra command
+
 ### Requirement: A verify command holds no backtick
-`form_problems` SHALL give a problem for a `verify` command that holds a backtick, and the problem SHALL say that it holds a backtick.
+`form_problems` SHALL give a problem for a `verify` command that holds a backtick, and the problem SHALL say that it holds a backtick. A command that also has a wrong form SHALL get the problem of its form in the same run.
 
 #### Scenario: A backtick in a command
 - **WHEN** the `verify` of a group is ``uv run devops ci test `x` ``
 - **THEN** `form_problems` gives one problem, and it says that the command holds a backtick
+
+#### Scenario: A backtick and a wrong form
+- **WHEN** the `verify` of a group is ``pytest `x` ``
+- **THEN** `form_problems` gives two problems: the backtick, and the form to use
+
+### Requirement: The paths of a negative search are checked against the staged commit
+`check_proposal` SHALL read the paths of a `verify` command that is a negative search from the reader of the step, and SHALL refuse a path that is no file or folder of the staged commit and that no group up to its own creates. A path that ends in `/` SHALL be a folder. The path `.` SHALL not be judged. A glob SHALL be judged by the files that it matches.
+
+#### Scenario: A folder that is not in the commit
+- **WHEN** a group gives the `verify` command `! git grep -n hello scr/ testz/` and the commit has `src/` and `tests/` only
+- **THEN** `check_proposal` returns a problem for `scr` and one for `testz`
+
+#### Scenario: Folders of the commit and a folder that the plan creates
+- **WHEN** a group gives the `verify` command `! git grep -n old_name src/ tests/`, `! git grep -n x -- .` or `! git grep -n x -- tests/newdir`, and the plan creates `tests/newdir/test_new.py`
+- **THEN** `check_proposal` returns no problem about the paths
+
+#### Scenario: A file with a trailing slash
+- **WHEN** a group gives the `verify` command `! git grep -n devops README.md/` and `README.md` is a file of the commit
+- **THEN** `check_proposal` returns a problem for `README.md`
+
+### Requirement: A text of the proposal, the design and the spec delta stays on one line
+The `why`, `what_changes`, `feasibility` and `existing_tool` of the reply, the texts of its decisions and rejected alternatives, and the `purpose`, the names, the texts and the scenario lines of its spec deltas, SHALL be written on one line, and U+FEFF SHALL count as white space. A text at the start of a line SHALL start with no mark of markdown: a heading, a quote, a list marker, a box, a rule, a fence or an HTML tag. The reply that breaks the rule fails the schema.
+
+#### Scenario: A removed section in a requirement
+- **WHEN** the `text` of a requirement holds a line break, a heading `## REMOVED Requirements` and a requirement
+- **THEN** the `spec.md` of the delta holds the headings Purpose, ADDED Requirements and the one requirement, and no REMOVED section
+
+#### Scenario: A text that starts with a heading
+- **WHEN** the `why` of the reply is `## REMOVED Requirements`
+- **THEN** the reply fails the schema, and the error says that the text starts with a mark of markdown
+
+#### Scenario: A line break in a bullet
+- **WHEN** an item of `feasibility` holds a blank line and a heading
+- **THEN** the item is one line
+
+#### Scenario: A mark after U+FEFF
+- **WHEN** the `purpose` of a spec is U+FEFF, `##`, U+FEFF and `REMOVED Requirements`
+- **THEN** the reply fails the schema
+
+#### Scenario: An HTML tag
+- **WHEN** the `existing_tool` of the reply starts with `<pre>`
+- **THEN** the reply fails the schema
+
+### Requirement: A verify command keeps its spaces
+The `verify` of a task group SHALL be written on one line by joining its lines with one space, and SHALL keep every other space of the command.
+
+#### Scenario: Two spaces in a word
+- **WHEN** the `verify` is `! git grep -n 'a  b'` and a line break and `src/`
+- **THEN** the `verify` of the group is `! git grep -n 'a  b' src/`
+
+### Requirement: The draft pull request gets the labels of its title
+After the job records an item, it SHALL add to its draft pull request the `type/*` label and the `scope/*` label that the title gives, each only when `.github/labels.yml` on the default branch declares it. A label that GitHub refuses SHALL NOT delete the branch, close the draft or unset the record. The comment of the item SHALL name each label not added and the reason. Rejected credentials SHALL stop the run.
+
+#### Scenario: The title gives a type and a scope
+- **WHEN** the job stages item 1 and the labels file declares `type/docs` and `scope/openspec`
+- **THEN** the draft holds `type/docs` and `scope/openspec` and no other label
+
+#### Scenario: A label is refused and the branch stays
+- **WHEN** GitHub refuses `type/docs` for the draft
+- **THEN** the remote branch exists, the draft is open, and the record holds `stage.branch`, `stage.pr`, `stage.sha` and `stage.groups`
+
+#### Scenario: A label is refused and the comment says so
+- **WHEN** GitHub refuses `type/docs` for the draft and accepts `scope/openspec`
+- **THEN** the one comment of the item names the pull request, `type/docs` and the reason, and the draft holds `scope/openspec`
+
+#### Scenario: Rejected credentials
+- **WHEN** GitHub answers the label call with HTTP 401
+- **THEN** the run stops with the unauthenticated error and the comment has no label note
+
+#### Scenario: A dry run
+- **WHEN** `devops roadmap stage --dry-run` runs
+- **THEN** the plan lists the read of `.github/labels.yml` and the request that adds a label to the draft, and the run makes no request
+
+### Requirement: A split reply is checked for the form of its commands
+The job SHALL check the groups of a split reply for the form of their `verify` commands, as it checks the groups of a plan, and SHALL send a reply with a problem back to the model once.
+
+#### Scenario: A split group with two commands
+- **WHEN** a split group has a `verify` of ``uv run devops ci test tests/x.py` and `git push origin HEAD``
+- **THEN** the reply goes back to the model with the `verify` problem, and the model is asked once more
+
+### Requirement: A task of a group holds more than one word
+`form_problems` SHALL give a problem for each `test`, `implementation` or `documentation` text of a group that holds one word or less, with a code span counted as one word. The problem SHALL name the group by its number and its title, and the part of the text.
+
+#### Scenario: A bare filename as the first task
+- **WHEN** the `test` of a behavior group is `src/devops_cli/roadmap/stage_form.py`
+- **THEN** `form_problems` gives one problem, and it names the group and the part `test`
+
+#### Scenario: A single word as the work
+- **WHEN** the `implementation` of a group is `Refactor`
+- **THEN** `form_problems` gives one problem that names the part `implementation`
+
+#### Scenario: A code span alone
+- **WHEN** the `test` of a group is a path in a code span
+- **THEN** `form_problems` gives one problem
+
+#### Scenario: A task with a verb and an object
+- **WHEN** the `test` of a group is `Add a test in tests/roadmap/test_roadmap_stage_form.py for a bare filename task`
+- **THEN** `form_problems` gives no problem for the task

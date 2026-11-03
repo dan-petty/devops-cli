@@ -35,6 +35,18 @@ from devops_cli.roadmap.commit_title import commit_scope, commit_type
 # The most characters of the summary of a title (CONTRIBUTING.md, Naming): the part after
 # `<type>(<scope>): `, which the check `Semantic PR title` measures.
 SUMMARY_MAX_CHARS: Final[int] = 60
+# The characters that JavaScript `.` does not match, so that a title with one has no header.
+_LINE_BREAKS: Final[tuple[str, ...]] = ("\n", "\r", "\u2028", "\u2029")
+
+
+def summary_length(text: str) -> int:
+    """The length of `text` as the check `Semantic PR title` counts it. Its pattern `^.{1,60}$`
+    runs in JavaScript, where `.` is a UTF-16 code unit: a character outside the Basic
+    Multilingual Plane, such as an emoji, counts as two (#3249). A lone surrogate, which a byte
+    that is no UTF-8 gives in argv, counts as one, as it does in JavaScript."""
+    return len(text) + sum(ord(char) > 0xFFFF for char in text)
+
+
 # The most characters of a body before its trailers: the text, the `Closes` line and the `Change:`
 # line, as the squash message takes them. It is the limit that the implement job already holds.
 BODY_MAX_CHARS: Final[int] = CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS
@@ -48,7 +60,13 @@ _RELEASE_SCOPE: Final[str] = "main"
 _TITLE: Final[re.Pattern[str]] = re.compile(
     r"(?P<type>[a-z]+)(?:\((?P<scope>[^()\s]+)\))?(?P<bang>!?): (?P<summary>\S.*)"
 )
+# A summary that starts with a word and an issue number, such as `plan #2950 Add coverage`: the
+# word, the number and the text after them (#3255).
+_LEAD: Final[re.Pattern[str]] = re.compile(
+    r"(?P<word>[^\W\d_]+) #(?P<number>\d+)(?: (?P<rest>.*))?"
+)
 _CLOSES_LINE: Final[re.Pattern[str]] = re.compile(r"Closes #(?P<issue>\d+)")
+_PLANS_LINE: Final[re.Pattern[str]] = re.compile(r"Plans #(?P<issue>\d+)")
 # GitHub closes the issue that follows one of these words, with an optional colon.
 _CLOSING_REFERENCE: Final[re.Pattern[str]] = re.compile(
     r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+(?:[\w.-]+/[\w.-]+)?#\d+", re.IGNORECASE
@@ -108,18 +126,35 @@ def _declared_scopes(declared: Collection[str]) -> set[str]:
     }
 
 
+def _repeat_problems(summary: str) -> list[str]:
+    """What a summary that starts with `<word> #<number>` repeats: the word as the first word of
+    the text after the number (`plan #2950 plan coverage`), or the number in that text. A later
+    use of the word is not judged, because `plan #3200 Refuse a plan that ...` is a right title."""
+    texts = MESSAGES.pr
+    found = _LEAD.match(summary)
+    if found is None or not found["rest"]:
+        return []
+    word, number, rest = found["word"], found["number"], found["rest"]
+    problems = []
+    first = rest.split(maxsplit=1)[0].strip(_PLACEHOLDER_EDGES)
+    if first.casefold() == word.casefold():
+        problems.append(texts.form_title_repeat_word.format(word=word, number=number))
+    if re.search(rf"#{number}(?!\d)", rest):
+        problems.append(texts.form_title_repeat_number.format(number=number))
+    return problems
+
+
 def _summary_problems(summary: str) -> list[str]:
     texts = MESSAGES.pr
     if is_placeholder(summary):
         return [texts.form_placeholder.format(part="summary", text=summary.strip())]
     problems = []
-    if len(summary) > SUMMARY_MAX_CHARS:
-        problems.append(
-            texts.form_summary_long.format(length=len(summary), limit=SUMMARY_MAX_CHARS)
-        )
+    length = summary_length(summary)
+    if length > SUMMARY_MAX_CHARS:
+        problems.append(texts.form_summary_long.format(length=length, limit=SUMMARY_MAX_CHARS))
     if summary.rstrip().endswith(("...", "\u2026")):
         problems.append(texts.form_summary_cut)
-    return problems
+    return [*problems, *_repeat_problems(summary)]
 
 
 def title_problems(title: str, declared: Collection[str] | None = None) -> list[str]:
@@ -127,11 +162,13 @@ def title_problems(title: str, declared: Collection[str] | None = None) -> list[
     and none when the title is right.
 
     The type is one of the Conventional Commit types, there is no `!`, and the summary has at most
-    `SUMMARY_MAX_CHARS` characters, ends with no `...` and is no placeholder. A scope must have its
-    label in `declared`, the label names that `.github/labels.yml` holds. When `declared` is None
-    the scope is not checked against the labels, as in a dry run that reads no file."""
+    `SUMMARY_MAX_CHARS` characters (`summary_length`), ends with no `...` and is no placeholder.
+    The title is on one line: the parser of the check `Semantic PR title` refuses a title that has
+    a `\r`, a `\n`, a U+2028 or a U+2029. A scope must have its label in `declared`, the label
+    names that `.github/labels.yml` holds. When `declared` is None the scope is not checked against
+    the labels, as in a dry run that reads no file."""
     texts = MESSAGES.pr
-    if "\n" in title.strip():
+    if any(mark in title.strip() for mark in _LINE_BREAKS):
         return [texts.form_title_lines]
     found = _TITLE.fullmatch(title.strip())
     if found is None:
@@ -206,6 +243,42 @@ def body_problems(body: str) -> list[str]:
         else:
             problems += _text_problems(
                 "\n".join(lines[:closes_at]), "\n".join(lines[: change_at + 1])
+            )
+            problems += _trailer_problems("\n".join(lines[change_at + 1 :]))
+    if _TEMPLATE_COMMENT in body:
+        problems.append(texts.form_template_text)
+    if "BREAKING CHANGE" in body:
+        problems.append(texts.form_body_breaking)
+    return problems
+
+
+def plan_body_problems(body: str, issue: int) -> list[str]:
+    """What breaks the form of the body of a plan pull request for `issue` (#3314), one text for
+    each problem, and none when the body is right.
+
+    A plan delivers nothing, so its body has the line `Plans #<issue>` where a delivery has
+    `Closes`, and it closes no issue. The rest is the form of a delivery: the text, the `Change:`
+    line with the active folder of the same issue, and the length and trailer bounds.
+    """
+    texts = MESSAGES.pr
+    lines = body.strip().splitlines()
+    plans = [(i, m) for i, line in enumerate(lines) if (m := _PLANS_LINE.fullmatch(line))]
+    problems: list[str] = []
+    if len(plans) != 1 or int(plans[0][1]["issue"]) != issue:
+        problems.append(texts.form_plans_missing.format(issue=issue))
+    if _CLOSING_REFERENCE.search(body):
+        problems.append(texts.form_plan_closes)
+    change_problems, change_issue, change_at = _change_problems(lines)
+    problems += change_problems
+    if change_issue is not None and change_issue != issue:
+        problems.append(texts.form_plan_change_differs.format(issue=issue, change=change_issue))
+    if len(plans) == 1 and change_at is not None:
+        plans_at = plans[0][0]
+        if plans_at > change_at:
+            problems.append(texts.form_plan_order)
+        else:
+            problems += _text_problems(
+                "\n".join(lines[plans_at + 1 : change_at]), "\n".join(lines[: change_at + 1])
             )
             problems += _trailer_problems("\n".join(lines[change_at + 1 :]))
     if _TEMPLATE_COMMENT in body:

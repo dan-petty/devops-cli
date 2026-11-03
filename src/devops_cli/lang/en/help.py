@@ -956,7 +956,7 @@ class PRCommandHelp:
         "is the title, then a blank line, then the body."
     )
     describe_issue: str = "Number of the issue that the pull request closes."
-    describe_summary: str = "Summary of the title, at most 60 characters: what the change does. The command never cuts it."
+    describe_summary: str = "Summary of the title, at most 60 characters (an emoji counts as two): what the change does. The command never cuts it."
     describe_why: str = "Text of the body: what the change does, and why. The section Why of the proposal when omitted."
     describe_attribution: str = (
         "A paragraph for the end of the body, after the Change line. Repeat the option for more."
@@ -1219,7 +1219,7 @@ class RoadmapCommandHelp:
         "Make no request, to GitHub or a model: print the requests a run makes, in order, with "
         "placeholders for values a read gives."
     )
-    intake_eval: str = (
+    eval_intake: str = (
         "Run the intake duplicate evaluation set against the configured analysis model and "
         "print the score of each case. For each case intake plans the candidate in a roadmap "
         "that holds the case's item and nothing else, and writes nothing. The run makes one "
@@ -1229,7 +1229,7 @@ class RoadmapCommandHelp:
         "recall of the duplicate verdict. It exits 0 when every case ran, and 1 when a case "
         "could not run."
     )
-    intake_eval_dry_run: str = (
+    eval_intake_dry_run: str = (
         "Make no request: list the cases and the analysis call that a run makes for each."
     )
     eval_app: str = (
@@ -1286,7 +1286,8 @@ class RoadmapCommandHelp:
         "most 5 candidates a run and keeps a record of those it left beside the schedule; "
         "refine is due every 31 minutes, on a first run, and after an intake that placed a critical "
         "fix or a P0 item; the alternatives check is due every 719 minutes and on a first run, and checks "
-        "at most roadmap.alternatives.limit items. Without --confirm, or with --dry-run, prints "
+        "at most roadmap.alternatives.first_pass_limit items while an item has no check, and "
+        "roadmap.alternatives.limit items after. Without --confirm, or with --dry-run, prints "
         "the due list and runs nothing."
     )
     run_confirm: str = "Execute the due roadmap jobs. Without it, run prints the due list only."
@@ -1317,7 +1318,8 @@ class RoadmapCommandHelp:
         "is open, whoever opened it and whatever its status, even when its check is current."
     )
     alternatives_limit: str = (
-        "Maximum number of items to check in this run (default: roadmap.alternatives.limit, 5)."
+        "Maximum number of items to check in this run (default: roadmap.alternatives.first_pass_limit, 20, "
+        "while an item has no check, and roadmap.alternatives.limit, 5, after)."
     )
     alternatives_plan: str = (
         "Run the checks and print them, and write nothing. This is the default."
@@ -1450,6 +1452,10 @@ class RoadmapCommandHelp:
         "earlier run recorded it."
     )
     explain_arg: str = "The issue number to explain."
+    explain_trace: str = (
+        "Print the trace of the last run of the implement job for the issue, oldest event first, "
+        "and no verdict. The command reads the one issue, and no clone, and writes nothing."
+    )
     explain_source: str = (
         "Path to a clone of the repository. Without it, the command uses the model clone."
     )

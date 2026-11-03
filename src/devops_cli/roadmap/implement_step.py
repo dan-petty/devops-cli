@@ -28,6 +28,7 @@ import time
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import datetime
 from enum import StrEnum
 from http import HTTPStatus
 from pathlib import Path
@@ -47,7 +48,7 @@ from pydantic_ai.exceptions import (
     UnexpectedModelBehavior,
     UsageLimitExceeded,
 )
-from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage, UsageLimits
 from pydantic_ai_harness.compaction import ClearToolResults, WarnNearLimits
@@ -82,16 +83,16 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
     CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
     CONST_ROADMAP_IMPLEMENT_REASON_TESTS,
-    CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS,
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
     CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
+    CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.process_hardening import end_leftover_processes
 from devops_cli.exceptions.ai_pydantic import OutputCapReached
-from devops_cli.exceptions.roadmap import RoadmapImplementError
+from devops_cli.exceptions.roadmap import OverWindowError, RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
 from devops_cli.roadmap.agent_run import (
@@ -113,6 +114,7 @@ from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_SHELL_PROGRAMS,
     fill_prompt,
     read_verification,
+    shown,
 )
 from devops_cli.roadmap.implement_shell_refusal import (
     argument_refusal_hooks,
@@ -121,6 +123,7 @@ from devops_cli.roadmap.implement_shell_refusal import (
 from devops_cli.roadmap.implement_strays import stray_files
 from devops_cli.roadmap.implement_test_names import lost_since
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
+from devops_cli.roadmap.implement_trace import ImplementTrace
 from devops_cli.roadmap.step_files import (
     CHECKBOXES,
     GroupTask,
@@ -314,13 +317,15 @@ def build_step_inputs(
     tokens = count_tokens(instructions) + count_tokens(message)
     limit = window - CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS
     if tokens > limit:
-        raise RoadmapImplementError(
+        raise OverWindowError(
             MESSAGES.roadmap.implement_over_window.format(
                 measured=tokens,
                 limit=limit,
                 window=window,
                 reserve=CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
-            )
+            ),
+            measured=tokens,
+            limit=limit,
         )
     return StepInputs(
         group=chosen,
@@ -671,6 +676,8 @@ def _run_agent(
     resends = CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
     while run.resend is not None and resends > 0:
         sent = run.resend
+        if log.trace is not None:
+            log.trace.retry(run.reason)
         later = _run_turn(agent, model, log, None, sent)
         stalled = later.resend is not None and len(later.resend.messages) <= len(sent.messages)
         resends = resends - 1 if stalled else CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
@@ -725,6 +732,8 @@ def _run_turn(
         finally:
             replies = [*_new_replies(messages, conversation), *cut]
             record_run_spend(model, replies, time.monotonic() - started, stage="implement")
+            if log.trace is not None:
+                _trace_replies(log.trace, messages, replies)
     if error is not None:
         raise error
     return _Run(
@@ -737,6 +746,33 @@ def _run_turn(
         conversation=kept,
         resend=resend,
         provider_error=provider_error,
+    )
+
+
+def _trace_replies(
+    trace: ImplementTrace, messages: Sequence[ModelMessage], replies: Sequence[ModelResponse]
+) -> None:
+    """Add one `model` event for each of `replies` (#3032). The seconds are the time of the reply
+    minus the time of the request before it. A reply that is not in `messages`, as one that the
+    output cap cut, has no request to measure from, so its seconds are 0."""
+    fresh = {id(reply) for reply in replies}
+    seen: set[int] = set()
+    asked: datetime | None = None
+    for message in messages:
+        if isinstance(message, ModelRequest):
+            asked = message.timestamp
+        elif isinstance(message, ModelResponse) and id(message) in fresh:
+            seen.add(id(message))
+            seconds = (message.timestamp - asked).total_seconds() if asked else 0.0
+            _trace_reply(trace, message, max(seconds, 0.0))
+    for reply in replies:
+        if id(reply) not in seen:
+            _trace_reply(trace, reply, 0.0)
+
+
+def _trace_reply(trace: ImplementTrace, reply: ModelResponse, seconds: float) -> None:
+    trace.model_call(
+        reply.model_name or "", reply.usage.input_tokens, reply.usage.output_tokens, seconds
     )
 
 
@@ -769,9 +805,14 @@ def _git(source: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 
 def _tail(done: subprocess.CompletedProcess[str]) -> str:
-    """The last lines of what a command printed."""
+    """The last lines of what a command printed, each line escaped by `shown` and cut to
+    `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters, so the output holds no raw control
+    character or bidi override when it reaches the comment of a stop."""
     lines = f"{done.stdout or ''}{done.stderr or ''}".strip().splitlines()
-    return "\n".join(lines[-CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES:])
+    return "\n".join(
+        shown(line, CONST_ROADMAP_IMPLEMENT_REASON_CHARS)
+        for line in lines[-CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES:]
+    )
 
 
 def _git_output(source: Path, *args: str) -> str:
@@ -881,45 +922,52 @@ def _unticked_failure(inputs: StepInputs) -> str | None:
 
 
 def _command_failure(
-    source: Path, argv: Sequence[str], shown: str, *, negative: bool = False
+    source: Path,
+    argv: Sequence[str],
+    named: str,
+    *,
+    negative: bool = False,
+    trace: ImplementTrace | None = None,
 ) -> str | None:
     """Run `argv` in the checkout. None when it exits 0, else why the step stops. A `negative`
-    search passes on exit 1 (git found no match), and a match (exit 0) is why it stops."""
+    search passes on exit 1 (git found no match), and a match (exit 0) is why it stops. With a
+    `trace`, the run is a `check` event: its exit status, or none for a timeout (#3032)."""
     limit = load_settings().roadmap.implement.command_timeout_seconds
     try:
         done = run_subprocess(list(argv), cwd=source, quiet=True, timeout=limit)
     except subprocess.TimeoutExpired:
-        return MESSAGES.roadmap.implement_stop_command_timeout.format(command=shown, seconds=limit)
+        if trace is not None:
+            trace.check(named, None)
+        return MESSAGES.roadmap.implement_stop_command_timeout.format(command=named, seconds=limit)
+    if trace is not None:
+        trace.check(named, done.returncode)
     if done.returncode == (1 if negative else 0):
         return None
     if negative and done.returncode == 0:
         return MESSAGES.roadmap.implement_stop_search_found.format(
-            command=shown, output=_tail(done)
+            command=named, output=_tail(done)
         )
     return MESSAGES.roadmap.implement_stop_command_failed.format(
-        command=shown, status=done.returncode, output=_tail(done)
+        command=named, status=done.returncode, output=_tail(done)
     )
 
 
-def _command_shown(command: str) -> str:
-    """`command` for a stop reason, cut to `CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS` characters."""
-    limit = CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS
-    return command if len(command) <= limit else f"{command[:limit]}..."
-
-
-def commands_failure(source: Path, commands: Iterable[str]) -> str | None:
+def commands_failure(
+    source: Path, commands: Iterable[str], trace: ImplementTrace | None = None
+) -> str | None:
     """Run each of `commands` in the checkout, in order: None when all exit 0, else why the first
     that did not stops the run. A command whose program is not on the allowlist does not run. A
     command that starts with `!` runs only as the negative search of `read_negative_search`,
     and passes when it finds nothing (#3263). The step runs the verification commands of a group,
     from the tasks as they were before the run."""
     for command in commands:
+        named = shown(command, CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS)
         found = read_verification(command)
         if isinstance(found, str):
             return MESSAGES.roadmap.implement_stop_command_refused.format(
-                command=_command_shown(command), reason=found
+                command=named, reason=found
             )
-        failure = _command_failure(source, found.argv, command, negative=found.negative)
+        failure = _command_failure(source, found.argv, named, negative=found.negative, trace=trace)
         if failure is not None:
             return failure
     return None
@@ -934,10 +982,10 @@ def _paths_text(
     names: Sequence[str], limit: int = CONST_ROADMAP_IMPLEMENT_REASON_PATHS, separator: str = ", "
 ) -> str:
     """`names` as one line, cut to `limit` names, with the count of the rest."""
-    shown = names[:limit]
-    paths = separator.join(shown)
-    if len(names) > len(shown):
-        paths += MESSAGES.roadmap.implement_paths_more.format(count=len(names) - len(shown))
+    listed = names[:limit]
+    paths = separator.join(listed)
+    if len(names) > len(listed):
+        paths += MESSAGES.roadmap.implement_paths_more.format(count=len(names) - len(listed))
     return paths
 
 
@@ -967,7 +1015,9 @@ def _link_failure(source: Path, files: Sequence[str]) -> str | None:
     return MESSAGES.roadmap.implement_stop_link.format(paths=_paths_text(links))
 
 
-def _format_failure(source: Path, changed: Sequence[str]) -> str | None:
+def _format_failure(
+    source: Path, changed: Sequence[str], trace: ImplementTrace | None = None
+) -> str | None:
     """Run `ruff format` on the changed Python files, outside the shell of the agent, and stage
     the files it changed. Git names them: the index holds the files as they were before the run.
     Prints one line that names them. None when the formatter exits 0, else why the step stops.
@@ -979,7 +1029,7 @@ def _format_failure(source: Path, changed: Sequence[str]) -> str | None:
     if link is not None:
         return link
     argv = [BIN_UV, "run", BIN_RUFF, "format", "--", *files]
-    failure = _command_failure(source, argv, shlex.join(argv))
+    failure = _command_failure(source, argv, shlex.join(argv), trace=trace)
     if failure is not None:
         return failure
     names = _git_output(source, "diff", "--name-only", "-z", "--", *files)
@@ -993,7 +1043,9 @@ def _format_failure(source: Path, changed: Sequence[str]) -> str | None:
     return None
 
 
-def _static_failure(source: Path, changed: Sequence[str]) -> str | None:
+def _static_failure(
+    source: Path, changed: Sequence[str], trace: ImplementTrace | None = None
+) -> str | None:
     """Run the static checks of the gate on the changed Python files (#3090). `ruff check` runs on
     every one and fixes nothing: a lint rule can point at a defect that the model must see. `mypy`
     runs, with the options of the gate, on the files that the gate type-checks, and on no other:
@@ -1006,7 +1058,7 @@ def _static_failure(source: Path, changed: Sequence[str]) -> str | None:
     if typed:
         commands.append(typecheck_argv(["--", *typed]))
     for argv in commands:
-        failure = _command_failure(source, argv, shlex.join(argv))
+        failure = _command_failure(source, argv, shlex.join(argv), trace=trace)
         if failure is not None:
             return failure
     return None
@@ -1077,18 +1129,23 @@ def _exit_failure(
     lost = _tests_failure(source, start)
     if lost:
         return _Failure(lost)
-    early = _format_failure(source, changed) or commands_failure(
-        source, inputs.group.verification_commands
+    early = _format_failure(source, changed, log.trace) or commands_failure(
+        source, inputs.group.verification_commands, log.trace
     )
     if early:
         return _Failure(early)
-    static = _static_failure(source, changed)
+    static = _static_failure(source, changed, log.trace)
     if static:
         return _Failure(static, frozenset(changed))
-    return _hooks_failure(source, inputs.hooks, changed)
+    return _hooks_failure(source, inputs.hooks, changed, log.trace)
 
 
-def _hooks_failure(source: Path, config: Path | None, changed: Sequence[str]) -> _Failure | None:
+def _hooks_failure(
+    source: Path,
+    config: Path | None,
+    changed: Sequence[str],
+    trace: ImplementTrace | None = None,
+) -> _Failure | None:
     """Run the `pre-commit` stage of the hooks of `config` over the staged changes (#3043). None
     when it passes. A failed hook (exit 1) is a failure that the agent may repair in the files the
     step changed. Any other exit code, a run that ran out of time too, is a stop. A repository with
@@ -1096,6 +1153,10 @@ def _hooks_failure(source: Path, config: Path | None, changed: Sequence[str]) ->
     if config is None:
         return None
     run = commit_stage(source, config)
+    if trace is not None:
+        trace.check(
+            f"pre-commit {CONST_PRE_COMMIT_COMMIT_STAGE}", 0 if run is None else run.returncode
+        )
     if run is None:
         return None
     reason = MESSAGES.roadmap.implement_stop_hooks_failed.format(
@@ -1288,6 +1349,7 @@ def _attempt(
     tiers: Sequence[str],
     model_for_tier: Callable[[str], Any] | None,
     tier_health: Callable[[Sequence[str]], Mapping[str, bool]],
+    trace: ImplementTrace | None = None,
 ) -> StepOutcome:
     """Run the agent one tier at a time, then judge the exit and commit. A failed check or a
     missing tick gets an extra turn while one of the `roadmap.implement.repair_rounds` rounds is
@@ -1302,7 +1364,7 @@ def _attempt(
     tried: list[str] = []
     attempt = 0
     with tempfile.TemporaryDirectory(prefix="devops-implement-home-") as home:
-        log = ToolCallLog(source)
+        log = ToolCallLog(source, trace=trace)
         while True:
             tier, attempt = _tier_for_attempt(tiers, attempt, tier_health)
             if tier:
@@ -1314,6 +1376,10 @@ def _attempt(
                 _Failure(run.reason) if run.reason else _exit_failure(source, inputs, start, log)
             )
             while rounds < budget and (ask := _extra_ask(source, inputs, failure, log)) is not None:
+                if trace is not None:
+                    trace.retry(
+                        (failure.reason if failure else "") or _unticked_failure(inputs) or ""
+                    )
                 run, failure = _extra_turn(agent, tier_model, log, source, inputs, start, run, ask)
                 rounds += 1
             total = total.plus(run)
@@ -1365,6 +1431,7 @@ def run_step(
     ladder: Sequence[str] | None = None,
     model_for_tier: Callable[[str], Any] | None = None,
     tier_health: Callable[[Sequence[str]], Mapping[str, bool]] | None = None,
+    trace: ImplementTrace | None = None,
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
@@ -1375,7 +1442,8 @@ def run_step(
     refuses to start, and `AICredentialsError` when the model refuses the key. With `fix`, the
     step makes the failed check pass and ticks no task (`run_fix_step`). `hooks` is the trusted
     configuration of the hooks of the project (`trusted_config`): the step runs its `pre-commit`
-    stage as an exit check, and none when `hooks` is None (#3043).
+    stage as an exit check, and none when `hooks` is None (#3043). With a `trace`, the step adds
+    its model calls, tool calls, exit checks and retries to it (#3032).
 
     The step runs the ladder of `step_class` (#3060): `ladder` names the tiers, else the setting
     `roadmap.implement.ladder` does. `model_for_tier` builds the model of one tier; without it,
@@ -1402,6 +1470,7 @@ def run_step(
             tiers=_ladder_tiers(step_class, ladder),
             model_for_tier=model_for_tier,
             tier_health=tier_health or _gateway_tier_health,
+            trace=trace,
         )
         done = outcome.status is StepStatus.DONE
         return outcome
@@ -1422,6 +1491,7 @@ def run_fix_step(
     ladder: Sequence[str] | None = None,
     model_for_tier: Callable[[str], Any] | None = None,
     tier_health: Callable[[Sequence[str]], Mapping[str, bool]] | None = None,
+    trace: ImplementTrace | None = None,
 ) -> StepOutcome:
     """Run the fix of the failed check `fix` for item `item` in the checkout `source`: a step
     whose group is "Make check <name> pass". It commits as `<that title> (#<item>)` when the
@@ -1439,6 +1509,7 @@ def run_fix_step(
         ladder=ladder,
         model_for_tier=model_for_tier,
         tier_health=tier_health,
+        trace=trace,
     )
 
 

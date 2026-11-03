@@ -1,4 +1,4 @@
-"""The form of the commands and the new test files of a plan (#3015).
+"""The form of the tasks, the commands and the new test files of a plan (#3015, #3255).
 
 About 14 of 37 plans of 2026-11-01 gave `uv run pytest <file>` as the `verify` command, and about 6
 put a new test file flat under `tests/`. `docs/TESTING.md` says a check runs with `uv run devops`
@@ -13,16 +13,27 @@ step. A new test module (`tests/**/test_*.py` in `creates`) sits in the director
 package of a source file that the plan changes, or in `tests/invariants/`. A plan that changes no
 source file has no package to mirror, so it only refuses a test module directly under `tests/`. A
 file under `tests/` that is no test module (a fixture, a helper, a `conftest.py`) is not judged.
+
+A task text holds more than one word, with a code span as one word. A path or a word alone says
+nothing to the step: `tests/roadmap/test_stage.py` is no task, and `Add a test in
+tests/roadmap/test_stage.py for a bare task` is one (#3255). The gate counts words and parses no
+grammar, so a sentence with a verb and an object always passes.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Final
 
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement_shell_policy import NEGATIVE_SEARCH_WORD, verification_problem
+from devops_cli.roadmap.implement_shell_policy import (
+    NEGATIVE_SEARCH_WORD,
+    shown,
+    verification_problem,
+)
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stage_change import StageGroup
@@ -33,24 +44,55 @@ _INVARIANTS: Final[PurePosixPath] = _TESTS / "invariants"
 _PACKAGE: Final[PurePosixPath] = PurePosixPath("src/devops_cli")
 _TEST_MODULE_PREFIX: Final[str] = "test_"
 _PYTHON_SUFFIX: Final[str] = ".py"
+_CODE_SPAN: Final[re.Pattern[str]] = re.compile(r"`[^`]*`")
 
 
-def _verify_problem(number: int, command: str) -> str | None:
-    """The problem of the `verify` command of group `number`, or None when it has the project form
-    and the step runs it. A command of another form gets the forms to use. A command of the project
-    form that the step refuses gets the reason of the step."""
+def is_valid_verify(command: str) -> bool:
+    """Whether `command` starts with `uv run devops` as a whole word."""
     command = command.strip()
+    return command == _VERIFY_PREFIX or command.startswith(f"{_VERIFY_PREFIX} ")
+
+
+def _verify_problems(number: int, command: str) -> list[str]:
+    """The problems of the `verify` command of group `number`: a backtick, which ends the code span
+    that the plan writes it in, and a form that the step does not run. A command of the project
+    form that the step refuses gets the reason of the step. A command with both faults gets both
+    problems, as the job asks the model once."""
+    command = command.strip()
+    named = shown(command, CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS)
     texts = MESSAGES.roadmap
+    problems: list[str] = []
     if "`" in command:
-        return texts.stage_problem_verify_backtick.format(group=number, command=command)
+        problems.append(texts.stage_problem_verify_backtick.format(group=number, command=named))
     first = command.split(maxsplit=1)[0] if command else ""
-    if first != NEGATIVE_SEARCH_WORD and not (
-        command == _VERIFY_PREFIX or command.startswith(f"{_VERIFY_PREFIX} ")
-    ):
-        return texts.stage_problem_verify.format(group=number, command=command)
-    if (reason := verification_problem(command)) is None:
-        return None
-    return texts.stage_problem_verify_run.format(group=number, command=command, reason=reason)
+    if first != NEGATIVE_SEARCH_WORD and not is_valid_verify(command):
+        problems.append(texts.stage_problem_verify.format(group=number, command=named))
+    elif (reason := verification_problem(command)) is not None:
+        problems.append(
+            texts.stage_problem_verify_run.format(group=number, command=named, reason=reason)
+        )
+    return problems
+
+
+def _task_problems(number: int, group: StageGroup) -> list[str]:
+    """One problem for each task text of group `number` that holds one word or less: the failing
+    test, the work and the document task. A code span counts as one word."""
+    texts = MESSAGES.roadmap
+    parts = (
+        ("test", group.test),
+        ("implementation", group.implementation),
+        ("documentation", group.documentation),
+    )
+    return [
+        texts.stage_problem_task.format(
+            group=number,
+            title=group.title,
+            part=part,
+            text=shown(text, CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS),
+        )
+        for part, text in parts
+        if text is not None and len(_CODE_SPAN.sub("x", text).split()) < 2
+    ]
 
 
 def _mirror_directories(groups: Sequence[StageGroup]) -> list[PurePosixPath]:
@@ -79,14 +121,16 @@ def _expected(mirrors: Sequence[PurePosixPath]) -> str:
 
 
 def form_problems(groups: Sequence[StageGroup]) -> list[str]:
-    """One sentence for each `verify` command that is not in the project form, and for each new
-    test module outside the mirror directories and `tests/invariants/`."""
+    """One sentence for each task text of one word, for each `verify` command that is not in the
+    project form, and for each new test module outside the mirror directories and
+    `tests/invariants/`."""
     texts = MESSAGES.roadmap
     mirrors = _mirror_directories(groups)
     problems: list[str] = []
     for number, group in enumerate(groups, start=1):
-        if group.verify is not None and (problem := _verify_problem(number, group.verify)):
-            problems.append(problem)
+        problems.extend(_task_problems(number, group))
+        if group.verify is not None:
+            problems.extend(_verify_problems(number, group.verify))
         for created in group.creates:
             path = PurePosixPath(created)
             folder = path.parent

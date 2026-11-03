@@ -808,6 +808,36 @@ def test_a_split_reply_with_a_missing_path_goes_back_to_the_model_once(
     assert len(plan.ready) == 1
 
 
+@pytest.mark.usefixtures("openspec")
+@pytest.mark.parametrize(
+    "verify",
+    [
+        "uv run pytest tests/test_x.py",
+        "uv run devops ci test tests/x.py` and `git push origin HEAD",
+    ],
+)
+def test_a_split_group_with_a_verify_command_of_a_wrong_form_goes_back_to_the_model_once(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verify: str,
+) -> None:
+    heavy = heavy_group(stage_repo)
+    bad = heavy.model_copy(update={"title": "Bad", **NO_FILES, "verify": verify})
+    model_fake.answer(
+        make_stage_proposal(groups=[heavy]),
+        StageSplit(groups=[bad]),
+        make_stage_proposal(),
+    )
+
+    plan = _plan(store, stage_repo, step_tokens=6000)
+
+    assert "`verify` command" in _requests(model_fake)[2]["problem"]
+    assert model_fake.call_count == 3
+    assert len(plan.ready) == 1
+
+
 def test_a_failed_validation_goes_back_to_the_model_once(
     store: InMemoryRoadmapStore,
     item: int,
@@ -1412,8 +1442,8 @@ def test_tasks_md_lists_each_criterion_with_its_group_before_the_follow_up() -> 
 
     tasks = files["openspec/changes/1-x/tasks.md"]
     assert tasks.endswith(
-        "\n## Criteria\n\n- First criterion.: group 1\n"
-        "- Second criterion.: pending-person, A person decides.\n\n"
+        "\n## Criteria\n\n- Group 1: First criterion.\n"
+        "- Pending person: Second criterion., A person decides.\n\n"
         "## Workflow follow-up\n\n- Pending a person: review the diff in tuicr "
         "(tuicr -r <base>..HEAD).\n"
     )
@@ -1478,7 +1508,7 @@ def test_a_split_reply_brings_the_criteria_with_the_new_group_numbers(
 
     assert _requests(model_fake)[1]["criteria"][0]["criterion"] == "First criterion."
     tasks = plan.ready[0].files[f"openspec/changes/{CHANGE}/tasks.md"]
-    assert "- First criterion.: group 2" in tasks
+    assert "- Group 2: First criterion." in tasks
 
 
 @pytest.mark.parametrize("task", ["roadmap_stage_change.md", "roadmap_stage_split.md"])

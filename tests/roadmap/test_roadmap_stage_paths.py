@@ -366,3 +366,86 @@ def test_the_plan_of_2116_names_one_test_file_that_moved_to_the_security_folder(
     (problem,) = _problems(group)
 
     assert "`tests/security/test_scanner_tool_executor.py`" in problem
+
+
+# ── The paths of a negative search are checked (#3263) ────────────────────────────────────
+
+
+def _search(verify: str, *, creates: list[str] | None = None) -> list[str]:
+    changes = ["src/devops_cli/sample.py", *(creates or [])]
+    return _problems(_group(verify=verify, changes=changes, creates=creates or []))
+
+
+@pytest.mark.parametrize(
+    "verify",
+    [
+        "! git grep -n old_name src/ tests/",
+        "! git grep -n old_name -- src tests",
+        "! git grep -n old_name -- src/devops_cli tests/roadmap",
+        "! git grep -n old_name -- docs/TESTING.md README.md",
+        "! git grep -n old_name -- tests/*.py",
+        "! git grep -n old_name -- .",
+        "! git grep -n old_name -- ./src",
+    ],
+)
+def test_a_negative_search_over_paths_of_the_commit_has_no_problem(verify: str) -> None:
+    assert _search(verify) == []
+
+
+@pytest.mark.parametrize(
+    ("verify", "missing"),
+    [
+        ("! git grep -n hello scr/ testz/", ["scr", "testz"]),
+        ("! git grep -n hello -- scr tests", ["scr"]),
+        ("! git grep -n hello -- src/devops_clix", ["src/devops_clix"]),
+    ],
+)
+def test_a_negative_search_over_a_path_that_is_not_in_the_commit_is_a_problem(
+    verify: str, missing: list[str]
+) -> None:
+    problems = _search(verify)
+
+    assert [path for path in missing if any(f"`{path}`" in text for text in problems)] == missing
+    assert len(problems) == len(missing)
+
+
+def test_a_negative_search_over_a_folder_that_the_plan_creates_has_no_problem() -> None:
+    assert _search("! git grep -n x -- tests/newdir", creates=["tests/newdir/test_new.py"]) == []
+
+
+def test_a_negative_search_that_the_step_refuses_is_judged_by_the_form_check_only() -> None:
+    """The reader refuses the shape first, so the word `|` is no path to look up."""
+    assert _search("! git grep -n x src/ | cat") == []
+
+
+@pytest.mark.parametrize(
+    ("verify", "missing"),
+    [
+        ("! git grep -n devops README.md/", "README.md"),
+        ("! git grep -n x -- src/devops_cli/sample.py/", "src/devops_cli/sample.py"),
+    ],
+)
+def test_a_trailing_slash_on_a_file_is_a_problem(verify: str, missing: str) -> None:
+    problems = _search(verify)
+
+    assert len(problems) == 1
+    assert f"`{missing}`" in problems[0]
+
+
+def test_a_trailing_slash_on_a_folder_is_no_problem() -> None:
+    assert _search("! git grep -n x src/devops_cli/ docs/") == []
+
+
+def test_the_words_of_a_refused_search_are_still_checked_as_paths() -> None:
+    """The reader refuses `-O`, so the paths come from the words of the command."""
+    problems = _search("! git grep -O name tests/old/test_old.py")
+
+    assert len(problems) == 1
+    assert "`tests/old/test_old.py`" in problems[0]
+
+
+def test_the_words_of_a_command_that_shlex_cannot_read_are_still_checked_as_paths() -> None:
+    problems = _search('uv run devops ci test tests/old/test_old.py "')
+
+    assert len(problems) == 1
+    assert "`tests/old/test_old.py`" in problems[0]

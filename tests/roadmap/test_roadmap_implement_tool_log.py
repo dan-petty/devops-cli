@@ -139,11 +139,23 @@ def test_a_first_word_that_is_no_known_program_is_logged_as_other(
     assert _program_line(command, capsys) == "Tool call: shell, program other, ok."
 
 
-@pytest.mark.parametrize("word", sorted(IMPLEMENT_SHELL_REPLACEMENTS))
+@pytest.mark.parametrize("word", sorted(set(IMPLEMENT_SHELL_REPLACEMENTS) - {"!"}))
 def test_a_program_of_the_table_of_replacements_is_logged_by_name(
     capsys: pytest.CaptureFixture[str], word: str
 ) -> None:
     assert _program_line(f"{word} --flag 'a b'", capsys) == f"Tool call: shell, program {word}, ok."
+
+
+@pytest.mark.parametrize(
+    "command", ["! Authorization: Bearer abcdef0123456789abcdef", "! git grep -n x src/", "!"]
+)
+def test_a_command_that_starts_with_a_bang_is_logged_as_other_and_shows_no_word_after_it(
+    capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    lines = _call_lines(command, capsys)
+
+    assert lines[-1] == "Tool call: shell, program other, ok."
+    assert "Bearer" not in "".join(lines)
 
 
 @pytest.mark.parametrize("command", ["", "   "])

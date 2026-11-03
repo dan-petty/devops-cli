@@ -977,7 +977,7 @@ devops gh pr describe [OPTIONS] <issue>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--summary`, `-s` | `string` | - | Summary of the title, at most 60 characters: what the change does. The command never cuts it. |
+| `--summary`, `-s` | `string` | - | Summary of the title, at most 60 characters (an emoji counts as two): what the change does. The command never cuts it. |
 | `--why` | `string` | - | Text of the body: what the change does, and why. The section Why of the proposal when omitted. |
 | `--attribution` | `string` | - | A paragraph for the end of the body, after the Change line. Repeat the option for more. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
@@ -995,9 +995,10 @@ adds the labels that the Conventional Commit title gives, as intake does: fix(ai
 and scope/ai.
 
 It opens nothing when the title or the body breaks the form of CONTRIBUTING.md section 4: a
-Conventional Commit title with a summary of at most 60 characters and a scope that
-.github/labels.yml declares, and a body of at most 1,000 characters that ends with Closes
-#\<issue\> and the Change line. devops pr describe builds a title and a body in that form.
+Conventional Commit title with a summary of at most 60 characters (an emoji counts as two)
+and a scope that .github/labels.yml declares, and a body of at most 1,000 characters that
+ends with Closes #\<issue\> and the Change line. devops pr describe builds a title and a body in
+that form.
 
 ```bash
 devops gh pr create [OPTIONS]
@@ -1015,13 +1016,14 @@ devops gh pr create [OPTIONS]
 
 ### `devops gh pr ready`
 
-**Mark a draft pull request as ready for review once its checks pass.**
+**Mark a draft pull request as ready for review once draft readiness allows it.**
 
-Mark a draft pull request as ready for review once its checks pass.
+Mark a draft pull request as ready for review once draft readiness allows it.
 
-It exits 1 when a check failed or could not be read and 8 while one runs. Every other
-blocker of the merge-readiness verdict prints as a warning. --force skips the checks. It
-sets the Status of the roadmap item the pull request closes to In Review.
+It exits 1 for a refusal and 8 while a check runs. For an implement pull request, it names
+each unticked task group. Every other blocker of the merge-readiness verdict prints as a
+warning. --force skips the readiness check. It sets the Status of the roadmap item the pull
+request closes to In Review.
 
 ```bash
 devops gh pr ready [OPTIONS] <number>
@@ -1089,16 +1091,18 @@ devops gh pr close [OPTIONS] <number>
 
 ### `devops gh pr check-readiness`
 
-**Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.**
+**Validate PR merge readiness: conflicts, draft state, checks, review threads, grounding
+and draft readiness.**
 
-Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
+Validate PR merge readiness: conflicts, draft state, checks, review threads, grounding
+and draft readiness.
 
 Grounding applies where the base holds openspec/changes/. The PR targets the default branch.
 It closes exactly one issue, an open issue of its own repository that holds a priority/*
 label: a roadmap item. GitHub closes that issue when the PR merges. The PR
 adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive
 writes for that issue's change. Only that archive writes openspec/specs/ and
-openspec/changes/archive/.
+openspec/changes/archive/. An implement pull request must have every task group ticked.
 
 ```bash
 devops gh pr check-readiness [OPTIONS] <number>

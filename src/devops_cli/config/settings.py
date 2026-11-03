@@ -91,6 +91,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REPOS_BASE_DIR,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
     DEFAULT_REVIEWS_DATA_DIR,
+    DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
@@ -1063,6 +1064,12 @@ class AlternativesConfig(BaseModel):
     limit: int = Field(
         description="Most items that one run of the alternatives check, or one Service round of it, checks",
         default=DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
+        ge=1,
+    )
+
+    first_pass_limit: int = Field(
+        description="Most items that one run of the alternatives check, or one Service round of it, checks while an item has no check",
+        default=DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT,
         ge=1,
     )
 

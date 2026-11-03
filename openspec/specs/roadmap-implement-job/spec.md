@@ -154,11 +154,19 @@ When the settled checks of the pull request hold a failed one, the job SHALL run
 - **THEN** the job reads again, and judges only a status whose head is the pushed commit
 
 ### Requirement: A pull request that passes its checks is marked ready
-When every check passed and no review thread is open, the job SHALL run `gh pr ready`, set Status to In Review, record `implement.group`, `implement.sha`, `implement.pr` and `implement.spend`, and post one comment on the issue with the pull request and the spend. The job SHALL NOT merge.
+When `draft_readiness` answers ready for the implement pull request and no review thread is open, the job SHALL run `gh pr ready`, set Status to In Review, record `implement.group`, `implement.sha`, `implement.pr` and `implement.spend`, and post one comment on the issue with the pull request and the spend. When it answers wait or refuse, the job SHALL stop the item with the reason and SHALL NOT run `gh pr ready`. The job SHALL NOT merge.
 
 #### Scenario: The finish
 - **WHEN** the checks pass
 - **THEN** `gh pr ready <pr>` ran once, Status is In Review, the record holds the number of the pull request and the last commit, and the issue holds one comment that starts with the marker and names the pull request
+
+#### Scenario: A task group stays unticked
+- **WHEN** the archived `tasks.md` of the job holds an unticked task in group 2 after the archive step
+- **THEN** the item is Blocked with a reason that names group 2, `gh pr ready` ran never, and the class of the failure is `plan_defect`
+
+#### Scenario: A check starts after the watch
+- **WHEN** a check run of the head is running when the job reads the check runs before it marks the pull request ready
+- **THEN** the item is Blocked with the reason that a check runs, and `gh pr ready` ran never
 
 ### Requirement: A stopped item is Blocked and the job does not retry it
 When a step, the rebase, the documentation, the archive, a push or the checks stop the item, the job SHALL post a comment that starts with the marker and names the step, the reason and the last message of the agent, SHALL set Status to Blocked, and SHALL record `implement.stopped` with the step. It SHALL push the commits of the steps that passed. The job SHALL NOT run the item again until a clear rule removes the record. The job SHALL go on to the next selected item.
@@ -179,7 +187,7 @@ The job SHALL cut the reason of a stop to `CONST_ROADMAP_IMPLEMENT_REASON_CHARS`
 - **THEN** the comment holds the first `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters of the reason
 
 ### Requirement: The job record
-The job SHALL keep `implement.group` (the last group that passed), `implement.sha` (the commit it ended on), `implement.branch` (the branch of the pull request), `implement.pr` (the pull request), `implement.stopped` and `implement.spend` in the job record of the item. The spend SHALL be the requests, input tokens and output tokens of every step the job ran.
+The job SHALL keep `implement.group` (the last group that passed), `implement.sha` (the commit it ended on), `implement.branch` (the branch of the pull request), `implement.pr` (the pull request), `implement.stopped`, `implement.spend` and `implement.trace` in the job record of the item. The spend SHALL be the requests, input tokens and output tokens of every step the job ran.
 
 #### Scenario: Spend
 - **WHEN** two steps used 3 and 4 requests
@@ -188,6 +196,10 @@ The job SHALL keep `implement.group` (the last group that passed), `implement.sh
 #### Scenario: The branch
 - **WHEN** the job takes a Staged item and a Planned item to a ready pull request
 - **THEN** the record of each holds its branch and its pull request
+
+#### Scenario: The trace
+- **WHEN** the job takes an item to a ready pull request
+- **THEN** the record holds `implement.trace` with the events of the steps, the scoped checks and the commands of the job
 
 ### Requirement: A dry run makes no request
 `--dry-run` SHALL make no request, SHALL return the plan type marked as a dry run, and SHALL list the reads and the writes of a run in order.
@@ -369,7 +381,7 @@ The row `implement` SHALL NOT be a row of the model lane. A poll SHALL make it d
 
 #### Scenario: The rows of each lane
 - **WHEN** the due table is read
-- **THEN** the status lane holds `metrics`, `implement` and `stage_ready` in this order, and the model lane holds `intake`, `refine`, `stage` and `alternatives`
+- **THEN** the status lane holds `metrics`, `implement`, `stage_ready` and `release_comments` in this order, and the model lane holds `intake`, `refine`, `stage` and `alternatives`
 
 #### Scenario: A suspended row keeps its suspension
 - **WHEN** the record of failed rounds holds an entry of the row `implement` at the limit of rounds, and the status lane runs a round on the same input
@@ -562,11 +574,11 @@ A failed scoped check SHALL start a fix step with the name and the log of the ch
 - **THEN** three fix steps ran, `origin` holds no push of this run for the item, the item is stopped with the step `scoped checks`, and the reason holds the output of the check
 
 ### Requirement: The comment on the pull request shows the repair rounds and the scoped checks
-The comment of the job on the pull request SHALL show, for each step, the repair rounds that it used, and SHALL show one line for each run of a scoped check with its name, its result and its seconds.
+The comment of the job on the pull request SHALL show a table with one row for each step: the step, its status, its attempts (the first turn and the repair rounds), its tokens in and out and its last failing command. It SHALL show one line for each run of a scoped check with its name, its result and its seconds.
 
 #### Scenario: One repair round
 - **WHEN** the step of group 1 used one repair round and the scoped checks passed
-- **THEN** the line of group 1 shows 1 repair round, and a line for each scoped check shows `passed` and its seconds
+- **THEN** the row of group 1 shows 2 attempts, and a line for each scoped check shows `passed` and its seconds
 
 ### Requirement: A runner Job starts with a short deadline and an annotation
 The Service SHALL create the runner Job with `activeDeadlineSeconds` equal to `roadmap.implement.deadline_extension_seconds` and the annotation `roadmap.devops-cli/progress-at`. A Job that the Service did not annotate SHALL keep its deadline.
@@ -701,6 +713,197 @@ When a round reports a Job that left a stop, the Service SHALL add 1 to `devops_
 #### Scenario: A Job with a result
 - **WHEN** a round reports a Job that succeeded and left the item In Review
 - **THEN** no counter changes
+
+### Requirement: The watch reads check runs and no commit status
+The implement job watch SHALL judge the checks of its pull request head from the check runs and SHALL NOT send a request to the commit status endpoint, so a token without the `statuses` permission reads the checks. `devops pr monitor`, `devops pr ready` and `devops pr check-readiness` SHALL keep reading the commit statuses.
+
+#### Scenario: The watch reads check runs
+- **WHEN** the watch reads a pull request head whose one check run passed
+- **THEN** the watch finds every check passed, and no request goes to the commit status endpoint
+
+#### Scenario: The commit status endpoint refuses
+- **WHEN** the commit status endpoint answers HTTP 403 and the check runs of the head passed
+- **THEN** the watch finds every check passed, and the item does not stop for unread checks
+
+#### Scenario: A check run fails
+- **WHEN** a check run of the head failed
+- **THEN** the watch reports that check as failed, and no request goes to the commit status endpoint
+
+#### Scenario: A person's monitor reads the statuses
+- **WHEN** `devops pr monitor` reads a head whose commit status endpoint answers HTTP 500
+- **THEN** it exits 1
+
+### Requirement: One function decides when a draft pull request is ready
+`draft_readiness` SHALL take a draft pull request, its kind (stage plan, implement, agent or person), its recorded item, its check runs and its change folder, and SHALL answer ready, wait or refuse with a reason. A stage plan is complete when opened. An implement pull request is complete when every task group is ticked and the change is archived. An agent's or a person's pull request is complete when its author says so. A failed or unread check refuses, and a running check waits.
+
+#### Scenario: An incomplete implement pull request is refused
+- **WHEN** the function reads a pull request of kind implement whose change has one unticked task group
+- **THEN** it answers refuse and the reason names that group
+
+#### Scenario: A complete plan with passing checks is ready
+- **WHEN** the function reads a pull request of kind stage plan whose check runs all passed
+- **THEN** it answers ready
+
+#### Scenario: An author's pull request waits for the author
+- **WHEN** the function reads a pull request of kind person or agent whose author has not said that it is complete
+- **THEN** it answers wait
+
+#### Scenario: Checks decide after completeness
+- **WHEN** the function reads a complete pull request with one failed check, and another with one running check
+- **THEN** it answers refuse for the first and wait for the second
+
+#### Scenario: An extra check can refuse
+- **WHEN** a test gives the function an extra check that refuses
+- **THEN** it answers refuse with the reason of that check, even for a complete pull request with passing checks
+
+### Requirement: The kind of a pull request comes from the record of its item
+The kind SHALL come from the item that the head branch `<type>/<issue>-<slug>` names. The claim `owner/agent` SHALL give agent and `owner/human` SHALL give person. Else `implement.pr` equal to the pull request SHALL give implement, and `stage.pr` equal to it SHALL give stage plan. A pull request with no such item SHALL be a person's.
+
+#### Scenario: The four kinds
+- **WHEN** four items hold `implement.pr`, the claim `owner/agent`, `stage.pr` and no record of the pull request
+- **THEN** their kinds are implement, agent, stage plan and person
+
+#### Scenario: A claim beats the record
+- **WHEN** an item holds `stage.pr` of the pull request and the claim `owner/agent`
+- **THEN** the kind is agent
+
+#### Scenario: A branch with no issue
+- **WHEN** the head branch is `release-please--branches--main`
+- **THEN** no item is read and the kind is person
+
+### Requirement: The pull request gets the labels of the new title
+For each pull request, after the job sets the title and the body, it SHALL add the `type/*` and `scope/*` labels that the new title gives, as `.github/labels.yml` on the default branch declares them. It SHALL remove each such label that the pull request holds, that the old title gave and that the new title does not give. A label of a person SHALL stay. A label that fails SHALL be named in a comment on the pull request and SHALL NOT stop the item. Rejected credentials SHALL stop it.
+
+#### Scenario: A Staged item changes type and scope
+- **WHEN** the pull request holds `type/docs` and `scope/openspec` for the title `docs(openspec): plan #1 keep every comment` and the job sets `fix(roadmap): the job drops a comment`
+- **THEN** the pull request holds `type/bug` and `scope/roadmap` and holds neither `type/docs` nor `scope/openspec`
+
+#### Scenario: The labels of the old title are not held
+- **WHEN** the pull request holds no label and the job sets a new title
+- **THEN** the pull request holds the labels of the new title, and the job sent no request that removes a label
+
+#### Scenario: A label of a person stays
+- **WHEN** a person added `scope/ai` to the pull request and neither title gives it
+- **THEN** the pull request still holds `scope/ai`
+
+#### Scenario: A Planned item
+- **WHEN** the job opens the draft of a Planned item with the title `fix(roadmap): the job drops a comment`
+- **THEN** the pull request holds `type/bug` and `scope/roadmap`, and the job sent no request that removes a label
+
+#### Scenario: A label is refused
+- **WHEN** GitHub refuses `type/bug` for the pull request
+- **THEN** a comment on the pull request names `type/bug` and the reason, and the job watches the checks and marks the pull request ready as it does without the failure
+
+#### Scenario: A dry run
+- **WHEN** `devops roadmap implement --dry-run` runs
+- **THEN** the plan lists the read of the pull request, the read of `.github/labels.yml`, the request that adds a label and the request that removes one, and the run makes no request
+
+### Requirement: The job keeps the trace of its run
+The job SHALL clear `implement.trace` when a run starts, and SHALL write it with each record of a passed group, with a stop and with the ready mark. The value SHALL be JSON with the events and the count `dropped`. When the value is longer than `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters, the job SHALL drop the oldest events and count them in `dropped`.
+
+#### Scenario: A trace that is too long
+- **WHEN** a run makes more events than fit in `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters
+- **THEN** the value is not longer than the bound, it holds the newest events whole, and `dropped` counts the others
+
+#### Scenario: A new run
+- **WHEN** a person retries a stopped item
+- **THEN** the job clears `implement.trace` before its first step, and the record holds only the events of the new run
+
+#### Scenario: A Job that ends after a group
+- **WHEN** the Service ends a Job after the record of group 1 and before the stop
+- **THEN** the record holds the events of group 1
+
+### Requirement: The stop comment shows a table of the steps
+The stop comment SHALL hold the table of the comment on the pull request, after the lines of the failure class and before the reason. The row of the step that stopped SHALL be in it. The last failing command SHALL be the command of the last `check` event with an exit status other than 0, or the name of the check of the pull request that failed.
+
+#### Scenario: A step that stops on a failed command
+- **WHEN** group 2 stops after one repair round, with 4,100 input and 320 output tokens, and `mypy` exited 1
+- **THEN** the table holds the row `group 2`, 2 attempts, `4100/320` and the `mypy` command
+
+#### Scenario: A failed check of the pull request
+- **WHEN** the checks of the pull request stop the item with the check `Tests & Coverage` failed
+- **THEN** the table holds a row for the step of the checks with `Tests & Coverage` as its last failing command
+
+### Requirement: The table cuts its rows and its cells
+The table SHALL list at most `CONST_ROADMAP_IMPLEMENT_TABLE_ROWS` rows, the newest, SHALL cut a command to `CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_CHARS` characters, and SHALL escape a `|` in a cell.
+
+#### Scenario: A command with a pipe
+- **WHEN** the last failing command holds `a | b`
+- **THEN** the row holds `a \| b` in one cell
+
+#### Scenario: More rows than the bound
+- **WHEN** a run has more steps than `CONST_ROADMAP_IMPLEMENT_TABLE_ROWS`
+- **THEN** the table holds the newest rows only
+
+### Requirement: A request of a stopped step is judged before the item stops
+When a step stops and its last message holds a request (`roadmap-plan-amendment`), the job SHALL judge the request before it stops the item. It SHALL commit an applied amendment as `docs(openspec): amend the plan of group <n> (#N)`, read `tasks.md` again, and run the same group again. It SHALL apply one amendment for each group.
+
+#### Scenario: A wrong test path in the plan
+- **WHEN** group 1 names a test path that is no file, the first step changes no file and ends with a `path` request for the tracked file with the same name, and the second step does the group
+- **THEN** the item reaches a ready pull request, `origin` holds the commit `docs(openspec): amend the plan of group 1 (#1)`, and the archived `tasks.md` holds the corrected path and one bullet in `## Amendments`
+
+#### Scenario: A second request for the same group
+- **WHEN** the second step of group 1 stops with another valid request
+- **THEN** the job applies nothing, the item is Blocked, and the comment quotes the request as a question
+
+#### Scenario: A stop with no request
+- **WHEN** a step stops and its last message holds no `plan-request` block
+- **THEN** the job stops the item as it does for any stop
+
+### Requirement: A stop after an amendment names the action taken
+When the job applied an amendment for the group that stops the item with the class `plan_defect`, the stop comment SHALL name `amend` as the action taken and `wait` as the action left.
+
+#### Scenario: The amended group fails again
+- **WHEN** the job applied a `path` amendment to group 1, and the step of group 1 stops with "The agent changed no file."
+- **THEN** the comment holds the class `plan_defect`, the action taken `amend` and the action left `wait`
+
+### Requirement: The comment on the pull request lists each amendment with its evidence
+The comment of the job on the pull request SHALL show one line for each applied amendment and each split: the group, the kind, the defect, the evidence, and the old and the new text. A stopped item whose pull request exists SHALL get the same lines in a comment.
+
+#### Scenario: An amended run
+- **WHEN** the job applied a `path` amendment and reaches the ready pull request
+- **THEN** the comment on the pull request holds a line with the group, `path`, the defect, the evidence, `old` and `new`
+
+#### Scenario: A stop after an amendment
+- **WHEN** the job applied an amendment and a later step stops the item, and the pull request exists
+- **THEN** the pull request gets a comment with the line of the amendment
+
+### Requirement: A false premise returns the item to New
+When a step stops with a `premise` request whose evidence is not empty, the job SHALL return the item to New through `apply_return`, with a comment that holds the evidence masked and cut. It SHALL push nothing, SHALL remove its worktree, and SHALL clear `implement.group`, `implement.sha`, `implement.branch` and `implement.pr`. It SHALL NOT set `implement.stopped`.
+
+#### Scenario: A false premise on a Planned item
+- **WHEN** the first step of a Planned item ends with a `premise` request and evidence
+- **THEN** the Status is New, the comment holds the evidence, `origin` has no branch for the item, no worktree is left, and the record has no `implement.stopped`
+
+#### Scenario: A false premise on a Staged item
+- **WHEN** the step of group 2 of a Staged item ends with a `premise` request, and group 1 passed in this run
+- **THEN** the Status is New, `origin` holds the staged branch at the commit it had before the run, and `implement.group` is cleared
+
+#### Scenario: A premise request with no evidence
+- **WHEN** the `premise` request has an empty `evidence`
+- **THEN** the item is stopped as a question and its Status is Blocked
+
+### Requirement: A group over the limit of the step is split once for each item
+When the inputs of a group measure more than the limit of the step, the job SHALL ask the split step of the stage job for the groups that replace it, once for each item. It SHALL write them in place of the group, number the later groups after them, give the lines of `## Criteria` the new numbers with the same criterion text, add an amendment bullet, commit, and run the new groups. A new group over the limit, or a second group over the limit in the same item, SHALL stop the item.
+
+#### Scenario: A group is split
+- **WHEN** group 2 of 3 measures more than the limit and the split reply gives two groups under the limit
+- **THEN** `tasks.md` holds four groups, the old group 3 is group 4 with its tasks numbered `4.1` and on, the `## Criteria` lines hold the same criterion texts with the new numbers, and the job runs groups 2, 3 and 4
+
+#### Scenario: A new group is still over the limit
+- **WHEN** a group of the reply measures more than the limit
+- **THEN** the job changes no file and stops the item with the class `plan_defect`
+
+#### Scenario: A second group over the limit
+- **WHEN** a split happened and a later group measures more than the limit
+- **THEN** the job asks for no second split and stops the item
+
+### Requirement: The dry run lists the writes of an amendment, a return and a split
+The plan of `devops roadmap implement --dry-run` SHALL list the commit of an amendment, the model request of a split, and the comment and the Status of a return, each with the condition under which the run makes it.
+
+#### Scenario: The dry run
+- **WHEN** `devops roadmap implement --dry-run --item 7` runs
+- **THEN** the write requests hold the amendment commit, the split request and the return, and each shows its condition
 
 ### Requirement: The spend itemizes token cost per tier
 The implement job SHALL itemize the spend of every step under the tier that served it in `implement.spend`.
