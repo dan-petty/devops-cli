@@ -56,6 +56,10 @@ The table test of the classifier SHALL use the stop texts of the issues #2175, #
 - **WHEN** the class is `types` and the job took `repair`
 - **THEN** the action left is `wait`
 
+#### Scenario: A tier change that did not work
+- **WHEN** the class is `parser` and the job took `change_tier`
+- **THEN** the action left is `wait`
+
 #### Scenario: No action taken
 - **WHEN** the class is `oom` and the job took no action
 - **THEN** the action left is `raise_limit`

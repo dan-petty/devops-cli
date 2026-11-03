@@ -701,3 +701,10 @@ When a round reports a Job that left a stop, the Service SHALL add 1 to `devops_
 #### Scenario: A Job with a result
 - **WHEN** a round reports a Job that succeeded and left the item In Review
 - **THEN** no counter changes
+
+### Requirement: The spend itemizes token cost per tier
+The implement job SHALL itemize the spend of every step under the tier that served it in `implement.spend`.
+
+#### Scenario: Spend itemized per tier
+- **WHEN** two steps ran on tier `devops-coder` and tier `devops-reasoning`
+- **THEN** the record of the spend holds the token count for each tier and the aggregate total

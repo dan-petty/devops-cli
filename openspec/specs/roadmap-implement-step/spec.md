@@ -401,15 +401,30 @@ The table of `devops roadmap implement` SHALL print the reason and the last mess
 - **THEN** the table holds that text
 
 ### Requirement: A failed model call ends the step stopped
-A run that ends on a failed model call (a `ModelAPIError` that is not a refused key) SHALL end as stopped, and the step SHALL reset the checkout. The outcome of a failed turn SHALL hold the requests and the tokens that the turn spent, the failed request included, and the last text of the model, added to those of the turn before it.
+A run that ends on a failed model call (a `ModelAPIError` that is not a refused key) SHALL end as stopped when no tier of its ladder remains, and the step SHALL reset the checkout. The outcome of a failed turn SHALL hold the requests and the tokens that the turn spent, the failed request included, and the last text of the model, added to those of the turn before it.
 
 #### Scenario: A model call fails in the first turn
-- **WHEN** the agent writes `src/sample.py` and a new test file, and its next model call raises a `ModelAPIError`, a `ModelHTTPError` with the status 503, or a `ModelRequestTimeout`
+- **WHEN** the agent writes `src/sample.py` and a new test file, and its next model call raises a `ModelAPIError`, a `ModelHTTPError` with the status 503, or a `ModelRequestTimeout`, and no tier of the ladder remains
 - **THEN** the step reports stopped with a reason that starts with the class of the error, the outcome holds the masked diff of both files, the requests (the reply and the failed request) and the tokens, and the last text of the model, and the checkout is reset
 
 #### Scenario: A model call fails in the extra turn
-- **WHEN** the first turn passes every check and leaves a task unticked, and the model call of the extra turn for the ticks raises one of those errors
+- **WHEN** the first turn passes every check and leaves a task unticked, and the model call of the extra turn for the ticks raises one of those errors, and no tier of the ladder remains
 - **THEN** the step reports stopped with a reason that starts with the class of the error, the outcome holds the masked diff of the work of the first turn, the requests of both turns, and the last text of the first turn, and the checkout is reset
+
+### Requirement: A change_tier failure advances the ladder
+When the failure classification maps the failure to `change_tier`, or a model call fails without a key refusal, and the ladder for that step class has another tier available, the step SHALL advance to the next tier without incrementing the repair round counter.
+
+#### Scenario: A parser failure advances to the next tier
+- **WHEN** an attempt encounters an error classified as `change_tier` and another tier remains in the ladder
+- **THEN** the next attempt runs on the next tier of the ladder and the repair round counter does not change
+
+#### Scenario: A provider error advances to the next tier
+- **WHEN** a model call raises a `ModelAPIError` that is not a refused key and another tier remains in the ladder
+- **THEN** the next attempt runs on the next tier of the ladder and the repair round counter does not change
+
+#### Scenario: Ladder tiers exhausted
+- **WHEN** an attempt encounters an error classified as `change_tier` and no further tiers remain in the ladder
+- **THEN** the step stops and resets the checkout
 
 ### Requirement: A failed model call gives a reason with the error text of the provider
 The reason of a step that a failed model call ended SHALL hold the class of the error, the HTTP status if any, and the name of the model. For a `ModelHTTPError` it SHALL also hold the first line of the error text of the body: masked, cut like other stop text, without quoted parts, and ending at the first `=` or `;`. A gateway dict `{'error': '<text>'}` ending that line is read as `<text>`. For a `ModelRequestTimeout` it SHALL hold the deadline in seconds. It SHALL hold no other value.
