@@ -263,7 +263,7 @@ class StageTools(InvestigationTools):
         only the first matches of each.
 
         Args:
-            name: The text to find, such as `intake-eval`. It is a plain text, not a regular
+            name: The text to find, such as `eval-intake`. It is a plain text, not a regular
                 expression, and it is case sensitive. It is one line of at most 100 characters.
         """
         clean = name.strip()

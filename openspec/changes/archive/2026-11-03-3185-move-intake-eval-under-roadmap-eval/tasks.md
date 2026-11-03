@@ -4,21 +4,21 @@
 
 Reads: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/commands/roadmap_eval.py`, `tests/roadmap/test_roadmap_duplicate_eval.py`, `tests/roadmap/test_roadmap_intake.py`, `tests/ai/mcp/test_mcp.py`, `tests/fixtures/dry_run_gaps.json`. Changes: `src/devops_cli/commands/roadmap_eval_intake.py` (new), `src/devops_cli/commands/roadmap.py`, `src/devops_cli/commands/roadmap_eval.py`, `tests/commands/test_roadmap_eval_intake.py` (new), `tests/roadmap/test_roadmap_duplicate_eval.py`, `tests/roadmap/test_roadmap_intake.py`, `tests/ai/mcp/test_mcp.py`, `tests/fixtures/dry_run_gaps.json`.
 
-- [ ] 1.1 Add a failing test that `devops roadmap eval intake --help` exits 0 and `devops roadmap intake-eval` exits 2, and verify that `uv run devops ci test tests/commands/test_roadmap_eval_intake.py` fails on the base
-- [ ] 1.2 Move `intake-eval` to `roadmap_eval_intake.py` on `eval_app`, delete gap entry from `dry_run_gaps.json`, update `test_mcp.py`, `test_roadmap_duplicate_eval.py`, and `test_roadmap_intake.py`, and verify that `uv run devops ci test tests/commands/test_roadmap_eval_intake.py` passes
+- [x] 1.1 Add a failing test that `devops roadmap eval intake --help` exits 0 and `devops roadmap intake-eval` exits 2, and verify that `uv run devops ci test tests/commands/test_roadmap_eval_intake.py` fails on the base
+- [x] 1.2 Move `intake-eval` to `roadmap_eval_intake.py` on `eval_app`, delete gap entry from `dry_run_gaps.json`, update `test_mcp.py`, `test_roadmap_duplicate_eval.py`, and `test_roadmap_intake.py`, and verify that `uv run devops ci test tests/commands/test_roadmap_eval_intake.py` passes
 
 ## 2. Update handbook documentation and case data references
 
 Reads: `docs/roadmap/intake.md`, `src/devops_cli/roadmap/intake_duplicate_cases.json`. Changes: `docs/roadmap/intake.md`, `src/devops_cli/roadmap/intake_duplicate_cases.json`.
 
-- [ ] 2.1 Update command references in `docs/roadmap/intake.md` and `src/devops_cli/roadmap/intake_duplicate_cases.json`, and verify that `! git grep -n "intake-eval" docs/roadmap/intake.md src/devops_cli/roadmap/intake_duplicate_cases.json` passes
+- [x] 2.1 Update command references in `docs/roadmap/intake.md` and `src/devops_cli/roadmap/intake_duplicate_cases.json`, and verify that `! git grep -n "intake-eval" docs/roadmap/intake.md src/devops_cli/roadmap/intake_duplicate_cases.json` passes
 
 ## 3. Regenerate command reference documentation and verify clean tree
 
 Reads: `README.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`, `src/devops_cli/commands/roadmap_eval_intake.py`. Changes: `README.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`.
 
-- [ ] 3.1 Update CLI reference documentation in `README.md`, `docs/CLI_REFERENCE.md`, and `docs/commands/roadmap.md`, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
-- [ ] 3.2 Verify that no live repository file names `intake-eval` outside the changelog and change archives, and verify that `! git grep -n "intake-eval" -- ':!CHANGELOG.md' ':!openspec/changes/'` passes
+- [x] 3.1 Update CLI reference documentation in `README.md`, `docs/CLI_REFERENCE.md`, and `docs/commands/roadmap.md`, run `uv run devops docs generate --sync-readme`, and verify that `uv run devops ci docs` passes
+- [x] 3.2 Verify that no live repository file names `intake-eval` outside the changelog and change archives, and verify that `! git grep -n "intake-eval" -- ':!CHANGELOG.md' ':!openspec/changes/'` passes
 
 ## Criteria
 
