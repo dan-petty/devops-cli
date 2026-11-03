@@ -6520,20 +6520,6 @@ devops roadmap intake [OPTIONS]
 | `--plan` | `boolean` | - | Read GitHub and call the model, print each planned change and what the run spent, and write nothing. Intake without a mode flag does this. |
 | `--confirm` | `boolean` | - | Plan as --plan does, then make the writes on GitHub. |
 
-### `devops roadmap intake-eval`
-
-**Run the intake duplicate evaluation set against the configured analysis model and print the score of each case. For each case intake plans the candidate in a roadmap that holds the case's item and nothing else, and writes nothing. The run makes one analysis call for each case, one at a time, and no embedding or GitHub request; it reads the type labels from .github/labels.yml of this checkout. It prints whether intake agrees with the person's verdict for each case, and the precision and the recall of the duplicate verdict. It exits 0 when every case ran, and 1 when a case could not run.**
-
-```bash
-devops roadmap intake-eval [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--dry-run` | `boolean` | - | Make no request: list the cases and the analysis call that a run makes for each. |
-
 ### `devops roadmap refine`
 
 **Refine roadmap items to Ready: investigate open questions with tools that read the code and the documentation, then write the design, tasks and acceptance criteria to GitHub. Without --confirm, refine prints its plan only. Details: docs/roadmap/refine.md.**
@@ -6567,7 +6553,7 @@ devops roadmap alternatives [OPTIONS]
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--item` | `integer` | - | Specific issue number to check instead of selecting. Alternatives checks it when it is open, whoever opened it and whatever its status, even when its check is current. |
-| `--limit` | `integer` | - | Maximum number of items to check in this run (default: roadmap.alternatives.limit, 5). |
+| `--limit` | `integer` | - | Maximum number of items to check in this run (default: roadmap.alternatives.first_pass_limit, 20, while an item has no check, and roadmap.alternatives.limit, 5, after). |
 | `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, with placeholders. |
 | `--plan` | `boolean` | - | Run the checks and print them, and write nothing. This is the default. |
 | `--confirm` | `boolean` | - | Write each check to GitHub: its comment, its body block and its job record. |
@@ -6597,7 +6583,7 @@ devops roadmap stage [OPTIONS]
 
 ### `devops roadmap run`
 
-**Run the roadmap jobs that are due, in order: metrics, then intake, refine and the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every 31 minutes, on a first run, and after an intake that placed a critical fix or a P0 item; the alternatives check is due every 719 minutes and on a first run, and checks at most roadmap.alternatives.limit items. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
+**Run the roadmap jobs that are due, in order: metrics, then intake, refine and the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every 31 minutes, on a first run, and after an intake that placed a critical fix or a P0 item; the alternatives check is due every 719 minutes and on a first run, and checks at most roadmap.alternatives.first_pass_limit items while an item has no check, and roadmap.alternatives.limit items after. Without --confirm, or with --dry-run, prints the due list and runs nothing.**
 
 ```bash
 devops roadmap run [OPTIONS]
@@ -6660,6 +6646,7 @@ devops roadmap explain [OPTIONS] <item>
 | `--source` | `path` | - | Path to a clone of the repository. Without it, the command uses the model clone. |
 | `--filter` | `string` | - | A label filter in the form family=value, for both jobs, over the families status, priority, type, value and effort. Repeat the option. Without it, each job uses its own default filter. |
 | `--limit` | `integer` | - | Items a run takes, for both jobs. Without it, each job uses its own limit: the setting roadmap.stage.limit for stage, and 1 for implement. |
+| `--trace` | `boolean` | - | Print the trace of the last run of the implement job for the issue, oldest event first, and no verdict. The command reads the one issue, and no clone, and writes nothing. |
 | `--dry-run` | `boolean` | - | Make no request: print the reads that a run makes, in order, with placeholders. |
 
 ### `devops roadmap inbox`
@@ -6796,6 +6783,20 @@ devops roadmap eval implement [OPTIONS]
 | `--dry-run` | `boolean` | - | Make no request: list the fixtures and the model requests of the steps. Nothing is cloned and no model runs. |
 | `--check-only` | `boolean` | - | Make no model call: evaluate the four properties that a diff decides on each recorded result of each fixture, and exit 1 when a result fails other properties than its record says. This is the offline mode. |
 | `--run-commands` | `boolean` | - | With --check-only: clone the base, apply each recorded diff and run the two properties that run commands. |
+
+#### `devops roadmap eval intake`
+
+**Run the intake duplicate evaluation set against the configured analysis model and print the score of each case. For each case intake plans the candidate in a roadmap that holds the case's item and nothing else, and writes nothing. The run makes one analysis call for each case, one at a time, and no embedding or GitHub request; it reads the type labels from .github/labels.yml of this checkout. It prints whether intake agrees with the person's verdict for each case, and the precision and the recall of the duplicate verdict. It exits 0 when every case ran, and 1 when a case could not run.**
+
+```bash
+devops roadmap eval intake [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Make no request: list the cases and the analysis call that a run makes for each. |
 
 #### `devops roadmap eval verify`
 
@@ -7030,13 +7031,14 @@ devops pr create [OPTIONS]
 
 ### `devops pr ready`
 
-**Mark a draft pull request as ready for review once its checks pass.**
+**Mark a draft pull request as ready for review once draft readiness allows it.**
 
-Mark a draft pull request as ready for review once its checks pass.
+Mark a draft pull request as ready for review once draft readiness allows it.
 
-It exits 1 when a check failed or could not be read and 8 while one runs. Every other
-blocker of the merge-readiness verdict prints as a warning. --force skips the checks. It
-sets the Status of the roadmap item the pull request closes to In Review.
+It exits 1 for a refusal and 8 while a check runs. For an implement pull request, it names
+each unticked task group. Every other blocker of the merge-readiness verdict prints as a
+warning. --force skips the readiness check. It sets the Status of the roadmap item the pull
+request closes to In Review.
 
 ```bash
 devops pr ready [OPTIONS] <number>
@@ -7104,16 +7106,18 @@ devops pr close [OPTIONS] <number>
 
 ### `devops pr check-readiness`
 
-**Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.**
+**Validate PR merge readiness: conflicts, draft state, checks, review threads, grounding
+and draft readiness.**
 
-Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
+Validate PR merge readiness: conflicts, draft state, checks, review threads, grounding
+and draft readiness.
 
 Grounding applies where the base holds openspec/changes/. The PR targets the default branch.
 It closes exactly one issue, an open issue of its own repository that holds a priority/*
 label: a roadmap item. GitHub closes that issue when the PR merges. The PR
 adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive
 writes for that issue's change. Only that archive writes openspec/specs/ and
-openspec/changes/archive/.
+openspec/changes/archive/. An implement pull request must have every task group ticked.
 
 ```bash
 devops pr check-readiness [OPTIONS] <number>
@@ -8286,13 +8290,14 @@ devops gh pr create [OPTIONS]
 
 #### `devops gh pr ready`
 
-**Mark a draft pull request as ready for review once its checks pass.**
+**Mark a draft pull request as ready for review once draft readiness allows it.**
 
-Mark a draft pull request as ready for review once its checks pass.
+Mark a draft pull request as ready for review once draft readiness allows it.
 
-It exits 1 when a check failed or could not be read and 8 while one runs. Every other
-blocker of the merge-readiness verdict prints as a warning. --force skips the checks. It
-sets the Status of the roadmap item the pull request closes to In Review.
+It exits 1 for a refusal and 8 while a check runs. For an implement pull request, it names
+each unticked task group. Every other blocker of the merge-readiness verdict prints as a
+warning. --force skips the readiness check. It sets the Status of the roadmap item the pull
+request closes to In Review.
 
 ```bash
 devops gh pr ready [OPTIONS] <number>
@@ -8360,16 +8365,18 @@ devops gh pr close [OPTIONS] <number>
 
 #### `devops gh pr check-readiness`
 
-**Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.**
+**Validate PR merge readiness: conflicts, draft state, checks, review threads, grounding
+and draft readiness.**
 
-Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding.
+Validate PR merge readiness: conflicts, draft state, checks, review threads, grounding
+and draft readiness.
 
 Grounding applies where the base holds openspec/changes/. The PR targets the default branch.
 It closes exactly one issue, an open issue of its own repository that holds a priority/*
 label: a roadmap item. GitHub closes that issue when the PR merges. The PR
 adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive
 writes for that issue's change. Only that archive writes openspec/specs/ and
-openspec/changes/archive/.
+openspec/changes/archive/. An implement pull request must have every task group ticked.
 
 ```bash
 devops gh pr check-readiness [OPTIONS] <number>

@@ -220,41 +220,6 @@ def _intake(
         raise_for_failed_placements(applied)
 
 
-@app.command("intake-eval", help=HELP.roadmap.intake_eval)
-def intake_eval_cmd(
-    dry_run: Annotated[
-        bool, typer.Option("--dry-run", help=HELP.roadmap.intake_eval_dry_run)
-    ] = False,
-) -> None:
-    """Score intake's duplicate judgement against the evaluation set."""
-    from devops_cli.config.settings import get_ai_api_key, load_settings
-    from devops_cli.roadmap import duplicate_eval
-    from devops_cli.roadmap.intake_model import GatewayIntakeModel, gateway_address
-
-    cases = duplicate_eval.load_cases()
-    settings = load_settings()
-    gateway = gateway_address(settings.ai)
-    if dry_run or is_dry_run():
-        write_stdout(duplicate_eval.render_duplicate_dry_run(cases, gateway=gateway))
-        return
-    labels = duplicate_eval.checkout_labels()
-    meter = SpendMeter()
-    intake_model = GatewayIntakeModel(
-        settings.ai, api_key=get_ai_api_key(settings), embedder=duplicate_eval.SameVector()
-    )
-    score = duplicate_eval.evaluate_duplicates(cases, meter.model(intake_model), labels)
-    model = settings.ai.for_task("analysis").model
-    spend = meter.spend()
-    spent = MESSAGES.roadmap.intake_eval_spent.format(
-        calls=spend.model_calls, github=spend.rest + spend.search + spend.graphql
-    )
-    report = duplicate_eval.render_duplicate_score(score, model=model, gateway=gateway, spend=spent)
-    write_stdout(report)
-    if score.failed:
-        print_error(MESSAGES.roadmap.intake_eval_failed.format(failed=score.failed))
-        raise typer.Exit(1)
-
-
 @app.command("refine", help=HELP.roadmap.refine)
 @dry_run_class("request-plan")
 def refine_cmd(
@@ -662,6 +627,7 @@ def _implement_job(
         print_info(MESSAGES.roadmap.preview_only)
         return
 
+    from devops_cli.ai.client import get_llm_client
     from devops_cli.ai.client.factory import get_task_model
 
     with _exit_on_failure("Could not run the job"):
@@ -671,6 +637,7 @@ def _implement_job(
             source=clone,
             model=get_task_model("implement"),
             window=load_settings().ai.for_task("implement").context_window,
+            splitter=get_llm_client(task="analysis"),
         )
     print_success(
         MESSAGES.roadmap.implement_job_applied.format(
@@ -759,10 +726,17 @@ def explain_cmd(
     limit: Annotated[
         int | None, typer.Option("--limit", min=1, help=HELP.roadmap.explain_limit)
     ] = None,
+    trace: Annotated[bool, typer.Option("--trace", help=HELP.roadmap.explain_trace)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.explain_dry_run)] = False,
 ) -> None:
-    """Say whether the stage job and the implement job take an issue, and why not."""
-    from devops_cli.roadmap.explain import explain_item, render_explanation
+    """Say whether the stage job and the implement job take an issue, and why not. With --trace,
+    print the trace of the last run of the implement job instead."""
+    from devops_cli.roadmap.explain import (
+        explain_item,
+        read_trace,
+        render_explanation,
+        render_trace,
+    )
     from devops_cli.roadmap.implement import parse_implement_filters
     from devops_cli.roadmap.request_plan import explain_requests
     from devops_cli.roadmap.run import model_clone
@@ -770,8 +744,14 @@ def explain_cmd(
 
     target = _target(repo)
     if dry_run or is_dry_run():
-        reads, writes = explain_requests(target, item=item)
+        reads, writes = explain_requests(target, item=item, trace=trace)
         render_dry_run("explain", target, reads, writes)
+        return
+    if trace:
+        with _exit_on_failure("Could not read the trace"):
+            _, store = _open_store(target)
+            report = render_trace(read_trace(store, item), number=item)
+        write_stdout(report + "\n")
         return
     with _exit_on_failure("Could not read the options"):
         stage_filters = parse_filters(filters or ())

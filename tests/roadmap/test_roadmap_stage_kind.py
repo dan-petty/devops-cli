@@ -205,6 +205,13 @@ def test_the_stage_prompt_states_the_rules_that_the_validator_checks() -> None:
     assert "`! git grep -n <name> src/ tests/`" in prompt
 
 
+def test_the_stage_prompt_says_that_a_text_is_one_line_and_starts_with_a_word() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "`why`, `existing_tool`, `purpose` and the `text` of a requirement" in prompt
+    assert "on one line and start with a word" in prompt
+
+
 def test_the_stage_prompt_asks_feasibility_to_quote_the_probes_and_names_premise_failed() -> None:
     prompt = load_task_prompt("roadmap_stage_change.md")
 

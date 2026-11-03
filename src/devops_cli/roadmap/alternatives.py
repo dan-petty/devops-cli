@@ -3,8 +3,10 @@ maintained tool or library covers the item's need, in whole or in part.
 
 **Selection.** An open Item with Status New or Ready, whose author has write access, is taken.
 Items with no check come first, lowest number first, then items whose last check is older than
-`roadmap.alternatives.recheck_days` or whose text changed since, oldest check first. `--limit`
-caps a run. An item whose last check failed less than `roadmap.alternatives.retry_days` ago is
+`roadmap.alternatives.recheck_days` or whose text changed since, oldest check first. The cap of a round is
+`roadmap.alternatives.first_pass_limit` while such an item has no check and
+`roadmap.alternatives.limit` after. `--limit` replaces both for a run.
+An item whose last check failed less than `roadmap.alternatives.retry_days` ago is
 left out. `--item` checks the one item it names whenever it is open.
 
 **Skip classes.** A fixed rule, not the model, names the items that need no search (#2946): a
@@ -499,11 +501,13 @@ def select_items(
     *,
     item_number: int | None,
     limit: int,
+    first_pass_limit: int | None = None,
     recheck_days: int,
     retry_days: int,
     now: datetime,
 ) -> Selection:
-    """Up to `limit` items to check, in the order the module's docstring gives, and the eligible
+    """Up to `limit` items to check, or up to `first_pass_limit` while an eligible item has no
+    check, in the order the module's docstring gives, and the eligible
     items whose check is current. An item whose check failed less than `retry_days` days ago is in
     neither list. `item_number` names the one open item to check, whatever its failure."""
     if item_number is not None:
@@ -524,7 +528,8 @@ def select_items(
             current.append(item)
     ordered = sorted(unchecked, key=lambda it: it.number)
     ordered += [item for _, item in sorted(due, key=lambda pair: (pair[0], pair[1].number))]
-    return Selection(ordered[:limit], current)
+    cap = first_pass_limit if unchecked and first_pass_limit is not None else limit
+    return Selection(ordered[:cap], current)
 
 
 def _request(item: Item, comments: Sequence[IssueComment]) -> str:
@@ -838,8 +843,9 @@ def plan_alternatives(
     now: datetime | None = None,
     investigator: Any = None,
 ) -> AlternativesPlan:
-    """Plans the checks of the selected items without writing anything. `limit` is
-    `roadmap.alternatives.limit` by default. `investigator` is the pydantic-ai model of the runs,
+    """Plans the checks of the selected items without writing anything. `limit` replaces both
+    `roadmap.alternatives.limit` and `roadmap.alternatives.first_pass_limit`.
+    `investigator` is the pydantic-ai model of the runs,
     the `analysis` task's by default."""
     moment = now or datetime.now(UTC)
     web = web_search_of(store)
@@ -850,6 +856,7 @@ def plan_alternatives(
         store,
         item_number=item_number,
         limit=config.limit if limit is None else limit,
+        first_pass_limit=config.first_pass_limit if limit is None else None,
         recheck_days=config.recheck_days,
         retry_days=config.retry_days,
         now=moment,

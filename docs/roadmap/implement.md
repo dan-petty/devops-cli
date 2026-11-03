@@ -55,13 +55,15 @@ For each item, the job does these things in order:
 3. It regenerates the documentation and archives the change.
 4. It runs the scoped checks: the pre-push stage of the hooks, the `devops ci` rows `constructs`, `docs` and `openspec`, and the tests that cover the changed files. A failed check gets a fix step.
 5. It pushes.
-6. It sets the title and the body of the pull request: the title of the issue, and a body that closes it.
+6. It sets the title and the body of the pull request: the title of the issue, and a body that closes it. It adds the labels of the new title and removes the labels of the staging title that do not fit. A refused label is a comment on the pull request.
 7. It watches the checks of the pull request, and runs a fix step for each failed check. The setting `roadmap.implement.repair_rounds` bounds the rounds.
-8. It marks the pull request ready.
+8. It asks `draft_readiness` and stops with the reason on a refusal, then marks the pull request ready.
 
 The job never merges. [Checks of the implement job](../ROADMAP_WORKFLOW.md#checks-of-the-implement-job) gives the detail of the hooks, the repair rounds and the time.
 
-**A stop.** A step that fails stops the item. The job comments why, shows the masked diff of the discarded work, and sets the Status to Blocked. The Service runs the item again only after the comment `implement: retry`, or one time for each new runner image.
+**A stop.** A step that fails stops the item. The job comments why, shows a table of the steps (the step, its attempts, its tokens in and out, and its last failing command), shows the masked diff of the discarded work, and sets the Status to Blocked. The job keeps the trace of its run in `implement.trace`: each model call, tool call, check and retry, with no argument, no output, no secret and no private host name. Read it with `devops roadmap explain <issue> --trace`. The job keeps no Job artifact. The Service runs the item again only after the comment `implement: retry`, or one time for each new runner image.
+
+**A plan request.** A stopped step can request a bounded change of its plan in a `plan-request` block. The job judges requests of the kinds `path`, `command` and `task` with deterministic rules. The job commits an accepted amendment, records it in `tasks.md`, and runs the group again. A group whose inputs exceed the limit is split once for each item. A `premise` request returns the item to New with its evidence. Other requests stop the item as a question for a person.
 
 **Claims.** The job leaves out an item that an agent or a person claimed with the label `owner/agent` or `owner/human`. When one claims an item that a running job works on, the job ends it at the next group boundary, with no push and no pull request.
 

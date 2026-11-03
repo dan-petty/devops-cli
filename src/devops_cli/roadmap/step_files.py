@@ -122,7 +122,7 @@ def section_text(body: str, titles: frozenset[str]) -> str:
     marks = [
         (token.map[0], int(token.tag[1:]), tokens[index + 1].content)
         for index, token in enumerate(tokens)
-        if token.type == "heading_open" and token.map is not None
+        if token.type == "heading_open" and token.level == 0 and token.map is not None
     ]
     found: list[str] = []
     for position, (first, level, title) in enumerate(marks):
