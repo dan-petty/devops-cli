@@ -1283,6 +1283,10 @@ class PRMessages:
         "PR #{number} is not grounded: {path}/ could not be read at its base ({error})."
     )
     changed_files_unread: str = "Could not read the files PR #{number} changes ({error})."
+    pr_body_too_long: str = (
+        "PR #{number} body has {length:,} characters before its trailers. The limit is {limit:,}. "
+        "See CONTRIBUTING.md section 4."
+    )
     hardening_report_title: str = "Defect Pull Request Hardening Audit"
     hardening_report_no_defects: str = "No merged defect pull requests found matching criteria."
     hardening_report_pr_not_defect: str = "PR #{number} is not classified as a defect PR."
