@@ -8,11 +8,20 @@ from pathlib import Path
 import pytest
 
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
+from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git import worktree_add
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import planned
-from devops_cli.roadmap.explain import Explanation, JobVerdict, explain_item, render_explanation
+from devops_cli.roadmap.explain import (
+    Explanation,
+    JobVerdict,
+    explain_item,
+    read_trace,
+    render_explanation,
+    render_trace,
+)
 from devops_cli.roadmap.implement import parse_implement_filters
+from devops_cli.roadmap.implement_trace import ImplementTrace
 from devops_cli.roadmap.stage import parse_filters
 from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, ItemField, StageRecordKey
 from tests.support.roadmap_implement import TITLE, JobWorld
@@ -226,3 +235,70 @@ def test_the_report_gives_yes_or_no_for_each_job_and_the_reason_of_a_no() -> Non
         "Stage job: no. It is claimed by human.",
         "Implement job: yes.",
     ]
+
+
+# ── The trace of the last run (#3032) ─────────────────────────────────────────────────────
+
+
+def _record_trace(world: JobWorld, number: int, text: str) -> None:
+    item = world.store.item(number)
+    assert item is not None
+    world.store.set_marks(item, {ImplementRecordKey.TRACE: text})
+
+
+def test_the_trace_of_an_item_gives_one_line_for_each_event_in_order(job_world: JobWorld) -> None:
+    number = _seed(job_world)
+    trace = ImplementTrace(step="group 1")
+    trace.model_call("model-a", 100, 20, 1.5)
+    trace.tool_call("shell", "ruff", "abc123abc123", "refused")
+    trace.check("ruff check .", 1)
+    _record_trace(job_world, number, trace.encode())
+    before = (job_world.store.job_writes, job_world.store.comments_on(number))
+
+    report = render_trace(read_trace(job_world.store, number), number=number)
+
+    lines = report.splitlines()
+    assert len(lines) == 3
+    assert lines[0] == "group 1: model model-a, 100/20 tokens, 1.5 s"
+    assert lines[1] == "group 1: tool shell (program ruff), refused"
+    assert lines[2] == "group 1: check ruff check ., exit status 1"
+    assert (job_world.store.job_writes, job_world.store.comments_on(number)) == before
+
+
+def test_the_trace_says_how_many_earlier_events_the_bound_dropped(job_world: JobWorld) -> None:
+    number = _seed(job_world)
+    _record_trace(job_world, number, '{"events":[],"dropped":12}')
+
+    report = render_trace(read_trace(job_world.store, number), number=number)
+
+    assert report == "12 earlier event(s) are not kept."
+
+
+def test_an_item_with_no_trace_says_so(job_world: JobWorld) -> None:
+    number = _seed(job_world)
+
+    trace = read_trace(job_world.store, number)
+
+    assert trace is None
+    assert render_trace(trace, number=number) == f"Issue #{number} has no trace of a run."
+
+
+def test_a_trace_that_is_not_json_raises_an_error_that_names_the_key(job_world: JobWorld) -> None:
+    number = _seed(job_world)
+    _record_trace(job_world, number, "not json")
+
+    with pytest.raises(RoadmapImplementError, match=r"implement\.trace"):
+        read_trace(job_world.store, number)
+
+
+def test_a_trace_read_reads_the_one_issue_once(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    number = _seed(job_world)
+    reads: list[int] = []
+    item = job_world.store.item
+    monkeypatch.setattr(job_world.store, "item", lambda n: (reads.append(n), item(n))[1])
+
+    read_trace(job_world.store, number)
+
+    assert reads == [number]
