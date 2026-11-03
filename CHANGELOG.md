@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.53.2](https://github.com/dan-petty/devops-cli/compare/v0.53.1...v0.53.2) (2026-11-03)
+
+
+### Bug Fixes
+
+* **roadmap:** reject living-spec paths in a stage task group ([#3376](https://github.com/dan-petty/devops-cli/issues/3376)) ([8671477](https://github.com/dan-petty/devops-cli/commit/8671477fb28864c539284f1c44b07ef138d78f37))
+
 ## [0.53.1](https://github.com/dan-petty/devops-cli/compare/v0.53.0...v0.53.1) (2026-11-03)
 
 
