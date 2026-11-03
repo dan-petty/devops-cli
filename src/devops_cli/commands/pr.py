@@ -1098,7 +1098,8 @@ def _form_checked(
     """Refuse a pull request whose title or body breaks the form of `pull_form` (#3198): print
     every problem to stderr and exit 1, before anything is opened. `offline` skips the read of the
     labels file, so a dry run makes no request and does not check the scope against the labels."""
-    from devops_cli.roadmap.pull_form import body_problems, title_problems
+    from devops_cli.roadmap.grounding import plan_issue
+    from devops_cli.roadmap.pull_form import body_problems, plan_body_problems, title_problems
 
     declared: tuple[str, ...] | None = None
     target = None if offline else _target_repo(repo)
@@ -1115,7 +1116,9 @@ def _form_checked(
         except (GitHubOperationError, ValidationError) as exc:
             print_error(str(exc), safe=True, to_stderr=True)
             raise typer.Exit(1) from exc
-    problems = [*title_problems(title, declared), *body_problems(body)]
+    planned = plan_issue(title)
+    form = body_problems(body) if planned is None else plan_body_problems(body, planned)
+    problems = [*title_problems(title, declared), *form]
     if problems:
         listed = "\n".join(f"- {problem}" for problem in problems)
         print_error(MESSAGES.pr.form_refused.format(problems=listed), safe=True, to_stderr=True)

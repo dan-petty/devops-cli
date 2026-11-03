@@ -21,7 +21,8 @@ from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 LABELS = "".join(
-    f'- name: "{name}"\n  color: "ededed"\n' for name in ("type/feature", "scope/pr", "scope/ai")
+    f'- name: "{name}"\n  color: "ededed"\n'
+    for name in ("type/feature", "scope/pr", "scope/ai", "type/docs", "scope/openspec")
 )
 TITLE = "feat(pr): check the form of a pull request"
 BODY = (
@@ -197,3 +198,38 @@ def test_a_dry_run_of_a_pull_request_in_the_form_still_lists_its_requests(
     ):
         result = runner.invoke(app, ["create", "--title", TITLE, "--body", BODY, "--repo", REPO])
     assert (result.exit_code, roadmap_store_repos, "labels.yml" in result.stdout) == (0, [], True)
+
+
+PLAN_TITLE = "docs(openspec): plan #3236 revise scope to role tools"
+PLAN_BODY = (
+    "Plans #3236\n\n"
+    "The plan audits the job-role tools and names the follow-up for the rest of the tools.\n\n"
+    "Change: `openspec/changes/3236-read-only-tools-take-paths-that/`"
+)
+
+
+def test_a_plan_with_a_plans_line_opens_a_draft(runner: CliRunner) -> None:
+    """A plan closes no issue, so its body has `Plans #<issue>` and no `Closes` line (#3314)."""
+    result, gh = _create(runner, PLAN_TITLE, PLAN_BODY)
+    assert (result.exit_code, gh.call_count) == (0, 1)
+
+
+@pytest.mark.parametrize(
+    ("body", "fragment"),
+    [
+        (PLAN_BODY.replace("Plans #3236", "Closes #3236"), "single line `Plans #3236`"),
+        (PLAN_BODY.replace("Plans #3236", "Plans #3236\nCloses #3236"), "closes no issue"),
+        (PLAN_BODY.replace("Plans #3236", "Plans #9"), "single line `Plans #3236`"),
+        (PLAN_BODY.replace("3236-read", "9-read"), "names issue 9"),
+    ],
+)
+def test_a_plan_body_that_breaks_the_plan_form_opens_nothing(
+    runner: CliRunner, body: str, fragment: str
+) -> None:
+    result, gh = _create(runner, PLAN_TITLE, body)
+    assert (result.exit_code, gh.call_count, fragment in result.stderr) == (1, 0, True)
+
+
+def test_a_delivery_title_still_needs_a_closes_line(runner: CliRunner) -> None:
+    result, gh = _create(runner, TITLE, PLAN_BODY)
+    assert (result.exit_code, gh.call_count, "no line `Closes" in result.stderr) == (1, 0, True)

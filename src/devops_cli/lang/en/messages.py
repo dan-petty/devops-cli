@@ -1103,6 +1103,12 @@ class PRMessages:
     )
     form_placeholder: str = "The {part} is a placeholder: `{text}`. Write what the change does."
     form_closes_missing: str = "The body has no line `Closes #<issue>`."
+    form_plans_missing: str = "The body has no single line `Plans #{issue}`."
+    form_plan_closes: str = "A plan pull request closes no issue: use the line `Plans #<issue>`, and no closing keyword."
+    form_plan_change_differs: str = (
+        "The line `Plans` names issue {issue}, and the line `Change:` names issue {change}."
+    )
+    form_plan_order: str = "The line `Plans` comes before the line `Change:`."
     form_closes_many: str = (
         "The body closes {count} issues. A pull request closes one issue, in one line "
         "`Closes #<issue>`."

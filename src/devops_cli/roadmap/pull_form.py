@@ -61,6 +61,7 @@ _TITLE: Final[re.Pattern[str]] = re.compile(
     r"(?P<type>[a-z]+)(?:\((?P<scope>[^()\s]+)\))?(?P<bang>!?): (?P<summary>\S.*)"
 )
 _CLOSES_LINE: Final[re.Pattern[str]] = re.compile(r"Closes #(?P<issue>\d+)")
+_PLANS_LINE: Final[re.Pattern[str]] = re.compile(r"Plans #(?P<issue>\d+)")
 # GitHub closes the issue that follows one of these words, with an optional colon.
 _CLOSING_REFERENCE: Final[re.Pattern[str]] = re.compile(
     r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+(?:[\w.-]+/[\w.-]+)?#\d+", re.IGNORECASE
@@ -219,6 +220,42 @@ def body_problems(body: str) -> list[str]:
         else:
             problems += _text_problems(
                 "\n".join(lines[:closes_at]), "\n".join(lines[: change_at + 1])
+            )
+            problems += _trailer_problems("\n".join(lines[change_at + 1 :]))
+    if _TEMPLATE_COMMENT in body:
+        problems.append(texts.form_template_text)
+    if "BREAKING CHANGE" in body:
+        problems.append(texts.form_body_breaking)
+    return problems
+
+
+def plan_body_problems(body: str, issue: int) -> list[str]:
+    """What breaks the form of the body of a plan pull request for `issue` (#3314), one text for
+    each problem, and none when the body is right.
+
+    A plan delivers nothing, so its body has the line `Plans #<issue>` where a delivery has
+    `Closes`, and it closes no issue. The rest is the form of a delivery: the text, the `Change:`
+    line with the active folder of the same issue, and the length and trailer bounds.
+    """
+    texts = MESSAGES.pr
+    lines = body.strip().splitlines()
+    plans = [(i, m) for i, line in enumerate(lines) if (m := _PLANS_LINE.fullmatch(line))]
+    problems: list[str] = []
+    if len(plans) != 1 or int(plans[0][1]["issue"]) != issue:
+        problems.append(texts.form_plans_missing.format(issue=issue))
+    if _CLOSING_REFERENCE.search(body):
+        problems.append(texts.form_plan_closes)
+    change_problems, change_issue, change_at = _change_problems(lines)
+    problems += change_problems
+    if change_issue is not None and change_issue != issue:
+        problems.append(texts.form_plan_change_differs.format(issue=issue, change=change_issue))
+    if len(plans) == 1 and change_at is not None:
+        plans_at = plans[0][0]
+        if plans_at > change_at:
+            problems.append(texts.form_plan_order)
+        else:
+            problems += _text_problems(
+                "\n".join(lines[plans_at + 1 : change_at]), "\n".join(lines[: change_at + 1])
             )
             problems += _trailer_problems("\n".join(lines[change_at + 1 :]))
     if _TEMPLATE_COMMENT in body:
