@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
 from devops_cli.roadmap.implement_step import _files_section
-from devops_cli.roadmap.stage_change import StageGroup, group_text, measure_groups
+from devops_cli.roadmap.stage_change import (
+    CREATED_LINE_TOKENS,
+    StageGroup,
+    group_text,
+    measure_groups,
+)
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import heavy_group
@@ -22,9 +27,11 @@ FILE_CAP = CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
 
 
 def _file_tokens(clone: Path, group: StageGroup) -> int:
-    """The tokens of a group that are none of the shared text and none of the group text."""
+    """The tokens of a group that are none of the shared text, the group text or the estimate of a
+    file that it creates."""
     (measured,) = measure_groups(clone, [group], shared=[SHARED])
-    return measured.tokens - count_tokens(SHARED) - count_tokens(group_text(1, group))
+    created = sum(group.creates_lines.values()) * CREATED_LINE_TOKENS
+    return measured.tokens - count_tokens(SHARED) - count_tokens(group_text(1, group)) - created
 
 
 def test_a_file_that_the_tasks_name_counts_at_most_the_file_cap_of_the_step(
