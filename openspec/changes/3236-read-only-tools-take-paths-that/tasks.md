@@ -1,38 +1,43 @@
 # Tasks
 
-## 1. Extend parameter restrictions with confinement support
+## 1. Add the confinement tables and the guard
 
-Reads: `src/devops_cli/core/paths.py`, `src/devops_cli/ai/mcp/generator.py`, `src/devops_cli/core/repo.py`, `src/devops_cli/config/settings.py`. Changes: `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_path_confinement.py`.
+Reads: `src/devops_cli/core/paths.py`, `src/devops_cli/ai/mcp/generator.py`.
+Changes: `src/devops_cli/ai/mcp/path_confinement.py` (new), `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_mcp.py`.
 
-- [ ] 1.1 In `tests/ai/mcp/test_path_confinement.py`, write tests asserting that a parameter configured in `"confined"` resolves under the server root. Assert that traversal attempts raise a `ValidationError` naming the parameter, and that the error message omits the absolute base path. Verify that `uv run devops ci test tests/ai/mcp/test_path_confinement.py` fails on the base.
-- [ ] 1.2 In `src/devops_cli/ai/mcp/generator.py`, update `_create_tool_function` to read `"confined"` from `_PATH_PARAM_RESTRICTIONS`. Resolve repo-scoped roots via `find_repo_root()` or `Path.cwd()`, and resolve data-scoped roots via `load_settings().data.dir`. Apply `safe_resolve_subpath` and sanitize traversal error messages to omit absolute server paths. Verify that `uv run devops ci test tests/ai/mcp/test_path_confinement.py` passes.
+- [ ] 1.1 In `tests/ai/mcp/test_mcp.py`, write tests that the `gh_pages_verify` tool refuses `../../etc/passwd` and the `ai_ast_graph` tool refuses `/etc` with a `ValidationError` that names the parameter and starts no command, and that `docs` resolves under the work tree. Verify `uv run devops ci test tests/ai/mcp/test_mcp.py` fails on the base
+- [ ] 1.2 Write `src/devops_cli/ai/mcp/path_confinement.py` with `PATH_CONFINEMENTS` (`ai_ast_graph`: `target_dir`; `gh_pages_verify`: `root_dir`) and `NOT_A_FILE_PATH` (`security_intel_network`: `target`, with the reason). In `generator.py`, add `_check_path_confinement(tool_name, kwargs)`, which calls `safe_resolve_subpath` with `error_cls=ValidationError` against the work tree of the process and writes the resolved value back, and call it in `_create_tool_function` beside `_check_oidc_token_reference`. Verify `uv run devops ci test tests/ai/mcp/test_mcp.py` passes
 
-## 2. Configure confinement and parameter pruning for exposed tools
+## 2. Publish no output path for two tools
 
-Reads: `src/devops_cli/ai/mcp/generator.py`, `src/devops_cli/commands/ai_ast.py`, `src/devops_cli/commands/gh.py`, `src/devops_cli/commands/k8s/diagnostics.py`. Changes: `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_fastmcp_contracts.py`, `tests/ai/mcp/test_mcp.py`.
+Reads: `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_fastmcp_contracts.py`.
+Changes: `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_fastmcp_contracts.py`.
 
-- [ ] 2.1 In `tests/ai/mcp/test_fastmcp_contracts.py` and `tests/ai/mcp/test_mcp.py`, assert that `ai_ast_graph` omits `output_path` and `k8s_security_stream` omits `output`. Assert that `gh_pages_verify` confines `root_dir`, and `ai_ast_graph` confines `target_dir`. Verify that `uv run devops ci test tests/ai/mcp/test_fastmcp_contracts.py tests/ai/mcp/test_mcp.py` fails on the base.
-- [ ] 2.2 In `src/devops_cli/ai/mcp/generator.py`, add `_PATH_PARAM_RESTRICTIONS` entries for `("ai", "ast", "graph")`, `("gh", "pages", "verify")`, and `("k8s", "security-stream")`. Restrict `output_path` and `output`, and configure `"confined"` roots for `target_dir` and `root_dir`. Verify that `uv run devops ci test tests/ai/mcp/test_fastmcp_contracts.py tests/ai/mcp/test_mcp.py` passes.
+- [ ] 2.1 In `tests/ai/mcp/test_fastmcp_contracts.py`, assert that the schema of `ai_ast_graph` holds no `output_path` and that of `k8s_security_stream` holds no `output`. Verify `uv run devops ci test tests/ai/mcp/test_fastmcp_contracts.py` fails on the base
+- [ ] 2.2 Add `_PATH_PARAM_RESTRICTIONS` entries for `("ai", "ast", "graph")` and `("k8s", "security-stream")` that allow every option of the command but the output option. Verify `uv run devops ci test tests/ai/mcp/test_fastmcp_contracts.py` passes
 
-## 3. Implement catalogue and role parameter schema audits
+## 3. Audit the path parameters of the role tools
 
-Reads: `src/devops_cli/config/constants.py`, `src/devops_cli/ai/mcp/roles.py`, `tests/ai/mcp/test_mcp_tool_secrets.py`. Changes: `src/devops_cli/config/constants.py`, `tests/ai/mcp/test_path_confinement.py`, `tests/ai/mcp/test_mcp_roles.py`.
+Reads: `src/devops_cli/ai/mcp/roles.py`, `src/devops_cli/ai/mcp/path_confinement.py`, `src/devops_cli/core/paths.py`.
+Changes: `tests/ai/mcp/test_path_confinement.py` (new).
 
-- [ ] 3.1 In `tests/ai/mcp/test_path_confinement.py` and `tests/ai/mcp/test_mcp_roles.py`, add tests asserting that path-like text parameters have confinement or allow-list entries. Assert that allow-list reasons have at least 30 characters without stale entries, and assert that `_JOB_ROLE_TOOLS` contain no unconfined file path parameters. Verify that `uv run devops ci test tests/ai/mcp/test_path_confinement.py tests/ai/mcp/test_mcp_roles.py` fails on the base.
-- [ ] 3.2 Add `CONST_MCP_PATH_PARAMETER_ALLOWLIST` in `src/devops_cli/config/constants.py` defining verified reasons for non-file text parameters. Implement the full catalogue audit in `tests/ai/mcp/test_path_confinement.py` and the role audit in `tests/ai/mcp/test_mcp_roles.py`. Verify that `uv run devops ci test tests/ai/mcp/test_path_confinement.py tests/ai/mcp/test_mcp_roles.py` passes.
+- [ ] 3.1 In `tests/ai/mcp/test_path_confinement.py`, take the catalogue of `mcp`, apply `tools_for_role` for each of `JOB_ROLES`, and match each text property whose name holds a keyword of `_PATH_PARAM_KEYWORDS`. Require an entry in `PATH_CONFINEMENTS` or `NOT_A_FILE_PATH`, and fail with the tool and parameter name. Add a case that a synthetic tool with `output_path` fails. Verify `uv run devops ci test tests/ai/mcp/test_path_confinement.py` passes
 
-## 4. Update security policy and synchronize documentation
+## 4. Document the published options
 
-Reads: `SECURITY.md`, `docs/MCP_TOOLS.md`. Changes: `SECURITY.md`, `docs/MCP_TOOLS.md`.
+Reads: `docs/MCP_TOOLS.md`.
+Changes: `docs/MCP_TOOLS.md`.
 
-- [ ] 4.1 Update `SECURITY.md` rule 11 to cite `_PATH_PARAM_RESTRICTIONS` confinement, `CONST_MCP_PATH_PARAMETER_ALLOWLIST`, and `tests/ai/mcp/test_path_confinement.py`.
-- [ ] 4.2 Run `uv run devops docs generate --sync-readme` to regenerate `docs/MCP_TOOLS.md`. Verify that `uv run devops ci docs` passes.
+- [ ] 4.1 Run `uv run devops docs generate --sync-readme`, and verify `uv run devops ci docs` passes
 
 ## Criteria
 
-- No tool of a role table accepts a path outside a confined root.: group 2
+- No tool of a role table accepts a path outside a confined root.: group 3
 - A test reads the published schema of every role tool and fails on an unconfined path parameter.: group 3
+- Tests cover the path options of `ai_ast_graph`, `k8s_security_stream` and `gh_pages_verify`.: group 1, group 2
+- The confinement root is not a tool argument.: group 1
 
 ## Workflow follow-up
 
+- Confine or drop the path parameters of the other 60 tools of the `ops` role, and extend the audit to them: #3300.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
