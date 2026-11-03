@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.49.0](https://github.com/dan-petty/devops-cli/compare/v0.48.5...v0.49.0) (2026-11-03)
+
+
+### Features
+
+* **roadmap:** one function decides when any draft pull request is ready ([#3337](https://github.com/dan-petty/devops-cli/issues/3337)) ([db318bf](https://github.com/dan-petty/devops-cli/commit/db318bf68a3e9f4e79fec83ef605d51d093de61a))
+* **roadmap:** the stage and implement jobs label their pull request ([#3338](https://github.com/dan-petty/devops-cli/issues/3338)) ([4c2a39e](https://github.com/dan-petty/devops-cli/commit/4c2a39e4076d89cc857abe6bbcb71bc629a85382))
+
+
+### Bug Fixes
+
+* **roadmap:** the implement watch reads check runs only ([#3342](https://github.com/dan-petty/devops-cli/issues/3342)) ([96e102d](https://github.com/dan-petty/devops-cli/commit/96e102daf892f08f855de0a8f5bf88dc0bd306ff))
+
 ## [0.48.5](https://github.com/dan-petty/devops-cli/compare/v0.48.4...v0.48.5) (2026-11-03)
 
 
