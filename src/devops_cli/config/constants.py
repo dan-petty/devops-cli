@@ -3227,7 +3227,7 @@ CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS: Final[frozenset[str]] = frozenset(
 )
 # The characters of all the words of a verification command. A word of 300000 characters made
 # `execve` fail with E2BIG (#3263).
-CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS: Final[int] = 2000
+CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS: Final[int] = 2000
 # The text that starts a second command in a shell command line. The shell tool refuses a command
 # that holds one, because its allowlist reads only the first word. `&` alone is not here, since
 # `2>&1` holds it.

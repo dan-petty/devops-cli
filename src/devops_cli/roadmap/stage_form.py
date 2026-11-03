@@ -27,7 +27,7 @@ from collections.abc import Sequence
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Final
 
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement_shell_policy import (
     NEGATIVE_SEARCH_WORD,
@@ -53,7 +53,7 @@ def _verify_problems(number: int, command: str) -> list[str]:
     form that the step refuses gets the reason of the step. A command with both faults gets both
     problems, as the job asks the model once."""
     command = command.strip()
-    named = shown(command, CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS)
+    named = shown(command, CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS)
     texts = MESSAGES.roadmap
     problems: list[str] = []
     if "`" in command:
@@ -84,7 +84,7 @@ def _task_problems(number: int, group: StageGroup) -> list[str]:
             group=number,
             title=group.title,
             part=part,
-            text=shown(text, CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS),
+            text=shown(text, CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS),
         )
         for part, text in parts
         if text is not None and len(_CODE_SPAN.sub("x", text).split()) < 2
