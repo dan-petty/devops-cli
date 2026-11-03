@@ -305,15 +305,8 @@ def test_the_delivery_title_cuts_a_mixed_summary_at_a_word_by_units_not_characte
 
     cut = _summary_of(delivery_title(f"fix(cli): {summary}", DECLARED))
 
-    assert (
-        _utf16_units(cut) <= SUMMARY_MAX_CHARS,
-        cut.endswith("\U0001f600..."),
-        len(cut) < 60,
-    ) == (
-        True,
-        True,
-        True,
-    )
+    assert cut == " ".join(["\U0001f600"] * 19) + "..."
+    assert _utf16_units(cut) <= SUMMARY_MAX_CHARS
 
 
 @pytest.mark.parametrize("length", [SUMMARY_MAX_CHARS - 1, SUMMARY_MAX_CHARS])

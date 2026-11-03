@@ -743,10 +743,10 @@ def _shortened(text: str) -> str:
 def delivery_title(issue_title: str, declared: Collection[str]) -> str:
     """The title of the pull request that delivers the code of an item (#2714): the type and the
     scope of the issue's title, and its summary cut at a word to `SUMMARY_MAX_CHARS` UTF-16 units
-    (#3292). The staging
-    pull request has the type `docs(openspec)`, which the delivery must not keep. A mark of a
-    breaking change is dropped: the project has none before 1.0.0. A scope whose `scope/*` label is
-    not in `declared` is dropped too, because the `Semantic PR title` check refuses it (#2800)."""
+    (#3292), as the check `Semantic PR title` counts them. The staging pull request has the type
+    `docs(openspec)`, which the delivery must not keep. A mark of a breaking change is dropped: the
+    project has none before 1.0.0. A scope whose `scope/*` label is not in `declared` is dropped
+    too, because the `Semantic PR title` check refuses it (#2800)."""
     head, _, summary = issue_title.partition(":")
     head = head.strip().removesuffix("!")
     scope = commit_scope(issue_title)
