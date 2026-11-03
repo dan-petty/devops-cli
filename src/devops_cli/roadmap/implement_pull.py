@@ -336,6 +336,7 @@ def watch_pull(repo: str, pull: int, head: str) -> Watch:
             interval=DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS,
             settle_timeout=0,
             require_reviews=False,
+            commit_statuses=False,
         )
         if result.status.head_sha == head:
             return _judge(result)
