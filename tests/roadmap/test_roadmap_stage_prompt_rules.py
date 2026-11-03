@@ -381,3 +381,11 @@ def test_the_prompt_and_the_document_keep_the_same_phrase_of_a_rule(
 ) -> None:
     assert phrase in _DOCUMENTS[document], f"{document} no longer says: {phrase}"
     assert phrase in _PROMPT, f"the prompt no longer says: {phrase}"
+
+
+# ── The living-spec rule (#3295) ─────────────────────────────────────────────
+
+
+def test_the_prompt_states_the_living_spec_rule() -> None:
+    assert "A task group must not change or create a file under `openspec/specs/`" in _PROMPT
+    assert "`openspec archive` writes the living specs" in _PROMPT
