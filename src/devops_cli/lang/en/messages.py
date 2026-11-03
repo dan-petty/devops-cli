@@ -1288,6 +1288,10 @@ class PRMessages:
         "PR #{number} failed hardening audit: no additions on declared hardening surfaces."
     )
     hardening_report_empty_files: str = "PR #{number} returned an empty file list from GitHub."
+    readiness_blocked: str = "PR #{number} is not ready: {reason}"
+    readiness_unread: str = (
+        "PR #{number} is not ready: the roadmap item could not be read ({error})."
+    )
 
 
 @dataclass(frozen=True)
@@ -2578,6 +2582,12 @@ class RoadmapMessages:
             "commit": "commit",
         }
     )
+    draft_unticked_group: str = "Task group {number}, {title}, has a task that is not ticked."
+    draft_change_not_archived: str = "The change is not archived."
+    draft_change_missing: str = "The change is missing."
+    draft_author_not_declared: str = "The author has not declared that the pull request is ready."
+    draft_check_runs: str = "A check runs: {name}."
+    draft_check_runs_unnamed: str = "A check runs."
     implement_stop_rebase: str = "The rebase onto origin/{branch} stopped.\n{output}"
     implement_stop_abort_failed: str = "\nThe abort of the rebase failed too.\n{output}"
     implement_stop_program_failed: str = "{command} exited with status {status}.\n{output}"
