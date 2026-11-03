@@ -2836,6 +2836,10 @@ class RoadmapMessages:
         "The title has no Conventional Commit type, so the branch has no type."
     )
     stage_left_title_slug: str = "The summary of the title has no word for the branch name."
+    stage_left_title_long: str = (
+        "The summary of the title has {length} characters, and the limit is {limit}. The "
+        "delivery title would differ from the issue title."
+    )
     stage_left_recorded_split: str = (
         "An earlier run stopped on a task group over the budget: {detail}. A person decides, or "
         "runs the job with --item {number}."

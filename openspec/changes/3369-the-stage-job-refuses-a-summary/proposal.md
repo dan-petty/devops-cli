@@ -8,9 +8,10 @@ The stage job decides whether an item may be planned, and its title check does n
 
 - `_Judge._title` in `src/devops_cli/roadmap/stage.py` refuses a title whose summary is longer than `SUMMARY_MAX_CHARS` UTF-16 units, counted by `summary_length` from `src/devops_cli/roadmap/pull_form.py`.
 - A new message `stage_left_title_long` in `src/devops_cli/lang/en/messages.py` names the current length and the limit.
-- New cases in `tests/roadmap/test_roadmap_stage_title.py` cover a summary of 61 units, which is refused, and a summary of 60 units, which passes the length check.
-- The cut in `delivery_title` of `src/devops_cli/roadmap/stage_change.py` stays as the fallback, with a test that an overlong title is cut to 60 units and ends with `...`.
+- New cases in `tests/roadmap/test_roadmap_stage_title.py` cover a summary of 61 units, which is refused, a summary of 60 units, which passes the length check, and a title with no type, which keeps its reason.
 - The change fits one pull request.
+
+`delivery_title` in `src/devops_cli/roadmap/stage_change.py` no longer cuts an overlong summary: #3200 removed that cut, so the delivery title keeps the whole summary and the pull-request form judges it. The stage gate now refuses the item before the plan run, which is where the cost is paid. No cut remains as a fallback, and no test asserts a cut.
 
 ## Capabilities
 
