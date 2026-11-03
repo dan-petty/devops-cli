@@ -57,7 +57,7 @@ For each item, the job does these things in order:
 5. It pushes.
 6. It sets the title and the body of the pull request: the title of the issue, and a body that closes it.
 7. It watches the checks of the pull request, and runs a fix step for each failed check. The setting `roadmap.implement.repair_rounds` bounds the rounds.
-8. It marks the pull request ready.
+8. It asks `draft_readiness` and stops with the reason on a refusal, then marks the pull request ready.
 
 The job never merges. [Checks of the implement job](../ROADMAP_WORKFLOW.md#checks-of-the-implement-job) gives the detail of the hooks, the repair rounds and the time.
 

@@ -73,6 +73,7 @@ class PullStatus(BaseModel):
     draft: bool = False
     merged: bool = False
     head_sha: str = Field(default="", validation_alias=AliasPath("head", "sha"))
+    head_ref: str = Field(default="", validation_alias=AliasPath("head", "ref"))
 
     @property
     def is_open_draft(self) -> bool:

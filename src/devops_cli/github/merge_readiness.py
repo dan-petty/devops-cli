@@ -93,6 +93,7 @@ class BlockerKind(StrEnum):
     THREADS = "threads"
     THREADS_UNREAD = "threads_unread"
     GROUNDING = "grounding"
+    READINESS = "readiness"
 
 
 CHECK_FAILURE_KINDS = frozenset({BlockerKind.CHECKS_FAILING, BlockerKind.CHECKS_UNREAD})
