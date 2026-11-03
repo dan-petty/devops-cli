@@ -122,7 +122,7 @@ def test_a_title_with_two_faults_names_both() -> None:
 def test_a_title_that_repeats_a_word_or_the_issue_number_names_the_repeat(
     title: str, fragment: str
 ) -> None:
-    (problem,) = title_problems(title, DECLARED)
+    (problem,) = title_problems(title, None)
 
     assert fragment in problem
 
@@ -138,7 +138,7 @@ def test_a_title_that_repeats_a_word_or_the_issue_number_names_the_repeat(
     ],
 )
 def test_a_title_with_a_later_plan_word_or_another_number_has_no_problem(title: str) -> None:
-    assert title_problems(title, DECLARED) == []
+    assert title_problems(title, None) == []
 
 
 def test_without_the_labels_the_scope_is_not_checked() -> None:
