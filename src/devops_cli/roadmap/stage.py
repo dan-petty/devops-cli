@@ -122,7 +122,6 @@ from devops_cli.roadmap.return_item import apply_return, plan_return
 from devops_cli.roadmap.stage_change import (
     MeasuredGroup,
     StageProposal,
-    StageSplit,
     check_proposal,
     closing_keyword_in,
     measure_groups,
@@ -134,10 +133,12 @@ from devops_cli.roadmap.stage_change import (
 )
 from devops_cli.roadmap.stage_criteria import criterion_problems
 from devops_cli.roadmap.stage_filter import split_filter_entry
+from devops_cli.roadmap.stage_form import form_problems
 from devops_cli.roadmap.stage_github import StageGitHub
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage_probe import probe_premise
 from devops_cli.roadmap.stage_specs import BaseSpec, read_base_specs
+from devops_cli.roadmap.stage_split import ask_split
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
 from devops_cli.roadmap.stage_verify import (
@@ -492,7 +493,6 @@ def select_stageable(
 # ── The plan of one item ──────────────────────────────────────────────────────
 
 _CHANGE_TASK: Final[str] = "roadmap_stage_change.md"
-_SPLIT_TASK: Final[str] = "roadmap_stage_split.md"
 # The model window is shared by the reply, the body of the item and the repository context.
 _WINDOW_SHARE_CONTEXT: Final[int] = 2
 _WINDOW_SHARE_BODY: Final[int] = 4
@@ -656,6 +656,8 @@ class _Planner:
         self._today: date = datetime.now(UTC).date()
         # Whether the model split the groups of the item in hand: it does so once for each item.
         self._split_asked = False
+        # The lines of the premise probe of the item in hand, for the quote rule of `feasibility`.
+        self._probe_lines: tuple[str, ...] = ()
 
     def plan(self, target: StageTarget) -> StagedChange | OverBudget | PremiseFailed:
         """The change of `target`, the group that stops it, or the evidence that its premise is
@@ -766,9 +768,11 @@ class _Planner:
             "capabilities": [self._specs[name].request_entry(name) for name in sorted(self._specs)],
             "budget": self._budget,
         }
-        probes = probe_premise(self._source, self._sha, item.body).text
-        if probes:
-            request["probes"] = probes
+        probe = probe_premise(self._source, self._sha, item.body)
+        # The checks of the reply read the same lines as the model (#3200): `feasibility` quotes one.
+        self._probe_lines = probe.lines
+        if probe.text:
+            request["probes"] = probe.text
         return request
 
     def _ask[M: BaseModel](self, schema: type[M], task: str, request: Mapping[str, Any]) -> M:
@@ -790,6 +794,7 @@ class _Planner:
             self._tree_of(target, proposal),
             requirements=self._requirements,
             issue_body=target.item.body,
+            probes=self._probe_lines,
         )
         if problems:
             return _Refused(" ".join(problems), proposal)
@@ -803,7 +808,8 @@ class _Planner:
         asked, files, measured = self._fit(target, proposal)
         if asked is not proposal:
             # The split gave new groups, and the model can bring old paths back with them.
-            problems = path_problems(asked.groups, self._tree.with_files(files))
+            problems = form_problems(asked.groups)
+            problems.extend(path_problems(asked.groups, self._tree.with_files(files)))
             problems.extend(criterion_problems(asked.criteria, target.item.body, len(asked.groups)))
             if problems:
                 return _Refused(" ".join(problems), asked)
@@ -862,7 +868,7 @@ class _Planner:
             ],
             "criteria": [entry.model_dump() for entry in proposal.criteria],
         }
-        split = self._ask(StageSplit, _SPLIT_TASK, asked)
+        split = ask_split(self._client, asked)
         proposal = proposal.model_copy(update={"groups": split.groups, "criteria": split.criteria})
         files, measured = self._build(target, proposal)
         return proposal, files, measured

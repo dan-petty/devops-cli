@@ -154,12 +154,15 @@ def test_a_valid_plan_gives_the_branch_the_title_the_body_and_the_files(
     assert change.files == snapshot
 
 
+SAMPLE_PROBE = "The path `src/devops_cli/sample.py` is a file of the staging commit."
+
+
 @pytest.mark.usefixtures("openspec")
 def test_the_model_input_holds_the_probe_of_each_cited_path_and_identifier(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
     seed_stageable(store, body="Fix `keep` in `src/devops_cli/sample.py`, not `gone_function`.")
-    model_fake.answer(make_stage_proposal())
+    model_fake.answer(make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"]))
 
     _plan(store, stage_repo)
 
@@ -170,6 +173,34 @@ def test_the_model_input_holds_the_probe_of_each_cited_path_and_identifier(
         "`gone_function` has no definition at the staging commit. "
         "No commit in the history added or removed its text.",
     ]
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_feasibility_that_quotes_no_probe_line_goes_back_to_the_model_with_the_problem(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    seed_stageable(store, body="Fix the file `src/devops_cli/sample.py`.")
+    quoted = make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"])
+    model_fake.answer(make_stage_proposal(), quoted)
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    assert "quotes no line of the probes" in model_fake.sent[1].messages[-1].content
+    assert len(model_fake.sent) == 2
+    assert len(plan.ready) == 1
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_feasibility_that_quotes_a_probe_line_is_accepted_at_once(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    seed_stageable(store, body="Fix the file `src/devops_cli/sample.py`.")
+    model_fake.answer(make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"]))
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    assert len(model_fake.sent) == 1
+    assert len(plan.ready) == 1
 
 
 @pytest.mark.usefixtures("openspec")
@@ -841,6 +872,36 @@ def test_a_split_reply_with_a_missing_path_goes_back_to_the_model_once(
     plan = _plan(store, stage_repo, step_tokens=6000)
 
     assert "`src/devops_cli/old.py`" in _requests(model_fake)[2]["problem"]
+    assert model_fake.call_count == 3
+    assert len(plan.ready) == 1
+
+
+@pytest.mark.usefixtures("openspec")
+@pytest.mark.parametrize(
+    "verify",
+    [
+        "uv run pytest tests/test_x.py",
+        "uv run devops ci test tests/x.py` and `git push origin HEAD",
+    ],
+)
+def test_a_split_group_with_a_verify_command_of_a_wrong_form_goes_back_to_the_model_once(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verify: str,
+) -> None:
+    heavy = heavy_group(stage_repo)
+    bad = heavy.model_copy(update={"title": "Bad", **NO_FILES, "verify": verify})
+    model_fake.answer(
+        make_stage_proposal(groups=[heavy]),
+        StageSplit(groups=[bad]),
+        make_stage_proposal(),
+    )
+
+    plan = _plan(store, stage_repo, step_tokens=6000)
+
+    assert "`verify` command" in _requests(model_fake)[2]["problem"]
     assert model_fake.call_count == 3
     assert len(plan.ready) == 1
 

@@ -262,6 +262,27 @@ def test_the_title_of_the_pull_request_has_no_scope_that_the_labels_file_lacks(
     assert patched["title"] == "fix: the job drops a comment"
 
 
+def test_a_title_that_the_check_refuses_stops_the_item_before_the_job_writes_it(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The job keeps the whole summary of the issue (#3200), and the check limits the summary to
+    60 UTF-16 units (#3292). A long summary stops the item, so no title reaches the check."""
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement_run.delivery_title", lambda *_args: "Add a flag: "
+    )
+
+    applied = job_world.run(two_groups())
+
+    status, record = _item(job_world)
+    assert (applied.stopped, status, record.get("implement.stopped")) == (
+        (1,),
+        "Blocked",
+        "pull request",
+    )
+    assert job_world.sent("PATCH", f"pulls/{PULL}") == []
+    assert "not in the form" in job_world.issue_comments()[0]
+
+
 def test_the_changes_of_the_archive_and_the_documents_are_in_the_pushed_tree(
     job_world: JobWorld,
 ) -> None:
@@ -906,6 +927,47 @@ def test_a_claim_made_while_a_group_runs_beats_the_stop_of_that_group(
     assert (record.get("implement.stopped"), _owner(world)) == (None, ["owner/human"])
     assert status != "Ready"
     assert "human claimed the item" in comment
+
+
+# ── The model tier ladder (#3060) ─────────────────────────────────────────────────────────
+
+
+def test_the_record_itemizes_the_spend_under_the_tier_that_served_it(
+    job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    config(roadmap={"implement": {"ladder": {"edit": ["devops-coder", "devops-reasoning"]}}})
+    script = ModelScript(
+        ModelAPIError("example-model", "The provider broke."), *two_groups().replies
+    )
+
+    job_world.run(script)
+
+    _, record = _item(job_world)
+    spend = json.loads(record["implement.spend"] or "{}")
+    assert (set(spend["tiers"]), spend["tiers"]["devops-reasoning"]["input_tokens"] > 0) == (
+        {"devops-coder", "devops-reasoning"},
+        True,
+    )
+    assert spend["requests"] == sum(tier["requests"] for tier in spend["tiers"].values())
+
+
+def test_the_stop_comment_of_a_tier_change_names_the_tier_move(
+    job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    config(roadmap={"implement": {"ladder": {"edit": ["devops-coder", "devops-reasoning"]}}})
+    script = ModelScript(
+        ModelAPIError("example-model", "The provider broke."),
+        ModelHTTPError(
+            400, "example-model", {"message": "Ollama_chatException: failed to parse the reply"}
+        ),
+    )
+
+    applied = job_world.run(script)
+
+    comment = job_world.issue_comments()[0]
+    assert (applied.stopped, applied.failed) == ((1,), ())
+    assert "Action taken: `change_tier`, 1 tier move(s)." in comment
+    assert "Action left: `wait`" in comment
 
 
 def test_unticked_task_in_archived_change_stops_at_ready(job_world: JobWorld) -> None:

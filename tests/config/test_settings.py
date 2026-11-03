@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
-from devops_cli.config.settings import ServiceConfig, Settings, dotted_set
+from devops_cli.config.constants import CONST_AI_GATEWAY_HOSTED_MODELS
+from devops_cli.config.settings import (
+    RoadmapImplementConfig,
+    ServiceConfig,
+    Settings,
+    dotted_set,
+)
 from devops_cli.exceptions import ConfigurationError
 
 
@@ -72,3 +79,56 @@ def test_ai_config_has_no_append_cache_shim() -> None:
     settings = Settings()
     assert not hasattr(settings.ai, "append_cache")
     assert hasattr(settings.ai.cache, "append_cache")
+
+
+def test_the_implement_ladder_defaults_to_the_local_coder_group_of_each_step_class() -> None:
+    """No step class starts on a hosted group, and every class has one tier (#3060)."""
+    ladder = RoadmapImplementConfig().ladder
+
+    assert ladder == {
+        step_class: ["devops-coder"] for step_class in ("plan", "edit", "repair", "review")
+    }
+    assert not {tier for tiers in ladder.values() for tier in tiers} & set(
+        CONST_AI_GATEWAY_HOSTED_MODELS
+    )
+
+
+def test_the_implement_ladder_accepts_a_hosted_group_that_it_names() -> None:
+    ladder = RoadmapImplementConfig(ladder={"review": ["devops-coder", "claude-haiku-5-5"]}).ladder
+
+    assert ladder["review"] == ["devops-coder", "claude-haiku-5-5"]
+
+
+def test_the_implement_ladder_refuses_a_step_class_that_does_not_exist() -> None:
+    with pytest.raises(ValidationError, match="no step class design"):
+        RoadmapImplementConfig(ladder={"design": ["devops-coder"]})
+
+
+def test_the_implement_ladder_refuses_a_model_outside_the_gateway_groups() -> None:
+    """A hosted model name reaches no request unless the ladder names a group that it knows."""
+    with pytest.raises(ValidationError, match="no local gateway group"):
+        RoadmapImplementConfig(ladder={"edit": ["gpt-4o"]})
+
+
+def test_the_implement_ladder_refuses_a_repeated_tier_and_an_empty_list() -> None:
+    with pytest.raises(ValidationError, match="names a tier twice"):
+        RoadmapImplementConfig(ladder={"edit": ["devops-coder", "devops-coder"]})
+    with pytest.raises(ValidationError, match="holds no tier"):
+        RoadmapImplementConfig(ladder={"edit": []})
+
+
+def test_the_implement_ladder_reads_a_json_object_of_a_config_set() -> None:
+    ladder = RoadmapImplementConfig(
+        ladder='{"edit": ["devops-coder", "ollama:qwen3-coder:30b"]}'
+    ).ladder
+
+    assert ladder["edit"] == ["devops-coder", "ollama:qwen3-coder:30b"]
+
+
+def test_the_implement_ladder_refuses_text_that_is_no_json_object() -> None:
+    with pytest.raises(ValidationError, match="must be a JSON object:"):
+        RoadmapImplementConfig(ladder="{not json")
+    with pytest.raises(ValidationError, match="must be a JSON object of step class"):
+        RoadmapImplementConfig(ladder='["devops-coder"]')
+    with pytest.raises(ValidationError, match="holds an empty tier"):
+        RoadmapImplementConfig(ladder={"edit": ["  "]})

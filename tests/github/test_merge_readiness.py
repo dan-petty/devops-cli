@@ -52,6 +52,13 @@ _FORBIDDEN = ProcessAnswer(
 _NOT_FOUND = ProcessAnswer(
     returncode=1, stdout='{"message": "Not Found"}', stderr="gh: Not Found (HTTP 404)"
 )
+_TRAILERS = (
+    "Closes #704",
+    "Change: `openspec/changes/archive/2026-11-03-2585-x/`",
+    "Fail-to-pass: 1234",
+    "Co-authored-by: agent <agent@example.com>",
+    "Signed-off-by: agent <agent@example.com>",
+)
 
 
 def _pr(**overrides: object) -> dict[str, Any]:
@@ -181,6 +188,42 @@ def test_a_clean_grounded_pull_request_is_ready(github: _GitHub, tmp_path: Path)
     """Adding rules must not make every pull request unmergeable."""
     verdict = _assess(tmp_path)
     assert (verdict.is_ready, verdict.blockers, verdict.advisories) == (True, (), ())
+
+
+@pytest.mark.parametrize(
+    ("body", "over_limit"),
+    [
+        ("x" * 1000, False),
+        ("x" * 1001, True),
+        ("\n".join(["x" * 1000, "", *_TRAILERS]), False),
+        ("\r\n".join(["x" * 1000, "", *_TRAILERS]), False),
+        (None, False),
+    ],
+    ids=["at-limit", "over-limit", "trailers-stripped", "crlf-trailers", "empty"],
+)
+def test_the_body_warns_over_the_limit(
+    github: _GitHub,
+    tmp_path: Path,
+    body: str | None,
+    over_limit: bool,
+) -> None:
+    """A body over 1,000 characters before its trailers gets one warning that names the length,
+    the limit and CONTRIBUTING.md, and blocks nothing (#2585); trailer lines do not count."""
+    verdict = _assess(tmp_path, _pr(body=body))
+    warnings = [
+        advisory for advisory in verdict.advisories if advisory.level is AdvisoryLevel.WARNING
+    ]
+    assert verdict.blockers == ()
+    assert verdict.is_ready
+    if not over_limit:
+        assert warnings == []
+        return
+    assert len(warnings) == 1
+    assert (
+        "1,001" in warnings[0].text,
+        "1,000" in warnings[0].text,
+        "CONTRIBUTING.md" in warnings[0].text,
+    ) == (True, True, True)
 
 
 def test_a_merged_pull_request_is_ready_and_nothing_is_read(

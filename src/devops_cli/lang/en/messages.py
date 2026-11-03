@@ -1283,6 +1283,10 @@ class PRMessages:
         "PR #{number} is not grounded: {path}/ could not be read at its base ({error})."
     )
     changed_files_unread: str = "Could not read the files PR #{number} changes ({error})."
+    pr_body_too_long: str = (
+        "PR #{number} body has {length:,} characters before its trailers. The limit is {limit:,}. "
+        "See CONTRIBUTING.md section 4."
+    )
     hardening_report_title: str = "Defect Pull Request Hardening Audit"
     hardening_report_no_defects: str = "No merged defect pull requests found matching criteria."
     hardening_report_pr_not_defect: str = "PR #{number} is not classified as a defect PR."
@@ -2377,6 +2381,7 @@ class RoadmapMessages:
     search_reason_no_path: str = "it gives no path"
     search_reason_path: str = "the word `{word}` is not a path of the checkout"
     verify_reason_unparsed: str = "it is not a valid command line"
+    verify_reason_bytes: str = "a word holds a NUL byte or a character that cannot be encoded"
     verify_reason_long: str = "it is longer than {limit} characters"
     verify_reason_program: str = "`{program}` is not one of: {allowed}"
     implement_stop_command_timeout: str = "{command} ran out of time after {seconds} s."
@@ -2421,6 +2426,7 @@ class RoadmapMessages:
             "tool_calls": "Tool calls",
             "input_tokens": "Input tokens",
             "output_tokens": "Output tokens",
+            "tiers": "Model tiers",
             "repair_rounds": "Repair rounds",
             "last_message": "Last message of the agent",
             "removed": "Removed stray files",
@@ -2643,6 +2649,8 @@ class RoadmapMessages:
     )
     implement_failure_taken_none: str = "none"
     implement_failure_taken_repair: str = "`repair`, {rounds} fix round(s)"
+    implement_failure_taken_change_tier: str = "`change_tier`, {moves} tier move(s)"
+    implement_failure_taken_amend: str = "`amend`"
     implement_failure_action_text: dict[str, str] = field(
         default_factory=lambda: {
             "retry": "`retry`: run the item again",
@@ -2714,6 +2722,56 @@ class RoadmapMessages:
         "| {step} | {status} | {attempts} | {tokens_in}/{tokens_out} | {command} |"
     )
     implement_table_no_command: str = "-"
+    implement_amend_bullet: str = (
+        "- Group {group}, {kind}: {defect}. Evidence: {evidence}. {change}"
+    )
+    implement_amend_comment_line: str = (
+        "- Group {group} amendment ({kind}): {defect}. Evidence: {evidence}. {change}"
+    )
+    implement_amend_refused_scope: str = "A scope change waits for a person."
+    implement_amend_refused_premise: str = "A premise failure returns the item."
+    implement_amend_refused_done: str = "Group {group} has no unticked task."
+    implement_amend_refused_path_name: str = (
+        "A path request gives a missing file the name of a tracked file with the same file name."
+    )
+    implement_amend_refused_path_status: str = (
+        "The old path must be an untracked code span of the group not marked (new), and the new "
+        "path must be tracked."
+    )
+    implement_amend_refused_command_paths: str = (
+        "The paths of the verification command must match the original command in order."
+    )
+    implement_amend_refused_command_form: str = (
+        "A verification command must start with `uv run devops` and be runnable by the step."
+    )
+    implement_amend_refused_criteria: str = "An amendment cannot change the criteria section."
+    implement_amend_refused_no_group: str = "The plan has no group {group}."
+    implement_comment_premise_failed: str = (
+        "{marker}\nThe implement job returned the item to New. A step found that the premise "
+        "of the issue does not hold, so the job wrote no compensating code.\n\n"
+        "Evidence:\n\n{evidence}"
+    )
+    implement_stop_question_empty_premise: str = (
+        "The agent asked to return the item on a premise failure, but gave no evidence."
+    )
+    implement_stop_question_scope: str = (
+        "The agent asked for a scope change: {defect}. Evidence: {evidence}"
+    )
+    implement_stop_question_refused: str = (
+        "The plan request was refused: {rule}. Defect: {defect}. Evidence: {evidence}"
+    )
+    implement_stop_question_second: str = (
+        "A second plan request was received for group {group}: {defect}. Evidence: {evidence}"
+    )
+    implement_commit_split: str = "docs(openspec): split group {group} (#{number})"
+    implement_stop_split_missing: str = (
+        "A group is over the limit of the step, and no splitter is configured."
+    )
+    implement_stop_split_second: str = "A second group is over the limit of the step."
+    implement_stop_split_over_budget: str = (
+        "A group of the split reply is over the limit of the step: {title} ({tokens} tokens)."
+    )
+    implement_stop_split_invalid: str = "The split reply has problems: {problems}"
     implement_pull_comment_scoped: str = "- scoped check {name}: {result}, {seconds:.0f} s"
     implement_pull_comment_scoped_note: str = "- scoped check tests: {note}"
     implement_scoped_tests_uncovered: str = "not run, because no test covers the changed files"
@@ -2737,7 +2795,12 @@ class RoadmapMessages:
         "GitHub did not open the draft pull request of `{branch}`: {output}. The job removed the "
         "branch from origin."
     )
+    implement_stop_title_refused: str = (
+        "The title of the pull request does not pass the check `Semantic PR title`: {problems} "
+        "The title is `{title}`."
+    )
     implement_step_needs_item: str = "A step needs --item with --group."
+    implement_no_model: str = "A step needs a model or a factory of the tiers of the ladder."
     implement_step_job_options: str = (
         "--filter, --plan, --confirm and --why are options of the job. With --group, the command runs "
         "one step and takes only --item, --source, --format and --dry-run. To run the job for "
@@ -2954,7 +3017,9 @@ class RoadmapMessages:
             "worktree_new": "the worktree on a new branch at the fetched default branch",
             "rebase": "rebase the staged branch onto the fetched default branch",
             "model_step": "the implement model runs one task group",
+            "model_split": "the stage model splits a group that is over the limit of the step",
             "commit": "commit the files of the task group",
+            "amend": "commit the plan amendment",
             "docs": "regenerate the documentation of the change",
             "archive": "archive the change",
             "push": "push the branch with a lease on its remote tip",
@@ -2981,6 +3046,9 @@ class RoadmapMessages:
             "run_log": "a check fails",
             "model_fix": "a check fails, for the first time",
             "ready": "the checks pass",
+            "amend": "a step asks for an amendment",
+            "split": "the inputs of a group measure more than the limit of the step",
+            "return": "a step finds the premise false",
             "stop": "a step stops the item",
             "unlabel": "the pull request holds a label that the new title does not give",
             "removal": "the pull request holds a label that the new title does not give",
@@ -3004,6 +3072,21 @@ class RoadmapMessages:
         "modify. Add the requirements instead."
     )
     stage_problem_keyword: str = "The requirement {requirement} does not say SHALL or MUST."
+    stage_problem_text_short: str = (
+        "The text of {field} has {length} characters, and the least is {least}. Write a real "
+        "sentence."
+    )
+    stage_problem_text_placeholder: str = (
+        "The text of {field} is the placeholder `{text}`. Write the real text."
+    )
+    stage_problem_no_quote: str = (
+        "The feasibility list quotes no line of the probes, word for word. Quote at least one "
+        "line of the probes in feasibility."
+    )
+    stage_problem_no_cost: str = (
+        "builds_own is true, and existing_tool gives no cost. Write the tokens to build the code "
+        "(for example `80k tokens`) and the time (for example `4 hours`)."
+    )
     stage_problem_skip_with_specs: str = "skip_specs is true, and the reply still gives specs."
     stage_problem_no_specs: str = "skip_specs is false, and the reply gives no spec delta."
     stage_problem_specs_not_needed: str = (
@@ -3131,6 +3214,9 @@ class RoadmapMessages:
         "limit is {limit}. The summary of the plan does not fit the number of this item."
     )
     stage_summary_blank: str = "The summary has no text. Write a summary of the plan."
+    stage_summary_cut: str = (
+        "The summary ends with `...`, so it reads as a cut text. Write a whole summary."
+    )
     stage_summary_long: str = (
         "The summary has {length} characters in the title, and the limit is {limit}. "
         "A handle or a link gets a code span in the title, and an emoji counts as two. "

@@ -401,15 +401,30 @@ The table of `devops roadmap implement` SHALL print the reason and the last mess
 - **THEN** the table holds that text
 
 ### Requirement: A failed model call ends the step stopped
-A run that ends on a failed model call (a `ModelAPIError` that is not a refused key) SHALL end as stopped, and the step SHALL reset the checkout. The outcome of a failed turn SHALL hold the requests and the tokens that the turn spent, the failed request included, and the last text of the model, added to those of the turn before it.
+A run that ends on a failed model call (a `ModelAPIError` that is not a refused key) SHALL end as stopped when no tier of its ladder remains, and the step SHALL reset the checkout. The outcome of a failed turn SHALL hold the requests and the tokens that the turn spent, the failed request included, and the last text of the model, added to those of the turn before it.
 
 #### Scenario: A model call fails in the first turn
-- **WHEN** the agent writes `src/sample.py` and a new test file, and its next model call raises a `ModelAPIError`, a `ModelHTTPError` with the status 503, or a `ModelRequestTimeout`
+- **WHEN** the agent writes `src/sample.py` and a new test file, and its next model call raises a `ModelAPIError`, a `ModelHTTPError` with the status 503, or a `ModelRequestTimeout`, and no tier of the ladder remains
 - **THEN** the step reports stopped with a reason that starts with the class of the error, the outcome holds the masked diff of both files, the requests (the reply and the failed request) and the tokens, and the last text of the model, and the checkout is reset
 
 #### Scenario: A model call fails in the extra turn
-- **WHEN** the first turn passes every check and leaves a task unticked, and the model call of the extra turn for the ticks raises one of those errors
+- **WHEN** the first turn passes every check and leaves a task unticked, and the model call of the extra turn for the ticks raises one of those errors, and no tier of the ladder remains
 - **THEN** the step reports stopped with a reason that starts with the class of the error, the outcome holds the masked diff of the work of the first turn, the requests of both turns, and the last text of the first turn, and the checkout is reset
+
+### Requirement: A change_tier failure advances the ladder
+When the failure classification maps the failure to `change_tier`, or a model call fails without a key refusal, and the ladder for that step class has another tier available, the step SHALL advance to the next tier without incrementing the repair round counter.
+
+#### Scenario: A parser failure advances to the next tier
+- **WHEN** an attempt encounters an error classified as `change_tier` and another tier remains in the ladder
+- **THEN** the next attempt runs on the next tier of the ladder and the repair round counter does not change
+
+#### Scenario: A provider error advances to the next tier
+- **WHEN** a model call raises a `ModelAPIError` that is not a refused key and another tier remains in the ladder
+- **THEN** the next attempt runs on the next tier of the ladder and the repair round counter does not change
+
+#### Scenario: Ladder tiers exhausted
+- **WHEN** an attempt encounters an error classified as `change_tier` and no further tiers remain in the ladder
+- **THEN** the step stops and resets the checkout
 
 ### Requirement: A failed model call gives a reason with the error text of the provider
 The reason of a step that a failed model call ended SHALL hold the class of the error, the HTTP status if any, and the name of the model. For a `ModelHTTPError` it SHALL also hold the first line of the error text of the body: masked, cut like other stop text, without quoted parts, and ending at the first `=` or `;`. A gateway dict `{'error': '<text>'}` ending that line is read as `<text>`. For a `ModelRequestTimeout` it SHALL hold the deadline in seconds. It SHALL hold no other value.
@@ -986,7 +1001,7 @@ The shell of the agent SHALL NOT run a command whose first word is `!`. Only the
 - **THEN** the shell refuses the command as a program that is not in the allowed list, the refusal holds the `git grep` form and the sentence that the step runs the `!` command itself, and no process starts
 
 ### Requirement: A verification command has a limit and a reason that is safe to show
-The words of a verification command of any program SHALL hold at most 2000 characters in all. A word or a command that a reason names SHALL be escaped and cut, so that the reason holds no raw control character, no line or paragraph separator and no bidi override. The stop reason SHALL show the command cut to 2000 characters.
+The words of a verification command of any program SHALL hold at most 2000 characters in all, and no word SHALL hold a NUL byte or a character that does not encode to UTF-8. A word, a command and the output of a command that a reason names SHALL be escaped and cut, so that the reason holds no raw control character, no line or paragraph separator and no bidi override. The stop reason SHALL show the command cut to 2000 characters.
 
 #### Scenario: A search that is too long
 - **WHEN** a Verification line names `! git grep -n` followed by a literal of 300000 characters and `src/`
@@ -1003,6 +1018,14 @@ The words of a verification command of any program SHALL hold at most 2000 chara
 #### Scenario: A command with a control character in the outcome of a step
 - **WHEN** a Verification line of a `tasks.md` names `curl` followed by ESC, a right-to-left override (U+202E) and `@octocat`
 - **THEN** `outcome.reason` of the step shows the command with the escapes `\x1b` and `\u202e`, and holds no control, format, line separator or paragraph separator character
+
+#### Scenario: The output of a command
+- **WHEN** a verification command fails, or a negative search finds a line, and the output holds ESC, U+202E and NEL
+- **THEN** the reason shows the output with the escapes `\x1b`, `\u202e` and `\x85`, and holds none of the raw characters
+
+#### Scenario: A word that cannot be an argument
+- **WHEN** a Verification line names `grep a` followed by a NUL byte, or a word with a lone surrogate
+- **THEN** the step stops with the reason that a word holds a NUL byte or a character that cannot be encoded, starts no process, and raises no error
 
 ### Requirement: The log names no word after a bang
 The log line of a shell call whose first word is `!` SHALL name the program `other` and SHALL show no word after it.

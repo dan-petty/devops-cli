@@ -29,8 +29,11 @@ The reply has these keys and no other, at the top level or inside any entry:
 - `skip_specs`: `true` or `false`.
 - `feasibility`: a list of strings.
 - `existing_tool`: a string.
+- `builds_own`: true when the change builds its own code and adopts no tool, else false. When it is true, `existing_tool` holds a number of tokens (such as `80k tokens`) and a time (such as `4 hours`). The check refuses a reply that gives no cost.
 - `decisions`: a list of objects with the keys `decision` and `reason`.
 - `rejected`: a list of objects with the keys `alternative` and `evidence`.
 - `specs`: a list of objects with the keys `capability`, `purpose`, `added` and `modified`. `capability` is a name of lower case words joined by hyphens. `purpose` is a string for a new capability and `null` for an existing one. `added` and `modified` are lists of requirements, each an object with the keys `name`, `text` and `scenarios`; `scenarios` is a list of objects with the keys `name`, `when` and `then`.
 - `groups`: a list of objects with the keys named above. It has at least one.
 - `criteria`: a list of objects with the keys `criterion`, `group` and `reason`. The body of the issue may hold a list under a heading `Acceptance criteria`, written by a person before the block `devops-roadmap-refine`. Give one entry for each top-level item of that list, and none for the list in the refine block. `criterion` is the text of the item, copied character for character, without the `[ ]` mark. `group` is the number of the group that delivers it, counted from 1 in the order of `groups`, or the string `pending-person` when only a person can deliver it. `reason` is a string, and it is never blank when `group` is `pending-person`. An issue with no such list gets an empty list. The check refuses a reply that leaves one item out.
+- Texts: no text of the plan is a placeholder such as `x`, `todo` or `none`, and the `why`, `existing_tool`, each line of `feasibility`, each decision and each task has at least 10 characters. The check refuses a reply that breaks this rule. The `summary` never ends with `...`.
+- Texts: the `why`, `existing_tool`, `purpose` and the `text` of a requirement are on one line and start with a word, never with `-`, `#`, `>`, `1.`, `[ ]`, a rule, a fence or an HTML tag. The check refuses a reply that breaks this rule. Any other text is joined to one line.

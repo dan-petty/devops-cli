@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import re
 import string
-import textwrap
 import unicodedata
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
@@ -42,7 +41,7 @@ from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope
-from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length
+from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, is_placeholder, summary_length
 from devops_cli.roadmap.refine import sanitize_text
 from devops_cli.roadmap.stage_criteria import PENDING_PERSON, StageCriterion, criterion_problems
 from devops_cli.roadmap.stage_form import form_problems
@@ -73,6 +72,16 @@ STAGE_SUMMARY_MAX_CHARS: Final[int] = SUMMARY_MAX_CHARS - summary_length(
 BODY_MAX_CHARS: Final[int] = 800
 # The fewest characters of the Purpose of a new capability, so archive never writes TBD.
 PURPOSE_MIN_CHARS: Final[int] = 50
+# The fewest characters of a text of the plan that stands for a sentence: `why`, `existing_tool`, a
+# line of `feasibility`, a decision and a task. `No alternative.` has 15, and `x` or `todo` has
+# fewer (#3200).
+PLAN_FIELD_MIN_CHARS: Final[int] = 10
+# The cost that rule 3 of `AGENTS.md` asks of a plan that builds its own code: a number of tokens,
+# with an optional `k`, and a number of hours or minutes.
+_TOKEN_COST: Final[re.Pattern[str]] = re.compile(r"\d+(?:[.,]\d+)*\s*k?\s*tokens?\b", re.IGNORECASE)
+_TIME_COST: Final[re.Pattern[str]] = re.compile(
+    r"\d+(?:[.,]\d+)*\s*(?:hours?|minutes?)\b", re.IGNORECASE
+)
 _REQUIREMENT_WORDS: Final[frozenset[str]] = frozenset({"SHALL", "MUST"})
 _WORD_PUNCTUATION: Final[str] = ".,;:()"
 # GitHub closes the issue that follows one of these words in the body of a pull request.
@@ -117,24 +126,29 @@ def _capability_name(name: str) -> str:
 RepositoryPath = Annotated[str, AfterValidator(_repository_path)]
 
 
+# U+FEFF is white space for the JavaScript `\\s` that `openspec` reads, and it is none for
+# Python. Every other character of that class is white space for Python too.
+_JS_SPACE: Final[dict[int, str]] = {0xFEFF: " "}
+
+
 def _one_line(text: str) -> str:
     """The text on one line, so that a text of the reply adds no line, no task, no group, no
     section and no `Verification:` line to a file of the change. Each run of white space, a line
     break of markdown (`\\n`, `\\r`) and one of `str.splitlines` among them, becomes one space."""
-    return " ".join(text.split())
+    return " ".join(text.translate(_JS_SPACE).split())
 
 
 def _join_lines(text: str) -> str:
     """The text on one line, with each line break as one space and every other space kept: a
     command may hold two spaces in a quoted word."""
-    return " ".join(text.splitlines())
+    return " ".join(text.translate(_JS_SPACE).splitlines()).strip()
 
 
 # What starts a block in markdown, at the start of a line: a heading, a quote, a list marker or a
 # box, a rule, a fence, a comment of HTML.
 _BLOCK_START: Final[re.Pattern[str]] = re.compile(
     r"#{1,6}(?:\s|$)|>|[-*+](?:\s|$)|\d{1,9}[.)](?:\s|$)|\[[ xX]\]"
-    r"|(?:-{3,}|_{3,}|\*{3,}|={3,}|~{3,}|`{3,})|<!--"
+    r"|(?:-{3,}|_{3,}|\*{3,}|={3,}|~{3,}|`{3,})|<[A-Za-z/!?]"
 )
 
 
@@ -343,6 +357,8 @@ class StageProposal(_Reply):
     skip_specs: bool = False
     feasibility: list[Line] = Field(default_factory=list, min_length=1)
     existing_tool: LineStart = ""
+    # Whether the plan builds its own code and adopts no tool: it then writes its cost (#3200).
+    builds_own: bool = False
     decisions: list[StageDecision] = Field(default_factory=list)
     rejected: list[StageRejection] = Field(default_factory=list)
     specs: list[StageSpec] = Field(default_factory=list)
@@ -371,6 +387,8 @@ class StageProposal(_Reply):
         shown = summary_length(text)
         if not any(_shows_something(char) for char in text):
             raise ValueError(MESSAGES.roadmap.stage_summary_blank)
+        if text.endswith(_ELLIPSIS):
+            raise ValueError(MESSAGES.roadmap.stage_summary_cut)
         if shown > STAGE_SUMMARY_MAX_CHARS:
             raise ValueError(
                 MESSAGES.roadmap.stage_summary_long.format(
@@ -470,6 +488,62 @@ def _delta_problems(
     return problems
 
 
+def _text_problems(field: str, text: str) -> list[str]:
+    """The problems of one text of the plan: too short for a sentence, or a placeholder word."""
+    texts = MESSAGES.roadmap
+    problems: list[str] = []
+    length = len(text.strip())
+    if length < PLAN_FIELD_MIN_CHARS:
+        problems.append(
+            texts.stage_problem_text_short.format(
+                field=field, length=length, least=PLAN_FIELD_MIN_CHARS
+            )
+        )
+    if is_placeholder(text):
+        problems.append(texts.stage_problem_text_placeholder.format(field=field, text=text.strip()))
+    return problems
+
+
+def _plan_texts(proposal: StageProposal) -> list[tuple[str, str]]:
+    """The texts of the plan that must read as a sentence, each with the name of its field: `why`,
+    `existing_tool`, the lines of `feasibility`, the decisions and the tasks of each group."""
+    named = [("why", proposal.why), ("existing_tool", proposal.existing_tool)]
+    named.extend(("feasibility", line) for line in proposal.feasibility)
+    for decision in proposal.decisions:
+        named.append(("decision", decision.decision))
+        named.append(("decision reason", decision.reason))
+    for number, group in enumerate(proposal.groups, start=1):
+        tasks = (("test", group.test), ("implementation", group.implementation))
+        for name, text in (*tasks, ("documentation", group.documentation)):
+            if text is not None:
+                named.append((f"{name} of group {number}", text))
+    return named
+
+
+def _squash(text: str) -> str:
+    return " ".join(text.split())
+
+
+def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> list[str]:
+    """What is wrong with the text of `proposal` that no schema says (#3200): a text that is too
+    short or a placeholder word (`is_placeholder` of the pull request form), a `feasibility` that
+    quotes no line of `probes` when there are some, and a plan that builds its own code and gives
+    no cost of tokens and time in `existing_tool`. The replay (`stage_eval_gates`) and the job
+    both call this through `check_proposal`, so one rule set judges both."""
+    texts = MESSAGES.roadmap
+    problems = [p for field, text in _plan_texts(proposal) for p in _text_problems(field, text)]
+    lines = [_squash(line) for line in probes if line.strip()]
+    if lines:
+        feasibility = _squash(" ".join(proposal.feasibility))
+        if not any(line in feasibility for line in lines):
+            problems.append(texts.stage_problem_no_quote)
+    if proposal.builds_own and not (
+        _TOKEN_COST.search(proposal.existing_tool) and _TIME_COST.search(proposal.existing_tool)
+    ):
+        problems.append(texts.stage_problem_no_cost)
+    return problems
+
+
 def check_proposal(
     proposal: StageProposal,
     known: Collection[str],
@@ -477,14 +551,17 @@ def check_proposal(
     *,
     requirements: Mapping[str, Collection[str]] | None = None,
     issue_body: str = "",
+    probes: Sequence[str] = (),
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
     `openspec/specs/`, `requirements` the requirement names of each base spec by capability, and
     `tree` the files that exist when the change is written. `issue_body` is the whole body of the
     issue: each acceptance criterion in it needs an entry in `criteria` (#3019), and a body with
-    none needs no entry."""
+    none needs no entry. `probes` holds the lines of the premise probe that the model read: when it
+    is not empty, `feasibility` quotes one (#3200)."""
     problems = _delta_problems(proposal, known, requirements or {})
+    problems.extend(content_problems(proposal, probes))
     problems.extend(form_problems(proposal.groups))
     problems.extend(path_problems(proposal.groups, tree))
     problems.extend(criterion_problems(proposal.criteria, issue_body, len(proposal.groups)))
@@ -642,7 +719,7 @@ def group_text(index: int, group: StageGroup) -> str:
     return f"## {index}. {group.title}\n\n{files}\n\n{tasks}"
 
 
-def _criteria_section(criteria: Sequence[StageCriterion]) -> str:
+def criteria_section(criteria: Sequence[StageCriterion]) -> str:
     """The `## Criteria` section of `tasks.md`: one line for each acceptance criterion with the
     group that delivers it, or `pending-person` and the reason. It is no task, so it has no box.
     A line starts with a fixed word and holds the folded text of the criterion, which comes from
@@ -658,6 +735,9 @@ def _criteria_section(criteria: Sequence[StageCriterion]) -> str:
         for c in criteria
     ]
     return f"## {texts.stage_criteria_title}\n\n{_bullets(lines)}\n\n" if lines else ""
+
+
+_criteria_section = criteria_section
 
 
 def _tasks_file(groups: Sequence[StageGroup], criteria: Sequence[StageCriterion] = ()) -> str:
@@ -713,17 +793,18 @@ def staging_title(number: int, summary: str) -> str:
 
 def delivery_title(issue_title: str, declared: Collection[str]) -> str:
     """The title of the pull request that delivers the code of an item (#2714): the type and the
-    scope of the issue's title, and its summary cut at a word to `SUMMARY_MAX_CHARS`. The staging
-    pull request has the type `docs(openspec)`, which the delivery must not keep. A mark of a
-    breaking change is dropped: the project has none before 1.0.0. A scope whose `scope/*` label is
-    not in `declared` is dropped too, because the `Semantic PR title` check refuses it (#2800)."""
+    scope of the issue's title, and its whole summary. It is never cut, because a cut text ends
+    with `...` and hides the summary (#3200): the form check of the pull request judges a long
+    one. The staging pull request has the type `docs(openspec)`, which the delivery must not keep.
+    A mark of a breaking change is dropped: the project has none before 1.0.0. A scope whose
+    `scope/*` label is not in `declared` is dropped too, because the `Semantic PR title` check
+    refuses it (#2800)."""
     head, _, summary = issue_title.partition(":")
     head = head.strip().removesuffix("!")
     scope = commit_scope(issue_title)
     if scope and f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" not in declared:
         head = head.partition("(")[0]
-    shortened = textwrap.shorten(safe_text(summary), SUMMARY_MAX_CHARS, placeholder=_ELLIPSIS)
-    return f"{head}: {shortened}"
+    return f"{head}: {safe_text(summary)}"
 
 
 def pull_request_body(number: int, change: str, proposal: StageProposal) -> str:

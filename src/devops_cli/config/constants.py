@@ -2723,6 +2723,15 @@ CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
     "devops-reasoning",
     "devops-embedding",
 )
+# The gateway groups that call a provider outside the cluster (SECURITY.md item 13). A request
+# reaches one of them only when its caller names it, such as a tier of
+# `roadmap.implement.ladder`.
+CONST_AI_GATEWAY_HOSTED_MODELS: Final[tuple[str, ...]] = (
+    "gemini-3.8-flash",
+    "claude-sonnet-5-5",
+    "claude-haiku-5-5",
+    "deepseek-v4.1-flash-1017",
+)
 CONST_AI_GATEWAY_PROVIDER: Final[str] = "gateway"
 # The providers `ai.provider` takes.
 CONST_AI_PROVIDER_IDS: Final[tuple[str, ...]] = (
@@ -3096,6 +3105,10 @@ CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR: Final[str] = "RefusedReply"
 CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS: Final[int] = 500
 CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS: Final[int] = 1500
 CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS: Final[int] = 40000
+# The step classes of the model ladder of `roadmap.implement.ladder` (#3060). Each class has one
+# ordered list of tiers, one tier per attempt. A step of a group is `edit`, a fix step is `repair`,
+# and `plan` and `review` are the classes of the steps that plan and review an item.
+CONST_ROADMAP_IMPLEMENT_STEP_CLASSES: Final[tuple[str, ...]] = ("plan", "edit", "repair", "review")
 # The consecutive refusals that a tool may answer before the run ends, such as a command off the
 # allowlist. A refusal is the model's to correct, as the harness's own file tools allow five.
 CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES: Final[int] = 5
@@ -3227,7 +3240,7 @@ CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS: Final[frozenset[str]] = frozenset(
 )
 # The characters of all the words of a verification command. A word of 300000 characters made
 # `execve` fail with E2BIG (#3263).
-CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS: Final[int] = 2000
+CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS: Final[int] = 2000
 # The text that starts a second command in a shell command line. The shell tool refuses a command
 # that holds one, because its allowlist reads only the first word. `&` alone is not here, since
 # `2>&1` holds it.

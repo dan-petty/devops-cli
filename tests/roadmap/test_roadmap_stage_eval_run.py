@@ -179,7 +179,7 @@ def test_a_first_reply_that_passes_has_no_problem(
     assert (run.outcome, run.calls, run.first) == (
         Outcome.STAGED,
         1,
-        {GateName.PATHS: [], GateName.KIND: [], GateName.CRITERIA: []},
+        {GateName.PATHS: [], GateName.KIND: [], GateName.CRITERIA: [], GateName.CONTENT: []},
     )
 
 
@@ -348,7 +348,7 @@ def test_a_type_with_no_gate_has_a_count_and_no_rate(
     assert (pending.avoided, pending.rate) == (None, None)
     assert rows[DefectType.FALSE_PREMISE].gate is GateName.NONE
     assert rows[DefectType.FALSE_PREMISE].cases > 0
-    assert rows[DefectType.OTHER].gate is GateName.NONE
+    assert rows[DefectType.OTHER].gate is GateName.CONTENT
 
 
 def test_the_kind_row_has_a_count_and_no_rate_because_the_client_enforces_the_schema(
@@ -373,11 +373,12 @@ def test_the_total_is_the_share_of_avoided_defects_over_the_scored_types(
     cases: list[StageCase],
 ) -> None:
     paths = [c for c in cases if DefectType.MISSING_PATH in c.defect_types()][:2]
-    clean: dict[GateName, list[str]] = {GateName.PATHS: [], GateName.KIND: []}
-    refused = {GateName.PATHS: ["a path is missing"], GateName.KIND: []}
+    clean: dict[GateName, list[str]] = {GateName.PATHS: [], GateName.CONTENT: []}
+    refused = {GateName.PATHS: ["a path is missing"], GateName.CONTENT: []}
 
     score = score_runs("m", paths, [_run(paths[0].name, clean), _run(paths[1].name, refused)])
 
-    assert score.scored == (1, 2)
-    assert score.total == 0.5
+    # The two cases also hold `other` defects, which the content gate scores: both avoided.
+    assert score.scored == (3, 4)
+    assert score.total == 0.75
     assert score_runs("m", [], []).total is None

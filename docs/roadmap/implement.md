@@ -9,7 +9,9 @@ The command has two forms:
 
 ## A step
 
-The agent of a step is the Coder of pydantic-ai. It runs on the model of the task `ai.tasks.implement`.
+The agent of a step is the Coder of pydantic-ai. It runs on the tiers of the ladder of its class. A group is the class `edit`, and a fix step is the class `repair`. The setting `roadmap.implement.ladder` maps each class to a list of tiers, weakest first. The default is the local gateway group `devops-coder`.
+
+A tier is a local gateway group, a hosted group that the setting names, or an `ollama:<tag>` model. A local tier goes to the configured gateway whatever `ai.provider` is, so it never reaches a hosted provider. The command reads the gateway health of the tiers before an attempt and skips a tier that the gateway reports unhealthy. A run that ends on a provider error, or on a failure class that selects `change_tier` such as `parser`, moves the step to the next tier and spends no repair round. A repair round stays on its tier. The report names every tier that the step attempted, and the run record holds the requests and tokens of each tier.
 
 **Inputs.** The agent gets these inputs:
 
@@ -62,6 +64,8 @@ For each item, the job does these things in order:
 The job never merges. [Checks of the implement job](../ROADMAP_WORKFLOW.md#checks-of-the-implement-job) gives the detail of the hooks, the repair rounds and the time.
 
 **A stop.** A step that fails stops the item. The job comments why, shows a table of the steps (the step, its attempts, its tokens in and out, and its last failing command), shows the masked diff of the discarded work, and sets the Status to Blocked. The job keeps the trace of its run in `implement.trace`: each model call, tool call, check and retry, with no argument, no output, no secret and no private host name. Read it with `devops roadmap explain <issue> --trace`. The job keeps no Job artifact. The Service runs the item again only after the comment `implement: retry`, or one time for each new runner image.
+
+**A plan request.** A stopped step can request a bounded change of its plan in a `plan-request` block. The job judges requests of the kinds `path`, `command` and `task` with deterministic rules. The job commits an accepted amendment, records it in `tasks.md`, and runs the group again. A group whose inputs exceed the limit is split once for each item. A `premise` request returns the item to New with its evidence. Other requests stop the item as a question for a person.
 
 **Claims.** The job leaves out an item that an agent or a person claimed with the label `owner/agent` or `owner/human`. When one claims an item that a running job works on, the job ends it at the next group boundary, with no push and no pull request.
 
