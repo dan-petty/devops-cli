@@ -71,6 +71,7 @@ from devops_cli.core.process import acts_as_github_app, run_subprocess
 from devops_cli.core.process_hardening import adopt_orphans, deny_environment_reads
 from devops_cli.exceptions import (
     DevOpsCLIError,
+    GitHubOperationError,
     GitHubUnauthenticatedError,
     GitOperationError,
     RoadmapImplementError,
@@ -117,11 +118,17 @@ from devops_cli.roadmap.implement_step import (
     run_fix_step,
     run_step,
 )
-from devops_cli.roadmap.pull_labels import declared_labels
+from devops_cli.roadmap.pull_labels import (
+    add_pull_labels,
+    declared_labels,
+    remove_pull_labels,
+    stale_labels,
+)
 from devops_cli.roadmap.stage_change import closing_keyword_in, delivery_title, safe_text
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status
 from devops_cli.roadmap.step_files import parse_task_groups, section_text
 from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField, RoadmapStore
+from devops_cli.roadmap.title_labels import title_labels
 from devops_cli.security.sanitizer import mask_secrets
 
 _WHY_HEADINGS = frozenset({"why"})
@@ -620,8 +627,22 @@ class _ItemRun:
             number=self.number, why=self._why(archived), archived=archived
         )
         client = get_github_session().client
-        client.update_pull(self.repo, pull, title=self._delivery_title(), body=body)
+        before = client.get_pull(self.repo, pull)
+        delivery_title = self._delivery_title()
+        client.update_pull(self.repo, pull, title=delivery_title, body=body)
         self._comment(pull, _NOTHING_YET)
+        try:
+            declared = declared_labels(self.store, ref=None)
+            old = title_labels(before.title, declared)
+            new = title_labels(delivery_title, declared)
+            add_pull_labels(self.store, pull, new.labels)
+            remove_pull_labels(self.store, pull, stale_labels(before.labels, old, new))
+        except GitHubUnauthenticatedError:
+            raise
+        except GitHubOperationError as exc:
+            client.comment_on_pull(
+                self.repo, pull, texts.implement_pull_labels_failed.format(error=exc)
+            )
 
     def _mark(self) -> _Mark:
         """How many outcomes, scoped runs and notes there are now, for `_comment`."""

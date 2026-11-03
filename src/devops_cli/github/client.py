@@ -10,7 +10,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlencode
 
-from pydantic import AliasPath, BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AliasPath, BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from devops_cli.config.constants import (
     CONST_GH_CLI,
@@ -61,6 +61,14 @@ class PullRequest(BaseModel):
     title: str
     head: CommitRef
     base: CommitRef
+    labels: tuple[str, ...] = ()
+
+    @field_validator("labels", mode="before")
+    @classmethod
+    def _turn_labels(cls, value: Any) -> tuple[str, ...]:
+        if not value:
+            return ()
+        return tuple(item["name"] if isinstance(item, dict) else str(item) for item in value)
 
 
 class PullStatus(BaseModel):

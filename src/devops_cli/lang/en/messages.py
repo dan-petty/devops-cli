@@ -1082,6 +1082,7 @@ class PRMessages:
     labels_dry_run_condition: str = "the pull request opens and the labels file declares it"
     labels_unreadable: str = "{path} can't be read as label specs: {error}"
     labels_refused: str = "{labels} could not be added: {error}"
+    labels_unremoved: str = "{labels} could not be removed: {error}"
     # The form of the title and the body of a pull request (#3198), one text for each problem.
     form_refused: str = "The pull request breaks the form. Nothing was opened:\n{problems}"
     form_title_lines: str = "The title is on more than one line."
@@ -2679,6 +2680,7 @@ class RoadmapMessages:
         "Spend: {requests} model requests, {input_tokens} input tokens, {output_tokens} output "
         "tokens."
     )
+    implement_pull_labels_failed: str = "Labels not updated: {error}"
     implement_pull_comment: str = "{marker}\nThe steps of the job:\n\n{lines}"
     implement_pull_comment_line: str = (
         "- {step} ({title}): {status}, {requests} model requests, {rounds} repair rounds{commit}"
@@ -2779,6 +2781,7 @@ class RoadmapMessages:
         "of each step, for a budget of {budget} tokens:\n\n{groups}{notes}"
     )
     stage_comment_group: str = "{index}. {title}: {tokens} tokens"
+    stage_comment_labels_failed: str = "\n\nLabels not added to #{pull}: {error}"
     # The report of the plan run of the toolbox (#3037), after the task groups.
     stage_comment_run: str = (
         "\n\nThe plan run made {requests} model request(s), and used {input_tokens} input tokens "
@@ -2908,6 +2911,7 @@ class RoadmapMessages:
             "fetch_branch": "the staged branch of an item",
             "authors": "the authors of the commits of the staged branch",
             "pull_status": "the state of the draft pull request of the item",
+            "pull": "the read of the pull request",
             "worktree": "the worktree on the staged branch, which the job takes over",
             "worktree_new": "the worktree on a new branch at the fetched default branch",
             "rebase": "rebase the staged branch onto the fetched default branch",
@@ -2940,6 +2944,8 @@ class RoadmapMessages:
             "model_fix": "a check fails, for the first time",
             "ready": "the checks pass",
             "stop": "a step stops the item",
+            "unlabel": "the pull request holds a label that the new title does not give",
+            "removal": "the pull request holds a label that the new title does not give",
         }
     )
     stage_none: str = "None."
@@ -3215,6 +3221,7 @@ class RoadmapMessages:
             "body": "the body of {subject}, its job record kept",
             "comment": "comment on {subject}",
             "label": "label {subject}",
+            "unlabel": "unlabel {subject}",
             "add_sub_issue": "add {subject} as a sub-issue of {parent}",
             "create_issue": "open an issue for {subject}",
             "close": "close {subject} with the reason {reason}",
