@@ -1286,7 +1286,8 @@ class RoadmapCommandHelp:
         "most 5 candidates a run and keeps a record of those it left beside the schedule; "
         "refine is due every 31 minutes, on a first run, and after an intake that placed a critical "
         "fix or a P0 item; the alternatives check is due every 719 minutes and on a first run, and checks "
-        "at most roadmap.alternatives.limit items. Without --confirm, or with --dry-run, prints "
+        "at most roadmap.alternatives.first_pass_limit items while an item has no check, and "
+        "roadmap.alternatives.limit items after. Without --confirm, or with --dry-run, prints "
         "the due list and runs nothing."
     )
     run_confirm: str = "Execute the due roadmap jobs. Without it, run prints the due list only."
@@ -1317,7 +1318,8 @@ class RoadmapCommandHelp:
         "is open, whoever opened it and whatever its status, even when its check is current."
     )
     alternatives_limit: str = (
-        "Maximum number of items to check in this run (default: roadmap.alternatives.limit, 5)."
+        "Maximum number of items to check in this run (default: roadmap.alternatives.first_pass_limit, 20, "
+        "while an item has no check, and roadmap.alternatives.limit, 5, after)."
     )
     alternatives_plan: str = (
         "Run the checks and print them, and write nothing. This is the default."
@@ -1450,6 +1452,10 @@ class RoadmapCommandHelp:
         "earlier run recorded it."
     )
     explain_arg: str = "The issue number to explain."
+    explain_trace: str = (
+        "Print the trace of the last run of the implement job for the issue, oldest event first, "
+        "and no verdict. The command reads the one issue, and no clone, and writes nothing."
+    )
     explain_source: str = (
         "Path to a clone of the repository. Without it, the command uses the model clone."
     )

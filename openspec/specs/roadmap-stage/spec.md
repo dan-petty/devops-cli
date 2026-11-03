@@ -1082,7 +1082,7 @@ The `title`, `test`, `implementation`, `documentation`, `verify` and `process` o
 - **THEN** `form_problems` gives two problems: the backtick, and the form to use
 
 ### Requirement: The paths of a negative search are checked against the staged commit
-`check_proposal` SHALL read the paths of a `verify` command that is a negative search from the reader of the step, and SHALL refuse a path that is no file or folder of the staged commit and that no group up to its own creates. The path `.` SHALL not be judged. A glob SHALL be judged by the files that it matches.
+`check_proposal` SHALL read the paths of a `verify` command that is a negative search from the reader of the step, and SHALL refuse a path that is no file or folder of the staged commit and that no group up to its own creates. A path that ends in `/` SHALL be a folder. The path `.` SHALL not be judged. A glob SHALL be judged by the files that it matches.
 
 #### Scenario: A folder that is not in the commit
 - **WHEN** a group gives the `verify` command `! git grep -n hello scr/ testz/` and the commit has `src/` and `tests/` only
@@ -1091,6 +1091,10 @@ The `title`, `test`, `implementation`, `documentation`, `verify` and `process` o
 #### Scenario: Folders of the commit and a folder that the plan creates
 - **WHEN** a group gives the `verify` command `! git grep -n old_name src/ tests/`, `! git grep -n x -- .` or `! git grep -n x -- tests/newdir`, and the plan creates `tests/newdir/test_new.py`
 - **THEN** `check_proposal` returns no problem about the paths
+
+#### Scenario: A file with a trailing slash
+- **WHEN** a group gives the `verify` command `! git grep -n devops README.md/` and `README.md` is a file of the commit
+- **THEN** `check_proposal` returns a problem for `README.md`
 
 ### Requirement: A text of the proposal, the design and the spec delta stays on one line
 The `why`, `what_changes`, `feasibility` and `existing_tool` of the reply, the texts of its decisions and rejected alternatives, and the `purpose`, the names, the texts and the scenario lines of its spec deltas, SHALL be written on one line. A text that is written at the start of a line SHALL start with no mark of markdown: a heading, a quote, a list marker, a box, a rule, a fence or a comment. The reply that breaks the rule fails the schema.

@@ -180,6 +180,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "the policy that says a tool is maintained",
     ),
     "DEFAULT_ROADMAP_ALTERNATIVES_LIMIT": ("kept", "items of one round"),
+    "DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT": (
+        "setting",
+        "items of one round while an item has no check",
+    ),
     "DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS": ("other", "the age at which a check is old"),
     "DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS": (
         "other",
@@ -264,6 +268,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS": ("kept", "a line of the Job log"),
     "CONST_ROADMAP_IMPLEMENT_STOP_REASONS": ("kept", "reasons in a stop, read by a person"),
+    "CONST_ROADMAP_IMPLEMENT_TRACE_CHARS": (
+        "kept",
+        "the record in the issue body, read by a person",
+    ),
+    "CONST_ROADMAP_IMPLEMENT_TABLE_ROWS": (
+        "kept",
+        "GitHub comment of 65,536 characters, read by a person",
+    ),
     "CONST_ROADMAP_IMPLEMENT_HEAD_POLLS": (
         "kept",
         "the time that GitHub takes to show a pushed head",
@@ -432,6 +444,7 @@ def test_the_texts_of_a_stop_fit_one_comment_of_65536_characters() -> None:
         constants.CONST_ROADMAP_IMPLEMENT_DIFF_CHARS
         + constants.CONST_ROADMAP_IMPLEMENT_REASON_CHARS
         + constants.CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS
+        + constants.CONST_ROADMAP_IMPLEMENT_TABLE_ROWS * 300
     )
 
     assert parts < comment

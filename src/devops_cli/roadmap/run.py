@@ -16,7 +16,8 @@ decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every 3
 run, and in a round where intake placed a critical fix or a P0 item (#1515). Stage, the row after
 refine, is due every 37 minutes, on a first run, and in a round where refine set an item Ready (#2659).
 The alternatives row is due every 719 minutes and on a first run, and checks at most
-`roadmap.alternatives.limit` items (#2652). Every clone tracks origin's default branch.
+`roadmap.alternatives.first_pass_limit` items while an item has no check, else
+`roadmap.alternatives.limit` items after (#2652). Every clone tracks origin's default branch.
 
 A subscribed webhook event runs the update scoped to it at once (`run_scoped_update`, ADR 0017):
 `issues` opened, edited or reopened runs intake of that one issue on the model lane. A scoped
@@ -640,11 +641,12 @@ def _run_release_comments_adapter(
 
 
 def _run_alternatives_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOutcome:
-    """Check at most `roadmap.alternatives.limit` open items for an open tool that covers them
-    (#2652). A failed check is recorded in its item's job record and the others are written; the
+    """Check at most `roadmap.alternatives.first_pass_limit` open items while one has no check, else
+    `roadmap.alternatives.limit` open items, for an open tool that covers them (#2652).
+    A failed check is recorded in its item's job record and the others are written; the
     job fails, naming the items, only when it tried items and checked none (#2949). A repository
     the check is off for, such as a private one, costs a visibility read and nothing else."""
-    plan = plan_alternatives(store, repo=repo, limit=load_settings().roadmap.alternatives.limit)
+    plan = plan_alternatives(store, repo=repo)
     if plan.off_reason:
         logger.info("The alternatives check of %s is off: %s", repo, plan.off_reason)
     if plan.has_writes:

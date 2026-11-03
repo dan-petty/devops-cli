@@ -2039,6 +2039,20 @@ class RoadmapMessages:
     explain_job_implement: str = "Implement"
     explain_line_yes: str = "{job} job: yes."
     explain_line_no: str = "{job} job: no. {reason}"
+    # The report of `devops roadmap explain --trace` (#3032).
+    explain_trace_none: str = "Issue #{number} has no trace of a run."
+    explain_trace_model: str = "{step}: model {model}, {tokens_in}/{tokens_out} tokens, {seconds} s"
+    explain_trace_tool: str = "{step}: tool {tool}{program}, {outcome}{reason}"
+    explain_trace_tool_program: str = " (program {program})"
+    explain_trace_tool_reason: str = ": {reason}"
+    explain_trace_check: str = "{step}: check {command}, {result}"
+    explain_trace_check_status: str = "exit status {status}"
+    explain_trace_check_timeout: str = "timed out"
+    explain_trace_retry: str = "{step}: retry: {reason}"
+    explain_trace_dropped: str = "{count} earlier event(s) are not kept."
+    explain_trace_unreadable: str = (
+        "The value of implement.trace on issue #{number} is not a trace: {error}"
+    )
     item_left_filter: str = "The filter takes {family} {wanted}. The item has {family} {have}."
     item_left_limit: str = (
         "It passes every rule, but a run takes {limit} item(s) and {limit} item(s) of higher "
@@ -2611,7 +2625,7 @@ class RoadmapMessages:
     implement_stop_error: str = "{error}: {message}"
     implement_stop_push_failed: str = "\nThe push of the commits that passed failed too.\n{output}"
     implement_comment_stopped: str = (
-        "{marker}\nStopped at {step}.\n\n{failure}\n\nReason:\n\n{reason}\n\n"
+        "{marker}\nStopped at {step}.\n\n{failure}\n\n{table}\n\nReason:\n\n{reason}\n\n"
         "Last message of the agent: "
         "{last}{diff}\n\nThe item is Blocked, and the job will not run it. Fix the cause. "
         "Then comment `implement: retry`. The Service also clears the stop one time when a new "
@@ -2685,9 +2699,14 @@ class RoadmapMessages:
     )
     implement_pull_labels_failed: str = "Labels not updated: {error}"
     implement_pull_comment: str = "{marker}\nThe steps of the job:\n\n{lines}"
-    implement_pull_comment_line: str = (
-        "- {step} ({title}): {status}, {requests} model requests, {rounds} repair rounds{commit}"
+    implement_table_header: str = (
+        "| Step | Status | Attempts | Tokens in/out | Last failing command |\n"
+        "| --- | --- | ---: | ---: | --- |"
     )
+    implement_table_row: str = (
+        "| {step} | {status} | {attempts} | {tokens_in}/{tokens_out} | {command} |"
+    )
+    implement_table_no_command: str = "-"
     implement_pull_comment_scoped: str = "- scoped check {name}: {result}, {seconds:.0f} s"
     implement_pull_comment_scoped_note: str = "- scoped check tests: {note}"
     implement_scoped_tests_uncovered: str = "not run, because no test covers the changed files"
@@ -2701,7 +2720,6 @@ class RoadmapMessages:
     )
     implement_scoped_passed: str = "passed"
     implement_scoped_failed: str = "failed"
-    implement_pull_comment_commit: str = ", commit `{commit}`"
     implement_pull_body: str = (
         "Closes #{number}\n\n{why}\n\nChange: `openspec/changes/archive/{archived}/`"
     )
