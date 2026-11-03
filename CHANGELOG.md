@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.53.1](https://github.com/dan-petty/devops-cli/compare/v0.53.0...v0.53.1) (2026-11-03)
+
+
+### Bug Fixes
+
+* **roadmap:** check the plan title in the stage job ([#3360](https://github.com/dan-petty/devops-cli/issues/3360)) ([6abedcf](https://github.com/dan-petty/devops-cli/commit/6abedcfa30e20b77471884533667ece50c7009d4))
+
 ## [0.53.0](https://github.com/dan-petty/devops-cli/compare/v0.52.1...v0.53.0) (2026-11-03)
 
 
