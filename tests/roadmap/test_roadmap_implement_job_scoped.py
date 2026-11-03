@@ -366,10 +366,7 @@ def test_the_comment_shows_the_repair_rounds_of_each_step_and_each_scoped_check(
 
     (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
     lines = comment["body"].splitlines()
-    assert any(
-        line.startswith("- group 1 (The first group): done") and "0 repair rounds" in line
-        for line in lines
-    )
+    assert any(line.startswith("| group 1 | done | 1 |") for line in lines)
     for name in ("pre-push", "static", "tests"):
         assert any(
             line.startswith(f"- scoped check {name}: passed, ") and line.endswith(" s")

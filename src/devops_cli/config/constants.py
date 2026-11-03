@@ -3183,6 +3183,15 @@ CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_READ_CHARS: Final[int] = (
 # of the retry that the tool returned. The log and the reason of the stop cut it to the same length.
 CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS: Final[int] = 240
 CONST_ROADMAP_IMPLEMENT_STOP_REASONS: Final[int] = 3
+# The most characters of the trace of a run that the job record holds (#3032). An event takes about
+# 78 characters, so the bound holds about 105 events, and the record block, which encodes the value
+# at a factor of about 1.3, stays far under the 65,536 characters of an issue body. The job drops
+# the oldest events and counts them, as a run fails at its end.
+CONST_ROADMAP_IMPLEMENT_TRACE_CHARS: Final[int] = 8192
+# The most rows of the table of the steps in a comment of the job (#3032). A row takes about 300
+# characters at most, so 30 rows stay far under the 65,536 characters of a GitHub comment. The
+# table keeps the newest rows.
+CONST_ROADMAP_IMPLEMENT_TABLE_ROWS: Final[int] = 30
 # After a push, GitHub can still show the old head of the pull request. The job reads this many
 # times, `DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS` apart, for the pushed commit as the head.
 CONST_ROADMAP_IMPLEMENT_HEAD_POLLS: Final[int] = 20

@@ -721,6 +721,7 @@ DEFAULT_ROADMAP_INTAKE_LIMIT: int = 5
 # `devops roadmap alternatives` (#2650): the most items one run checks, and the days after which a
 # check is old. The Service's row is due twice a day, about (#2652).
 DEFAULT_ROADMAP_ALTERNATIVES_LIMIT: int = 5
+DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT: int = 20
 DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS: int = 30
 DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS: int = 3
 DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES: int = 719

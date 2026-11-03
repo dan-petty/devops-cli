@@ -61,7 +61,7 @@ For each item, the job does these things in order:
 
 The job never merges. [Checks of the implement job](../ROADMAP_WORKFLOW.md#checks-of-the-implement-job) gives the detail of the hooks, the repair rounds and the time.
 
-**A stop.** A step that fails stops the item. The job comments why, shows the masked diff of the discarded work, and sets the Status to Blocked. The Service runs the item again only after the comment `implement: retry`, or one time for each new runner image.
+**A stop.** A step that fails stops the item. The job comments why, shows a table of the steps (the step, its attempts, its tokens in and out, and its last failing command), shows the masked diff of the discarded work, and sets the Status to Blocked. The job keeps the trace of its run in `implement.trace`: each model call, tool call, check and retry, with no argument, no output, no secret and no private host name. Read it with `devops roadmap explain <issue> --trace`. The job keeps no Job artifact. The Service runs the item again only after the comment `implement: retry`, or one time for each new runner image.
 
 **Claims.** The job leaves out an item that an agent or a person claimed with the label `owner/agent` or `owner/human`. When one claims an item that a running job works on, the job ends it at the next group boundary, with no push and no pull request.
 
