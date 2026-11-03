@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.50.0](https://github.com/dan-petty/devops-cli/compare/v0.49.0...v0.50.0) (2026-11-03)
+
+
+### Features
+
+* **roadmap:** comment the release on each issue it carries ([#3346](https://github.com/dan-petty/devops-cli/issues/3346)) ([2677eeb](https://github.com/dan-petty/devops-cli/commit/2677eeb3c3eeb5a97944d5a1f51edce8bb670b64))
+
 ## [0.49.0](https://github.com/dan-petty/devops-cli/compare/v0.48.5...v0.49.0) (2026-11-03)
 
 
