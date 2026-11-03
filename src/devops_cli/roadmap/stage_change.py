@@ -101,6 +101,9 @@ _TESTS_DIRECTORY: Final[str] = "tests/"
 _SOURCE_DIRECTORY: Final[str] = "src/"
 _DOCUMENT_SUFFIX: Final[str] = ".md"
 _CHANGES_DIRECTORY: Final[str] = "openspec/changes"
+# Only `openspec archive` writes a living spec, from the spec delta of the change folder, so no
+# task group changes or creates a path under this prefix (#3295).
+_LIVING_SPEC_DIRECTORY: Final[str] = "openspec/specs/"
 _SENTENCE_END: Final[str] = f"{string.whitespace}."
 _REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
 
@@ -300,6 +303,13 @@ class StageGroup(_Reply):
         for path in self.creates_lines:
             if path not in self.creates:
                 raise ValueError(MESSAGES.roadmap.stage_estimate_not_creates.format(path=path))
+        return self
+
+    @model_validator(mode="after")
+    def _no_living_spec(self) -> Self:
+        for path in (*self.changes, *self.creates):
+            if path.startswith(_LIVING_SPEC_DIRECTORY):
+                raise ValueError(MESSAGES.roadmap.stage_bad_living_spec.format(path=path))
         return self
 
     @model_validator(mode="after")

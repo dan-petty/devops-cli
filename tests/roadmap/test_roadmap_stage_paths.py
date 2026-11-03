@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from devops_cli.roadmap.stage_change import StageGroup
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
@@ -18,6 +19,7 @@ TREE = StagedTree(
         "tests/security/test_scanner_tool_executor.py",
         "tests/test_sample.py",
         "docs/TESTING.md",
+        "openspec/specs/config-commands/spec.md",
     ]
 )
 
@@ -450,3 +452,24 @@ def test_the_words_of_a_command_that_shlex_cannot_read_are_still_checked_as_path
 
     assert len(problems) == 1
     assert "`tests/old/test_old.py`" in problems[0]
+
+
+# ── A task group writes no living spec (#3295) ───────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["openspec/specs/config-commands/spec.md", "openspec/specs/new-capability/spec.md"],
+)
+def test_a_group_that_lists_a_living_spec_is_refused(path: str) -> None:
+    with pytest.raises(ValidationError) as raised:
+        _group(changes=[path], creates=[path])
+
+    assert path in str(raised.value)
+    assert "only openspec archive writes living specs" in str(raised.value)
+
+
+def test_a_group_that_reads_a_living_spec_passes() -> None:
+    group = _group(reads=["openspec/specs/config-commands/spec.md"])
+
+    assert _problems(group) == []
