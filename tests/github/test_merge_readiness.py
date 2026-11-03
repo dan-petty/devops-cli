@@ -46,6 +46,9 @@ _ARCHIVE_704 = {
     "status": "added",
 }
 _SERVER_ERROR = ProcessAnswer(returncode=1, stderr="gh: Server Error (HTTP 500)")
+_FORBIDDEN = ProcessAnswer(
+    returncode=1, stderr="gh: Resource not accessible by integration (HTTP 403)"
+)
 _NOT_FOUND = ProcessAnswer(
     returncode=1, stdout='{"message": "Not Found"}', stderr="gh: Not Found (HTTP 404)"
 )
@@ -151,7 +154,13 @@ def github(github_api_and_gh: tuple[GitHubApiFake, ProcessFake]) -> _GitHub:
     return _GitHub(*github_api_and_gh)
 
 
-def _assess(tmp_path: Path, pr: dict[str, Any] | None = None, **options: bool) -> MergeReadiness:
+def _assess(
+    tmp_path: Path,
+    pr: dict[str, Any] | None = None,
+    *,
+    commit_statuses: bool = True,
+    **options: bool,
+) -> MergeReadiness:
     """PR #335's verdict, with `options` excused, its review.toml read from `tmp_path`."""
     return assess_merge_readiness(
         _pr() if pr is None else pr,
@@ -160,6 +169,7 @@ def _assess(tmp_path: Path, pr: dict[str, Any] | None = None, **options: bool) -
         _PR,
         options=ReadinessOptions(**options),
         review_root=tmp_path,
+        commit_statuses=commit_statuses,
     )
 
 
@@ -442,6 +452,29 @@ def test_a_commit_status_read_that_fails_fails_closed(github: _GitHub, tmp_path:
         "PR #335 check verification failed closed: GitHub commit status API error: "
         "gh: Server Error (HTTP 500)",
     )
+
+
+def test_the_verdict_reads_check_runs_only_when_statuses_are_not_read(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    """With `commit_statuses` off, the verdict judges the check runs and sends no request to the
+    commit status endpoint, even when it refuses the App token (#2877)."""
+    github.answer(_STATUS, _FORBIDDEN)
+    verdict = _assess(tmp_path, commit_statuses=False)
+    assert verdict.is_ready
+    assert [item.name for item in verdict.checks.items] == ["CI"]
+    assert not any(_STATUS in command for command in github.gh_sent())
+
+
+def test_a_failed_check_run_blocks_the_verdict_that_reads_check_runs_only(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    """A failed check run blocks the verdict that reads check runs only, with no status read."""
+    github.checks(_run("CI", conclusion="failure"))
+    github.answer(_STATUS, _FORBIDDEN)
+    verdict = _assess(tmp_path, commit_statuses=False)
+    assert BlockerKind.CHECKS_FAILING in verdict.kinds
+    assert not any(_STATUS in command for command in github.gh_sent())
 
 
 def test_the_check_runs_of_a_commit_are_read_from_every_page(github: _GitHub) -> None:
