@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
@@ -154,6 +155,8 @@ def show(
             display = "[green]set (****)[/green]"
         elif isinstance(value, list):
             display = ", ".join(str(v) for v in value)
+        elif isinstance(value, dict):
+            display = json.dumps(value, sort_keys=True)
         else:
             display = str(value)
         rows.append([key, display])

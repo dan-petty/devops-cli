@@ -1,4 +1,4 @@
-"""`devops roadmap intake-eval` scores intake's duplicate judgement against the evaluation set
+"""`devops roadmap eval intake` scores intake's duplicate judgement against the evaluation set
 (#1989): each case runs through intake with the model fake, and pydantic-evals scores it."""
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def test_a_run_that_folds_one_related_item_reports_one_false_duplicate(
     cli: Callable[..., Any], model_fake: ModelFake, keyring_store: Any
 ) -> None:
     _answer(model_fake, folded=FOLDED.name)
-    result = cli("roadmap", "intake-eval")
+    result = cli("roadmap", "eval", "intake")
     lines = _lines(result)
     agree = TEXTS.intake_eval_agreed.format(agreed=15, cases=16)
     score = TEXTS.intake_eval_score.format(
@@ -99,7 +99,7 @@ def test_a_run_that_agrees_with_every_case_reports_no_false_duplicate(
     cli: Callable[..., Any], model_fake: ModelFake, keyring_store: Any
 ) -> None:
     _answer(model_fake)
-    result = cli("roadmap", "intake-eval")
+    result = cli("roadmap", "eval", "intake")
     score = TEXTS.intake_eval_score.format(
         true=3, said=3, precision="100%", expected=3, recall="100%", false=0
     )
@@ -118,7 +118,7 @@ def test_a_reply_that_names_the_item_with_no_shared_change_is_a_new_item(
     for case in CASES:
         reply = _reply(original=True, shared_change="" if not case.duplicate else "one change")
         model_fake.route(_in_request(case.candidate.title), reply)
-    result = cli("roadmap", "intake-eval")
+    result = cli("roadmap", "eval", "intake")
     assert (
         result.exit_code,
         TEXTS.intake_eval_agreed.format(agreed=16, cases=16) in _lines(result),
@@ -133,7 +133,7 @@ def test_a_case_whose_call_fails_is_shown_with_its_error_and_the_run_exits_1(
 ) -> None:
     failing = CASES[0].name
     _answer(model_fake, failing=failing)
-    result = cli("roadmap", "intake-eval")
+    result = cli("roadmap", "eval", "intake")
     lines = _lines(result)
     assert (
         result.exit_code,
@@ -149,7 +149,7 @@ def test_a_checkout_with_no_labels_file_stops_before_any_model_call(
     monkeypatch.chdir(tmp_path)
     (tmp_path / "pyproject.toml").write_text("", encoding="utf-8")
     _answer(model_fake)
-    result = cli("roadmap", "intake-eval")
+    result = cli("roadmap", "eval", "intake")
     assert (result.exit_code, ".github/labels.yml" in result.output, model_fake.calls) == (
         1,
         True,
@@ -160,7 +160,7 @@ def test_a_checkout_with_no_labels_file_stops_before_any_model_call(
 def test_the_dry_run_lists_each_case_and_its_call_and_makes_none(
     cli: Callable[..., Any], model_fake: ModelFake, keyring_store: Any
 ) -> None:
-    result = cli("roadmap", "intake-eval", "--dry-run")
+    result = cli("roadmap", "eval", "intake", "--dry-run")
     lines = _lines(result)
     assert (
         result.exit_code,

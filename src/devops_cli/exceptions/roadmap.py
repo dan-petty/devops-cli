@@ -56,6 +56,29 @@ class RoadmapImplementError(DevOpsCLIError):
     error_code = "ROADMAP_IMPLEMENT_REFUSED"
 
 
+class OverWindowError(RoadmapImplementError):
+    """Raised when the inputs of an implement step measure more than the window allows (#3057)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        measured: int,
+        limit: int,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        self.measured = measured
+        self.limit = limit
+        super().__init__(
+            message,
+            details={
+                "measured": measured,
+                "limit": limit,
+                **(details or {}),
+            },
+        )
+
+
 class ImplementEvalError(DevOpsCLIError):
     """Raised when `devops roadmap eval implement` cannot read or use a fixture, or is asked for
     one that does not exist (#3030).

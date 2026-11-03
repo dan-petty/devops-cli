@@ -19,7 +19,9 @@ os.environ["TEXTUAL_ANIMATIONS"] = "none"
 
 import errno
 import gc
+import hashlib
 import ipaddress
+import shutil
 import socket
 import subprocess
 import sys
@@ -833,8 +835,28 @@ def _hermetic_floor_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(autouse=True)
 def isolate_tiktoken_cache(_hermetic_floor_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Ensure tests see an empty tokenizer cache by default (#2165)."""
+    """Ensure tests see the recorded tokenizer cache of the repository (#2165, #3265).
+
+    The exact counter loads the recorded `o200k_base` and `cl100k_base` files from
+    `tests/fixtures/`, so a count is the same in the devcontainer and on the runner and no host
+    cache is read. A test that names a cache directory of its own still sees only that directory.
+    """
     cache_dir = _hermetic_floor_dir / "tiktoken_cache"
+    if not any(cache_dir.iterdir()):
+        from tests.support.paths import REPO_ROOT
+
+        recorded = {
+            "o200k_base.tiktoken": (
+                "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken"
+            ),
+            "cl100k_base.tiktoken": (
+                "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken"
+            ),
+        }
+        fixtures = REPO_ROOT / "tests" / "fixtures" / "tiktoken"
+        for name, blob_url in recorded.items():
+            cache_key = hashlib.sha1(blob_url.encode("utf-8"), usedforsecurity=False).hexdigest()
+            shutil.copy2(fixtures / name, cache_dir / cache_key)
     cache_str = str(cache_dir)
     monkeypatch.setenv("TIKTOKEN_CACHE_DIR", cache_str)
     monkeypatch.setenv("DATA_GYM_CACHE_DIR", cache_str)

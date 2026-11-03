@@ -34,8 +34,11 @@ from pydantic import (
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_HOSTED_MODELS,
     CONST_AI_GATEWAY_PROVIDER,
+    CONST_AI_GATEWAY_VIRTUAL_MODELS,
     CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
+    CONST_ROADMAP_IMPLEMENT_STEP_CLASSES,
     CONST_SETTINGS_CACHE_SETTLE_SECONDS,
 )
 from devops_cli.config.constants import (
@@ -88,6 +91,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REPOS_BASE_DIR,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
     DEFAULT_REVIEWS_DATA_DIR,
+    DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
@@ -95,6 +99,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS,
+    DEFAULT_ROADMAP_IMPLEMENT_LADDER_TIERS,
     DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
@@ -894,6 +899,13 @@ class RoadmapImplementConfig(BaseModel):
         default=DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
         ge=0,
     )
+    ladder: Annotated[dict[str, list[str]], Variable()] = Field(
+        description="The model tiers of each step class (`plan`, `edit`, `repair`, `review`), one tier per attempt, weakest first. A step moves to the next tier when a failure class selects `change_tier`, or when its run ends on a provider error, and the move spends no repair round. The gateway's health is read before a tier is chosen, and an unhealthy tier is skipped. A tier is a local gateway group, a hosted group that this setting names, or an `ollama:<tag>` model. The default names the local `devops-coder` group only",
+        default_factory=lambda: {
+            step_class: list(DEFAULT_ROADMAP_IMPLEMENT_LADDER_TIERS)
+            for step_class in CONST_ROADMAP_IMPLEMENT_STEP_CLASSES
+        },
+    )
     request_timeout_seconds: Annotated[int, Variable()] = Field(
         description="The seconds that one model call of an implementation step may take, the read of its stream included. A call that runs past it ends the step as stopped. Keep it under the timeout of the LLM gateway router (1500 s in the stack), or the router ends the call first",
         default=DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
@@ -925,6 +937,52 @@ class RoadmapImplementConfig(BaseModel):
         ge=1,
         le=CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
     )
+
+    @field_validator("ladder", mode="before")
+    @classmethod
+    def _parse_ladder(cls, value: Any) -> Any:
+        """Read the ladder from a JSON object, as `devops config set` gives it."""
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"the ladder must be a JSON object: {exc.msg}") from exc
+            if not isinstance(parsed, dict):
+                raise ValueError("the ladder must be a JSON object of step class to tier list")
+            return parsed
+        return value
+
+    @field_validator("ladder")
+    @classmethod
+    def _check_ladder(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        """Refuse a step class, a repeated or empty tier, and a name that is neither a local
+        gateway group, a hosted group that the ladder names, nor an `ollama:` model."""
+        unknown = sorted(set(value) - set(CONST_ROADMAP_IMPLEMENT_STEP_CLASSES))
+        if unknown:
+            raise ValueError(
+                f"the ladder names no step class {', '.join(unknown)}; "
+                f"use {', '.join(CONST_ROADMAP_IMPLEMENT_STEP_CLASSES)}"
+            )
+        for step_class, tiers in value.items():
+            if not tiers:
+                raise ValueError(f"the ladder of {step_class} holds no tier")
+            if len(set(tiers)) != len(tiers):
+                raise ValueError(f"the ladder of {step_class} names a tier twice")
+            for tier in tiers:
+                name = tier.strip()
+                if not name:
+                    raise ValueError(f"the ladder of {step_class} holds an empty tier")
+                if (
+                    name in CONST_AI_GATEWAY_VIRTUAL_MODELS
+                    or name in CONST_AI_GATEWAY_HOSTED_MODELS
+                    or name.startswith("ollama:")
+                ):
+                    continue
+                raise ValueError(
+                    f"the ladder tier {name!r} is no local gateway group, no hosted group and no "
+                    "`ollama:` model"
+                )
+        return value
 
     @model_validator(mode="after")
     def _deadline_settings_agree(self) -> RoadmapImplementConfig:
@@ -1006,6 +1064,12 @@ class AlternativesConfig(BaseModel):
     limit: int = Field(
         description="Most items that one run of the alternatives check, or one Service round of it, checks",
         default=DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
+        ge=1,
+    )
+
+    first_pass_limit: int = Field(
+        description="Most items that one run of the alternatives check, or one Service round of it, checks while an item has no check",
+        default=DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT,
         ge=1,
     )
 

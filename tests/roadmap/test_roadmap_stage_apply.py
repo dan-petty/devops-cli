@@ -60,6 +60,13 @@ OPENED = github_json({"number": 5, "html_url": "https://example.com/pull/5"}, st
 def store() -> InMemoryRoadmapStore:
     store = InMemoryRoadmapStore(repo=STAGE_REPO)
     seed_stageable(store)
+    store.seed_file(
+        ".github/labels.yml",
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+    )
+    for i in range(2, 5):
+        store.seed_issue(f"placeholder {i}")
+    store.seed_pull("staging PR", head_ref=BRANCH, draft=True)
     return store
 
 
@@ -132,6 +139,51 @@ def test_a_ready_bug_is_staged_with_one_commit_by_the_app(
     assert request["body"].startswith("Plans #1\n")
 
 
+def test_the_draft_pull_request_holds_the_labels_of_its_title(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    model_fake.answer(make_stage_proposal())
+    _stage(store, stage_repo)
+    assert store._roadmap.issues[5].labels == ("type/docs", "scope/openspec")
+
+
+def test_a_refused_label_keeps_the_staged_item_and_notes_in_the_comment(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    from tests.roadmap_faults import Fault, StoppingStore
+
+    model_fake.answer(make_stage_proposal())
+    failing = StoppingStore(store, Fault(at=1, write="label_issue"))
+    applied = apply_stage(
+        failing.as_store(),
+        plan_stage(store, repo=STAGE_REPO, source=stage_repo.clone, filters=parse_filters(())),
+        source=stage_repo.clone,
+    )
+    assert (applied.staged, applied.stopped, applied.failed) == ((1,), (), ())
+    assert stage_repo.origin_git("branch", "--list", BRANCH).strip() != ""
+    item = store.item(1)
+    assert item is not None
+    assert all(
+        k in item.job_record for k in ("stage.branch", "stage.pr", "stage.sha", "stage.groups")
+    )
+    comment = _comments(store, 1)[0]
+    assert "#5" in comment
+    assert "type/docs" in comment
+
+
+def test_an_unauthenticated_error_from_label_issue_ends_the_run(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    from unittest.mock import patch
+
+    from devops_cli.exceptions.git import GitHubUnauthenticatedError
+
+    model_fake.answer(make_stage_proposal())
+    with patch.object(store, "label_issue", side_effect=GitHubUnauthenticatedError("bad token")):
+        with pytest.raises(GitHubUnauthenticatedError, match="bad token"):
+            _stage(store, stage_repo)
+
+
 def test_the_clone_keeps_its_head_and_no_worktree_after_a_stage(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
 ) -> None:
@@ -177,7 +229,9 @@ def test_an_item_whose_plan_names_a_missing_path_twice_gets_no_branch_and_no_dra
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
 ) -> None:
     group = make_stage_proposal().groups[0]
-    lost = group.model_copy(update={"changes": ["src/devops_cli/missing.py"], "creates": []})
+    lost = group.model_copy(
+        update={"changes": ["src/devops_cli/missing.py"], "creates": [], "creates_lines": {}}
+    )
     model_fake.answer(make_stage_proposal(groups=[lost]))
 
     applied = _stage(store, stage_repo)
@@ -335,9 +389,18 @@ def _refuse_pushes_of(repo: StageRepo, fragment: str) -> None:
 
 
 def test_a_refused_push_stops_its_item_and_the_others_are_staged(
-    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+    stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
 ) -> None:
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    seed_stageable(store)
     seed_stageable(store, "fix(roadmap): the job drops a label")
+    store.seed_file(
+        ".github/labels.yml",
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+    )
+    for i in range(3, 5):
+        store.seed_issue(f"placeholder {i}")
+    store.seed_pull("staging PR", head_ref="fix/2-the-job-drops-a-label", draft=True)
     _refuse_pushes_of(stage_repo, "/1-")
     model_fake.answer(make_stage_proposal())
 

@@ -17,11 +17,13 @@ from devops_cli.ai.context_budget import (
     TokenBudgetReport,
     count_file_tokens,
     count_tokens,
+    get_tiktoken_encoding,
     reset_tiktoken_encoding_cache,
     truncate_to_token_limit,
     validate_and_budget_prompt,
 )
 from devops_cli.commands.ai import app as ai_app
+from devops_cli.exceptions.ai import TokenCountError
 from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
@@ -34,6 +36,14 @@ def test_count_tokens_empty_and_text() -> None:
         "def calculate_hash(data: bytes) -> str:\n    return hashlib.sha256(data).hexdigest()"
     )
     assert count_tokens(code_text) >= 10
+
+
+def test_count_tokens_is_the_count_of_the_shared_encoding() -> None:
+    """The stage and the implement Job share one counter: a text counts the same through
+    `count_tokens` and through the encoding that `get_tiktoken_encoding` returns (#3265)."""
+    text = "def calculate_hash(data: bytes) -> str:\n    return hashlib.sha256(data).hexdigest()"
+
+    assert count_tokens(text) == len(get_tiktoken_encoding().encode(text, disallowed_special=()))
 
 
 def test_count_file_tokens(tmp_path: Path) -> None:
@@ -172,25 +182,24 @@ def test_the_synthetic_encoding_leaves_tiktokens_registry_with_its_test(tmp_path
     assert left_behind is None
 
 
-def test_failed_encoding_load_logs_one_warning_naming_cache_dir(
+def test_a_missing_encoding_cache_stops_the_count_with_an_error_naming_the_cache_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """When the tiktoken encoding cannot load, _get_tiktoken_encoding logs one WARNING naming the cache dir (#1421)."""
+    """A missing tiktoken cache raises an error that names the cache, and no character count is
+    used, so the stage and the Job cannot measure the same text differ (#3265)."""
     missing_cache = tmp_path / "missing-tiktoken-cache"
     monkeypatch.setenv("TIKTOKEN_CACHE_DIR", str(missing_cache))
     monkeypatch.delitem(tiktoken.registry.ENCODINGS, "o200k_base", raising=False)
 
-    with caplog.at_level(logging.WARNING, logger="devops_cli.ai.context_budget"):
-        first = count_tokens("hello world", model="gpt-4o-missing-cache")
-        second = count_tokens("hello world", model="gpt-4o-missing-cache")
+    with (
+        caplog.at_level(logging.WARNING, logger="devops_cli.ai.context_budget"),
+        pytest.raises(TokenCountError, match=str(missing_cache)),
+    ):
+        count_tokens("hello world", model="gpt-4o-missing-cache")
 
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    assert (
-        first,
-        second,
-        len(warnings),
-        any(str(missing_cache) in msg for msg in warnings),
-    ) == (3, 3, 1, True)
+    assert len(warnings) == 1
+    assert str(missing_cache) in warnings[0]
 
 
 def test_service_and_devcontainer_dockerfiles_populate_tiktoken_cache() -> None:

@@ -16,9 +16,10 @@ import pytest
 from devops_cli.exceptions import GitHubRateLimitError, RoadmapStageError
 from devops_cli.github.client import GitHubClient
 from devops_cli.roadmap import stage_ready
+from devops_cli.roadmap.implement_pull import Answer, Readiness
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, JobOutcome
-from devops_cli.roadmap.stage_ready import StageDraft, mark_stage_ready, ready_to_mark
+from devops_cli.roadmap.stage_ready import mark_stage_ready
 from devops_cli.roadmap.store import (
     CloseReason,
     GitHubState,
@@ -339,30 +340,13 @@ def test_the_decision_of_one_function_rules_the_round(
     seed_staged(store)
     _pull(api)
     _checks(api, PASS)
-    monkeypatch.setattr(stage_ready, "ready_to_mark", lambda draft: False)
+    monkeypatch.setattr(
+        stage_ready, "draft_readiness", lambda _draft: Readiness(Answer.REFUSE, "refused")
+    )
 
     applied = mark_stage_ready(store, repo=STAGE_REPO)
 
     assert (applied.marked, ready.calls) == ((), [])
-
-
-def test_ready_to_mark_is_true_for_passing_checks_only(store: InMemoryRoadmapStore) -> None:
-    from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
-    from devops_cli.github.client import PullStatus
-
-    item = _item(store, seed_staged(store))
-    pull = PullStatus(state="open", draft=True)
-
-    def verdict(*buckets: CheckBucket) -> bool:
-        items = [PRCheckItem(name=str(i), bucket=b) for i, b in enumerate(buckets)]
-        return ready_to_mark(StageDraft(item, pull, CheckVerdictSummary(items=items)))
-
-    assert (
-        verdict(CheckBucket.PASS, CheckBucket.SKIPPING),
-        verdict(CheckBucket.PASS, CheckBucket.PENDING),
-        verdict(CheckBucket.FAIL),
-        verdict(CheckBucket.UNREAD),
-    ) == (True, False, False, False)
 
 
 STAGE_READY_ROW = next(row for row in STATUS_LANE_ROWS if row.name == "stage_ready")
@@ -378,7 +362,13 @@ def test_the_row_follows_implement_on_the_status_lane_needs_no_clone_and_is_due_
         STAGE_READY_ROW.needs_clone,
         STAGE_READY_ROW.first_run_due,
         STAGE_READY_ROW.interval,
-    ) == (["metrics", "implement", "stage_ready"], False, False, True, timedelta(minutes=3))
+    ) == (
+        ["metrics", "implement", "stage_ready", "release_comments"],
+        False,
+        False,
+        True,
+        timedelta(minutes=3),
+    )
 
 
 def test_a_round_of_the_row_marks_the_green_draft_ready(

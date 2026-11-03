@@ -29,6 +29,7 @@ from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from devops_cli.ai.mcp.server import roadmap_run
@@ -84,6 +85,7 @@ from devops_cli.roadmap.run import (
     _run_intake_adapter,
     _run_metrics_adapter,
     _run_refine_adapter,
+    _run_release_comments_adapter,
     build_stub_table,
     ensure_checkout,
     read_intake_record,
@@ -113,6 +115,8 @@ from tests.roadmap_faults import Fault, StoppingStore
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
+from tests.support.fakes.kubernetes import FakeCluster
+from tests.support.fakes.oci_registry import RegistryFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.paths import REPO_ROOT
@@ -545,15 +549,24 @@ def _poll_round(
 
 
 def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
-    """The status lane's metrics, implement and stage_ready rows run first, then the triage lane's
-    intake row, then the model lane's refine, stage and alternatives rows; no row closes items,
+    """The status lane's metrics, implement, stage_ready and release_comments rows run first, then
+    the triage lane's intake row, then the model lane's refine, stage and alternatives rows; no row closes items,
     cuts or starts a release (#1360, #1534, #2652, #2659, #2667, #2757, #2865)."""
     assert (
         [row.name for row in DEFAULT_DUE_TABLE],
         DEFAULT_DUE_TABLE == (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS),
         sorted(CONST_ROADMAP_WEBHOOK_EVENTS),
     ) == (
-        ["metrics", "implement", "stage_ready", "intake", "refine", "stage", "alternatives"],
+        [
+            "metrics",
+            "implement",
+            "stage_ready",
+            "release_comments",
+            "intake",
+            "refine",
+            "stage",
+            "alternatives",
+        ],
         True,
         ["issues"],
     )
@@ -880,6 +893,7 @@ def test_idle_records_zero_or_one_store_calls(
         stage=TWENTY_MINUTES_AGO,
         implement=recent,
         stage_ready=recent,
+        release_comments=recent,
         metrics=recent,
         alternatives=recent,
     )
@@ -981,7 +995,7 @@ def test_service_wiring(
             (REPO, MODEL_LANE_ROWS, CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME),
         ],
         [
-            ["metrics", "implement", "stage_ready"],
+            ["metrics", "implement", "stage_ready", "release_comments"],
             ["intake"],
             ["refine", "stage", "alternatives"],
         ],
@@ -1891,7 +1905,7 @@ def test_a_poll_whose_changes_are_all_the_services_own_sends_no_graphql_request(
     )
 
 
-DEFAULT_JOB_NAMES = ("metrics", "implement", "stage_ready", "intake", "refine")
+DEFAULT_JOB_NAMES = ("metrics", "implement", "stage_ready", "release_comments", "intake", "refine")
 POLL = TriggerBatch(repo=REPO, counts={POLL_KEY: 1}, first_at=NOW, last_at=NOW)
 
 
@@ -2133,14 +2147,18 @@ def test_the_implement_row_is_due_on_the_status_lane_by_its_interval_and_by_no_h
         _stamp(tmp_path, **stamps)
         return _poll_round(seeded_store, tmp_path, table=_lane(STATUS_LANE_ROWS), batch=batch)
 
-    fresh = {"metrics": NOW - timedelta(minutes=1), "stage_ready": NOW - timedelta(minutes=1)}
+    fresh = {
+        "metrics": NOW - timedelta(minutes=1),
+        "stage_ready": NOW - timedelta(minutes=1),
+        "release_comments": NOW - timedelta(minutes=1),
+    }
     first = ran({POLL_KEY: 1})
     too_soon = ran({POLL_KEY: 1}, **fresh, implement=NOW - timedelta(minutes=6, seconds=59))
     seven_minutes = ran({POLL_KEY: 1}, **fresh, implement=NOW - timedelta(minutes=7))
     hinted = ran({OPENED: 1}, **fresh, implement=NOW - timedelta(minutes=2))
 
     assert (first, too_soon, seven_minutes, hinted) == (
-        ("metrics", "implement", "stage_ready"),
+        ("metrics", "implement", "stage_ready", "release_comments"),
         (),
         ("implement",),
         (),
@@ -2230,7 +2248,7 @@ def test_a_suspended_implement_row_runs_again_on_a_later_poll_round_when_the_fau
 
     assert (same_hour, later, len(calls)) == (
         ("stage_ready",),
-        ("metrics", "implement", "stage_ready"),
+        ("metrics", "implement", "stage_ready", "release_comments"),
         4,
     )
 
@@ -2275,7 +2293,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
         now=NOW,
     )
     assert (ran, _schedule(tmp_path)) == (
-        ("metrics", "implement", "stage_ready"),
+        ("metrics", "implement", "stage_ready", "release_comments"),
         {
             "intake": later.isoformat(),
             "refine": later.isoformat(),
@@ -2284,6 +2302,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
             "metrics": NOW.isoformat(),
             "implement": NOW.isoformat(),
             "stage_ready": NOW.isoformat(),
+            "release_comments": NOW.isoformat(),
         },
     )
 
@@ -2733,7 +2752,8 @@ def test_the_dry_run_of_the_cli_lists_the_alternatives_row(
 
     assert (
         cli.exit_code,
-        "Due: metrics, implement, stage_ready, intake, refine, stage, alternatives\n" in cli.output,
+        "Due: metrics, implement, stage_ready, release_comments, intake, refine, stage, alternatives\n"
+        in cli.output,
     ) == (0, True)
 
 
@@ -2759,3 +2779,63 @@ def test_the_alternatives_adapter_imports_the_job_at_module_level_not_lazily(
     ]
 
     assert (len(module_level), local) == (1, [])
+
+
+RELEASE_COMMENTS_ROW = next(row for row in STATUS_LANE_ROWS if row.name == "release_comments")
+
+
+def test_the_release_comments_row_calls_no_model_needs_no_clone_and_is_due_every_eleven_minutes() -> (
+    None
+):
+    """It follows stage_ready on the status lane, and it is due on a first run (#2917)."""
+    assert (
+        RELEASE_COMMENTS_ROW.needs_clone,
+        RELEASE_COMMENTS_ROW.first_run_due,
+        RELEASE_COMMENTS_ROW.interval,
+        "release_comments" in [row.name for row in MODEL_LANE_ROWS],
+    ) == (False, True, timedelta(minutes=11), False)
+
+
+def test_the_release_comments_adapter_comments_a_release_and_keeps_its_ledger(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cluster: FakeCluster,
+    stub_web: StubWeb,
+) -> None:
+    """Over the edge fakes of GitHub, the cluster and the registry, a round posts the `Released
+    in` comment of a seeded release and writes `release_comments.json` in the directory of the
+    repository (#2917)."""
+    github = GitHubFake(REPO)
+    github.seed_issue(11, "pull", state="closed", body="Closes #101", pull_request=True)
+    github.seed_issue(101, "done", state="closed")
+    github.seed_release("v1.0.0", "* x ([#11](https://example.com/11))\n", NOW - timedelta(hours=1))
+    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    prefix = "ghcr.io/dan-petty/devops-cli"
+    digests = {f"{prefix}/service:v1.0.0": "sha256:" + "1" * 64}
+    digests[f"{prefix}/runner:v1.0.0"] = "sha256:" + "2" * 64
+    stub_web.serve(RegistryFake(digests))
+    template = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
+    template["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["image"] = (
+        f"{prefix}/runner@sha256:{'3' * 64}"
+    )
+    cluster.custom_objects.objects[("batch", "v1", "cronjobs")] = [template]
+    cluster.custom_objects.objects[("apps", "v1", "deployments")] = [
+        {
+            "metadata": {"name": "roadmap-service", "namespace": "devops"},
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {"name": "service", "image": f"{prefix}/service@sha256:{'1' * 64}"}
+                        ]
+                    }
+                }
+            },
+        }
+    ]
+    store = GitHubRoadmapStore(REPO, runner=github, session=RunnerSession(github))
+
+    _run_release_comments_adapter(store, repo=REPO, repo_dir=tmp_path, now=NOW)
+
+    assert github.comments[101][0].startswith("<!-- devops roadmap release v1.0.0 released -->")
+    assert (tmp_path / "release_comments.json").is_file()

@@ -17,7 +17,7 @@ It also leaves out an item that an agent or a person claimed with an `owner/*` l
 (the model reads the body), an item whose "Dependencies" section names an open issue, a held item
 (`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit that `origin` lacks), an item whose plan is already on the default branch or whose
 change is archived there (`planned.read_planned_changes`, one read of the tree for the round), an
-item whose title gives no branch name, an item whose text looks like a secret, and an item whose
+item whose title gives no branch name or whose summary is over `SUMMARY_MAX_CHARS` units (#3369), an item whose text looks like a secret, and an item whose
 record holds `stage.needs_split` made with the file cap of now (`stage.file_cap`): a stop under
 another measure does not count. A run takes at most `--limit`
 items, highest priority first. `--item` takes the one item it names when that item is open and
@@ -92,6 +92,7 @@ from devops_cli.config.settings import load_settings
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import (
     DevOpsCLIError,
+    GitHubOperationError,
     GitHubUnauthenticatedError,
     RoadmapStageError,
     ServiceStoppingError,
@@ -113,13 +114,14 @@ from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
+from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
+from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
 from devops_cli.roadmap.refine_investigation import analysis_window
 from devops_cli.roadmap.return_item import apply_return, plan_return
 from devops_cli.roadmap.stage_change import (
     MeasuredGroup,
     StageProposal,
-    StageSplit,
     check_proposal,
     closing_keyword_in,
     measure_groups,
@@ -131,10 +133,12 @@ from devops_cli.roadmap.stage_change import (
 )
 from devops_cli.roadmap.stage_criteria import criterion_problems
 from devops_cli.roadmap.stage_filter import split_filter_entry
+from devops_cli.roadmap.stage_form import form_problems
 from devops_cli.roadmap.stage_github import StageGitHub
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage_probe import probe_premise
 from devops_cli.roadmap.stage_specs import BaseSpec, read_base_specs
+from devops_cli.roadmap.stage_split import ask_split
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
 from devops_cli.roadmap.stage_verify import (
@@ -391,9 +395,13 @@ class _Judge:
         )
 
     def _title(self, item: Item) -> str | None:
+        texts = MESSAGES.roadmap
         if commit_type(item.title) is None:
-            return MESSAGES.roadmap.stage_left_title_type
-        return None if _slug_of(item.title) else MESSAGES.roadmap.stage_left_title_slug
+            return texts.stage_left_title_type
+        length = summary_length(item.title.partition(":")[2].strip())
+        if length > SUMMARY_MAX_CHARS:
+            return texts.stage_left_title_long.format(length=length, limit=SUMMARY_MAX_CHARS)
+        return None if _slug_of(item.title) else texts.stage_left_title_slug
 
     def _dependency(self, item: Item) -> str | None:
         open_issues = [
@@ -489,7 +497,6 @@ def select_stageable(
 # ── The plan of one item ──────────────────────────────────────────────────────
 
 _CHANGE_TASK: Final[str] = "roadmap_stage_change.md"
-_SPLIT_TASK: Final[str] = "roadmap_stage_split.md"
 # The model window is shared by the reply, the body of the item and the repository context.
 _WINDOW_SHARE_CONTEXT: Final[int] = 2
 _WINDOW_SHARE_BODY: Final[int] = 4
@@ -653,6 +660,8 @@ class _Planner:
         self._today: date = datetime.now(UTC).date()
         # Whether the model split the groups of the item in hand: it does so once for each item.
         self._split_asked = False
+        # The lines of the premise probe of the item in hand, for the quote rule of `feasibility`.
+        self._probe_lines: tuple[str, ...] = ()
 
     def plan(self, target: StageTarget) -> StagedChange | OverBudget | PremiseFailed:
         """The change of `target`, the group that stops it, or the evidence that its premise is
@@ -763,9 +772,11 @@ class _Planner:
             "capabilities": [self._specs[name].request_entry(name) for name in sorted(self._specs)],
             "budget": self._budget,
         }
-        probes = probe_premise(self._source, self._sha, item.body).text
-        if probes:
-            request["probes"] = probes
+        probe = probe_premise(self._source, self._sha, item.body)
+        # The checks of the reply read the same lines as the model (#3200): `feasibility` quotes one.
+        self._probe_lines = probe.lines
+        if probe.text:
+            request["probes"] = probe.text
         return request
 
     def _ask[M: BaseModel](self, schema: type[M], task: str, request: Mapping[str, Any]) -> M:
@@ -787,10 +798,13 @@ class _Planner:
             self._tree_of(target, proposal),
             requirements=self._requirements,
             issue_body=target.item.body,
+            probes=self._probe_lines,
         )
         if problems:
             return _Refused(" ".join(problems), proposal)
         title = staging_title(target.item.number, proposal.summary)
+        if problems := title_problems(title):
+            return _Refused(" ".join(problems), proposal)
         body = pull_request_body(target.item.number, target.change, proposal)
         keyword = closing_keyword_in(f"{title}\n{body}")
         if keyword is not None:
@@ -798,7 +812,8 @@ class _Planner:
         asked, files, measured = self._fit(target, proposal)
         if asked is not proposal:
             # The split gave new groups, and the model can bring old paths back with them.
-            problems = path_problems(asked.groups, self._tree.with_files(files))
+            problems = form_problems(asked.groups)
+            problems.extend(path_problems(asked.groups, self._tree.with_files(files)))
             problems.extend(criterion_problems(asked.criteria, target.item.body, len(asked.groups)))
             if problems:
                 return _Refused(" ".join(problems), asked)
@@ -857,7 +872,7 @@ class _Planner:
             ],
             "criteria": [entry.model_dump() for entry in proposal.criteria],
         }
-        split = self._ask(StageSplit, _SPLIT_TASK, asked)
+        split = ask_split(self._client, asked)
         proposal = proposal.model_copy(update={"groups": split.groups, "criteria": split.criteria})
         files, measured = self._build(target, proposal)
         return proposal, files, measured
@@ -1258,6 +1273,19 @@ def _notes(change: StagedChange) -> str:
     return _run_report(change.trace) + unvalidated + findings_section(change.findings)
 
 
+def _label_pull(store: RoadmapStore, pull_number: int, title: str) -> str:
+    """Add the labels of `title` to draft pull request `pull_number`. A refused label gives a
+    failure note for the comment. Rejected credentials stop the run."""
+    try:
+        given = read_title_labels(store, title, ref=None)
+        add_pull_labels(store, pull_number, given.labels)
+    except GitHubUnauthenticatedError:
+        raise
+    except GitHubOperationError as exc:
+        return MESSAGES.roadmap.stage_comment_labels_failed.format(pull=pull_number, error=exc)
+    return ""
+
+
 def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChange) -> None:
     """Make the branch, the commit, the push and the draft of one item, then record them and
     post the one comment. The Status of the item stays as it is."""
@@ -1276,6 +1304,7 @@ def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChang
             StageRecordKey.FILE_CAP: None,
         },
     )
+    label_note = _label_pull(store, pull.number, change.title)
     texts = MESSAGES.roadmap
     store.comment(
         target.item.number,
@@ -1285,7 +1314,7 @@ def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChang
             pull=pull.number,
             budget=change.budget,
             groups=_groups_listed(change.groups),
-            notes=_notes(change),
+            notes=f"{_notes(change)}{label_note}",
         ),
     )
 
