@@ -130,8 +130,12 @@ _Avoid_: lock, assignment
 The work of one task group of a staged change, sized so that its inputs fit a budget of tokens: the instructions of the group, the `AGENTS.md` of the repository and the routed sections of its documents, the item, the change folder and the packed files of the group.
 _Avoid_: chunk, phase
 
+**Draft readiness**:
+The pure function that decides when any draft pull request is ready for review: stage plan, implement, agent or person. Completeness comes first (for an implement pull request, every task group ticked and the change archived), then passing checks, then any extra check. The implement job, the stage row and `devops pr ready` ask it.
+_Avoid_: ready check, draft gate
+
 **Implementing**:
-Taking a Staged or Planned item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, and `gh pr ready`. A step whose agent forgot a tick gets one more turn for the ticks. A stopped item is Blocked, shows the masked diff of the work it discarded, and waits for the comment `implement: retry` or, one time for each new runner image, for the clear rule of the Service. A person merges.
+Taking a Staged or Planned item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, draft readiness, and `gh pr ready`. A step whose agent forgot a tick gets one more turn for the ticks. A stopped item is Blocked, shows the masked diff of the work it discarded, and waits for the comment `implement: retry` or, one time for each new runner image, for the clear rule of the Service. A person merges.
 _Avoid_: building, executing
 
 **Runner**:
@@ -143,7 +147,7 @@ The long-running devops-cli deployment that runs the roadmap jobs when they are 
 _Avoid_: runner, bot, daemon, worker
 
 **Lane**:
-One of the Service's three paths for a repository's jobs, each running one round at a time. The triage lane runs intake on the fast devops-triage model. The model lane runs refinement, staging and the alternatives check, which call the devops-background model. The status lane runs the metrics, implement and stage_ready rows, which call no model; the stage_ready row marks a staged draft pull request ready when its checks have passed. All three get every trigger, and a round in one never waits for a round in the others.
+One of the Service's three paths for a repository's jobs, each running one round at a time. The triage lane runs intake on the fast devops-triage model. The model lane runs refinement, staging and the alternatives check, which call the devops-background model. The status lane runs the metrics, implement, stage_ready and release_comments rows, which call no model; the stage_ready row marks a staged draft pull request ready when its checks have passed, and the release_comments row comments the version, and the time it runs, on the issues of a release. All three get every trigger, and a round in one never waits for a round in the others.
 _Avoid_: queue, track, worker
 
 ## Code review

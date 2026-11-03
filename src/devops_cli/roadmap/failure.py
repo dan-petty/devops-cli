@@ -191,8 +191,8 @@ _PREMISE = re.compile(
 # The plan cannot be run as written: the step changed nothing, left a task unticked, or its inputs
 # do not fit the window.
 _PLAN = re.compile(
-    r"changed no file|task of the group is not ticked|inputs of the step measure"
-    r"|not a file on the default branch",
+    r"changed no file|task of the group is not ticked|has a task that is not ticked"
+    r"|inputs of the step measure|not a file on the default branch",
     _FLAGS,
 )
 

@@ -24,6 +24,7 @@ WRITES = frozenset(
         "label_issue",
         "set_field",
         "set_marks",
+        "unlabel_issue",
         "write_issue_body",
     }
 )

@@ -199,7 +199,7 @@ A model call that fails SHALL skip its item. The job SHALL stage the other items
 - **THEN** the plan leaves the item out, and the model reads none of its text
 
 ### Requirement: A failed write stops one item
-A write that fails, also the comment on an item stopped on the budget, SHALL stop its item with the reason and SHALL NOT stop the other writes. The job SHALL fail after the other writes and name each item that failed.
+A write that fails, also the comment on an item stopped on the budget, SHALL stop its item with the reason and SHALL NOT stop the other writes. The job SHALL fail after the other writes and name each item that failed. The labels of the draft pull request are the one exception: a label that GitHub refuses stops no item (requirement "The draft pull request gets the labels of its title").
 
 #### Scenario: The comment of a stopped item fails
 - **WHEN** two items stop on the budget and the comment on the first fails
@@ -429,14 +429,14 @@ The row SHALL read the pull request again before it marks, and SHALL leave a dra
 - **THEN** the round stops at once and sends no request for the pull requests that follow
 
 ### Requirement: One function decides, and one function marks
-`ready_to_mark` SHALL be the only function that decides whether a recorded draft is marked. The row SHALL mark with `mark_ready`, the function the implement job uses, and SHALL record `stage.ready` with the number of the pull request, so that no later round reads it.
+`draft_readiness` SHALL be the only function that decides whether a recorded draft is marked. The row SHALL mark with `mark_ready`, the function the implement job uses, and SHALL record `stage.ready` with the number of the pull request, so that no later round reads it.
 
 #### Scenario: The implement job and the row mark the same way
 - **WHEN** the implement job and the row each mark a pull request ready
 - **THEN** both run `gh pr ready <number> --repo <repo>`
 
 #### Scenario: The decision is replaced
-- **WHEN** a test replaces `ready_to_mark` with a function that returns false
+- **WHEN** a test replaces `draft_readiness` in `stage_ready` with a function that answers refuse
 - **THEN** the round marks no pull request
 
 ### Requirement: The job leaves out an item that an agent or a person claimed
@@ -1113,3 +1113,26 @@ The `verify` of a task group SHALL be written on one line by joining its lines w
 #### Scenario: Two spaces in a word
 - **WHEN** the `verify` is `! git grep -n 'a  b'` and a line break and `src/`
 - **THEN** the `verify` of the group is `! git grep -n 'a  b' src/`
+
+### Requirement: The draft pull request gets the labels of its title
+After the job records an item, it SHALL add to its draft pull request the `type/*` label and the `scope/*` label that the title gives, each only when `.github/labels.yml` on the default branch declares it. A label that GitHub refuses SHALL NOT delete the branch, close the draft or unset the record. The comment of the item SHALL name each label not added and the reason. Rejected credentials SHALL stop the run.
+
+#### Scenario: The title gives a type and a scope
+- **WHEN** the job stages item 1 and the labels file declares `type/docs` and `scope/openspec`
+- **THEN** the draft holds `type/docs` and `scope/openspec` and no other label
+
+#### Scenario: A label is refused and the branch stays
+- **WHEN** GitHub refuses `type/docs` for the draft
+- **THEN** the remote branch exists, the draft is open, and the record holds `stage.branch`, `stage.pr`, `stage.sha` and `stage.groups`
+
+#### Scenario: A label is refused and the comment says so
+- **WHEN** GitHub refuses `type/docs` for the draft and accepts `scope/openspec`
+- **THEN** the one comment of the item names the pull request, `type/docs` and the reason, and the draft holds `scope/openspec`
+
+#### Scenario: Rejected credentials
+- **WHEN** GitHub answers the label call with HTTP 401
+- **THEN** the run stops with the unauthenticated error and the comment has no label note
+
+#### Scenario: A dry run
+- **WHEN** `devops roadmap stage --dry-run` runs
+- **THEN** the plan lists the read of `.github/labels.yml` and the request that adds a label to the draft, and the run makes no request

@@ -92,6 +92,7 @@ from devops_cli.config.settings import load_settings
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import (
     DevOpsCLIError,
+    GitHubOperationError,
     GitHubUnauthenticatedError,
     RoadmapStageError,
     ServiceStoppingError,
@@ -113,6 +114,7 @@ from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
+from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
 from devops_cli.roadmap.refine_investigation import analysis_window
 from devops_cli.roadmap.return_item import apply_return, plan_return
@@ -1258,6 +1260,19 @@ def _notes(change: StagedChange) -> str:
     return _run_report(change.trace) + unvalidated + findings_section(change.findings)
 
 
+def _label_pull(store: RoadmapStore, pull_number: int, title: str) -> str:
+    """Add the labels of `title` to draft pull request `pull_number`. A refused label gives a
+    failure note for the comment. Rejected credentials stop the run."""
+    try:
+        given = read_title_labels(store, title, ref=None)
+        add_pull_labels(store, pull_number, given.labels)
+    except GitHubUnauthenticatedError:
+        raise
+    except GitHubOperationError as exc:
+        return MESSAGES.roadmap.stage_comment_labels_failed.format(pull=pull_number, error=exc)
+    return ""
+
+
 def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChange) -> None:
     """Make the branch, the commit, the push and the draft of one item, then record them and
     post the one comment. The Status of the item stays as it is."""
@@ -1276,6 +1291,7 @@ def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChang
             StageRecordKey.FILE_CAP: None,
         },
     )
+    label_note = _label_pull(store, pull.number, change.title)
     texts = MESSAGES.roadmap
     store.comment(
         target.item.number,
@@ -1285,7 +1301,7 @@ def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChang
             pull=pull.number,
             budget=change.budget,
             groups=_groups_listed(change.groups),
-            notes=_notes(change),
+            notes=f"{_notes(change)}{label_note}",
         ),
     )
 

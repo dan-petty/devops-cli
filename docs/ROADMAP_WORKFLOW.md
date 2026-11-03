@@ -21,9 +21,9 @@ The state of an Item is in labels on its issue ([ADR 0016](adr/0016-labels-hold-
 | 3. Plan | `status/ready` while the plan pull request is open, then `status/planned` | Row `stage` opens a draft plan pull request ([stage page](roadmap/stage.md)). Row `stage_ready` marks it ready when its checks pass | Write the change folder `openspec/changes/<issue>-<slug>/` as the first commit of the implementation branch | The same | G1 |
 | 4. Claim | One `owner/*` label | Row `implement` sets `owner/service` when it makes a Job | `devops repos worktrees add <issue> --type <type> --slug <slug>` sets `owner/agent` | `devops roadmap claim <number> --as human --confirm` | None |
 | 5. Implement | `status/in-progress` | The runner Job runs one step for each task group ([implement page](roadmap/implement.md)) | Tests first, then code, in a draft pull request made with `devops pr create` | The same | None |
-| 6. Verify | `status/in-review` | The runner Job watches the checks, runs bounded fix steps, and marks the pull request ready | `devops pr monitor <pr_number>`, then `devops pr ready <pr_number>` when the checks pass | The same | None |
+| 6. Verify | `status/in-review` | The runner Job watches the checks, runs bounded fix steps, and asks the readiness function to mark the pull request ready | `devops pr monitor <pr_number>`, then `devops pr ready <pr_number>`, which asks the same function | The same | None |
 | 7. Review and merge | The issue is closed | None | None | Review, then merge | G2 |
-| 8. Release and learn | The release is out | None | None | Merge the release pull request. Read the release. File each problem as a new candidate | G3 |
+| 8. Release and learn | The release is out | Row `release_comments` comments `Released in <version>` and `Live since <time>` on each closed issue that the release carries | None | Merge the release pull request. Read the release. File each problem as a new candidate | G3 |
 
 Notes on the table:
 
@@ -253,7 +253,7 @@ The runner Job runs the checks that a person runs in the devcontainer, from the 
 - **Each step.** The `pre-commit` stage runs on the staged changes after `ruff` and `mypy`. A hook that fixes a file is staged and runs again. A hook that still fails goes to the agent with its output.
 - **Repair rounds.** The setting `roadmap.implement.repair_rounds` (default 3) bounds the extra turns of a step. A failed `ruff`, `mypy` or hook, and a missing tick, each take one round. Only a used budget stops the step. The comment on the pull request shows the rounds of each step.
 - **Before the push.** After the last group, the docs, the archive and the final rebase, the Job runs the `pre-push` stage, `devops ci --check --only constructs,docs,openspec`, and `devops ci test` with the test modules that cover the changed files. The test check stays small: above 30 test modules, which a change to a shared module such as the constants gives, it runs only the changed test modules, and it does not run when no test covers the change. The comment on the pull request says so. A failed check starts a fix step, up to `repair_rounds` times. The Job pushes only a head that passed. A used budget stops the item at the step `scoped checks` and pushes nothing. An error or a command that runs out of time in this phase stops the item and pushes nothing too.
-- **After the push.** The checks of the pull request stay the gate. A failed check gets a fix step, a push and a new watch, up to `repair_rounds` times. Each round has a comment on the pull request. A check that still fails after the last round stops the item.
+- **After the push.** The checks of the pull request stay the gate. The watch reads check runs only, because the App token holds no `statuses` permission, which the commit status endpoint needs (#2877). A failed check gets a fix step, a push and a new watch, up to `repair_rounds` times. Each round has a comment on the pull request. A check that still fails after the last round stops the item.
 - **Time.** The hooks add about 10 s to each step, and the install about 9 s. The scoped checks add about 35 s for the first two, and for the tests at most 30 test modules. On 2 CPUs, as in a Job, 12 test modules of the roadmap ran in 88 s, so the tests add at most about 3.5 minutes. The comment on the pull request gives the seconds of each scoped check.
 
 Tests hold the drift: each local hook runs a tool that the runner image holds, each scoped row is a row of `devops ci`, and the branches of the Job pass the branch-name hook.
@@ -286,9 +286,7 @@ Tracker [#2908](https://github.com/dan-petty/devops-cli/issues/2908) holds the w
 | Issue | Step | What it will change |
 | :--- | :--- | :--- |
 | #2913 | The manual path | `devops roadmap implement` outside the runner makes the runner Job, and `--repo` is needed once |
-| #2916 | 6 Verify | One function decides when any draft pull request is ready |
 | #2867 | 6 Verify | A model evaluator marks a draft ready when it matches its issue and the project rules |
-| #2917 | 8 Release and learn | A release comments its version and its deploy time on each issue it carries |
 | #2919 | All | Metrics show the age of stuck Items, and one alert fires |
 | #2968 | All | The counts of `devops roadmap inbox` are gauges with a Grafana panel, and the inbox lists an image digest that is not rolled |
 | #3028 | 3 Plan | A sister command of the group `devops roadmap eval` scores the stage job on a golden set of plan cases |

@@ -1282,6 +1282,18 @@ def test_label_issue_posts_one_label_and_keeps_the_others() -> None:
     ]
 
 
+def test_unlabel_issue_sends_one_delete() -> None:
+    store, runner = recorded_store({"-X DELETE": []})
+    store.unlabel_issue(950, "type/docs")
+    assert runner.writes == [["api", "-X", "DELETE", f"repos/{REPO}/issues/950/labels/type%2Fdocs"]]
+
+
+def test_a_refused_delete_of_a_label_raises() -> None:
+    store, _ = recorded_store({"-X DELETE": (1, "gh: Not Found (HTTP 404)")})
+    with pytest.raises(GitHubOperationError, match="Not Found"):
+        store.unlabel_issue(950, "type/docs")
+
+
 @pytest.mark.parametrize(
     ("kind", "value", "reply", "endpoint", "holds"),
     [

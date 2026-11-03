@@ -393,10 +393,11 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops pr edit [OPTIONS] <number>` | Edit pull request base branch, title, body, or milestone. |
 |  | `devops pr describe [OPTIONS] <issue>` | Print the title and the body of the pull request that delivers an issue. The first line is the title, then a blank line, then the body. |
 |  | `devops pr create [OPTIONS]` | Open a draft pull request, into the default branch unless --base names another. |
-|  | `devops pr ready [OPTIONS] <number>` | Mark a draft pull request as ready for review once its checks pass. |
+|  | `devops pr ready [OPTIONS] <number>` | Mark a draft pull request as ready for review once draft readiness allows it. |
 |  | `devops pr diff [OPTIONS] <number>` | View diff of a pull request. |
 |  | `devops pr close [OPTIONS] <number>` | Close a pull request. |
-|  | `devops pr check-readiness [OPTIONS] <number>` | Validate PR merge readiness: conflicts, draft state, checks, review threads and grounding. |
+|  | `devops pr check-readiness [OPTIONS] <number>` | Validate PR merge readiness: conflicts, draft state, checks, review threads, grounding
+and draft readiness. |
 |  | `devops pr update [OPTIONS] <number>` | Update pull request branch with latest commits from its base branch. |
 |  | `devops pr hardening-report [OPTIONS]` | Audit merged defect pull requests for guardrail additions to declared hardening surfaces. |
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |

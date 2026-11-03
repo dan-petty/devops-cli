@@ -826,6 +826,9 @@ class RoadmapStore(Protocol):
     def label_issue(self, number: int, label: str) -> None:
         """Add `label` to issue or pull request `number`, keeping its other labels."""
 
+    def unlabel_issue(self, number: int, label: str) -> None:
+        """Remove `label` from issue or pull request `number`, keeping its other labels."""
+
     def evidence_holds(self, evidence: Evidence) -> bool:
         """Whether GitHub confirms the evidence: the advisory exists, the run of this repository
         failed, or the commit exists in this repository."""

@@ -9,14 +9,14 @@ reads the draft of a person, and with no such item it sends no request.
 For each such item the round reads the pull request. One that is not an open draft is only
 recorded in `stage.ready`, so no later round reads it. One that is merged also sets the Status of
 its item with the function of `status_sync.py`: the plan is merged (#2920). An open draft goes to
-`ready_to_mark` with its check runs. When the function says yes, the round reads the pull request once more. If a
+`draft_readiness` with its check runs. When the function says yes, the round reads the pull request once more. If a
 person pushed a commit or marked it ready since the first read, the draft waits, because no check
 judged that head. A window of milliseconds stays, since `gh pr ready` takes no expected head.
 Else the round marks the pull request ready with `mark_ready`, the function that the implement
 job uses, and records `stage.ready`. The check runs are read without the commit statuses: the App
 token holds `checks: read` and no `statuses`.
 
-`ready_to_mark` is the one decision. It reads the checks today; #2867 replaces its body with a
+`draft_readiness` is the one decision. It reads the checks today; #2867 replaces its body with a
 judgement of whether the work is complete.
 
 A pull request that fails stops that item only. The round then fails and names each item. That
@@ -33,11 +33,16 @@ from enum import StrEnum
 from functools import partial
 
 from devops_cli.exceptions import GitHubRateLimitError
-from devops_cli.github.check_verdict import CheckVerdictSummary, read_check_runs
-from devops_cli.github.client import PullStatus
+from devops_cli.github.check_verdict import read_check_runs
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement_pull import mark_ready
+from devops_cli.roadmap.implement_pull import (
+    Answer,
+    Draft,
+    DraftKind,
+    draft_readiness,
+    mark_ready,
+)
 from devops_cli.roadmap.stage import StageFailure, raise_for_failed, write_each
 from devops_cli.roadmap.status_sync import facts_of, sync_status
 from devops_cli.roadmap.store import (
@@ -49,23 +54,6 @@ from devops_cli.roadmap.store import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class StageDraft:
-    """What the decision reads about a recorded draft: the item, the pull request as GitHub
-    shows it, and the check runs of its head."""
-
-    item: Item
-    pull: PullStatus
-    checks: CheckVerdictSummary
-
-
-def ready_to_mark(draft: StageDraft) -> bool:
-    """Whether the recorded draft is marked ready: every check run ended and passed (or was
-    skipped). A failed, cancelled, unread or running check, and a head with no check run, keep the
-    draft. This is the one seam of the decision (#2867)."""
-    return draft.checks.is_passing
 
 
 class _Outcome(StrEnum):
@@ -106,7 +94,8 @@ def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome
         return _Outcome.SETTLED
     owner, name = repo.split("/", 1)
     checks = read_check_runs(owner, name, status.head_sha)
-    if not ready_to_mark(StageDraft(item, status, checks)):
+    readiness = draft_readiness(Draft(DraftKind.STAGE_PLAN, status, item, checks))
+    if readiness.answer is not Answer.READY:
         return _Outcome.WAITING
     again = client.get_pull_status(repo, number)
     if not again.is_open_draft or again.head_sha != status.head_sha:

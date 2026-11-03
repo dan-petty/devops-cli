@@ -711,6 +711,8 @@ class K8sMessages:
         "could push to the same branch. Wait for the Job to end, or follow it with: "
         "kubectl -n devops logs -f job/<name>. No Job was created."
     )
+    job_deployment_missing: str = "Deployment devops/{deployment} not found."
+    job_deployment_no_container: str = "Deployment devops/{deployment} has no container {container}"
     job_cronjob_missing: str = (
         "CronJob devops/{cronjob} not found. Deploy it first: "
         "devops k8s deploy-stack --stack devops"
@@ -1082,6 +1084,7 @@ class PRMessages:
     labels_dry_run_condition: str = "the pull request opens and the labels file declares it"
     labels_unreadable: str = "{path} can't be read as label specs: {error}"
     labels_refused: str = "{labels} could not be added: {error}"
+    labels_unremoved: str = "{labels} could not be removed: {error}"
     # The form of the title and the body of a pull request (#3198), one text for each problem.
     form_refused: str = "The pull request breaks the form. Nothing was opened:\n{problems}"
     form_title_lines: str = "The title is on more than one line."
@@ -1288,6 +1291,10 @@ class PRMessages:
         "PR #{number} failed hardening audit: no additions on declared hardening surfaces."
     )
     hardening_report_empty_files: str = "PR #{number} returned an empty file list from GitHub."
+    readiness_blocked: str = "PR #{number} is not ready: {reason}"
+    readiness_unread: str = (
+        "PR #{number} is not ready: the roadmap item could not be read ({error})."
+    )
 
 
 @dataclass(frozen=True)
@@ -2578,6 +2585,12 @@ class RoadmapMessages:
             "commit": "commit",
         }
     )
+    draft_unticked_group: str = "Task group {number}, {title}, has a task that is not ticked."
+    draft_change_not_archived: str = "The change is not archived."
+    draft_change_missing: str = "The change is missing."
+    draft_author_not_declared: str = "The author has not declared that the pull request is ready."
+    draft_check_runs: str = "A check runs: {name}."
+    draft_check_runs_unnamed: str = "A check runs."
     implement_stop_rebase: str = "The rebase onto origin/{branch} stopped.\n{output}"
     implement_stop_abort_failed: str = "\nThe abort of the rebase failed too.\n{output}"
     implement_stop_program_failed: str = "{command} exited with status {status}.\n{output}"
@@ -2669,6 +2682,7 @@ class RoadmapMessages:
         "Spend: {requests} model requests, {input_tokens} input tokens, {output_tokens} output "
         "tokens."
     )
+    implement_pull_labels_failed: str = "Labels not updated: {error}"
     implement_pull_comment: str = "{marker}\nThe steps of the job:\n\n{lines}"
     implement_pull_comment_line: str = (
         "- {step} ({title}): {status}, {requests} model requests, {rounds} repair rounds{commit}"
@@ -2769,6 +2783,7 @@ class RoadmapMessages:
         "of each step, for a budget of {budget} tokens:\n\n{groups}{notes}"
     )
     stage_comment_group: str = "{index}. {title}: {tokens} tokens"
+    stage_comment_labels_failed: str = "\n\nLabels not added to #{pull}: {error}"
     # The report of the plan run of the toolbox (#3037), after the task groups.
     stage_comment_run: str = (
         "\n\nThe plan run made {requests} model request(s), and used {input_tokens} input tokens "
@@ -2850,6 +2865,16 @@ class RoadmapMessages:
     stage_failed: str = "the stage job failed for {count} item(s): {items}"
     stage_failed_item: str = "#{number} ({error}{reason})"
     stage_ready_failed: str = "the stage_ready row failed for {count} pull request(s): {items}"
+    release_comment_released: str = "Released in {tag}: {url}"
+    release_comment_live: str = "Live since {time}"
+    release_ledger_unreadable: str = (
+        "The release ledger {path} can't be read ({reason}), so the release_comments row does "
+        "not run. Repair it, or remove it: the next round then reads the comments of each issue "
+        "and posts none twice."
+    )
+    release_roll_failed: str = (
+        "the release_comments row could not check the images of {count} release(s): {releases}"
+    )
     status_sync_failed: str = "the Status of {count} item(s) could not be set: {items}"
     stage_plain_note: str = (
         "Stage without a mode flag runs as --plan: it reads GitHub and calls the model, and "
@@ -2898,6 +2923,7 @@ class RoadmapMessages:
             "fetch_branch": "the staged branch of an item",
             "authors": "the authors of the commits of the staged branch",
             "pull_status": "the state of the draft pull request of the item",
+            "pull": "the read of the pull request",
             "worktree": "the worktree on the staged branch, which the job takes over",
             "worktree_new": "the worktree on a new branch at the fetched default branch",
             "rebase": "rebase the staged branch onto the fetched default branch",
@@ -2930,6 +2956,8 @@ class RoadmapMessages:
             "model_fix": "a check fails, for the first time",
             "ready": "the checks pass",
             "stop": "a step stops the item",
+            "unlabel": "the pull request holds a label that the new title does not give",
+            "removal": "the pull request holds a label that the new title does not give",
         }
     )
     stage_none: str = "None."
@@ -3205,6 +3233,7 @@ class RoadmapMessages:
             "body": "the body of {subject}, its job record kept",
             "comment": "comment on {subject}",
             "label": "label {subject}",
+            "unlabel": "unlabel {subject}",
             "add_sub_issue": "add {subject} as a sub-issue of {parent}",
             "create_issue": "open an issue for {subject}",
             "close": "close {subject} with the reason {reason}",

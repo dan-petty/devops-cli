@@ -71,12 +71,13 @@ from devops_cli.core.process import acts_as_github_app, run_subprocess
 from devops_cli.core.process_hardening import adopt_orphans, deny_environment_reads
 from devops_cli.exceptions import (
     DevOpsCLIError,
+    GitHubOperationError,
     GitHubUnauthenticatedError,
     GitOperationError,
     RoadmapImplementError,
 )
 from devops_cli.git.worktree_add import add_worktree
-from devops_cli.github.check_verdict import PRCheckItem
+from devops_cli.github.check_verdict import PRCheckItem, read_check_runs
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
@@ -92,7 +93,17 @@ from devops_cli.roadmap.failure import (
 from devops_cli.roadmap.fence import code_fence
 from devops_cli.roadmap.implement import GIT_OPERATION, ImplementPlan, ImplementTarget
 from devops_cli.roadmap.implement_hooks import install_hook_environments, trusted_config
-from devops_cli.roadmap.implement_pull import WatchKind, failed_log, mark_ready, watch_pull
+from devops_cli.roadmap.implement_pull import (
+    Answer,
+    ChangeFacts,
+    Draft,
+    DraftKind,
+    WatchKind,
+    draft_readiness,
+    failed_log,
+    mark_ready,
+    watch_pull,
+)
 from devops_cli.roadmap.implement_scoped_ci import (
     ScopedResult,
     plan_tests,
@@ -107,11 +118,17 @@ from devops_cli.roadmap.implement_step import (
     run_fix_step,
     run_step,
 )
-from devops_cli.roadmap.pull_labels import declared_labels
+from devops_cli.roadmap.pull_labels import (
+    add_pull_labels,
+    declared_labels,
+    remove_pull_labels,
+    stale_labels,
+)
 from devops_cli.roadmap.stage_change import closing_keyword_in, delivery_title, safe_text
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status
 from devops_cli.roadmap.step_files import parse_task_groups, section_text
 from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField, RoadmapStore
+from devops_cli.roadmap.title_labels import title_labels
 from devops_cli.security.sanitizer import mask_secrets
 
 _WHY_HEADINGS = frozenset({"why"})
@@ -610,8 +627,22 @@ class _ItemRun:
             number=self.number, why=self._why(archived), archived=archived
         )
         client = get_github_session().client
-        client.update_pull(self.repo, pull, title=self._delivery_title(), body=body)
+        before = client.get_pull(self.repo, pull)
+        delivery_title = self._delivery_title()
+        client.update_pull(self.repo, pull, title=delivery_title, body=body)
         self._comment(pull, _NOTHING_YET)
+        try:
+            declared = declared_labels(self.store, ref=None)
+            old = title_labels(before.title, declared)
+            new = title_labels(delivery_title, declared)
+            add_pull_labels(self.store, pull, new.labels)
+            remove_pull_labels(self.store, pull, stale_labels(before.labels, old, new))
+        except GitHubUnauthenticatedError:
+            raise
+        except GitHubOperationError as exc:
+            client.comment_on_pull(
+                self.repo, pull, texts.implement_pull_labels_failed.format(error=exc)
+            )
 
     def _mark(self) -> _Mark:
         """How many outcomes, scoped runs and notes there are now, for `_comment`."""
@@ -706,8 +737,37 @@ class _ItemRun:
 
     def _ready(self, pull: int) -> None:
         self.step = MESSAGES.roadmap.implement_step_names["ready"]
+        client = get_github_session().client
+        status = client.get_pull_status(self.repo, pull)
+        head = status.head_sha or self._head()
+        if not status.head_sha:
+            status = status.model_copy(update={"head_sha": head})
+        owner, name = self.repo.split("/", 1)
+        checks = read_check_runs(owner, name, head)
+        archived = self._archived_name()
+        if archived:
+            tasks_path = self.path / CONST_OPENSPEC_ARCHIVE_DIR / archived / "tasks.md"
+            tasks_text = tasks_path.read_text(encoding="utf-8") if tasks_path.is_file() else ""
+            change = ChangeFacts(archived=True, tasks_text=tasks_text)
+        elif active := self._active_change():
+            active_tasks = active / "tasks.md"
+            tasks_text = active_tasks.read_text(encoding="utf-8") if active_tasks.is_file() else ""
+            change = ChangeFacts(archived=False, tasks_text=tasks_text)
+        else:
+            change = None
+
+        draft = Draft(
+            kind=DraftKind.IMPLEMENT,
+            pull=status,
+            item=self.target.item,
+            checks=checks,
+            change=change,
+        )
+        readiness = draft_readiness(draft)
+        if readiness.answer is not Answer.READY:
+            raise _StopError(self.step, readiness.reason)
+
         mark_ready(self.repo, pull)
-        head = self._head()
         marks: dict[Any, str | None] = {
             ImplementRecordKey.SHA: head,
             ImplementRecordKey.PR: str(pull),

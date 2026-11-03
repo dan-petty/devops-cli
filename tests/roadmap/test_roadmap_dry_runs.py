@@ -482,3 +482,45 @@ def test_the_implement_plan_reads_the_default_branch_and_lists_the_writes_of_a_p
     )
     assert any("push -u origin <new branch>" in line for line in write_lines)
     assert f"POST {API}/repos/{REPO}/pulls" in write_lines
+
+
+def test_the_stage_plan_lists_the_read_of_the_labels_file_and_the_label_request() -> None:
+    from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
+    from devops_cli.roadmap.request_plan import stage_requests
+
+    _, writes = stage_requests(REPO)
+
+    write_lines = [" ".join(request.argv) for request in writes]
+    assert any(
+        CONST_ROADMAP_LABELS_PATH in line or ".github%2Flabels.yml" in line for line in write_lines
+    )
+    assert any(
+        line.startswith(f"gh api -X POST repos/{REPO}/issues/<pull request>/labels")
+        for line in write_lines
+    )
+
+
+def test_the_implement_plan_reads_the_labels_file_and_lists_the_label_writes() -> None:
+    from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
+    from devops_cli.roadmap.request_plan import implement_requests
+
+    reads, writes = implement_requests(REPO)
+
+    read_lines = [" ".join(request.argv) for request in reads]
+    assert any(line == f"GET {API}/repos/{REPO}/pulls/<pull request>" for line in read_lines)
+    assert any(
+        CONST_ROADMAP_LABELS_PATH in line or ".github%2Flabels.yml" in line for line in read_lines
+    )
+
+    write_lines = [" ".join(request.argv) for request in writes]
+    assert any(
+        line.startswith(f"gh api -X POST repos/{REPO}/issues/<pull request>/labels")
+        for line in write_lines
+    )
+    unlabel = next(
+        request
+        for request in writes
+        if request.argv[:5]
+        == ("gh", "api", "-X", "DELETE", f"repos/{REPO}/issues/<pull request>/labels/<label>")
+    )
+    assert unlabel.condition != ""
