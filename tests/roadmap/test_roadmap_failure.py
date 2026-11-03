@@ -325,6 +325,18 @@ def test_the_lines_of_a_stop_name_the_class_the_action_taken_and_the_action_left
     ]
 
 
+def test_a_tier_change_that_did_not_work_is_taken_and_leaves_wait() -> None:
+    """A parser failure that moved the step to another tier took `change_tier` (#3060)."""
+    moved = failure_lines(FailureClass.PARSER, tier_changes=1)
+
+    assert left_action(FailureClass.PARSER, FailureAction.CHANGE_TIER) is FailureAction.WAIT
+    assert moved.splitlines() == [
+        "Failure class: `parser`.",
+        "Action taken: `change_tier`, 1 tier move(s).",
+        "Action left: `wait`: wait for a person.",
+    ]
+
+
 def test_failure_lines_names_amend_taken_and_wait_left() -> None:
     lines = failure_lines(FailureClass.PLAN_DEFECT, taken=FailureAction.AMEND)
     assert lines.splitlines() == [

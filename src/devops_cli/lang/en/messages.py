@@ -2426,6 +2426,7 @@ class RoadmapMessages:
             "tool_calls": "Tool calls",
             "input_tokens": "Input tokens",
             "output_tokens": "Output tokens",
+            "tiers": "Model tiers",
             "repair_rounds": "Repair rounds",
             "last_message": "Last message of the agent",
             "removed": "Removed stray files",
@@ -2648,6 +2649,7 @@ class RoadmapMessages:
     )
     implement_failure_taken_none: str = "none"
     implement_failure_taken_repair: str = "`repair`, {rounds} fix round(s)"
+    implement_failure_taken_change_tier: str = "`change_tier`, {moves} tier move(s)"
     implement_failure_taken_amend: str = "`amend`"
     implement_failure_action_text: dict[str, str] = field(
         default_factory=lambda: {
@@ -2793,7 +2795,12 @@ class RoadmapMessages:
         "GitHub did not open the draft pull request of `{branch}`: {output}. The job removed the "
         "branch from origin."
     )
+    implement_stop_title_refused: str = (
+        "The title of the pull request does not pass the check `Semantic PR title`: {problems} "
+        "The title is `{title}`."
+    )
     implement_step_needs_item: str = "A step needs --item with --group."
+    implement_no_model: str = "A step needs a model or a factory of the tiers of the ladder."
     implement_step_job_options: str = (
         "--filter, --plan, --confirm and --why are options of the job. With --group, the command runs "
         "one step and takes only --item, --source, --format and --dry-run. To run the job for "
@@ -3065,6 +3072,21 @@ class RoadmapMessages:
         "modify. Add the requirements instead."
     )
     stage_problem_keyword: str = "The requirement {requirement} does not say SHALL or MUST."
+    stage_problem_text_short: str = (
+        "The text of {field} has {length} characters, and the least is {least}. Write a real "
+        "sentence."
+    )
+    stage_problem_text_placeholder: str = (
+        "The text of {field} is the placeholder `{text}`. Write the real text."
+    )
+    stage_problem_no_quote: str = (
+        "The feasibility list quotes no line of the probes, word for word. Quote at least one "
+        "line of the probes in feasibility."
+    )
+    stage_problem_no_cost: str = (
+        "builds_own is true, and existing_tool gives no cost. Write the tokens to build the code "
+        "(for example `80k tokens`) and the time (for example `4 hours`)."
+    )
     stage_problem_skip_with_specs: str = "skip_specs is true, and the reply still gives specs."
     stage_problem_no_specs: str = "skip_specs is false, and the reply gives no spec delta."
     stage_problem_specs_not_needed: str = (
@@ -3192,6 +3214,9 @@ class RoadmapMessages:
         "limit is {limit}. The summary of the plan does not fit the number of this item."
     )
     stage_summary_blank: str = "The summary has no text. Write a summary of the plan."
+    stage_summary_cut: str = (
+        "The summary ends with `...`, so it reads as a cut text. Write a whole summary."
+    )
     stage_summary_long: str = (
         "The summary has {length} characters in the title, and the limit is {limit}. "
         "A handle or a link gets a code span in the title, and an emoji counts as two. "

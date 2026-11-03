@@ -154,12 +154,15 @@ def test_a_valid_plan_gives_the_branch_the_title_the_body_and_the_files(
     assert change.files == snapshot
 
 
+SAMPLE_PROBE = "The path `src/devops_cli/sample.py` is a file of the staging commit."
+
+
 @pytest.mark.usefixtures("openspec")
 def test_the_model_input_holds_the_probe_of_each_cited_path_and_identifier(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
     seed_stageable(store, body="Fix `keep` in `src/devops_cli/sample.py`, not `gone_function`.")
-    model_fake.answer(make_stage_proposal())
+    model_fake.answer(make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"]))
 
     _plan(store, stage_repo)
 
@@ -170,6 +173,34 @@ def test_the_model_input_holds_the_probe_of_each_cited_path_and_identifier(
         "`gone_function` has no definition at the staging commit. "
         "No commit in the history added or removed its text.",
     ]
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_feasibility_that_quotes_no_probe_line_goes_back_to_the_model_with_the_problem(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    seed_stageable(store, body="Fix the file `src/devops_cli/sample.py`.")
+    quoted = make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"])
+    model_fake.answer(make_stage_proposal(), quoted)
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    assert "quotes no line of the probes" in model_fake.sent[1].messages[-1].content
+    assert len(model_fake.sent) == 2
+    assert len(plan.ready) == 1
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_feasibility_that_quotes_a_probe_line_is_accepted_at_once(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    seed_stageable(store, body="Fix the file `src/devops_cli/sample.py`.")
+    model_fake.answer(make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"]))
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    assert len(model_fake.sent) == 1
+    assert len(plan.ready) == 1
 
 
 @pytest.mark.usefixtures("openspec")
@@ -716,6 +747,43 @@ def test_a_proposal_the_rules_refuse_goes_back_to_the_model_once(
     assert second["problem"] == "skip_specs is false, and the reply gives no spec delta."
     assert second["previous"]["specs"] == []
     assert len(plan.ready) == 1
+
+
+@pytest.mark.parametrize("summary", ["plan the form of a task", "Plan: the form of a task"])
+def test_a_summary_that_repeats_plan_in_the_title_goes_back_to_the_model_once(
+    summary: str,
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    model_fake.answer(make_stage_proposal(summary=summary), make_stage_proposal())
+
+    plan = _plan(store, stage_repo)
+
+    first, second = _requests(model_fake)
+    assert "problem" not in first
+    assert "repeats the word `plan`" in second["problem"]
+    (change,) = plan.ready
+    assert change.title == "docs(openspec): plan #1 Stop the job dropping a comment"
+
+
+def test_a_summary_with_the_issue_number_goes_back_and_a_second_one_stops_the_item(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    model_fake.answer(make_stage_proposal(summary="Stop #1 dropping a comment"))
+
+    plan = _plan(store, stage_repo)
+
+    first, second = _requests(model_fake)
+    assert "problem" not in first
+    assert "repeats the issue number `#1`" in second["problem"]
+    assert plan.ready == ()
 
 
 def _naming(path: str, *, verify: str | None = None) -> StageProposal:
