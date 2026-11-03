@@ -519,9 +519,10 @@ def get_pr_monitoring_status(
     require_reviews: bool = True,
     *,
     runner: GhRun = run_gh,
+    commit_statuses: bool = True,
 ) -> PRMonitorStatus:
     """Read pull request `pr_number` once, judge it through the merge-readiness verdict, and add
-    the review gate's blockers."""
+    the review gate's blockers. With `commit_statuses` off, the verdict reads check runs only."""
     repo_name = repo.split("/")[-1]
     pr_data = fetch_pr_details(owner, repo_name, pr_number, runner=runner)
     head_sha = str(pr_data.get("head", {}).get("sha", ""))
@@ -537,7 +538,9 @@ def get_pr_monitoring_status(
     )
     if status.merged:
         return status
-    verdict = assess_merge_readiness(pr_data, owner, repo_name, pr_number, runner=runner)
+    verdict = assess_merge_readiness(
+        pr_data, owner, repo_name, pr_number, runner=runner, commit_statuses=commit_statuses
+    )
     threads_read = BlockerKind.THREADS_UNREAD not in verdict.kinds
     raw_reviews = fetch_raw_reviews(owner, repo_name, pr_number)
     copilot_status = detect_copilot_status(
@@ -620,6 +623,7 @@ def monitor_pr(
     interval: int = 60,
     settle_timeout: int = 60,
     require_reviews: bool = True,
+    commit_statuses: bool = True,
     status_callback: Callable[[PRMonitorStatus, int], None] | None = None,
 ) -> PRMonitorResult:
     """Poll a pull request until no check runs and no Copilot review is active, then report every
@@ -627,7 +631,8 @@ def monitor_pr(
 
     While a check runs the monitor waits, whatever other blockers it sees, so a blocker that
     comes later is not left for a second run (#998). With `require_reviews`, it also waits out
-    `settle_timeout`, so a Copilot review that starts late is seen.
+    `settle_timeout`, so a Copilot review that starts late is seen. With `commit_statuses` off,
+    each poll reads check runs only, for a token without the `statuses` permission.
     """
     valid_interval = max(1, interval)
     valid_timeout = max(1, timeout)
@@ -641,7 +646,7 @@ def monitor_pr(
         now = clock.monotonic()
         elapsed = int(now - start_time)
         latest_status = get_pr_monitoring_status(
-            owner, repo, pr_number, require_reviews=require_reviews
+            owner, repo, pr_number, require_reviews=require_reviews, commit_statuses=commit_statuses
         )
 
         if status_callback:

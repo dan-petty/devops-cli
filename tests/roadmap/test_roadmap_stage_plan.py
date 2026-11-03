@@ -808,6 +808,36 @@ def test_a_split_reply_with_a_missing_path_goes_back_to_the_model_once(
     assert len(plan.ready) == 1
 
 
+@pytest.mark.usefixtures("openspec")
+@pytest.mark.parametrize(
+    "verify",
+    [
+        "uv run pytest tests/test_x.py",
+        "uv run devops ci test tests/x.py` and `git push origin HEAD",
+    ],
+)
+def test_a_split_group_with_a_verify_command_of_a_wrong_form_goes_back_to_the_model_once(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verify: str,
+) -> None:
+    heavy = heavy_group(stage_repo)
+    bad = heavy.model_copy(update={"title": "Bad", **NO_FILES, "verify": verify})
+    model_fake.answer(
+        make_stage_proposal(groups=[heavy]),
+        StageSplit(groups=[bad]),
+        make_stage_proposal(),
+    )
+
+    plan = _plan(store, stage_repo, step_tokens=6000)
+
+    assert "`verify` command" in _requests(model_fake)[2]["problem"]
+    assert model_fake.call_count == 3
+    assert len(plan.ready) == 1
+
+
 def test_a_failed_validation_goes_back_to_the_model_once(
     store: InMemoryRoadmapStore,
     item: int,

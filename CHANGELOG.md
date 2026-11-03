@@ -2,6 +2,60 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.52.1](https://github.com/dan-petty/devops-cli/compare/v0.52.0...v0.52.1) (2026-11-03)
+
+
+### Code Refactoring
+
+* **roadmap:** move intake-eval to roadmap eval intake ([#3364](https://github.com/dan-petty/devops-cli/issues/3364)) ([3ba02a7](https://github.com/dan-petty/devops-cli/commit/3ba02a7e1a9392b6b48011e6cd01213b4ebd4ba1))
+
+## [0.52.0](https://github.com/dan-petty/devops-cli/compare/v0.51.0...v0.52.0) (2026-11-03)
+
+
+### Features
+
+* **pr:** warn when a pull request body is over 1,000 characters ([#3362](https://github.com/dan-petty/devops-cli/issues/3362)) ([6f3f292](https://github.com/dan-petty/devops-cli/commit/6f3f292be0dfd0be5947e78ddc4763d0a5cf4861))
+* **roadmap:** the implement agent can amend a defective plan ([#3361](https://github.com/dan-petty/devops-cli/issues/3361)) ([bf1d8c6](https://github.com/dan-petty/devops-cli/commit/bf1d8c61ddfc6233026cb421b8a47b1dc3c23d9e))
+
+
+### Bug Fixes
+
+* **roadmap:** check a split reply and the white space of openspec ([#3357](https://github.com/dan-petty/devops-cli/issues/3357)) ([8613a2d](https://github.com/dan-petty/devops-cli/commit/8613a2da2fd75a748abe82459177f91adf41bbcd))
+* **roadmap:** keep the class of a refused command ([#3359](https://github.com/dan-petty/devops-cli/issues/3359)) ([e5b8191](https://github.com/dan-petty/devops-cli/commit/e5b8191b530bed2a37a0c87cecaf3f8c2c5887f5))
+
+## [0.51.0](https://github.com/dan-petty/devops-cli/compare/v0.50.0...v0.51.0) (2026-11-03)
+
+
+### Features
+
+* **roadmap:** first pass of alternatives takes 20 items a round ([#3353](https://github.com/dan-petty/devops-cli/issues/3353)) ([78bdd53](https://github.com/dan-petty/devops-cli/commit/78bdd530e6ce695b596b47dc3b4c7d5f74a5a3a9))
+* **roadmap:** keep and show a trace of each run ([#3355](https://github.com/dan-petty/devops-cli/issues/3355)) ([21722f7](https://github.com/dan-petty/devops-cli/commit/21722f7c6444ce66fbc9a02445172e9c34242397))
+
+
+### Bug Fixes
+
+* **roadmap:** refuse a bare task and a repeated title word ([#3356](https://github.com/dan-petty/devops-cli/issues/3356)) ([ed77fe8](https://github.com/dan-petty/devops-cli/commit/ed77fe8a2fa8c0da580c5a0a4ce1eedee0e4f463))
+
+## [0.50.0](https://github.com/dan-petty/devops-cli/compare/v0.49.0...v0.50.0) (2026-11-03)
+
+
+### Features
+
+* **roadmap:** comment the release on each issue it carries ([#3346](https://github.com/dan-petty/devops-cli/issues/3346)) ([2677eeb](https://github.com/dan-petty/devops-cli/commit/2677eeb3c3eeb5a97944d5a1f51edce8bb670b64))
+
+## [0.49.0](https://github.com/dan-petty/devops-cli/compare/v0.48.5...v0.49.0) (2026-11-03)
+
+
+### Features
+
+* **roadmap:** one function decides when any draft pull request is ready ([#3337](https://github.com/dan-petty/devops-cli/issues/3337)) ([db318bf](https://github.com/dan-petty/devops-cli/commit/db318bf68a3e9f4e79fec83ef605d51d093de61a))
+* **roadmap:** the stage and implement jobs label their pull request ([#3338](https://github.com/dan-petty/devops-cli/issues/3338)) ([4c2a39e](https://github.com/dan-petty/devops-cli/commit/4c2a39e4076d89cc857abe6bbcb71bc629a85382))
+
+
+### Bug Fixes
+
+* **roadmap:** the implement watch reads check runs only ([#3342](https://github.com/dan-petty/devops-cli/issues/3342)) ([96e102d](https://github.com/dan-petty/devops-cli/commit/96e102daf892f08f855de0a8f5bf88dc0bd306ff))
+
 ## [0.48.5](https://github.com/dan-petty/devops-cli/compare/v0.48.4...v0.48.5) (2026-11-03)
 
 

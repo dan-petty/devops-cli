@@ -416,3 +416,36 @@ def test_a_negative_search_over_a_folder_that_the_plan_creates_has_no_problem() 
 def test_a_negative_search_that_the_step_refuses_is_judged_by_the_form_check_only() -> None:
     """The reader refuses the shape first, so the word `|` is no path to look up."""
     assert _search("! git grep -n x src/ | cat") == []
+
+
+@pytest.mark.parametrize(
+    ("verify", "missing"),
+    [
+        ("! git grep -n devops README.md/", "README.md"),
+        ("! git grep -n x -- src/devops_cli/sample.py/", "src/devops_cli/sample.py"),
+    ],
+)
+def test_a_trailing_slash_on_a_file_is_a_problem(verify: str, missing: str) -> None:
+    problems = _search(verify)
+
+    assert len(problems) == 1
+    assert f"`{missing}`" in problems[0]
+
+
+def test_a_trailing_slash_on_a_folder_is_no_problem() -> None:
+    assert _search("! git grep -n x src/devops_cli/ docs/") == []
+
+
+def test_the_words_of_a_refused_search_are_still_checked_as_paths() -> None:
+    """The reader refuses `-O`, so the paths come from the words of the command."""
+    problems = _search("! git grep -O name tests/old/test_old.py")
+
+    assert len(problems) == 1
+    assert "`tests/old/test_old.py`" in problems[0]
+
+
+def test_the_words_of_a_command_that_shlex_cannot_read_are_still_checked_as_paths() -> None:
+    problems = _search('uv run devops ci test tests/old/test_old.py "')
+
+    assert len(problems) == 1
+    assert "`tests/old/test_old.py`" in problems[0]
