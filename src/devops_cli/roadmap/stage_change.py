@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import re
 import string
-import textwrap
 import unicodedata
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
@@ -711,9 +710,32 @@ def staging_title(number: int, summary: str) -> str:
     return f"{_STAGING_TYPE}: {lead}{shown}"
 
 
+def _shortened(text: str) -> str:
+    """`text` as it is, or cut at a word and closed with `...` so that `summary_length` of the
+    result is at most `SUMMARY_MAX_CHARS`: the check counts UTF-16 units, not characters (#3292).
+    A first word that does not fit is cut at a character, and a character is kept or dropped
+    whole, so the cut never leaves half of a surrogate pair."""
+    if summary_length(text) <= SUMMARY_MAX_CHARS:
+        return text
+    room = SUMMARY_MAX_CHARS - summary_length(_ELLIPSIS)
+    kept = ""
+    for word in text.split():
+        candidate = f"{kept} {word}" if kept else word
+        if summary_length(candidate) > room:
+            break
+        kept = candidate
+    if not kept:
+        for char in text:
+            if summary_length(kept + char) > room:
+                break
+            kept += char
+    return kept + _ELLIPSIS
+
+
 def delivery_title(issue_title: str, declared: Collection[str]) -> str:
     """The title of the pull request that delivers the code of an item (#2714): the type and the
-    scope of the issue's title, and its summary cut at a word to `SUMMARY_MAX_CHARS`. The staging
+    scope of the issue's title, and its summary cut at a word to `SUMMARY_MAX_CHARS` UTF-16 units
+    (#3292). The staging
     pull request has the type `docs(openspec)`, which the delivery must not keep. A mark of a
     breaking change is dropped: the project has none before 1.0.0. A scope whose `scope/*` label is
     not in `declared` is dropped too, because the `Semantic PR title` check refuses it (#2800)."""
@@ -722,8 +744,7 @@ def delivery_title(issue_title: str, declared: Collection[str]) -> str:
     scope = commit_scope(issue_title)
     if scope and f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" not in declared:
         head = head.partition("(")[0]
-    shortened = textwrap.shorten(safe_text(summary), SUMMARY_MAX_CHARS, placeholder=_ELLIPSIS)
-    return f"{head}: {shortened}"
+    return f"{head}: {_shortened(safe_text(summary))}"
 
 
 def pull_request_body(number: int, change: str, proposal: StageProposal) -> str:
