@@ -24,6 +24,7 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_ARCHIVE_DIR,
     CONST_OPENSPEC_ARCHIVED_FOLDER_RE,
     CONST_OPENSPEC_CHANGE_FOLDER_RE,
+    CONST_OPENSPEC_CHANGES_DIR,
     CONST_OPENSPEC_SPECS_DIR,
     CONST_PR_FILE_ADDED_STATUSES,
     CONST_PR_FILE_REMOVED_STATUS,
@@ -296,3 +297,59 @@ GROUNDING_RULES: tuple[Callable[[Grounding], str | None], ...] = (
 def grounding_blockers(grounding: Grounding) -> list[str]:
     """The blocker of each item rule the facts break, in the order of `GROUNDING_RULES`."""
     return [found for rule in GROUNDING_RULES if (found := rule(grounding))]
+
+
+# The title that the stage job writes for a plan (`staging_title`): the pull request plans an item
+# and delivers none, so the rules of a delivery do not apply to it (#3280).
+_PLAN_TITLE_RE = re.compile(r"docs\(openspec\): plan #(?P<issue>\d+) ")
+_PLANS_LINE_RE = re.compile(r"^Plans #(?P<issue>\d+)\s*$", re.MULTILINE)
+
+
+def plan_issue(title: str) -> int | None:
+    """The issue that a plan pull request plans, read from its title; None for any other title."""
+    match = _PLAN_TITLE_RE.match(title)
+    return int(match.group("issue")) if match else None
+
+
+def plan_blockers(pr_num: int, issue: int, body: str, files: list[PullRequestFile]) -> list[str]:
+    """The blocker of each rule of a plan that its body or its files break, in a fixed order.
+
+    The body has exactly one line `Plans #<issue>` and no closing keyword. The plan adds a file to
+    the active change folder of the issue and changes nothing under the living specs.
+    """
+    # Imported here: `stage_change` loads the model client, and `pr --help` must not (startup budget).
+    from devops_cli.roadmap.stage_change import closing_keyword_in
+
+    texts = MESSAGES.pr
+    found: list[str] = []
+    plans = [int(match.group("issue")) for match in _PLANS_LINE_RE.finditer(body)]
+    if plans != [issue]:
+        found.append(texts.grounding_plan_no_plans_line.format(number=pr_num, issue=issue))
+    if (keyword := closing_keyword_in(body)) is not None:
+        found.append(texts.grounding_plan_closes.format(number=pr_num, keyword=keyword))
+    if not any(_adds_to_active_folder(changed, issue) for changed in files):
+        found.append(
+            texts.grounding_plan_no_folder.format(
+                number=pr_num, issue=issue, folder=f"{CONST_OPENSPEC_CHANGES_DIR}/{issue}-<slug>/"
+            )
+        )
+    written = [f.filename for f in files if f.filename.startswith(f"{CONST_OPENSPEC_SPECS_DIR}/")]
+    if written:
+        found.append(
+            texts.grounding_plan_writes_spec.format(
+                number=pr_num,
+                paths=", ".join(written)[:CONST_MAX_ERROR_DETAIL_LENGTH],
+                specs=CONST_OPENSPEC_SPECS_DIR,
+            )
+        )
+    return found
+
+
+def _adds_to_active_folder(changed: PullRequestFile, issue: int) -> bool:
+    """Whether this change adds a file to the active change folder of `issue`."""
+    match = re.fullmatch(CONST_OPENSPEC_CHANGE_FOLDER_RE, changed.filename)
+    return (
+        match is not None
+        and int(match.group("issue")) == issue
+        and changed.status in CONST_PR_FILE_ADDED_STATUSES
+    )
