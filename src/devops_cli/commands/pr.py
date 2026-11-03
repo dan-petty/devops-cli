@@ -32,7 +32,7 @@ from devops_cli.dry_run import dry_run_class
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
 from devops_cli.exceptions import ValidationError
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubOperationError, GitHubUnreadError
 from devops_cli.github.branch_update import (
     build_dispatch_ci_cmd,
     build_update_branch_cmd,
@@ -1296,7 +1296,7 @@ def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[st
     pull = PullStatus.model_validate(pr_data)
     try:
         draft = read_draft(repo, number, pull=pull, checks=verdict.checks, declared=True)
-    except Exception as exc:
+    except (GitHubOperationError, GitHubUnreadError) as exc:
         print_error(f"Cannot mark PR #{number} as ready for review: {exc}", safe=True)
         print_info("Pass --force to override failing check verification.")
         raise typer.Exit(1) from exc
@@ -1663,7 +1663,7 @@ def check_readiness(
                 MESSAGES.pr.readiness_blocked.format(number=pr_num, reason=readiness.reason),
             )
             verdict = dataclasses.replace(verdict, blocking=(*verdict.blocking, blocker))
-    except Exception as exc:
+    except (GitHubOperationError, GitHubUnreadError) as exc:
         blocker = Blocker(
             BlockerKind.READINESS,
             MESSAGES.pr.readiness_unread.format(number=pr_num, error=exc),
