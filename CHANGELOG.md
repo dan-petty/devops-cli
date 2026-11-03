@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.52.1](https://github.com/dan-petty/devops-cli/compare/v0.52.0...v0.52.1) (2026-11-03)
+
+
+### Code Refactoring
+
+* **roadmap:** move intake-eval to roadmap eval intake ([#3364](https://github.com/dan-petty/devops-cli/issues/3364)) ([3ba02a7](https://github.com/dan-petty/devops-cli/commit/3ba02a7e1a9392b6b48011e6cd01213b4ebd4ba1))
+
 ## [0.52.0](https://github.com/dan-petty/devops-cli/compare/v0.51.0...v0.52.0) (2026-11-03)
 
 
