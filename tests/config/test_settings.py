@@ -123,3 +123,12 @@ def test_the_implement_ladder_reads_a_json_object_of_a_config_set() -> None:
     ).ladder
 
     assert ladder["edit"] == ["devops-coder", "ollama:qwen3-coder:30b"]
+
+
+def test_the_implement_ladder_refuses_text_that_is_no_json_object() -> None:
+    with pytest.raises(ValidationError, match="must be a JSON object:"):
+        RoadmapImplementConfig(ladder="{not json")
+    with pytest.raises(ValidationError, match="must be a JSON object of step class"):
+        RoadmapImplementConfig(ladder='["devops-coder"]')
+    with pytest.raises(ValidationError, match="holds an empty tier"):
+        RoadmapImplementConfig(ladder={"edit": ["  "]})

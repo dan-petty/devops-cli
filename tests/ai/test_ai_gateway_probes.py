@@ -223,3 +223,9 @@ def test_tier_health_reports_every_virtual_model_unhealthy_when_the_gateway_is_d
         "devops-coder": False,
         "devops-reasoning": False,
     }
+
+
+def test_tier_health_of_no_tier_returns_no_reading(tmp_path: Path) -> None:
+    router = GatewayRouter(state_file=tmp_path / "state.json")
+
+    assert router.tier_health([]) == {}

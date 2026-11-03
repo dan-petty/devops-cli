@@ -2326,3 +2326,70 @@ def test_a_fix_step_runs_the_repair_ladder(
         StepStatus.DONE,
         ("devops-coder", "devops-reasoning"),
     )
+
+
+def test_a_step_with_no_ladder_runs_on_the_model_it_was_given(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."))
+
+    outcome = run_step(
+        store, item=1, group=1, source=checkout, model=script.model(), window=WINDOW, ladder=[]
+    )
+
+    assert (outcome.status, outcome.tier, outcome.tiers) == (StepStatus.DONE, "", ())
+
+
+def test_a_reading_of_no_healthy_tier_uses_the_first_tier(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."))
+
+    outcome = run_step(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        ladder=["devops-coder", "devops-reasoning"],
+        tier_health=lambda names: dict.fromkeys(names, False),
+    )
+
+    assert (outcome.status, outcome.tier, outcome.tiers) == (
+        StepStatus.DONE,
+        "devops-coder",
+        ("devops-coder",),
+    )
+
+
+def test_the_step_reads_the_gateway_health_when_the_provider_is_the_gateway(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config(
+        ai={"provider": "gateway", "gateway_url": "https://gateway.example.com"},
+        roadmap={"implement": {"ladder": {"edit": ["devops-coder", "devops-reasoning"]}}},
+    )
+    calls: list[tuple[str, ...]] = []
+
+    def health(_self: object, names: Sequence[str], timeout: float = 9.0) -> dict[str, bool]:
+        calls.append(tuple(names))
+        return {"devops-coder": False, "devops-reasoning": True}
+
+    monkeypatch.setattr("devops_cli.ai.gateway.GatewayRouter.tier_health", health)
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.tier, calls) == ("devops-reasoning", [("devops-coder", "devops-reasoning")])
+
+
+def test_a_step_with_no_model_and_no_tier_factory_is_refused(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    with pytest.raises(RoadmapImplementError, match="needs a model"):
+        run_step(store, item=1, group=1, source=checkout, window=WINDOW)
