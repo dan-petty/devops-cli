@@ -133,6 +133,7 @@ from devops_cli.roadmap.stage_change import (
 )
 from devops_cli.roadmap.stage_criteria import criterion_problems
 from devops_cli.roadmap.stage_filter import split_filter_entry
+from devops_cli.roadmap.stage_form import form_problems
 from devops_cli.roadmap.stage_github import StageGitHub
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage_probe import probe_premise
@@ -800,7 +801,8 @@ class _Planner:
         asked, files, measured = self._fit(target, proposal)
         if asked is not proposal:
             # The split gave new groups, and the model can bring old paths back with them.
-            problems = path_problems(asked.groups, self._tree.with_files(files))
+            problems = form_problems(asked.groups)
+            problems.extend(path_problems(asked.groups, self._tree.with_files(files)))
             problems.extend(criterion_problems(asked.criteria, target.item.body, len(asked.groups)))
             if problems:
                 return _Refused(" ".join(problems), asked)
