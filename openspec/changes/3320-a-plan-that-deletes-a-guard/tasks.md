@@ -2,12 +2,14 @@
 
 ## 1. Refuse a plan that deletes a guard check
 
-Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_plan.py`. Changes: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_weakened_checks.py` (new).
+Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/test_roadmap_stage_plan.py`, `tests/roadmap/test_roadmap_stage_prompt_rules.py`. Changes: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/test_roadmap_stage_weakened_checks.py` (new), `tests/roadmap/test_roadmap_stage_prompt_rules.py`.
 
 - [ ] 1.1 Write `tests/roadmap/test_roadmap_stage_weakened_checks.py` with a reply whose task deletes `test_all_cli_commands_are_either_exposed_or_excluded` and no entry, and assert that `check_proposal` names it
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_weakened_checks.py` fails on the base
 - [ ] 1.2 Add `WeakenedCheck` with `check`, `stopped` and `safeguard`, and the field `weakened_checks` on `StageProposal`. Add `_guard_deletions` and the check that calls it from `check_proposal`, with the texts in `MESSAGES.roadmap`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_weakened_checks.py` passes
+- [ ] 1.3 Add the `weakened_checks` key and its rule to `src/devops_cli/ai/tasks/roadmap_stage_change.md`, and add `WeakenedCheck` to the models of `tests/roadmap/test_roadmap_stage_prompt_rules.py` that must list their keys
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_prompt_rules.py` passes
 
 ## 2. Write the weakened checks into the proposal file
 
@@ -36,9 +38,7 @@ Reads: `src/devops_cli/roadmap/stage_eval_cases.py`, `docs/ROADMAP_WORKFLOW.md`.
 
 Reads: `docs/ROADMAP_WORKFLOW.md`, `src/devops_cli/roadmap/stage_eval_run.py`. Changes: `docs/ROADMAP_WORKFLOW.md`.
 
-- [ ] 5.1 Record in `docs/ROADMAP_WORKFLOW.md` the replay case and the model score before and after the new gate, as the document asks of a change to a stage gate
-  - Verification: `uv run devops ci docs` passes
-- [ ] 5.2 Update `docs/ROADMAP_WORKFLOW.md` with the weakened-check gate and its score, and run `uv run devops docs generate --sync-readme`
+- [ ] 5.1 Update `docs/ROADMAP_WORKFLOW.md` with the weakened-check gate, the new replay case and the model score before and after the change, then run `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci docs` passes
 
 ## Criteria

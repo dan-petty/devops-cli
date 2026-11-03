@@ -6,7 +6,7 @@
 
 ## What Changes
 
-- Add a `weakened_checks` list to `StageProposal`, each entry holding `check`, `stopped` and `safeguard`.
+- Add a `weakened_checks` list to `StageProposal`, each entry holding `check`, `stopped` and `safeguard`, and name the key in the planner prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md`.
 - Refuse a plan whose work texts delete a test or a `CONST_*` entry that no `weakened_checks` entry names.
 - Render a `## Weakened checks` section in `proposal.md` after `## Impact` and before `## Feasibility`, and only when the list is not empty.
 - Add the message texts of the new problem and section to `MESSAGES.roadmap`.
@@ -23,13 +23,14 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-stage`: A plan that deletes a guard check records it, The proposal file shows each weakened check
+- `roadmap-stage`: A plan that deletes a guard check records it; the proposal file shows each weakened check.
 
 ## Impact
 
 - Code: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `openspec/config.yaml`, `src/devops_cli/roadmap/stage_eval_cases.py`
+- Prompts: `src/devops_cli/ai/tasks/roadmap_stage_change.md`
 - Documents: `docs/ROADMAP_WORKFLOW.md`
-- Tests: `tests/roadmap/test_roadmap_stage_weakened_checks.py`
+- Tests: `tests/roadmap/test_roadmap_stage_weakened_checks.py`, `tests/roadmap/test_roadmap_stage_prompt_rules.py`
 
 ## Feasibility
 
@@ -39,6 +40,7 @@ None.
 - `probes` states "The path `src/devops_cli/config/constants.py` is a file of the staging commit." It holds the `CONST_*` inventories that the issue cites as guard lists.
 - `probes` states "The path `AGENTS.md` is a file of the staging commit." Its rule 5 reads "Never lower a security or quality threshold: only the owner can allow it."
 - `probes` states "The path `proposal.md` is no file of the staging commit. No commit in the history deleted or renamed it." The section is a heading of a rendered file, not a file of the repository, so the plan creates no such path.
+- `tests/roadmap/test_roadmap_stage_prompt_rules.py` holds `test_the_top_level_keys_of_the_reply_are_the_fields_of_the_proposal`, which compares the top-level key bullets of `roadmap_stage_change.md` with the fields of `StageProposal`. A new field without its key bullet fails this test, so the plan changes the prompt in the same group.
 - First check against the real system: `uv run devops ci test tests/roadmap/test_roadmap_stage_weakened_checks.py` fails on the missing `weakened_checks` field.
 - Second check: `uv run devops openspec check` accepts the change folder after the delta is written.
 - Third check: `uv run devops roadmap eval stage --dry-run` lists the new replay case with no model call.
