@@ -244,6 +244,10 @@ class StoreRequests:
         args = gh.label_args(self.repo, _number(subject), _p("label"))
         return [self.gh(args, "label", subject=subject)]
 
+    def unlabel_issue(self, subject: str) -> Requests:
+        args = gh.unlabel_args(self.repo, _number(subject), _p("label"))
+        return [self.gh(args, "unlabel", subject=subject)]
+
     def create_issue(self, subject: str, labels: Sequence[str] = ()) -> Requests:
         args = gh.create_issue_args(self.repo, _p("title"), _p("body"), labels)
         return [self.gh(args, "create_issue", subject=subject)]
@@ -552,6 +556,8 @@ def stage_requests(
         git("commit", tree, "commit", "-q", "-m", _p("title"), repeat=each_item),
         git("push", tree, "push", "-q", "-u", "origin", branch, repeat=each_item),
         other("REST write", "pull", "POST", pulls),
+        *within(store.file(CONST_ROADMAP_LABELS_PATH, None), repeat=each_item),
+        *within(store.label_issue(_p("pull")), repeat=each_item),
         git(
             "delete_failed",
             clone,
@@ -647,7 +653,8 @@ def implement_requests(
             f"origin/main..origin/{branch}",
             when=cond["staged"],
         ),
-        other("GET", "pull_status", "GET", pulls, when=cond["staged"]),
+        other("GET", "pull", "GET", pulls, when=cond["staged"]),
+        *store.file(CONST_ROADMAP_LABELS_PATH, None),
     ]
     writes = [
         git(
@@ -702,6 +709,8 @@ def implement_requests(
         ),
         other("REST write", "body", "PATCH", pulls),
         other("REST write", "pull_comment", "POST", f"{issues}/{_p('pull')}/comments"),
+        *within(store.label_issue(_p("pull")), repeat=each_item),
+        *within(store.unlabel_issue(_p("pull")), cond["unlabel"], repeat=each_item),
         other("process", "watch", "gh", "pr", "checks", _p("pull")),
         other("process", "run_log", "gh", "run", "view", "--log-failed", when=cond["run_log"]),
         other("model", "model_fix", "model", when=cond["model_fix"]),

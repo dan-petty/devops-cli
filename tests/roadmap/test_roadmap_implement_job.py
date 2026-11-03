@@ -684,15 +684,15 @@ def test_a_conflict_on_the_rebase_before_the_push_pushes_the_commits_that_passed
 
 
 def test_a_step_that_stops_does_not_stop_the_next_item(job_world: JobWorld) -> None:
-    push_staged_branch(job_world.repo, number=2)
     second = seed_staged(job_world.store, pull=6)
+    push_staged_branch(job_world.repo, number=second)
     route_pull_status(job_world.api, pull=6)
     script = ModelScript(say("Stuck."))
 
     applied = job_world.run(script, limit=2)
 
-    assert (second, applied.stopped, applied.failed) == (2, (1, 2), ())
-    assert [_item(job_world, n)[0] for n in (1, 2)] == ["Blocked", "Blocked"]
+    assert (second, applied.stopped, applied.failed) == (second, (1, second), ())
+    assert [_item(job_world, n)[0] for n in (1, second)] == ["Blocked", "Blocked"]
 
 
 def test_a_commit_the_agent_cannot_make_without_a_change_stops_at_the_group(
@@ -995,3 +995,113 @@ def test_missing_change_folder_stops_at_ready(job_world: JobWorld) -> None:
     assert record.get("implement.stopped") == "ready"
     (comment,) = job_world.issue_comments()
     assert "missing" in comment.lower()
+
+
+def test_implement_replaces_staging_labels_with_new_title_labels(job_world: JobWorld) -> None:
+    status = {
+        "state": "open",
+        "draft": True,
+        "merged": False,
+        "title": "docs(openspec): plan #1 Stop the job dropping a comment",
+        "head": {"ref": BRANCH, "sha": ""},
+        "base": {"ref": "main", "sha": "basesha"},
+        "labels": [
+            {"name": "type/docs"},
+            {"name": "scope/openspec"},
+            {"name": "scope/ai"},
+        ],
+    }
+    route_pull_status(job_world.api, status)
+    pr_issue = job_world.store._roadmap.issues[PULL]
+    job_world.store._roadmap.issues[PULL] = pr_issue.model_copy(
+        update={"labels": ("type/docs", "scope/openspec", "scope/ai")}
+    )
+
+    applied = job_world.run(two_groups())
+
+    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    assert set(job_world.store._roadmap.issues[PULL].labels) == {
+        "type/bug",
+        "scope/roadmap",
+        "scope/ai",
+    }
+    unlabels = [w for w in job_world.store._roadmap.job_writes if w.operation == "unlabel_issue"]
+    assert len(unlabels) == 2
+
+
+def test_implement_with_no_labels_held_sends_no_delete(job_world: JobWorld) -> None:
+    status = {
+        "state": "open",
+        "draft": True,
+        "merged": False,
+        "title": "docs(openspec): plan #1 Stop the job dropping a comment",
+        "head": {"ref": BRANCH, "sha": ""},
+        "base": {"ref": "main", "sha": "basesha"},
+        "labels": [],
+    }
+    route_pull_status(job_world.api, status)
+    pr_issue = job_world.store._roadmap.issues[PULL]
+    job_world.store._roadmap.issues[PULL] = pr_issue.model_copy(update={"labels": ()})
+
+    applied = job_world.run(two_groups())
+
+    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    unlabels = [w for w in job_world.store._roadmap.job_writes if w.operation == "unlabel_issue"]
+    assert unlabels == []
+
+
+def test_implement_refused_label_comments_on_pull_and_marks_ready(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devops_cli.exceptions.git import GitHubOperationError
+
+    status = {
+        "state": "open",
+        "draft": True,
+        "merged": False,
+        "title": "docs(openspec): plan #1 Stop the job dropping a comment",
+        "head": {"ref": BRANCH, "sha": ""},
+        "base": {"ref": "main", "sha": "basesha"},
+        "labels": [{"name": "type/docs"}],
+    }
+    route_pull_status(job_world.api, status)
+
+    def fail_label(number: int, label: str) -> None:
+        raise GitHubOperationError("refused label write", operation="label_issue")
+
+    monkeypatch.setattr(job_world.store, "label_issue", fail_label)
+
+    applied = job_world.run(two_groups())
+
+    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    assert len(job_world.pull.ready_calls) == 1
+    comments = job_world.sent("POST", f"issues/{PULL}/comments")
+    assert any(
+        "refused label write" in c.get("body", "") or "type/bug" in c.get("body", "")
+        for c in comments
+    )
+
+
+def test_implement_unauthenticated_label_error_stops_item(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devops_cli.exceptions.git import GitHubUnauthenticatedError
+
+    def unauth_label(number: int, label: str) -> None:
+        raise GitHubUnauthenticatedError("bad token", operation="label_issue")
+
+    monkeypatch.setattr(job_world.store, "label_issue", unauth_label)
+
+    with pytest.raises(GitHubUnauthenticatedError, match="bad token"):
+        job_world.run(two_groups())
+
+
+def test_planned_item_holds_labels_and_removes_none(planned_world: JobWorld) -> None:
+    applied = planned_world.run(two_groups())
+
+    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    assert set(planned_world.store._roadmap.issues[PULL].labels) == {"type/bug", "scope/roadmap"}
+    unlabels = [
+        w for w in planned_world.store._roadmap.job_writes if w.operation == "unlabel_issue"
+    ]
+    assert unlabels == []

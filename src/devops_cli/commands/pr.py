@@ -1038,9 +1038,12 @@ def _labels_recorded(repo: str | None, number: int, title: str, base: str | None
     target = _target_repo(repo)
     if not target or "/" not in target:
         return True
+    from devops_cli.roadmap.store import get_roadmap_store
+
+    store = get_roadmap_store(target)
     try:
-        given = pull_labels.read_title_labels(target, title, ref=base)
-        pull_labels.add_pull_labels(target, number, given.labels)
+        given = pull_labels.read_title_labels(store, title, ref=base)
+        pull_labels.add_pull_labels(store, number, given.labels)
     except GitHubOperationError as exc:
         print_error(
             MESSAGES.pr.labels_not_set.format(repo=target, number=number, error=exc), safe=True
