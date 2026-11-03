@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.52.0](https://github.com/dan-petty/devops-cli/compare/v0.51.0...v0.52.0) (2026-11-03)
+
+
+### Features
+
+* **pr:** warn when a pull request body is over 1,000 characters ([#3362](https://github.com/dan-petty/devops-cli/issues/3362)) ([6f3f292](https://github.com/dan-petty/devops-cli/commit/6f3f292be0dfd0be5947e78ddc4763d0a5cf4861))
+* **roadmap:** the implement agent can amend a defective plan ([#3361](https://github.com/dan-petty/devops-cli/issues/3361)) ([bf1d8c6](https://github.com/dan-petty/devops-cli/commit/bf1d8c61ddfc6233026cb421b8a47b1dc3c23d9e))
+
+
+### Bug Fixes
+
+* **roadmap:** check a split reply and the white space of openspec ([#3357](https://github.com/dan-petty/devops-cli/issues/3357)) ([8613a2d](https://github.com/dan-petty/devops-cli/commit/8613a2da2fd75a748abe82459177f91adf41bbcd))
+* **roadmap:** keep the class of a refused command ([#3359](https://github.com/dan-petty/devops-cli/issues/3359)) ([e5b8191](https://github.com/dan-petty/devops-cli/commit/e5b8191b530bed2a37a0c87cecaf3f8c2c5887f5))
+
 ## [0.51.0](https://github.com/dan-petty/devops-cli/compare/v0.50.0...v0.51.0) (2026-11-03)
 
 
