@@ -81,10 +81,10 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
     CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
     CONST_ROADMAP_IMPLEMENT_REASON_TESTS,
-    CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS,
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
     CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
+    CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
@@ -684,9 +684,14 @@ def _git(source: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 
 def _tail(done: subprocess.CompletedProcess[str]) -> str:
-    """The last lines of what a command printed."""
+    """The last lines of what a command printed, each line escaped by `shown` and cut to
+    `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters, so the output holds no raw control
+    character or bidi override when it reaches the comment of a stop."""
     lines = f"{done.stdout or ''}{done.stderr or ''}".strip().splitlines()
-    return "\n".join(lines[-CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES:])
+    return "\n".join(
+        shown(line, CONST_ROADMAP_IMPLEMENT_REASON_CHARS)
+        for line in lines[-CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES:]
+    )
 
 
 def _git_output(source: Path, *args: str) -> str:
@@ -796,7 +801,7 @@ def _unticked_failure(inputs: StepInputs) -> str | None:
 
 
 def _command_failure(
-    source: Path, argv: Sequence[str], shown: str, *, negative: bool = False
+    source: Path, argv: Sequence[str], named: str, *, negative: bool = False
 ) -> str | None:
     """Run `argv` in the checkout. None when it exits 0, else why the step stops. A `negative`
     search passes on exit 1 (git found no match), and a match (exit 0) is why it stops."""
@@ -804,15 +809,15 @@ def _command_failure(
     try:
         done = run_subprocess(list(argv), cwd=source, quiet=True, timeout=limit)
     except subprocess.TimeoutExpired:
-        return MESSAGES.roadmap.implement_stop_command_timeout.format(command=shown, seconds=limit)
+        return MESSAGES.roadmap.implement_stop_command_timeout.format(command=named, seconds=limit)
     if done.returncode == (1 if negative else 0):
         return None
     if negative and done.returncode == 0:
         return MESSAGES.roadmap.implement_stop_search_found.format(
-            command=shown, output=_tail(done)
+            command=named, output=_tail(done)
         )
     return MESSAGES.roadmap.implement_stop_command_failed.format(
-        command=shown, status=done.returncode, output=_tail(done)
+        command=named, status=done.returncode, output=_tail(done)
     )
 
 
@@ -823,7 +828,7 @@ def commands_failure(source: Path, commands: Iterable[str]) -> str | None:
     and passes when it finds nothing (#3263). The step runs the verification commands of a group,
     from the tasks as they were before the run."""
     for command in commands:
-        named = shown(command, CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS)
+        named = shown(command, CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS)
         found = read_verification(command)
         if isinstance(found, str):
             return MESSAGES.roadmap.implement_stop_command_refused.format(
@@ -844,10 +849,10 @@ def _paths_text(
     names: Sequence[str], limit: int = CONST_ROADMAP_IMPLEMENT_REASON_PATHS, separator: str = ", "
 ) -> str:
     """`names` as one line, cut to `limit` names, with the count of the rest."""
-    shown = names[:limit]
-    paths = separator.join(shown)
-    if len(names) > len(shown):
-        paths += MESSAGES.roadmap.implement_paths_more.format(count=len(names) - len(shown))
+    listed = names[:limit]
+    paths = separator.join(listed)
+    if len(names) > len(listed):
+        paths += MESSAGES.roadmap.implement_paths_more.format(count=len(names) - len(listed))
     return paths
 
 

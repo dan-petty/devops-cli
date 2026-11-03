@@ -117,12 +117,15 @@ def _text_around(template: str, *fields: str) -> str:
     return pattern
 
 
-# A verification command that the step refuses: its message names the command and then the reason,
-# and the reason may list `mypy` and `ruff`, so this rule comes before the rules for a type check
-# (#3263).
+# A verification command that the step refuses: its message names the command and then the reason.
+# The command can hold the words of any other rule (`timed out`, `rate limit`), and the reason can
+# list `mypy` and `ruff`, so this rule is read first, and only at the start of the text (#3263).
 _REFUSED_COMMAND: Final[str] = _text_around(
     MESSAGES.roadmap.implement_stop_command_refused, "command", "reason"
 )
+
+
+_REFUSED_AT_START: Final[re.Pattern[str]] = re.compile(rf"\A{_REFUSED_COMMAND}", _FLAGS)
 
 
 def _rule(klass: FailureClass, pattern: str) -> tuple[FailureClass, re.Pattern[str]]:
@@ -161,8 +164,7 @@ _CAUSE_RULES: Final[tuple[tuple[FailureClass, re.Pattern[str]], ...]] = (
     # command (#2735). "Refused commands: 0" is a count of none.
     _rule(
         FailureClass.REFUSED_TOOL,
-        r"exceeded max retries|Refused commands: (?!0\b)|refused by (the )?policy"
-        f"|{_REFUSED_COMMAND}",
+        r"exceeded max retries|Refused commands: (?!0\b)|refused by (the )?policy",
     ),
 )
 
@@ -221,7 +223,7 @@ def classify_failure(evidence: FailureEvidence) -> FailureClass:
     by_signal = _EXIT_STATUS.get(evidence.exit_status) if evidence.exit_status else None
     if by_signal is not None:
         return by_signal
-    if evidence.refusal.strip():
+    if evidence.refusal.strip() or _REFUSED_AT_START.search(evidence.text):
         return FailureClass.REFUSED_TOOL
     found = _first(_CAUSE_RULES, evidence.text) or _first(_CHECK_RULES, evidence.text)
     if found is not None:
