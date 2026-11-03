@@ -360,6 +360,15 @@ PRIVATE_HOST_PATTERNS: tuple[str, ...] = (
 )
 
 
+_PRIVATE_HOST_RE = re.compile("|".join(PRIVATE_HOST_PATTERNS), re.IGNORECASE)
+
+
+def mask_private_hosts(text: str) -> str:
+    """Replace each private host name and private or loopback address in `text` with
+    `<masked-host>` (#3032). `mask_secrets` leaves them as they are."""
+    return _PRIVATE_HOST_RE.sub("<masked-host>", text)
+
+
 def redact_text(text: str, syntax: Literal["code", "data"] | str = "data") -> str:
     """Sanitize and redact known credential and secret patterns in the input text."""
     if not text:

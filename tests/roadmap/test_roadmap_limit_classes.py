@@ -264,6 +264,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS": ("kept", "a line of the Job log"),
     "CONST_ROADMAP_IMPLEMENT_STOP_REASONS": ("kept", "reasons in a stop, read by a person"),
+    "CONST_ROADMAP_IMPLEMENT_TRACE_CHARS": (
+        "kept",
+        "the record in the issue body, read by a person",
+    ),
+    "CONST_ROADMAP_IMPLEMENT_TABLE_ROWS": (
+        "kept",
+        "GitHub comment of 65,536 characters, read by a person",
+    ),
     "CONST_ROADMAP_IMPLEMENT_HEAD_POLLS": (
         "kept",
         "the time that GitHub takes to show a pushed head",
@@ -432,6 +440,7 @@ def test_the_texts_of_a_stop_fit_one_comment_of_65536_characters() -> None:
         constants.CONST_ROADMAP_IMPLEMENT_DIFF_CHARS
         + constants.CONST_ROADMAP_IMPLEMENT_REASON_CHARS
         + constants.CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS
+        + constants.CONST_ROADMAP_IMPLEMENT_TABLE_ROWS * 300
     )
 
     assert parts < comment

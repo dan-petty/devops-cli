@@ -290,8 +290,8 @@ def test_the_outcome_of_each_step_is_one_comment_on_the_pull_request_and_not_in_
     assert len(comments) == 1
     body = comments[0]["body"]
     assert body.startswith(MARKER)
-    assert "The first group" in body
-    assert "The second group" in body
+    assert "| group 1 | done |" in body
+    assert "| group 2 | done |" in body
     assert "Group 1 is done" not in job_world.sent("PATCH", f"pulls/{PULL}")[0]["body"]
 
 

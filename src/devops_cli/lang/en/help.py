@@ -1450,6 +1450,10 @@ class RoadmapCommandHelp:
         "earlier run recorded it."
     )
     explain_arg: str = "The issue number to explain."
+    explain_trace: str = (
+        "Print the trace of the last run of the implement job for the issue, oldest event first, "
+        "and no verdict. The command reads the one issue, and no clone, and writes nothing."
+    )
     explain_source: str = (
         "Path to a clone of the repository. Without it, the command uses the model clone."
     )

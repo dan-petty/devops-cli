@@ -759,10 +759,17 @@ def explain_cmd(
     limit: Annotated[
         int | None, typer.Option("--limit", min=1, help=HELP.roadmap.explain_limit)
     ] = None,
+    trace: Annotated[bool, typer.Option("--trace", help=HELP.roadmap.explain_trace)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.explain_dry_run)] = False,
 ) -> None:
-    """Say whether the stage job and the implement job take an issue, and why not."""
-    from devops_cli.roadmap.explain import explain_item, render_explanation
+    """Say whether the stage job and the implement job take an issue, and why not. With --trace,
+    print the trace of the last run of the implement job instead."""
+    from devops_cli.roadmap.explain import (
+        explain_item,
+        read_trace,
+        render_explanation,
+        render_trace,
+    )
     from devops_cli.roadmap.implement import parse_implement_filters
     from devops_cli.roadmap.request_plan import explain_requests
     from devops_cli.roadmap.run import model_clone
@@ -770,8 +777,14 @@ def explain_cmd(
 
     target = _target(repo)
     if dry_run or is_dry_run():
-        reads, writes = explain_requests(target, item=item)
+        reads, writes = explain_requests(target, item=item, trace=trace)
         render_dry_run("explain", target, reads, writes)
+        return
+    if trace:
+        with _exit_on_failure("Could not read the trace"):
+            _, store = _open_store(target)
+            report = render_trace(read_trace(store, item), number=item)
+        write_stdout(report + "\n")
         return
     with _exit_on_failure("Could not read the options"):
         stage_filters = parse_filters(filters or ())
