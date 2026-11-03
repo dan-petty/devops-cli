@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS
 from devops_cli.roadmap.implement_shell_policy import fill_prompt, verification_problem
 from devops_cli.roadmap.implement_step import StepStatus, commands_failure, run_step
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -30,8 +30,10 @@ from tests.support.implement_step import (
     TASKS_PATH,
     WINDOW,
     command_text,
+    git,
     make_checkout,
     programs_run,
+    the_whole_group,
     write_call,
 )
 from tests.support.model_script import ModelScript, say, tool_calls
@@ -213,7 +215,7 @@ def test_the_words_of_a_command_may_hold_2000_characters_and_not_2001() -> None:
         None,
         "it is longer than 2000 characters",
     )
-    assert CONST_ROADMAP_IMPLEMENT_SEARCH_CHARS == LIMIT
+    assert CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS == LIMIT
 
 
 # ── The cuts and the escapes of a word in a reason ────────────────────────────────────────
@@ -278,3 +280,114 @@ def test_the_programs_run_stay_empty_for_a_refused_command(
     commands_failure(checkout, ["curl x", "! git grep -O x src/"])
 
     assert programs_run(programs, "curl") == []
+
+
+# ── The output of a command is escaped too ───────────────────────────────────────────────
+
+OUTPUT = "bad \x1b[31mred\u202e @octocat\x85 end\x00"
+
+
+def test_the_output_of_a_failed_command_is_in_the_reason_with_no_control_character(
+    checkout: Path, programs: ProcessFake
+) -> None:
+    programs.answer(
+        lambda call: command_text(call).startswith("uv run devops ci"),
+        ProcessAnswer(returncode=1, stdout=f"{OUTPUT}\nsecond line\n"),
+    )
+
+    reason = commands_failure(checkout, ["uv run devops ci"])
+
+    assert reason is not None
+    assert _hostile(reason.replace("\n", " ")) == []
+    # `splitlines` of the output breaks the line at the NEL, and each part is escaped.
+    assert reason.splitlines()[1:] == [
+        "bad \\x1b[31mred\\u202e @octocat",
+        " end\\x00",
+        "second line",
+    ]
+
+
+def test_the_matching_lines_of_a_negative_search_are_in_the_reason_with_no_control_character(
+    checkout: Path, programs: ProcessFake
+) -> None:
+    # A NUL byte makes git call the file binary, so the line has none.
+    line = f"foo {OUTPUT}".replace("\x00", "")
+    (checkout / "src" / "hostile.py").write_text(f"{line}\n", encoding="utf-8")
+    git(checkout, "add", "-A")
+
+    reason = commands_failure(checkout, ["! git grep -n foo -- src"])
+
+    assert reason is not None
+    assert _hostile(reason.replace("\n", " ")) == []
+    # `splitlines` breaks the matching line at the NEL, and each part is escaped.
+    assert reason.splitlines()[1:] == [
+        "src/hostile.py:1:foo bad \\x1b[31mred\\u202e @octocat",
+        " end",
+    ]
+
+
+def test_the_outcome_of_a_step_holds_no_control_character_of_the_output_of_a_command(
+    implement_store: InMemoryRoadmapStore, tmp_path: Path, programs: ProcessFake
+) -> None:
+    checkout = make_checkout(tmp_path)
+    programs.answer(
+        lambda call: command_text(call) == DOCS,
+        ProcessAnswer(returncode=1, stdout=f"{OUTPUT}\n"),
+    )
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."))
+
+    outcome = run_step(
+        implement_store, item=1, group=1, source=checkout, model=script.model(), window=WINDOW
+    )
+
+    assert outcome.status is StepStatus.STOPPED
+    assert _hostile(outcome.reason.replace("\n", " ")) == []
+    assert "bad \\x1b[31mred" in outcome.reason
+
+
+# ── A word that cannot be an argument is refused ─────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep a\x00b src/",
+        "uv run devops ci a\x00b",
+        "git grep \ud800 -- src",
+        "! git grep -n a\x00b src/",
+    ],
+    ids=["nul-grep", "nul-uv", "surrogate", "nul-search"],
+)
+def test_a_word_with_a_nul_byte_or_a_lone_surrogate_is_refused_not_raised(
+    checkout: Path, programs: ProcessFake, command: str
+) -> None:
+    problem = verification_problem(command)
+    reason = commands_failure(checkout, [command])
+
+    assert problem is not None
+    assert reason is not None
+    assert reason.endswith(f"is refused: {problem}.")
+    assert programs.calls == []
+    assert _hostile(reason) == []
+
+
+def test_the_reason_for_a_nul_byte_says_what_is_wrong() -> None:
+    assert verification_problem("grep a\x00b src/") == (
+        "a word holds a NUL byte or a character that cannot be encoded"
+    )
+
+
+def test_the_gate_refuses_a_command_with_a_nul_byte() -> None:
+    (problem,) = form_problems([_group("uv run devops ci a\x00b")])
+
+    assert "a word holds a NUL byte" in problem
+    assert _hostile(problem) == []
+
+
+def test_the_problem_for_a_backtick_names_the_command_escaped_and_cut() -> None:
+    problems = form_problems([_group("uv run devops ci `x\x1b[31m" + "a" * 3000)])
+
+    (problem,) = [text for text in problems if "holds a backtick" in text]
+    assert _hostile(problem) == []
+    assert "\\x1b[31m" in problem
+    assert len(problem) < LIMIT + 400

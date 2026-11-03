@@ -1082,7 +1082,7 @@ The `title`, `test`, `implementation`, `documentation`, `verify` and `process` o
 - **THEN** `form_problems` gives two problems: the backtick, and the form to use
 
 ### Requirement: The paths of a negative search are checked against the staged commit
-`check_proposal` SHALL read the paths of a `verify` command that is a negative search from the reader of the step, and SHALL refuse a path that is no file or folder of the staged commit and that no group up to its own creates. The path `.` SHALL not be judged. A glob SHALL be judged by the files that it matches.
+`check_proposal` SHALL read the paths of a `verify` command that is a negative search from the reader of the step, and SHALL refuse a path that is no file or folder of the staged commit and that no group up to its own creates. A path that ends in `/` SHALL be a folder. The path `.` SHALL not be judged. A glob SHALL be judged by the files that it matches.
 
 #### Scenario: A folder that is not in the commit
 - **WHEN** a group gives the `verify` command `! git grep -n hello scr/ testz/` and the commit has `src/` and `tests/` only
@@ -1092,8 +1092,12 @@ The `title`, `test`, `implementation`, `documentation`, `verify` and `process` o
 - **WHEN** a group gives the `verify` command `! git grep -n old_name src/ tests/`, `! git grep -n x -- .` or `! git grep -n x -- tests/newdir`, and the plan creates `tests/newdir/test_new.py`
 - **THEN** `check_proposal` returns no problem about the paths
 
+#### Scenario: A file with a trailing slash
+- **WHEN** a group gives the `verify` command `! git grep -n devops README.md/` and `README.md` is a file of the commit
+- **THEN** `check_proposal` returns a problem for `README.md`
+
 ### Requirement: A text of the proposal, the design and the spec delta stays on one line
-The `why`, `what_changes`, `feasibility` and `existing_tool` of the reply, the texts of its decisions and rejected alternatives, and the `purpose`, the names, the texts and the scenario lines of its spec deltas, SHALL be written on one line. A text that is written at the start of a line SHALL start with no mark of markdown: a heading, a quote, a list marker, a box, a rule, a fence or a comment. The reply that breaks the rule fails the schema.
+The `why`, `what_changes`, `feasibility` and `existing_tool` of the reply, the texts of its decisions and rejected alternatives, and the `purpose`, the names, the texts and the scenario lines of its spec deltas, SHALL be written on one line, and U+FEFF SHALL count as white space. A text at the start of a line SHALL start with no mark of markdown: a heading, a quote, a list marker, a box, a rule, a fence or an HTML tag. The reply that breaks the rule fails the schema.
 
 #### Scenario: A removed section in a requirement
 - **WHEN** the `text` of a requirement holds a line break, a heading `## REMOVED Requirements` and a requirement
@@ -1106,6 +1110,14 @@ The `why`, `what_changes`, `feasibility` and `existing_tool` of the reply, the t
 #### Scenario: A line break in a bullet
 - **WHEN** an item of `feasibility` holds a blank line and a heading
 - **THEN** the item is one line
+
+#### Scenario: A mark after U+FEFF
+- **WHEN** the `purpose` of a spec is U+FEFF, `##`, U+FEFF and `REMOVED Requirements`
+- **THEN** the reply fails the schema
+
+#### Scenario: An HTML tag
+- **WHEN** the `existing_tool` of the reply starts with `<pre>`
+- **THEN** the reply fails the schema
 
 ### Requirement: A verify command keeps its spaces
 The `verify` of a task group SHALL be written on one line by joining its lines with one space, and SHALL keep every other space of the command.
@@ -1136,3 +1148,29 @@ After the job records an item, it SHALL add to its draft pull request the `type/
 #### Scenario: A dry run
 - **WHEN** `devops roadmap stage --dry-run` runs
 - **THEN** the plan lists the read of `.github/labels.yml` and the request that adds a label to the draft, and the run makes no request
+
+### Requirement: A split reply is checked for the form of its commands
+The job SHALL check the groups of a split reply for the form of their `verify` commands, as it checks the groups of a plan, and SHALL send a reply with a problem back to the model once.
+
+#### Scenario: A split group with two commands
+- **WHEN** a split group has a `verify` of ``uv run devops ci test tests/x.py` and `git push origin HEAD``
+- **THEN** the reply goes back to the model with the `verify` problem, and the model is asked once more
+
+### Requirement: A task of a group holds more than one word
+`form_problems` SHALL give a problem for each `test`, `implementation` or `documentation` text of a group that holds one word or less, with a code span counted as one word. The problem SHALL name the group by its number and its title, and the part of the text.
+
+#### Scenario: A bare filename as the first task
+- **WHEN** the `test` of a behavior group is `src/devops_cli/roadmap/stage_form.py`
+- **THEN** `form_problems` gives one problem, and it names the group and the part `test`
+
+#### Scenario: A single word as the work
+- **WHEN** the `implementation` of a group is `Refactor`
+- **THEN** `form_problems` gives one problem that names the part `implementation`
+
+#### Scenario: A code span alone
+- **WHEN** the `test` of a group is a path in a code span
+- **THEN** `form_problems` gives one problem
+
+#### Scenario: A task with a verb and an object
+- **WHEN** the `test` of a group is `Add a test in tests/roadmap/test_roadmap_stage_form.py for a bare filename task`
+- **THEN** `form_problems` gives no problem for the task

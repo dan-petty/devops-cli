@@ -116,24 +116,29 @@ def _capability_name(name: str) -> str:
 RepositoryPath = Annotated[str, AfterValidator(_repository_path)]
 
 
+# U+FEFF is white space for the JavaScript `\\s` that `openspec` reads, and it is none for
+# Python. Every other character of that class is white space for Python too.
+_JS_SPACE: Final[dict[int, str]] = {0xFEFF: " "}
+
+
 def _one_line(text: str) -> str:
     """The text on one line, so that a text of the reply adds no line, no task, no group, no
     section and no `Verification:` line to a file of the change. Each run of white space, a line
     break of markdown (`\\n`, `\\r`) and one of `str.splitlines` among them, becomes one space."""
-    return " ".join(text.split())
+    return " ".join(text.translate(_JS_SPACE).split())
 
 
 def _join_lines(text: str) -> str:
     """The text on one line, with each line break as one space and every other space kept: a
     command may hold two spaces in a quoted word."""
-    return " ".join(text.splitlines())
+    return " ".join(text.translate(_JS_SPACE).splitlines()).strip()
 
 
 # What starts a block in markdown, at the start of a line: a heading, a quote, a list marker or a
 # box, a rule, a fence, a comment of HTML.
 _BLOCK_START: Final[re.Pattern[str]] = re.compile(
     r"#{1,6}(?:\s|$)|>|[-*+](?:\s|$)|\d{1,9}[.)](?:\s|$)|\[[ xX]\]"
-    r"|(?:-{3,}|_{3,}|\*{3,}|={3,}|~{3,}|`{3,})|<!--"
+    r"|(?:-{3,}|_{3,}|\*{3,}|={3,}|~{3,}|`{3,})|<[A-Za-z/!?]"
 )
 
 
@@ -641,7 +646,7 @@ def group_text(index: int, group: StageGroup) -> str:
     return f"## {index}. {group.title}\n\n{files}\n\n{tasks}"
 
 
-def _criteria_section(criteria: Sequence[StageCriterion]) -> str:
+def criteria_section(criteria: Sequence[StageCriterion]) -> str:
     """The `## Criteria` section of `tasks.md`: one line for each acceptance criterion with the
     group that delivers it, or `pending-person` and the reason. It is no task, so it has no box.
     A line starts with a fixed word and holds the folded text of the criterion, which comes from
@@ -657,6 +662,9 @@ def _criteria_section(criteria: Sequence[StageCriterion]) -> str:
         for c in criteria
     ]
     return f"## {texts.stage_criteria_title}\n\n{_bullets(lines)}\n\n" if lines else ""
+
+
+_criteria_section = criteria_section
 
 
 def _tasks_file(groups: Sequence[StageGroup], criteria: Sequence[StageCriterion] = ()) -> str:

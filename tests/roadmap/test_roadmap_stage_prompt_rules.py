@@ -137,6 +137,14 @@ def test_the_prompt_names_the_value_of_a_criterion_that_only_a_person_delivers()
     assert f"`{PENDING_PERSON}`" in _PROMPT
 
 
+def test_the_split_prompt_says_what_a_group_with_text_means() -> None:
+    prompt = load_task_prompt(_SPLIT_PROMPT)
+    assert (
+        "A group with `text` has the markdown text of the group from `tasks.md` in place of the "
+        "fields of a staged group."
+    ) in prompt
+
+
 # ── The limits ────────────────────────────────────────────────────────────────
 
 
