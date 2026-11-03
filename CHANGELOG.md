@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.53.3](https://github.com/dan-petty/devops-cli/compare/v0.53.2...v0.53.3) (2026-11-03)
+
+
+### Bug Fixes
+
+* **roadmap:** measure a group with one exact token counter ([#3377](https://github.com/dan-petty/devops-cli/issues/3377)) ([36943aa](https://github.com/dan-petty/devops-cli/commit/36943aaa3e2268081d27b9aa477a4ec982bf6539))
+* **roadmap:** refuse an overlong title summary at stage ([#3381](https://github.com/dan-petty/devops-cli/issues/3381)) ([df40366](https://github.com/dan-petty/devops-cli/commit/df40366d4af38cc554e278c8409b6df6557d2d9b))
+
 ## [0.53.2](https://github.com/dan-petty/devops-cli/compare/v0.53.1...v0.53.2) (2026-11-03)
 
 
