@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.51.0](https://github.com/dan-petty/devops-cli/compare/v0.50.0...v0.51.0) (2026-11-03)
+
+
+### Features
+
+* **roadmap:** first pass of alternatives takes 20 items a round ([#3353](https://github.com/dan-petty/devops-cli/issues/3353)) ([78bdd53](https://github.com/dan-petty/devops-cli/commit/78bdd530e6ce695b596b47dc3b4c7d5f74a5a3a9))
+* **roadmap:** keep and show a trace of each run ([#3355](https://github.com/dan-petty/devops-cli/issues/3355)) ([21722f7](https://github.com/dan-petty/devops-cli/commit/21722f7c6444ce66fbc9a02445172e9c34242397))
+
+
+### Bug Fixes
+
+* **roadmap:** refuse a bare task and a repeated title word ([#3356](https://github.com/dan-petty/devops-cli/issues/3356)) ([ed77fe8](https://github.com/dan-petty/devops-cli/commit/ed77fe8a2fa8c0da580c5a0a4ce1eedee0e4f463))
+
 ## [0.50.0](https://github.com/dan-petty/devops-cli/compare/v0.49.0...v0.50.0) (2026-11-03)
 
 
