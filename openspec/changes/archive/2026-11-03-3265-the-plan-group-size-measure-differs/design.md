@@ -3,9 +3,9 @@
 ## Decisions
 
 - **Both the stage and the implement Job count with the tiktoken encoding that `devops_cli.ai.context_budget` selects, and both raise an error that names the missing cache when it is absent.**: One counter gives one measure. The character fallback is what makes the stage and the Job disagree.
-- **A `creates` path carries a line estimate, and the stage adds 32 tokens for each estimated line.**: 32 tokens a line bounds dense code and markup, so a 1,500-line file counts as 48,000 tokens and fails the 40,000-token budget before the Job runs.
+- **A `creates` path carries a line estimate in `creates_lines`, and the stage adds 32 tokens for each estimated line.**: 32 tokens a line bounds dense code and markup, so a 1,500-line file counts as 48,000 tokens and fails a 40,000-token budget before the Job runs. The run's `budget` setting decides the budget that the stage and the prompt use.
 - **The stage refuses a group that gives no line estimate for a `creates` path, and names the path.**: An unestimated file is an unmeasured group, which is the defect that the issue reports.
-- **The staging tasks state the 40,000-token budget and the line-estimate rule for each `creates` path.**: The planner sizes a group from the prompt, so the limit and the estimate rule have to be in it.
+- **The staging tasks name the `budget` of the run and the line-estimate rule for each `creates` path.**: The planner sizes a group from the prompt, so the limit and the estimate rule have to be in it.
 
 ## Rejected alternatives
 

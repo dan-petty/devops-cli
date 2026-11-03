@@ -1265,6 +1265,35 @@ The stage replay SHALL catch a recorded placeholder plan as a defect of type `ot
 - **WHEN** The plan of that case holds real text in every field that the content gate reads.
 - **THEN** `replay_case` marks the `content` defect `missed` and reports a failure.
 
+### Requirement: The group measure and the Job use one token counter
+The stage SHALL count the tokens of a task group with the same tiktoken encoding as the implement Job, and SHALL raise an error that names the missing tiktoken cache when the encoding cannot be loaded.
+
+#### Scenario: Both paths count the same text
+- **WHEN** The stage and the implement Job count the same task-group text and the tiktoken cache is present
+- **THEN** Both give the same token count
+
+#### Scenario: The token cache is missing
+- **WHEN** A plan run measures a task group and the tiktoken cache is missing
+- **THEN** The run fails with an error that names the missing cache and no character count is used
+
+### Requirement: A created file counts its estimated lines
+The stage SHALL add 32 tokens for each estimated line of a path in the `creates` of a task group to the token count of that group, and SHALL refuse a group whose `creates` path has no line estimate with an error that names the path.
+
+#### Scenario: A group creates a 1,500-line file
+- **WHEN** A task group has a `creates_lines` entry with a 1,500-line estimate and no other input
+- **THEN** The stage counts the group as at least 48,000 tokens and refuses it as over a 40,000-token budget
+
+#### Scenario: A creates path has no estimate
+- **WHEN** A task group creates a file and the reply gives no line estimate for that path
+- **THEN** The stage refuses the group with an error that names the path
+
+### Requirement: The staging prompt states the budget and the estimate rule
+The staging prompt SHALL name the `budget` of the run as the most tokens of one step and the rule that each `creates` path carries a line estimate.
+
+#### Scenario: The prompt states both limits
+- **WHEN** The staging prompt of a plan run is loaded
+- **THEN** It names the `budget` of the run and the line-estimate rule for each `creates` path
+
 ### Requirement: The stage job checks the form of the plan title
 The stage job SHALL run `title_problems` on the title that it builds for the plan. A reply whose title has a problem SHALL go back to the model once with the problems, and a second reply with a problem SHALL stop the item.
 
@@ -1275,3 +1304,25 @@ The stage job SHALL run `title_problems` on the title that it builds for the pla
 #### Scenario: A summary with the issue number
 - **WHEN** the reply has the summary `Stop #1 dropping a comment` for issue 1, and the second reply is the same
 - **THEN** the job sends a problem that names `#1`, and the item makes no plan
+
+### Requirement: A task group writes no living spec
+A `StageGroup` SHALL reject a path under `openspec/specs/` in `changes` or in `creates`, with a validation error that names the path and says that only `openspec archive` writes living specs. A path under `openspec/specs/` in `reads` SHALL stay accepted.
+
+#### Scenario: A group lists a living spec in changes
+- **WHEN** A `StageGroup` lists `openspec/specs/config-commands/spec.md` in `changes` and `creates`
+- **THEN** validation fails, and the error names `openspec/specs/config-commands/spec.md` and says that only `openspec archive` writes living specs
+
+#### Scenario: A group lists a living spec in creates
+- **WHEN** A `StageGroup` lists `openspec/specs/new-capability/spec.md` in `changes` and `creates`
+- **THEN** validation fails, and the error names `openspec/specs/new-capability/spec.md`
+
+#### Scenario: A group writes a source file and reads a living spec
+- **WHEN** A `StageGroup` lists `src/devops_cli/sample.py` in `changes` and `openspec/specs/config-commands/spec.md` in `reads`
+- **THEN** validation succeeds
+
+### Requirement: The stage prompt states the living-spec rule
+The stage prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` SHALL state that a task group never puts a path under `openspec/specs/` in `changes` or in `creates`, and that `openspec archive` writes living specs.
+
+#### Scenario: The prompt holds the living-spec rule
+- **WHEN** a test reads `src/devops_cli/ai/tasks/roadmap_stage_change.md`
+- **THEN** the text says that a task group must not change or create a file under `openspec/specs/`, and that `openspec archive` writes living specs
