@@ -1264,3 +1264,32 @@ The stage replay SHALL catch a recorded placeholder plan as a defect of type `ot
 #### Scenario: Placeholder case no longer refused
 - **WHEN** The plan of that case holds real text in every field that the content gate reads.
 - **THEN** `replay_case` marks the `content` defect `missed` and reports a failure.
+
+### Requirement: The group measure and the Job use one token counter
+The stage SHALL count the tokens of a task group with the same tiktoken encoding as the implement Job, and SHALL raise an error that names the missing tiktoken cache when the encoding cannot be loaded.
+
+#### Scenario: Both paths count the same text
+- **WHEN** The stage and the implement Job count the same task-group text and the tiktoken cache is present
+- **THEN** Both give the same token count
+
+#### Scenario: The token cache is missing
+- **WHEN** A plan run measures a task group and the tiktoken cache is missing
+- **THEN** The run fails with an error that names the missing cache and no character count is used
+
+### Requirement: A created file counts its estimated lines
+The stage SHALL add 32 tokens for each estimated line of a path in the `creates` of a task group to the token count of that group, and SHALL refuse a group whose `creates` path has no line estimate with an error that names the path.
+
+#### Scenario: A group creates a 1,500-line file
+- **WHEN** A task group has a `creates_lines` entry with a 1,500-line estimate and no other input
+- **THEN** The stage counts the group as at least 48,000 tokens and refuses it as over a 40,000-token budget
+
+#### Scenario: A creates path has no estimate
+- **WHEN** A task group creates a file and the reply gives no line estimate for that path
+- **THEN** The stage refuses the group with an error that names the path
+
+### Requirement: The staging prompt states the budget and the estimate rule
+The staging prompt SHALL name the `budget` of the run as the most tokens of one step and the rule that each `creates` path carries a line estimate.
+
+#### Scenario: The prompt states both limits
+- **WHEN** The staging prompt of a plan run is loaded
+- **THEN** It names the `budget` of the run and the line-estimate rule for each `creates` path

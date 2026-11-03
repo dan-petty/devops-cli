@@ -655,10 +655,11 @@ def test_host_path_access_to_proc_or_tiktoken_fails_with_edge_name(
     assert "host path reached without a fake: /usr/local/share/tiktoken/test.bpe" in output
 
 
-def test_tokenizer_cache_points_to_empty_directory_by_default(
+def test_tokenizer_cache_points_to_the_recorded_directory(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """TIKTOKEN_CACHE_DIR and DATA_GYM_CACHE_DIR point to an empty directory in the floor (#2165)."""
+    """TIKTOKEN_CACHE_DIR and DATA_GYM_CACHE_DIR point to the recorded encoding, so every host
+    gives the same exact count (#2165, #3265)."""
     result = _run_with_floor(
         pytester,
         monkeypatch,
@@ -667,15 +668,13 @@ def test_tokenizer_cache_points_to_empty_directory_by_default(
         from pathlib import Path
         from devops_cli.ai.context_budget import count_tokens
 
-        def test_cache_is_isolated():
+        def test_cache_is_recorded():
             tiktoken_dir = Path(os.environ["TIKTOKEN_CACHE_DIR"])
             data_gym_dir = Path(os.environ["DATA_GYM_CACHE_DIR"])
             assert tiktoken_dir.is_dir()
-            assert not list(tiktoken_dir.iterdir())
-            assert data_gym_dir.is_dir()
-            assert not list(data_gym_dir.iterdir())
-            # Falls back to character heuristic ceil(11 / 4) == 3 uniformly on all hosts
-            assert count_tokens("hello world") == 3
+            assert list(tiktoken_dir.iterdir())
+            assert data_gym_dir == tiktoken_dir
+            assert count_tokens("hello world") == 2
         """,
     )
     result.assert_outcomes(passed=1)

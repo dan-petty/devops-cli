@@ -9,8 +9,9 @@ The stage of #3265 passes a task group that the implement Job later stops on its
 - `src/devops_cli/ai/context_budget.py` fails with a clear error when the tiktoken cache is missing instead of counting characters, so the stage and the Job share one count.
 - The stage measure in `src/devops_cli/roadmap/stage_change.py` adds the estimated lines of each created file at a fixed tokens-per-line rate.
 - The stage refuses a task group whose `creates` path has no line estimate.
-- The staging tasks `src/devops_cli/ai/tasks/roadmap_stage_change.md` and `src/devops_cli/ai/tasks/roadmap_stage_split.md` state the 40,000-token budget and the line-estimate rule.
-- Tests in `tests/ai/test_context_budget.py`, `tests/roadmap/test_roadmap_stage_plan.py`, and `tests/roadmap/test_roadmap_stage_prompt_rules.py` cover the missing cache, the shared count, the 1,500-line group, and the updated prompt rules.
+- The staging tasks `src/devops_cli/ai/tasks/roadmap_stage_change.md` and `src/devops_cli/ai/tasks/roadmap_stage_split.md` name the `budget` of the step and the line-estimate rule.
+- `.pre-commit-config.yaml`: The recorded tiktoken encodings are data, so `check-added-large-files` does not refuse them.
+- Tests in `tests/ai/test_context_budget.py`, `tests/roadmap/test_roadmap_stage_plan.py`, and `tests/roadmap/test_roadmap_stage_prompt_rules.py` cover the missing cache, the shared count, the 1,500-line group, and the updated prompt rules. The test floor loads recorded `o200k_base` and `cl100k_base` encoding files from `tests/fixtures/tiktoken/`, so every host counts the same text exactly.
 - This change alters observable behavior of the stage and the Job, so it carries a spec delta.
 - The change fits one pull request.
 
@@ -22,13 +23,13 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-stage`: The group measure and the Job use one token counter, A created file counts its estimated lines, The staging prompt states the budget and the estimate rule
+- `roadmap-stage`: The group measure and the Job use one token counter, A created file counts its estimated lines, The staging prompt names the budget and the estimate rule
 
 ## Impact
 
 - Code: `src/devops_cli/ai/context_budget.py`, `src/devops_cli/roadmap/stage_change.py`
 - Documents: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `src/devops_cli/ai/tasks/roadmap_stage_split.md`
-- Tests: `tests/ai/test_context_budget.py`, `tests/roadmap/test_roadmap_stage_plan.py`, `tests/roadmap/test_roadmap_stage_prompt_rules.py`
+- Tests: `tests/ai/test_context_budget.py`, `tests/roadmap/test_roadmap_stage_plan.py`, `tests/roadmap/test_roadmap_stage_prompt_rules.py`, `tests/conftest.py`, `tests/invariants/test_hermetic_floor.py`, `tests/fixtures/tiktoken/o200k_base.tiktoken`, `tests/fixtures/tiktoken/cl100k_base.tiktoken`, `tests/fixtures/swallowed_failures_ceilings.json`
 
 ## Feasibility
 
