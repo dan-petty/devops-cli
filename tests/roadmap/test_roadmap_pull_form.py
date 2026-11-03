@@ -107,6 +107,40 @@ def test_a_title_with_two_faults_names_both() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("title", "fragment"),
+    [
+        (
+            "docs(openspec): plan #2950 plan alternatives coverage telemetry",
+            "repeats the word `plan`",
+        ),
+        ("docs(openspec): plan #2950 Plan alternatives coverage", "repeats the word `plan`"),
+        ("docs(openspec): plan #2950 Add coverage for #2950", "repeats the issue number `#2950`"),
+        ("fix(pr): fix #12 fix the title", "repeats the word `fix`"),
+    ],
+)
+def test_a_title_that_repeats_a_word_or_the_issue_number_names_the_repeat(
+    title: str, fragment: str
+) -> None:
+    (problem,) = title_problems(title, None)
+
+    assert fragment in problem
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "docs(openspec): plan #2950 Add alternatives coverage telemetry",
+        "docs(openspec): plan #3200 Refuse placeholder and cut plan text",
+        "docs(openspec): plan #3344 Refuse a plan that reads an absent model field",
+        "docs(openspec): plan #2950 Plans #2951 and the next",
+        "fix(pr): handle #12 and #13 together",
+    ],
+)
+def test_a_title_with_a_later_plan_word_or_another_number_has_no_problem(title: str) -> None:
+    assert title_problems(title, None) == []
+
+
 def test_without_the_labels_the_scope_is_not_checked() -> None:
     assert title_problems("feat(zzz-unknown): build it", None) == []
 
