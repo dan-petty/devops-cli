@@ -117,6 +117,15 @@ def test_a_title_with_two_faults_names_both() -> None:
         ("docs(openspec): plan #2950 Plan alternatives coverage", "repeats the word `plan`"),
         ("docs(openspec): plan #2950 Add coverage for #2950", "repeats the issue number `#2950`"),
         ("fix(pr): fix #12 fix the title", "repeats the word `fix`"),
+        ('docs(openspec): plan #2950 "plan" x', "repeats the word `plan`"),
+        ("docs(openspec): plan #2950 (plan) x", "repeats the word `plan`"),
+        ("docs(openspec): plan #2950: plan x", "repeats the word `plan`"),
+        ("docs(openspec): plan  #2950 plan x", "repeats the word `plan`"),
+        ("docs(openspec): fix plan #2950 plan x", "repeats the word `plan`"),
+        ("docs(openspec): re-plan #3 re-plan x", "repeats the word `re-plan`"),
+        ("docs(openspec): plan #2950 - plan x", "repeats the word `plan`"),
+        ("docs(openspec): plan #2950 plan", "repeats the word `plan`"),
+        ("docs(openspec): plan #2950 add #2950", "repeats the issue number `#2950`"),
     ],
 )
 def test_a_title_that_repeats_a_word_or_the_issue_number_names_the_repeat(
@@ -135,6 +144,11 @@ def test_a_title_that_repeats_a_word_or_the_issue_number_names_the_repeat(
         "docs(openspec): plan #3344 Refuse a plan that reads an absent model field",
         "docs(openspec): plan #2950 Plans #2951 and the next",
         "fix(pr): handle #12 and #13 together",
+        "docs(openspec): plan #2950 add #29501",
+        "docs(openspec): plan #2950 add #295",
+        "docs(openspec): plan #\u0663 Add coverage",
+        "docs(openspec): plan #\u0663 plan coverage",
+        "docs(openspec): plan #2950",
     ],
 )
 def test_a_title_with_a_later_plan_word_or_another_number_has_no_problem(title: str) -> None:

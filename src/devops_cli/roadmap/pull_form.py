@@ -60,10 +60,12 @@ _RELEASE_SCOPE: Final[str] = "main"
 _TITLE: Final[re.Pattern[str]] = re.compile(
     r"(?P<type>[a-z]+)(?:\((?P<scope>[^()\s]+)\))?(?P<bang>!?): (?P<summary>\S.*)"
 )
-# A summary that starts with a word and an issue number, such as `plan #2950 Add coverage`: the
-# word, the number and the text after them (#3255).
+# The first word and issue number of a summary, such as `plan #2950 Add coverage`: the word before
+# the number, the number (ASCII digits), and the text after them. Words before the word, spaces
+# before the number, a colon after it and a dash before the text do not hide the repeat (#3255).
 _LEAD: Final[re.Pattern[str]] = re.compile(
-    r"(?P<word>[^\W\d_]+) #(?P<number>\d+)(?: (?P<rest>.*))?"
+    r"(?:\S+\s+)*?(?P<word>[^\W\d_][\w-]*)\s+#(?P<number>[0-9]+)(?![0-9])[\s:\u2013\u2014-]*"
+    r"(?P<rest>.*)"
 )
 _CLOSES_LINE: Final[re.Pattern[str]] = re.compile(r"Closes #(?P<issue>\d+)")
 _PLANS_LINE: Final[re.Pattern[str]] = re.compile(r"Plans #(?P<issue>\d+)")
@@ -132,14 +134,14 @@ def _repeat_problems(summary: str) -> list[str]:
     use of the word is not judged, because `plan #3200 Refuse a plan that ...` is a right title."""
     texts = MESSAGES.pr
     found = _LEAD.match(summary)
-    if found is None or not found["rest"]:
+    if found is None:
         return []
     word, number, rest = found["word"], found["number"], found["rest"]
     problems = []
-    first = rest.split(maxsplit=1)[0].strip(_PLACEHOLDER_EDGES)
+    first = rest.split(maxsplit=1)[0].strip(_PLACEHOLDER_EDGES) if rest else ""
     if first.casefold() == word.casefold():
         problems.append(texts.form_title_repeat_word.format(word=word, number=number))
-    if re.search(rf"#{number}(?!\d)", rest):
+    if re.search(rf"#{number}(?![0-9])", rest):
         problems.append(texts.form_title_repeat_number.format(number=number))
     return problems
 

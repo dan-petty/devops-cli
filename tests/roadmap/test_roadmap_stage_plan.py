@@ -796,6 +796,43 @@ def test_a_proposal_the_rules_refuse_goes_back_to_the_model_once(
     assert len(plan.ready) == 1
 
 
+@pytest.mark.parametrize("summary", ["plan the form of a task", "Plan: the form of a task"])
+def test_a_summary_that_repeats_plan_in_the_title_goes_back_to_the_model_once(
+    summary: str,
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    model_fake.answer(make_stage_proposal(summary=summary), make_stage_proposal())
+
+    plan = _plan(store, stage_repo)
+
+    first, second = _requests(model_fake)
+    assert "problem" not in first
+    assert "repeats the word `plan`" in second["problem"]
+    (change,) = plan.ready
+    assert change.title == "docs(openspec): plan #1 Stop the job dropping a comment"
+
+
+def test_a_summary_with_the_issue_number_goes_back_and_a_second_one_stops_the_item(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    model_fake.answer(make_stage_proposal(summary="Stop #1 dropping a comment"))
+
+    plan = _plan(store, stage_repo)
+
+    first, second = _requests(model_fake)
+    assert "problem" not in first
+    assert "repeats the issue number `#1`" in second["problem"]
+    assert plan.ready == ()
+
+
 def _naming(path: str, *, verify: str | None = None) -> StageProposal:
     """The sample proposal, with a second changed file `path` that no group creates."""
     group = make_stage_proposal().groups[0]
