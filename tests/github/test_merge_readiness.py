@@ -729,3 +729,31 @@ def test_readiness_runs_every_gh_command_through_the_given_runner(
 
     assess_merge_readiness(_pr(), _OWNER, _NAME, _PR, runner=runner, review_root=tmp_path)
     assert (len(sent), len(github.gh.calls)) == (4, 4)
+
+
+_PLAN_TITLE = "docs(openspec): plan #3183 add plan-check"
+_PLAN_FOLDER = {"filename": "openspec/changes/3183-add-plan-check/proposal.md", "status": "added"}
+
+
+def test_a_valid_plan_pull_request_is_ready_and_reads_no_closing_issue(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    """A plan closes nothing and archives nothing, so readiness asks it for neither (#3280)."""
+    github.files(_PLAN_FOLDER)
+    pr = _pr(title=_PLAN_TITLE, body="Plans #3183\n\nWhy and what.")
+    verdict = _assess(tmp_path, pr)
+    assert (
+        verdict.is_ready,
+        verdict.blockers,
+        [command for command in github.gh_sent() if _CLOSING in command],
+    ) == (True, (), [])
+
+
+def test_a_plan_pull_request_that_closes_its_issue_is_blocked(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    github.files(_PLAN_FOLDER)
+    pr = _pr(title=_PLAN_TITLE, body="Plans #3183\n\nCloses #3183")
+    verdict = _assess(tmp_path, pr)
+    assert len(verdict.blockers) == 1
+    assert "closing keyword closes" in verdict.blockers[0]

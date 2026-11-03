@@ -52,6 +52,8 @@ from devops_cli.roadmap.grounding import (
     ClosingRead,
     Grounding,
     grounding_blockers,
+    plan_blockers,
+    plan_issue,
 )
 
 
@@ -464,6 +466,17 @@ def _judge_grounding(
     grounding = Grounding(
         pr_num, owner, repo, _branch_ref(pr_data, "base"), _default_branch(pr_data), changed
     )
+    if (planned := plan_issue(str(pr_data.get("title") or ""))) is not None:
+        # A plan delivers no item: it closes nothing, so no closing issue is read (#3280).
+        verdict.grounding = grounding
+        texts = (
+            [MESSAGES.pr.grounding_files_unread.format(number=pr_num, error=changed.error)]
+            if changed.error
+            else plan_blockers(pr_num, planned, str(pr_data.get("body") or ""), changed.files)
+        )
+        for text in texts:
+            verdict.block(BlockerKind.GROUNDING, text)
+        return
     if grounding.into_default:
         grounding = grounding._replace(
             closing=read_closing_issues(owner, repo_name, pr_num, runner=runner)

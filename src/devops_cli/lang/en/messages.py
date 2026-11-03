@@ -1244,6 +1244,21 @@ class PRMessages:
         "PR #{number} is not grounded: it changes {paths}. Only the archive of the change of"
         " #{issue} writes {specs}/ and {archive}/, and only in {folder}."
     )
+    grounding_plan_no_plans_line: str = (
+        "PR #{number} plans #{issue} but its body has no single line Plans #{issue}. Put the"
+        " line Plans #{issue} in its body."
+    )
+    grounding_plan_closes: str = (
+        "PR #{number} plans an item and must not close it: its body uses the closing keyword"
+        " {keyword}. Use Plans #<issue>."
+    )
+    grounding_plan_no_folder: str = (
+        "PR #{number} plans #{issue} but adds no file to {folder}. Add the change folder."
+    )
+    grounding_plan_writes_spec: str = (
+        "PR #{number} plans an item and changes {paths}. Only the archive of a delivery writes"
+        " {specs}/."
+    )
     grounding_files_unread: str = (
         "PR #{number} is not grounded: the files it changes could not be read ({error})."
     )
