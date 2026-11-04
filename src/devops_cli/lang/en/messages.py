@@ -3111,6 +3111,10 @@ class RoadmapMessages:
         "builds_own is true, and existing_tool gives no cost. Write the tokens to build the code "
         "(for example `80k tokens`) and the time (for example `4 hours`)."
     )
+    stage_problem_message_file: str = (
+        "A task text names `MESSAGES.roadmap`, and no group lists `{path}` in `changes`. Add the "
+        "message to that file, and list the file in the group that adds it."
+    )
     stage_problem_skip_with_specs: str = "skip_specs is true, and the reply still gives specs."
     stage_problem_no_specs: str = "skip_specs is false, and the reply gives no spec delta."
     stage_problem_specs_not_needed: str = (

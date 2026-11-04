@@ -68,6 +68,17 @@ def test_the_prompt_names_the_nine_types_and_no_other() -> None:
     assert named == {kind.value for kind in DefectType}
 
 
+def test_the_missing_path_type_names_a_needed_file_that_the_plan_does_not_change() -> None:
+    line = next(
+        line
+        for line in load_task_prompt("roadmap_stage_verify.md").splitlines()
+        if line.startswith("- `missing_path`")
+    )
+
+    assert "does not exist" in line
+    assert "needs a file that the plan does not change" in line
+
+
 def test_a_finding_with_a_type_outside_the_nine_is_refused() -> None:
     with pytest.raises(ValidationError, match="type"):
         Verification.model_validate(

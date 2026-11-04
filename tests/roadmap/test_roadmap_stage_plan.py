@@ -43,6 +43,7 @@ from devops_cli.roadmap.stage_change import (
     StageSplit,
     check_proposal,
     closing_keyword_in,
+    content_problems,
     measure_groups,
     render_change,
 )
@@ -78,6 +79,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 # The one file of the sample proposal that exists before the plan.
 SAMPLE_TREE = StagedTree(["src/devops_cli/sample.py"])
+MESSAGES_FILE = "src/devops_cli/lang/en/messages.py"
 CHANGE = "1-the-job-drops-a-comment"
 VALIDATE = validate_args(CHANGE)
 VALID = (0, VALID_REPORT)
@@ -574,6 +576,53 @@ def test_a_spec_delta_goes_with_an_observable_change() -> None:
         "skip_specs is false, and the reply gives no spec delta."
     ]
     assert check_proposal(make_stage_proposal(), ["comment-thread"], SAMPLE_TREE) == []
+
+
+def test_a_task_that_names_a_message_needs_the_message_file() -> None:
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(
+            update={"implementation": "Use the existing `MESSAGES.roadmap` entries for the text."}
+        )
+    )
+
+    problems = content_problems(make_stage_proposal(groups=[group]))
+
+    assert any(MESSAGES_FILE in problem for problem in problems)
+
+
+def test_a_task_that_names_a_dotted_message_needs_the_message_file() -> None:
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(
+            update={
+                "implementation": "Use the existing `MESSAGES.roadmap.no_cost` entry for the text."
+            }
+        )
+    )
+
+    problems = content_problems(make_stage_proposal(groups=[group]))
+
+    assert any(MESSAGES_FILE in problem for problem in problems)
+
+
+def test_a_task_that_names_a_message_passes_with_the_message_file() -> None:
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(
+            update={
+                "implementation": "Use the existing `MESSAGES.roadmap` entries for the text.",
+                "changes": ["src/devops_cli/sample.py", "tests/test_sample.py", MESSAGES_FILE],
+            }
+        )
+    )
+
+    problems = content_problems(make_stage_proposal(groups=[group]))
+
+    assert not any(MESSAGES_FILE in problem for problem in problems)
 
 
 def test_an_existing_capability_takes_requirements_with_no_purpose() -> None:
