@@ -99,15 +99,52 @@ def test_a_group_that_breaks_two_rules_names_both_in_one_problem() -> None:
     assert "has neither verify nor process" in problem
 
 
+# ── The change folder a group never writes ────────────────────────────────────
+
+
+def test_a_group_refuses_a_changes_path_in_the_change_folder() -> None:
+    group = {
+        **BEHAVIOR,
+        "changes": ["src/devops_cli/sample.py", "openspec/changes/1-a/proposal.md"],
+        "creates": ["openspec/changes/1-a/proposal.md"],
+        "creates_lines": {"openspec/changes/1-a/proposal.md": 20},
+    }
+
+    problem = _problem(group)
+
+    assert "openspec/changes/1-a/proposal.md" in problem
+    assert "must not change or create" in problem
+
+
+def test_a_group_refuses_the_change_folder_itself() -> None:
+    group = {
+        **BEHAVIOR,
+        "changes": ["src/devops_cli/sample.py", "openspec/changes"],
+        "creates": [],
+        "creates_lines": {},
+    }
+
+    problem = _problem(group)
+
+    assert "openspec/changes" in problem
+    assert "must not change or create" in problem
+
+
+def test_a_group_accepts_a_change_folder_path_in_reads() -> None:
+    group = {**BEHAVIOR, "reads": ["src/devops_cli/sample.py", "openspec/changes/1-a/proposal.md"]}
+
+    assert StageGroup.model_validate(group).reads[1] == "openspec/changes/1-a/proposal.md"
+
+
 # ── The tasks of a kind ───────────────────────────────────────────────────────
 
 # The plans of #2162 (a report, a deletion of test files, a run of CI) as the new kinds hold them.
 REPORT: dict[str, Any] = {
     **OTHER,
     "title": "Write the mutation report",
-    "changes": ["openspec/changes/2162-x/mutation-report.md"],
-    "creates": ["openspec/changes/2162-x/mutation-report.md"],
-    "creates_lines": {"openspec/changes/2162-x/mutation-report.md": 20},
+    "changes": ["docs/mutation-report.md"],
+    "creates": ["docs/mutation-report.md"],
+    "creates_lines": {"docs/mutation-report.md": 20},
     "implementation": "Run `uv run devops ci mutate` and write one row for each test file",
     "verify": None,
     "process": "Open the report.\nCheck that a row names each of the 18 test files.",

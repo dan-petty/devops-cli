@@ -45,6 +45,8 @@ _LOCATION: Final[re.Pattern[str]] = re.compile(r"(?:::.*|:\d+(?:-\d+)?)$")
 # The characters of a path word. A quote, a `$`, a `<`, a `*` or a `:` makes a word no path.
 _WORD: Final[re.Pattern[str]] = re.compile(r"[\w.@+-]+(?:/[\w.@+-]+)*/?")
 _PARENT_DIRECTORY: Final[str] = ".."
+# The folder the stage job writes: a group never changes or creates a path in it.
+_CHANGES_DIRECTORY: Final[str] = "openspec/changes"
 
 
 class _Place(StrEnum):
@@ -59,6 +61,16 @@ class _Place(StrEnum):
 def _folders_of(path: str) -> set[str]:
     """The folders above `path`, without the root."""
     return {str(parent) for parent in PurePosixPath(path).parents} - {"."}
+
+
+def change_folder_paths(paths: Iterable[str]) -> list[str]:
+    """The paths in `paths` that are the change folder or sit under it. A group never writes
+    there: the stage job writes the change, and the groups are the steps after it (#3285)."""
+    return [
+        path
+        for path in paths
+        if path == _CHANGES_DIRECTORY or path.startswith(f"{_CHANGES_DIRECTORY}/")
+    ]
 
 
 class StagedTree:
@@ -194,6 +206,13 @@ def path_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]:
     for number, group in enumerate(groups, start=1):
         for path in group.creates:
             created |= {path, *_folders_of(path)}
+        # A group never writes the change folder or a file under it (#3285): the check holds even
+        # for a path the tree holds or a group lists in `creates`, which outrank the next checks.
+        for written in change_folder_paths([*group.changes, *group.creates]):
+            if written in reported:
+                continue
+            reported.add(written)
+            problems.append(MESSAGES.roadmap.stage_bad_change_path.format(path=written))
         for place, named in _named(group, tree):
             path = named.rstrip("/")
             exists = tree.has_folder(path) if named.endswith("/") else tree.has(path)

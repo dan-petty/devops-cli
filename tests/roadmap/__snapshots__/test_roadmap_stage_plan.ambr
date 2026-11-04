@@ -52,6 +52,10 @@
       ## Existing Tool Considered
       
       The standard library covers the need, so the change builds no helper.
+      
+      ## Dependencies
+      
+      None.
   
     ''',
     'openspec/changes/1-the-job-drops-a-comment/specs/comment-thread/spec.md': '''
