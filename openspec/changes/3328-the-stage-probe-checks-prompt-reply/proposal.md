@@ -28,15 +28,15 @@ None.
 
 - Code: `src/devops_cli/roadmap/stage_eval_cases.py`, `src/devops_cli/roadmap/stage_eval_gates.py`, `src/devops_cli/lang/en/messages.py`
 - Documents: `docs/TESTING.md`
-- Tests: `tests/roadmap/test_roadmap_stage_eval_gates.py`, `tests/fixtures/roadmap_eval/stage/3328-missing-prompt-key/case.json`, `tests/fixtures/roadmap_eval/stage/3328-missing-prompt-key/issue.txt`, `tests/fixtures/roadmap_eval/stage/3328-missing-prompt-key/plan.json`, `tests/fixtures/roadmap_eval/stage/3328-missing-prompt-key/facts.json`
+- Tests: `tests/roadmap/test_roadmap_stage_eval_gates.py`, `tests/roadmap/test_roadmap_stage_eval_cases.py`, `tests/fixtures/roadmap_eval/stage/3328-missing-prompt-key/case.json`, `tests/fixtures/roadmap_eval/stage/3328-missing-prompt-key/issue.txt`, `tests/fixtures/roadmap_eval/stage/3328-missing-prompt-key/plan.json`, `tests/fixtures/roadmap_eval/stage/3328-missing-prompt-key/facts.json`
 
 ## Feasibility
 
-- `read_file` of `src/devops_cli/roadmap/stage_eval_gates.py` shows the gate set: `Gate(GateName.PATHS, "#3010", DefectType.MISSING_PATH, _path_gate)`, `Gate(GateName.KIND, "#3005", DefectType.CONTRIVED_TEST, _kind_gate)` and `Gate(GateName.CRITERIA, "#3019", DefectType.CRITERION_DROPPED, _criteria_gate)`, so a new gate joins that tuple.
-- `read_file` of `src/devops_cli/roadmap/stage_eval_cases.py` shows `class DefectType(StrEnum)` with `MISSING_PATH`, `FALSE_PREMISE`, `SPEC_DELTA_WRONG`, `VERIFY_FORM`, `TASK_ORDER`, `CRITERION_DROPPED`, `IGNORES_EXISTING_CODE`, `CONTRIVED_TEST` and `OTHER`, and `class GateName(StrEnum)` with `PATHS`, `KIND`, `CRITERIA`, `PENDING` and `NONE`.
+- `read_file` of `src/devops_cli/roadmap/stage_eval_gates.py` shows the gate set: `Gate(GateName.PATHS, "#3010", DefectType.MISSING_PATH, _path_gate)`, `Gate(GateName.KIND, "#3005", DefectType.CONTRIVED_TEST, _kind_gate)`, `Gate(GateName.CRITERIA, "#3019", DefectType.CRITERION_DROPPED, _criteria_gate)` and `Gate(GateName.CONTENT, "#3200", DefectType.OTHER, _content_gate)`, so a new gate joins that tuple.
+- `read_file` of `src/devops_cli/roadmap/stage_eval_cases.py` shows `class DefectType(StrEnum)` with `MISSING_PATH`, `FALSE_PREMISE`, `SPEC_DELTA_WRONG`, `VERIFY_FORM`, `TASK_ORDER`, `CRITERION_DROPPED`, `IGNORES_EXISTING_CODE`, `CONTRIVED_TEST` and `OTHER`, and `class GateName(StrEnum)` with `PATHS`, `KIND`, `CRITERIA`, `CONTENT`, `PENDING` and `NONE`.
 - `read_file` of `tests/roadmap/test_roadmap_stage_prompt_rules.py` shows the test that the issue names: `def test_the_top_level_keys_of_the_reply_are_the_fields_of_the_proposal() -> None:` with `bullets = re.findall(r"^- `(\w+)`:", _reply_section(_PROMPT), flags=re.MULTILINE)` and `assert sorted(bullets) == sorted(StageProposal.model_fields)`.
 - The probes report `The path `src/devops_cli/roadmap/stage_eval_gates.py` is a file of the staging commit.` and `The path `src/devops_cli/ai/tasks/roadmap_stage_change.md` is a file of the staging commit.`, so both files that the gate reads exist.
-- The probes report `The path `stage_specs.py` is no file of the staging commit. No commit in the history deleted or renamed it.`, so the change puts the gate in `src/devops_cli/roadmap/stage_eval_gates.py`, the other file that the issue names.
+- `read_file` of `src/devops_cli/roadmap/stage_specs.py` shows that the other file that the issue names exists, and that it reads the base specs under `openspec/specs/`, a separate concern. The gate goes in `stage_eval_gates.py`, because that file holds the gate set `GATES` and the gate functions.
 - The first checks against the real system: `uv run devops ci test tests/roadmap/test_roadmap_stage_eval_gates.py`, then `uv run devops roadmap eval stage --replay`, then `uv run devops ci test tests/roadmap/test_roadmap_stage_prompt_rules.py`.
 
 ## Existing Tool Considered

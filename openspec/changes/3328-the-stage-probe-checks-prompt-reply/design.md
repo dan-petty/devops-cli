@@ -2,7 +2,7 @@
 
 ## Decisions
 
-- **Put the gate in `src/devops_cli/roadmap/stage_eval_gates.py` as one `Gate` in `GATES`, with its own `DefectType` and `GateName`.**: The stage gate set is deterministic and replayable, so the replay reports the defect by its own name and a regression fails the golden set. `stage_specs.py`, the other file that the issue names, is no file of the commit.
+- **Put the gate in `src/devops_cli/roadmap/stage_eval_gates.py` as one `Gate` in `GATES`, with its own `DefectType` and `GateName`.**: The stage gate set is deterministic and replayable, so the replay reports the defect by its own name and a regression fails the golden set. `stage_specs.py`, the other file that the issue names, is a separate concern: it reads the base specs under `openspec/specs/`, so it holds no gate.
 - **Read the field addition from the text of the groups: a group changes `src/devops_cli/roadmap/stage_change.py` and its title, implementation or documentation names `StageProposal` with a new field.**: The staging plan holds no diff, so the text of the group is the only offline signal that the plan adds a field.
 - **Require a group that changes `src/devops_cli/ai/tasks/roadmap_stage_change.md` and names the new reply key with its rule.**: The prompt test compares the reply-key bullets with `StageProposal.model_fields`, and the behavior rule is what the model reads for the new field.
 - **Name the prompt file and the reply key in the problem that the gate returns.**: The model gets the problem back once, and the message must say what to add and where.
