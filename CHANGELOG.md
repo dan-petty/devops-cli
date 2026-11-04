@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.55.3](https://github.com/dan-petty/devops-cli/compare/v0.55.2...v0.55.3) (2026-11-04)
+
+
+### Bug Fixes
+
+* **roadmap:** refuse a negative search that proves nothing ([#3457](https://github.com/dan-petty/devops-cli/issues/3457)) ([1efa057](https://github.com/dan-petty/devops-cli/commit/1efa0578737d06b1511bc37aeb3c419db72c3b10))
+
 ## [0.55.2](https://github.com/dan-petty/devops-cli/compare/v0.55.1...v0.55.2) (2026-11-04)
 
 
