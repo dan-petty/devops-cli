@@ -166,6 +166,33 @@ class ReviewMessages:
         "The cached registry rules {ruleset} are {hours} hours old, and the scan uses them. "
         "Run `devops review rules fetch --ruleset {ruleset}` to refresh them."
     )
+    # The databases of osv-scanner and Trivy, which a review binds read-only (#2131). Each reason
+    # names the command first, because a reason is cut at `CONST_MAX_ERROR_DETAIL_LENGTH`.
+    osv_database_missing: str = (
+        "Run `devops review fetch-databases` in the tree, then review again. The osv-scanner "
+        "database is missing, and a review fetches none."
+    )
+    osv_database_old: str = (
+        "Run `devops review fetch-databases` in the tree to refresh the osv-scanner database. "
+        "The database of {ecosystems} is older than {hours} hours, and the scan used it."
+    )
+    trivy_database_missing: str = (
+        "Run `devops review fetch-databases`, then review again. The Trivy vulnerability database "
+        "is missing or old, and a review fetches none."
+    )
+    databases_fetch_dry_run_heading: str = (
+        "Dry run: no process was started. fetch-databases would run these commands, in order:"
+    )
+    databases_fetch_osv_done: str = (
+        "Fetched the osv-scanner database of {ecosystems} into [bold]{path}[/bold]."
+    )
+    databases_fetch_osv_no_ecosystem: str = (
+        "No osv-scanner database fetched: the lockfiles of {path} name no ecosystem that has one."
+    )
+    databases_fetch_trivy_done: str = (
+        "Fetched the Trivy database and checks into [bold]{path}[/bold]."
+    )
+    databases_fetch_failed: str = "{tool} did not fetch its database (exit code {code}): {detail}"
     files_not_scanned: str = "Files not scanned: {count}. The Coverage section lists them."
     filed_findings_search_target: str = "issues that carry a review finding marker"
     filed_findings_search_repeat: str = "per page of 100 issues, while the search has more results"

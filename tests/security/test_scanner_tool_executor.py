@@ -9,8 +9,11 @@ the real tools. `tests/test_scanner_contract.py` holds the adapters to those rec
 
 from __future__ import annotations
 
+import json
+import os
 import shutil
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -19,7 +22,12 @@ import pytest
 
 from devops_cli.ai.review import ReviewPipelineOrchestrator, resolve_stage_flags
 from devops_cli.config.commands import build_gitleaks_cmd
-from devops_cli.config.constants import CONST_CANARY_WORKDIR_PREFIX, CONST_SEMGREP_JOBS
+from devops_cli.config.constants import (
+    CONST_CANARY_WORKDIR_PREFIX,
+    CONST_OSV_DB_DIR_ENV,
+    CONST_OSV_DB_DIR_NAME,
+    CONST_SEMGREP_JOBS,
+)
 from devops_cli.dry_run import set_dry_run
 from devops_cli.sandbox.host import HostSandbox
 from devops_cli.security.bandit import run_bandit_scan
@@ -695,3 +703,157 @@ def test_a_review_with_the_static_scan_off_starts_no_analyzer_and_no_evidence_to
     )
 
     assert (tool_executor_fake.requests, orchestrator.canary_results) == ([], {})
+
+
+_FETCH = "devops review fetch-databases"
+_OSV_NO_DATABASE = (
+    "could not load db for PyPI ecosystem: unable to fetch OSV database: "
+    "no offline version of the OSV database is available\n"
+)
+_OSV_REPORT = json.dumps(
+    {
+        "results": [
+            {
+                "source": {"path": "uv.lock", "type": "lockfile"},
+                "packages": [
+                    {
+                        "package": {"name": "requests", "version": "2.0.0", "ecosystem": "PyPI"},
+                        "vulnerabilities": [{"id": "PYSEC-2026-2275", "summary": "A flaw."}],
+                    }
+                ],
+            }
+        ]
+    }
+)
+_TRIVY_NO_DATABASE = (
+    "FATAL\tFatal error\trun error: init error: DB error: failed to download vulnerability DB: "
+    "OCI artifact error: Get https://example.com/v2/: dial tcp: lookup example.com: no such host\n"
+)
+
+
+def _osv_database(root: Path, monkeypatch: pytest.MonkeyPatch, ages: dict[str, float]) -> None:
+    """Put the offline database of osv-scanner in `root`, with one file for each ecosystem of
+    `ages`, as many seconds old as the value says."""
+    monkeypatch.setenv(CONST_OSV_DB_DIR_ENV, str(root))
+    for ecosystem, age in ages.items():
+        database = root / CONST_OSV_DB_DIR_NAME / ecosystem / "all.zip"
+        database.parent.mkdir(parents=True)
+        database.write_bytes(b"advisories\n")
+        modified = time.time() - age
+        os.utime(database, (modified, modified))
+
+
+def test_an_osv_scan_with_no_database_is_a_coverage_gap_that_names_the_fetch_command(
+    scanner_tree: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """osv-scanner still prints a report of the packages, with no advisory, when it has no database.
+    The scan did not find nothing: it could not look (#2131)."""
+    tool_executor_fake.script(
+        "osv-scanner",
+        ToolAnswer(
+            exit_code=127,
+            stdout=json.dumps({"results": [{"packages": []}]}),
+            stderr=_OSV_NO_DATABASE,
+        ),
+    )
+
+    outcome = run_osv_scan(
+        [scanner_tree / "uv.lock"],
+        tree=scanner_tree,
+        isolated=True,
+        tool_executor=tool_executor_fake,
+    )
+
+    assert (outcome.status, outcome.findings) == ("coverage_gap", [])
+    assert outcome.reason.startswith(f"Run `{_FETCH}` in the tree")
+
+
+def test_a_trivy_scan_with_no_database_is_a_coverage_gap_that_names_the_fetch_command(
+    scanner_tree: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """The sandbox gives Trivy no network, so it cannot fetch the database it lacks or finds old."""
+    tool_executor_fake.script("trivy", ToolAnswer(exit_code=1, stderr=_TRIVY_NO_DATABASE))
+
+    outcome = run_trivy_scan(scanner_tree, isolated=True, tool_executor=tool_executor_fake)
+
+    assert (outcome.status, outcome.findings) == ("coverage_gap", [])
+    assert outcome.reason.startswith(f"Run `{_FETCH}`")
+
+
+def test_an_osv_scan_on_a_current_database_is_a_scan(
+    scanner_tree: Path,
+    tmp_path: Path,
+    tool_executor_fake: ToolExecutorFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _osv_database(tmp_path / "osv", monkeypatch, {"PyPI": 3600.0})
+    tool_executor_fake.script("osv-scanner", ToolAnswer(exit_code=1, stdout=_OSV_REPORT))
+
+    outcome = run_osv_scan(
+        [scanner_tree / "uv.lock"],
+        tree=scanner_tree,
+        isolated=True,
+        tool_executor=tool_executor_fake,
+    )
+
+    assert (outcome.status, [finding.title for finding in outcome.findings]) == (
+        "ran",
+        ["Vulnerable Dependency: requests (PYSEC-2026-2275)"],
+    )
+
+
+def test_an_osv_scan_on_an_old_database_is_a_coverage_gap_that_keeps_its_findings(
+    scanner_tree: Path,
+    tmp_path: Path,
+    tool_executor_fake: ToolExecutorFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The findings are true for the database that the scan read, and the report says that the
+    database is old."""
+    _osv_database(tmp_path / "osv", monkeypatch, {"PyPI": 25 * 3600.0})
+    tool_executor_fake.script("osv-scanner", ToolAnswer(exit_code=1, stdout=_OSV_REPORT))
+
+    outcome = run_osv_scan(
+        [scanner_tree / "uv.lock"],
+        tree=scanner_tree,
+        isolated=True,
+        tool_executor=tool_executor_fake,
+    )
+
+    assert (outcome.status, len(outcome.findings)) == ("coverage_gap", 1)
+    assert outcome.reason == (
+        f"Run `{_FETCH}` in the tree to refresh the osv-scanner database. "
+        "The database of PyPI is older than 24 hours, and the scan used it."
+    )
+
+
+def test_an_old_osv_database_of_an_ecosystem_the_scan_did_not_read_is_no_gap(
+    scanner_tree: Path,
+    tmp_path: Path,
+    tool_executor_fake: ToolExecutorFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _osv_database(tmp_path / "osv", monkeypatch, {"PyPI": 3600.0, "npm": 30 * 24 * 3600.0})
+    tool_executor_fake.script("osv-scanner", ToolAnswer(exit_code=1, stdout=_OSV_REPORT))
+
+    outcome = run_osv_scan(
+        [scanner_tree / "uv.lock"],
+        tree=scanner_tree,
+        isolated=True,
+        tool_executor=tool_executor_fake,
+    )
+
+    assert outcome.status == "ran"
+
+
+def test_an_osv_scan_of_a_tree_names_the_lockfiles_osv_scanner_reads_and_no_other_lock_file(
+    scanner_tree: Path, tool_executor_fake: ToolExecutorFake
+) -> None:
+    """A file such as `rules.lock` ends in `.lock` and is no lockfile: osv-scanner stops with exit
+    code 127 and prints no report for it."""
+    (scanner_tree / "rules.lock").write_text("{}\n", encoding="utf-8")
+
+    run_osv_scan([], tree=scanner_tree, isolated=True, tool_executor=tool_executor_fake)
+
+    [request] = tool_executor_fake.requests
+    assert request.targets == (scanner_tree / "uv.lock",)

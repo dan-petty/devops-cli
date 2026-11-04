@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import os
+import subprocess
 import tempfile
 import time
 from collections.abc import Sequence
@@ -28,10 +29,12 @@ from devops_cli.config.constants import (
     CONST_OSV_DB_DIR_ENV,
     CONST_OSV_DB_DIR_NAME,
     CONST_OSV_DB_FILE_NAME,
+    CONST_OSV_NO_OFFLINE_DB_ERROR,
     CONST_OSV_OFFLINE_DB_TTL_SECONDS,
     CONST_SEVERITY_ALIASES,
 )
 from devops_cli.core.repo import list_repo_files, resolve_data_path
+from devops_cli.lang import MESSAGES
 from devops_cli.review.anchors import AdvisoryAnchor
 from devops_cli.security.base import BaseSecurityScanner, ScanOutcome, ToolDataDir
 
@@ -214,8 +217,10 @@ def parse_osv_scanner_output(
 
 
 def _is_lockfile(path: Path) -> bool:
-    """Whether `path` has the name of a lockfile that osv-scanner reads."""
-    return path.name in CONST_LOCKFILE_NAMES or path.suffix in (".lock", ".lockb")
+    """Whether `path` has the name of a lockfile that osv-scanner reads. A file with another name
+    that ends in `.lock`, such as `rules.lock`, is no lockfile: osv-scanner stops with exit code
+    127 and prints no report when it is named one (#2131)."""
+    return path.name in CONST_LOCKFILE_NAMES
 
 
 def _tree_files(tree: Path) -> list[Path]:
@@ -226,6 +231,26 @@ def _tree_files(tree: Path) -> list[Path]:
     file read them all: 158 s of a one-file review (#2034).
     """
     return list_repo_files(tree) if tree.is_dir() else []
+
+
+def lockfiles_of(tree: Path) -> list[Path]:
+    """The lockfiles of `tree` that osv-scanner reads: the files git lists, as a review lists them
+    (#2131)."""
+    return [path for path in _tree_files(tree) if _is_lockfile(path)]
+
+
+def report_ecosystems(report: Any) -> list[str]:
+    """The ecosystems of the packages in a JSON report of osv-scanner, sorted. Each one has a
+    database file `<ecosystem>/all.zip` in the offline database (#2131)."""
+    if not isinstance(report, dict):
+        return []
+    found = {
+        str(package["package"]["ecosystem"])
+        for result in report.get("results") or []
+        for package in result.get("packages") or []
+        if isinstance(package.get("package"), dict) and package["package"].get("ecosystem")
+    }
+    return sorted(found)
 
 
 def detect_manifest_coverage_gaps(
@@ -255,6 +280,13 @@ def _osv_db_base() -> Path:
     return Path(os.path.expanduser(configured) if configured else user_cache_dir())
 
 
+def osv_data_dir() -> ToolDataDir:
+    """The offline database of osv-scanner: the directory that `devops review fetch-databases`
+    writes and the one that the sandbox binds read-only (#2131)."""
+    base = _osv_db_base()
+    return ToolDataDir(CONST_OSV_DB_DIR_ENV, base, base / CONST_OSV_DB_DIR_NAME)
+
+
 class OsvScanner(BaseSecurityScanner):
     """Declarative security scanner adapter for Google OSV-Scanner (#1146)."""
 
@@ -272,13 +304,13 @@ class OsvScanner(BaseSecurityScanner):
         self.snapshot_digest = snapshot_digest or get_or_compute_snapshot_digest()
         self.last_cyclonedx: dict[str, Any] = {}
         self.last_locked_packages: dict[str, list[str]] = {}
+        self.last_ecosystems: list[str] = []
 
     def data_dirs(self) -> tuple[ToolDataDir, ...]:
         """The offline database of osv-scanner (#2096). The scan runs with
         `--offline-vulnerabilities`, so it reads only a database that was fetched before. The
         sandbox binds the database alone, and not the user cache directory that holds it."""
-        base = _osv_db_base()
-        return (ToolDataDir(CONST_OSV_DB_DIR_ENV, base, base / CONST_OSV_DB_DIR_NAME),)
+        return (osv_data_dir(),)
 
     def ruleset_files(self, target_path: Any, cwd: Path, **kwargs: Any) -> tuple[Path, ...]:
         """The database file of each ecosystem in the offline database (#2130). The record
@@ -310,9 +342,54 @@ class OsvScanner(BaseSecurityScanner):
         )
         self.last_cyclonedx = cyclonedx
         self.last_locked_packages = locked_packages
+        self.last_ecosystems = report_ecosystems(data)
         for f in findings:
             f.properties["cyclonedx_inventory"] = cyclonedx
         return findings
+
+    def coverage_gap(self, proc: subprocess.CompletedProcess[str], target_path: Any) -> str | None:
+        """Why a run that found no offline database did not scan `target_path` (#2131). osv-scanner
+        still prints a report of the packages with no advisory and exits 127, so the report would
+        read as a scan that found nothing."""
+        if CONST_OSV_NO_OFFLINE_DB_ERROR not in (proc.stderr or ""):
+            return None
+        return MESSAGES.review.osv_database_missing
+
+    def _old_databases(self) -> list[str]:
+        """The ecosystems of the last report whose database file is older than the limit
+        `CONST_OSV_OFFLINE_DB_TTL_SECONDS` (#2131). The fetch step sets the modified time of each
+        file that it confirmed, so the age counts from the last fetch."""
+        now = time.time()
+        old: list[str] = []
+        for ecosystem in self.last_ecosystems:
+            try:
+                modified = (
+                    (osv_data_dir().read / ecosystem / CONST_OSV_DB_FILE_NAME).stat().st_mtime
+                )
+            except OSError:
+                continue
+            if now - modified > CONST_OSV_OFFLINE_DB_TTL_SECONDS:
+                old.append(ecosystem)
+        return old
+
+    def _with_old_database_gap(self, outcome: ScanOutcome) -> ScanOutcome:
+        """The outcome of a scan that ran on an old database: a coverage gap that names the fetch
+        command and keeps the findings, which are true for that database. Any other outcome stays
+        as it is."""
+        old = self._old_databases() if outcome.status == "ran" else []
+        if not old:
+            return outcome
+        reason = MESSAGES.review.osv_database_old.format(
+            ecosystems=", ".join(old), hours=int(CONST_OSV_OFFLINE_DB_TTL_SECONDS // 3600)
+        )
+        gap = ScanOutcome(
+            "coverage_gap",
+            outcome.findings,
+            "; ".join(filter(None, (reason, outcome.reason))),
+            outcome.unscanned,
+        )
+        gap.started_utc, gap.ended_utc = outcome.started_utc, outcome.ended_utc
+        return gap
 
     def scan(
         self,
@@ -339,7 +416,7 @@ class OsvScanner(BaseSecurityScanner):
             if scan_target.is_file() and _is_lockfile(scan_target):
                 effective_lockfiles = [scan_target]
             else:
-                effective_lockfiles = [p for p in _tree_files(scan_tree) if _is_lockfile(p)]
+                effective_lockfiles = lockfiles_of(scan_tree)
 
         gaps = detect_manifest_coverage_gaps(scan_tree, known_lockfiles=effective_lockfiles)
         if not effective_lockfiles:
@@ -347,6 +424,7 @@ class OsvScanner(BaseSecurityScanner):
                 return ScanOutcome("coverage_gap", [], "; ".join(gaps))
             return ScanOutcome("clean", [], "No lockfiles found")
 
+        self.last_ecosystems = []
         cmd = self.build_command(effective_lockfiles[0], lockfiles=effective_lockfiles)
 
         def run_from(cwd: Path) -> ScanOutcome:
@@ -361,7 +439,7 @@ class OsvScanner(BaseSecurityScanner):
 
         if gaps and outcome.status == "ran":
             outcome.reason = "; ".join(gaps)
-        return outcome
+        return self._with_old_database_gap(outcome)
 
 
 def run_osv_scan(

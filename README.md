@@ -362,6 +362,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops review benchmark [OPTIONS] <targets>` | Review the same files several times and report median time, LLM calls, tokens and backend busy share per stage. |
 |  | `devops review score [OPTIONS] <sessions>` | Score saved review sessions against a label file: precision, recall and stability, each with its n. |
 |  | `devops review export-feedback [OPTIONS]` | Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads. |
+|  | `devops review fetch-databases [OPTIONS] <path>` | Fetch the osv-scanner and Trivy databases that a review binds read-only. The sandbox of a review has no network, so this is the one step that fetches them. Run it again when a review reports a coverage gap that names it. |
 |  | `devops review corpus COMMAND [ARGS]...` | AI-powered code review and security audits. |
 |  | `devops review samples COMMAND [ARGS]...` | AI-powered code review and security audits. |
 |  | `devops review templates COMMAND [ARGS]...` | AI-powered code review and security audits. |

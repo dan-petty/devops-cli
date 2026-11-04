@@ -4357,6 +4357,26 @@ devops ai review export-feedback [OPTIONS]
 | `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+#### `devops ai review fetch-databases`
+
+**Fetch the osv-scanner and Trivy databases that a review binds read-only. The sandbox of a review has no network, so this is the one step that fetches them. Run it again when a review reports a coverage gap that names it.**
+
+```bash
+devops ai review fetch-databases [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `path` | No | The tree whose lockfiles name the osv-scanner ecosystems to fetch. Trivy needs no tree. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 #### `devops ai review corpus`
 
 ```bash
@@ -6176,6 +6196,26 @@ devops review export-feedback [OPTIONS]
 | `--output`, `-o` | `path` | - | JSONL dataset to append to (default: the configured data.feedback_dataset_path). |
 | `--reviews-dir` | `path` | - | Directory containing review sessions. |
 | `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops review fetch-databases`
+
+**Fetch the osv-scanner and Trivy databases that a review binds read-only. The sandbox of a review has no network, so this is the one step that fetches them. Run it again when a review reports a coverage gap that names it.**
+
+```bash
+devops review fetch-databases [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `path` | No | The tree whose lockfiles name the osv-scanner ecosystems to fetch. Trivy needs no tree. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops review corpus`

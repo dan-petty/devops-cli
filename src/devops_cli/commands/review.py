@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 import typer
 
 from devops_cli.ai.review.flags import ReviewStageFlags, resolve_stage_flags
+from devops_cli.config.commands import BIN_OSV_SCANNER
 from devops_cli.config.constants import (
     CONST_AI_BACKEND_HOST_UNKNOWN,
     CONST_GIT_MAIN_BRANCH,
@@ -48,6 +49,7 @@ from devops_cli.dry_run import (
     set_dry_run,
 )
 from devops_cli.exceptions import ConfigurationError
+from devops_cli.exceptions.tools import ToolExecutionError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output.serialization import emit_serialized, normalize_format, resolve_format
@@ -2919,3 +2921,49 @@ def rules_fetch(
     print_success(
         template.format(count=cached, ruleset=ruleset, path=registry_cache_paths(ruleset).rules)
     )
+
+
+@app.command("fetch-databases", help=HELP.review.fetch_databases_cmd)
+@dry_run_class("request-plan")
+@trace_span("review.fetch_databases")
+def fetch_databases_command(
+    path: Annotated[
+        Path,
+        typer.Argument(help=HELP.review.fetch_databases_path),
+    ] = DEFAULT_CURRENT_PATH,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Fetch the osv-scanner and Trivy databases that a review binds read-only (#2131).
+
+    This is the one step that fetches them, outside the sandbox. A review never runs it. A review
+    that lacks a database, or finds one old, reports a coverage gap that names this command.
+    """
+    from devops_cli.security.tool_databases import fetch_databases, plan_database_fetches
+
+    tree = path.resolve()
+    if dry_run:
+        set_dry_run(True)
+    if is_dry_run():
+        render_request_plan(
+            MESSAGES.review.databases_fetch_dry_run_heading, plan_database_fetches(tree)
+        )
+        return
+    fetched, failed = fetch_databases(tree)
+    for database in fetched:
+        if database.tool == BIN_OSV_SCANNER and not database.ecosystems:
+            print_warning(MESSAGES.review.databases_fetch_osv_no_ecosystem.format(path=tree))
+        elif database.tool == BIN_OSV_SCANNER:
+            print_success(
+                MESSAGES.review.databases_fetch_osv_done.format(
+                    ecosystems=", ".join(database.ecosystems), path=database.directory
+                )
+            )
+        else:
+            print_success(
+                MESSAGES.review.databases_fetch_trivy_done.format(path=database.directory)
+            )
+    if failed:
+        raise ToolExecutionError("\n".join(error.message for error in failed), exit_code=1)

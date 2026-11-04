@@ -1636,6 +1636,14 @@ class ReviewCommandHelp:
     rules_fetch_ruleset: str = (
         "Registry id of the ruleset: `p/<pack>`, `r/<rule id>` or `s/<snippet>`."
     )
+    fetch_databases_cmd: str = (
+        "Fetch the osv-scanner and Trivy databases that a review binds read-only. The sandbox "
+        "of a review has no network, so this is the one step that fetches them. Run it again "
+        "when a review reports a coverage gap that names it."
+    )
+    fetch_databases_path: str = (
+        "The tree whose lockfiles name the osv-scanner ecosystems to fetch. Trivy needs no tree."
+    )
     export_feedback: str = "Export review findings to structured feedback files."
     intake_cmd: str = (
         "Hand the qualifying findings of a session on merged code to roadmap intake, one "
