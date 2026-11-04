@@ -1,26 +1,31 @@
-"""The refusal of the shell tool of an implement step names the replacement (#2773).
+"""The refusal of the shell tool of an implement step names the replacement (#2773, #3271).
 
 The shell of `pydantic-ai-harness` refuses a program outside the allowlist with a fixed text, such
 as "Command 'python' is not in the allowed list.", and the harness has no setting for that text.
-Each refusal counts against the retry limit of the tool, so a model that does not know what to run
-in its place is refused until the step stops. `shell_refusal_hooks` is a pydantic-ai `Hooks`
-capability that keeps the text of the shell and adds the replacement after it. It also refuses a
-command whose program is in `SHELL_PROGRAMS` and whose words hold a refused argument, such as
-`find -exec` (#3072). It adds only text from the table `IMPLEMENT_SHELL_REPLACEMENTS` and from the
-messages, never a word of the command. It cuts the text of the shell to
-`CONST_ROADMAP_RUN_ERROR_CHARS`, as the text echoes the first word of the command, or the
-whole command for an interactive one, with no limit.
+The harness raises the text as a `ModelRetry`, and the tool manager of pydantic-ai counts that
+raise against the retry limit of the tool before any hook sees it. A model that does not know what
+to run in its place would be refused until the step stops, for a refusal is no failure of the
+tool. `ShellRefusal` is a pydantic-ai capability that wraps the toolset. It catches the refusal in
+the toolset, so no retry is counted, and returns the text of the shell with the replacement after
+it as a normal tool result. The retry count of a tool is of failures in a row, so a real failure
+of a tool still counts. It also refuses a command whose program is in `SHELL_PROGRAMS` and whose
+words hold a refused argument, such as `find -exec` (#3072). It adds only text from the table
+`IMPLEMENT_SHELL_REPLACEMENTS` and from the messages, never a word of the command. It cuts the text
+of the shell to `CONST_ROADMAP_RUN_ERROR_CHARS`, as the text echoes the first word of the command,
+or the whole command for an interactive one, with no limit. It tells the log of the step about
+each refusal, and the log counts it and ends the step at `CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS`.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic_ai import RunContext
-from pydantic_ai.capabilities import Hooks, ValidatedToolArgs, WrapToolExecuteHandler
-from pydantic_ai.exceptions import ModelRetry, ToolRetryError
-from pydantic_ai.messages import RetryPromptPart, ToolCallPart
-from pydantic_ai.tools import ToolDefinition
+from pydantic_ai.capabilities import AbstractCapability
+from pydantic_ai.exceptions import ModelRetry
+from pydantic_ai.toolsets import AbstractToolset, WrapperToolset
+from pydantic_ai.toolsets.abstract import ToolsetTool
 
 from devops_cli.config.constants import CONST_ROADMAP_RUN_ERROR_CHARS
 from devops_cli.lang import MESSAGES
@@ -29,7 +34,7 @@ from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_SHELL_REPLACEMENTS,
     refused_argument,
 )
-from devops_cli.roadmap.implement_tool_log import command_word, is_policy_refusal
+from devops_cli.roadmap.implement_tool_log import ToolCallLog, command_word
 
 
 def refusal_hint(word: str) -> str:
@@ -45,77 +50,48 @@ def refusal_hint(word: str) -> str:
     return texts.implement_refusal_allowed.format(programs=programs)
 
 
-class _ArgumentRefused(PermissionError):
-    """The cause of the retry for a refused argument. It is a `PermissionError`, so the log counts
-    the call as a refused command, and the hint hook knows the text already says what to run."""
+@dataclass
+class _RefusingToolset(WrapperToolset[None]):
+    """The toolset of the agent, with the refusals of a command returned as tool results."""
+
+    log: ToolCallLog
+
+    async def call_tool(
+        self, name: str, tool_args: dict[str, Any], ctx: RunContext[None], tool: ToolsetTool[None]
+    ) -> Any:
+        """Run the call. A command with a refused argument, and a command that the shell refuses
+        by policy (a `PermissionError` is the cause of its `ModelRetry`), come back as text and
+        are noted in the log. Any other result or error passes on."""
+        command = tool_args.get("command")
+        if isinstance(command, str) and (found := refused_argument(command)) is not None:
+            program, argument = found
+            return self._refused(
+                ctx,
+                MESSAGES.roadmap.implement_refusal_argument.format(
+                    program=program.name, argument=argument, instead=program.argument_instead
+                ),
+            )
+        try:
+            return await self.wrapped.call_tool(name, tool_args, ctx, tool)
+        except ModelRetry as retry:
+            word = command_word(tool_args)
+            if word is None or not isinstance(retry.__cause__, PermissionError):
+                raise
+            shown = retry.message[:CONST_ROADMAP_RUN_ERROR_CHARS]
+            return self._refused(ctx, f"{shown} {refusal_hint(word)}")
+
+    def _refused(self, ctx: RunContext[None], text: str) -> str:
+        """`text`, after the log has noted that this call was refused."""
+        self.log.refuse(ctx.tool_call_id)
+        return text
 
 
-def _has_cause(error: BaseException, kind: type[BaseException]) -> bool:
-    cause = error.__cause__
-    while cause is not None:
-        if isinstance(cause, kind):
-            return True
-        cause = cause.__cause__
-    return False
+@dataclass
+class ShellRefusal(AbstractCapability[None]):
+    """The capability that returns a refusal of the shell as a tool result with the hint. It adds
+    no tool retry. `log` counts the refusals and ends the step when they pass the limit."""
 
+    log: ToolCallLog
 
-async def _refuse_argument(
-    _ctx: RunContext[Any],
-    /,
-    *,
-    call: ToolCallPart,
-    tool_def: ToolDefinition,
-    args: ValidatedToolArgs,
-    handler: WrapToolExecuteHandler,
-) -> Any:
-    """Refuse a command whose program is in the table and whose words hold a refused argument. The
-    harness reads the first word only, so the table is checked here. The hook sits inside the log of
-    the step, and it raises the retry error that the tool manager makes of a `ModelRetry` of a tool,
-    so the log sees it and counts the refusal."""
-    command = args.get("command")
-    if isinstance(command, str) and (found := refused_argument(command)) is not None:
-        program, argument = found
-        text = MESSAGES.roadmap.implement_refusal_argument.format(
-            program=program.name, argument=argument, instead=program.argument_instead
-        )
-        retry = RetryPromptPart(
-            content=text, tool_name=call.tool_name, tool_call_id=call.tool_call_id
-        )
-        raise ToolRetryError(retry) from _ArgumentRefused(text)
-    return await handler(args)
-
-
-async def _execute(
-    _ctx: RunContext[Any],
-    /,
-    *,
-    call: ToolCallPart,
-    tool_def: ToolDefinition,
-    args: ValidatedToolArgs,
-    handler: WrapToolExecuteHandler,
-) -> Any:
-    """Run the call. A refusal by policy of a shell command comes back as a retry with the hint
-    after the text of the tool, which is cut to a fixed length. The retry keeps the refusal in its
-    cause chain, so the log of the step still counts it as refused. The refusal of an argument
-    has its own text and gets no hint, but it comes back as a retry in the same way. Any other result or error passes on."""
-    try:
-        return await handler(args)
-    except ToolRetryError as error:
-        word = command_word(args)
-        text = error.tool_retry.content
-        if word is None or not isinstance(text, str) or not is_policy_refusal(error):
-            raise
-        if _has_cause(error, _ArgumentRefused):
-            raise ModelRetry(text) from error
-        shown = text[:CONST_ROADMAP_RUN_ERROR_CHARS]
-        raise ModelRetry(f"{shown} {refusal_hint(word)}") from error
-
-
-def shell_refusal_hooks() -> Hooks[None]:
-    """The capability that adds the hint to a refusal of the shell. It goes before the log."""
-    return Hooks(tool_execute=_execute)
-
-
-def argument_refusal_hooks() -> Hooks[None]:
-    """The capability that refuses an argument of the table. It goes after the log."""
-    return Hooks(tool_execute=_refuse_argument)
+    def get_wrapper_toolset(self, toolset: AbstractToolset[None]) -> AbstractToolset[None]:
+        return _RefusingToolset(toolset, self.log)

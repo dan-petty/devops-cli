@@ -205,7 +205,11 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES": (
         "kept",
-        "refusals in a row before the run ends; a model that repeats a refused call is stuck",
+        "failures of a tool in a row before the run ends; a shell refusal is no failure (#3271)",
+    ),
+    "CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS": (
+        "guard",
+        "refused shell commands of one step; a refusal counts no tool retry, so this ends a loop",
     ),
     "CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS": (
         "kept",

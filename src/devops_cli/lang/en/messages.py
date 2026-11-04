@@ -2340,6 +2340,9 @@ class RoadmapMessages:
         "Run one command in each call. Do not chain commands. "
         "Do not use `cd`: every command runs in the checkout."
     )
+    implement_refusal_limit: str = (
+        "Too many commands refused by policy in one step: the limit is {limit}."
+    )
     implement_refusal_argument: str = (
         "Command '{program}' has the argument '{argument}', which the shell does not allow. "
         "{instead}"

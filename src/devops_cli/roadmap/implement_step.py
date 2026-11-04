@@ -117,10 +117,7 @@ from devops_cli.roadmap.implement_shell_policy import (
     read_verification,
     shown,
 )
-from devops_cli.roadmap.implement_shell_refusal import (
-    argument_refusal_hooks,
-    shell_refusal_hooks,
-)
+from devops_cli.roadmap.implement_shell_refusal import ShellRefusal
 from devops_cli.roadmap.implement_strays import stray_files
 from devops_cli.roadmap.implement_test_names import lost_since
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
@@ -537,9 +534,8 @@ def build_agent(
         capabilities=[
             LocalWorkspace(source),
             tuned,
-            shell_refusal_hooks(),
+            ShellRefusal(log),
             log.hooks(),
-            argument_refusal_hooks(),
             output_cap_hooks(output_cap(window)),
         ],
     )

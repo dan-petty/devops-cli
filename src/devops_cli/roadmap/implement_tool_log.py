@@ -19,9 +19,12 @@ token from a file and run it as a command. The tool name and the program tell a 
 from a refused path.
 
 It also counts the shell commands that the shell refused by its policy, by program, and the calls
-that came back as a retry for another cause. A refusal of a file tool, such as a path outside the
-root, is an other retry. The reason of a stopped step holds both counts, so a person sees at once
-which program the model kept asking for.
+that came back as a retry for another cause. A refusal of the shell comes back to the model as a
+tool result and adds no tool retry (#3271), so `ShellRefusal` tells the log of each refused call
+(`refuse`) and the line of the call says `refused`. A refusal of a file tool, such as a path outside
+the root, is an other retry. The reason of a stopped step holds both counts, so a person sees at
+once which program the model kept asking for. The step ends when the refusals pass
+`CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS`.
 
 The line goes to the console stream, not to `logging`: a `devops` process has no handler for the
 level INFO, so such a line would never reach the Job log.
@@ -54,6 +57,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_READ_CHARS,
     CONST_ROADMAP_IMPLEMENT_LOG_COMMAND_WORDS,
     CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS,
+    CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS,
     CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
     CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS,
     CONST_ROADMAP_IMPLEMENT_STOP_REASONS,
@@ -91,9 +95,10 @@ class ToolOutcome(StrEnum):
 
 
 def is_policy_refusal(error: BaseException) -> bool:
-    """Whether a `PermissionError` is in the cause chain of `error`: the shell and the file tools of
-    the harness raise their refusals as a `ModelRetry` from a `PermissionError`, and pydantic-ai
-    raises the retry error from that. The caller tells a shell command from a file path."""
+    """Whether a `PermissionError` is in the cause chain of `error`: the file tools of the harness
+    raise their refusals as a `ModelRetry` from a `PermissionError`, and pydantic-ai raises the retry
+    error from that. A refusal of the shell never reaches here: `ShellRefusal` returns it as a
+    result (#3271)."""
     cause = error.__cause__
     while cause is not None:
         if isinstance(cause, PermissionError):
@@ -262,6 +267,12 @@ class ToolCallLog:
     ended_on: str = ""
     removed: list[str] = field(default_factory=list[str])
     trace: ImplementTrace | None = None
+    refusals: set[str] = field(default_factory=set[str])
+
+    def refuse(self, tool_call_id: str | None) -> None:
+        """Note that the shell refused the call with this id and returned the refusal as a result.
+        The line of the call, when it ends, says `refused`, and the refusal counts."""
+        self.refusals.add(tool_call_id or "")
 
     def removed_strays(self, names: Sequence[str]) -> None:
         """Keep the names of the stray files that the step deleted (#3092), masked and cut as the
@@ -353,7 +364,8 @@ class ToolCallLog:
         handler: WrapToolExecuteHandler,
     ) -> Any:
         """Run the call, write its line, and pass on the result or the error. The call that
-        exceeds the limit of retries reaches here as `UnexpectedModelBehavior`."""
+        exceeds the limit of retries reaches here as `UnexpectedModelBehavior`. A refused call
+        that passes the limit of refusals ends the run in the same way."""
         program = logged_program(command_word(args))
         if command := logged_command(args):
             print_muted(
@@ -366,13 +378,12 @@ class ToolCallLog:
         try:
             result = await handler(args)
         except (ToolRetryError, UnexpectedModelBehavior) as error:
-            refused = bool(program) and is_policy_refusal(error)
             if isinstance(error, UnexpectedModelBehavior):
                 self.ended_on = call.tool_name
             self._note(
                 call.tool_name,
                 program,
-                ToolOutcome.REFUSED if refused else ToolOutcome.RETRY,
+                ToolOutcome.RETRY,
                 logged_reason(error, args, self.root),
                 digest=argument_digest(call),
             )
@@ -380,7 +391,16 @@ class ToolCallLog:
         except ToolFailedError:
             self._note(call.tool_name, program, ToolOutcome.FAILED, digest=argument_digest(call))
             raise
-        self._note(call.tool_name, program, ToolOutcome.OK, digest=argument_digest(call))
+        refused = call.tool_call_id in self.refusals
+        self.refusals.discard(call.tool_call_id)
+        outcome = ToolOutcome.REFUSED if refused else ToolOutcome.OK
+        self._note(call.tool_name, program, outcome, digest=argument_digest(call))
+        if refused and sum(self.refused.values()) > CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS:
+            raise UnexpectedModelBehavior(
+                MESSAGES.roadmap.implement_refusal_limit.format(
+                    limit=CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS
+                )
+            )
         return result
 
     async def _invalid(
