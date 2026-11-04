@@ -1926,6 +1926,10 @@ class ServeMessages:
         "The roadmap job {job} of {repo} failed {rounds} rounds in a row (causes: {causes}), so "
         "it does not run again until its input changes."
     )
+    # Logged once, at the info level, when the stop of the Service ends a round (#3493).
+    round_stopped: str = (
+        "The Service is stopping, so the round for {repo} ended before it was done."
+    )
     # Ephemeral chat replies for Mattermost /roadmap slash command (#1395). Each string is one line.
     chat_roadmap_status_round: str = "{repo} [{lane}]: {state}, {pending} pending triggers, last round: {start} to {end} UTC ({result})"
     chat_roadmap_status_no_round: str = (
@@ -2872,6 +2876,10 @@ class RoadmapMessages:
     stage_left_recorded_split: str = (
         "An earlier run stopped on a task group over the budget: {detail}. A person decides, or "
         "runs the job with --item {number}."
+    )
+    stage_left_failed_lately: str = (
+        "The last plan or write of the item failed ({error}). The job takes the item again after "
+        "{until} UTC."
     )
     stage_left_secret: str = (
         "The title or the body looks like a secret, so the model does not read it."
