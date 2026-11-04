@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The validation judges the change against the base specs
-The job SHALL run the validation in a scratch directory that also holds the base spec of each capability the change has a delta for. Any issue in the report of OpenSpec SHALL count as a problem and SHALL go back to the model once with the text of the issues. This holds also for an issue that OpenSpec gives for a valid change, such as a delta that `openspec archive` would refuse. The one exception is the INFO message that OpenSpec gives for a change that sets `skip_specs`: it counts as no problem.
+The job SHALL run the validation in a scratch directory that also holds the base spec of each capability the change has a delta for. Any issue in the report of OpenSpec SHALL count as a problem and SHALL go back to the model once with its text, even for a valid change, such as a delta that `openspec archive` would refuse. The one exception is the INFO note that a change sets `skip_specs`.
 
 #### Scenario: A MODIFIED requirement that the base spec lacks
 - **WHEN** the plan modifies a requirement whose name is not in the base spec of an existing capability
