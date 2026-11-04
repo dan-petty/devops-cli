@@ -3044,6 +3044,11 @@ CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS: Final[int] = 4096
 # The most paths refine records as the cause of an item's block. A later round reads the newest
 # commit of each one while the item waits, so the cap bounds those reads (#2005).
 CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS: Final[int] = 5
+# The most issues, and the most paths, that a round reads from the text of one person wait to find
+# that its cause ended: the issues that closed after the wait began, the files that changed. A
+# text that names more is read up to this many of each, so the reads of a round stay bounded
+# (#3483).
+CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS: Final[int] = 5
 # The budget of one item's investigation (#2398): its model requests and tool calls, the calls
 # one turn can make (the function tools go when fewer are left), and the lines and characters of
 # one tool answer, so the run stays inside the analysis context window. qwen3.8:27b made two

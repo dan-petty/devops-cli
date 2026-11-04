@@ -10,8 +10,9 @@ Each line has its number, its age and the one command or action that clears it. 
 2. Ready implementation pull requests of the jobs (G2).
 3. The open release pull request (G3).
 4. Items in `status/blocked`, with their cause.
-5. Claims with no activity for 7 days.
-6. Labels of `.github/labels.yml` that the repository lacks.
+5. New items that wait on a person in refine, one line for each. The line comes from the job record: the last refine round left a question for a person, or the stage job returned the item twice on the same body. A reply shows in the list until the next refine round. `devops roadmap explain <number>` gives the cause.
+6. Claims with no activity for 7 days.
+7. Labels of `.github/labels.yml` that the repository lacks.
 
 A second list holds the other open pull requests, those of people and agents. It marks the drafts.
 
