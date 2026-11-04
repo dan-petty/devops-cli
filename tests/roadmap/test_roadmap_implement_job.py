@@ -302,7 +302,9 @@ def test_a_title_with_a_type_that_the_project_does_not_declare_stops_the_item(
         "pull request",
     )
     assert job_world.sent("PATCH", f"pulls/{PULL}") == []
-    assert "The type `wip` is not a type of the project" in job_world.issue_comments()[0]
+    comment = job_world.issue_comments()[0]
+    assert "The type `wip` is not a type of the project" in comment
+    assert "The title is `wip(cli): add a flag`." in comment
 
 
 def test_a_planned_item_with_a_title_that_has_no_type_stops_before_the_first_push(
@@ -334,7 +336,9 @@ def test_a_planned_item_with_a_title_that_has_no_type_stops_before_the_first_pus
     )
     assert planned_world.repo.origin_git("branch", "--list", BRANCH) == ""
     assert not any(request.method == "POST" for request in planned_world.api.sent)
-    assert "not in the form" in planned_world.issue_comments()[0]
+    comment = planned_world.issue_comments()[0]
+    assert "not in the form" in comment
+    assert "The title is `Add a flag: `." in comment
 
 
 def test_the_changes_of_the_archive_and_the_documents_are_in_the_pushed_tree(
