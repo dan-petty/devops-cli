@@ -1715,7 +1715,7 @@ def remove_config_key(
     # The diff shows no credential: it compares the file with every credential redacted to the
     # same file without the key. The diff cannot use `content`, which still holds a comment line
     # that holds the value of a credential, and which the redaction drops (#3218).
-    shown = write_history._redact(
+    shown = write_history.redact_credentials(
         previous or b"",
         write_history.credential_paths(previous, (), _SECRET_FIELDS),
         name=str(dest_path),
