@@ -2653,8 +2653,10 @@ class RoadmapMessages:
         "{marker}\nStopped at {step}.\n\n{check}{failure}\n\n{table}\n\nReason:\n\n{reason}\n\n"
         "Last message of the agent (a claim that no check verified): "
         "{last}{diff}\n\nThe item is Blocked, and the job will not run it. Fix the cause. "
-        "Then comment `implement: retry`. The Service also clears the stop one time when a new "
-        "runner image rolls out.{note}"
+        "Then comment `implement: retry`. The Service clears the stop on its own when a new runner "
+        "image rolls out, but only if a retry can fix the class of the stop and the limits of "
+        "`roadmap.implement.digest_clears_per_class` and `roadmap.implement.digest_clears_per_item` "
+        "allow it.{note}"
     )
     implement_comment_check: str = "Failed check: `{name}`.\n\n"
     implement_comment_check_log: str = (
@@ -2697,8 +2699,10 @@ class RoadmapMessages:
     implement_job_report_no_log: str = "(no log: the Job has no pod)"
     implement_job_report_stopped: str = (
         "\n\n{failure}\n\nThe Job left this item without a result. The item is Blocked, and the job "
-        "will not run it. Fix the cause. Then comment `implement: retry`. The Service also "
-        "clears the stop one time when a new runner image rolls out."
+        "will not run it. Fix the cause. Then comment `implement: retry`. The Service clears the "
+        "stop on its own when a new runner image rolls out, but only if a retry can fix the class "
+        "of the stop and the limits of `roadmap.implement.digest_clears_per_class` and "
+        "`roadmap.implement.digest_clears_per_item` allow it."
     )
     implement_job_report_stalled: str = (
         "\n\nThe Job made no progress for {seconds} seconds, so the Service ended it by its "

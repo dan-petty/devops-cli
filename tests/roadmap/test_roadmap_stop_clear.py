@@ -14,6 +14,7 @@ import pytest
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER as MARKER
 from devops_cli.exceptions import GitHubRateLimitError
 from devops_cli.exceptions.k8s import ClusterJobError
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.digest_clears import (
     DigestClear,
     encode_clears,
@@ -449,6 +450,17 @@ def test_the_action_table_has_retry_classes_and_others() -> None:
     assert {"plan_defect", "refused_tool", "premise_false", "test"} <= {
         c.value for c in OTHER_CLASSES
     }
+
+
+@pytest.mark.parametrize("text", ["implement_comment_stopped", "implement_job_report_stopped"])
+def test_a_stop_comment_names_the_class_rule_and_the_limits_of_the_digest_clear(text: str) -> None:
+    """The stop comments must not promise a clear of every stop by a new runner image."""
+    body = " ".join(getattr(MESSAGES.roadmap, text).split())
+
+    assert "one time" not in body
+    assert "only if a retry can fix the class of the stop" in body
+    assert "roadmap.implement.digest_clears_per_class" in body
+    assert "roadmap.implement.digest_clears_per_item" in body
 
 
 @pytest.mark.parametrize("klass", OTHER_CLASSES)
