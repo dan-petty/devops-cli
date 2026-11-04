@@ -49,7 +49,7 @@ _MOST_GPUS_ON_A_NODE: Final[int] = 8
 _EMBEDDING_ONLY_ORDER: Final[int] = 1
 _FALLBACK_ORDER: Final[int] = 3
 # An embedding-only tier needs no memory for a chat model. Peak memory of an instance was 890 MiB
-# under load, on a batch of 32 chunks of the largest size that the workload has.
+# under load. With LLAMA_ARG_THREADS at 1, an instance uses 1.2 CPU cores under load.
 _EMBEDDING_ONLY_RESOURCES: Final[dict[str, dict[str, str]]] = {
     "requests": {"cpu": "2000m", "memory": "2Gi"},
     "limits": {"memory": "4Gi"},
@@ -210,6 +210,9 @@ def _rendered_daemonsets(
         [container] = tier["spec"]["template"]["spec"]["containers"]
         _set_env(container["env"], "OLLAMA_CONTEXT_LENGTH", str(CONST_RAG_MAX_CHUNK_TOKENS))
         _set_env(container["env"], "OLLAMA_MAX_LOADED_MODELS", "1")
+        # The embedder runs on the GPU, and the default threads of llama-server only spin: 12 CPU
+        # cores against 1.2 with one thread, at the same speed and with equal vectors (#3518).
+        _set_env(container["env"], "LLAMA_ARG_THREADS", "1")
         container["resources"] = yaml.safe_load(yaml.safe_dump(_EMBEDDING_ONLY_RESOURCES))
     if not _at_or_below(template, thresholds.per_gpu):
         return [tier]

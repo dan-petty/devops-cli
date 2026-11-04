@@ -163,7 +163,7 @@ Ollama runs as one DaemonSet per total-VRAM tier (`ollama-16gib` … `ollama-128
 
 **GPU thresholds.** `llm/profiles/gpu-thresholds.yaml` holds two values of `nvidia.com/gpu.architecture`, both `pascal`. Argo CD tracks `main`, so the values are in git and not in `config.yaml`. A tier in `llm/profiles/tier-templates/` is at or below a threshold when the newest architecture that it accepts is that architecture or an older one:
 
-- At or below `embedding_only`: the tier serves embedding models alone and keeps one model loaded. Each of its gateway deployments has order 1. Otherwise its deployments have order 3, and the tier runs as its template says.
+- At or below `embedding_only`: the tier serves embedding models alone, keeps one model loaded and sets `LLAMA_ARG_THREADS: "1"`, because the model runs on the GPU. Each of its gateway deployments has order 1. Otherwise its deployments have order 3, and the tier runs as its template says.
 - At or below `per_gpu`: the tier runs one DaemonSet per GPU, with `-gpu<n>` in the name. Each claims `nvidia.com/gpu: 1` and has its own Service and gateway deployment. A later instance requires a node with that many GPUs (`nvidia.com/gpu.count`). The annotation `llm.devops.io/gpu-count` of the template says how many instances exist, and `llm.devops.io/embedding-model` names the model of its gateway deployments. The instances of a node share the model directory, so they set `OLLAMA_NOPRUNE`.
 
 A rendered tier is named `ollama-<VRAM of one instance>gib-<embed or speed tier>`. Its speed tier is `embed` when it serves embedding models alone, so the Services `ollama-slow`, `ollama-24gib` and `ollama-24gib-slow`, which select `slow`, do not reach it.
