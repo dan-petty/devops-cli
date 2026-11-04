@@ -1,0 +1,3 @@
+The plan of a module move in pull request #3378 moves the stage modules into a package and verifies the move with one negative search. The search uses the bare prefix `devops_cli.roadmap.stage`, which matches the old `stage.py` import lines and every path under the new `stage/` package. A negative search passes only when it finds no match, so the command can never pass on the tree that the plan produces.
+
+The plan needs a negative search whose literal has a hit before the change and no hit on a path that the plan creates.

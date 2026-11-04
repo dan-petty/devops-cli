@@ -1521,6 +1521,63 @@ def test_a_change_with_no_spec_delta_on_test_paths_is_accepted() -> None:
     assert check_proposal(proposal, [], _tree(*NO_SPEC_PATHS)) == []
 
 
+# ── The evidence of a negative search (#3410) ────────────────────────────────
+
+NO_HIT = "! git grep -n -F devops_cli.roadmap.stage_missing src/ tests/"
+BARE = "! git grep -n -F devops_cli.roadmap.stage src/ tests/"
+DOTTED = "! git grep -n -F devops_cli.roadmap.stage_ src/ tests/"
+STAGE_PACKAGE = "src/devops_cli/roadmap/stage/ready.py"
+STAGE_OLD = "src/devops_cli/roadmap/stage.py"
+
+
+def _move_plan(verify: str) -> StageProposal:
+    """A plan that moves the staged stage module into the package `stage/`."""
+    base = make_stage_proposal().groups[0].model_dump()
+    group = StageGroup.model_validate(
+        {
+            **base,
+            "title": "Move the stage modules",
+            "kind": "other",
+            "test": None,
+            "reads": [],
+            "changes": [STAGE_OLD, STAGE_PACKAGE],
+            "creates": [STAGE_PACKAGE],
+            "creates_lines": {STAGE_PACKAGE: 10},
+            "implementation": "Move every module of the stage prefix into the stage package",
+            "verify": verify,
+        }
+    )
+    return make_stage_proposal(groups=[group])
+
+
+def _search_problems(proposal: StageProposal, evidence: Any) -> list[str]:
+    tree = StagedTree([STAGE_OLD, "tests/test_sample.py"])
+    return check_proposal(
+        proposal,
+        ["comment-thread"],
+        tree,
+        search_evidence=evidence,
+    )
+
+
+def test_check_proposal_refuses_a_literal_with_no_recorded_hit() -> None:
+    problems = _search_problems(_move_plan(NO_HIT), {"devops_cli.roadmap.stage_": ()})
+
+    assert any("already passes before the change and proves nothing" in p for p in problems)
+    assert any(NO_HIT in problem for problem in problems)
+
+
+def test_check_proposal_refuses_a_literal_that_a_created_source_path_keeps() -> None:
+    problems = _search_problems(_move_plan(BARE), {"devops_cli.roadmap.stage": (STAGE_OLD,)})
+
+    assert any("can never pass on the produced tree" in p for p in problems)
+    assert any(STAGE_PACKAGE in problem for problem in problems)
+
+
+def test_check_proposal_accepts_a_recorded_hit_that_survives_the_change() -> None:
+    assert _search_problems(_move_plan(DOTTED), {"devops_cli.roadmap.stage_": (STAGE_OLD,)}) == []
+
+
 # ── The requirement that the base spec already has (#3013) ────────────────────
 
 DUPLICATE_PROBLEM = (

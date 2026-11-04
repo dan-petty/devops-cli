@@ -377,6 +377,13 @@ def test_the_prompt_asks_for_every_module_of_a_moved_prefix() -> None:
     assert "never one sampled module" in _PROMPT
 
 
+def test_the_prompt_asks_for_the_hit_count_of_a_negative_search() -> None:
+    assert "call `search_code` with its literal on the staged commit" in _PROMPT
+    assert "quote the hit count in `feasibility`" in _PROMPT
+    assert "is no check" in _PROMPT
+    assert "can never pass after it" in _PROMPT
+
+
 # ── The phrases that a document and the prompt keep together ──────────────────
 
 _SHARED = [

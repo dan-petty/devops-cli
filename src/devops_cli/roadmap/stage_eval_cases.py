@@ -15,8 +15,9 @@ gates need, and the defects a reviewer found in it. The files of a case director
 - `plan.json`: the plan as a `StageProposal` holds it. The groups stay raw, as the model wrote
   them, so that a group the schema refuses is still a case. A plan fails the schema of the reply
   if and only if a defect of the case names the gate `kind`: a test holds the set to this rule.
-- `facts.json`: the tracked files that the gates need, and the capabilities the plan names that
-  exist. A replay cannot assume a deep clone, so it reads no git.
+- `facts.json`: the tracked files that the gates need, the capabilities the plan names that
+  exist, and the paths that each negative-search literal matched before the change. A replay
+  cannot assume a deep clone, so it reads no git.
 
 A case with the verdict `good` has no defect: every gate must accept it.
 
@@ -51,11 +52,12 @@ address.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from devops_cli.core.repo import find_repo_root
 from devops_cli.exceptions import ConfigurationError
@@ -148,11 +150,13 @@ class Scores(_Record):
 
 
 class CaseFacts(_Record):
-    """What the gates need of the tree at the staging commit: the tracked files that matter, and
-    the capabilities the plan names that have a spec."""
+    """What the gates need of the tree at the staging commit: the tracked files that matter, the
+    capabilities the plan names that have a spec, and the paths that each negative-search literal
+    of the plan matched before the change."""
 
     tracked: tuple[str, ...]
     capabilities: tuple[str, ...]
+    search_evidence: Mapping[str, tuple[str, ...]] = Field(default_factory=dict)
 
 
 class StageCase(_Record):

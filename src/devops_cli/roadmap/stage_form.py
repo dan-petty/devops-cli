@@ -23,7 +23,8 @@ grammar, so a sentence with a verb and an object always passes.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+import shlex
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Final
 
@@ -31,6 +32,8 @@ from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement_shell_policy import (
     NEGATIVE_SEARCH_WORD,
+    NegativeSearch,
+    read_negative_search,
     shown,
     verification_problem,
 )
@@ -118,6 +121,88 @@ def _expected(mirrors: Sequence[PurePosixPath]) -> str:
     """The directories a new test may go in, as code spans, for the text of a problem."""
     allowed = [*(m for m in mirrors if m != _TESTS), _INVARIANTS]
     return " or ".join(f"`{directory}`" for directory in allowed)
+
+
+def negative_search_parts(command: str) -> NegativeSearch | None:
+    """The literal and the relative paths of a negative-search `command`, or None for a command
+    of another shape. It reads the same grammar as the step (`read_negative_search`)."""
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return None
+    found = read_negative_search(words)
+    return None if isinstance(found, str) else found
+
+
+def record_search_evidence(
+    groups: Sequence[StageGroup], search: Callable[[str], Sequence[str]]
+) -> dict[str, tuple[str, ...]]:
+    """The paths that `search` finds for each negative-search literal of `groups`. It calls
+    `search` once for each literal, so the job records the staged hits before it judges the
+    reply."""
+    evidence: dict[str, tuple[str, ...]] = {}
+    for group in groups:
+        if group.verify is None:
+            continue
+        found = negative_search_parts(group.verify)
+        if found is None or found.literal in evidence:
+            continue
+        evidence[found.literal] = tuple(sorted({path for path in search(found.literal) if path}))
+    return evidence
+
+
+def _import_path(path: PurePosixPath) -> str | None:
+    """The import path of a Python source path under `src/devops_cli`, or None for another
+    path."""
+    if path.suffix != _PYTHON_SUFFIX or not path.is_relative_to(_PACKAGE):
+        return None
+    parts = list(path.relative_to(_PACKAGE).with_suffix("").parts)
+    if parts[-1:] == ["__init__"]:
+        del parts[-1]
+    return ".".join(("devops_cli", *parts))
+
+
+def search_problems(
+    groups: Sequence[StageGroup],
+    evidence: Mapping[str, Sequence[str]] | None = None,
+) -> list[str]:
+    """One sentence for each negative-search literal with no recorded hit, and for each literal
+    that the import path of a created source path contains. `evidence` maps each literal to the
+    paths that the staged tree holds; None means the caller recorded no search, so the check
+    judges only the created paths."""
+    texts = MESSAGES.roadmap
+    created = [
+        (path, import_path)
+        for group in groups
+        for path in group.creates
+        if (import_path := _import_path(PurePosixPath(path))) is not None
+    ]
+    problems: list[str] = []
+    for number, group in enumerate(groups, start=1):
+        if group.verify is None:
+            continue
+        found = negative_search_parts(group.verify)
+        if found is None:
+            continue
+        kept = next(((path, name) for path, name in created if found.literal in name), None)
+        if kept is not None:
+            path, import_path = kept
+            problems.append(
+                texts.stage_problem_search_created.format(
+                    group=number,
+                    command=group.verify,
+                    literal=found.literal,
+                    path=path,
+                    import_path=import_path,
+                )
+            )
+        if evidence is not None and not evidence.get(found.literal):
+            problems.append(
+                texts.stage_problem_search_no_hit.format(
+                    group=number, command=group.verify, literal=found.literal
+                )
+            )
+    return problems
 
 
 def form_problems(groups: Sequence[StageGroup]) -> list[str]:

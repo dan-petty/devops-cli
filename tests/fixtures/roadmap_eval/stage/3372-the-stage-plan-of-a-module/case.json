@@ -1,0 +1,30 @@
+{
+ "issue": 3372,
+ "pull": 3378,
+ "title": "docs(openspec): plan #3372 check every module of a moved prefix",
+ "change": "3372-the-stage-plan-of-a-module",
+ "merge_commit": "6c15a64a00000000000000000000000000000000",
+ "base_commit": "89682e4100000000000000000000000000000000",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 4,
+  "fidelity": 3,
+  "task_quality": 3,
+  "rule_compliance": 3,
+  "accuracy": 2
+ },
+ "state": "open",
+ "summary": "PR #3378 plans the move of the stage modules. Its verify command searches the bare prefix `devops_cli.roadmap.stage`, which matches the old `stage.py` import lines and every path under the new `stage/` package. The negative search passes only when it finds no match, so it can never pass on the tree that the plan produces.",
+ "notes": [],
+ "defects": [
+  {
+   "type": "verify_form",
+   "severity": "major",
+   "where": "tasks.md, group 1 verify command",
+   "problem": "The group gives the verify command `! git grep -n -F devops_cli.roadmap.stage src/ tests/`. The literal matches the import lines of the old `stage.py` and every import path under the new `stage/` package, such as `devops_cli.roadmap.stage.ready`. A negative search passes only when it finds no match, so the command can never pass on the tree that the plan produces.",
+   "evidence": "The plan creates `src/devops_cli/roadmap/stage/ready.py` and the other modules of the stage package. The import path of each new module starts with `devops_cli.roadmap.stage`, which is the literal of the negative search. The plan's own spec says the search proves that no top-level module of the prefix stays in place.",
+   "gate": "paths",
+   "message": "can never pass on the produced tree"
+  }
+ ]
+}

@@ -73,6 +73,9 @@ class PlanUnderTest:
     # Whether the plan has a `criteria` list. A plan recorded before #3019 has none: it was never
     # asked for a mapping, so the criteria gate has nothing to judge in it.
     mapped: bool = False
+    # The paths that each negative-search literal matched before the change. An empty mapping
+    # records no search, as the cases recorded before #3410 do.
+    search_evidence: Mapping[str, Sequence[str]] = field(default_factory=dict)
 
     @classmethod
     def of_case(cls, case: StageCase) -> PlanUnderTest:
@@ -99,6 +102,7 @@ class PlanUnderTest:
             case.tree(),
             issue_body=case.issue_body,
             mapped="criteria" in case.plan,
+            search_evidence=case.facts.search_evidence,
         )
 
     @classmethod
@@ -154,7 +158,13 @@ def _path_gate(plan: PlanUnderTest) -> list[str]:
     the `verify` commands and of the new test files (#3015). A recorded case holds the names of the
     capabilities and no requirement names, so a replay of a case does not judge a duplicate
     requirement."""
-    return check_proposal(plan.proposal, plan.known, plan.tree, requirements=plan.requirements)
+    return check_proposal(
+        plan.proposal,
+        plan.known,
+        plan.tree,
+        requirements=plan.requirements,
+        search_evidence=plan.search_evidence or None,
+    )
 
 
 def _criteria_gate(plan: PlanUnderTest) -> list[str]:

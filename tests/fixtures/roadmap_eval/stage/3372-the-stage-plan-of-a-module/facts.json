@@ -1,0 +1,23 @@
+{
+ "tracked": [
+  "src/devops_cli/roadmap/stage.py",
+  "src/devops_cli/roadmap/stage_change.py",
+  "src/devops_cli/roadmap/stage_form.py",
+  "src/devops_cli/roadmap/stage_ready.py",
+  "src/devops_cli/roadmap/stage_verify.py",
+  "tests/roadmap/test_roadmap_stage_ready.py"
+ ],
+ "capabilities": [],
+ "search_evidence": {
+  "devops_cli.roadmap.stage_missing": [],
+  "devops_cli.roadmap.stage": [
+   "src/devops_cli/roadmap/stage.py"
+  ],
+  "devops_cli.roadmap.stage_": [
+   "src/devops_cli/roadmap/stage_change.py",
+   "src/devops_cli/roadmap/stage_form.py",
+   "src/devops_cli/roadmap/stage_ready.py",
+   "src/devops_cli/roadmap/stage_verify.py"
+  ]
+ }
+}

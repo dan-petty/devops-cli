@@ -3185,6 +3185,16 @@ class RoadmapMessages:
         "and its literal `{literal}` names one module of the moved prefix. Search the dotted "
         "prefix, such as `{expected}`, so the check covers every module."
     )
+    stage_problem_search_no_hit: str = (
+        "Group {group} gives the `verify` command `{command}` with the literal `{literal}`, and "
+        "the staged tree holds no match. A search that finds nothing already passes before the "
+        "change and proves nothing. Search a name that exists before the change."
+    )
+    stage_problem_search_created: str = (
+        "Group {group} gives the `verify` command `{command}` with the literal `{literal}`, and "
+        "the plan creates `{path}`, whose import path `{import_path}` contains the literal. The "
+        "search can never pass on the produced tree. Search a name that the plan does not keep."
+    )
     stage_problem_path_later: str = (
         "Group {group} names `{path}` in {place}. The staged commit has no such file, and group "
         "{later} creates it after group {group}. Move group {later} before group {group}, or "

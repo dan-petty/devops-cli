@@ -10,7 +10,12 @@ import pytest
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.roadmap.stage_change import StageGroup, StageProposal, check_proposal
-from devops_cli.roadmap.stage_form import form_problems
+from devops_cli.roadmap.stage_form import (
+    form_problems,
+    negative_search_parts,
+    record_search_evidence,
+    search_problems,
+)
 from devops_cli.roadmap.stage_overlap import Overlap
 from devops_cli.roadmap.stage_paths import StagedTree
 from tests.support.builders import make_stage_proposal
@@ -222,6 +227,86 @@ def test_a_bare_task_reaches_the_model_through_check_proposal() -> None:
     plan.groups[0].test = "tests/roadmap/test_stage.py"
 
     assert any("one word" in problem for problem in _problems(plan))
+
+
+# ── The evidence of a negative search (#3410) ────────────────────────────────
+
+NO_HIT = "! git grep -n -F devops_cli.roadmap.stage_missing src/ tests/"
+BARE = "! git grep -n -F devops_cli.roadmap.stage src/ tests/"
+DOTTED = "! git grep -n -F devops_cli.roadmap.stage_ src/ tests/"
+STAGE_PACKAGE = "src/devops_cli/roadmap/stage/ready.py"
+
+
+def _search_group(verify: str, *, creates: tuple[str, ...] = ()) -> StageGroup:
+    return _group(
+        title="Move the stage modules",
+        kind="other",
+        test=None,
+        reads=[],
+        changes=[CODE, *creates],
+        creates=list(creates),
+        creates_lines={path: 5 for path in creates},
+        verify=verify,
+    )
+
+
+def test_negative_search_parts_reads_the_literal_and_the_paths() -> None:
+    found = negative_search_parts(DOTTED)
+
+    assert found is not None
+    assert (found.literal, found.paths) == ("devops_cli.roadmap.stage_", ("src/", "tests/"))
+
+
+@pytest.mark.parametrize("command", ["uv run devops ci", "! git grep -n", "!"])
+def test_negative_search_parts_gives_no_literal_for_another_command(command: str) -> None:
+    assert negative_search_parts(command) is None
+
+
+def test_record_search_evidence_calls_the_search_once_for_each_literal() -> None:
+    seen: list[str] = []
+
+    def search(literal: str) -> tuple[str, ...]:
+        seen.append(literal)
+        return ("src/b.py", "src/a.py", "src/a.py", "")
+
+    evidence = record_search_evidence(
+        [_search_group(DOTTED), _search_group(BARE), _search_group(DOTTED)], search
+    )
+
+    assert seen == ["devops_cli.roadmap.stage_", "devops_cli.roadmap.stage"]
+    assert evidence == {
+        "devops_cli.roadmap.stage_": ("src/a.py", "src/b.py"),
+        "devops_cli.roadmap.stage": ("src/a.py", "src/b.py"),
+    }
+
+
+def test_search_problems_refuses_a_literal_with_no_hit() -> None:
+    (problem,) = search_problems([_search_group(NO_HIT)], {"devops_cli.roadmap.stage_": ()})
+
+    assert "already passes before the change and proves nothing" in problem
+    assert NO_HIT in problem
+
+
+def test_search_problems_refuses_a_literal_that_a_created_source_path_keeps() -> None:
+    (problem,) = search_problems(
+        [_search_group(BARE, creates=(STAGE_PACKAGE,))],
+        {"devops_cli.roadmap.stage": ("src/devops_cli/roadmap/stage.py",)},
+    )
+
+    assert "can never pass on the produced tree" in problem
+    assert STAGE_PACKAGE in problem
+
+
+def test_search_problems_accepts_a_recorded_hit_that_survives_the_change() -> None:
+    groups = [_search_group(DOTTED, creates=(STAGE_PACKAGE,))]
+
+    assert search_problems(groups, {"devops_cli.roadmap.stage_": ("src/a.py",)}) == []
+
+
+def test_search_problems_records_no_hit_only_when_the_caller_gives_evidence() -> None:
+    groups = [_search_group(NO_HIT)]
+
+    assert search_problems(groups) == []
 
 
 # ── The examples of the prompt and of the rules ───────────────────────────────
