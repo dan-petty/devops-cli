@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.56.1](https://github.com/dan-petty/devops-cli/compare/v0.56.0...v0.56.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **roadmap:** the App token can push a workflow file ([#3521](https://github.com/dan-petty/devops-cli/issues/3521)) ([835fbac](https://github.com/dan-petty/devops-cli/commit/835fbac1bf02c8b25ee9a88dcee15bb179961901))
+
+
+### Performance Improvements
+
+* **ci:** run the test row in four shards on four runners ([#3517](https://github.com/dan-petty/devops-cli/issues/3517)) ([69ee7da](https://github.com/dan-petty/devops-cli/commit/69ee7dad2fec55b19b5be56a8ad4594b1e876068))
+* **k8s:** embedding-only tiers use one CPU thread ([#3522](https://github.com/dan-petty/devops-cli/issues/3522)) ([c196a54](https://github.com/dan-petty/devops-cli/commit/c196a54c0a67661ad1b237f53e0f636ddd1b5aae)), closes [#3518](https://github.com/dan-petty/devops-cli/issues/3518)
+
 ## [0.56.0](https://github.com/dan-petty/devops-cli/compare/v0.55.4...v0.56.0) (2026-11-04)
 
 
