@@ -3074,6 +3074,10 @@ class RoadmapMessages:
         "Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD)."
     )
     stage_bad_path: str = "'{path}' is not a path inside the repository."
+    stage_bad_change_path: str = (
+        "`{path}` is the change folder or a path under it. A task group must not change or "
+        "create `openspec/changes` or a path under it."
+    )
     stage_bad_capability: str = (
         "'{capability}' is not a name. Use lowercase letters and digits joined by single hyphens."
     )

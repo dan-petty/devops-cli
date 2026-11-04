@@ -1318,7 +1318,7 @@ NO_SPEC_PATHS = (
     "tests/test_sample.py",
     ".github/workflows/ci.yml",
     "docs/TESTING.md",
-    "openspec/changes/1-x/tasks.md",
+    "openspec/config.yaml",
 )
 NO_SPEC_PROBLEM = (
     "skip_specs is false, and every path in `changes` is under tests/, .github/workflows/, "

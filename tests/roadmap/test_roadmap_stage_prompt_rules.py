@@ -242,6 +242,16 @@ def test_the_prompt_forbids_each_word_that_closes_an_issue(keyword: str) -> None
     assert re.search(rf"\b{keyword}\b", _PROMPT.split("Never write", 1)[1].split(".", 1)[0])
 
 
+# ── The paths of a group ──────────────────────────────────────────────────────
+
+
+def test_the_prompt_forbids_a_group_writing_a_change_folder_path() -> None:
+    """A group must not change or create the change folder or a path under it (#3285): the job
+    writes the change folder before the groups run, and a group reads the change it implements."""
+    assert "must not change or create `openspec/changes`" in _PROMPT
+    assert "refuses a `changes` or `creates` path" in _PROMPT
+
+
 # ── The spec delta ────────────────────────────────────────────────────────────
 
 

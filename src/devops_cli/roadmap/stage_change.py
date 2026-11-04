@@ -45,7 +45,7 @@ from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, is_placeholder, summ
 from devops_cli.roadmap.refine import sanitize_text
 from devops_cli.roadmap.stage_criteria import PENDING_PERSON, StageCriterion, criterion_problems
 from devops_cli.roadmap.stage_form import form_problems
-from devops_cli.roadmap.stage_paths import StagedTree, path_problems
+from devops_cli.roadmap.stage_paths import StagedTree, change_folder_paths, path_problems
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
 from devops_cli.roadmap.step_rules import rules_sections
 
@@ -321,6 +321,13 @@ class StageGroup(_Reply):
             raise ValueError(" ".join(problems))
         return self
 
+    @model_validator(mode="after")
+    def _no_change_folder_writes(self) -> Self:
+        problems = _change_folder_problems(self)
+        if problems:
+            raise ValueError(" ".join(problems))
+        return self
+
 
 def _behavior_problems(group: StageGroup) -> list[str]:
     """What breaks the rules of a `behavior` group: no test, no command for it, a process, or no
@@ -348,6 +355,16 @@ def _other_problems(group: StageGroup) -> list[str]:
         (group.verify is not None and group.process is not None, texts.stage_kind_two_checks),
     )
     return [text.format(title=group.title) for broken, text in found if broken]
+
+
+def _change_folder_problems(group: StageGroup) -> list[str]:
+    """The `changes` and `creates` paths of `group` that are the change folder or sit under it.
+    A group reads the change it implements, and it writes nothing there: the stage job writes the
+    change before the groups run (#3285)."""
+    return [
+        MESSAGES.roadmap.stage_bad_change_path.format(path=path)
+        for path in change_folder_paths([*group.changes, *group.creates])
+    ]
 
 
 # The keys of the plan: a reply that does not set `premise_failed` gives each of them.
