@@ -12,8 +12,11 @@ commit last added or removed its text. A missing thing with no such commit may b
 issue asks to create: the line says that no commit held it.
 
 The probe runs at most `CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS` commands for one item. Every
-command is `git cat-file`, `git grep` or `git log` at the staging commit, with a `--` before every
-path, so the probe changes nothing. It lists the items that the bound left out.
+command is `git cat-file`, `git grep`, `git log` or `git ls-tree` at the staging commit, with a
+`--` before every path, so the probe changes nothing. A cited path that exists at the root gets one
+line. For a bare name with no root file, the probe reads the tree once and names the files under a
+folder that have the same name, so the model reads a file that exists. It lists the items that the
+bound left out.
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ from devops_cli.roadmap.refine import (
     cited_paths,
     git_result,
 )
+from devops_cli.roadmap.stage_paths import StagedTree
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -84,11 +88,27 @@ class _Run:
     lines: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    _tree: StagedTree | None = None
 
     def git(self, *args: str) -> tuple[int, str]:
         """Run one command of the budget."""
         self.left -= 1
         return git_result(self.source, *args)
+
+    def same_name(self, name: str) -> list[str]:
+        """The files of the staging commit with the name of `name`, sorted and at most
+        `SAME_NAME_MAX`; an empty list when no command is left to read the tree. The tree is read
+        once for the run, on the first missing cited path."""
+        if self._tree is None:
+            if self.left < 1:
+                return []
+            code, out = self.git("ls-tree", "-r", "-z", "--name-only", self.sha)
+            self._tree = (
+                StagedTree(path for path in out.split("\0") if path)
+                if code == 0
+                else StagedTree(())
+            )
+        return self._tree.same_name(name)
 
     def newest_commit(self, *args: str) -> str:
         """The newest commit that `git log` finds with `args` at the staging commit, as `hash
@@ -103,16 +123,31 @@ class _Run:
             self.lines.append(texts.stage_probe_path_present.format(path=name))
             return
         self.missing.append(name)
+        same = self.same_name(name)
+        if same:
+            candidates = ", ".join(f"`{path}`" for path in same)
+            removal = self._removal(name) if self.left >= 1 else ""
+            self.lines.append(
+                texts.stage_probe_path_missing_root.format(
+                    path=name, candidates=candidates, removal=removal
+                ).rstrip()
+            )
+            return
         if self.left < 1:
             self.lines.append(texts.stage_probe_path_missing.format(path=name, removal="").rstrip())
             return
+        removal = self._removal(name)
+        self.lines.append(texts.stage_probe_path_missing.format(path=name, removal=removal))
+
+    def _removal(self, name: str) -> str:
+        """The sentence on the commit that deleted or renamed `name`, or that no commit did."""
+        texts = MESSAGES.roadmap
         commit = self.newest_commit("--diff-filter=DR", self.sha, "--", name)
-        removal = (
+        return (
             texts.stage_probe_removed.format(commit=commit)
             if commit
             else texts.stage_probe_path_never
         )
-        self.lines.append(texts.stage_probe_path_missing.format(path=name, removal=removal))
 
     def identifier(self, name: str) -> None:
         texts = MESSAGES.roadmap
