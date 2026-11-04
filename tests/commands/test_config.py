@@ -155,16 +155,38 @@ def test_config_unset_of_a_key_that_the_file_does_not_hold_exits_1_and_changes_n
     assert _names(isolate_devops_cli_config.parent) == ["config.yaml"]
 
 
-def test_config_unset_dry_run_runs_as_no_external_request(
+def test_config_unset_dry_run_prints_the_removal_and_writes_nothing(
     cli: Any, isolate_devops_cli_config: Path, isolate_data_dir: Path
 ) -> None:
+    """`devops --dry-run config unset` printed no diff, and it removed the key and made a copy
+    (#3218)."""
     _use(isolate_devops_cli_config, _WITH_REMOVED_KEY)
 
     result = cli("--dry-run", "config", "unset", "ai.vllm_url")
+
     assert result.exit_code == 0
-    assert isolate_devops_cli_config.read_text(encoding="utf-8") == _WITH_REMOVED_KEY.replace(
-        _REMOVED_LINE, ""
-    )
+    assert "vllm_url: http://192.0.2.10:8000" in result.output
+    assert "@@ -7 +6,0 @@" in result.output
+    assert isolate_devops_cli_config.read_text(encoding="utf-8") == _WITH_REMOVED_KEY
+    assert _names(isolate_devops_cli_config.parent) == ["config.yaml"]
+    assert written_keys(isolate_data_dir) == []
+
+
+def test_config_unset_dry_run_of_a_credential_prints_the_placeholder_not_the_value(
+    cli: Any, isolate_devops_cli_config: Path, isolate_data_dir: Path
+) -> None:
+    secret = "FAKE-3218-value"
+    text = f"ai:\n  provider: ollama\n  # The old key was {secret}.\n  api_key: {secret}\n"
+    _use(isolate_devops_cli_config, text)
+
+    result = cli("--dry-run", "config", "unset", "ai.api_key")
+
+    assert result.exit_code == 0
+    assert "***REDACTED***" in result.output
+    assert secret not in result.output
+    assert isolate_devops_cli_config.read_text(encoding="utf-8") == text
+    assert _names(isolate_devops_cli_config.parent) == ["config.yaml"]
+    assert written_keys(isolate_data_dir) == []
 
 
 def test_the_unset_command_that_the_error_names_for_the_other_config_file_removes_the_key(

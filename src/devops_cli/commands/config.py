@@ -14,6 +14,7 @@ import typer
 from pydantic import TypeAdapter
 
 from devops_cli.config.constants import (
+    CONST_CONFIG_UNSET_COMMAND,
     CONST_GH_CLI,
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_SECRET_FILE_MAX_BYTES,
@@ -54,7 +55,7 @@ from devops_cli.config.settings import (
 )
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
-from devops_cli.dry_run import is_dry_run
+from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.dry_run.decorator import dry_run_class
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.http.egress import EgressLevel, vet_addresses
@@ -326,9 +327,19 @@ def unset_value(
     each older copy, a credential that the command removes shows as `***REDACTED***`, so no copy
     holds its value. A key that the file does not hold exits 1. A credential in the OS keyring
     stays. Store a credential before you remove it, with `devops config set <key>`, or with
-    `--from-file <path>` for a multi-line one.
+    `--from-file <path>` for a multi-line one. With the root option `--dry-run`, the command
+    prints the unified diff of the removal, with each credential as `***REDACTED***`, and it
+    writes no file, no copy and no audit record.
     """
-    removal = remove_config_key(key, dry_run=False)
+    removal = remove_config_key(key, dry_run=is_dry_run())
+    if is_dry_run():
+        render_dry_run_result(
+            command=CONST_CONFIG_UNSET_COMMAND,
+            action="remove_config_key",
+            target=removal.path,
+            details={"key": removal.key, "line": removal.line, "diff": removal.diff.splitlines()},
+        )
+        return
     print_success(
         MESSAGES.config.unset_success.format(key=removal.key, path=removal.path, line=removal.line),
         prefix=False,
