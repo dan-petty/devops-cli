@@ -15,16 +15,16 @@ Reads: `tests/conftest.py`, `src/devops_cli/core/repo.py`, `src/devops_cli/telem
 
 Reads: `src/devops_cli/ci/fail_to_pass.py`, `src/devops_cli/git/operations.py`, `tests/ci/test_fail_to_pass.py`. Changes: `src/devops_cli/ci/fail_to_pass.py`, `src/devops_cli/ci/changed_tests.py`, `src/devops_cli/git/operations.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/messages.py`, `tests/ci/test_fail_to_pass.py`, `tests/ci/test_changed_tests.py`.
 
-- [ ] 2.1 Write the failing tests: a guard message in a failure or in a teardown error, an unchanged test that fails, a parametrized test, a changed helper, and a new test that fails in full, and the cases of the function comparison.
+- [x] 2.1 Write the failing tests: a guard message in a failure or in a teardown error, an unchanged test that fails, a parametrized test, a changed helper, and a new test that fails in full, and the cases of the function comparison.
   - Verification: `uv run devops ci test tests/ci/test_fail_to_pass.py tests/ci/test_changed_tests.py`
-- [ ] 2.2 Add `CONST_FAIL_TO_PASS_GUARD_MESSAGE`, the two report sentences, `changed_tests.is_test_changed`, `unchanged_failed` and `guard_failures` on the report, the rule in `satisfied`, and the two git reads in the dry run plan.
+- [x] 2.2 Add `CONST_FAIL_TO_PASS_GUARD_MESSAGE`, the two report sentences, `changed_tests.is_test_changed`, `unchanged_failed` and `guard_failures` on the report, the rule in `satisfied`, and the two git reads in the dry run plan.
   - Verification: `uv run devops ci test tests/ci/test_fail_to_pass.py tests/ci/test_changed_tests.py tests/git/test_git_operations.py`
 
 ## 3. Documents (documents)
 
 Changes: `CONTRIBUTING.md`, `docs/TESTING.md`.
 
-- [ ] 3.1 Describe the new rules of the check in `CONTRIBUTING.md` and the host path roots in `docs/TESTING.md`.
+- [x] 3.1 Describe the new rules of the check in `CONTRIBUTING.md` and the host path roots in `docs/TESTING.md`.
   - Verification: `uv run devops ci docs`
 
 ## Workflow follow-up

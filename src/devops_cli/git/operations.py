@@ -506,6 +506,16 @@ def _is_safe_relpath(rel_path: str) -> bool:
     )
 
 
+def ls_tree_argv(revision: str, rel_path: str) -> list[str]:
+    """The command that lists the tree entry of `rel_path` in `revision`, from the repository root."""
+    return ["git", "--literal-pathspecs", "ls-tree", "-z", "--full-tree", revision, "--", rel_path]
+
+
+def cat_file_argv(object_id: str) -> list[str]:
+    """The command that prints the blob `object_id`."""
+    return ["git", "cat-file", "blob", object_id]
+
+
 def _regular_file_object(repo_dir: Path, revision: str, rel_path: str) -> str | None:
     """The object id of the regular file at `rel_path` in `revision`, or None.
 
@@ -514,10 +524,7 @@ def _regular_file_object(repo_dir: Path, revision: str, rel_path: str) -> str | 
     the entry must name the path itself, since `dir/` lists the files in `dir`.
     """
     proc = run_subprocess(
-        ["git", "--literal-pathspecs", "ls-tree", "-z", "--full-tree", revision, "--", rel_path],
-        cwd=repo_dir,
-        quiet=True,
-        local_read=True,
+        ls_tree_argv(revision, rel_path), cwd=repo_dir, quiet=True, local_read=True
     )
     if proc.returncode != 0:
         return None
@@ -543,9 +550,7 @@ def read_file_at_revision(repo_dir: Path, revision: str, rel_path: str) -> str |
     try:
         if (object_id := _regular_file_object(repo_dir, revision, rel_path)) is None:
             return None
-        proc = run_subprocess(
-            ["git", "cat-file", "blob", object_id], cwd=repo_dir, quiet=True, local_read=True
-        )
+        proc = run_subprocess(cat_file_argv(object_id), cwd=repo_dir, quiet=True, local_read=True)
     except Exception as exc:
         logger.debug("Could not read %s at %s: %s", rel_path, revision, exc)
         return None
