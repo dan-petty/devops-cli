@@ -4834,6 +4834,15 @@ CONST_OSV_DB_DIR_ENV: Final[str] = "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY"
 CONST_OSV_DB_DIR_NAME: Final[str] = "osv-scalibr"
 # The offline database file of one ecosystem, in a directory of its own below `osv-scalibr` (#2130).
 CONST_OSV_DB_FILE_NAME: Final[str] = "all.zip"
+# What osv-scanner 2.6.0 and Trivy 0.75.0 print when they stop for want of their database (#2131).
+# osv-scanner prints the first for each ecosystem and still prints a report with no advisory. Trivy
+# prints the second when it has no database, and when its database is past its `NextUpdate` and
+# the sandbox gives it no network to fetch a new one.
+CONST_OSV_NO_OFFLINE_DB_ERROR: Final[str] = "no offline version of the OSV database is available"
+CONST_TRIVY_NO_DB_ERROR: Final[str] = "failed to download vulnerability DB"
+# The exit codes of osv-scanner 2.6.0 with which a fetch has succeeded: it exits 1 when the
+# lockfiles it scanned have a vulnerable package (#2131).
+CONST_OSV_FETCH_OK_EXIT_CODES: Final[tuple[int, ...]] = (0, 1)
 CONST_LOCKFILE_NAMES: Final[tuple[str, ...]] = (
     "uv.lock",
     "poetry.lock",

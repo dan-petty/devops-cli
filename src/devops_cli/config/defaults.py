@@ -251,6 +251,8 @@ DEFAULT_TRIVY_SEVERITIES = "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
 DEFAULT_TRIVY_SCAN_TYPE = "fs"
 DEFAULT_VULNERABILITY_LOOKUP_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS: float = 300.0
+# A database of osv-scanner or Trivy is 2.6 MB to 220 MB, so a fetch gets longer than a scan (#2131).
+DEFAULT_TOOL_DATABASE_FETCH_TIMEOUT_SECONDS: float = 900.0
 # The most files one Semgrep run of a review names; each batch has its own timeout, so one that
 # runs out of time loses only its files (#1079). Offline with the cached p/default, one run of 300
 # files took 81 to 93 s and three batches of 100 took 88 to 94 s in all (#1144): 100 files take

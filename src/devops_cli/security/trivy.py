@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -18,11 +19,13 @@ from devops_cli.config.constants import (
     CONST_TRIVY_CHECKS_METADATA,
     CONST_TRIVY_CONFIG_SCAN_TYPE,
     CONST_TRIVY_DB_METADATA,
+    CONST_TRIVY_NO_DB_ERROR,
 )
 from devops_cli.config.defaults import (
     DEFAULT_TRIVY_SCAN_TYPE,
     DEFAULT_TRIVY_SEVERITIES,
 )
+from devops_cli.lang import MESSAGES
 from devops_cli.security.base import (
     BaseSecurityScanner,
     ScannerConfigFile,
@@ -126,6 +129,13 @@ def _trivy_cache_dir() -> Path:
     )
 
 
+def trivy_data_dir() -> ToolDataDir:
+    """The cache of Trivy: the directory that `devops review fetch-databases` writes and the one
+    that the sandbox binds read-only (#2131)."""
+    cache = _trivy_cache_dir()
+    return ToolDataDir(CONST_TRIVY_CACHE_DIR_ENV, cache, cache)
+
+
 class TrivyScanner(BaseSecurityScanner):
     """Declarative security scanner adapter for Aqua Trivy vulnerability detector."""
 
@@ -145,8 +155,15 @@ class TrivyScanner(BaseSecurityScanner):
         """The cache of Trivy, which holds the checks bundle and the vulnerability database that
         Trivy fetched before (#2096). In the sandbox Trivy has no network to fetch them. With no
         bundle in its cache, a `config` scan uses the checks that the binary holds."""
-        cache = _trivy_cache_dir()
-        return (ToolDataDir(CONST_TRIVY_CACHE_DIR_ENV, cache, cache),)
+        return (trivy_data_dir(),)
+
+    def coverage_gap(self, proc: subprocess.CompletedProcess[str], target_path: Any) -> str | None:
+        """Why a run that stopped for want of the vulnerability database did not scan
+        `target_path` (#2131). The sandbox gives Trivy no network, so a database that is missing,
+        or past its `NextUpdate`, is a database that Trivy cannot fetch."""
+        if proc.returncode == 0 or CONST_TRIVY_NO_DB_ERROR not in (proc.stderr or ""):
+            return None
+        return MESSAGES.review.trivy_database_missing
 
     def ruleset_files(
         self,

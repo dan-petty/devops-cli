@@ -702,6 +702,15 @@ The record reads a ruleset file below a data directory of the tool, such as the 
 osv-scanner, as a stream, whatever its size. Any other config file or ruleset file over 50 MiB
 stops the run.
 
+A review runs osv-scanner and Trivy in a sandbox with no network, so it reads the databases that
+`devops review fetch-databases [PATH]` got before. The command runs outside the sandbox, into the
+directories that the sandbox binds read-only. It fetches the osv-scanner database of each ecosystem
+that the lockfiles of `PATH` use, and the Trivy vulnerability database and checks bundle. A scan
+that lacks a database gives a coverage gap with the reason `Run devops review fetch-databases`. So
+does an osv-scanner scan that read a database file older than 24 hours. The gap keeps the findings
+of that scan. Trivy compares its own database with its `NextUpdate`, and in the sandbox it stops
+when the database is old, which is the same gap. Run the command again to refresh them.
+
 The record is read before the tool starts. Trivy fetches its checks bundle during a scan when the
 cache is old, so Trivy may use newer rules than the record names.
 

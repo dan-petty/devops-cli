@@ -1,0 +1,20 @@
+# Design
+
+## Decisions
+
+- **One flat command, `devops review fetch-databases [PATH]`.**: Only one fetch step exists, so there is no group of subcommands. The command sits under `review` because the review is the only reader of these databases, and `devops review rules fetch` is the neighbor that fetches the Semgrep ruleset.
+- **The directories come from the scanners.**: The command asks `OsvScanner().data_dirs()` and `TrivyScanner().data_dirs()` for the directory and the variable, and starts each tool with that variable. The command and the sandbox bind cannot disagree.
+- **The ecosystems come from the lockfiles of a tree.**: osv-scanner fetches the database of an ecosystem only when a source uses it. The command reads the lockfiles that the review reads (`lockfiles_of`, which `OsvScanner.scan` also uses) and scans them with the download flag. A tree with no lockfile gets no osv-scanner fetch, and the command says so.
+- **A run with exit code 0 or 1 is a fetch.**: osv-scanner exits 1 when it finds a vulnerability, which a lockfile of a real project does. Any other exit code is a failure and gives `ToolExecutionError` with the error of the tool. The command runs the other tool first and raises one error at the end, so a failed download of one database does not skip the other.
+- **The command sets the modified time of the files it confirmed.**: osv-scanner rewrites a database file only when upstream changed it. The age of a file is then the age of the last change, and a fetch that finds nothing new would not renew it. `fetch_databases` calls `os.utime` on `<ecosystem>/all.zip` for each ecosystem in the report, as `fetch_registry_ruleset` does for the Semgrep ruleset that the registry reports unchanged.
+- **A missing database is an error of the tool, not a check before it.**: `coverage_gap` reads the error of the tool (`no offline version of the OSV database is available`, `failed to download vulnerability DB`). A check before the run would stop `devops scan trivy` on a host that has a network, where Trivy fetches the database itself. The reason names the command first, because `CONST_MAX_ERROR_DETAIL_LENGTH` cuts a reason.
+- **An old osv-scanner database is a gap that keeps the findings.**: The run read a database that is older than 24 hours, and its findings are true for that database. `OsvScanner.scan` turns a `ran` outcome into a `coverage_gap` with the same findings, as `_registry_rules_missing` does for Semgrep. Only the ecosystems of the report count, so a database of an ecosystem that the tree does not use never makes a gap.
+- **Trivy has no age check of its own in devops-cli.**: Trivy compares its database with `NextUpdate` and, in the sandbox, stops when the database is old. That stop is a coverage gap through the same error. A second limit would only repeat Trivy.
+
+## Rejected alternatives
+
+- **Fetch every ecosystem with a download of `https://osv-vulnerabilities.storage.googleapis.com/<ecosystem>/all.zip`.**: It is a hand-written downloader and a list of ecosystems to keep. osv-scanner already downloads, and checks, the database of each ecosystem it meets. The `all.zip` files are between 2.6 MB and 220 MB, so a full fetch would cost more than a review needs.
+- **A check of the database before the scan, for both tools.**: It stops a scan outside the sandbox that would have fetched its own database (`devops scan trivy` with a network). The error of the tool says the same thing at no such cost.
+- **Use the modified time of the files as the age, with no `os.utime`.**: A run with `--download-offline-databases` leaves an unchanged file as it is (Feasibility), so every database would read as old after 24 hours, whatever the fetch did.
+- **`trivy image --download-db-only`.**: It works the same as `trivy fs --download-db-only`. The `fs` form is the scan type that a review runs.
+- **A subcommand group `devops review databases` with `fetch` and `status`.**: No second command is asked for. The coverage gap already says the state.

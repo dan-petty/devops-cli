@@ -165,6 +165,36 @@ def build_trivy_sbom_cmd(
     ]
 
 
+def build_osv_fetch_cmd(lockfiles: Sequence[Path | str]) -> list[str]:
+    """Build the osv-scanner command that downloads the offline database of each ecosystem that
+    `lockfiles` use (#2131). It prints a JSON report that names the ecosystem of every package, not
+    only of those with a vulnerability: `--all-packages`."""
+    cmd = [
+        BIN_OSV_SCANNER,
+        "scan",
+        "source",
+        "--format",
+        "json",
+        "--offline-vulnerabilities",
+        "--download-offline-databases",
+        "--all-packages",
+    ]
+    for lockfile in lockfiles:
+        cmd.extend(["--lockfile", str(lockfile)])
+    return cmd
+
+
+def build_trivy_db_fetch_cmd() -> list[str]:
+    """Build the Trivy command that downloads the vulnerability database and scans nothing (#2131)."""
+    return [BIN_TRIVY, DEFAULT_TRIVY_SCAN_TYPE, "--download-db-only", "--quiet"]
+
+
+def build_trivy_checks_fetch_cmd(empty_dir: Path | str) -> list[str]:
+    """Build the Trivy command that downloads the checks bundle: `trivy config` over an empty
+    directory fetches the bundle and finds nothing to check (#2131)."""
+    return [BIN_TRIVY, "config", str(empty_dir), "--format", "json", "--quiet"]
+
+
 def build_osv_scan_cmd(
     target_path: Path | str,
     *,
