@@ -7,7 +7,7 @@ A plan that adds a rule over plan text can write text that its own rule refuses.
 ## What Changes
 
 - `content_problems` refuses a plan that changes `src/devops_cli/roadmap/stage_change.py` in a behavior group and gives no group test that names `StageProposal`, `content_problems` and no problem.
-- The new problem message lives beside the other text problems of the roadmap stage messages.
+- The new problem message lives in `src/devops_cli/lang/en/messages.py` beside the other text problems of the roadmap stage messages.
 - A test of the stage content covers a plan without the self-acceptance test and a plan with it.
 - The staging prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` states the self-acceptance test rule beside the other checks of a plan.
 - A test loads the prompt and asserts that it names the rule and both symbols.
@@ -26,16 +26,17 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/stage_change.py`
+- Code: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`
 - Documents: `src/devops_cli/ai/tasks/roadmap_stage_change.md`
-- Tests: `tests/roadmap/test_roadmap_stage_content.py`, `tests/roadmap/test_roadmap_stage_prompt_rules.py`, `tests/roadmap/test_roadmap_stage_plan.py`
+- Tests: `tests/roadmap/test_roadmap_stage_content.py`, `tests/roadmap/test_roadmap_stage_prompt_rules.py`
 
 ## Feasibility
 
 - The probe shows: The path `src/devops_cli/roadmap/stage_change.py` is a file of the staging commit.
-- The probe shows: The path `tests/roadmap/test_roadmap_stage_plan.py` is a file of the staging commit.
+- The probe shows: The path `src/devops_cli/lang/en/messages.py` is a file of the staging commit.
 - The probe shows: The path `src/devops_cli/ai/tasks/roadmap_stage_change.md` is a file of the staging commit.
 - The source of `src/devops_cli/roadmap/stage_change.py` shows `content_problems` and `check_proposal`, which `stage.py` and `stage_eval_gates.py` already call, so one added rule reaches the job and the replay.
+- The source of `src/devops_cli/lang/en/messages.py` shows the roadmap stage text problems in `RoadmapMessages`, so the new problem message sits with them and `content_problems` reads it through `MESSAGES.roadmap`.
 - The source of `tests/roadmap/test_roadmap_stage_content.py` shows tests that build a proposal with `make_stage_proposal` and call `content_problems` with no network, no cluster and no scanner.
 - The first check is the failing test: `uv run devops ci test tests/roadmap/test_roadmap_stage_content.py`.
 - The second check is the whole roadmap suite: `uv run devops ci test tests/roadmap`.
