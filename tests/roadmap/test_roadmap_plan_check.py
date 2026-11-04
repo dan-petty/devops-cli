@@ -262,7 +262,7 @@ def test_a_group_of_the_kind_other_reads_back(stage_repo: StageRepo) -> None:
 
     result = _run(stage_repo, _facts(stage_repo, sha=sha))
 
-    assert result.ok
+    assert result.problems == ()
 
 
 def test_a_long_title_is_reported(stage_repo: StageRepo) -> None:
