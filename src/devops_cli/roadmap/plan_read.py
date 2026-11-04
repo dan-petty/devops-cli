@@ -130,7 +130,7 @@ def _skip_specs(text: str) -> bool:
     return any(line.strip() == "skip_specs: true" for line in text.splitlines())
 
 
-def _requirement_block(text: str, name: str, body: str) -> StageRequirement:
+def _requirement_block(path: str, name: str, body: str) -> StageRequirement:
     scenarios: list[StageScenario] = []
     for match in _SCENARIO.finditer(body):
         following = _SCENARIO.search(body, match.end())
@@ -139,14 +139,14 @@ def _requirement_block(text: str, name: str, body: str) -> StageRequirement:
         when = _WHEN.search(block)
         then = _THEN.search(block)
         if when is None or then is None:
-            raise PlanReadError(name, MESSAGES.roadmap.plan_read_bad_requirement.format(path=name))
+            raise PlanReadError(path, MESSAGES.roadmap.plan_read_bad_requirement.format(path=path))
         scenarios.append(
             StageScenario(
                 name=match["name"].strip(), when=when["text"].strip(), then=then["text"].strip()
             )
         )
     if not scenarios:
-        raise PlanReadError(name, MESSAGES.roadmap.plan_read_bad_requirement.format(path=name))
+        raise PlanReadError(path, MESSAGES.roadmap.plan_read_bad_requirement.format(path=path))
     statement = _SCENARIO.split(body, maxsplit=1)[0]
     return StageRequirement(name=name, text=_one_line(statement), scenarios=scenarios)
 
