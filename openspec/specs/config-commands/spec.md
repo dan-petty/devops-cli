@@ -154,7 +154,7 @@ When the active config file does not hold the key, `devops config unset <key>` S
 - **THEN** the command exits 1 with the message `The config file <file> does not hold the key 'ai.no_such_key'. Nothing changed.`, and the file and its directory do not change
 
 ### Requirement: devops config unset --dry-run writes nothing
-`devops --dry-run config unset <key>` SHALL print the dry-run response with the file, the key, its line and the lines of the unified diff of the removal, SHALL write no file, no backup and no audit record, and SHALL show `***REDACTED***` in place of the value of each credential path of `write_history.credential_paths`.
+`devops --dry-run config unset <key>` SHALL print the dry-run response with the file, the key, its line and the lines of the unified diff of the removal, SHALL write no file, no backup and no audit record, and SHALL show `***REDACTED***` in place of the value of each credential that the config file holds (the keys of `_SECRET_FIELDS`). The line numbers of the diff count the lines of the redacted text, so they can differ from `line` after a credential of more than one line.
 
 #### Scenario: A dry run of a removal
 - **WHEN** `devops --dry-run config unset ai.vllm_url` runs and the config file holds `ai.vllm_url` on line 7

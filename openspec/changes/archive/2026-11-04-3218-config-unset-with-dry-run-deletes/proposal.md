@@ -12,7 +12,7 @@ This change supersedes issue #2740 ("devops config unset --dry-run prints the cr
 
 - Invocation updates from `devops config unset <key> --dry-run` (which exited with code 2) to root CLI invocation `devops --dry-run config unset <key>`.
 - In `src/devops_cli/commands/config.py`, `unset_value` checks `is_dry_run()`. It passes the flag to `remove_config_key` and prints the diff.
-- In `src/devops_cli/config/settings.py`, `remove_config_key` redacts text with `write_history._redact` before it constructs the diff.
+- In `src/devops_cli/config/settings.py`, `remove_config_key` redacts text with `write_history.redact_credentials` before it constructs the diff.
 - A dry run writes no configuration file, writes no backup file, and appends no audit record.
 - The dry-run diff replaces credentials with `CONST_CONFIG_REDACTED_VALUE` (`***REDACTED***`). This hides single keys, block scalars, and keys in removed sections like `unset ai`.
 - Dry-run output uses `render_dry_run_result` from `src/devops_cli/output/console.py`.
@@ -79,4 +79,4 @@ render_dry_run_result(
 )
 ```
 
-The codebase also contains `write_history._redact` and `write_history.credential_paths`. Reusing these existing functions requires no external libraries. Estimated cost is 2,000 tokens to build, keep, and fix, and under one hour of elapsed time.
+The codebase also contains `write_history.redact_credentials` and `write_history.credential_paths`. Reusing these existing functions requires no external libraries. Estimated cost is 2,000 tokens to build, keep, and fix, and under one hour of elapsed time.
