@@ -1738,7 +1738,7 @@ devops ai gateway load [OPTIONS]
 
 ### `devops ai gateway render`
 
-**Render LLM gateway configuration from Ollama profiles and services, showing unified diff.**
+**Render the Ollama tiers of the GPU thresholds and the LLM gateway configuration, showing unified diff.**
 
 ```bash
 devops ai gateway render [OPTIONS]
@@ -1752,6 +1752,8 @@ devops ai gateway render [OPTIONS]
 | `--config` | `path` | - | Path to the gateway's LiteLLM config file. |
 | `--profiles` | `path` | - | Path to Ollama profiles YAML. |
 | `--services` | `path` | - | Path to LLM services YAML. |
+| `--thresholds` | `path` | - | Path to the GPU architecture thresholds YAML. |
+| `--tier-templates` | `path` | - | Directory of the Ollama tier templates. |
 
 ---
 

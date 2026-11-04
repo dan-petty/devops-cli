@@ -942,6 +942,8 @@ DEFAULT_AI_ANALOGIES_LIMIT: Final[int] = 10
 # The gateway's LiteLLM config; k8s/llm/gateway/kustomization.yaml generates its ConfigMap from it.
 DEFAULT_LLM_GATEWAY_CONFIG_PATH: Final[Path] = Path("k8s/llm/gateway/config.yaml")
 DEFAULT_LLM_PROFILES_PATH: Final[Path] = Path("k8s/llm/profiles/ollama-profiles.yaml")
+DEFAULT_LLM_GPU_THRESHOLDS_PATH: Final[Path] = Path("k8s/llm/profiles/gpu-thresholds.yaml")
+DEFAULT_LLM_TIER_TEMPLATES_PATH: Final[Path] = Path("k8s/llm/profiles/tier-templates")
 DEFAULT_LLM_SERVICES_PATH: Final[Path] = Path("k8s/llm/profiles/services.yaml")
 
 # ── Review Finding Group Model Analysis Defaults (#1147) ────────────────────

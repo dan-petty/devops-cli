@@ -30,7 +30,11 @@ def _extract_container_context_length(container: dict[str, Any]) -> int | None:
 
 def load_tier_context_lengths(profiles_manifest: Path) -> dict[str, int]:
     """Extract OLLAMA_CONTEXT_LENGTH for each DaemonSet from the profiles manifest."""
-    content = profiles_manifest.read_text(encoding="utf-8")
+    return tier_context_lengths(profiles_manifest.read_text(encoding="utf-8"))
+
+
+def tier_context_lengths(content: str) -> dict[str, int]:
+    """Extract OLLAMA_CONTEXT_LENGTH for each DaemonSet from the text of the profiles manifest."""
     tier_lengths: dict[str, int] = {}
     for doc in yaml.safe_load_all(content):
         if not isinstance(doc, dict) or doc.get("kind") != "DaemonSet":
@@ -69,7 +73,11 @@ def load_service_context_lengths(
     services_manifest: Path, tier_lengths: dict[str, int]
 ) -> dict[str, int]:
     """Map service names to their corresponding tier context length."""
-    content = services_manifest.read_text(encoding="utf-8")
+    return service_context_lengths(services_manifest.read_text(encoding="utf-8"), tier_lengths)
+
+
+def service_context_lengths(content: str, tier_lengths: dict[str, int]) -> dict[str, int]:
+    """Map the service names in the text of the services manifest to their tier context length."""
     service_lengths: dict[str, int] = {}
     for doc in yaml.safe_load_all(content):
         if not isinstance(doc, dict) or doc.get("kind") != "Service":
@@ -163,4 +171,6 @@ __all__ = [
     "load_service_context_lengths",
     "load_tier_context_lengths",
     "render_gateway_config",
+    "service_context_lengths",
+    "tier_context_lengths",
 ]

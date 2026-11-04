@@ -228,14 +228,14 @@ def test_every_ollama_tier_requires_its_labels_with_in_and_only_in() -> None:
 
 
 def test_the_tiers_are_read_from_the_profiles() -> None:
-    """Nine Ollama tiers, each requiring a total-vram label, three of them an architecture too."""
+    """Ten Ollama tiers, each requiring a total-vram label, four of them an architecture too."""
     tiers = ollama_tiers(PROFILES)
 
     assert (
         len(tiers),
         all(CONST_K8S_GPU_TOTAL_VRAM_LABEL in t.terms[0] for t in tiers),
         sum(CONST_K8S_GPU_ARCHITECTURE_LABEL in t.terms[0] for t in tiers),
-    ) == (9, True, 3)
+    ) == (10, True, 4)
 
 
 def test_a_tier_with_another_operator_is_refused(tmp_path: Path) -> None:

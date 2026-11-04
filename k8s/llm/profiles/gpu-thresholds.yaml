@@ -1,0 +1,14 @@
+# GPU architecture thresholds of the Ollama tiers (#3501). `devops ai gateway render --apply`
+# reads them and writes the tiers of tier-templates/ into ollama-profiles.yaml, services.yaml and
+# ../gateway/config.yaml. Argo CD tracks main, so the values live here and not in config.yaml.
+#
+# A value is a value of the label nvidia.com/gpu.architecture. A tier is at or below a threshold
+# when the newest architecture that it accepts is that architecture or an older one. A tier newer
+# than a threshold runs as its template says.
+#
+# embedding_only: a tier at or below it serves embedding models alone, and the gateway sends
+# embeddings to it first. It also keeps only one model loaded.
+# per_gpu: a tier at or below it runs one Ollama instance per GPU, each with its own Service and
+# gateway deployment.
+embedding_only: pascal
+per_gpu: pascal

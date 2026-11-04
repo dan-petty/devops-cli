@@ -20,6 +20,55 @@ from devops_cli.config.defaults import (
 
 runner = CliRunner()
 
+SAMPLE_TIER_TEMPLATE_YAML = """apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ollama-16gib-slow
+  namespace: llm
+  labels:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: 16gib
+    llm.devops.io/total-vram-gib: "16"
+    llm.devops.io/speed-tier: slow
+  annotations:
+    llm.devops.io/gpu-count: "1"
+    llm.devops.io/embedding-model: qwen3-embedding:0.6b
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ollama-16gib-slow
+  template:
+    metadata:
+      labels:
+        llm.devops.io/provider: ollama
+        llm.devops.io/vram-gib: 16gib
+        llm.devops.io/total-vram-gib: "16"
+        llm.devops.io/speed-tier: slow
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values: ["pascal"]
+      containers:
+        - name: ollama
+          env: []
+          resources: {}
+"""
+
+
+def _threshold_args(tmp_path: Path) -> list[str]:
+    """Write a thresholds file and a template that leave the sample routes as they are."""
+    thresholds = tmp_path / "gpu-thresholds.yaml"
+    thresholds.write_text("embedding_only: kepler\nper_gpu: kepler\n", encoding="utf-8")
+    templates = tmp_path / "tier-templates"
+    templates.mkdir(exist_ok=True)
+    (templates / "ollama-16gib-slow.yaml").write_text(SAMPLE_TIER_TEMPLATE_YAML, encoding="utf-8")
+    return ["--thresholds", str(thresholds), "--tier-templates", str(templates)]
+
 
 SAMPLE_PROFILES_YAML = """---
 apiVersion: apps/v1
@@ -60,6 +109,9 @@ spec:
           env:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "160000"
+---
+# BEGIN rendered by devops ai gateway render from gpu-thresholds.yaml
+# END rendered by devops ai gateway render from gpu-thresholds.yaml
 """
 
 SAMPLE_SERVICES_YAML = """---
@@ -92,6 +144,9 @@ spec:
     llm.devops.io/provider: ollama
     llm.devops.io/vram-gib: "64gib"
     llm.devops.io/speed-tier: standard
+---
+# BEGIN rendered by devops ai gateway render from gpu-thresholds.yaml
+# END rendered by devops ai gateway render from gpu-thresholds.yaml
 """
 
 SAMPLE_CONFIG_YAML = """# Header comment
@@ -127,6 +182,8 @@ model_list:
       timeout: 1100
       num_retries: 0
 
+  # BEGIN rendered by devops ai gateway render from gpu-thresholds.yaml
+  # END rendered by devops ai gateway render from gpu-thresholds.yaml
 router_settings:
   routing_strategy: least-busy
 """
@@ -154,9 +211,9 @@ def test_load_tier_context_lengths_against_repository_profiles() -> None:
         lengths.get("ollama-24gib"),
         lengths.get("ollama-32gib"),
         lengths.get("ollama-48gib"),
-        lengths.get("ollama-48gib-slow"),
+        lengths.get("ollama-24gib-embed-gpu0"),
         lengths.get("ollama-64gib"),
-    ) == (131072, 48000, 48000, 262144, 128000, 160000)
+    ) == (131072, 48000, 48000, 262144, 8192, 160000)
 
 
 def test_load_service_context_lengths_maps_services_to_tier_limits(tmp_path: Path) -> None:
@@ -257,6 +314,7 @@ def test_cli_gateway_render_dry_run_displays_diff_without_writing(tmp_path: Path
             str(profiles),
             "--services",
             str(services),
+            *_threshold_args(tmp_path),
         ],
     )
 
@@ -289,6 +347,7 @@ def test_cli_gateway_render_apply_writes_file_and_makes_no_cluster_calls(tmp_pat
             str(profiles),
             "--services",
             str(services),
+            *_threshold_args(tmp_path),
         ],
     )
 
@@ -322,6 +381,7 @@ def test_cli_gateway_render_apply_idempotent(tmp_path: Path) -> None:
             str(profiles),
             "--services",
             str(services),
+            *_threshold_args(tmp_path),
         ],
     )
 
@@ -337,6 +397,7 @@ def test_cli_gateway_render_apply_idempotent(tmp_path: Path) -> None:
             str(profiles),
             "--services",
             str(services),
+            *_threshold_args(tmp_path),
         ],
     )
 

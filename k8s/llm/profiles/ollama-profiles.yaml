@@ -2,12 +2,18 @@
 # Tiers: 16gib, 24gib, 32gib, 48gib, 64gib, 72gib, 96gib, 128gib.
 # Each tier serves one request per model at a time. Ollama reserves KV cache for
 # OLLAMA_CONTEXT_LENGTH x OLLAMA_NUM_PARALLEL tokens, and four slots left a dense ~30B model too
-# little VRAM to load (#1061). A tier keeps one model loaded, except a tier that the gateway
-# sends embeddings to (16gib, 48gib, 64gib and 48gib-slow), which keeps two. Ollama loads the
-# second model only when both fit in VRAM, and otherwise unloads the idle one, so the embedder
-# stays beside the chat model where it fits (#1987). Each of these tiers must hold
-# qwen3-embedding:0.6b in its model directory. ollama-48gib-slow, the background tier, also keeps
-# its two models loaded for good, since each evicted the other on every switch (#1064).
+# little VRAM to load (#1061). A tier keeps one model loaded, except a chat tier that the gateway
+# sends embeddings to (16gib, 48gib and 64gib), which keeps two. Ollama loads the second model
+# only when both fit in VRAM, and otherwise unloads the idle one, so the embedder stays beside the
+# chat model where it fits (#1987). Each of these tiers must hold qwen3-embedding:0.6b in its model
+# directory.
+#
+# gpu-thresholds.yaml and tier-templates/ set the region between the two "rendered" lines:
+# `devops ai gateway render --apply` writes it, so do not edit it. With the thresholds at pascal,
+# ollama-24gib-embed-gpu0 and -gpu1 run on a node with two 24 GiB Pascal GPUs. Each claims one GPU
+# and keeps the embedder loaded for good. Measured on two Quadro P6000 (#3501): 0.50 batches of 32
+# chunks a second on one instance and 0.99 on both. OLLAMA_NUM_PARALLEL of 2 or 4 and num_batch up
+# to 8192 gave no gain, so these tiers also serve one request at a time.
 # ollama-64gib sets LLAMA_ARG_CACHE_RAM to 4096 MiB and a container memory limit of 12Gi. Node
 # gemini has 15.3 GiB of memory, and its 160000 context length can exhaust host memory without
 # a prompt cache bound (#2382).
@@ -18,8 +24,7 @@
 # runs 131072, the native limit of gpt-oss:20b, which takes 13 GB with q4_0 KV cache (#2822).
 # Every tier now sets q8_0 so that every embedding vector is the same (#2396). The q8_0 cache
 # of that model is larger by up to 1.5 GiB (an estimate, not a measurement). The 70B
-# models of ollama-64gib stay at 160000: their KV cache already fills that tier. ollama-48gib-slow
-# stays at 128000: Pascal GPUs read a long prompt too slowly to gain from more.
+# models of ollama-64gib stay at 160000: their KV cache already fills that tier.
 #
 # Every tier runs ollama as UID and GID 10001, which no host login account uses, with RuntimeDefault
 # seccomp, no privilege escalation, all capabilities dropped and a read-only root filesystem; /tmp is
@@ -606,44 +611,36 @@ spec:
         - name: tmp
           emptyDir: {}
 ---
+# BEGIN rendered by devops ai gateway render from gpu-thresholds.yaml
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: ollama-48gib-slow
-  namespace: llm
   labels:
-    app.kubernetes.io/name: ollama-48gib-slow
+    app.kubernetes.io/name: ollama-24gib-embed-gpu0
     app.kubernetes.io/part-of: devops-cli-stack
     llm.devops.io/backend: ollama
     llm.devops.io/provider: ollama
-    llm.devops.io/vram-gib: 48gib
-    llm.devops.io/total-vram-gib: "48"
-    llm.devops.io/speed-tier: slow
+    llm.devops.io/speed-tier: embed
+    llm.devops.io/total-vram-gib: '24'
+    llm.devops.io/vram-gib: 24gib
+  name: ollama-24gib-embed-gpu0
+  namespace: llm
 spec:
-  updateStrategy:
-    type: RollingUpdate
   selector:
     matchLabels:
-      app.kubernetes.io/name: ollama-48gib-slow
+      app.kubernetes.io/name: ollama-24gib-embed-gpu0
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ollama-48gib-slow
+        app.kubernetes.io/name: ollama-24gib-embed-gpu0
         app.kubernetes.io/part-of: devops-cli-stack
         llm.devops.io/backend: ollama
         llm.devops.io/provider: ollama
-        llm.devops.io/vram-gib: 48gib
-        llm.devops.io/total-vram-gib: "48"
-        llm.devops.io/speed-tier: slow
+        llm.devops.io/speed-tier: embed
+        llm.devops.io/total-vram-gib: '24'
+        llm.devops.io/vram-gib: 24gib
+        llm.devops.io/gpu-instance: '0'
     spec:
-      automountServiceAccountToken: false
-      runtimeClassName: nvidia
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 10001
-        runAsGroup: 10001
-        seccompProfile:
-          type: RuntimeDefault
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -651,46 +648,20 @@ spec:
               - matchExpressions:
                   - key: nvidia.com/gpu.architecture
                     operator: In
-                    values: ["pascal", "maxwell", "kepler"]
+                    values:
+                      - pascal
+                      - maxwell
+                      - kepler
                   - key: nvidia.com/gpu.total-vram-gib
                     operator: In
-                    values: ["48Gi", "52Gi", "56Gi", "60Gi"]
-      initContainers:
-        - name: own-model-directory
-          image: ollama/ollama:0.40.12
-          securityContext:
-            runAsUser: 0
-            runAsNonRoot: false
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                - ALL
-              add:
-                - CHOWN
-          command:
-            - chown
-            - -R
-            - "10001:10001"
-            - /home/ollama/.ollama
-          resources:
-            requests:
-              cpu: 10m
-            limits:
-              memory: 64Mi
-          volumeMounts:
-            - name: ollama-data
-              mountPath: /home/ollama/.ollama
+                    values:
+                      - 48Gi
+                      - 52Gi
+                      - 56Gi
+                      - 60Gi
+      automountServiceAccountToken: false
       containers:
-        - name: ollama
-          image: ollama/ollama:0.40.12
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                - ALL
-          env:
+        - env:
             - name: OLLAMA_HOST
               value: 0.0.0.0:11434
             - name: HOME
@@ -698,62 +669,279 @@ spec:
             - name: OLLAMA_MODELS
               value: /home/ollama/.ollama/models
             - name: OLLAMA_CONTEXT_LENGTH
-              value: "128000"
+              value: '8192'
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"    # its embedding model and qwen3.8:27b stay loaded together
+              value: '1'
             - name: OLLAMA_NUM_PARALLEL
-              value: "1"
+              value: '1'
             - name: OLLAMA_KEEP_ALIVE
-              value: "-1"   # no reload after 5 idle minutes; the gateway sends it no third model
+              value: '-1'
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
-            - name: OLLAMA_SCHED_SPREAD
-              value: "1"
             - name: OLLAMA_NO_CLOUD
-              value: "1"
-          ports:
-            - containerPort: 11434
-              name: http
-          resources:
-            requests:
-              cpu: 6000m
-              memory: 24Gi
-          startupProbe:
-            httpGet:
-              path: /
-              port: 11434
-            initialDelaySeconds: 10
-            periodSeconds: 5
-            timeoutSeconds: 5
-            failureThreshold: 60
-          readinessProbe:
-            httpGet:
-              path: /
-              port: 11434
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
+              value: '1'
+            - name: OLLAMA_NOPRUNE
+              value: '1'
+          image: ollama/ollama:0.40.12
           livenessProbe:
+            failureThreshold: 6
             httpGet:
               path: /
               port: 11434
             initialDelaySeconds: 15
             periodSeconds: 15
             timeoutSeconds: 10
-            failureThreshold: 6
+          name: ollama
+          ports:
+            - containerPort: 11434
+              name: http
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            limits:
+              memory: 4Gi
+              nvidia.com/gpu: 1
+            requests:
+              cpu: 2000m
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          startupProbe:
+            failureThreshold: 60
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
           volumeMounts:
-            - name: ollama-data
-              mountPath: /home/ollama/.ollama
-            - name: tmp
-              mountPath: /tmp
+            - mountPath: /home/ollama/.ollama
+              name: ollama-data
+            - mountPath: /tmp
+              name: tmp
+      initContainers:
+        - command:
+            - chown
+            - -R
+            - 10001:10001
+            - /home/ollama/.ollama
+          image: ollama/ollama:0.40.12
+          name: own-model-directory
+          resources:
+            limits:
+              memory: 64Mi
+            requests:
+              cpu: 10m
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              add:
+                - CHOWN
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false
+            runAsUser: 0
+          volumeMounts:
+            - mountPath: /home/ollama/.ollama
+              name: ollama-data
+      runtimeClassName: nvidia
+      securityContext:
+        runAsGroup: 10001
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
       volumes:
-        - name: ollama-data
-          hostPath:
+        - hostPath:
             path: /var/lib/ollama
             type: DirectoryOrCreate
-        - name: tmp
-          emptyDir: {}
+          name: ollama-data
+        - emptyDir: {}
+          name: tmp
+  updateStrategy:
+    type: RollingUpdate
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    app.kubernetes.io/name: ollama-24gib-embed-gpu1
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/backend: ollama
+    llm.devops.io/provider: ollama
+    llm.devops.io/speed-tier: embed
+    llm.devops.io/total-vram-gib: '24'
+    llm.devops.io/vram-gib: 24gib
+  name: ollama-24gib-embed-gpu1
+  namespace: llm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ollama-24gib-embed-gpu1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ollama-24gib-embed-gpu1
+        app.kubernetes.io/part-of: devops-cli-stack
+        llm.devops.io/backend: ollama
+        llm.devops.io/provider: ollama
+        llm.devops.io/speed-tier: embed
+        llm.devops.io/total-vram-gib: '24'
+        llm.devops.io/vram-gib: 24gib
+        llm.devops.io/gpu-instance: '1'
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.architecture
+                    operator: In
+                    values:
+                      - pascal
+                      - maxwell
+                      - kepler
+                  - key: nvidia.com/gpu.total-vram-gib
+                    operator: In
+                    values:
+                      - 48Gi
+                      - 52Gi
+                      - 56Gi
+                      - 60Gi
+                  - key: nvidia.com/gpu.count
+                    operator: In
+                    values:
+                      - '2'
+                      - '3'
+                      - '4'
+                      - '5'
+                      - '6'
+                      - '7'
+                      - '8'
+      automountServiceAccountToken: false
+      containers:
+        - env:
+            - name: OLLAMA_HOST
+              value: 0.0.0.0:11434
+            - name: HOME
+              value: /home/ollama
+            - name: OLLAMA_MODELS
+              value: /home/ollama/.ollama/models
+            - name: OLLAMA_CONTEXT_LENGTH
+              value: '8192'
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: '1'
+            - name: OLLAMA_NUM_PARALLEL
+              value: '1'
+            - name: OLLAMA_KEEP_ALIVE
+              value: '-1'
+            - name: OLLAMA_KV_CACHE_TYPE
+              value: q8_0
+            - name: OLLAMA_NO_CLOUD
+              value: '1'
+            - name: OLLAMA_NOPRUNE
+              value: '1'
+          image: ollama/ollama:0.40.12
+          livenessProbe:
+            failureThreshold: 6
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+          name: ollama
+          ports:
+            - containerPort: 11434
+              name: http
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            limits:
+              memory: 4Gi
+              nvidia.com/gpu: 1
+            requests:
+              cpu: 2000m
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          startupProbe:
+            failureThreshold: 60
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+          volumeMounts:
+            - mountPath: /home/ollama/.ollama
+              name: ollama-data
+            - mountPath: /tmp
+              name: tmp
+      initContainers:
+        - command:
+            - chown
+            - -R
+            - 10001:10001
+            - /home/ollama/.ollama
+          image: ollama/ollama:0.40.12
+          name: own-model-directory
+          resources:
+            limits:
+              memory: 64Mi
+            requests:
+              cpu: 10m
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              add:
+                - CHOWN
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false
+            runAsUser: 0
+          volumeMounts:
+            - mountPath: /home/ollama/.ollama
+              name: ollama-data
+      runtimeClassName: nvidia
+      securityContext:
+        runAsGroup: 10001
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - hostPath:
+            path: /var/lib/ollama
+            type: DirectoryOrCreate
+          name: ollama-data
+        - emptyDir: {}
+          name: tmp
+  updateStrategy:
+    type: RollingUpdate
+# END rendered by devops ai gateway render from gpu-thresholds.yaml
 ---
 apiVersion: apps/v1
 kind: DaemonSet
