@@ -1730,8 +1730,11 @@ def _in_process(exits: list[int], body_files: list[Path]) -> Callable[..., str]:
 
 
 def test_the_mcp_mirror_plans_by_default_and_builds_a_command_line_the_cli_accepts(
-    opened: Roadmap, fake_model: FakeModel, tmp_path: Path
+    opened: Roadmap, fake_model: FakeModel, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from devops_cli.ai.mcp import generator
+
+    monkeypatch.setattr(generator, "confinement_root", lambda: tmp_path)
     opened.issue("feat: from mcp")
     tool = asyncio.run(mcp_server.mcp.get_tool("roadmap_intake"))
     names = {listed.name for listed in asyncio.run(mcp_server.mcp._list_tools())}
