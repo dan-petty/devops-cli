@@ -41,9 +41,7 @@ from devops_cli.config.os_keyring import (
 )
 from devops_cli.config.settings import (
     _SECRET_FIELDS,
-    _YAML_LOAD_ERRORS,
     Settings,
-    _yaml_error_location,
     config_layer_paths,
     dotted_get,
     dotted_set,
@@ -54,6 +52,7 @@ from devops_cli.config.settings import (
     save_settings,
     similar_config_keys,
 )
+from devops_cli.config.yaml_errors import YAML_LOAD_ERRORS, yaml_error_location
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
@@ -688,7 +687,7 @@ def audit_stream(
 
 # The audit refuses the errors that the settings load refuses (#1468), and an error that stops the
 # read of the file.
-_AUDIT_READ_ERRORS: tuple[type[Exception], ...] = (*_YAML_LOAD_ERRORS, OSError)
+_AUDIT_READ_ERRORS: tuple[type[Exception], ...] = (*YAML_LOAD_ERRORS, OSError)
 
 
 def _plaintext_secret_keys(
@@ -720,7 +719,7 @@ def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str] | None:
     except _AUDIT_READ_ERRORS as err:
         # The message of the error and the mark of a YAML error quote the file's content, which
         # may hold the value.
-        where = _yaml_error_location(err)
+        where = yaml_error_location(err)
         logger.warning("Could not audit config file %s: %s%s", cfg_file, type(err).__name__, where)
         return None
     if not isinstance(raw_cfg, dict):

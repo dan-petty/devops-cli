@@ -32,7 +32,9 @@ from ruamel.yaml.representer import RoundTripRepresenter
 from ruamel.yaml.tokens import CommentToken
 from ruamel.yaml.util import load_yaml_guess_indent
 
+from devops_cli.config.yaml_errors import YAML_LOAD_ERRORS, load_yaml
 from devops_cli.exceptions import ConfigurationError
+from devops_cli.lang import ERRORS
 
 KeyPath = tuple[str, ...]
 
@@ -47,6 +49,9 @@ _MAPPING_COMMENT: Final = 2
 _SEQUENCE_SLOTS: Final = 2
 _SEQUENCE_COMMENT: Final = 0
 _NULL_TAG: Final = "tag:yaml.org,2002:null"
+# The errors of a load: those of PyYAML, and `YAMLError` of ruamel.yaml. Both parsers raise
+# `ValueError` or `KeyError` with the value in the message for a tag that they cannot build (#2451).
+_LOAD_ERRORS: Final = (*YAML_LOAD_ERRORS, YAMLError)
 
 # The node that holds a comment: a mapping and a key, or a sequence and an index.
 _Owner = tuple[CommentedMap | CommentedSeq, Any]
@@ -106,15 +111,17 @@ def edit(
     yaml.Representer = _Representer
     yaml.preserve_quotes = True
     yaml.width = 4096
-    try:
+
+    def parse() -> tuple[Any, Any, Any]:
         document, sequence_indent, sequence_offset = load_yaml_guess_indent(text, yaml=yaml)
         yaml.explicit_start = any(
             isinstance(event, DocumentStartEvent) and event.explicit for event in yaml.parse(text)
         )
-    except YAMLError as exc:
-        raise ConfigurationError(
-            f"Cannot save the settings: {name} is not valid YAML ({type(exc).__name__})."
-        ) from None
+        return document, sequence_indent, sequence_offset
+
+    document, sequence_indent, sequence_offset = load_yaml(
+        parse, name=name, action=ERRORS.config.not_yaml_save, errors=_LOAD_ERRORS
+    )
     head = ""
     if document is None:
         # ruamel.yaml loads a file of comments alone as nothing, so the comments go before the keys.
@@ -189,12 +196,12 @@ def find(text: str, dotted: str, *, name: str) -> tuple[KeyPath, int] | None:
     names the file in the error that a text which is not YAML raises. The error does not quote the
     text, which can hold a credential (#2201).
     """
-    try:
-        document = YAML(typ="rt").load(text)
-    except YAMLError as exc:
-        raise ConfigurationError(
-            f"Cannot read {name}: it is not valid YAML ({type(exc).__name__})."
-        ) from None
+    document = load_yaml(
+        lambda: YAML(typ="rt").load(text),
+        name=name,
+        action=ERRORS.config.not_yaml_read,
+        errors=_LOAD_ERRORS,
+    )
     return _find(document, dotted, (), name=name)
 
 

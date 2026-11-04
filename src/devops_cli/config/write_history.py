@@ -30,7 +30,9 @@ from devops_cli.config.constants import (
     CONST_CONFIG_REDACTED_VALUE,
 )
 from devops_cli.config.round_trip import KeyPath, changes, edit, leaves
+from devops_cli.config.yaml_errors import load_yaml
 from devops_cli.exceptions import ConfigurationError
+from devops_cli.lang import ERRORS
 
 
 def back_up(path: Path, redact: Collection[KeyPath] = ()) -> Path | None:
@@ -86,13 +88,10 @@ def redact_credentials(data: bytes, paths: Collection[KeyPath], *, name: str) ->
     holds nothing, or only comments, stays as it is. `name` names the file in the error for data
     that is not UTF-8 text, that is not YAML, or that holds no mapping. The error does not quote
     the data, which can hold a credential."""
-    try:
-        text = data.decode("utf-8")
-        loaded = yaml.safe_load(text)
-    except (UnicodeDecodeError, yaml.YAMLError) as exc:
-        raise ConfigurationError(
-            f"Cannot read {name}: it is not valid YAML ({type(exc).__name__})."
-        ) from None
+    loaded = load_yaml(
+        lambda: yaml.safe_load(data.decode("utf-8")), name=name, action=ERRORS.config.not_yaml_read
+    )
+    text = data.decode("utf-8")
     if loaded is None:
         return data
     if not isinstance(loaded, Mapping):
@@ -118,13 +117,13 @@ def redact_credentials(data: bytes, paths: Collection[KeyPath], *, name: str) ->
 
 
 def credential_paths(
-    content: bytes | None, under: KeyPath, credentials: Collection[str]
+    content: bytes | None, under: KeyPath, credentials: Collection[str], *, name: str
 ) -> list[KeyPath]:
-    """The key paths of the credentials that the YAML `content` holds at `under` or below it. A
-    credential is a dotted key of `credentials`, such as `ai.api_key`."""
+    """The key paths of the credentials that the YAML `content` of the file `name` holds at `under`
+    or below it. A credential is a dotted key of `credentials`, such as `ai.api_key`."""
     return [
         path
-        for path in leaves(_mapping(content))
+        for path in leaves(_mapping(content, name=name))
         if path[: len(under)] == under and ".".join(path) in credentials
     ]
 
@@ -164,14 +163,21 @@ def record_write(path: Path, previous: bytes | None, content: bytes, backup: Pat
             "action": CONST_AUDIT_ACTION_CONFIG_WRITE,
             "path": str(path),
             "backup": str(backup) if backup is not None else None,
-            "changed_keys": changed_keys(_mapping(previous), _mapping(content)),
+            "changed_keys": changed_keys(
+                _mapping(previous, name=str(path)), _mapping(content, name=str(path))
+            ),
         },
     )
 
 
-def _mapping(content: bytes | None) -> Mapping[str, Any]:
-    """The mapping that a config file holds, or an empty one for no file or no mapping."""
-    loaded = yaml.safe_load(content) if content else None
+def _mapping(content: bytes | None, *, name: str) -> Mapping[str, Any]:
+    """The mapping that the config file `name` holds, or an empty one for no file or no mapping.
+    Content that PyYAML cannot load raises ConfigurationError, which quotes no text of it (#2451)."""
+    loaded = (
+        load_yaml(lambda: yaml.safe_load(content), name=name, action=ERRORS.config.not_yaml_read)
+        if content
+        else None
+    )
     return loaded if isinstance(loaded, Mapping) else {}
 
 
