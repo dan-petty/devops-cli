@@ -119,7 +119,7 @@ from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
 from devops_cli.roadmap.agent_run import RunTrace
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
-from devops_cli.roadmap.commit_title import commit_type
+from devops_cli.roadmap.commit_title import commit_summary, commit_type
 from devops_cli.roadmap.digest_clears import has_digest_clear
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
@@ -426,9 +426,8 @@ class _Judge:
         texts = MESSAGES.roadmap
         if commit_type(item.title) is None:
             return texts.stage_left_title_type
-        length = summary_length(item.title.partition(":")[2].strip())
-        if length > SUMMARY_MAX_CHARS:
-            return texts.stage_left_title_long.format(length=length, limit=SUMMARY_MAX_CHARS)
+        if (too_long := long_title_reason(item.title)) is not None:
+            return too_long
         return None if _slug_of(item.title) else texts.stage_left_title_slug
 
     def _dependency(self, item: Item) -> str | None:
@@ -484,6 +483,16 @@ class _Judge:
         if not detail or cap != str(CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS):
             return None
         return MESSAGES.roadmap.stage_left_recorded_split.format(detail=detail, number=item.number)
+
+
+def long_title_reason(title: str) -> str | None:
+    """The reason a job leaves out an item whose `title` has a summary over `SUMMARY_MAX_CHARS`
+    (#3486), or None. The stage job and the implement job both judge a title with it, before they
+    make a model request; `devops roadmap retitle` shortens such a title."""
+    length = summary_length(commit_summary(title))
+    if length <= SUMMARY_MAX_CHARS:
+        return None
+    return MESSAGES.roadmap.stage_left_title_long.format(length=length, limit=SUMMARY_MAX_CHARS)
 
 
 def _target_of(item: Item) -> StageTarget:

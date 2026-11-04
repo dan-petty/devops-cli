@@ -100,6 +100,8 @@ class _Roadmap:
     # When each commit on the default branch that changed a path was made, by path.
     commits: dict[str, list[datetime]] = field(default_factory=dict)
     closures: dict[int, list[Closure]] = field(default_factory=dict)
+    # When the title of each issue changed, by number (#3486).
+    renames: dict[int, list[datetime]] = field(default_factory=dict)
     evidence: set[Evidence] = field(default_factory=set)
     job_writes: list[JobWrite] = field(default_factory=list)
     is_private: bool = False
@@ -299,6 +301,11 @@ class InMemoryRoadmapStore(RoadmapStore):
         which shows the record block as text."""
         self._update_issue(self._require_issue(number, "roadmap.issue.edit"), body=body)
 
+    def rename_by_hand(self, number: int, title: str) -> None:
+        """Write `title` as the title of issue `number`, as a person does, which the timeline
+        records as a rename."""
+        self._rename(self._require_issue(number, "roadmap.issue.rename"), title)
+
     def seed_evidence(self, evidence: Evidence) -> None:
         """Make `evidence` one GitHub confirms: the advisory, failed run or commit exists."""
         self._roadmap.evidence.add(evidence)
@@ -365,6 +372,20 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._update_issue(parent_issue, sub_issues=parent_issue.sub_issues + 1)
         self._update_issue(child_issue, parent=parent)
         self._log("add_sub_issue", parent, value=str(child))
+
+    def set_title(self, number: int, title: str) -> None:
+        """Write `title` as the title of issue `number`, raising if it is not an issue."""
+        self._rename(self._require_issue(number, "roadmap.issue.set_title"), title)
+        self._log("set_title", number, value=title)
+
+    def pull_title(self, number: int) -> str | None:
+        """The title of pull request `number`, or None when `number` is no pull request."""
+        issue = self._roadmap.issues.get(number)
+        return issue.title if issue is not None and issue.pull_request else None
+
+    def last_renamed_at(self, number: int) -> datetime | None:
+        """When the title of issue `number` last changed, or None."""
+        return max(self._roadmap.renames.get(number, []), default=None)
 
     def closures(self, number: int) -> list[Closure]:
         """Every close and reopen of issue `number`, oldest first."""
@@ -631,6 +652,11 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._roadmap.issues[issue.number] = self._roadmap.issues[issue.number].model_copy(
             update=update
         )
+
+    def _rename(self, issue: IssueRecord, title: str) -> None:
+        """Change the title and record the rename on the timeline."""
+        self._update_issue(issue, title=title)
+        self._roadmap.renames.setdefault(issue.number, []).append(self._roadmap.clock())
 
     def _closure(self, number: int, kind: ChangeKind, reason: str | None = None) -> None:
         closure = Closure(kind=kind, at=self._roadmap.clock(), reason=reason)

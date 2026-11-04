@@ -3408,8 +3408,11 @@ CONST_ROADMAP_OWNER_VALUES: Final[tuple[str, ...]] = (
 CONST_ROADMAP_INTAKE_REASON_MARKER: Final[str] = "<!-- devops roadmap intake: reason -->"
 # The stage job's comment marker (#2654).
 CONST_ROADMAP_STAGE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap stage -->"
+# The comment marker of `devops roadmap retitle` (#3486).
+CONST_ROADMAP_RETITLE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap retitle -->"
 # The marker of every roadmap job's comment: a comment that holds none of them is a person's.
 CONST_ROADMAP_JOB_COMMENT_MARKERS: Final[tuple[str, ...]] = (
+    CONST_ROADMAP_RETITLE_COMMENT_MARKER,
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
     CONST_ROADMAP_INTAKE_REASON_MARKER,

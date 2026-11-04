@@ -172,6 +172,9 @@ def intake_cmd(
         if given is not None
         else None
     )
+    if new is not None:
+        with _exit_on_failure("Could not plan intake"):
+            new.refuse_long_summary()
     if dry_run or is_dry_run():
         _intake_dry_run(repo, ref, issue or (), new, limit)
         return
@@ -311,6 +314,44 @@ def alternatives_cmd(
         print_success(MESSAGES.roadmap.alternatives_applied.format(count=written))
     with _exit_on_failure("The check is incomplete"):
         job.raise_for_failed_checks(plan)
+
+
+@app.command("retitle", help=HELP.roadmap.retitle)
+@dry_run_class("request-plan")
+def retitle_cmd(
+    repo: RepoOption = None,
+    item: Annotated[
+        int | None, typer.Option("--item", min=1, help=HELP.roadmap.retitle_item)
+    ] = None,
+    limit: Annotated[
+        int | None, typer.Option("--limit", min=1, help=HELP.roadmap.retitle_limit)
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.retitle_dry_run)] = False,
+    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.retitle_confirm)] = False,
+) -> None:
+    """Shorten the long title summary of open items, keeping the type and the scope."""
+    _one_mode(dry_run=dry_run, confirm=confirm)
+    target = _target(repo)
+    from devops_cli.roadmap import retitle as job
+
+    if dry_run or is_dry_run():
+        planned = job.dry_run_retitle(target, item=item, limit=limit)
+        render_dry_run("retitle", target, planned.requests, planned.write_requests)
+        return
+    with _exit_on_failure("Could not plan the new titles"):
+        _, store = _open_store(target)
+        plan = job.plan_retitle(
+            store, repo=target, model=job.build_retitle_model(), item_number=item, limit=limit
+        )
+    write_stdout(job.render_retitle_plan(plan) + "\n")
+    if not confirm:
+        if plan.has_writes:
+            print_info(MESSAGES.roadmap.preview_only)
+        return
+    if plan.has_writes:
+        with _exit_on_failure("Could not write the new titles"):
+            written = job.apply_retitle(store, plan)
+        print_success(MESSAGES.roadmap.retitle_applied.format(count=written))
 
 
 @app.command("stage", help=HELP.roadmap.stage)

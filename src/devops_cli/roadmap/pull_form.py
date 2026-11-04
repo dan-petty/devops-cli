@@ -324,9 +324,10 @@ def _refuse(problems: Sequence[str], field: str) -> None:
         raise ValidationError("\n".join(f"- {problem}" for problem in problems), field=field)
 
 
-def build_title(issue_title: str, summary: str, declared: Collection[str]) -> str:
+def build_title(issue_title: str, summary: str, declared: Collection[str] | None) -> str:
     """The title of the pull request that delivers the issue titled `issue_title`: its type and
-    its scope, then `summary`. `declared` holds the label names of `.github/labels.yml`.
+    its scope, then `summary`. `declared` holds the label names of `.github/labels.yml`, or is None
+    when the scope is not checked against them.
 
     Nothing is cut. A summary that breaks a rule, a scope without a label, or an issue title with
     no Conventional Commit type raises `ValidationError` that names every problem."""

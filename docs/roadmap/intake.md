@@ -11,6 +11,8 @@ A candidate is one of two things:
 
 A text that looks like it holds a secret is refused.
 
+A new candidate whose title has a Conventional Commit type and a summary of more than 60 characters is refused with `--title`. An emoji counts as two. The message names the length and the limit, and intake files no issue. The stage job and the implement job leave out an item with such a title, so the filer writes a shorter summary. `devops roadmap retitle` shortens the title of an open item that already has a long summary (see [the retitle job](#the-retitle-job)).
+
 ## What intake writes
 
 For each candidate, intake sets these fields on GitHub:
@@ -44,6 +46,17 @@ devops gh issues close <number> --reason not-planned
 | `--dry-run` | Makes no request to GitHub or to a model. It prints the requests that a run makes. |
 | `--plan` (the default) | Reads GitHub and calls the model. It writes nothing. It prints each planned change and what the run spent. |
 | `--confirm` | Plans as `--plan` does, then makes the writes. |
+
+## The retitle job
+
+`devops roadmap retitle` shortens the title summary of open items that has more than 60 characters. The stage job and the implement job leave out such an item, and the check `Semantic PR title` refuses its delivery title.
+
+- It takes the open items with a Conventional Commit type, the lowest number first, at most `--limit` (25) in a run. `--item` names one item.
+- It keeps the type and the scope and writes only the summary. The new title passes `title_problems` of `src/devops_cli/roadmap/pull_form.py`.
+- A Planned item takes the summary of the title of its plan pull request (`plan #<issue> <summary>`), which its job record names. The job makes no model call for it. When that title gives no valid summary, the job leaves the item and comments the reason once.
+- Another item gets one request to the `triage` model, and one more with the faults of the first reply. A reply that fails twice leaves the item.
+- It leaves a title that someone changed after the last comment of a job. It reads the title changes on the timeline of the item.
+- Without `--confirm` it prints the new titles and writes nothing. With `--confirm` it writes each title and one comment with the marker `<!-- devops roadmap retitle -->`. `--dry-run` makes no request.
 
 ## Where the rules are
 
