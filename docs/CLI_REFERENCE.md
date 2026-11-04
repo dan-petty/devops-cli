@@ -6679,7 +6679,7 @@ devops roadmap explain [OPTIONS] <item>
 
 ### `devops roadmap inbox`
 
-**List what waits for a person, each line with its number, its age and the one command or action that clears it. A line states when the count of Planned items is at the setting roadmap.stage.planned_limit, so the stage job plans no new item. It reads GitHub, calls no model and writes nothing. Details: docs/roadmap/inbox.md.**
+**List what waits for a person, each line with its number, its age and the one command or action that clears it, and a line when the count of Planned items is at the setting roadmap.stage.planned_limit. It reads GitHub, calls no model and writes nothing. Details: docs/roadmap/inbox.md.**
 
 ```bash
 devops roadmap inbox [OPTIONS]
