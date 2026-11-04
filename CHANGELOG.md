@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.55.1](https://github.com/dan-petty/devops-cli/compare/v0.55.0...v0.55.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **roadmap:** the stage check names the message file ([#3444](https://github.com/dan-petty/devops-cli/issues/3444)) ([cac3f14](https://github.com/dan-petty/devops-cli/commit/cac3f14281709f182ec276415d553aace8b163f9))
+
 ## [0.55.0](https://github.com/dan-petty/devops-cli/compare/v0.54.0...v0.55.0) (2026-11-04)
 
 
