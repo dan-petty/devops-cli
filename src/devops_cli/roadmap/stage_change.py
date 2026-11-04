@@ -22,7 +22,7 @@ from datetime import date
 from enum import StrEnum
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Annotated, Any, Final, Self
+from typing import TYPE_CHECKING, Annotated, Final, Self
 
 from pydantic import (
     AfterValidator,
@@ -375,57 +375,31 @@ def _change_folder_problems(group: StageGroup) -> list[str]:
     ]
 
 
-# The keys of the plan: a reply that does not set `premise_failed` gives each of them.
-_PLAN_KEYS: Final[frozenset[str]] = frozenset(
-    {
-        "summary",
-        "pull_request_body",
-        "why",
-        "what_changes",
-        "skip_specs",
-        "feasibility",
-        "existing_tool",
-        "groups",
-    }
-)
-
-
 class StageProposal(_Reply):
     """The model's plan of the change. `summary` is the summary of the pull request title, and
     `pull_request_body` the what and why of its body. The scope and the type of the title are not
     the model's: see `staging_title`.
 
-    A reply may instead set `premise_failed`, the evidence that the premise of the issue is false
-    (#3011). It then needs no plan, and the job returns the item. A reply with no
-    `premise_failed` must give every key of the plan."""
+    The reply has no key to report a false premise: an issue that cannot be built as written is
+    said in `feasibility` (#3478). Each key of the plan is required."""
 
-    premise_failed: str | None = None
     # The limit counts the text as the title shows it (see `_summary_fits_the_title`), so the schema
     # gives it as `maxLength` for the model and checks it in the validator, not with `max_length`.
-    summary: str = Field("", min_length=1, json_schema_extra={"maxLength": STAGE_SUMMARY_MAX_CHARS})
-    pull_request_body: str = Field("", min_length=1, max_length=BODY_MAX_CHARS)
-    why: LineStart = ""
-    what_changes: list[Line] = Field(default_factory=list, min_length=1)
-    skip_specs: bool = False
-    feasibility: list[Line] = Field(default_factory=list, min_length=1)
-    existing_tool: LineStart = ""
+    summary: str = Field(min_length=1, json_schema_extra={"maxLength": STAGE_SUMMARY_MAX_CHARS})
+    pull_request_body: str = Field(min_length=1, max_length=BODY_MAX_CHARS)
+    why: LineStart
+    what_changes: list[Line] = Field(min_length=1)
+    skip_specs: bool
+    feasibility: list[Line] = Field(min_length=1)
+    existing_tool: LineStart
     # Whether the plan builds its own code and adopts no tool: it then writes its cost (#3200).
     builds_own: bool = False
     decisions: list[StageDecision] = Field(default_factory=list)
     rejected: list[StageRejection] = Field(default_factory=list)
     specs: list[StageSpec] = Field(default_factory=list)
-    groups: list[StageGroup] = Field(default_factory=list, min_length=1)
+    groups: list[StageGroup] = Field(min_length=1)
     criteria: list[StageCriterion] = Field(default_factory=list)
     dependencies: list[Line] = Field(default_factory=list)
-
-    @model_validator(mode="before")
-    @classmethod
-    def _evidence_alone(cls, data: Any) -> Any:
-        """A reply with evidence is only the evidence: the empty keys that a model writes for the
-        plan it does not give are dropped."""
-        if isinstance(data, dict) and str(data.get("premise_failed") or "").strip():
-            return {"premise_failed": data["premise_failed"]}
-        return data
 
     @field_validator("summary")
     @classmethod
@@ -449,24 +423,6 @@ class StageProposal(_Reply):
                 )
             )
         return summary
-
-    @field_validator("premise_failed")
-    @classmethod
-    def _blank_is_none(cls, evidence: str | None) -> str | None:
-        """A blank text means no failure, as the model writes an empty key for none."""
-        return evidence.strip() or None if evidence is not None else None
-
-    @model_validator(mode="after")
-    def _plan_unless_premise_failed(self) -> Self:
-        if self.premise_failed is None:
-            missing = sorted(_PLAN_KEYS - self.model_fields_set)
-            if missing:
-                raise ValueError(
-                    " ".join(
-                        MESSAGES.roadmap.stage_premise_plan_missing.format(field=k) for k in missing
-                    )
-                )
-        return self
 
 
 class StageSplit(_Reply):

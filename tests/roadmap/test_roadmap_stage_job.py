@@ -14,7 +14,7 @@ from devops_cli.exceptions import GitOperationError
 from devops_cli.roadmap import run
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, FailureLedger, JobOutcome, run_due_jobs
-from devops_cli.roadmap.stage_change import StageProposal, StageSplit
+from devops_cli.roadmap.stage_change import StageSplit
 from devops_cli.roadmap.store import ItemField, StageRecordKey
 from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL
 from tests.support.builders import make_stage_proposal
@@ -152,7 +152,7 @@ def test_a_round_plans_with_the_model_of_the_analysis_task_as_a_toolbox_model(
     assert _pushed(stage_repo) == ["fix/1-the-job-drops-a-comment", "main"]
 
 
-def test_a_round_counts_staged_needs_split_returned_failed_and_skipped_items_once_each(
+def test_a_round_counts_staged_needs_split_failed_and_skipped_items_once_each(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
@@ -165,7 +165,6 @@ def test_a_round_counts_staged_needs_split_returned_failed_and_skipped_items_onc
     seed_stageable(store, "fix(roadmap): the job drops a label")
     seed_stageable(store, "fix(roadmap): the job drops a tag")
     seed_stageable(store, "wip: no type")
-    seed_stageable(store, "fix(roadmap): the job drops a note")
     heavy = heavy_group(stage_repo)
     stuck = make_stage_proposal(groups=[heavy])
     no_findings(model_fake)
@@ -174,10 +173,9 @@ def test_a_round_counts_staged_needs_split_returned_failed_and_skipped_items_onc
         stuck,
         StageSplit(groups=[heavy]),
         make_stage_proposal(pull_request_body="Closes #12 when it merges."),
-        StageProposal.model_validate({"premise_failed": "The premise is false."}),
     )
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_STEP_TOKENS", "6000")
-    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_LIMIT", "5")
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_LIMIT", "4")
 
     outcome = _round(store, stage_repo)
 
@@ -191,7 +189,6 @@ def test_a_round_counts_staged_needs_split_returned_failed_and_skipped_items_onc
     assert _counted(otlp) == [
         ("failed", 1.0),
         ("needs_split", 1.0),
-        ("returned", 1.0),
         ("skipped", 1.0),
         ("staged", 1.0),
     ]

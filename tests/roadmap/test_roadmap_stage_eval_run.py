@@ -157,17 +157,6 @@ def test_a_plan_run_that_spends_its_budget_ends_the_case_refused_with_the_limit(
     )
 
 
-def test_a_reply_that_says_the_premise_is_false_ends_the_case_returned(
-    cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
-) -> None:
-    case = _live_case(cases, stage_repo)
-    model_fake.answer(StageProposal.model_validate({"premise_failed": "The premise is false."}))
-
-    run = run_case(case, _client(model_fake), stage_repo.clone)
-
-    assert (run.outcome, run.calls) == (Outcome.RETURNED, 1)
-
-
 def test_a_first_reply_that_passes_has_no_problem(
     cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
 ) -> None:
@@ -328,7 +317,6 @@ def test_the_score_counts_avoided_and_caught_defects_for_each_type_that_a_gate_c
         Outcome.STAGED: 3,
         Outcome.REFUSED: 0,
         Outcome.OVER_BUDGET: 0,
-        Outcome.RETURNED: 0,
         Outcome.FAILED: 1,
     }
 

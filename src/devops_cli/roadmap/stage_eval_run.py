@@ -36,7 +36,6 @@ from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.clone_git import git
 from devops_cli.roadmap.stage import (
     OverBudget,
-    PremiseFailed,
     StageClient,
     StagedChange,
     analysis_window,
@@ -63,7 +62,6 @@ class Outcome(StrEnum):
     STAGED = "staged"
     REFUSED = "refused"
     OVER_BUDGET = "over_budget"
-    RETURNED = "returned"
     FAILED = "failed"
 
 
@@ -142,12 +140,10 @@ def _first_reply_problems(
     return run_gates(PlanUnderTest.of_reply(reply, tree, known, requirements, case.issue_body))
 
 
-def _planned_as(planned: StagedChange | OverBudget | PremiseFailed) -> tuple[Outcome, str]:
+def _planned_as(planned: StagedChange | OverBudget) -> tuple[Outcome, str]:
     """How a case ended when the planner gave an outcome and raised no error."""
     if isinstance(planned, OverBudget):
         return Outcome.OVER_BUDGET, MESSAGES.roadmap.stage_eval_over_budget
-    if isinstance(planned, PremiseFailed):
-        return Outcome.RETURNED, MESSAGES.roadmap.stage_eval_returned
     return Outcome.STAGED, ""
 
 

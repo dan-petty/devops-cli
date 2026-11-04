@@ -153,7 +153,7 @@ class _FirstPhase:
     def __init__(self, proposal: RefinementProposal) -> None:
         self.proposal = proposal
 
-    def chat_structured(self, system: str, prompt: str, schema: type[Any]) -> Any:
+    def chat_structured(self, system: str, prompt: str, schema: type[Any], **_: Any) -> Any:
         return self.proposal
 
 

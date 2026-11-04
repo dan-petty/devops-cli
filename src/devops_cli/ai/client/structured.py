@@ -118,12 +118,18 @@ def _repair_and_validate_payload[T: BaseModel](
     return model_inst, was_repaired, None
 
 
+def _error_types(failure: SchemaFailure) -> tuple[str, ...]:
+    """The pydantic error types of the last reply's violations, sorted and without a repeat."""
+    if isinstance(failure, SchemaReflectionReport):
+        return tuple(sorted({violation.error_type for violation in failure.violations}))
+    return ()
+
+
 def _failure_summary(failure: SchemaFailure) -> str:
     """What the last reply's failure was, holding none of the reply: its violation count and their
     pydantic error types, never a field path, since a path can be a key the model invented."""
     if isinstance(failure, SchemaReflectionReport):
-        types = ", ".join(sorted({violation.error_type for violation in failure.violations}))
-        return f"{failure.total_errors} schema violation(s) ({types})"
+        return f"{failure.total_errors} schema violation(s) ({', '.join(_error_types(failure))})"
     return "no JSON object the schema could validate"
 
 
@@ -140,6 +146,7 @@ def _validation_failure(
         f"Response validation failed for model '{model_name}' after {attempts} attempts: "
         f"the last reply had {_failure_summary(failure)}.",
         violations=violations,
+        error_types=_error_types(failure),
     )
 
 
