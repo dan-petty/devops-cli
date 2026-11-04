@@ -18,3 +18,7 @@ The implement selection SHALL run `check_proposal` on the plan of a Staged or Pl
 #### Scenario: A plan with two problems
 - **WHEN** The plan returns two or more problems and the job leaves the item out.
 - **THEN** The reason of the item holds the first problem and no later problem.
+
+#### Scenario: A plan that the reader refuses
+- **WHEN** The change folder of the item is missing or holds a file that the reader cannot parse.
+- **THEN** `plan_implement` returns no target, makes no branch, and its reason names the read problem.
