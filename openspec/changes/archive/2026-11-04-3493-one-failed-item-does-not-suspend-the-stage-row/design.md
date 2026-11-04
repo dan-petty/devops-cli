@@ -10,7 +10,7 @@
 - **A stop ends the run after the record.** `apply_stage` catches `ServiceStoppingError`, records the failures found so far, and re-raises the stop. The row ends with the stop and counts nothing. The old rule raised the failed items instead, which counted a round that a stop ended.
 - **The ledger record gets a fifth field.** An entry is `[repo, job, rounds, input, causes]`. The adapter accepts both four and five fields, so a record of an older version loads, and its causes read as `unknown` through the existing fill in `causes()`.
 - **`ended_by_stop` moves to `devops_cli.exceptions`.** It belongs next to `ServiceStoppingError`, and `server/service.py` cannot import the roadmap package without a cycle risk. `run.py` and the tests import it from the new place; no shim stays.
-- **A round that a stop ends is `stopped`.** `RepoWorker._end_in_failure` serves both `_execute_scoped` and `_execute_batch`, which held two copies of the same block. For a stop it logs one info line, returns `stopped`, and does not call `pause.after`. For any other error it behaves as before.
+- **A round that a stop ends is `stopped`.** `_execute_scoped` and `_execute_batch` ask `ended_by_stop` first. For a stop, `RepoWorker._end_in_stop` logs one info line and the result is `stopped`; the block does not call `pause.after`. For any other error each block behaves as before.
 
 ## Rejected alternatives
 

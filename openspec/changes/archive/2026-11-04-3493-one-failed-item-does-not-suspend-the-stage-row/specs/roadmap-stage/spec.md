@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A failure stops one item and never hides the others
-A model call that fails SHALL skip its item. The job SHALL stage the other items, record each skipped item in its job record (the requirement "A failed item waits for the retry delay"), and name each skipped item in the report. `devops roadmap stage --confirm` SHALL exit 1 when an item failed. Rejected credentials SHALL stop the run. A tool error of the validation, such as a timeout, SHALL skip its item in the same way. A push that GitHub refuses SHALL stop its item with the reason, and SHALL leave no remote branch without an open pull request. An item whose title or body looks like a secret SHALL be left out before the model reads it.
+A model call that fails SHALL skip its item. The job SHALL stage the other items and record each skipped item in its job record. The command SHALL exit 1 and name each skipped item. Rejected credentials SHALL stop the run. A validation error, such as a timeout, SHALL skip its item the same way. A push that GitHub refuses SHALL stop its item with the reason and leave no remote branch without an open pull request. An item whose text looks like a secret SHALL be left out before the model reads it.
 
 #### Scenario: One model call fails
 - **WHEN** the model call fails for the first of two items

@@ -28,7 +28,7 @@ A roadmap job that failed `DEFAULT_SERVICE_MAX_FAILED_ROUNDS` rounds in a row on
 - **THEN** the start succeeds, the job is suspended, and its causes read as `unknown`
 
 ### Requirement: A round that the stop of the Service ends is not a failed round
-A round that ends with the error that the request budget raises when the Service is stopping, or with an error that has it as its cause, SHALL leave the count of failed rounds of its job as it was. A group of errors SHALL be a stop only when each member is. The stage job SHALL end with that error and SHALL make no failed item of it. A scoped update or a round that such an error ends SHALL count under `result="stopped"` in `devops_cli_service_jobs_total`, SHALL be the `stopped` result of the last round, and SHALL log no error line.
+A round that ends with the error that the request budget raises when the Service is stopping, or with an error that has it as its cause, SHALL leave the count of failed rounds of its job as it was. A group of errors SHALL be a stop only when each member is. The stage job SHALL end with that error and SHALL make no failed item of it. Such a round SHALL count as `result="stopped"` and log no error line.
 
 #### Scenario: Rounds that a stop ends
 - **WHEN** three rounds of a job end with the stop error of the budget, and a normal round follows

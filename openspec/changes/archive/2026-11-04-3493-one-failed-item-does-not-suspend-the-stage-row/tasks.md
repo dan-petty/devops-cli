@@ -26,7 +26,7 @@ Reads: `src/devops_cli/roadmap/run.py`. Changes: `src/devops_cli/roadmap/run.py`
 Reads: `src/devops_cli/server/service.py`, `src/devops_cli/exceptions/roadmap.py`. Changes: `src/devops_cli/exceptions/roadmap.py`, `src/devops_cli/exceptions/__init__.py`, `src/devops_cli/roadmap/run.py`, `src/devops_cli/server/service.py`, `src/devops_cli/lang/en/messages.py`, `tests/server/test_server_service.py`.
 
 - [x] 4.1 In `tests/server/test_server_service.py`, write the failing test: a scoped update and a round that a stop ends count as `stopped`, add no `error` count, and log no error line. Verification: `uv run devops ci test tests/server/test_server_service.py`
-- [x] 4.2 Move `ended_by_stop` to `devops_cli.exceptions`, update its importers, and add `RepoWorker._end_in_failure` for both execute methods. Verification: `uv run devops ci test tests/server/test_server_service.py tests/roadmap/test_roadmap_refine.py`
+- [x] 4.2 Move `ended_by_stop` to `devops_cli.exceptions`, update its importers, and add `RepoWorker._end_in_stop` and use it in both execute methods. Verification: `uv run devops ci test tests/server/test_server_service.py tests/roadmap/test_roadmap_refine.py`
 
 ## 5. Documents
 
