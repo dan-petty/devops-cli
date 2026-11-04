@@ -67,6 +67,59 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
         ),
         "required": frozenset(),
     },
+    # No `output_path`: the command prints its graph, so the model needs no file.
+    ("ai", "ast", "graph"): {
+        "allowed": frozenset({"target_dir", "max_files", "fmt"}),
+        "required": frozenset(),
+    },
+    # No `output_dir`: the command writes its contract files under the configured data directory.
+    ("ai", "ingest", "library"): {
+        "allowed": frozenset({"package_name", "max_depth", "output_format"}),
+        "required": frozenset({"package_name"}),
+    },
+    # No `output_file`: the command prints its report, so the model needs no file.
+    ("scan", "sbom"): {
+        "allowed": frozenset({"target", "format_type"}),
+        "required": frozenset(),
+    },
+    ("scan", "aibom"): {
+        "allowed": frozenset({"target", "format_type"}),
+        "required": frozenset(),
+    },
+    # No `output`: the command prints the stream, so the model needs no file.
+    ("k8s", "security-stream"): {
+        "allowed": frozenset(
+            {
+                "namespace",
+                "label",
+                "severity",
+                "duration",
+                "tail",
+                "follow",
+                "simulate",
+                "dry_run",
+                "output_format",
+                "json_output",
+            }
+        ),
+        "required": frozenset(),
+    },
+    # No `cert_path` or `key_path`: the command reads the certificate from its configured store.
+    ("k8s", "create-tls-secret"): {
+        "allowed": frozenset({"secret_name", "namespace", "context", "dry_run"}),
+        "required": frozenset({"secret_name"}),
+    },
+    # No `tls_dir`: the command reads the certificate from its configured store.
+    ("k8s", "enable-tls"): {
+        "allowed": frozenset({"context", "secret_name", "stack", "overwrite", "dry_run"}),
+        "required": frozenset(),
+    },
+    # No `key_dir`: the command reads the keys from the configured SSH directory.
+    ("ssh", "audit"): {
+        "allowed": frozenset({"prefix", "all_projects"}),
+        "required": frozenset(),
+    },
+    ("ssh", "status"): {"allowed": frozenset({"prefix"}), "required": frozenset()},
     ("ai", "gateway", "status"): {"allowed": frozenset({"provider"}), "required": frozenset()},
     ("ai", "gateway", "routes"): {"allowed": frozenset({"provider"}), "required": frozenset()},
     ("ai", "gateway", "probe-backend"): {
@@ -322,6 +375,13 @@ def _check_oidc_token_reference(path: tuple[str, ...], kwargs: dict[str, Any]) -
         raise ValidationError(ERRORS.mcp.oidc_token_not_reference, field="oidc_token")
 
 
+def _check_path_confinement(tool_name: str, arguments: dict[str, Any]) -> None:
+    """Resolve each kept path argument under the work tree, and refuse an escape (#3300)."""
+    from devops_cli.ai.mcp.path_confinement import confine_tool_paths
+
+    confine_tool_paths(tool_name, arguments)
+
+
 def _append_options(
     argv: list[str],
     opts: list[Any],
@@ -405,6 +465,7 @@ def _create_tool_function(
         _check_sandbox_preconditions(path, bound.arguments)
         _check_model_endpoints(path, bound.arguments)
         _check_oidc_token_reference(path, bound.arguments)
+        _check_path_confinement(tool_name, bound.arguments)
         argv = _build_command_argv(path, click_cmd, format_json, bound.arguments)
         return _run_mcp_cmd(["uv", "run", "devops", *argv], timeout=timeout)
 

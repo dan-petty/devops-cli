@@ -142,8 +142,10 @@ def security_intel_network(target: str) -> str:
 def scan_uv_audit(directory: str = ".") -> str:
     """Audit the packages that the uv.lock of a project pins, as it is, for known vulnerabilities and adverse project statuses, with uv audit."""
     _validate_mcp_arg("directory", directory)
+    from devops_cli.ai.mcp.path_confinement import confine_tool_paths
     from devops_cli.ai.tools.builtin_tools import scan_uv_audit as _native_uv_audit
 
+    confine_tool_paths("scan_uv_audit", {"directory": directory})
     return _native_uv_audit(directory=directory)
 
 
