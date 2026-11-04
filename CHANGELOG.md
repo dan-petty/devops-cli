@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.53.5](https://github.com/dan-petty/devops-cli/compare/v0.53.4...v0.53.5) (2026-11-04)
+
+
+### Bug Fixes
+
+* **roadmap:** refuse task groups that write change files ([#3413](https://github.com/dan-petty/devops-cli/issues/3413)) ([cbc3efc](https://github.com/dan-petty/devops-cli/commit/cbc3efc7d7d1a1eb2cfcd06f794807c8dde1a4c8))
+
 ## [0.53.4](https://github.com/dan-petty/devops-cli/compare/v0.53.3...v0.53.4) (2026-11-04)
 
 
