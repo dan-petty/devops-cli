@@ -2,15 +2,13 @@
 
 ## Why
 
-The implement job calls `delivery_title` and writes the result to GitHub with no check (#3368). A person can edit the issue title after staging, and the job then opens or rewrites a pull request whose title the `Semantic PR title` check refuses, after it has pushed a branch and spent tokens.
+The implement job must stop an item whose delivery title the pull request form refuses (#3368). `_delivery_title` in `src/devops_cli/roadmap/implement_run.py` now calls `title_problems` and raises the stop, so both `_publish` and `_pull_request` refuse a bad title, and `_publish` checks the title before its first push. PR #3319 added that guard and one test, `test_a_title_that_the_check_refuses_stops_the_item_before_the_job_writes_it`, which covers a title with no Conventional Commit type on the path that updates an existing pull request. Two cases that #3368 names have no test: a type that the project does not declare, and the first push, where the job must stop before it pushes a branch. Without them, a change that moves the guard after the push, or that drops the type check, passes the suite.
 
 ## What Changes
 
-- `_publish` runs `title_problems` on the delivery title before `create_draft_pull`, and stops the item on a problem after it deletes the branch that this run pushed.
-- `_pull_request` runs `title_problems` on the delivery title before `update_pull`, and stops the item on a problem.
-- The stop message names each title problem and the issue title, and the job writes no pull request title.
-- A new test module covers an edited issue title with no Conventional Commit type and one with an undeclared type.
-- The spec delta adds the delivery title guard to the `roadmap-implement-job` capability, because the job's observable behavior on GitHub changes.
+- Add a test to `tests/roadmap/test_roadmap_implement_job.py` for an issue title `wip(cli): add a flag`, whose type `wip` the project does not declare: the job stops the item and writes no pull request title.
+- Add a test for a Planned item whose delivery title has no type: the job stops before `_publish` pushes the branch, so `origin` holds no branch and no draft pull request exists.
+- The change alters no behavior that a consumer observes, because it adds tests for behavior that `openspec/specs/roadmap-implement-job/spec.md` already states. It has no spec delta and sets `skip_specs: true`.
 - The change fits one pull request.
 
 ## Capabilities
@@ -21,23 +19,22 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-implement-job`: A refused delivery title stops the item
+None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/implement_run.py`
-- Tests: `tests/roadmap/test_roadmap_implement_title.py`
+- Tests: `tests/roadmap/test_roadmap_implement_job.py`
 
 ## Feasibility
 
-- `list_files` on `tests/roadmap` showed no `test_roadmap_implement.py`, and showed the implement tests split by subject, such as `tests/roadmap/test_roadmap_implement_pull.py`.
-- The probe lines confirm the premise: `delivery_title` is defined at src/devops_cli/roadmap/implement_run.py:1005: delivery_title = self._delivery_title()` and `delivery_title` is defined at src/devops_cli/roadmap/stage_change.py:794:def delivery_title(issue_title: str, declared: Collection[str]) -> str:`
-- `read_file` on `src/devops_cli/roadmap/implement_run.py` showed `_publish` calling `create_draft_pull` with the delivery title and `_pull_request` calling `update_pull` with it, and neither call runs a title check.
-- `read_file` on `src/devops_cli/roadmap/pull_form.py` showed that `title_problems(title, declared)` checks the form, the declared type, the declared scope and the summary length, so the issue needs no new checker.
-- `search_code` for `title_problems` in `src/` showed the one definition in `src/devops_cli/roadmap/pull_form.py` and its caller on the `pr create` path, and no caller in `src/devops_cli/roadmap/implement_run.py`.
-- The issue names `tests/roadmap/test_roadmap_implement.py`, which no commit ever held, so the two tests go in a new module `tests/roadmap/test_roadmap_implement_title.py` that mirrors `src/devops_cli/roadmap/`.
-- First checks against the real system: `uv run devops ci test tests/roadmap/test_roadmap_implement_title.py`, then `uv run devops ci test tests/roadmap/test_roadmap_implement_pull.py` to show both write paths still pass.
+Confirmed on 2026-11-04 at `origin/main` (ecfc9b80).
+
+- `git log -S "problems = title_problems" -- src/devops_cli/roadmap/implement_run.py` shows `be129c99` (`fix(roadmap): count the implement title like the CI check`), which added the guard to `_delivery_title` before #3368 was staged.
+- `read_file` on `src/devops_cli/roadmap/implement_run.py` shows `_delivery_title` at line 957 running `title_problems(title, declared)` and raising `_StopError`, `_publish` at line 937 calling `_delivery_title` before `self._git("push", "-u", "origin", self.branch)` at line 938, and `_pull_request` at line 1005 calling `_delivery_title` before `client.update_pull` at line 1006.
+- `read_file` on `tests/roadmap/test_roadmap_implement_job.py` shows the one #3319 test at line 265, which uses `job_world` and asserts an empty `PATCH pulls/<number>` for an issue title `Add a flag`.
+- `grep` on `tests/support/roadmap_implement.py` shows the `planned_world` fixture at line 557, whose docstring says the change is on `main` and no branch and no pull request exist, so the first-push path is testable offline.
+- `uv run devops ci test tests/roadmap/test_roadmap_implement_job.py` runs the module offline and needs no network.
 
 ## Existing Tool Considered
 
-The repository already holds the checker: `title_problems` in `src/devops_cli/roadmap/pull_form.py` checks the form, the declared Conventional Commit type, the declared scope and the summary length, and `devops pr create` calls it. The change builds no replacement and adds one call at each of the two write sites, about 15 lines and two tests. The cost is about 15k tokens of agent work and under an hour of elapsed time. The change deletes no internal code.
+`title_problems` in `src/devops_cli/roadmap/pull_form.py` checks the form, the type, the scope and the summary length, and `_delivery_title` already calls it. This change builds no checker and no guard: it adds two tests that hold the existing guard in place. The cost is about 1,000 tokens of agent work and under ten minutes of elapsed time. The change deletes no internal code.
