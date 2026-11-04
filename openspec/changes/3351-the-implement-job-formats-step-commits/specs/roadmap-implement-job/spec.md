@@ -11,6 +11,10 @@ The implement job SHALL build the title of each intermediate implementation step
 - **WHEN** The item title is `Correct the Valkey paragraph` and the step title is `Update SECURITY.md` for issue 2670.
 - **THEN** The step commit title is `chore: Update SECURITY.md (#2670)`.
 
+#### Scenario: Fix step of an item with no prefix
+- **WHEN** The fix step of an item titled `Make the sample shout` commits the group `Make check Static Analysis pass` for issue 1.
+- **THEN** The step commit title is `chore: Make check Static Analysis pass (#1)`.
+
 ### Requirement: A step commit title holds the issue reference once
 The implement job MUST add the issue reference `(#N)` to an intermediate step commit title exactly once, and MUST NOT add it again when the step title already ends with it.
 

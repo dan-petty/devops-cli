@@ -11,12 +11,14 @@ Reads: `CONTRIBUTING.md`, `src/devops_cli/roadmap/commit_title.py`, `src/devops_
 
 ## 2. Commit each task group with the formatted title
 
-Reads: `src/devops_cli/roadmap/step_commit.py`, `src/devops_cli/roadmap/implement_step.py`. Changes: `src/devops_cli/roadmap/implement_step.py`, `tests/roadmap/test_roadmap_implement_step_commit.py` (new).
+Reads: `src/devops_cli/roadmap/step_commit.py`, `src/devops_cli/roadmap/implement_step.py`. Changes: `src/devops_cli/roadmap/implement_step.py` (the inputs of a step carry the item title, and the commit uses the helper), `tests/roadmap/test_roadmap_implement_step_commit.py` (new), `tests/roadmap/test_roadmap_implement_step.py` (the two un-prefixed titles updated).
 
-- [ ] 2.1 In `tests/roadmap/test_roadmap_implement_step_commit.py`, write a case of a step of a `docs(security):` item that asserts the title of the commit the step makes is `docs(security): <step title> (#<issue>)`
+- [ ] 2.1 In `tests/roadmap/test_roadmap_implement_step_commit.py`, write a case of a step of a `docs(security):` item that asserts the title of the commit the step makes is `docs(security): <step title> (#<issue>)`, and a case of a fix step of an item with no prefix that asserts `chore: Make check <name> pass (#<issue>)`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_commit.py` fails on the base
-- [ ] 2.2 Replace the title that the step gives its one commit with the value of the helper, and leave the title of the archive commit as `docs(openspec): archive the change (#N)`
+- [ ] 2.2 Add a field to the inputs of a step that holds the item title, set it in `build_step_inputs` from the item it reads, and replace the title that the step gives its one commit with the helper that reads it, leaving the title of the archive commit as `docs(openspec): archive the change (#N)`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_commit.py` passes
+- [ ] 2.3 Update the two assertions in `tests/roadmap/test_roadmap_implement_step.py` that hold the un-prefixed titles `The first group (#1)` and `Make check Static Analysis pass (#1)` to `chore: The first group (#1)` and `chore: Make check Static Analysis pass (#1)`, the item of the fixture having no prefix
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step.py` passes
 
 ## Workflow follow-up
 

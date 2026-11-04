@@ -7,6 +7,7 @@
 - **Fall back to `chore` when the item title has no valid Conventional Commit type.**: A missing prefix is a formatting problem. The step finishes with a valid commit instead of stopping the item, and `chore` adds no changelog line.
 - **Keep the archive commit title `docs(openspec): archive the change (#N)`.**: CONTEXT.md defines the archive as the last commit of the change folder, which is a docs change, and the form already works.
 - **Add the issue reference only when the text does not already end with it.**: A task group title may carry the reference, and one suffix keeps the title valid.
+- **Carry the item title in the inputs of a step.**: The commit of a step holds the issue number and the group title, but no item title, and the parser needs the item title for the type and scope. `build_step_inputs` reads the item, and `StepInputs` is built in one place, so one field carries the title to the commit.
 - **Test the helper offline with exact input and output strings.**: docs/TESTING.md asks a pure function to be tested with examples, and a unit test needs no job, no git and no network.
 
 ## Rejected alternatives
