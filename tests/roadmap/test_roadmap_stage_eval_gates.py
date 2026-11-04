@@ -87,7 +87,7 @@ def test_a_defect_of_a_type_that_waited_for_a_gate_is_judged_or_says_why_not(
     judged = [d for d in defects if d.gate is not GateName.NONE]
     unjudged = [d for d in defects if d.gate is GateName.NONE]
 
-    assert len(defects) == 73
+    assert len(defects) == 74
     assert all(d.gate is GateName.PATHS and d.message for d in judged)
     assert all(d.reason for d in unjudged)
     assert not any(d.reason for d in judged)
@@ -104,10 +104,10 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
 
     assert counts[DefectType.MISSING_PATH] == (31, 0, 0)
     assert counts[DefectType.SPEC_DELTA_WRONG] == (5, 0, 20)
-    assert counts[DefectType.VERIFY_FORM] == (5, 0, 12)
+    assert counts[DefectType.VERIFY_FORM] == (6, 0, 12)
     assert counts[DefectType.TASK_ORDER] == (0, 0, 8)
     assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)
-    assert report.judged() == (66, 302)
+    assert report.judged() == (67, 303)
 
 
 def test_the_judged_share_counts_the_caught_and_the_missed_and_not_the_rest(
@@ -343,6 +343,39 @@ def test_the_replay_of_a_plan_with_a_pytest_verify_command_is_refused_for_its_ve
     assert next(o.status for o in replay.outcomes if o.defect is judged[0]) is DefectStatus.CAUGHT
     assert any("`uv run pytest " in problem for problem in replay.problems[GateName.PATHS])
     assert replay.failures == []
+
+
+def _stage_move_case(cases: list[StageCase]) -> StageCase:
+    return next(case for case in cases if case.pull == 3378)
+
+
+def _with_verify(case: StageCase, verify: str) -> StageCase:
+    groups = [{**group, "verify": verify} for group in case.groups]
+    return case.model_copy(update={"plan": {**case.plan, "groups": groups}})
+
+
+def test_the_replay_refuses_a_negative_search_with_no_recorded_hit(
+    cases: list[StageCase],
+) -> None:
+    case = _with_verify(
+        _stage_move_case(cases),
+        "! git grep -n -F devops_cli.roadmap.stage_missing src/ tests/",
+    )
+
+    problems = run_gates(PlanUnderTest.of_case(case))[GateName.PATHS]
+
+    assert any("already passes before the change and proves nothing" in p for p in problems)
+
+
+def test_the_replay_accepts_a_negative_search_whose_recorded_hit_survives(
+    cases: list[StageCase],
+) -> None:
+    case = _with_verify(
+        _stage_move_case(cases),
+        "! git grep -n -F devops_cli.roadmap.stage_ src/ tests/",
+    )
+
+    assert run_gates(PlanUnderTest.of_case(case))[GateName.PATHS] == []
 
 
 @pytest.mark.parametrize(

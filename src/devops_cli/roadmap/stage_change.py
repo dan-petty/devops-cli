@@ -44,7 +44,7 @@ from devops_cli.roadmap.commit_title import commit_scope
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, is_placeholder, summary_length
 from devops_cli.roadmap.refine import sanitize_text
 from devops_cli.roadmap.stage_criteria import PENDING_PERSON, StageCriterion, criterion_problems
-from devops_cli.roadmap.stage_form import form_problems
+from devops_cli.roadmap.stage_form import form_problems, search_problems
 from devops_cli.roadmap.stage_move import move_prefix_problems, move_verify_problems
 from devops_cli.roadmap.stage_paths import StagedTree, change_folder_paths, path_problems
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
@@ -619,6 +619,7 @@ def check_proposal(
     issue_body: str = "",
     probes: Sequence[str] = (),
     overlaps: Sequence[Overlap] = (),
+    search_evidence: Mapping[str, Sequence[str]] | None = None,
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
@@ -627,13 +628,16 @@ def check_proposal(
     issue: each acceptance criterion in it needs an entry in `criteria` (#3019), and a body with
     none needs no entry. `probes` holds the lines of the premise probe that the model read: when it
     is not empty, `feasibility` quotes one (#3200). `overlaps` lists the open pull requests that
-    change a path the item cites: the plan names each in `dependencies` (#3252)."""
+    change a path the item cites: the plan names each in `dependencies` (#3252).
+    `search_evidence` maps each negative-search literal to the paths that the staged tree holds:
+    the job records it, the replay reads it from its case, and None records no search."""
     problems = _delta_problems(proposal, known, requirements or {})
     problems.extend(content_problems(proposal, probes))
     problems.extend(form_problems(proposal.groups))
     problems.extend(path_problems(proposal.groups, tree))
     problems.extend(move_prefix_problems(proposal.groups, tree))
     problems.extend(move_verify_problems(proposal.groups, tree))
+    problems.extend(search_problems(proposal.groups, search_evidence))
     problems.extend(criterion_problems(proposal.criteria, issue_body, len(proposal.groups)))
     problems.extend(_overlap_problems(proposal.dependencies, overlaps))
     return problems

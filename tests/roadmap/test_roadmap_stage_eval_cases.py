@@ -30,7 +30,7 @@ EVALUATED_PULLS = frozenset(
     {2975, 2976, 2977, 2978, 2979, 2980, 2981, 2982, 2983, 2984, 2985, 2986, 2987, 2988, 2989}
     | {2990, 2991, 2992, 2993, 2994, 2995, 2996, 2997, 2998, 2999, 3001, 3002}
     | {2719, 2761, 2766, 2857, 2858, 2859, 2870, 2958, 2971, 2972}
-    | {3167, 3174}
+    | {3167, 3174, 3378}
 )
 SHA_LENGTH = 40
 
@@ -40,12 +40,12 @@ def cases() -> list[StageCase]:
     return load_cases(REPO_ROOT / CASES_DIRECTORY)
 
 
-def test_the_set_holds_the_39_plans_and_three_good_ones(cases: list[StageCase]) -> None:
+def test_the_set_holds_the_40_plans_and_three_good_ones(cases: list[StageCase]) -> None:
     reviewed = {case.pull for case in cases if case.verdict is not Verdict.GOOD}
     good = [case for case in cases if case.verdict is Verdict.GOOD]
 
-    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 42, 3)
-    assert len(EVALUATED_PULLS) == 39
+    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 43, 3)
+    assert len(EVALUATED_PULLS) == 40
 
 
 def test_a_good_case_is_the_twin_of_a_reviewed_case_and_has_no_defect(
@@ -132,3 +132,18 @@ def test_cases_are_picked_by_name_or_by_issue_and_cut_by_the_limit(cases: list[S
 def test_a_name_that_picks_no_case_fails(cases: list[StageCase]) -> None:
     with pytest.raises(ConfigurationError, match="no-such-case"):
         select_cases(cases, ("no-such-case",), None)
+
+
+def test_a_case_reads_its_search_evidence_and_an_old_case_holds_none(
+    cases: list[StageCase],
+) -> None:
+    case = next(c for c in cases if c.pull == 3378)
+    old = next(c for c in cases if c.pull != 3378)
+
+    assert set(case.facts.search_evidence) == {
+        "devops_cli.roadmap.stage_missing",
+        "devops_cli.roadmap.stage",
+        "devops_cli.roadmap.stage_",
+    }
+    assert case.facts.search_evidence["devops_cli.roadmap.stage_"]
+    assert old.facts.search_evidence == {}

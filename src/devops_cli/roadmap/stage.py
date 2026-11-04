@@ -135,7 +135,7 @@ from devops_cli.roadmap.stage_change import (
 )
 from devops_cli.roadmap.stage_criteria import criterion_problems
 from devops_cli.roadmap.stage_filter import split_filter_entry
-from devops_cli.roadmap.stage_form import form_problems
+from devops_cli.roadmap.stage_form import form_problems, record_search_evidence, search_problems
 from devops_cli.roadmap.stage_github import StageGitHub
 from devops_cli.roadmap.stage_overlap import (
     Overlap,
@@ -859,6 +859,9 @@ class _Planner:
     ) -> StagedChange | OverBudget | _Refused:
         """The outcome for one reply: a change, a stop on the budget, or the problem that sends
         the reply back."""
+        evidence = (
+            record_search_evidence(proposal.groups, self._grep) if self._grep is not None else None
+        )
         problems = check_proposal(
             proposal,
             self._known,
@@ -867,6 +870,7 @@ class _Planner:
             issue_body=target.item.body,
             probes=self._probe_lines,
             overlaps=self._overlaps,
+            search_evidence=evidence,
         )
         if problems:
             return _Refused(" ".join(problems), proposal)
@@ -882,6 +886,14 @@ class _Planner:
             # The split gave new groups, and the model can bring old paths back with them.
             problems = form_problems(asked.groups)
             problems.extend(path_problems(asked.groups, self._tree.with_files(files)))
+            problems.extend(
+                search_problems(
+                    asked.groups,
+                    record_search_evidence(asked.groups, self._grep)
+                    if self._grep is not None
+                    else None,
+                )
+            )
             problems.extend(criterion_problems(asked.criteria, target.item.body, len(asked.groups)))
             if problems:
                 return _Refused(" ".join(problems), asked)

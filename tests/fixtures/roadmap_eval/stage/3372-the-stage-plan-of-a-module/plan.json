@@ -1,0 +1,60 @@
+{
+ "summary": "move the stage modules into a package",
+ "pull_request_body": "Move every module of the stage prefix into the stage package. The plan keeps every import line and every caller, so the move changes no behavior that a consumer observes.",
+ "why": "Issue #3372: the stage plan moves only some of the stage modules and verifies one sampled import, so the layout test fails on the tree that the plan produces.",
+ "what_changes": [
+  "Move every module of the stage prefix into `src/devops_cli/roadmap/stage/`.",
+  "Verify the moved prefix with a negative search that no created module keeps."
+ ],
+ "skip_specs": true,
+ "feasibility": [
+  "The staged tree holds every module of the stage prefix, and the plan lists each one in `changes`.",
+  "A search for `devops_cli.roadmap.stage` matches the old `stage.py` import lines and every new path under the `stage/` package."
+ ],
+ "existing_tool": "The tree walk of `StagedTree` and the `git mv` of the step cover the need, so the plan builds no tool.",
+ "builds_own": false,
+ "decisions": [],
+ "rejected": [],
+ "specs": [],
+ "groups": [
+  {
+   "title": "Move the stage modules into a package",
+   "kind": "other",
+   "reads": [
+    "src/devops_cli/roadmap/stage.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/stage.py",
+    "src/devops_cli/roadmap/stage_ready.py",
+    "src/devops_cli/roadmap/stage_verify.py",
+    "src/devops_cli/roadmap/stage_form.py",
+    "src/devops_cli/roadmap/stage_change.py",
+    "src/devops_cli/roadmap/stage/__init__.py",
+    "src/devops_cli/roadmap/stage/ready.py",
+    "src/devops_cli/roadmap/stage/verify.py",
+    "src/devops_cli/roadmap/stage/form.py",
+    "src/devops_cli/roadmap/stage/change.py"
+   ],
+   "creates": [
+    "src/devops_cli/roadmap/stage/__init__.py",
+    "src/devops_cli/roadmap/stage/ready.py",
+    "src/devops_cli/roadmap/stage/verify.py",
+    "src/devops_cli/roadmap/stage/form.py",
+    "src/devops_cli/roadmap/stage/change.py"
+   ],
+   "creates_lines": {
+    "src/devops_cli/roadmap/stage/__init__.py": 1,
+    "src/devops_cli/roadmap/stage/ready.py": 1,
+    "src/devops_cli/roadmap/stage/verify.py": 1,
+    "src/devops_cli/roadmap/stage/form.py": 1,
+    "src/devops_cli/roadmap/stage/change.py": 1
+   },
+   "test": null,
+   "implementation": "Move every module of the stage prefix into the stage package",
+   "documentation": null,
+   "verify": "! git grep -n -F devops_cli.roadmap.stage src/ tests/",
+   "process": null
+  }
+ ],
+ "dependencies": []
+}
