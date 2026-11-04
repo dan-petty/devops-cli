@@ -28,7 +28,7 @@ ADR 0004 said that the rulesets require `Static Analysis` and `Tests & Coverage`
   - `Static Analysis` took a median of 105 seconds (maximum 119). `Tests & Coverage` took a median of 291 seconds (maximum 307).
   - Each job waited at most 4 seconds for a runner. The whole run, with the jobs that are not required, took a median of 314 seconds.
   - The jobs run on GitHub-hosted runners, so the load of the local host does not change these times.
-- **What the required checks run.** `Static Analysis` runs `uv run devops ci --check --no-cache --skip test,outdated`. `Tests & Coverage` runs `uv run devops ci --check --no-cache --only test`. Together they run every check of `devops ci` but `outdated`. The scheduled `Dependency Freshness` job runs `outdated`.
+- **What the required checks run.** `Static Analysis` runs `uv run devops ci --check --no-cache --skip test,outdated`. `Tests & Coverage` runs `uv run devops ci --check --no-cache --only test`. Since #3050 it runs that row in four shard jobs, `uv run devops ci --check --no-cache --only test --shard <n> --shards 4`, and the job `Tests & Coverage` joins their coverage data, so the required name stays on one job. Together they run every check of `devops ci` but `outdated`. The scheduled `Dependency Freshness` job runs `outdated`.
 - **The ruleset (2026-10-24).** `devops gh api repos/dan-petty/devops-cli/rulesets` lists one ruleset, `main`. Its last change was on 2026-10-23 at 18:49 UTC.
   - It requires `Static Analysis`, `Tests & Coverage` and `Semantic PR title`. It has no bypass actor.
   - It has no `merge_queue` rule and no `copilot_code_review` rule.

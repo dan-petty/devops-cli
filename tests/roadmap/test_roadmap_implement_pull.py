@@ -50,3 +50,19 @@ def test_the_watch_of_a_failed_check_run_sends_no_status_read(job_world: JobWorl
     watch = watch_pull(STAGE_REPO, PULL, _head(job_world))
     assert watch.kind is WatchKind.FAILED
     assert _status_reads(job_world) == []
+
+
+def test_the_watch_names_the_failed_shard_and_not_the_join_check(job_world: JobWorld) -> None:
+    """The join check fails when a shard fails, and its log holds no test output."""
+    join = {**FAIL, "html_url": f"https://github.com/{STAGE_REPO}/actions/runs/101/job/1"}
+    shard = {
+        **FAIL,
+        "name": "Tests & Coverage (shard 2 of 4)",
+        "html_url": f"https://github.com/{STAGE_REPO}/actions/runs/101/job/2",
+    }
+    job_world.pull.runs = [[join, shard]]
+    watch = watch_pull(STAGE_REPO, PULL, _head(job_world))
+    assert watch.kind is WatchKind.FAILED
+    assert watch.check is not None
+    assert watch.check.name == "Tests & Coverage (shard 2 of 4)"
+    assert "shard 2 of 4" in watch.reason

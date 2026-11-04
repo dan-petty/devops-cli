@@ -243,13 +243,6 @@ class _JobTiming(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
 
-    @property
-    def seconds(self) -> float | None:
-        """The seconds from start to end; None for a job that has not both."""
-        if self.started_at is None or self.completed_at is None:
-            return None
-        return (self.completed_at - self.started_at).total_seconds()
-
 
 class _RunJobs(BaseModel):
     """What the jobs endpoint says of a run."""
@@ -523,13 +516,28 @@ class GitHubClient:
         return times
 
     def _job_seconds(self, repo: str, run_id: int, job: str) -> float | None:
-        """The seconds the job `job` took in the run `run_id`; None if it did not run to an end."""
+        """The seconds the check `job` took in the run `run_id`; None if it did not run to an end.
+
+        A check that runs in shards (#3050) is the job `job`, which joins them, and the shard jobs
+        named `<job> (…)`. Its time runs from the first start of any of them to the end of `job`:
+        the join lasts a minute, and its own time would hide the wait for the shards. A run with
+        no shard job is timed from the start of `job`.
+        """
         path = _repo_path(repo, f"actions/runs/{run_id}/jobs?per_page={DEFAULT_GH_REST_PER_PAGE}")
         jobs = _read_as(_RunJobs, self._session.rest("GET", path), path=path).jobs
-        return next(
-            (j.seconds for j in jobs if j.name == job and j.conclusion in _JOB_ENDED_CONCLUSIONS),
-            None,
+        last = next(
+            (j for j in jobs if j.name == job and j.conclusion in _JOB_ENDED_CONCLUSIONS), None
         )
+        if last is None or last.started_at is None or last.completed_at is None:
+            return None
+        starts = [
+            j.started_at
+            for j in jobs
+            if j.started_at is not None
+            and j.conclusion != "skipped"
+            and (j is last or j.name.startswith(f"{job} ("))
+        ]
+        return (last.completed_at - min(starts)).total_seconds()
 
     # ── Issue reads of the stage planner (#3238) ──────────────────────────────
 

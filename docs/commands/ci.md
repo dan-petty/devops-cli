@@ -16,6 +16,8 @@ devops ci [OPTIONS] COMMAND [ARGS]...
 | `--force`, `-f` | `boolean` | - | Bypass CI execution cache and force re-execution of all quality gates. |
 | `--only` | `string` | - | Run only the specified check names (comma-separated or repeated). |
 | `--skip` | `string` | - | Skip the specified check names (comma-separated or repeated). |
+| `--shard` | `integer` | `1` | Number of the part of the test suite this run covers, from 1 to --shards. CI runs each part on its own runner. |
+| `--shards` | `integer` | `1` | Number of parts the test suite splits into. Above 1, the run covers one part, checks no coverage floor and leaves no cached verdict. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ## Commands
@@ -377,10 +379,10 @@ devops ci job-time [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Repository as owner/name. Default: the origin of the current checkout. |
-| `--job` | `string` | `Tests & Coverage` | Name of the job whose time is read. |
+| `--job` | `string` | `Tests & Coverage` | Name of the check whose time is read: the job of that name, timed from the first start of it or of its shard jobs named '\<name\> (...)'. |
 | `--workflow` | `string` | `ci.yml` | Workflow file that holds the job. |
 | `--branch`, `-b` | `string` | `main` | Branch whose push runs are read. |
-| `--runs` | `integer` | `10` | How many of the last runs the mean covers. |
+| `--runs` | `integer` | `20` | How many of the last runs the mean covers. |
 | `--limit` | `float` | `300.0` | Most seconds the mean of the runs may be. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

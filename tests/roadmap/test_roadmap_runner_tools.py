@@ -91,12 +91,13 @@ def _hook_programs() -> dict[str, set[str]]:
 
 
 def _gate_job_tools() -> dict[str, set[str]]:
-    """The tools that the required jobs `static` and `test` of `ci.yml` install, by job."""
+    """The tools that the required jobs `static` and `test-shard` of `ci.yml` install, by job."""
     jobs = yaml.safe_load(_text(".github/workflows/ci.yml"))["jobs"]
     found: dict[str, set[str]] = {}
-    for name in ("static", "test"):
+    # The gate `test` installs its tools in the shard jobs `test-shard` (#3050).
+    for name, job in (("static", "static"), ("test", "test-shard")):
         tools: set[str] = set()
-        for step in jobs[name]["steps"]:
+        for step in jobs[job]["steps"]:
             if "actionlint" in step.get("uses", ""):
                 tools.add("actionlint")
             words = shlex.split(step.get("run", "").replace("\n", " "))

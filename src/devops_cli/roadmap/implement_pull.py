@@ -15,6 +15,7 @@ from pathlib import PurePosixPath
 from urllib.parse import urlsplit
 
 from devops_cli.config.constants import (
+    CONST_CI_TEST_JOB_NAME,
     CONST_GH_CLI,
     CONST_OPENSPEC_ARCHIVE_DIR,
     CONST_OPENSPEC_ARCHIVED_FOLDER_RE,
@@ -289,6 +290,17 @@ class Watch:
     check: PRCheckItem | None = None
 
 
+def _first_failure(failing: Sequence[PRCheckItem]) -> PRCheckItem:
+    """The failed check whose log holds the cause. The join check `Tests & Coverage` fails when a
+    test shard failed, and its log holds no test output (#3050). A failed shard check is the one
+    to read then."""
+    shard_prefix = f"{CONST_CI_TEST_JOB_NAME} (shard "
+    for check in failing:
+        if check.name.startswith(shard_prefix):
+            return check
+    return failing[0]
+
+
 def _judge(result: PRMonitorResult) -> Watch:
     """The watch's verdict on a settled status: the checks first, then the threads, then the
     mergeability. A draft and a blocked merge state are not reasons to stop: a person approves
@@ -306,8 +318,9 @@ def _judge(result: PRMonitorResult) -> Watch:
         failing = status.failing_checks
         if not failing:
             return Watch(WatchKind.STOPPED, texts.implement_stop_checks_unread)
-        reason = texts.implement_stop_check_failed.format(name=failing[0].name)
-        return Watch(WatchKind.FAILED, reason, failing[0])
+        first = _first_failure(failing)
+        reason = texts.implement_stop_check_failed.format(name=first.name)
+        return Watch(WatchKind.FAILED, reason, first)
     if status.unresolved_threads:
         count = len(status.unresolved_threads)
         return Watch(WatchKind.STOPPED, texts.implement_stop_threads.format(count=count))
