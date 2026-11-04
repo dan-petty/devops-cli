@@ -54,7 +54,13 @@ class ConfigKeyRemoval(BaseModel):
     path: str = Field(..., description="Config file that held the key")
     key: str = Field(..., description="Dotted key as the file holds it")
     line: int = Field(..., description="Line of the key before the removal, counted from 1")
-    diff: str = Field(..., description="Unified diff of the removal, with no context lines")
+    diff: str = Field(
+        ...,
+        description=(
+            "Unified diff of the removal, with no context lines, with each credential as"
+            " ***REDACTED***. Its line numbers count the lines of the redacted text."
+        ),
+    )
     backup: str | None = Field(
         default=None, description="Copy of the file before the removal, or None for a dry run"
     )
