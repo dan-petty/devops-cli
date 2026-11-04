@@ -47,6 +47,17 @@ class ServiceStoppingError(RoadmapRunError):
     error_code = "SERVICE_STOPPING"
 
 
+def ended_by_stop(exc: BaseException) -> bool:
+    """Whether `exc` is the error of a request that ended because the Service is stopping
+    (`ServiceStoppingError`), or has it as its cause. A group is a stop when each member is: a
+    group that holds a real failure is a failure (#2753)."""
+    if isinstance(exc, ServiceStoppingError):
+        return True
+    if isinstance(exc, BaseExceptionGroup):
+        return all(ended_by_stop(sub) for sub in exc.exceptions)
+    return exc.__cause__ is not None and ended_by_stop(exc.__cause__)
+
+
 class RoadmapImplementError(DevOpsCLIError):
     """Raised when `devops roadmap implement` refuses to start a step, or cannot read its inputs.
 

@@ -186,7 +186,9 @@ class StageRecordKey(StrEnum):
     file cap in tokens of the measure that made the stop: a stop under another cap is stale. The
     Service records `stage.ready`, the number of the draft pull request that it has seen leave the
     draft state (#2865), and `stage.needs_fix`, the number of the draft that it told about the
-    label `plan/needs-fix` (#3264)."""
+    label `plan/needs-fix` (#3264). When the last plan or write of the item failed, the record
+    holds the time of the failure and the class of its error (#3493), until a run stages the item
+    or stops it on the budget."""
 
     BRANCH = "stage.branch"
     PR = "stage.pr"
@@ -196,6 +198,8 @@ class StageRecordKey(StrEnum):
     FILE_CAP = "stage.file_cap"
     READY = "stage.ready"
     NEEDS_FIX = "stage.needs_fix"
+    FAILED_AT = "stage.failed_at"
+    FAILED_ERROR = "stage.failed_error"
 
 
 class ImplementRecordKey(StrEnum):

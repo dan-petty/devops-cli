@@ -90,6 +90,7 @@ from devops_cli.exceptions import (
     RoadmapRunError,
     SecurityError,
     ServiceStoppingError,
+    ended_by_stop,
 )
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.github.request_scope import request_scope
@@ -128,6 +129,7 @@ from devops_cli.roadmap.stage import (
     parse_filters,
     plan_stage,
     raise_for_failed,
+    raise_for_failed_round,
 )
 from devops_cli.roadmap.stage_ready import mark_stage_ready
 from devops_cli.roadmap.stage_toolbox import ToolboxModel
@@ -556,9 +558,11 @@ def _run_stage_adapter(
     **_: Any,
 ) -> JobOutcome:
     """Run the stage job as `devops roadmap stage --confirm` runs it, with the filter, the limit
-    and the step budget of the settings: stage the Ready items they name in the job's clone, count
-    each item by its result, and fail, once the other items are written, when an item failed
-    (#2659)."""
+    and the step budget of the settings: stage the Ready items they name in the job's clone and
+    count each item by its result (#2659). An item that failed is recorded in its job record and
+    waits for `roadmap.stage.retry_hours` hours; the job fails, once the others are written, only
+    when it tried items and handled none (#3493). A failure that no item explains, such as an
+    outage, ends the run at once."""
     source = _job_clone("stage", clone_path)
     plan = plan_stage(
         store,
@@ -573,7 +577,7 @@ def _run_stage_adapter(
     synced = (
         sync_statuses(store, repo=repo, planned=plan.planned) if plan.planned is not None else None
     )
-    raise_for_failed([*plan.failed, *applied.failed])
+    raise_for_failed_round(plan, applied)
     if synced is not None:
         raise_for_failed(synced.failed, summary=MESSAGES.roadmap.status_sync_failed)
     return JobOutcome()
@@ -973,9 +977,10 @@ def _simulate_dry_run(rows: Sequence[JobRow], initially_due: Mapping[str, bool])
     return tuple(due_list)
 
 
-_FailedRounds = TypeAdapter(list[tuple[str, str, int, str]])
-"""A ledger record: each repository and job with the rounds it failed in a row and the input of
-the last."""
+_FailedRounds = TypeAdapter(list[tuple[str, str, int, str, list[str]] | tuple[str, str, int, str]])
+"""A ledger record: each repository and job with the rounds it failed in a row, the input of the
+last and the class of each round's error. A record written before the causes (#3493) holds
+entries of four fields; their causes read as `unknown`."""
 
 
 class FailureLedger:
@@ -989,8 +994,8 @@ class FailureLedger:
     /metrics shows each job that failed its limit of rounds in a row (#2475).
 
     The ledger also holds the cause of each failed round, the class of its error, for the log
-    line that suspends a job. The causes stay in memory: the record keeps its format, because
-    the version that runs now reads it as it is and would not start on another one (#2753).
+    line that suspends a job. The record keeps the causes, so a restart does not make them
+    `unknown` (#3493). A record from before the causes loads, with its causes `unknown`.
     """
 
     def __init__(
@@ -1001,9 +1006,13 @@ class FailureLedger:
         self._lock = threading.Lock()
         kept = [] if record is None else read_state_record(record, _FailedRounds, [])
         self._failed: dict[tuple[str, str], tuple[int, str]] = {
-            (repo, job): (rounds, failed_on) for repo, job, rounds, failed_on in kept
+            (repo, job): (rounds, failed_on) for repo, job, rounds, failed_on, *_ in kept
         }
-        self._causes: dict[tuple[str, str], deque[str]] = {}
+        self._causes: dict[tuple[str, str], deque[str]] = {
+            (repo, job): deque(causes[0][-limit:], maxlen=limit)
+            for repo, job, _, _, *causes in kept
+            if causes
+        }
         for repo, job in self._failed:
             self._report_locked(repo, job)
 
@@ -1063,7 +1072,10 @@ class FailureLedger:
     def _keep_locked(self) -> None:
         """Write the ledger to its record, if it has one; the caller holds the lock."""
         if self._record is not None:
-            kept = [(repo, job, *entry) for (repo, job), entry in self._failed.items()]
+            kept = [
+                (repo, job, *entry, list(self._causes.get((repo, job), ())))
+                for (repo, job), entry in self._failed.items()
+            ]
             keep_state_record(self._record, _FailedRounds.dump_python(kept, mode="json"))
 
 
@@ -1089,17 +1101,6 @@ def _round_input(
     hour = None if reads_changes else at.strftime("%Y-%m-%dT%H")
     read = json.dumps([seen, at.isoformat() if pushed else None, hour])
     return hashlib.sha256(read.encode("utf-8")).hexdigest()
-
-
-def ended_by_stop(exc: BaseException) -> bool:
-    """Whether `exc` is the error of a request that ended because the Service is stopping
-    (`ServiceStoppingError`), or has it as its cause. A group is a stop when each member is: a
-    group that holds a real failure is a failure (#2753)."""
-    if isinstance(exc, ServiceStoppingError):
-        return True
-    if isinstance(exc, BaseExceptionGroup):
-        return all(ended_by_stop(sub) for sub in exc.exceptions)
-    return exc.__cause__ is not None and ended_by_stop(exc.__cause__)
 
 
 def _count_failure(

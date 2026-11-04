@@ -787,6 +787,9 @@ DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES: int = 11
 # of the implement task (128k), which leaves the other half for tool output and the model's turns
 # (#2654, #3206). A test holds that the step budget and the reserve of the turns fit the window.
 DEFAULT_ROADMAP_STAGE_STEP_TOKENS: Final[int] = DEFAULT_AI_IMPLEMENT_CONTEXT_WINDOW // 2
+# The hours after a failed plan or write of an item before the stage job takes the item again
+# (#3493). The item waits in its job record, and the other items go on in the same round.
+DEFAULT_ROADMAP_STAGE_RETRY_HOURS: Final[int] = 6
 # The tools of a plan run of the stage job (#3238): `base` is the nine tools that read the staged
 # commit, and `extended` adds `references`, `read_issue` and `find_issues`. The last two read
 # GitHub through the client of the Service.

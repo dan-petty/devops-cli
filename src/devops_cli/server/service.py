@@ -47,7 +47,12 @@ from devops_cli.config.settings import (
     get_service_webhook_secrets,
     load_settings,
 )
-from devops_cli.exceptions import ConfigurationError, RoadmapRunError, ServiceStoppingError
+from devops_cli.exceptions import (
+    ConfigurationError,
+    RoadmapRunError,
+    ServiceStoppingError,
+    ended_by_stop,
+)
 from devops_cli.github.rate_limiter import set_request_gate
 from devops_cli.github.request_scope import request_scope
 from devops_cli.lang import MESSAGES
@@ -57,7 +62,7 @@ from devops_cli.server.routes.webhooks import (
     create_webhook_router,
 )
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
-from devops_cli.telemetry.tracer import get_tracer
+from devops_cli.telemetry.tracer import SpanHandle, get_tracer
 
 logger = logging.getLogger(__name__)
 
@@ -542,6 +547,33 @@ class RepoWorker:
             )
             return counts, first_at, last_at
 
+    def _end_in_failure(self, exc: Exception, span: SpanHandle, failure: str) -> str:
+        """Record the end of a round that raised `exc`, and the result it counts under. A round
+        that the stop of the Service ends is no error: it counts as `stopped`, logs no error
+        line, and holds no round (#3493). Any other failure counts as `error`."""
+        if ended_by_stop(exc):
+            logger.info(
+                MESSAGES.serve.round_stopped.format(repo=self.repo),
+                extra={**self._labels, "result": "stopped"},
+            )
+            return "stopped"
+        span.set_status("ERROR", str(exc)[:256])
+        span.set_attribute("error", True)
+        span.set_attribute("error.message", str(exc)[:256])
+        is_config_only = isinstance(exc, ConfigurationError) or (
+            isinstance(exc, RoadmapRunError) and exc.is_configuration_only
+        )
+        logger.error(
+            "%s for %s: %s",
+            failure,
+            self.repo,
+            exc,
+            extra={**self._labels, "result": "error"},
+            exc_info=True if not is_config_only else None,
+        )
+        self.pause.after(exc, self.repo)
+        return "error"
+
     def _execute_scoped(self, scoped_func: Callable[[], None]) -> None:
         """Execute a scoped update task and record Prometheus metrics and execution duration."""
         start_time = time.perf_counter()
@@ -564,21 +596,7 @@ class RepoWorker:
                 with request_scope(repo=self.repo):
                     scoped_func()
             except Exception as exc:
-                result = "error"
-                span.set_status("ERROR", str(exc)[:256])
-                span.set_attribute("error", True)
-                span.set_attribute("error.message", str(exc)[:256])
-                is_config_only = isinstance(exc, ConfigurationError) or (
-                    isinstance(exc, RoadmapRunError) and exc.is_configuration_only
-                )
-                logger.error(
-                    "Service scoped update failed for %s: %s",
-                    self.repo,
-                    exc,
-                    extra={**self._labels, "result": "error"},
-                    exc_info=True if not is_config_only else None,
-                )
-                self.pause.after(exc, self.repo)
+                result = self._end_in_failure(exc, span, "Service scoped update failed")
             finally:
                 span.set_attribute("service.result", result)
                 duration = time.perf_counter() - start_time
@@ -622,21 +640,7 @@ class RepoWorker:
                 with request_scope(repo=self.repo):
                     self.job_func(batch)
             except Exception as exc:
-                result = "error"
-                span.set_status("ERROR", str(exc)[:256])
-                span.set_attribute("error", True)
-                span.set_attribute("error.message", str(exc)[:256])
-                is_config_only = isinstance(exc, ConfigurationError) or (
-                    isinstance(exc, RoadmapRunError) and exc.is_configuration_only
-                )
-                logger.error(
-                    "Service job execution failed for %s: %s",
-                    self.repo,
-                    exc,
-                    extra={**self._labels, "result": "error"},
-                    exc_info=True if not is_config_only else None,
-                )
-                self.pause.after(exc, self.repo)
+                result = self._end_in_failure(exc, span, "Service job execution failed")
             finally:
                 span.set_attribute("service.result", result)
                 duration = time.perf_counter() - start_time
