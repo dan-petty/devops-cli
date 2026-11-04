@@ -34,7 +34,7 @@ The stage job SHALL take the old path and the dotted name of each Python module 
 - **WHEN** a reply marks a reference unchanged and gives no reason.
 - **THEN** The schema refuses the reply with a problem that names the path.
 
-#### Scenario: The reply lists a hit that the guard does not probe
+#### Scenario: The reply lists a hit that the job does not probe
 - **WHEN** a reply lists a reference that is in none of the probed paths.
 - **THEN** `check_proposal` returns no problem for that reference.
 

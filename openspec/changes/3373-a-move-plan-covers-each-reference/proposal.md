@@ -28,7 +28,7 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage_references.py`, `src/devops_cli/lang/en/messages.py`
+- Code: `src/devops_cli/roadmap/stage_references.py`, `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage.py`, `src/devops_cli/lang/en/messages.py`
 - Documents: `src/devops_cli/ai/tasks/roadmap_stage_change.md`
 - Tests: `tests/roadmap/test_roadmap_stage_plan.py`, `tests/roadmap/test_roadmap_stage_content.py`, `tests/roadmap/test_roadmap_stage_prompt_rules.py`
 
