@@ -1457,6 +1457,7 @@ CONST_GITHUB_APP_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
     "checks": "read",
     "actions": "read",
     "metadata": "read",
+    "workflows": "write",
 }
 # GitHub's commit email of an account, `<id>+<login>@users.noreply.github.com`, for a bot too.
 CONST_GITHUB_NOREPLY_EMAIL: Final[str] = "{account_id}+{login}@users.noreply.github.com"
