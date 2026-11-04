@@ -981,6 +981,8 @@ _FailedRounds = TypeAdapter(list[tuple[str, str, int, str, list[str]] | tuple[st
 """A ledger record: each repository and job with the rounds it failed in a row, the input of the
 last and the class of each round's error. A record written before the causes (#3493) holds
 entries of four fields; their causes read as `unknown`."""
+_KeptRounds = TypeAdapter(list[tuple[str, str, int, str, list[str]]])
+"""The record that the ledger writes: each entry holds its causes."""
 
 
 class FailureLedger:
@@ -1076,7 +1078,7 @@ class FailureLedger:
                 (repo, job, *entry, list(self._causes.get((repo, job), ())))
                 for (repo, job), entry in self._failed.items()
             ]
-            keep_state_record(self._record, _FailedRounds.dump_python(kept, mode="json"))
+            keep_state_record(self._record, _KeptRounds.dump_python(kept, mode="json"))
 
 
 def service_state_dir(data_dir: Path | str | None = None) -> Path:
