@@ -1,0 +1,32 @@
+{
+ "issue": 2947,
+ "pull": 3174,
+ "title": "feat(roadmap): the first pass of the alternatives check runs 20 items a day",
+ "change": "2947-the-first-pass-of-the-alternatives",
+ "merge_commit": "b8900d765d1d3ffcbe51194718f8d064aed39821",
+ "base_commit": "ac16675ab369e849730c285de2e1fc21e1bc2323",
+ "verdict": "reject",
+ "scores": {
+  "premise_ok": 1,
+  "fidelity": 1,
+  "task_quality": 1,
+  "rule_compliance": 1,
+  "accuracy": 1
+ },
+ "state": "merged",
+ "summary": "The plan of pull request #3174 as the stage job opened it, with one task group titled `placeholder` and `placeholder` in each text. The stage job opened it as a draft and a later commit replaced the plan before the merge (#3264).",
+ "notes": [
+  "The plan is the change folder at commit 0bdd856a, the first commit of the pull request. The commit b8900d76 is the head of the pull request after the plan was fixed.",
+  "The scores are the lowest, set by hand: the plan has no premise check, no task and no usable text."
+ ],
+ "defects": [
+  {
+   "type": "other",
+   "severity": "blocker",
+   "where": "tasks.md",
+   "problem": "The one task group is titled `placeholder`, its implementation task is `placeholder`, and the proposal texts are `placeholder`. The model review of the stage job found the placeholder artifact, and no gate of the golden set judges that open finding.",
+   "evidence": "Change folder of commit 0bdd856a: `## 1. placeholder` in tasks.md, `## Why` is `placeholder` in proposal.md, and `## Feasibility` is `- placeholder`.",
+   "gate": "none"
+  }
+ ]
+}

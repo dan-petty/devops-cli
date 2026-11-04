@@ -27,7 +27,7 @@ from devops_cli.roadmap.stage_eval_cases import (
     StageCase,
     load_cases,
 )
-from devops_cli.roadmap.stage_eval_gates import PENDING_GATES
+from devops_cli.roadmap.stage_eval_gates import PENDING_GATES, replay_all
 from devops_cli.roadmap.stage_eval_run import (
     CaseRun,
     Outcome,
@@ -382,3 +382,14 @@ def test_the_total_is_the_share_of_avoided_defects_over_the_scored_types(
     assert score.scored == (3, 4)
     assert score.total == 0.75
     assert score_runs("m", [], []).total is None
+
+
+def test_the_golden_set_holds_the_placeholder_case_of_3174(cases: list[StageCase]) -> None:
+    """The replay reports the case of #3174 and its one placeholder group (#3264)."""
+    case = next(c for c in cases if c.pull == 3174)
+
+    report = replay_all([case])
+
+    assert [group["title"] for group in case.groups] == ["placeholder"]
+    assert (case.defect_types(), case.defects[0].gate) == ({DefectType.OTHER}, GateName.NONE)
+    assert [replay.case.name for replay in report.replays] == [case.name]

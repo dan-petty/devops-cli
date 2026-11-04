@@ -24,6 +24,18 @@ from devops_cli.roadmap.failure import (
     left_action,
 )
 from devops_cli.roadmap.implement_step import commands_failure
+from devops_cli.roadmap.stage import (
+    StageApplied,
+    StagedChange,
+    StagePlan,
+    StageResult,
+    StageTarget,
+    stage_results,
+)
+from devops_cli.roadmap.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage_verify import Finding
+from devops_cli.roadmap.store import Item
+from tests.support.builders import make_stage_proposal
 from tests.support.fakes.process import ProcessFake
 from tests.support.implement_step import make_checkout
 
@@ -128,6 +140,11 @@ FROM_THE_JOB = [
         FailureEvidence(text="Task group 2, Route the stage row, has a task that is not ticked."),
         FailureClass.PLAN_DEFECT,
         id="plan-unticked-group",
+    ),
+    pytest.param(
+        FailureEvidence(text=TEXTS.stage_ready_needs_fix.format(pull=5)),
+        FailureClass.PLAN_DEFECT,
+        id="plan-open-finding",
     ),
     pytest.param(
         FailureEvidence(text=TEXTS.implement_stop_no_change, agent=AGENT_2175),
@@ -430,3 +447,32 @@ def test_a_refused_command_inside_a_longer_text_is_not_the_rule_for_a_refused_co
     inner = TEXTS.implement_stop_command_refused.format(command="x", reason="y")
 
     assert classify_failure(FailureEvidence(text=f"timed out\n{inner}")) is FailureClass.TIMEOUT
+
+
+def test_a_staged_item_with_an_open_finding_is_a_failed_attempt_not_a_staged_plan() -> None:
+    item = Item(
+        number=1, title="fix(roadmap): the job drops a comment", url="https://example.com/1"
+    )
+    open_finding = Finding(
+        type=DefectType.OTHER,
+        where="tasks.md",
+        problem="The task group says placeholder.",
+        quote="placeholder",
+    )
+    change = StagedChange(
+        target=StageTarget(item, "fix", "the-job-drops-a-comment"),
+        title="docs(openspec): plan #1",
+        body="Plans #1",
+        files={},
+        groups=(),
+        validated=True,
+        budget=1000,
+        proposal=make_stage_proposal(),
+        open_findings=(open_finding,),
+    )
+
+    results = stage_results(
+        StagePlan(repo="example/roadmap", ready=(change,)), StageApplied(staged=(1,))
+    )
+
+    assert results == {1: StageResult.FAILED}

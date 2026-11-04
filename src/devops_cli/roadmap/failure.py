@@ -191,10 +191,11 @@ _PREMISE = re.compile(
     _FLAGS,
 )
 # The plan cannot be run as written: the step changed nothing, left a task unticked, or its inputs
-# do not fit the window.
+# do not fit the window. An open finding of the stage keeps the plan in draft for the same class
+# (#3264).
 _PLAN = re.compile(
     r"changed no file|task of the group is not ticked|has a task that is not ticked"
-    r"|inputs of the step measure|not a file on the default branch",
+    r"|inputs of the step measure|not a file on the default branch|open finding|plan/needs-fix",
     _FLAGS,
 )
 

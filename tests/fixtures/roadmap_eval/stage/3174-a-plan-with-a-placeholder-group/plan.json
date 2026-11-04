@@ -1,0 +1,65 @@
+{
+ "summary": "Raise the alternatives first-pass limit to 20",
+ "pull_request_body": "placeholder",
+ "why": "placeholder",
+ "what_changes": [
+  "placeholder"
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "placeholder"
+ ],
+ "existing_tool": "placeholder",
+ "builds_own": false,
+ "decisions": [],
+ "rejected": [],
+ "specs": [
+  {
+   "capability": "roadmap-alternatives",
+   "purpose": null,
+   "added": [
+    {
+     "name": "First-pass limit applies while items lack a check",
+     "text": "While at least one open item has no check, the alternatives row SHALL check at most `roadmap.alternatives.first_pass_limit` items in a round.",
+     "scenarios": [
+      {
+       "name": "25 open items have no check",
+       "when": "The alternatives row runs and 25 open items have no check",
+       "then": "The row checks at most 20 items in that round"
+      }
+     ]
+    },
+    {
+     "name": "Recheck limit applies when all items have a check",
+     "text": "When every open item has a check, the alternatives row SHALL check at most `roadmap.alternatives.limit` items in a round.",
+     "scenarios": [
+      {
+       "name": "All open items have a check",
+       "when": "The alternatives row runs and every open item already has a check",
+       "then": "The row checks at most 5 items in that round"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "placeholder",
+   "kind": "other",
+   "reads": [],
+   "changes": [
+    "README.md"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": null,
+   "implementation": "placeholder",
+   "documentation": null,
+   "verify": "openspec validate --strict",
+   "process": null
+  }
+ ],
+ "criteria": []
+}
