@@ -2836,6 +2836,10 @@ class RoadmapMessages:
         "The title has no Conventional Commit type, so the branch has no type."
     )
     stage_left_title_slug: str = "The summary of the title has no word for the branch name."
+    stage_left_title_long: str = (
+        "The summary of the title has {length} characters, and the limit is {limit}. The "
+        "delivery title would differ from the issue title."
+    )
     stage_left_recorded_split: str = (
         "An earlier run stopped on a task group over the budget: {detail}. A person decides, or "
         "runs the job with --item {number}."
@@ -2892,6 +2896,11 @@ class RoadmapMessages:
     stage_comment_findings: str = (
         "\n\nA model review of the plan found these points. They stop no draft, and a person "
         "judges them:\n\n{findings}"
+    )
+    stage_comment_open_findings: str = (
+        "\n\nA model review of the plan found these open findings. The stage keeps this pull "
+        "request a draft with the label `plan/needs-fix` until a later round clears them:\n\n"
+        "{findings}"
     )
     stage_comment_not_validated: str = (
         "\n\nThe `openspec` binary was not on PATH, so `openspec validate` did not run. The "
@@ -2954,6 +2963,11 @@ class RoadmapMessages:
     stage_failed: str = "the stage job failed for {count} item(s): {items}"
     stage_failed_item: str = "#{number} ({error}{reason})"
     stage_ready_failed: str = "the stage_ready row failed for {count} pull request(s): {items}"
+    stage_ready_needs_fix: str = (
+        "The stage_ready row leaves pull request #{pull} a draft. It holds the label "
+        "`plan/needs-fix`, because the model review of its plan found an open finding. Fix the "
+        "plan, or remove the label when the finding is no defect."
+    )
     release_comment_released: str = "Released in {tag}: {url}"
     release_comment_live: str = "Live since {time}"
     release_ledger_unreadable: str = (
@@ -3172,6 +3186,15 @@ class RoadmapMessages:
     )
     stage_blank_text: str = "A task text holds only full stops and spaces."
     stage_bad_creates: str = "'{path}' is in creates, and it is not in changes."
+    stage_creates_no_estimate: str = (
+        "'{path}' is in creates, and it has no line estimate. Give its estimated number of lines "
+        "in creates_lines."
+    )
+    stage_estimate_not_creates: str = "'{path}' is in creates_lines, and it is not in creates."
+    stage_bad_living_spec: str = (
+        "'{path}' is under openspec/specs/, and only openspec archive writes living specs. "
+        "Name a file of the change folder instead."
+    )
     # The implement step reads a verification command from the line `Verification:` under a task,
     # and from no other text (`step_files`). So a task is its work, a line break, and that line.
     stage_task_test: str = "{test}\n  - Verification: `{verify}` fails on the base"
