@@ -16,6 +16,7 @@ from devops_cli.commands.ai import app as ai_app
 from devops_cli.config.constants import CONST_PIPELINE_STAGE_TRUNCATION_SUFFIX
 from devops_cli.config.defaults import DEFAULT_PIPELINE_STAGE_CONTEXT_TOKENS
 from devops_cli.config.settings import Settings
+from devops_cli.exceptions.ai import TokenCountError
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -127,36 +128,17 @@ def test_pipeline_stage_context_budget_recorded_metrics() -> None:
     assert (actual_truncated, all(tokens_match)) == (expected_truncated, True)
 
 
-def test_pipeline_stage_context_budget_fallback_token_counting() -> None:
-    """Verify recorded metrics behavior under character-fallback tokenizer mode."""
+def test_pipeline_stops_when_the_token_counter_is_unavailable() -> None:
+    """A missing tiktoken encoding stops the pipeline with a clear error, not a character count
+    (#3265)."""
     with patch("devops_cli.ai.context_budget._get_tiktoken_encoding", return_value=None):
-        sent_prompts: list[str] = []
-
-        def fake_chat(_system: str, messages: list[Any], **_kwargs: Any) -> str:
-            sent_prompts.append(messages[-1].content)
-            return ("Finding: " + "x" * 70 + "\n") * 50
-
         client = MagicMock(spec=LLMClient)
-        client.chat_messages.side_effect = fake_chat
-
         agents = [_create_fake_agent(client, i) for i in range(1, 6)]
-        with patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None):
-            pipeline = MultiAgentPipeline(agents=agents, stage_context_tokens=2048)
-            res = pipeline.run("Analyze workspace")
-
-        three_outputs_raw = "\n\n".join(
-            f"### Stage {i} (Agent{i}) Output:\n" + (("Finding: " + "x" * 70 + "\n") * 50)
-            for i in range(1, 4)
-        )
-        expected_step_4_truncated = count_tokens(three_outputs_raw) > 2048
-        actual_truncated = tuple(step.context_truncated for step in res.steps)
-        expected_truncated = (False, False, False, expected_step_4_truncated, True)
-
-        assert (
-            expected_step_4_truncated,
-            actual_truncated,
-            max(s.context_tokens for s in res.steps) <= 2048,
-        ) == (True, expected_truncated, True)
+        with (
+            patch("devops_cli.ai.rag.investigator.investigate_rag_context", return_value=None),
+            pytest.raises(TokenCountError, match="tiktoken"),
+        ):
+            MultiAgentPipeline(agents=agents, stage_context_tokens=2048).run("Analyze workspace")
 
 
 def test_pipeline_stage_context_budget_off() -> None:

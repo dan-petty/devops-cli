@@ -2,6 +2,48 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.53.4](https://github.com/dan-petty/devops-cli/compare/v0.53.3...v0.53.4) (2026-11-04)
+
+
+### Bug Fixes
+
+* **roadmap:** keep a plan with an open finding in draft ([#3399](https://github.com/dan-petty/devops-cli/issues/3399)) ([499a546](https://github.com/dan-petty/devops-cli/commit/499a5462e6537d914feba10e244c912eb1480719))
+
+## [0.53.3](https://github.com/dan-petty/devops-cli/compare/v0.53.2...v0.53.3) (2026-11-03)
+
+
+### Bug Fixes
+
+* **roadmap:** measure a group with one exact token counter ([#3377](https://github.com/dan-petty/devops-cli/issues/3377)) ([36943aa](https://github.com/dan-petty/devops-cli/commit/36943aaa3e2268081d27b9aa477a4ec982bf6539))
+* **roadmap:** refuse an overlong title summary at stage ([#3381](https://github.com/dan-petty/devops-cli/issues/3381)) ([df40366](https://github.com/dan-petty/devops-cli/commit/df40366d4af38cc554e278c8409b6df6557d2d9b))
+
+## [0.53.2](https://github.com/dan-petty/devops-cli/compare/v0.53.1...v0.53.2) (2026-11-03)
+
+
+### Bug Fixes
+
+* **roadmap:** reject living-spec paths in a stage task group ([#3376](https://github.com/dan-petty/devops-cli/issues/3376)) ([8671477](https://github.com/dan-petty/devops-cli/commit/8671477fb28864c539284f1c44b07ef138d78f37))
+
+## [0.53.1](https://github.com/dan-petty/devops-cli/compare/v0.53.0...v0.53.1) (2026-11-03)
+
+
+### Bug Fixes
+
+* **roadmap:** check the plan title in the stage job ([#3360](https://github.com/dan-petty/devops-cli/issues/3360)) ([6abedcf](https://github.com/dan-petty/devops-cli/commit/6abedcfa30e20b77471884533667ece50c7009d4))
+
+## [0.53.0](https://github.com/dan-petty/devops-cli/compare/v0.52.1...v0.53.0) (2026-11-03)
+
+
+### Features
+
+* **roadmap:** a model ladder for retries, chosen per attempt ([#3366](https://github.com/dan-petty/devops-cli/issues/3366)) ([3055c34](https://github.com/dan-petty/devops-cli/commit/3055c34a7d25776bdcb1fce8b0908ab1564dcb61))
+* **roadmap:** refuse a stage plan with placeholder or cut text ([#3367](https://github.com/dan-petty/devops-cli/issues/3367)) ([7ced0c7](https://github.com/dan-petty/devops-cli/commit/7ced0c767f363ce54d280711b6e7cbefaa317c38))
+
+
+### Bug Fixes
+
+* **roadmap:** count the implement title like the CI check ([#3319](https://github.com/dan-petty/devops-cli/issues/3319)) ([be129c9](https://github.com/dan-petty/devops-cli/commit/be129c992345474513958036ac0f2533264d7e80))
+
 ## [0.52.1](https://github.com/dan-petty/devops-cli/compare/v0.52.0...v0.52.1) (2026-11-03)
 
 

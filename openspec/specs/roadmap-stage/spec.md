@@ -413,6 +413,17 @@ The row `stage_ready` of the status lane SHALL mark a draft pull request ready f
 - **WHEN** a recorded draft is green
 - **THEN** the round sends no request to the commit status endpoint
 
+### Requirement: The row refuses a plan with an open finding
+The row `stage_ready` SHALL NOT mark a pull request that holds the label `plan/needs-fix`. It SHALL leave that draft and comment once that the label is the reason, and it SHALL record `stage.needs_fix` with the number of the pull request.
+
+#### Scenario: A green draft with an open finding stays in draft
+- **WHEN** every check of a staged draft pull request has passed and the pull request holds the label `plan/needs-fix`
+- **THEN** the row leaves the pull request in draft and posts a comment that names the label as the reason
+
+#### Scenario: The row states the reason once
+- **WHEN** two rounds read a green draft pull request that holds `plan/needs-fix`
+- **THEN** the first round posts one comment that names the label and records `stage.needs_fix`, and the second round makes no second comment
+
 ### Requirement: The row reads again before it marks and stops on a rate limit
 The row SHALL read the pull request again before it marks, and SHALL leave a draft whose head moved. A rate limit, rejected credentials and the stop of the Service SHALL stop the round. Any other error SHALL fail its item only.
 
@@ -1264,3 +1275,102 @@ The stage replay SHALL catch a recorded placeholder plan as a defect of type `ot
 #### Scenario: Placeholder case no longer refused
 - **WHEN** The plan of that case holds real text in every field that the content gate reads.
 - **THEN** `replay_case` marks the `content` defect `missed` and reports a failure.
+
+### Requirement: The group measure and the Job use one token counter
+The stage SHALL count the tokens of a task group with the same tiktoken encoding as the implement Job, and SHALL raise an error that names the missing tiktoken cache when the encoding cannot be loaded.
+
+#### Scenario: Both paths count the same text
+- **WHEN** The stage and the implement Job count the same task-group text and the tiktoken cache is present
+- **THEN** Both give the same token count
+
+#### Scenario: The token cache is missing
+- **WHEN** A plan run measures a task group and the tiktoken cache is missing
+- **THEN** The run fails with an error that names the missing cache and no character count is used
+
+### Requirement: A created file counts its estimated lines
+The stage SHALL add 32 tokens for each estimated line of a path in the `creates` of a task group to the token count of that group, and SHALL refuse a group whose `creates` path has no line estimate with an error that names the path.
+
+#### Scenario: A group creates a 1,500-line file
+- **WHEN** A task group has a `creates_lines` entry with a 1,500-line estimate and no other input
+- **THEN** The stage counts the group as at least 48,000 tokens and refuses it as over a 40,000-token budget
+
+#### Scenario: A creates path has no estimate
+- **WHEN** A task group creates a file and the reply gives no line estimate for that path
+- **THEN** The stage refuses the group with an error that names the path
+
+### Requirement: The staging prompt states the budget and the estimate rule
+The staging prompt SHALL name the `budget` of the run as the most tokens of one step and the rule that each `creates` path carries a line estimate.
+
+#### Scenario: The prompt states both limits
+- **WHEN** The staging prompt of a plan run is loaded
+- **THEN** It names the `budget` of the run and the line-estimate rule for each `creates` path
+
+### Requirement: The stage job checks the form of the plan title
+The stage job SHALL run `title_problems` on the title that it builds for the plan. A reply whose title has a problem SHALL go back to the model once with the problems, and a second reply with a problem SHALL stop the item.
+
+#### Scenario: A summary that repeats plan
+- **WHEN** the first reply has the summary `plan the form of a task`
+- **THEN** the job sends the problem that names the word `plan` to the model, and the second reply sets the title
+
+#### Scenario: A summary with the issue number
+- **WHEN** the reply has the summary `Stop #1 dropping a comment` for issue 1, and the second reply is the same
+- **THEN** the job sends a problem that names `#1`, and the item makes no plan
+
+### Requirement: A task group writes no living spec
+A `StageGroup` SHALL reject a path under `openspec/specs/` in `changes` or in `creates`, with a validation error that names the path and says that only `openspec archive` writes living specs. A path under `openspec/specs/` in `reads` SHALL stay accepted.
+
+#### Scenario: A group lists a living spec in changes
+- **WHEN** A `StageGroup` lists `openspec/specs/config-commands/spec.md` in `changes` and `creates`
+- **THEN** validation fails, and the error names `openspec/specs/config-commands/spec.md` and says that only `openspec archive` writes living specs
+
+#### Scenario: A group lists a living spec in creates
+- **WHEN** A `StageGroup` lists `openspec/specs/new-capability/spec.md` in `changes` and `creates`
+- **THEN** validation fails, and the error names `openspec/specs/new-capability/spec.md`
+
+#### Scenario: A group writes a source file and reads a living spec
+- **WHEN** A `StageGroup` lists `src/devops_cli/sample.py` in `changes` and `openspec/specs/config-commands/spec.md` in `reads`
+- **THEN** validation succeeds
+
+### Requirement: The stage prompt states the living-spec rule
+The stage prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` SHALL state that a task group never puts a path under `openspec/specs/` in `changes` or in `creates`, and that `openspec archive` writes living specs.
+
+#### Scenario: The prompt holds the living-spec rule
+- **WHEN** a test reads `src/devops_cli/ai/tasks/roadmap_stage_change.md`
+- **THEN** the text says that a task group must not change or create a file under `openspec/specs/`, and that `openspec archive` writes living specs
+
+### Requirement: A title whose summary is over the limit is refused
+The stage job SHALL refuse an item whose issue title has a Conventional Commit type and a summary longer than `SUMMARY_MAX_CHARS` UTF-16 code units, counted by `summary_length`.
+
+#### Scenario: A summary of 61 UTF-16 units is refused
+- **WHEN** A Ready item has a valid Conventional Commit type and a title summary of 61 UTF-16 code units
+- **THEN** The stage job leaves the item out, and its reason names the current length and the limit of 60
+
+#### Scenario: A summary of 60 UTF-16 units passes the length check
+- **WHEN** A Ready item has a valid Conventional Commit type and a title summary of 60 UTF-16 code units
+- **THEN** The stage job does not refuse the item for the length of its summary
+
+#### Scenario: A title with no type keeps its reason
+- **WHEN** A Ready item has a title with no Conventional Commit type and a summary longer than the limit
+- **THEN** The stage job leaves the item out and its reason names the missing type, not the length of the summary
+
+### Requirement: An open finding keeps the plan in draft
+When the verification pass returns a finding that has a quote in its input and a defect type of `missing_path`, `false_premise`, `ignores_existing_code`, `spec_delta_wrong` or reports a placeholder, the stage SHALL keep the plan pull request in draft, apply the label `plan/needs-fix` to it, and put those findings at the top of the stage comment.
+
+#### Scenario: A placeholder finding from a fake client
+- **WHEN** The fake verification client returns a placeholder finding whose quote is in the input.
+- **THEN** The plan pull request is a draft, it holds the label `plan/needs-fix`, and its stage comment starts with the finding text.
+
+#### Scenario: A clean review stages as today
+- **WHEN** The fake verification client returns no finding with a quote in the input and an open defect type.
+- **THEN** The stage opens the plan pull request as today and applies no `plan/needs-fix` label.
+
+#### Scenario: A later clean round clears the label
+- **WHEN** A stage round verifies a plan that holds `plan/needs-fix` and returns no open finding.
+- **THEN** The stage removes the label from the pull request.
+
+### Requirement: A plan with an open finding is a failed attempt
+An item whose plan carries an open finding SHALL NOT count as a staged plan in the round budget of the Service, and its result SHALL be recorded as a failed attempt of failure class `plan_defect`.
+
+#### Scenario: The round counts a plan with an open finding
+- **WHEN** The stage records an open finding for an item and the Service counts the round.
+- **THEN** The round budget counts no staged plan for the item, and the failure record of the item has class `plan_defect`.

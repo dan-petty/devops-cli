@@ -313,6 +313,10 @@
   color: "FBCA04"
   description: "Too big for one pull request; split it before work starts"
 
+- name: "plan/needs-fix"
+  color: "D73A4A"
+  description: "The model review of the plan found an open finding; the plan stays in draft"
+
 - name: "source/agent"
   color: "5319E7"
   description: "Filed by an agent"
