@@ -19,9 +19,3 @@ Reads: `docs/ROADMAP_WORKFLOW.md`. Changes: `docs/ROADMAP_WORKFLOW.md`.
   - Verification: `! git grep -n "Each refusal counts against the retry limit" docs/`
 - [x] 2.2 Regenerate the documentation
   - Verification: `uv run devops ci docs` passes
-
-## Workflow follow-up
-
-- The read pipe through a table of right-hand programs, and the table or digest for the first word that the log shows as `other`, go to #3520. A change to the rule on a free first word goes to the owner.
-- Pending a person: edit #3041 as the evaluation of #3271 says: remove criterion 3 ("The refusal limit counts only calls that the catalog has no entry for") and add a `### Dependencies` heading that names #3271 above its refine block.
-- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

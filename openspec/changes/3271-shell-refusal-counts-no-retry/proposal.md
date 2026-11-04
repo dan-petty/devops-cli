@@ -45,4 +45,4 @@ None.
 
 ## Dependencies
 
-None. Issue #3476 adds failure classes in parallel. This change uses the existing class `refused_tool` and adds none. Issue #3041 names this issue as a dependency.
+None. Issue #3476 adds failure classes in parallel. This change uses the existing class `refused_tool` and adds none. Issue #3520 holds the follow-up: the read pipe through a table of right-hand programs, and the table or digest for the first word that the log shows as `other`.

@@ -3137,8 +3137,7 @@ CONST_ROADMAP_IMPLEMENT_STEP_CLASSES: Final[tuple[str, ...]] = ("plan", "edit", 
 CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES: Final[int] = 5
 # The commands that the shell of a step may refuse by policy before the run ends (#3271). The
 # refusals count no tool retry, so this total is the stop of a model that loops on a refused
-# command. The window of 2026-11-03 to 2026-11-04 shows at most 37 refused commands in one stopped
-# run, and 201 in 11 stopped runs. A step of one item keeps one count across its extra turns.
+# command. A step of one item keeps one count across its extra turns.
 CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS: Final[int] = 30
 # How many times in a row a step sends a model request again when the provider fails it inside an
 # open stream with the status 400 (#2794): a tool call that the model ended early, which the next
