@@ -15,7 +15,10 @@ from pydantic_ai.workspaces import CommandResult
 from pydantic_ai.workspaces.local import LocalWorkspaceBackend
 
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS
+from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
+    CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS,
+)
 from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_ALLOWED_PROGRAMS,
     IMPLEMENT_SHELL_PROGRAMS,
@@ -231,10 +234,12 @@ def test_a_refused_argument_counts_as_a_refused_command_of_its_program(
 
     assert (outcome.status, outcome.requests, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
-        6,
+        CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS + 1,
         True,
     )
-    assert outcome.reason.endswith("\nRefused commands: find 6. Other retries: 0.")
+    assert outcome.reason.endswith(
+        f"\nRefused commands: find {CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS + 1}. Other retries: 0."
+    )
 
 
 @pytest.fixture

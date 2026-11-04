@@ -3139,9 +3139,16 @@ CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS: Final[int] = 40000
 # ordered list of tiers, one tier per attempt. A step of a group is `edit`, a fix step is `repair`,
 # and `plan` and `review` are the classes of the steps that plan and review an item.
 CONST_ROADMAP_IMPLEMENT_STEP_CLASSES: Final[tuple[str, ...]] = ("plan", "edit", "repair", "review")
-# The consecutive refusals that a tool may answer before the run ends, such as a command off the
-# allowlist. A refusal is the model's to correct, as the harness's own file tools allow five.
+# The consecutive failures that a tool may answer before the run ends, such as an `edit_file` whose
+# text is not found. A successful call of a tool resets its count (`pydantic_ai/tool_manager.py`),
+# so the count is of failures in a row. A refusal of the shell by policy is a tool result, not a
+# failure, so it adds nothing to this count (#3271). A failure is the model's to correct, as the
+# harness's own file tools allow five.
 CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES: Final[int] = 5
+# The commands that the shell of a step may refuse by policy before the run ends (#3271). The
+# refusals count no tool retry, so this total is the stop of a model that loops on a refused
+# command. A step of one item keeps one count across its extra turns.
+CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS: Final[int] = 30
 # How many times in a row a step sends a model request again when the provider fails it inside an
 # open stream with the status 400 (#2794): a tool call that the model ended early, which the next
 # sample can make whole. The resend adds to the retries of the client (`ai.max_retries`, #2500).

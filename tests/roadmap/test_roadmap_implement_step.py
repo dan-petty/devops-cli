@@ -32,6 +32,7 @@ from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config import constants
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_LOG_CHARS,
+    CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS,
     CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
     CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
@@ -1300,11 +1301,19 @@ RETRY_LIMIT_MESSAGE = (
 )
 
 
+REFUSAL_LIMIT_MESSAGE = (
+    "Too many commands refused by policy in one step: the limit is "
+    f"{CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS}."
+)
+BROKE = UnexpectedModelBehavior("The reply broke the rules.")
+
+
 def test_a_model_that_keeps_calling_a_refused_program_stops_with_the_message_and_the_count(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    """The shell refuses `pytest`. The model asks for `pytest` in every reply, as the
-    Job on #2656 may have done: the shell refuses it five times, and the sixth call ends the run."""
+    """The shell refuses `pytest`. The model asks for `pytest` in every reply, as the Job on #2656
+    may have done: the shell refuses it up to the limit of refusals, and the next call ends the run
+    (#3271)."""
     head = git(checkout, "rev-parse", "HEAD")
     script = ModelScript(tool_call("shell", command="pytest tests/test_sample.py"))
 
@@ -1312,8 +1321,9 @@ def test_a_model_that_keeps_calling_a_refused_program_stops_with_the_message_and
 
     assert (outcome.status, outcome.reason, outcome.requests, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
-        f"UnexpectedModelBehavior: {RETRY_LIMIT_MESSAGE}\nRefused commands: pytest 6. Other retries: 0.",
-        6,
+        f"UnexpectedModelBehavior: {REFUSAL_LIMIT_MESSAGE}\n"
+        f"Refused commands: pytest {CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS + 1}. Other retries: 0.",
+        CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS + 1,
         True,
     )
 
@@ -1325,7 +1335,8 @@ def test_the_reason_counts_the_refused_commands_by_program_from_the_most_refused
         *(
             tool_call("shell", command=f"{program} x")
             for program in "cd python cd python python python".split()
-        )
+        ),
+        BROKE,
     )
 
     outcome = _step(store, checkout, script)
@@ -1341,7 +1352,8 @@ def test_the_reason_joins_the_programs_beyond_the_limit_to_other(
         *(
             tool_call("shell", command=f"{name} x")
             for name in ("pytest", "rg", "pip", "cd", "python3", "python3")
-        )
+        ),
+        BROKE,
     )
 
     outcome = _step(store, checkout, script)
@@ -1355,11 +1367,11 @@ def test_the_reason_joins_the_programs_beyond_the_limit_to_other(
 def test_a_first_word_that_is_no_known_program_is_counted_as_other_and_never_shown(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    script = ModelScript(tool_call("shell", command="API_KEY=hunter2 uv run x"))
+    script = ModelScript(tool_call("shell", command="API_KEY=hunter2 uv run x"), BROKE)
 
     outcome = _step(store, checkout, script)
 
-    assert outcome.reason.endswith("\nRefused commands: other 6. Other retries: 0.")
+    assert outcome.reason.endswith("\nRefused commands: other 1. Other retries: 0.")
     assert "hunter2" not in outcome.reason
 
 
@@ -1368,11 +1380,11 @@ def test_a_short_word_that_is_no_known_program_is_counted_as_other_and_never_sho
 ) -> None:
     """A password that the model read from a file is a short bare word, and the mask of secrets
     leaves it as it is. The reason goes to a comment on GitHub, so it must not show the word."""
-    script = ModelScript(tool_call("shell", command="hunter2password x"))
+    script = ModelScript(tool_call("shell", command="hunter2password x"), BROKE)
 
     outcome = _step(store, checkout, script)
 
-    assert outcome.reason.endswith("\nRefused commands: other 6. Other retries: 0.")
+    assert outcome.reason.endswith("\nRefused commands: other 1. Other retries: 0.")
     assert "hunter2password" not in outcome.reason
 
 
@@ -1541,7 +1553,9 @@ def test_the_counts_cover_the_extra_turn_for_the_ticks(
 
     outcome = _step(store, checkout, script)
 
-    assert outcome.reason.endswith("\nRefused commands: pytest 7. Other retries: 0.")
+    assert outcome.reason.endswith(
+        f"\nRefused commands: pytest {CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS + 1}. Other retries: 0."
+    )
 
 
 # ── A model call that fails (#2731) ───────────────────────────────────────────────────────
