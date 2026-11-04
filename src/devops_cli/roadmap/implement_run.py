@@ -1282,7 +1282,10 @@ class _ItemRun:
                 )
             )
         )
-        check = stop.check or last_failing_command(self.trace.events, stop.step)
+        check = shown(
+            mask_secrets(stop.check or last_failing_command(self.trace.events, stop.step) or ""),
+            CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
+        )
         check_log = _check_log_end(stop.check_log)
         taken: FailureAction | None = None
         if stop.tier_changes:

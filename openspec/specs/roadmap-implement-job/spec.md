@@ -973,7 +973,7 @@ Each stop of the job whose cause has a class SHALL pass that class, and the stop
 - **THEN** the step moves to the next tier after the first turn only, and the outcome of the step holds the class `parser` for the first and `output_cap` for the second, the class that the decision read
 
 ### Requirement: A stop names the failed check and the end of its log
-A stop of a fix step, and a stop of the scoped checks, SHALL name the failed check and hold the end of its log, at most `CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS` characters, with secrets masked. The stop comment SHALL show both. The job SHALL record them in `implement.check` and `implement.check_log` with `implement.stopped`. A retry SHALL remove both. The table of the comment SHALL show the name of the check as the last failing command when no command failed.
+A stop of a fix step, and a stop of the scoped checks, SHALL name the failed check and hold the end of its log, at most `CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS` characters, with secrets masked. The stop comment and the job record (`implement.check`, `implement.check_log`) SHALL hold both. A retry or a clear rule of the Service SHALL remove both with the stop. The table of the comment SHALL show the check name as the last failing command when no command failed.
 
 #### Scenario: A fix step that stops
 - **WHEN** the check `Tests & Coverage` of the pull request fails with a log that holds a token, and the fix step changes no file

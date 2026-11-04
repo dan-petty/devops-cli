@@ -178,7 +178,12 @@ def _clear_one(
         current,
         ItemField.STATUS,
         status,
-        marks={ImplementRecordKey.STOPPED: None, ImplementRecordKey.FAILURE: None},
+        marks={
+            ImplementRecordKey.STOPPED: None,
+            ImplementRecordKey.FAILURE: None,
+            ImplementRecordKey.CHECK: None,
+            ImplementRecordKey.CHECK_LOG: None,
+        },
     )
     store.comment(current.number, _comment(rule, current, status, new))
     cleared.append(current.number)

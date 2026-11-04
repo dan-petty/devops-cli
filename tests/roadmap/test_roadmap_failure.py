@@ -233,21 +233,16 @@ def test_the_classifier_maps_each_excerpt_to_its_class(
     assert classify_failure(evidence) is expected
 
 
-# A stop of the job as its site makes it: the reason, the class that the site passes (None when
-# the cause has no class of its own), the check and the log of the check. The stop texts are
-# synthetic: the stop comments of the window of #3476 hold the task text and the agent text of
-# other items, so they are no fixture. Each case follows a pattern that the issue counts, with
-# the messages of the job as they read now.
+# A stop of the job whose cause has no class from its site: the reason, the expected class, the
+# check and the log of the check. The stop texts are synthetic: the stop comments of the window of
+# #3476 hold the task text and the agent text of other items, so they are no fixture. Each case
+# follows a pattern that the issue counts, with the messages of the job as they read now. The five
+# classes that a site sets are not here: the classifier does not return them.
 CLAIM = (
     "I have successfully completed the task. The item is already implemented and all acceptance "
     "criteria are met."
 )
 UNTICKED = TEXTS.implement_stop_unticked.format(task="[ ] Run `devops ci test tests/test_x.py`")
-LOST = TEXTS.implement_stop_tests_lost.format(
-    files=TEXTS.implement_tests_lost_file.format(path="tests/test_x.py", tests="test_a, test_b")
-)
-MOVED = TEXTS.implement_stop_head_moved.format(start="a1b2c3d", head="e4f5a6b")
-CAPPED = "OutputCapReached: " + TEXTS.implement_stop_capped.format(tokens=8192)
 
 
 def _scoped(name: str, command: str, output: str) -> str:
@@ -259,7 +254,6 @@ def _scoped(name: str, command: str, output: str) -> str:
 
 class Stop(NamedTuple):
     reason: str
-    site: FailureClass | None
     expected: FailureClass
     check: str = ""
     log: str = ""
@@ -269,38 +263,9 @@ class Stop(NamedTuple):
 STOPS = [
     pytest.param(
         Stop(
-            TEXTS.implement_stop_no_change,
-            FailureClass.NO_CHANGE_IN_FIX,
-            FailureClass.NO_CHANGE_IN_FIX,
-        ),
-        id="fix-no-change-after-a-claim-of-success",
-    ),
-    pytest.param(
-        Stop(
-            TEXTS.implement_stop_no_change,
-            FailureClass.NO_CHANGE_IN_FIX,
-            FailureClass.NO_CHANGE_IN_FIX,
-            check="Tests & Coverage",
-        ),
-        id="fix-no-change-names-its-check",
-    ),
-    pytest.param(
-        Stop(TEXTS.implement_stop_no_change, FailureClass.PLAN_DEFECT, FailureClass.PLAN_DEFECT),
-        id="group-no-change-is-a-plan-defect",
-    ),
-    pytest.param(Stop(LOST, FailureClass.TESTS_LOST, FailureClass.TESTS_LOST), id="tests-lost"),
-    pytest.param(Stop(MOVED, FailureClass.HEAD_MOVED, FailureClass.HEAD_MOVED), id="head-moved"),
-    pytest.param(Stop(CAPPED, FailureClass.OUTPUT_CAP, FailureClass.OUTPUT_CAP), id="output-cap"),
-    pytest.param(
-        Stop(UNTICKED, FailureClass.NOT_TICKED, FailureClass.NOT_TICKED),
-        id="not-ticked-task-text-holds-a-test-command",
-    ),
-    pytest.param(
-        Stop(
             _scoped(
                 "pre-push", "uv run pre-commit run", "ruff-check....Failed\nE501 Line too long"
             ),
-            None,
             FailureClass.LINT,
             check="pre-push",
             log="ruff-check....Failed\nE501 Line too long",
@@ -312,7 +277,6 @@ STOPS = [
             _scoped(
                 "static", "uv run devops ci --check --only types", "a.py:3: error: bad  [misc]"
             ),
-            None,
             FailureClass.TYPES,
             check="static",
             log="uv run mypy --strict a.py\na.py:3: error: bad  [misc]",
@@ -324,7 +288,6 @@ STOPS = [
             _scoped(
                 "tests", "uv run devops ci test tests/test_x.py", "FAILED tests/test_x.py::test_y"
             ),
-            None,
             FailureClass.TEST,
             check="tests",
             log="FAILED tests/test_x.py::test_y - AssertionError\n1 failed, 3 passed",
@@ -334,7 +297,6 @@ STOPS = [
     pytest.param(
         Stop(
             "",
-            None,
             FailureClass.TEST,
             check="Tests & Coverage",
             log="FAILED tests/test_x.py::test_y\n1 failed",
@@ -346,7 +308,6 @@ STOPS = [
             TEXTS.implement_stop_command_failed.format(
                 command="uv run mypy --strict a.py", status=1, output="a.py:1: error: x  [misc]"
             ),
-            None,
             FailureClass.TYPES,
         ),
         id="verification-command-types",
@@ -354,21 +315,19 @@ STOPS = [
     pytest.param(
         Stop(
             TEXTS.implement_stop_command_refused.format(command="curl x", reason="not allowed"),
-            None,
             FailureClass.REFUSED_TOOL,
         ),
         id="verification-command-refused",
     ),
-    pytest.param(Stop(EXCERPT_2735, None, FailureClass.REFUSED_TOOL), id="tool-retries-exceeded"),
-    pytest.param(Stop(EXCERPT_2747, None, FailureClass.PARSER), id="ollama-parser"),
+    pytest.param(Stop(EXCERPT_2735, FailureClass.REFUSED_TOOL), id="tool-retries-exceeded"),
+    pytest.param(Stop(EXCERPT_2747, FailureClass.PARSER), id="ollama-parser"),
     pytest.param(
-        Stop("ModelHTTPError: HTTP 503, model m, body: unavailable", None, FailureClass.PROVIDER),
+        Stop("ModelHTTPError: HTTP 503, model m, body: unavailable", FailureClass.PROVIDER),
         id="provider-503",
     ),
     pytest.param(
         Stop(
             "ModelHTTPError: HTTP 503, model m",
-            None,
             FailureClass.PROVIDER,
             check="Tests & Coverage",
             log="FAILED tests/test_x.py::test_y",
@@ -378,7 +337,6 @@ STOPS = [
     pytest.param(
         Stop(
             TEXTS.implement_stop_program_failed.format(command="uv run x", status=137, output=""),
-            None,
             FailureClass.OOM,
             exit_status=137,
         ),
@@ -387,7 +345,6 @@ STOPS = [
     pytest.param(
         Stop(
             TEXTS.implement_stop_program_timeout.format(command="uv run x", seconds=900),
-            None,
             FailureClass.TIMEOUT,
         ),
         id="command-timeout",
@@ -395,25 +352,23 @@ STOPS = [
     pytest.param(
         Stop(
             TEXTS.implement_stop_rebase.format(branch="main", output="CONFLICT (content)"),
-            None,
             FailureClass.CONFLICT,
         ),
         id="rebase-conflict",
     ),
     pytest.param(
-        Stop(TEXTS.implement_stop_checks_unread, None, FailureClass.CI_INFRA),
+        Stop(TEXTS.implement_stop_checks_unread, FailureClass.CI_INFRA),
         id="checks-unread",
     ),
     pytest.param(
-        Stop(TEXTS.implement_stop_no_change, None, FailureClass.CI_INFRA),
-        id="a-no-change-stop-with-no-class-from-its-site-is-ci-infra",
+        Stop(TEXTS.implement_stop_no_change, FailureClass.CI_INFRA),
+        id="a-no-change-reason-alone-is-ci-infra",
     ),
 ]
 
 
 def _class_of_stop(stop: Stop) -> FailureClass:
-    """The class of a stop as the job decides it: the class of the site, else the classifier."""
-    return stop.site or classify_failure(
+    return classify_failure(
         FailureEvidence(
             text=stop.reason, exit_status=stop.exit_status, check=stop.check, log=stop.log
         )
@@ -425,13 +380,12 @@ def test_each_synthetic_stop_text_has_its_class(stop: Stop) -> None:
     assert _class_of_stop(stop) is stop.expected
 
 
-def test_the_task_text_inside_a_reason_gives_no_class_when_the_site_passes_one() -> None:
+def test_the_untyped_text_of_a_stop_for_an_unticked_task_reads_as_a_test_failure() -> None:
     """The reason of a stop for a task that is not ticked holds the text of the task, here a test
-    command. The untyped text would be read as a test failure, as in #2116 and #3106."""
+    command. The classifier reads it as a test failure, as in #2116 and #3106. This is why the
+    step passes the class `not_ticked` itself; test_roadmap_implement_step_failure_class.py runs
+    that path."""
     assert classify_failure(FailureEvidence(text=UNTICKED)) is FailureClass.TEST
-    assert _class_of_stop(Stop(UNTICKED, FailureClass.NOT_TICKED, FailureClass.NOT_TICKED)) is (
-        FailureClass.NOT_TICKED
-    )
 
 
 def test_the_words_already_implemented_do_not_give_premise_false() -> None:
@@ -444,10 +398,22 @@ def test_the_words_already_implemented_do_not_give_premise_false() -> None:
     assert classify_failure(FailureEvidence(text=f"{CLAIM}\n{EXCERPT_2175}")) is FailureClass.TYPES
 
 
-def test_the_synthetic_stops_and_the_table_test_cover_every_class() -> None:
+# The classes that a site of the step sets and the classifier never returns. The tests of the step
+# (test_roadmap_implement_step_failure_class.py and the job tests) run each site.
+TYPED_BY_SITE = {
+    FailureClass.NO_CHANGE_IN_FIX,
+    FailureClass.NOT_TICKED,
+    FailureClass.TESTS_LOST,
+    FailureClass.HEAD_MOVED,
+    FailureClass.OUTPUT_CAP,
+}
+
+
+def test_the_classifier_never_returns_a_class_that_a_site_sets() -> None:
     from_classifier = {case.values[1] for case in [*REAL, *FROM_THE_JOB]}
-    from_sites = {case.values[0].expected for case in STOPS}
-    assert from_classifier | from_sites == set(FailureClass)
+    from_stops = {case.values[0].expected for case in STOPS}
+    assert not (from_classifier | from_stops) & TYPED_BY_SITE
+    assert from_classifier | from_stops | TYPED_BY_SITE == set(FailureClass)
 
 
 def test_the_classifier_reads_the_log_of_the_check() -> None:
