@@ -1077,6 +1077,19 @@ CONST_K8S_GPU_RESOURCE: Final[str] = "nvidia.com/gpu"
 CONST_K8S_GPU_PRESENT_LABEL: Final[str] = "nvidia.com/gpu.present"
 CONST_K8S_GPU_TOTAL_VRAM_LABEL: Final[str] = "nvidia.com/gpu.total-vram-gib"
 CONST_K8S_GPU_ARCHITECTURE_LABEL: Final[str] = "nvidia.com/gpu.architecture"
+CONST_K8S_GPU_COUNT_LABEL: Final[str] = "nvidia.com/gpu.count"
+# The values of the architecture label, the oldest first (#3501).
+CONST_K8S_GPU_ARCHITECTURES: Final[tuple[str, ...]] = (
+    "kepler",
+    "maxwell",
+    "pascal",
+    "volta",
+    "turing",
+    "ampere",
+    "ada-lovelace",
+    "hopper",
+    "blackwell",
+)
 CONST_K8S_OLLAMA_PROVIDER_LABEL: Final[tuple[str, str]] = ("llm.devops.io/provider", "ollama")
 CONST_K8S_OLLAMA_PROFILES_PATH: Final[str] = "llm/profiles/ollama-profiles.yaml"
 CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER: Final[str] = "example.com"

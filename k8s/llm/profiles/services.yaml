@@ -261,17 +261,20 @@ spec:
     llm.devops.io/vram-gib: "48gib"
     llm.devops.io/speed-tier: fast
 ---
+# BEGIN rendered by devops ai gateway render from gpu-thresholds.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: ollama-48gib-slow
+  name: ollama-24gib-embed-gpu0
   namespace: llm
   labels:
-    app.kubernetes.io/name: ollama-48gib-slow
+    app.kubernetes.io/name: ollama-24gib-embed-gpu0
     app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/backend: ollama
     llm.devops.io/provider: ollama
-    llm.devops.io/vram-gib: "48gib"
-    llm.devops.io/speed-tier: slow
+    llm.devops.io/speed-tier: embed
+    llm.devops.io/total-vram-gib: '24'
+    llm.devops.io/vram-gib: 24gib
 spec:
   type: ClusterIP
   ports:
@@ -281,8 +284,36 @@ spec:
       protocol: TCP
   selector:
     llm.devops.io/provider: ollama
-    llm.devops.io/vram-gib: "48gib"
-    llm.devops.io/speed-tier: slow
+    llm.devops.io/vram-gib: 24gib
+    llm.devops.io/speed-tier: embed
+    llm.devops.io/gpu-instance: '0'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-24gib-embed-gpu1
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: ollama-24gib-embed-gpu1
+    app.kubernetes.io/part-of: devops-cli-stack
+    llm.devops.io/backend: ollama
+    llm.devops.io/provider: ollama
+    llm.devops.io/speed-tier: embed
+    llm.devops.io/total-vram-gib: '24'
+    llm.devops.io/vram-gib: 24gib
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+      protocol: TCP
+  selector:
+    llm.devops.io/provider: ollama
+    llm.devops.io/vram-gib: 24gib
+    llm.devops.io/speed-tier: embed
+    llm.devops.io/gpu-instance: '1'
+# END rendered by devops ai gateway render from gpu-thresholds.yaml
 ---
 apiVersion: v1
 kind: Service

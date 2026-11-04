@@ -329,15 +329,25 @@
       },
       "description": "Ollama 48GiB fast tier service (Ampere architecture)"
     },
-    "ollama-48gib-slow": {
-      "service_name": "ollama-48gib-slow",
+    "ollama-24gib-embed-gpu0": {
+      "service_name": "ollama-24gib-embed-gpu0",
       "provider": "ollama",
-      "vram_gib": 48,
-      "speed_tier": "slow",
+      "vram_gib": 24,
+      "speed_tier": "embed",
       "ports": {
         "ollama": 11434
       },
-      "description": "Ollama 48GiB slow tier service (Pascal architecture)"
+      "description": "Ollama embedding-only instance on GPU 0 of a Pascal node"
+    },
+    "ollama-24gib-embed-gpu1": {
+      "service_name": "ollama-24gib-embed-gpu1",
+      "provider": "ollama",
+      "vram_gib": 24,
+      "speed_tier": "embed",
+      "ports": {
+        "ollama": 11434
+      },
+      "description": "Ollama embedding-only instance on GPU 1 of a Pascal node"
     },
     "ollama-64gib-standard": {
       "service_name": "ollama-64gib-standard",
@@ -402,7 +412,18 @@
       "model_name": "qwen3-embedding:0.6b",
       "litellm_params": {
         "model": "ollama/qwen3-embedding:0.6b",
-        "api_base": "http://ollama-48gib-slow.llm.svc.cluster.local:11434",
+        "api_base": "http://ollama-24gib-embed-gpu0.llm.svc.cluster.local:11434",
+        "weight": 3
+      },
+      "model_info": {
+        "mode": "embedding"
+      }
+    },
+    {
+      "model_name": "qwen3-embedding:0.6b",
+      "litellm_params": {
+        "model": "ollama/qwen3-embedding:0.6b",
+        "api_base": "http://ollama-24gib-embed-gpu1.llm.svc.cluster.local:11434",
         "weight": 3
       },
       "model_info": {
@@ -413,7 +434,7 @@
       "model_name": "devops-background",
       "litellm_params": {
         "model": "ollama_chat/qwen3.8:27b",
-        "api_base": "http://ollama-48gib-slow.llm.svc.cluster.local:11434",
+        "api_base": "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
         "timeout": 1100,
         "num_retries": 0
       }

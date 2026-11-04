@@ -802,20 +802,36 @@ def render_cmd(
         Path | None,
         typer.Option("--services", help="Path to LLM services YAML."),
     ] = None,
+    thresholds_path: Annotated[
+        Path | None,
+        typer.Option("--thresholds", help="Path to the GPU architecture thresholds YAML."),
+    ] = None,
+    tier_templates_path: Annotated[
+        Path | None,
+        typer.Option("--tier-templates", help="Directory of the Ollama tier templates."),
+    ] = None,
 ) -> None:
-    """Render LLM gateway configuration from Ollama profiles and services, showing unified diff."""
+    """Render the Ollama tiers of the GPU thresholds and the LLM gateway configuration, showing unified diff."""
     import sys
 
     from devops_cli.ai.gateway_render import (
         diff_gateway_config,
-        load_service_context_lengths,
-        load_tier_context_lengths,
         render_gateway_config,
+        service_context_lengths,
+        tier_context_lengths,
     )
     from devops_cli.config.defaults import (
         DEFAULT_LLM_GATEWAY_CONFIG_PATH,
+        DEFAULT_LLM_GPU_THRESHOLDS_PATH,
         DEFAULT_LLM_PROFILES_PATH,
         DEFAULT_LLM_SERVICES_PATH,
+        DEFAULT_LLM_TIER_TEMPLATES_PATH,
+    )
+    from devops_cli.k8s.gpu_thresholds import (
+        TierManifests,
+        load_gpu_thresholds,
+        load_tier_templates,
+        render_tier_manifests,
     )
 
     target_config = config_path or DEFAULT_LLM_GATEWAY_CONFIG_PATH
@@ -832,11 +848,31 @@ def render_cmd(
         print_error(f"Services file not found: {target_svc}", prefix=False)
         raise typer.Exit(1)
 
-    tier_lengths = load_tier_context_lengths(target_prof)
-    svc_lengths = load_service_context_lengths(target_svc, tier_lengths)
-    current_content = target_config.read_text(encoding="utf-8")
-    rendered_content = render_gateway_config(current_content, svc_lengths)
-    diff = diff_gateway_config(current_content, rendered_content, filename=target_config.name)
+    current = TierManifests(
+        profiles=target_prof.read_text(encoding="utf-8"),
+        services=target_svc.read_text(encoding="utf-8"),
+        gateway=target_config.read_text(encoding="utf-8"),
+    )
+    try:
+        tiers = render_tier_manifests(
+            current,
+            load_gpu_thresholds(thresholds_path or DEFAULT_LLM_GPU_THRESHOLDS_PATH),
+            load_tier_templates(tier_templates_path or DEFAULT_LLM_TIER_TEMPLATES_PATH),
+        )
+    except DevOpsCLIError as exc:
+        print_error(str(exc), prefix=False)
+        raise typer.Exit(1) from exc
+
+    svc_lengths = service_context_lengths(tiers.services, tier_context_lengths(tiers.profiles))
+    rendered = {
+        target_config: (current.gateway, render_gateway_config(tiers.gateway, svc_lengths)),
+        target_prof: (current.profiles, tiers.profiles),
+        target_svc: (current.services, tiers.services),
+    }
+    diff = "".join(
+        diff_gateway_config(before, after, filename=path.name)
+        for path, (before, after) in rendered.items()
+    )
 
     if not diff:
         print_info(f"Gateway configuration at {target_config} is already up to date.", prefix=False)
@@ -844,5 +880,6 @@ def render_cmd(
 
     sys.stdout.write(diff)
     if apply:
-        target_config.write_text(rendered_content, encoding="utf-8")
+        for path, (_, after) in rendered.items():
+            path.write_text(after, encoding="utf-8")
         print_info(f"Wrote rendered gateway configuration to {target_config}.", prefix=False)

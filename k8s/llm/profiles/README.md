@@ -31,6 +31,8 @@ The matrix systematically maps GPU hardware configurations across counts `[1, 2,
 
 Services defined in [`services.yaml`](services.yaml): one ClusterIP Service per Ollama tier (`ollama-16gib`, `ollama-24gib`, `ollama-32gib`, `ollama-48gib`, `ollama-64gib`, `ollama-72gib`, `ollama-96gib`, `ollama-128gib`), each selecting pods labelled `llm.devops.io/provider: ollama` and `llm.devops.io/vram-gib: <n>gib` on port 11434; the gateway's model-to-tier mapping lives in `../gateway/config.yaml`.
 
+[`gpu-thresholds.yaml`](gpu-thresholds.yaml) and [`tier-templates/`](tier-templates/) set the tiers of old GPU architectures. `devops ai gateway render --apply` writes them into the regions between the two `rendered` lines of `ollama-profiles.yaml`, `services.yaml` and `../gateway/config.yaml`. With both thresholds at `pascal`, `ollama-24gib-embed-gpu0` and `-gpu1` embed, one on each GPU. The GPU Placement section of [`k8s/README.md`](../../README.md) gives the rules.
+
 The speed Services `ollama-fast`, `ollama-standard` and `ollama-slow` name no VRAM size. Clients of Ollama's native API use them: the `ollama-ingress` backend and the CLI's default Service. The GPU Placement section of [`k8s/README.md`](../../README.md) records which tiers serve, and a test holds every client to a Service that selects a serving tier.
 
 ---
@@ -68,11 +70,11 @@ model_list:
     model_info:
       max_input_tokens: 262144
 
-  # One deployment on each serving tier; order 1 first, order 2 when every order 1 fails.
+  # One deployment on each serving tier; order 1 first, the next order when every order 1 fails.
   - model_name: qwen3-embedding:0.6b
     litellm_params:
       model: ollama/qwen3-embedding:0.6b
-      api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
+      api_base: http://ollama-24gib-embed-gpu0.llm.svc.cluster.local:11434
       num_ctx: 8192
       order: 1
     model_info:

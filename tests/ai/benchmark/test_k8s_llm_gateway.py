@@ -33,6 +33,8 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_MODEL,
     DEFAULT_BUNDLE_MODELS,
     DEFAULT_GATEWAY_REVIEW_SLOTS,
+    DEFAULT_LLM_GPU_THRESHOLDS_PATH,
+    DEFAULT_LLM_TIER_TEMPLATES_PATH,
     DEFAULT_OLLAMA_CLUSTER_SERVICE,
     DEFAULT_OLLAMA_CLUSTER_URL,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
@@ -580,10 +582,11 @@ class TestK8sLLMGatewayManifests:
                 "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
             ],
             [
-                (1, "http://ollama-48gib-fast.llm.svc.cluster.local:11434"),
-                (1, "http://ollama-64gib-standard.llm.svc.cluster.local:11434"),
-                (2, "http://ollama-16gib-fast.llm.svc.cluster.local:11434"),
-                (2, "http://ollama-48gib-slow.llm.svc.cluster.local:11434"),
+                (1, "http://ollama-24gib-embed-gpu0.llm.svc.cluster.local:11434"),
+                (1, "http://ollama-24gib-embed-gpu1.llm.svc.cluster.local:11434"),
+                (2, "http://ollama-48gib-fast.llm.svc.cluster.local:11434"),
+                (2, "http://ollama-64gib-standard.llm.svc.cluster.local:11434"),
+                (3, "http://ollama-16gib-fast.llm.svc.cluster.local:11434"),
             ],
             {"embedding"},
         )
@@ -672,25 +675,22 @@ class TestK8sLLMGatewayManifests:
 
         assert (bool(named), named - _gateway_embedding_groups()) == (True, set())
 
-    def test_the_slow_tier_serves_embeddings_and_devops_background_alone(self) -> None:
-        """Verify ollama-48gib-slow is in no interactive or review pool: every generation
-        deployment on it belongs to devops-background, which has that one deployment alone, so
-        the tier never loads a third model beside its embedder and qwen3.8:27b (#1064, #1221)."""
-        slow = "http://ollama-48gib-slow.llm.svc.cluster.local:11434"
-        slow_generation_groups = [
-            m["model_name"]
-            for m in _gateway_config()["model_list"]
-            if m["litellm_params"]["api_base"] == slow
-            and m.get("model_info", {}).get("mode") != "embedding"
-        ]
+    def test_the_embedding_only_tiers_serve_no_generation_group(self) -> None:
+        """Verify the GPU instances at or below the embedding threshold have no generation
+        deployment, and that devops-background has its one deployment on the standard tier (#3501)."""
+        embedding_only = {"ollama-24gib-embed-gpu0", "ollama-24gib-embed-gpu1"}
+        standard = "http://ollama-64gib-standard.llm.svc.cluster.local:11434"
 
         assert (
-            slow_generation_groups,
+            [
+                m["model_name"]
+                for m in _gateway_config()["model_list"]
+                if (urlsplit(m["litellm_params"].get("api_base", "")).hostname or "").split(".")[0]
+                in embedding_only
+                and m.get("model_info", {}).get("mode") != "embedding"
+            ],
             _routes(_deployments("devops-background")),
-        ) == (
-            ["devops-background"],
-            [("ollama_chat/qwen3.8:27b", slow, None)],
-        )
+        ) == ([], [("ollama_chat/qwen3.8:27b", standard, None)])
 
     def test_devops_triage_serves_qwen_on_standard_tier(self) -> None:
         """Verify devops-triage has exactly one deployment: ollama_chat/qwen3.8:27b on
@@ -934,7 +934,8 @@ class TestK8sLLMGatewayManifests:
             "ollama-24gib",
             "ollama-32gib",
             "ollama-48gib",
-            "ollama-48gib-slow",
+            "ollama-24gib-embed-gpu0",
+            "ollama-24gib-embed-gpu1",
             "ollama-64gib",
             "ollama-72gib",
             "ollama-96gib",
@@ -958,9 +959,9 @@ class TestK8sLLMGatewayManifests:
     ) -> None:
         """Verify each tier reserves KV cache for one context: Ollama sizes it by NUM_PARALLEL (#1061).
 
-        A tier the gateway sends embeddings to keeps two models loaded, so the embedder does not
-        evict the chat model where both fit (#1987). Every other tier keeps one. The slow tier
-        also keeps its two models loaded for good, so neither evicts the other (#1064).
+        A chat tier the gateway sends embeddings to keeps two models loaded, so the embedder does
+        not evict the chat model where both fit (#1987). Every other tier keeps one. An
+        embedding-only tier keeps its one model loaded for good (#3501).
         """
         docs = list(yaml.safe_load_all(OLLAMA_PROFILES_MANIFEST.read_text(encoding="utf-8")))
         settings = {
@@ -974,7 +975,8 @@ class TestK8sLLMGatewayManifests:
             for d in docs
             if d and d.get("kind") == "DaemonSet"
         }
-        embedding_tiers = _embedding_tiers()
+        embedding_only = {"ollama-24gib-embed-gpu0", "ollama-24gib-embed-gpu1"}
+        embedding_tiers = _embedding_tiers() - embedding_only
         expected = {
             name: {
                 "OLLAMA_MAX_LOADED_MODELS": "2" if name in embedding_tiers else "1",
@@ -982,7 +984,8 @@ class TestK8sLLMGatewayManifests:
             }
             for name in settings
         }
-        expected["ollama-48gib-slow"]["OLLAMA_KEEP_ALIVE"] = "-1"
+        for name in embedding_only:
+            expected[name]["OLLAMA_KEEP_ALIVE"] = "-1"
 
         assert settings == expected
 
@@ -1118,6 +1121,8 @@ class TestK8sLLMGatewayManifests:
         files), when deploy-stack applies it (`_MANIFESTS_BY_STACK["llm"]`), or when it is the
         values file of an `llm` Helm release. `ollama-host-service.yaml` and `values-ollama.yaml`
         had none: nothing applied them once the Ollama tiers replaced the single `ollama` workload.
+        The thresholds and the tier templates are inputs of `devops ai gateway render`: what it
+        writes from them is applied, and they are not.
         """
         llm_dir = Path("k8s/llm")
         manifests = {path for path in llm_dir.rglob("*.yaml") if path.name != "kustomization.yaml"}
@@ -1129,6 +1134,7 @@ class TestK8sLLMGatewayManifests:
             }
             | set(_MANIFESTS_BY_STACK["llm"])
             | {Path(release["values"]) for release in _HELM_RELEASES_BY_STACK["llm"]}
+            | {DEFAULT_LLM_GPU_THRESHOLDS_PATH, *DEFAULT_LLM_TIER_TEMPLATES_PATH.glob("*.yaml")}
         )
 
         assert sorted(manifests - applied) == []

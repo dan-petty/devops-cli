@@ -165,7 +165,7 @@ def test_rendered_gateway_config_matches_ollama_profiles() -> None:
         tokens_match_services,
     ) == (
         "",
-        25,
+        26,
         [],
         True,
     )
@@ -188,11 +188,13 @@ def test_k8s_manifests_service_aliases_consistency() -> None:
         "ollama-16gib-fast" in names,
         "ollama-24gib-slow" in names,
         "ollama-48gib-fast" in names,
-        "ollama-48gib-slow" in names,
+        "ollama-24gib-embed-gpu0" in names,
+        "ollama-24gib-embed-gpu1" in names,
         "ollama-64gib-standard" in names,
         ollama_16["spec"]["selector"],
     ) == (
-        16,
+        17,
+        True,
         True,
         True,
         True,
@@ -215,7 +217,7 @@ def test_k8s_manifests_profiles_files_exist() -> None:
     kust = yaml.safe_load(kust_path.read_text(encoding="utf-8"))
 
     assert (
-        len(ollama_docs) == 9,
+        len(ollama_docs) == 10,
         "services.yaml" in kust.get("resources", []),
     ) == (
         True,
