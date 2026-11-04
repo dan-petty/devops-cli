@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from devops_cli.ai.mcp.server import list_mcp_tools
@@ -450,7 +452,7 @@ def test_fastmcp_ast_tools() -> None:
                 "ai",
                 "ast",
                 "parse",
-                "src/main.py",
+                str(Path("src/main.py").resolve()),
                 "--query",
                 "(function_definition) @fn",
                 "--format",
@@ -470,7 +472,7 @@ def test_fastmcp_ast_tools() -> None:
                 "ast",
                 "graph",
                 "--dir",
-                "src",
+                str(Path("src").resolve()),
                 "--max-files",
                 "20",
                 "--format",
@@ -505,7 +507,7 @@ def test_fastmcp_context_packing_tool() -> None:
                 "devops",
                 "ai",
                 "pack-context",
-                "src/main.py",
+                str(Path("src/main.py").resolve()),
                 "--referenced",
                 "main,app",
                 "--max-tokens",
@@ -545,7 +547,7 @@ def test_fastmcp_ai_read_tool() -> None:
                 "devops",
                 "ai",
                 "read",
-                "src/main.py",
+                str(Path("src/main.py").resolve()),
                 "--inspect",
                 "--level",
                 "0",
@@ -580,7 +582,7 @@ def test_fastmcp_ai_rag_drift_tool() -> None:
                 "ai",
                 "rag",
                 "drift",
-                "src",
+                str(Path("src").resolve()),
                 "--auto-sync",
                 "--format",
                 "json",

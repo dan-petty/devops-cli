@@ -7,7 +7,7 @@ Changes: `src/devops_cli/ai/mcp/path_confinement.py` (new), `src/devops_cli/ai/m
 
 - [x] 1.1 Write `tests/ai/mcp/test_path_confinement.py` cases first: a traversal value of `root_dir` and an absolute value outside the work tree each raise a `ValidationError` that names the parameter and start no command, a relative value runs the command, and the confinement root is not a tool argument.
   - Verification: `uv run devops ci test tests/ai/mcp/test_path_confinement.py`
-- [x] 1.2 Write `src/devops_cli/ai/mcp/path_confinement.py` with `PATH_CONFINEMENTS`, `NOT_A_FILE_PATH` and `confine_tool_paths`, which checks each kept value with `safe_resolve_subpath` against `Path.cwd()`. Add `ERRORS.mcp.path_outside_root`. Call `_check_path_confinement` in `_create_tool_function` before `_build_command_argv`, and call the same check in the hand-written `scan_uv_audit` tool.
+- [x] 1.2 Write `src/devops_cli/ai/mcp/path_confinement.py` with `PATH_CONFINEMENTS`, `NOT_A_FILE_PATH` and `confine_tool_paths`, which resolves each kept value with `safe_resolve_subpath` against `find_worktree_root(Path.cwd())` and replaces the argument. Add `ERRORS.mcp.path_outside_root`. Call `_check_path_confinement` in `_create_tool_function` before `_build_command_argv`, and call the same check in the hand-written `scan_uv_audit` tool.
   - Verification: `uv run devops ci test tests/ai/mcp/test_path_confinement.py`
 
 ## 2. Decide every published path parameter

@@ -125,7 +125,27 @@ def test_a_relative_path_stays_in_the_work_tree(
 
     assert tool(root_dir="docs") == "ok"
 
-    assert calls == [["uv", "run", "devops", "gh", "pages", "verify", "--dir", "docs"]]
+    assert calls == [
+        ["uv", "run", "devops", "gh", "pages", "verify", "--dir", str(tmp_path / "docs")]
+    ]
+
+
+def test_a_relative_path_resolves_from_a_nested_directory_against_the_work_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "docs").mkdir()
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    monkeypatch.chdir(nested)
+    calls = _record(monkeypatch)
+    tool = _tool(("gh", "pages", "verify"))
+
+    assert tool(root_dir="docs") == "ok"
+
+    assert calls == [
+        ["uv", "run", "devops", "gh", "pages", "verify", "--dir", str(tmp_path / "docs")]
+    ]
 
 
 def test_the_confinement_root_is_not_a_tool_argument() -> None:

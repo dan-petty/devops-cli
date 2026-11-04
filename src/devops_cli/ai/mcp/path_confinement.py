@@ -3,8 +3,9 @@
 A tool publishes no option for a path that the command reads or writes, unless the path resolves
 under a root that the server sets (SECURITY.md rule 11). The confinement table names each kept
 path parameter. The exemption table names each text parameter whose name looks like a path and
-that the command does not open, with the reason. The audit in
-`tests/ai/mcp/test_path_confinement.py` fails on a published path-like parameter that neither
+that the command does not open, with the reason. `confine_tool_paths` resolves each kept value
+against the work tree of the server process and replaces the value that the model sent. The audit
+in `tests/ai/mcp/test_path_confinement.py` fails on a published path-like parameter that neither
 table names, so a new tool cannot escape the rule in silence.
 """
 
@@ -97,11 +98,11 @@ NOT_A_FILE_PATH: Final[Mapping[str, Mapping[str, str]]] = {
 }
 
 
-def _check(parameter: str, value: Any, root: Path) -> None:
+def _confine(parameter: str, value: Any, root: Path) -> Any:
     if not isinstance(value, (str, Path)):
-        return
+        return value
     try:
-        safe_resolve_subpath(root, value, error_cls=ValidationError)
+        return str(safe_resolve_subpath(root, value, error_cls=ValidationError))
     except ValidationError as exc:
         raise ValidationError(
             ERRORS.mcp.path_outside_root.format(name=parameter, root=root),
@@ -110,17 +111,22 @@ def _check(parameter: str, value: Any, root: Path) -> None:
 
 
 def confine_tool_paths(tool_name: str, arguments: dict[str, Any]) -> None:
-    """Check that each kept path argument resolves under the work tree."""
+    """Resolve each kept path argument under the work tree, and replace the model's value.
+
+    The command receives the resolved path, so a relative value names the same file whatever
+    directory the command reads it from (#3300).
+    """
     parameters = PATH_CONFINEMENTS.get(tool_name)
     if not parameters:
         return
-    root = Path.cwd().resolve()
+    from devops_cli.core.repo import find_worktree_root
+
+    root = find_worktree_root(Path.cwd())
     for parameter in parameters:
         value = arguments.get(parameter)
-        if value is None:
+        if value is None or value == "":
             continue
         if isinstance(value, (list, tuple)):
-            for item in value:
-                _check(parameter, item, root)
+            arguments[parameter] = [_confine(parameter, item, root) for item in value]
         else:
-            _check(parameter, value, root)
+            arguments[parameter] = _confine(parameter, value, root)

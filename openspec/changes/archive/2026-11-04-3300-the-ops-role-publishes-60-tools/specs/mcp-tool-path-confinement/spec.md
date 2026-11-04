@@ -24,7 +24,7 @@ Every MCP tool that reads a file MUST remove each path parameter from its publis
 
 #### Scenario: A relative value stays in the work tree
 - **WHEN** A caller gives `docs` to the `root_dir` parameter of `gh_pages_verify`.
-- **THEN** The tool checks the value under the work tree of the server and runs the command.
+- **THEN** The tool resolves the value under the work tree of the server and runs the command with the resolved path.
 
 ### Requirement: Full catalogue audit
 The path-parameter audit SHALL inspect every tool that the server offers, including the hand-written tools and the `ops` role.
