@@ -1,11 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: The first plan request has fixed caps and leaves a reserve for the tools
-The first request of a plan run SHALL cap the context at `CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS` tokens and the body at `CONST_ROADMAP_STAGE_BODY_MAX_TOKENS` tokens, and a larger window SHALL NOT give a larger cap. Half of the window for the context, or one quarter for the body, SHALL cap it when that is less. The request at the caps SHALL stay `CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS` tokens below the limit at which the run offers no tool.
+The first request of a plan run SHALL cap the context at `CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS` tokens and the body at `CONST_ROADMAP_STAGE_BODY_MAX_TOKENS` tokens, and a larger window SHALL NOT give a larger cap. Half of the window for the context, or one quarter for the body, SHALL cap it when that is less. For plain text, the request at the caps SHALL stay `CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS` tokens below the limit at which the run offers no tool.
 
 #### Scenario: The context and the body at their caps
 - **WHEN** a plan run has a window of 65536 tokens, and the context and the body of the item are longer than their caps
 - **THEN** the context counts `CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS` tokens, the body counts `CONST_ROADMAP_STAGE_BODY_MAX_TOKENS` tokens, the first request counts at most the limit of 49152 tokens less `CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS`, and the first request offers `read_spec`
+
+#### Scenario: Code at the caps
+- **WHEN** a plan run has a window of 65536 tokens, and the context and the body of the item are code, longer than their caps
+- **THEN** the first request counts less than the limit of 49152 tokens, and the first request offers `read_spec`
 
 #### Scenario: A large window
 - **WHEN** a plan run has a window of 1048576 tokens, and the context and the body of the item are longer than their caps
@@ -61,7 +65,7 @@ A test SHALL build the first request of a refine investigation at a window of 65
 ## MODIFIED Requirements
 
 ### Requirement: The map and the spec tools give short answers
-`repo_map` SHALL give one line for each of at most `CONST_ROADMAP_STAGE_MAP_MAX_FILES` files, with the path and the names of the top-level symbols, cut to 180 characters. It SHALL end with a line that says so when the directory holds more files. `read_spec` SHALL read the capabilities, the purpose, the requirement names and the requirement text from the JSON of `openspec list --specs` and `openspec show --type spec`. For one capability it SHALL answer with the purpose on a first line that starts with `Purpose:`, and then the requirement names, one on each line. It SHALL answer as text when OpenSpec is not installed.
+`repo_map` SHALL give one line for each of at most `CONST_ROADMAP_STAGE_MAP_MAX_FILES` files, with the path and the names of the top-level symbols, cut to 180 characters, and a last line that says so when the directory holds more files. `read_spec` SHALL read the specs from the JSON of `openspec list --specs` and `openspec show --type spec`. For one capability it SHALL answer with a line `Purpose:` and then the requirement names. It SHALL answer as text when OpenSpec is not installed.
 
 #### Scenario: A directory with more files than the limit
 - **WHEN** `repo_map` maps a directory of `CONST_ROADMAP_STAGE_MAP_MAX_FILES` plus 5 Python files
@@ -75,6 +79,10 @@ A test SHALL build the first request of a refine investigation at a window of 65
 - **WHEN** `read_spec` gets a capability and no requirement name
 - **THEN** it answers with a first line `Purpose:` and the purpose, and then the requirement names
 
+#### Scenario: A capability with no requirement
+- **WHEN** `read_spec` gets a capability that holds a purpose and no requirement
+- **THEN** it answers with the line `Purpose:` and the purpose
+
 ### Requirement: The model input holds the purpose and the requirement names of each capability
 The stage job SHALL give the model every capability under `openspec/specs/`. A plan run that has the tool `read_spec` SHALL get the names of the capabilities in the first request and SHALL read the purpose and the requirement names of one capability with `read_spec`. A call with no tool SHALL get the purpose and the requirement names of every capability in the input.
 
@@ -83,5 +91,5 @@ The stage job SHALL give the model every capability under `openspec/specs/`. A p
 - **THEN** the input holds the purpose and the requirement names of each capability
 
 #### Scenario: The input of a run with read_spec
-- **WHEN** The stage job builds the first request of a plan run that has `read_spec`, for a checkout with 170 capabilities
-- **THEN** the `capabilities` key holds the 170 names in order, the request holds no purpose and no requirement name, and the run offers `read_spec`
+- **WHEN** The stage job builds the first request of a plan run that has `read_spec`, for a checkout with many capabilities
+- **THEN** the `capabilities` key holds the name of every capability in order, the request holds no purpose and no requirement name, and the run offers `read_spec`
