@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.53.4](https://github.com/dan-petty/devops-cli/compare/v0.53.3...v0.53.4) (2026-11-04)
+
+
+### Bug Fixes
+
+* **roadmap:** keep a plan with an open finding in draft ([#3399](https://github.com/dan-petty/devops-cli/issues/3399)) ([499a546](https://github.com/dan-petty/devops-cli/commit/499a5462e6537d914feba10e244c912eb1480719))
+
 ## [0.53.3](https://github.com/dan-petty/devops-cli/compare/v0.53.2...v0.53.3) (2026-11-03)
 
 

@@ -72,8 +72,8 @@ class PullRequest(BaseModel):
 
 
 class PullStatus(BaseModel):
-    """Whether a pull request is open, a draft, or merged (#2665), and the commit of its head
-    (#2865). `head_sha` is empty when GitHub names no head."""
+    """Whether a pull request is open, a draft, or merged (#2665), the commit of its head
+    (#2865), and the labels it holds (#3264). `head_sha` is empty when GitHub names no head."""
 
     model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
@@ -82,6 +82,14 @@ class PullStatus(BaseModel):
     merged: bool = False
     head_sha: str = Field(default="", validation_alias=AliasPath("head", "sha"))
     head_ref: str = Field(default="", validation_alias=AliasPath("head", "ref"))
+    labels: tuple[str, ...] = ()
+
+    @field_validator("labels", mode="before")
+    @classmethod
+    def _turn_labels(cls, value: Any) -> tuple[str, ...]:
+        if not value:
+            return ()
+        return tuple(item["name"] if isinstance(item, dict) else str(item) for item in value)
 
     @property
     def is_open_draft(self) -> bool:
@@ -111,10 +119,19 @@ class CommitPull(BaseModel):
 
 
 class CreatedPull(BaseModel):
-    """A pull request that GitHub made: its number and the address of its page."""
+    """A pull request that GitHub made: its number, the address of its page, and the labels it
+    holds (#3264)."""
 
     number: int
     html_url: str
+    labels: tuple[str, ...] = ()
+
+    @field_validator("labels", mode="before")
+    @classmethod
+    def _turn_labels(cls, value: Any) -> tuple[str, ...]:
+        if not value:
+            return ()
+        return tuple(item["name"] if isinstance(item, dict) else str(item) for item in value)
 
 
 class IssueSearchHit(BaseModel):

@@ -15,11 +15,15 @@ from devops_cli.config.constants import (
 )
 from devops_cli.roadmap.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage_verify import (
+    OPEN_TYPES,
+    PLAN_NEEDS_FIX_LABEL,
     RETURN_TYPES,
     Finding,
     Verification,
     VerificationInput,
     findings_section,
+    open_findings,
+    open_findings_section,
     return_problem,
     returning,
 )
@@ -170,6 +174,36 @@ def test_a_return_type_with_a_quote_in_the_input_returns_the_plan() -> None:
     ]
 
     assert returning(findings, given) == [findings[0]]
+
+
+def test_the_open_types_add_the_spec_delta_to_the_return_types() -> None:
+    assert OPEN_TYPES == RETURN_TYPES | {DefectType.SPEC_DELTA_WRONG}
+    assert PLAN_NEEDS_FIX_LABEL == "plan/needs-fix"
+
+
+def test_an_open_finding_is_a_listed_type_or_a_placeholder_with_a_quote_in_the_input() -> None:
+    given = _input(
+        plan={"groups": [{"title": "placeholder"}, {"title": "The job drops a comment"}]}
+    )
+    findings = [
+        _finding(DefectType.SPEC_DELTA_WRONG, "The job drops the last comment"),
+        _finding(DefectType.OTHER, "placeholder"),
+        _finding(DefectType.MISSING_PATH, "invented quote"),
+        _finding(DefectType.TASK_ORDER, "The job drops the last comment"),
+        _finding(DefectType.OTHER),
+    ]
+
+    assert open_findings(findings, given) == [findings[0], findings[1]]
+
+
+def test_the_open_findings_section_lists_each_open_finding_first() -> None:
+    finding = _finding(DefectType.OTHER, "placeholder")
+
+    section = open_findings_section([finding])
+
+    assert PLAN_NEEDS_FIX_LABEL in section
+    assert "placeholder" in section
+    assert open_findings_section([]) == ""
 
 
 def test_the_problem_that_goes_back_to_the_planner_names_each_finding() -> None:

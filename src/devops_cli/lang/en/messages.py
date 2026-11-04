@@ -2897,6 +2897,11 @@ class RoadmapMessages:
         "\n\nA model review of the plan found these points. They stop no draft, and a person "
         "judges them:\n\n{findings}"
     )
+    stage_comment_open_findings: str = (
+        "\n\nA model review of the plan found these open findings. The stage keeps this pull "
+        "request a draft with the label `plan/needs-fix` until a later round clears them:\n\n"
+        "{findings}"
+    )
     stage_comment_not_validated: str = (
         "\n\nThe `openspec` binary was not on PATH, so `openspec validate` did not run. The "
         "OpenSpec gate of CI judges the change."
@@ -2958,6 +2963,11 @@ class RoadmapMessages:
     stage_failed: str = "the stage job failed for {count} item(s): {items}"
     stage_failed_item: str = "#{number} ({error}{reason})"
     stage_ready_failed: str = "the stage_ready row failed for {count} pull request(s): {items}"
+    stage_ready_needs_fix: str = (
+        "The stage_ready row leaves pull request #{pull} a draft. It holds the label "
+        "`plan/needs-fix`, because the model review of its plan found an open finding. Fix the "
+        "plan, or remove the label when the finding is no defect."
+    )
     release_comment_released: str = "Released in {tag}: {url}"
     release_comment_live: str = "Live since {time}"
     release_ledger_unreadable: str = (

@@ -8,11 +8,19 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 
 from devops_cli.ai.client.models import StructuredOutputValidationError
+from devops_cli.github.client import CreatedPull
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.stage import StagePlan, apply_stage, parse_filters, plan_stage
+from devops_cli.roadmap.stage import (
+    StagePlan,
+    _label_needs_fix,
+    _notes,
+    apply_stage,
+    parse_filters,
+    plan_stage,
+)
 from devops_cli.roadmap.stage_change import StageProposal
 from devops_cli.roadmap.stage_eval_cases import DefectType
-from devops_cli.roadmap.stage_verify import Finding, Verification
+from devops_cli.roadmap.stage_verify import PLAN_NEEDS_FIX_LABEL, Finding, Verification
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import API, github_json
 from tests.support.fakes.model import ModelFake
@@ -264,3 +272,98 @@ def test_a_comment_without_findings_has_no_findings_section(
 
     (comment,) = [c.body for c in store.comments_on(1)]
     assert "verification" not in comment.lower()
+
+
+def _seed_pull_5(store: InMemoryRoadmapStore) -> None:
+    """Seed the pull request that the fake create returns, as the store knows it (#3264)."""
+    for number in range(2, 5):
+        store.seed_issue(f"placeholder {number}")
+    store.seed_pull("staging PR", head_ref="fix/1-the-job-drops-a-comment", draft=True)
+    assert store._roadmap.issues[5].pull_request is True
+
+
+def _placeholder_store() -> InMemoryRoadmapStore:
+    """A store whose issue text holds the word `placeholder`, so a quote of it is in the input."""
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    seed_stageable(store, body="The job drops a placeholder comment of a thread.")
+    return store
+
+
+def test_a_placeholder_finding_keeps_the_draft_and_applies_the_label(
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    store = _placeholder_store()
+    github_api.route(
+        "POST",
+        PULLS,
+        github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
+    )
+    _seed_pull_5(store)
+    placeholder = _finding(DefectType.OTHER, "placeholder", where="tasks.md")
+    model_fake.answer(make_stage_proposal())
+    verifier.answer(Verification(findings=[placeholder]))
+
+    plan = _plan(store, stage_repo, verifier)
+    applied = apply_stage(store, plan, source=stage_repo.clone)
+
+    (change,) = plan.ready
+    (comment,) = [c.body for c in store.comments_on(1)]
+    assert applied.staged == (1,)
+    assert change.open_findings == (placeholder,)
+    assert store._roadmap.issues[5].labels == (PLAN_NEEDS_FIX_LABEL,)
+    assert json.loads(github_api.sent[0].content)["draft"] is True
+    assert "placeholder" in comment
+    assert (
+        _notes(change).strip().startswith("A model review of the plan found these open findings.")
+    )
+
+
+def test_a_clean_review_applies_no_needs_fix_label(
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    store = _placeholder_store()
+    github_api.route(
+        "POST",
+        PULLS,
+        github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
+    )
+    _seed_pull_5(store)
+    model_fake.answer(make_stage_proposal())
+    verifier.answer(Verification())
+
+    plan = _plan(store, stage_repo, verifier)
+    apply_stage(store, plan, source=stage_repo.clone)
+
+    (change,) = plan.ready
+    assert change.open_findings == ()
+    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[5].labels
+
+
+def test_a_clean_round_removes_the_open_finding_label(
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+) -> None:
+    store = _placeholder_store()
+    _seed_pull_5(store)
+    store.label_issue(5, PLAN_NEEDS_FIX_LABEL)
+    model_fake.answer(make_stage_proposal())
+    verifier.answer(Verification())
+
+    (change,) = _plan(store, stage_repo, verifier).ready
+    note = _label_needs_fix(
+        store,
+        CreatedPull(
+            number=5, html_url="https://example.com/pull/5", labels=(PLAN_NEEDS_FIX_LABEL,)
+        ),
+        change,
+    )
+
+    assert note == ""
+    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[5].labels
