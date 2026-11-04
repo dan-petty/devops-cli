@@ -3161,6 +3161,16 @@ class RoadmapMessages:
         "Group {group} creates `{path}`, and the directory `{directory}` does not mirror the code "
         "that the plan changes. A new test goes in {expected}. Move it there."
     )
+    stage_problem_move_prefix: str = (
+        "Group {group} moves the prefix `{prefix}` in `{folder}`, and the staged tree also holds "
+        "`{path}`. No group names `{path}` in `changes`. List every module of the prefix in the "
+        "group that moves it, or in a later group."
+    )
+    stage_problem_move_verify: str = (
+        "Group {group} gives the `verify` command `{command}` for the moved prefix `{prefix}`, "
+        "and its literal `{literal}` names one module of the moved prefix. Search the dotted "
+        "prefix, such as `{expected}`, so the check covers every module."
+    )
     stage_problem_path_later: str = (
         "Group {group} names `{path}` in {place}. The staged commit has no such file, and group "
         "{later} creates it after group {group}. Move group {later} before group {group}, or "
