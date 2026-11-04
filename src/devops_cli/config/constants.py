@@ -2856,7 +2856,18 @@ CONST_LOOPBACK_HOSTNAME: Final[str] = "localhost"
 CONST_CLOUD_METADATA_DNS_HOSTNAMES: Final[frozenset[str]] = frozenset(
     {"metadata", "metadata.google.internal", "metadata.goog"}
 )
-# Private IP ranges blocked by SSRF checks by default (RFC 1918, RFC 6598 CGNAT, RFC 5737, etc.).
+# The IETF Protocol Assignments block (RFC 6890). IANA marks `192.0.0.9` and `192.0.0.10` as
+# globally reachable, so `is_global` is True for them. The code refuses the whole block, which
+# holds the Oracle Classic metadata address 192.0.0.192.
+CONST_IETF_PROTOCOL_ASSIGNMENTS: Final[ipaddress.IPv4Network] = ipaddress.IPv4Network(
+    "192.0.0.0/24"
+)
+# The IANA special-purpose blocks (RFC 1918, RFC 6598 CGNAT, RFC 5737, etc.). A single address is
+# decided by `ipaddress` (`is_private_ip`). This list serves the two jobs that `ipaddress` cannot
+# do: the overlap test of a range, because `is_global` of a network tests its two ends only, and
+# the link-local networks. `ipaddress` has no public list of its blocks. The table test in
+# `tests/core/test_non_public_ip_table.py` holds each block to `is_global`, so the list cannot
+# drift unseen.
 CONST_PRIVATE_NETWORKS: Final[tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]] = (
     # IPv4 private ranges
     ipaddress.IPv4Network("0.0.0.0/8"),  # "This" network
@@ -2937,7 +2948,6 @@ CONST_ISATAP_INTERFACE_IDS: Final[tuple[bytes, ...]] = (
     b"\x00\x00\x5e\xfe",
     b"\x02\x00\x5e\xfe",
 )
-CONST_TEREDO_PREFIX: Final[ipaddress.IPv6Network] = ipaddress.IPv6Network("2001::/32")
 
 # The /96 prefixes whose last 32 bits carry an IPv4 address: NAT64's well-known prefix (RFC 6052)
 # and IPv4-compatible addresses (RFC 4291).
