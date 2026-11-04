@@ -4,11 +4,11 @@
 
 Reads: `tests/conftest.py`, `src/devops_cli/core/repo.py`, `src/devops_cli/telemetry/tracer.py`. Changes: `tests/support/host_paths.py`, `tests/conftest.py`, `tests/invariants/test_host_path_roots.py`.
 
-- [ ] 1.1 Write the failing tests of the allowed roots: the `HEAD` file of a linked worktree opens, a file of the main checkout outside `.git` does not, a plain checkout and a submodule add no root, and the process fake records no call.
+- [x] 1.1 Write the failing tests of the allowed roots: the `HEAD` file of a linked worktree opens, a file of the main checkout outside `.git` does not, a plain checkout and a submodule add no root, and the process fake records no call.
   - Verification: `uv run devops ci test tests/invariants/test_host_path_roots.py`
-- [ ] 1.2 Move the host path rules of `tests/conftest.py` to `tests/support/host_paths.py`. Add the common git directory from `_linked_worktree_common_dir`, and remove the main worktree path.
+- [x] 1.2 Move the host path rules of `tests/conftest.py` to `tests/support/host_paths.py`. Add the common git directory from `_linked_worktree_common_dir`, and remove the main worktree path.
   - Verification: `uv run devops ci test tests/invariants/test_host_path_roots.py tests/invariants/test_hermetic_floor.py tests/invariants/test_test_module_independence.py`
-- [ ] 1.3 Replay a throwaway test that calls `_detect_vcs_metadata` and a changed `tests/ai/mcp/test_mcp.py` with `uv run devops ci fail-to-pass --base origin/main`, before and after the new root, and keep the result for the pull request comment.
+- [x] 1.3 Replay a throwaway test that calls `_detect_vcs_metadata` and a changed `tests/ai/mcp/test_mcp.py` with `uv run devops ci fail-to-pass --base origin/main`, before and after the new root, and keep the result for the pull request comment.
   - Verification: `uv run devops ci fail-to-pass --base origin/main --dry-run`
 
 ## 2. Refuse a replay that proves nothing (behavior)

@@ -469,101 +469,6 @@ def refuse_real_programs() -> None:
 _HOST_PATH_GUARD_INSTALLED = False
 
 
-def _is_denied_host_path(norm: str, raw: str) -> bool:
-    """Report whether a path points to /proc or /usr/local/share/tiktoken (#2165)."""
-    if norm == "/proc" or norm.startswith("/proc/"):
-        return True
-    if norm == "/usr/local/share/tiktoken" or norm.startswith("/usr/local/share/tiktoken/"):
-        return True
-    if raw.startswith("/proc") or raw.startswith("/usr/local/share/tiktoken"):
-        return True
-    return False
-
-
-def _collect_allowed_host_roots() -> tuple[Path, ...]:
-    """Collect the allowed repository, temporary, and interpreter directory roots (#2165)."""
-    import sysconfig
-
-    from tests.support.paths import REPO_ROOT
-
-    allowed_roots: list[Path] = [
-        REPO_ROOT.resolve(),
-        Path(tempfile.gettempdir()).resolve(),
-        Path(os.sep).joinpath("tmp").resolve(),
-        Path(os.sep).joinpath("var", "tmp").resolve(),
-        Path(sys.prefix).resolve(),
-        Path(sys.base_prefix).resolve(),
-        Path(sys.exec_prefix).resolve(),
-        Path(sys.base_exec_prefix).resolve(),
-        Path(sys.executable).resolve().parent,
-    ]
-    main_worktree = Path("/workspaces/devops-cli")
-    if main_worktree.exists():
-        allowed_roots.append(main_worktree.resolve())
-    for p in sys.path:
-        if p:
-            try:
-                allowed_roots.append(Path(p).resolve())
-            except OSError:
-                pass
-    for path_name in ("stdlib", "purelib", "platlib", "data"):
-        try:
-            allowed_roots.append(Path(sysconfig.get_path(path_name)).resolve())
-        except Exception:
-            pass
-    return tuple(dict.fromkeys(allowed_roots))
-
-
-def _is_allowed_host_path(raw_path: str, unique_roots: tuple[Path, ...]) -> bool:
-    """Check whether a path is allowed under the hermetic floor (#2165)."""
-    if raw_path.startswith("/dev/"):
-        return True
-    if raw_path in (
-        "/etc/ld.so.cache",
-        "/etc/localtime",
-        "/etc/os-release",
-        "/etc/machine-id",
-        "/var/lib/dbus/machine-id",
-        "/usr/lib/os-release",
-    ) or raw_path.startswith("/usr/share/zoneinfo"):
-        return True
-    if (
-        raw_path.startswith(
-            (
-                "/bin/",
-                "/usr/bin/",
-                "/usr/local/bin/",
-                "/sbin/",
-                "/usr/sbin/",
-                "/usr/lib",
-                "/usr/local/lib",
-                "/opt/lib",
-                "/opt/scanners",
-                "/usr/lib64",
-                "/lib",
-                "/lib64",
-                "/usr/share",
-            )
-        )
-        or "/site-packages" in raw_path
-        or "/dist-packages" in raw_path
-    ):
-        return True
-
-    try:
-        resolved = Path(raw_path).resolve()
-    except Exception:
-        resolved = Path(os.path.abspath(raw_path))
-
-    for root in unique_roots:
-        try:
-            resolved.relative_to(root)
-            return True
-        except ValueError:
-            pass
-    return False
-
-
 def _install_host_path_guard() -> None:
     """Install file open guard to deny host paths outside repo, temp, and interpreter (#2165)."""
     global _HOST_PATH_GUARD_INSTALLED
@@ -574,7 +479,14 @@ def _install_host_path_guard() -> None:
     import builtins
     import io
 
-    unique_roots = _collect_allowed_host_roots()
+    from tests.support.host_paths import (
+        allowed_host_roots,
+        is_allowed_host_path,
+        is_denied_host_path,
+    )
+    from tests.support.paths import REPO_ROOT
+
+    unique_roots = allowed_host_roots(REPO_ROOT)
     real_open = builtins.open
 
     def guarded_open(file: Any, *args: Any, **kwargs: Any) -> Any:
@@ -584,9 +496,7 @@ def _install_host_path_guard() -> None:
         if not raw_path:
             return real_open(file, *args, **kwargs)
         norm = os.path.normpath(raw_path)
-        if _is_denied_host_path(norm, raw_path) or not _is_allowed_host_path(
-            raw_path, unique_roots
-        ):
+        if is_denied_host_path(norm, raw_path) or not is_allowed_host_path(raw_path, unique_roots):
             msg = f"host path reached without a fake: {raw_path}"
             _UNEXPECTED_LOOPBACK_CONNECTS.append(msg)
             pytest.fail(msg, pytrace=False)
