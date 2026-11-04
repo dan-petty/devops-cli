@@ -19,11 +19,11 @@ The command `devops ci` SHALL take the options `--shard <n>` and `--shards <tota
 - **THEN** the command exits 2 and starts no check
 
 ### Requirement: A shard checks no floor and prints no report
-The command of a shard SHALL hold `--cov-fail-under=0` and an empty `--cov-report=`, because a shard measures a part of the tree and the aggregate job checks the floor of the whole.
+The command of a shard SHALL hold `--cov-fail-under=0`, an empty `--cov-report=` and `--snapshot-warn-unused`, because a shard measures a part of the tree and the aggregate job checks the floor of the whole. The snapshots of the tests in the other shards are unused in a shard, and syrupy fails a run on unused snapshots.
 
 #### Scenario: The shard command
 - **WHEN** the command of shard 2 of 4 is built
-- **THEN** it holds `--cov-fail-under=0` and `--cov-report=`, and holds no `--cov-report=term-missing`
+- **THEN** it holds `--cov-fail-under=0`, `--cov-report=` and `--snapshot-warn-unused`, and holds no `--cov-report=term-missing`
 
 ### Requirement: A sharded run reads and writes no cached verdict
 A run of `devops ci` with `--shards` above 1 SHALL be a narrowed run: it SHALL NOT take a cached verdict as proof and SHALL NOT record its result as one.

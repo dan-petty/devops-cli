@@ -33,7 +33,8 @@ def test_the_unsharded_test_row_has_no_split_option_and_prints_the_term_report()
         "--cov-fail-under=0" in cmd,
         "--cov-report=term-missing" in cmd,
         "--cov-report=" in cmd,
-    ) == (False, False, False, True, False)
+        "--snapshot-warn-unused" in cmd,
+    ) == (False, False, False, True, False, False)
 
 
 def test_one_shard_of_one_is_the_unsharded_row() -> None:
@@ -43,7 +44,8 @@ def test_one_shard_of_one_is_the_unsharded_row() -> None:
 
 def test_a_shard_splits_the_suite_and_checks_no_floor() -> None:
     """Shard 2 of 4 runs its quarter of the tests, keeps the coverage data, prints no report and
-    leaves the floor to the job that combines the data of all shards."""
+    leaves the floor to the job that combines the data of all shards. The snapshots of the other
+    shards are unused in this one, and syrupy would fail the run on them."""
     cmd = _resolve_pytest_cmd(shard=2, shards=4)
 
     assert (
@@ -54,7 +56,8 @@ def test_a_shard_splits_the_suite_and_checks_no_floor() -> None:
         "--cov-fail-under=0" in cmd,
         "--cov-report=" in cmd,
         "--cov-report=term-missing" in cmd,
-    ) == ("4", "2", "least_duration", True, True, True, False)
+        "--snapshot-warn-unused" in cmd,
+    ) == ("4", "2", "least_duration", True, True, True, False, True)
 
 
 def test_the_dry_run_of_a_shard_lists_its_split_and_starts_nothing() -> None:

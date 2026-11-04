@@ -654,7 +654,8 @@ def _resolve_pytest_cmd(*, shard: int = 1, shards: int = 1) -> list[str]:
     deals the tests one after the other to the group with the fewest tests so far
     (`least_duration` with no stored durations), so the heavy tests of a directory spread over the
     shards. A shard measures a part of the tree: it checks no floor and prints no report, and the
-    job that combines the data of every shard does both.
+    job that combines the data of every shard does both. A shard also warns on, and does not fail
+    on, an unused snapshot: the snapshots of the tests in the other shards are unused in it.
     """
     cmd = [
         "uv",
@@ -669,6 +670,7 @@ def _resolve_pytest_cmd(*, shard: int = 1, shards: int = 1) -> list[str]:
         *cmd,
         "--cov-report=",
         "--cov-fail-under=0",
+        "--snapshot-warn-unused",
         "--splits",
         str(shards),
         "--group",
