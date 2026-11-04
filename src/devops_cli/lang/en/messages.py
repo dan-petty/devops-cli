@@ -3248,6 +3248,59 @@ class RoadmapMessages:
     stage_pull_request_body: str = (
         "Plans #{number}\n\n{body}\n\nChange: `openspec/changes/{change}/`"
     )
+    # The plan check of a plan pull request (#3201): the reader of the change folder and the
+    # problems that the command reports.
+    plan_read_missing_file: str = "The change folder has no `{name}`."
+    plan_read_bad_proposal: str = "`proposal.md` has no `## Why` section."
+    plan_read_bad_tasks: str = "`tasks.md` holds a group with no `Reads: ... Changes: ...` line."
+    plan_read_bad_task: str = "`tasks.md` holds a task that the reader cannot read: {text}"
+    plan_read_bad_criterion: str = (
+        "`tasks.md` holds a criterion that the reader cannot read: {text}"
+    )
+    plan_read_bad_requirement: str = (
+        "`{path}` holds a requirement with no scenario, so the reader cannot read it."
+    )
+    plan_read_bad_spec: str = "`{path}` is no spec delta under `specs/<capability>/`."
+    plan_check_line: str = "{path}: {rule}: {message}"
+    plan_check_title: str = "The title is not `docs(openspec): plan #{number} <summary>`."
+    plan_check_title_long: str = (
+        "The text of the title after the colon has {length} characters, and the limit is {limit}."
+    )
+    plan_check_body_plans: str = "The body needs the line `Plans #{number}`, and it has none."
+    plan_check_body_plans_other: str = (
+        "The body names `Plans #{found}`, and the pull request plans #{number}."
+    )
+    plan_check_body_closes: str = (
+        "The body holds the closing keyword `{keyword}` before an issue reference. A plan pull "
+        "request closes no issue."
+    )
+    plan_check_body_long: str = "The body has {length} characters, and the limit is {limit}."
+    plan_check_check_missing: str = "The pull request has no check `{name}`."
+    plan_check_check_failed: str = (
+        "The check `{name}` has the state `{state}`, and it needs `success`."
+    )
+    plan_check_check_unread: str = "The check `{name}` could not be read: {reason}."
+    plan_check_folder_none: str = "The head holds no change folder `openspec/changes/{issue}-*/`."
+    plan_check_folder_many: str = (
+        "The head holds {count} change folders for issue #{issue}: {folders}."
+    )
+    plan_check_read: str = "The plan reader cannot read `{path}`: {reason}"
+    plan_check_moved_changed: str = (
+        "The base spec of `{capability}` moved since the plan at the requirement `{requirement}`: "
+        "{before} became {after}."
+    )
+    plan_check_moved_missing: str = (
+        "The base spec of `{capability}` no longer holds the requirement `{requirement}`."
+    )
+    plan_check_changed: str = "The plan check could not read the pull request {number}: {reason}"
+    plan_check_removed: str = "The pull request {number} has no title in GitHub."
+    plan_check_failed: str = "The plan check found {count} problem(s)."
+    plan_check_ok: str = "The plan check found no problem."
+    plan_check_request_pull: str = "the pull request {number} and its base"
+    plan_check_request_body: str = "the body of pull request {number}"
+    plan_check_request_issue: str = "the issue that the body plans"
+    plan_check_request_issue_condition: str = "the body holds the line `Plans #`"
+    plan_check_request_checks: str = "the checks of the head commit"
     # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.
     plan_dry_run: str = (
         "Dry run: no request was made. A run makes these requests, in order; a value in "

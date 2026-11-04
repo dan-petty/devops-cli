@@ -22,6 +22,7 @@ nothing.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Collection, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
@@ -712,6 +713,41 @@ def implement_cmd(
 
     fmt = resolve_format(output_format, json_output=json_output)
     _implement_step(repo, source, item, group, fmt, dry_run=dry_run)
+
+
+@app.command("plan-check", help=HELP.roadmap.plan_check)
+@dry_run_class("request-plan")
+def plan_check_cmd(
+    pull_request: Annotated[int, typer.Argument(min=1, help=HELP.roadmap.plan_check_arg)],
+    repo: RepoOption = None,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.roadmap.plan_check_json)] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help=HELP.roadmap.plan_check_dry_run)
+    ] = False,
+) -> None:
+    """Check a plan pull request with the stage gates and the checks of the pull request."""
+    target = _target(repo)
+    from devops_cli.openspec.tool import isolated_openspec
+    from devops_cli.roadmap.plan_check import plan_check, plan_check_requests
+
+    if dry_run or is_dry_run():
+        render_dry_run("plan-check", target, plan_check_requests(target, pull_request))
+        return
+    with _exit_on_failure("Could not check the plan"):
+        with isolated_openspec() as tool:
+            result = plan_check(target, pull_request, find_repo_root(Path.cwd()), tool=tool)
+    if json_output:
+        write_stdout(json.dumps([problem.as_dict() for problem in result.problems]) + "\n")
+    else:
+        for problem in result.problems:
+            write_stdout(
+                MESSAGES.roadmap.plan_check_line.format(
+                    path=problem.path, rule=problem.rule, message=problem.message
+                )
+                + "\n"
+            )
+    if not result.ok:
+        raise typer.Exit(1)
 
 
 @app.command("explain", help=HELP.roadmap.explain)
