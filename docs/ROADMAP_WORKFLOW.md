@@ -121,7 +121,7 @@ The log comment, the suspension of a row and the other details are in [k8s/READM
 4. The Service records the digest of the runner image in `implement.job_digest` when it makes a Job. The report comment of the Job names that digest. This is the digest of the stop.
 5. The Service makes no Job for a Blocked Item. Two rules take it out of Blocked, and a comment of the Service names the rule that ran:
    - **retry**: a trusted person comments `implement: retry` after the stop comment. The next round clears the stop at once, whatever the digest.
-   - **digest**: the digest in the template of CronJob `devops-cli-runner` is not the digest in `implement.job_digest`, and the class of the stop in `implement.failure` has the action `retry` in `ACTION_BY_CLASS` (`provider`, `timeout` and `ci_infra`). A new image may fix the cause of such a stop, so the Service clears it. A new image cannot fix a plan, a premise, a refused tool or a failed test, so a stop of another class waits for the retry rule.
+   - **digest**: the digest in the template of CronJob `devops-cli-runner` is not the digest in `implement.job_digest`, and the class of the stop in `implement.failure` has the action `retry` in `ACTION_BY_CLASS`. A new image may fix the cause of such a stop, so the Service clears it. A new image cannot fix a plan, a premise, a refused tool or a failed test, so a stop of another class waits for the retry rule.
 6. A clear removes `implement.stopped` and sets `status/ready`, or `status/planned` when the plan is on the default branch. The same round takes the Item again, with its branch and its draft pull request.
 
 Each new Job overwrites `implement.job_digest`. So a second stop on the same image finds equal digests, and only a retry clears it. A stop with no digest on record, a stop with no class on record, and a template with no digest, are cleared by a retry only.
@@ -201,7 +201,7 @@ stateDiagram-v2
     planned --> in_progress: 4 Claim, 5 Implement
     in_progress --> in_review: 6 Verify, pull request ready
     in_progress --> blocked: stop
-    blocked --> ready: implement retry, or a new runner image one time
+    blocked --> ready: implement retry, or a new runner image for a retry class within the limits
     in_review --> closed: G2 merge, 7 Review and merge
     closed --> released: G3 release pull request, 8 Release and learn
     released --> [*]
