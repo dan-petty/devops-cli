@@ -45,7 +45,7 @@ The plan check SHALL scan `feasibility`, `why` and each line of `what_changes` f
 ### Requirement: Judge no citation without file text
 The plan check SHALL judge no citation when it holds no reader of the staged files.
 
-#### Scenario: The replay passes no reader
+#### Scenario: The check holds no reader
 - **WHEN** `check_proposal` runs with no `read_text` callable and the plan holds a stale citation.
 - **THEN** `check_proposal` returns no problem for that citation.
 
@@ -56,16 +56,16 @@ The plan check SHALL compare the cited text with the staged line after it collap
 - **WHEN** `feasibility` holds `src/sample.py:4:def f():` and line 4 holds `def f():`.
 - **THEN** `check_proposal` returns no problem that names `src/sample.py`.
 
-### Requirement: The staged tree reads the text of a cited file
-`StagedTree` SHALL return the text of a tracked file of its checkout, and MUST return `None` when it holds no checkout or the file is absent.
+### Requirement: The stage job reads the text of a cited file at the staged commit
+The stage job SHALL pass `check_proposal` a reader that returns the text of a cited file at the staged commit, and the replay MUST pass no reader.
 
-#### Scenario: The tree holds the checkout
-- **WHEN** the tree is built from a checkout that holds `src/sample.py`, and a caller asks for its text.
+#### Scenario: The job holds the checkout and the commit
+- **WHEN** the stage job holds the checkout and the staged commit, and a plan cites `src/sample.py`, and the reader is asked for its text.
 - **THEN** the reply holds the lines of `src/sample.py` at that commit.
 
-#### Scenario: The tree holds no checkout
-- **WHEN** the tree is built from a list of paths, as the replay builds it, and a caller asks for the text of `src/sample.py`.
-- **THEN** the reply is `None`.
+#### Scenario: The replay passes no reader
+- **WHEN** the replay of the golden set calls `check_proposal` with no reader, and a plan cites `src/sample.py`.
+- **THEN** the check judges no citation.
 
 ### Requirement: The stage prompt prefers a symbol citation
 The stage prompt MUST tell the planner to cite a symbol instead of a line number when a line is not needed.

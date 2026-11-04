@@ -9,14 +9,14 @@ Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage_p
 - [ ] 1.2 Add a helper in `src/devops_cli/roadmap/stage_change.py` that finds each citation of the form `path:line:text`, `path:def name` and `path:class name` in `feasibility`, `why` and each line of `what_changes`. Give `check_proposal` an optional `read_text: Callable[[str], str | None] | None = None`, default it to `None`, and call the helper with the texts of the three fields and that reader. Refuse a citation of fewer than 3 characters, and compare the cited text with the cited line as a substring after collapsing white space in both and stripping backticks and one trailing period. Refuse a citation whose path or line the reader does not return. Name the field and the cited path in each problem
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_content.py` passes
 
-## 2. Read the text of a cited file from the staged checkout
+## 2. Pass a reader of the staged commit to check_proposal
 
-Reads: `src/devops_cli/roadmap/stage_paths.py`, `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/stage_change.py`, `tests/roadmap/test_roadmap_stage_paths.py`, `tests/roadmap/test_roadmap_stage_plan.py`. Changes: `src/devops_cli/roadmap/stage_paths.py`, `src/devops_cli/roadmap/stage.py`, `tests/roadmap/test_roadmap_stage_paths.py`.
+Reads: `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/refine.py`, `src/devops_cli/roadmap/stage_eval_gates.py`. Changes: `src/devops_cli/roadmap/stage.py`.
 
-- [ ] 2.1 In `tests/roadmap/test_roadmap_stage_paths.py`, add a failing test that a tree built from a checkout returns the text of a tracked file at that commit, and that a tree built from a list of paths returns `None`, so the replay judges no citation
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_paths.py` fails on the base
-- [ ] 2.2 Add a method to `class StagedTree` in `src/devops_cli/roadmap/stage_paths.py` that returns the text of one tracked file of its checkout, and `None` when the tree holds no checkout or the path is not a tracked file; it reads the file from the checkout that `StagedTree.read` already keeps, as `callers` does. Pass that method to `check_proposal` as `read_text` in `src/devops_cli/roadmap/stage.py`, and pass `None` when the tree has no checkout, so the replay of the golden set judges nothing
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_paths.py` passes
+- [ ] 2.1 In `src/devops_cli/roadmap/stage.py`, where `_Planner` calls `check_proposal` in `_settle`, pass a `read_text` callable built from `self._source` and `self._sha` that returns the text of a cited file at the staged commit with the `git show <sha>:<path>` read (the form `refine.py` uses in `_read_git_file`), or `None` when the file is absent at that commit, so the check reads the staged commit and not the working tree
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` passes
+- [ ] 2.2 Confirm the replay of the golden set in `src/devops_cli/roadmap/stage_eval_gates.py` and the plan-check command in `src/devops_cli/roadmap/plan_check.py` call `check_proposal` with no reader, so the default `read_text` judges no citation and the recorded plans keep passing
+  - Verification: `uv run devops roadmap eval stage --replay` passes
 
 ## 3. Ask the planner for a symbol citation
 

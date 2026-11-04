@@ -3,8 +3,8 @@
 ## Decisions
 
 - **Put the citation rule in `check_proposal`, as a helper that it calls with a reader of the staged file.**: `check_proposal` runs on the staged tree and on the replay, and `content_problems` holds no tree and is called by the replay with no file text.
-- **Give `check_proposal` an optional `read_text` callable that defaults to `None`, and judge no citation without it.**: The stage job passes the reader of its checkout, a test passes a dict lookup, and the replay of the golden set passes none, so its recorded plans keep passing.
-- **Add the reader to `StagedTree` in `src/devops_cli/roadmap/stage_paths.py`, beside `read` and `callers`, and return `None` when the tree has no checkout.**: `StagedTree.read` already keeps the checkout, and `callers` already reads it, so one class holds every read of the staged commit and a tree built from a list of paths judges nothing.
+- **Give `check_proposal` an optional `read_text` callable that defaults to `None`, and judge no citation without it.**: The stage job passes a reader built from the checkout and commit it holds, a test passes a dict lookup, and the replay of the golden set passes none, so its recorded plans keep passing.
+- **Build the reader in the stage job of `src/devops_cli/roadmap/stage.py`, and pass it to `check_proposal`.**: `_Planner` holds the checkout `source` and the staged commit `sha`, so it reads a cited file at the staged commit with the `git show <sha>:<path>` form and passes that reader; `StagedTree` holds only the list of tracked files, with no checkout and no file text, so it holds no reader, and the replay of the golden set passes none.
 - **Compare the cited text with the staged line as a substring, after white space is collapsed in both and backticks and one trailing period are stripped.**: A plan cites a fragment of a long line, so an exact match of the whole line would refuse a true citation.
 - **Resolve a `path:def name` and a `path:class name` citation by searching the staged text for the definition at any line.**: A symbol citation stays true when the code moves, which is the defect that #3400 shows.
 - **Scan `feasibility`, `why` and each line of `what_changes`, and no other field.**: These are the evidence fields that the issue names; a colon in `pull_request_body` or in a task text is not evidence.
@@ -13,8 +13,8 @@
 ## Rejected alternatives
 
 - **Put the rule in `content_problems`.**: `content_problems` holds no staged tree, and the replay of `docs/ROADMAP_WORKFLOW.md` calls it with no file text, so it would refuse good recorded plans.
-- **Read the file from the working tree inside the check.**: The working tree is not the staged commit, and `tests/roadmap/test_roadmap_stage_content.py` builds a `StagedTree` from a list of paths with no checkout.
+- **Read the file from the working tree inside the check.**: The working tree is not the staged commit, so a check that reads it would judge on the wrong lines, which is the defect that #3400 shows.
 - **Extend `StagedTree` with a map of the text of every file.**: `src/devops_cli/roadmap/stage_paths.py` builds the tree before the reply is parsed, so the caller would read the paths twice; the change reads one cited file at a time instead.
-- **Refuse a citation always, with no `read_text` callable.**: The replay of the golden set holds a thinned tree with no checkout, so it would refuse every good recorded plan.
+- **Refuse a citation always, with no `read_text` callable.**: The replay of the golden set passes no reader and holds only the list of tracked files, so it would refuse every recorded plan that cites a line.
 - **Add the rule in `src/devops_cli/roadmap/stage_verify.py`.**: The verification pass runs after the plan is written, so a stale citation would already be in the change folder.
 - **Report a stale citation as a warning only.**: The plan would still ship a false proof, which is the defect that #3400 shows.
