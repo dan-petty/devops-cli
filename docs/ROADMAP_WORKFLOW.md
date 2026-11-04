@@ -107,6 +107,7 @@ These are all the keys of the job record, by the job that writes them:
 | Stage | `stage.needs_fix` | The plan pull request that the Service told about the label `plan/needs-fix` |
 | Implement | `implement.group`, `implement.sha`, `implement.branch`, `implement.pr` | The last group that passed, the last commit, the branch and the pull request |
 | Implement | `implement.stopped`, `implement.failure`, `implement.spend`, `implement.trace` | The step that stopped the Item, the class of its failure, the spend of its steps, and the trace of its last run |
+| Implement | `implement.check`, `implement.check_log` | The check that failed in the stop, and the masked end of its log (at most 2000 characters). A retry and a clear rule of the Service remove both with the stop |
 | Implement | `implement.job`, `implement.job_state`, `implement.job_digest` | The runner Job that the Service made, its state after a round reported it, and the digest of the runner image that the Job ran |
 
 ## The stop and retry path
@@ -126,7 +127,7 @@ Each new Job overwrites `implement.job_digest`. So a second stop on the same ima
 
 ## The failure classes
 
-A stop has a class (`roadmap/failure.py`, #3065). The classifier is a pure function of the error text, the exit status, the refusal of a tool, the name of the check and the last message of the agent. A failure that no rule matches is `ci_infra`. The stop comment names the class, the action taken and the action left, and the Job log holds one line with the class and the action left. The Service adds 1 to `devops_cli_service_implement_failures_total` with the label `class` when a round reports the Job. A Job that left the Item with no result gets the class of the tail of its log.
+A stop has a class (`roadmap/failure.py`, #3065). A stop site that knows its cause passes the class itself (#3476): the classes `no_change_in_fix`, `not_ticked`, `tests_lost`, `head_moved` and `output_cap` come from the step, and no rule makes them. For any other stop, the classifier is a pure function of the error text, the exit status, the refusal of a tool, the name of the check and the log of the check. It never reads the last message of the agent, which is a claim that no check verified. A failure that no rule matches is `ci_infra`. The stop comment starts with the failed check and the end of its log, then names the class, the action taken and the action left. It shows the last message of the agent as a claim that no check verified. The Job log holds one line with the class and the action left. The Service adds 1 to `devops_cli_service_implement_failures_total` with the label `class` when a round reports the Job. A Job that left the Item with no result gets the class of the tail of its log.
 
 | Class | Default action | Meaning |
 | :--- | :--- | :--- |
@@ -135,13 +136,18 @@ A stop has a class (`roadmap/failure.py`, #3065). The classifier is a pure funct
 | `test` | `repair` | A test failed |
 | `lint` | `repair` | A lint, format, hook or static check failed |
 | `types` | `repair` | `mypy` or another type check failed |
-| `plan_defect` | `amend` | The plan cannot be run as written: the step changed no file, left a task unticked, its inputs do not fit the window, or the model review of the stage found an open finding. A plan with an open finding stays in draft with `plan/needs-fix` and counts as no staged plan |
+| `plan_defect` | `amend` | The plan cannot be run as written: a group step changed no file, its inputs do not fit the window, an archived change holds an unticked task, or the model review of the stage found an open finding. A plan with an open finding stays in draft with `plan/needs-fix` and counts as no staged plan |
 | `premise_false` | `return` | The premise of the Item is false |
 | `oom` | `raise_limit` | A process was killed for memory |
 | `timeout` | `retry` | A command, a model call or the watch of the checks ran out of time |
 | `refused_tool` | `wait` | A tool refused the calls of the agent, or came back as a retry too often |
 | `conflict` | `wait` | A rebase or the pull request has a merge conflict |
 | `ci_infra` | `retry` | The infrastructure failed, and every failure that no other class matches |
+| `no_change_in_fix` | `wait` | A fix step changed no file, so the failed check is as it was. A person reads the failed check in the stop |
+| `not_ticked` | `amend` | A task of the group is not ticked after the extra turn for the ticks |
+| `tests_lost` | `retry` | The agent removed or renamed a test that existed at the start of the step |
+| `head_moved` | `retry` | The agent moved HEAD, and a step makes the only commit |
+| `output_cap` | `raise_limit` | A model reply reached the output cap of the step |
 
 The Job runs these actions by itself:
 - the fix rounds of `roadmap.implement.repair_rounds` for a failed check,

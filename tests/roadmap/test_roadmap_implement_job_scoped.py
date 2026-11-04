@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from pydantic_ai.messages import ModelResponse
 
+from devops_cli.roadmap.store import ImplementRecordKey
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.implement_step import command_text
 from tests.support.model_script import ModelScript, say, tool_calls
@@ -256,6 +257,83 @@ def test_a_fix_step_that_stops_in_the_scoped_checks_pushes_nothing(job_world: Jo
         "fix",
     )
     assert _git_push(job_world) == []
+
+
+TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+CLAIM = "The item is already implemented and every check passes."
+
+
+def test_a_fix_step_that_stops_names_its_check_and_holds_the_end_of_its_log_with_secrets_masked(
+    job_world: JobWorld,
+) -> None:
+    _fails_until(job_world, STATIC, f"{RULE}\nthe token is {TOKEN}", times=1)
+
+    job_world.run(two_groups(say(f"I changed nothing. {CLAIM}")))
+
+    _, record = _item_record(job_world)
+    comment = next(c for c in job_world.issue_comments() if "Failure class" in c)
+    assert record["implement.failure"] == "no_change_in_fix"
+    assert record["implement.check"] == "static"
+    assert "error: pytest.raises without match" in (record["implement.check_log"] or "")
+    assert TOKEN not in (record["implement.check_log"] or "") + comment
+    assert "the token is <masked-github-token>" in comment
+    assert "Failed check: `static`." in comment
+    assert "| fix | stopped | 1 | " in comment
+    assert "| `static` |" in comment
+
+
+def test_the_comment_puts_the_failed_check_first_and_marks_the_last_message_as_a_claim(
+    job_world: JobWorld,
+) -> None:
+    _fails_until(job_world, STATIC, RULE, times=1)
+
+    job_world.run(two_groups(say(CLAIM)))
+
+    comment = next(c for c in job_world.issue_comments() if "Failure class" in c)
+    claim = "Last message of the agent (a claim that no check verified): "
+    order = [
+        comment.index("Failed check: `static`."),
+        comment.index("Failure class: `no_change_in_fix`."),
+        comment.index("Reason:"),
+        comment.index(claim),
+    ]
+    assert order == sorted(order)
+    assert f"{claim}{CLAIM}" in comment
+
+
+def test_a_scoped_check_that_no_fix_repairs_is_named_in_the_stop_with_the_end_of_its_log(
+    job_world: JobWorld,
+) -> None:
+    _fails_until(job_world, PRE_PUSH, f"ruff-check....Failed\n{TOKEN}", times=99)
+
+    job_world.run(two_groups(*_fix(1), *_fix(2), *_fix(3)))
+
+    _, record = _item_record(job_world)
+    comment = next(c for c in job_world.issue_comments() if "Failure class" in c)
+    assert (record["implement.failure"], record["implement.check"]) == ("lint", "pre-push")
+    assert "ruff-check....Failed" in (record["implement.check_log"] or "")
+    assert TOKEN not in (record["implement.check_log"] or "") + comment
+    assert "Failed check: `pre-push`." in comment
+
+
+def test_a_retry_removes_the_check_and_its_log_with_the_stop(job_world: JobWorld) -> None:
+    item = job_world.store.item(1)
+    assert item is not None
+    job_world.store.set_marks(
+        item,
+        {
+            ImplementRecordKey.STOPPED: "fix",
+            ImplementRecordKey.CHECK: "static",
+            ImplementRecordKey.CHECK_LOG: "ruff failed",
+        },
+    )
+    job_world.store.comment(1, "<!-- devops roadmap implement -->\nStopped at fix.")
+    job_world.store.seed_comment(1, "implement: retry", author_association="OWNER")
+
+    job_world.run(two_groups())
+
+    _, record = _item_record(job_world)
+    assert (record.get("implement.check"), record.get("implement.check_log")) == (None, None)
 
 
 # ── The configuration of the hooks ────────────────────────────────────────────────────────

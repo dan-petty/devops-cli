@@ -26,6 +26,7 @@ from devops_cli.config.settings import Settings
 from devops_cli.exceptions.ai_pydantic import OutputCapReached, UnexpectedModelBehavior
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.roadmap import implement_step
+from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, output_cap, run_step
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.llm_stream_fakes import OPENAI_DONE, SSE, sse_data
@@ -243,6 +244,7 @@ def test_a_model_that_never_ends_a_text_reply_is_cut_at_the_cap_and_the_step_nam
         1,
         1,
     )
+    assert outcome.failure_class is FailureClass.OUTPUT_CAP
     assert is_clean_at(checkout, head)
 
 

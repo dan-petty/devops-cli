@@ -105,6 +105,7 @@ from devops_cli.roadmap.agent_run import (
 from devops_cli.roadmap.failure import (
     ACTION_BY_CLASS,
     FailureAction,
+    FailureClass,
     FailureEvidence,
     classify_failure,
 )
@@ -380,8 +381,9 @@ class StepOutcome(BaseModel):
     `tool_calls` counts the tool calls of the replies (#3030). `removed` lists the stray files that
     the step deleted (#3092). `repair_rounds` counts the extra turns that the step used (#3043).
     `tier` is the last tier that the step ran on, `tiers` names every tier it attempted, and
-    `tier_spend` holds the requests and tokens of each tier (#3060). `planned_requests` are the
-    requests a dry run lists."""
+    `tier_spend` holds the requests and tokens of each tier (#3060). `failure_class` is the class
+    of a stopped step, when the step knows its cause (#3476). `planned_requests` are the requests
+    a dry run lists."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -403,6 +405,7 @@ class StepOutcome(BaseModel):
     tier: str = ""
     tiers: tuple[str, ...] = ()
     tier_spend: dict[str, TierSpend] = {}
+    failure_class: FailureClass | None = None
     dry_run: bool = False
     planned_requests: tuple[str, ...] = ()
 
@@ -548,7 +551,9 @@ class _Run:
     with the counts of `ToolCallLog`, or empty), the last text of the model, what it spent, and
     the conversation to continue when it ended, and the conversation to resume when a new send of
     the request can fix the error that ended it (#2794). `provider_error` says that a failed model
-    call ended it, which moves the step to the next tier (#3060)."""
+    call ended it, which moves the step to the next tier (#3060). `failure_class` is the class of
+    `reason`: the output cap, or what the classifier reads in the text of the error (#3476). The
+    tier decision and the stop of the step read this one class."""
 
     reason: str
     last_message: str
@@ -559,6 +564,7 @@ class _Run:
     conversation: Conversation | None = None
     resend: Conversation | None = None
     provider_error: bool = False
+    failure_class: FailureClass | None = None
 
     def then(self, later: _Run) -> _Run:
         """This turn followed by `later`, which continued its conversation: the end and the last
@@ -573,6 +579,7 @@ class _Run:
             conversation=later.conversation,
             resend=later.resend,
             provider_error=self.provider_error or later.provider_error,
+            failure_class=later.failure_class,
         )
 
 
@@ -711,6 +718,7 @@ def _run_turn(
     cut: list[ModelResponse] = []
     error: AICredentialsError | None = None
     provider_error = False
+    capped = False
     started = time.monotonic()
     with capture_run_messages() as messages:
         try:
@@ -725,6 +733,7 @@ def _run_turn(
             reason, last = _stop_reason(stopped, log), _last_text(messages)
             if isinstance(stopped, OutputCapReached):
                 cut.append(stopped.response)
+                capped = True
         except ModelAPIError as exc:
             refused = model_call_error(exc, "The step's")
             if isinstance(refused, AICredentialsError):
@@ -751,7 +760,19 @@ def _run_turn(
         conversation=kept,
         resend=resend,
         provider_error=provider_error,
+        failure_class=_run_class(reason, capped=capped),
     )
+
+
+def _run_class(reason: str, *, capped: bool) -> FailureClass | None:
+    """The class of the reason that ended a turn, or None when the turn ended well (#3476). The
+    output cap is typed by the error that the cap raised. Any other end is classified once, here,
+    so the decision to move the tier and the stop of the step read the same class."""
+    if not reason:
+        return None
+    if capped:
+        return FailureClass.OUTPUT_CAP
+    return classify_failure(FailureEvidence(text=reason))
 
 
 def _trace_replies(
@@ -1108,11 +1129,13 @@ def _stage(source: Path) -> list[str]:
 class _Failure:
     """Why the step stops, and, for a failed static check or hook, the paths that the step changed:
     the files that an extra turn for that failure may change (#2795). `repair_paths` is None for
-    a failure that gets no such turn. `hook` says that a hook of the project failed (#3043)."""
+    a failure that gets no such turn. `hook` says that a hook of the project failed (#3043).
+    `klass` is the class of the failure, when the check that failed knows its cause (#3476)."""
 
     reason: str
     repair_paths: frozenset[str] | None = None
     hook: bool = False
+    klass: FailureClass | None = None
 
 
 def _exit_failure(
@@ -1125,15 +1148,23 @@ def _exit_failure(
     of the agent are deleted before the checkout is staged (#3092)."""
     head = _head(source)
     if head != start:
-        return _Failure(MESSAGES.roadmap.implement_stop_head_moved.format(start=start, head=head))
+        return _Failure(
+            MESSAGES.roadmap.implement_stop_head_moved.format(start=start, head=head),
+            klass=FailureClass.HEAD_MOVED,
+        )
     _restore_tasks(inputs)
     _remove_strays(source, inputs, log)
     changed = _stage(source)
     if not changed:
-        return _Failure(MESSAGES.roadmap.implement_stop_no_change)
+        # A group step with no change asks for work that the code does not need: the plan is at
+        # fault. A fix step with no change leaves the failed check as it was (#3476).
+        no_change = (
+            FailureClass.NO_CHANGE_IN_FIX if inputs.fix is not None else FailureClass.PLAN_DEFECT
+        )
+        return _Failure(MESSAGES.roadmap.implement_stop_no_change, klass=no_change)
     lost = _tests_failure(source, start)
     if lost:
-        return _Failure(lost)
+        return _Failure(lost, klass=FailureClass.TESTS_LOST)
     early = _format_failure(source, changed, log.trace) or commands_failure(
         source, inputs.group.verification_commands, log.trace
     )
@@ -1323,7 +1354,7 @@ def _extra_turn(
     tree = _tree(source)
     run = first.then(_turn(agent, model, log, ask.message, first.conversation))
     if run.reason:
-        return run, _Failure(run.reason)
+        return run, _Failure(run.reason, klass=run.failure_class)
     _remove_strays(source, inputs, log)
     foreign = _foreign_change(source, inputs, tree, ask)
     if foreign:
@@ -1339,8 +1370,9 @@ def _moves_tier(run: _Run) -> bool:
         return True
     if not run.reason:
         return False
-    klass = classify_failure(FailureEvidence(text=run.reason))
-    return ACTION_BY_CLASS[klass] is FailureAction.CHANGE_TIER
+    return run.failure_class is not None and (
+        ACTION_BY_CLASS[run.failure_class] is FailureAction.CHANGE_TIER
+    )
 
 
 def _attempt(
@@ -1378,7 +1410,9 @@ def _attempt(
             agent = build_agent(tier_model, source, inputs.instructions, window, Path(home), log)
             run = _turn(agent, tier_model, log, inputs.message)
             failure = (
-                _Failure(run.reason) if run.reason else _exit_failure(source, inputs, start, log)
+                _Failure(run.reason, klass=run.failure_class)
+                if run.reason
+                else _exit_failure(source, inputs, start, log)
             )
             while rounds < budget and (ask := _extra_ask(source, inputs, failure, log)) is not None:
                 if trace is not None:
@@ -1396,6 +1430,7 @@ def _attempt(
             _reset(source, start)
             attempt += 1
     reason = failure.reason if failure else ""
+    klass = failure.klass if failure else None
     outcome = StepOutcome(
         item=item,
         group=inputs.group.number,
@@ -1412,7 +1447,8 @@ def _attempt(
         tiers=tuple(tried),
         tier_spend=spent,
     )
-    reason = reason or _unticked_failure(inputs) or ""
+    if not reason and (unticked := _unticked_failure(inputs)):
+        reason, klass = unticked, FailureClass.NOT_TICKED
     commit = ""
     if not reason:
         commit, reason = _commit(
@@ -1420,7 +1456,9 @@ def _attempt(
         )
     if reason:
         diff, cut, reason = _read_discarded_diff(source, start, reason)
-        return outcome.model_copy(update={"reason": reason, "diff": diff, "diff_cut": cut})
+        return outcome.model_copy(
+            update={"reason": reason, "diff": diff, "diff_cut": cut, "failure_class": klass}
+        )
     return outcome.model_copy(update={"status": StepStatus.DONE, "commit": commit})
 
 

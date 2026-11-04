@@ -112,12 +112,26 @@ def test_a_new_digest_clears_the_stop_and_the_comment_names_the_rule_and_both_di
     ) == ((number,), (), "Ready", None, True, True, True, True)
 
 
-def test_a_clear_removes_the_failure_class_with_the_stop(store: InMemoryRoadmapStore) -> None:
-    number = _blocked(store, implement_failure="types")
+def test_a_clear_removes_the_failure_class_and_the_check_with_the_stop(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _blocked(
+        store,
+        implement_failure="types",
+        implement_check="static",
+        implement_check_log="a.py:3: error: bad",
+    )
 
     _clear(store, Template(DIGEST_B))
 
-    assert _record(store, number).get("implement.failure") is None
+    record = _record(store, number)
+    assert [
+        record.get(k) for k in ("implement.failure", "implement.check", "implement.check_log")
+    ] == [
+        None,
+        None,
+        None,
+    ]
 
 
 def test_a_cleared_item_whose_plan_is_merged_is_planned(store: InMemoryRoadmapStore) -> None:

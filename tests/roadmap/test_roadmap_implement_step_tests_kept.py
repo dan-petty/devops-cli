@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from devops_cli.config import constants
+from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement_step import (
     FixRequest,
     StepOutcome,
@@ -120,6 +121,7 @@ def test_a_step_that_replaces_a_test_file_and_drops_tests_stops_and_names_them(
         f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b",
         "",
     )
+    assert outcome.failure_class is FailureClass.TESTS_LOST
     assert is_clean_at(checkout, head)
 
 

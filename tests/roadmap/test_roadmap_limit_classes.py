@@ -247,6 +247,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "the words of a verification command must fit one process argument list (E2BIG at about 128000)",
     ),
     "CONST_ROADMAP_IMPLEMENT_REASON_TESTS": ("kept", "tests in a stop reason, read by a person"),
+    "CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS": (
+        "kept",
+        "GitHub comment of 65,536 characters, read by a person; the end of a log holds the failure",
+    ),
     "CONST_ROADMAP_IMPLEMENT_REASON_CHARS": (
         "kept",
         "GitHub comment of 65,536 characters, read by a person",
@@ -444,6 +448,7 @@ def test_the_texts_of_a_stop_fit_one_comment_of_65536_characters() -> None:
         constants.CONST_ROADMAP_IMPLEMENT_DIFF_CHARS
         + constants.CONST_ROADMAP_IMPLEMENT_REASON_CHARS
         + constants.CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS
+        + constants.CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS
         + constants.CONST_ROADMAP_IMPLEMENT_TABLE_ROWS * 300
     )
 

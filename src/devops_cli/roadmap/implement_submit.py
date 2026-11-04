@@ -227,9 +227,13 @@ def _report(
     store: RoadmapStore, jobs: ClusterJobs, item: Item, name: str, ended: ClusterJob | None
 ) -> None:
     """Comment on the item what became of its Job, record the state, and stop the item when the
-    Job left it eligible. The comment comes first, so a write that fails is reported again."""
+    Job left it eligible. The comment comes first, so a write that fails is reported again. The
+    item is read again after the log, which is a request to the cluster: the runner can write its
+    stop in that time, and a stop that it wrote keeps its class (#3476). This narrows the race and
+    does not close it: a stop that the runner writes after this read can still be overwritten."""
     state = ended.state.value if ended else _GONE
     log = _log_of(jobs, name) if ended else ""
+    item = _fresh(store, item.number)
     stops = _settles_as_stop(item)
     stall = ended.annotations.get(CONST_ROADMAP_IMPLEMENT_ANNOTATION_STALLED) if ended else None
     failure = _failure_of(item, log, stops=stops, stalled=stall is not None)
