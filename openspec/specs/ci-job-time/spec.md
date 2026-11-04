@@ -6,14 +6,14 @@ How `devops ci job-time` finds out whether a CI job, by default the test job, st
 ## Requirements
 
 ### Requirement: The mean time of the test job over its last runs is checked
-The `devops ci job-time` command SHALL read from the GitHub Actions API the time of a named job in the last completed `push` runs of a workflow on a branch. By default it SHALL read the job `Tests & Coverage` of `ci.yml` on `main`, 10 runs, with a limit of 300 seconds. The time of a run SHALL be the time from the start of the job to its end. The command SHALL exit 0 when the mean of the runs is not over the limit, and exit 1 when it is. It SHALL print the time of each run read and the mean.
+The `devops ci job-time` command SHALL read from the GitHub Actions API the time of a named check in the last completed `push` runs of a workflow on a branch. By default it SHALL read the check `Tests & Coverage` of `ci.yml` on `main`, 20 runs, with a limit of 300 seconds. The command SHALL exit 0 when the mean of the runs is not over the limit, and exit 1 when it is. It SHALL print the time of each run read and the mean.
 
 #### Scenario: The mean is inside the limit
-- **WHEN** the last 10 runs of the job took 100 seconds each and the user runs `devops ci job-time`
+- **WHEN** the last 20 runs of the job took 100 seconds each and the user runs `devops ci job-time`
 - **THEN** the command exits 0 and the output names the mean of 100 seconds and the limit of 300 seconds
 
 #### Scenario: The mean is over the limit
-- **WHEN** the last 10 runs of the job took 400 seconds each and the user runs `devops ci job-time`
+- **WHEN** the last 20 runs of the job took 400 seconds each and the user runs `devops ci job-time`
 - **THEN** the command exits 1 and the output names the mean of 400 seconds and says that it is over the limit
 
 #### Scenario: The mean is on the limit
@@ -21,19 +21,30 @@ The `devops ci job-time` command SHALL read from the GitHub Actions API the time
 - **THEN** the command exits 0
 
 #### Scenario: One slow run among fast ones
-- **WHEN** 9 of the 10 runs took 250 seconds and one took 400 seconds
-- **THEN** the mean is 265 seconds and the command exits 0
+- **WHEN** 19 of the 20 runs took 250 seconds and one took 400 seconds
+- **THEN** the mean is 257.5 seconds and the command exits 0
 
 #### Scenario: The count and the limit are options
 - **WHEN** the user runs the command with `--runs 2 --limit 120` and the last two runs took 100 and 200 seconds
 - **THEN** the command exits 1, and with `--limit 150` it exits 0
 
+### Requirement: The time of a run covers the shard jobs of the check
+The time of a run SHALL be the time from the first start of the jobs of the check to the end of the job of that name. The jobs of the check SHALL be the job of that name and the jobs whose names start with that name and a space and an opening parenthesis, as the shard jobs `Tests & Coverage (shard 1 of 4)` do. A run with no such shard job SHALL be timed from the start of the job of that name.
+
+#### Scenario: A run with shard jobs
+- **WHEN** a run holds the shard jobs `Tests & Coverage (shard 1 of 4)` and `Tests & Coverage (shard 2 of 4)` that started at 0 s and 3 s, and the job `Tests & Coverage` that started at 180 s and ended at 250 s
+- **THEN** the time of the run is 250 seconds
+
+#### Scenario: A run with a job of a longer name
+- **WHEN** a run holds a job named `Tests & Coverage Report` that started before the job `Tests & Coverage`
+- **THEN** the job `Tests & Coverage Report` does not change the time of the run
+
 ### Requirement: A short read never passes
 The command SHALL exit 1 when GitHub gave fewer runs of the job than the command asked for, and its output SHALL name how many it read and how many it asked for. The mean of fewer runs SHALL NOT pass.
 
-#### Scenario: Three runs of ten
+#### Scenario: Three runs of twenty
 - **WHEN** only 3 runs hold the job, each inside the limit, and the user runs `devops ci job-time`
-- **THEN** the command exits 1 and the output says that only 3 of the last 10 runs were read
+- **THEN** the command exits 1 and the output says that only 3 of the last 20 runs were read
 
 ### Requirement: The conclusion of the job counts, not the conclusion of the run
 The command SHALL list the completed `push` runs of the workflow on the branch, whatever their conclusion. A run SHALL count when its job of the given name ended with `success`, `failure` or `timed_out`, and has a start and an end. Any other run SHALL NOT count and SHALL NOT take a place among the wanted runs. A run that failed for another job still holds the time of the test job, and a slow run that failed is the run the check must see.
@@ -51,8 +62,8 @@ The command SHALL list the completed `push` runs of the workflow on the branch, 
 - **THEN** the time of the job counts as one of the wanted runs
 
 #### Scenario: A slow failed run among fast ones
-- **WHEN** 9 of the 10 runs took 250 seconds and one failed run took 600 seconds
-- **THEN** the mean is 285 seconds and the command exits 1 for a limit of 280 seconds
+- **WHEN** 19 of the 20 runs took 250 seconds and one failed run took 600 seconds
+- **THEN** the mean is 267.5 seconds and the command exits 1 for a limit of 260 seconds
 
 ### Requirement: Only the wanted runs are read
 The command SHALL follow the next link of the listing of runs, and SHALL stop asking for the jobs of runs once the wanted runs are read.
