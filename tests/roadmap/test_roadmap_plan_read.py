@@ -198,12 +198,12 @@ def test_a_group_that_pydantic_refuses_is_a_read_error(group: str) -> None:
 
 def test_the_reader_raises_only_a_read_error_over_each_change_folder_of_the_tree() -> None:
     folders = sorted(
-        path for path in (REPO_ROOT / "openspec" / "changes").iterdir() if path.is_dir()
+        path
+        for path in (REPO_ROOT / "openspec" / "changes").iterdir()
+        if path.is_dir() and path.name != "archive"
     )
-    assert folders
+    escaped: list[str] = []
     for folder in folders:
-        if folder.name == "archive":
-            continue
         files = {
             path.relative_to(REPO_ROOT).as_posix(): path.read_text(encoding="utf-8")
             for path in folder.rglob("*")
@@ -213,6 +213,10 @@ def test_the_reader_raises_only_a_read_error_over_each_change_folder_of_the_tree
             read_change(files)
         except PlanReadError:
             continue
+        except Exception as exc:
+            escaped.append(f"{folder.name}: {type(exc).__name__}")
+
+    assert escaped == []
 
 
 def _two_tasks(second_verification: str) -> dict[str, str]:
