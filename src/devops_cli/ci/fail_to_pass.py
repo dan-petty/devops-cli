@@ -9,7 +9,9 @@ The run exits non-zero unless at least one changed test fails in the call phase 
 workflow runs it only for a fix pull request that changes `src/` (#1879), so the command reads no
 title, label or body. A replay whose pytest was interrupted, stopped with an internal or usage
 error, or wrote no complete JUnit report could not run on base, and fails (#1669). A changed test
-file that cannot be collected on base is reported as errored.
+file that cannot be collected on base is reported as errored. A replay with a failure that the host
+path guard of the test harness raised, or with a failed test that the fix does not change, proves
+nothing about the fix and fails too (#3124).
 """
 
 from __future__ import annotations
@@ -24,8 +26,10 @@ from pathlib import Path, PurePath, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict
 
+from devops_cli.ci.changed_tests import ParsedTests, is_test_changed, parse_tests
 from devops_cli.config.constants import (
     CONST_FAIL_TO_PASS_COULD_NOT_RUN_EXIT_STATUSES,
+    CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE,
     CONST_FAIL_TO_PASS_JUNIT_ROOT_TAG,
     CONST_FAIL_TO_PASS_JUNIT_TAG_STATUS,
     CONST_FAIL_TO_PASS_PYTEST_FLAGS,
@@ -36,12 +40,15 @@ from devops_cli.config.constants import (
     CONST_TESTS_ROOT_DIR,
 )
 from devops_cli.core.process import run_subprocess
-from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.dry_run.requests import PlannedRequest, both
 from devops_cli.exceptions import GitOperationError
 from devops_cli.git.operations import (
+    cat_file_argv,
     diff_name_status_argv,
     list_changed_files,
+    ls_tree_argv,
     merge_base_argv,
+    read_file_at_revision,
     resolve_merge_base,
 )
 from devops_cli.lang import MESSAGES
@@ -84,6 +91,7 @@ class FailToPassReport(BaseModel):
     changed_test_files: tuple[str, ...]
     outcomes: tuple[TestCaseOutcome, ...]
     could_not_run: ReplayCouldNotRun | None = None
+    unchanged_failed: tuple[str, ...] = ()
 
     @property
     def failed_count(self) -> int:
@@ -101,10 +109,27 @@ class FailToPassReport(BaseModel):
         return sum(1 for outcome in self.outcomes if outcome.status == "errored")
 
     @property
+    def host_path_guard_failures(self) -> tuple[TestCaseOutcome, ...]:
+        """The failures and errors that the host path guard of the test harness raised (#3124)."""
+        return tuple(
+            outcome
+            for outcome in self.outcomes
+            if outcome.status in ("failed", "errored")
+            and CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE in outcome.message
+        )
+
+    @property
     def satisfied(self) -> bool:
         """Whether the fail-to-pass gate is satisfied: a replay that could not run never is, and
-        otherwise at least one changed test fails on base."""
-        return self.could_not_run is None and self.failed_count > 0
+        otherwise at least one changed test fails on base, no failure comes from the host path guard
+        of the test harness, and every test that fails on base is one that the fix adds or changes
+        (#3124)."""
+        return (
+            self.could_not_run is None
+            and self.failed_count > 0
+            and not self.host_path_guard_failures
+            and not self.unchanged_failed
+        )
 
 
 class _JUnitHTMLParser(HTMLParser):
@@ -272,6 +297,8 @@ def pytest_replay_argv(junit_path: Path, test_files: Sequence[str]) -> list[str]
 MERGE_BASE_PLACEHOLDER = "<merge-base>"
 TEMP_DIR_PLACEHOLDER = "<temp-dir>"
 CHANGED_TESTS_PLACEHOLDER = "<changed test files>"
+BLOB_PLACEHOLDER = "<blob of the changed test file>"
+UNCHANGED_CHECK = "a test that failed on base is in a changed test file"
 
 
 def plan_fail_to_pass(base: str, head: str = "HEAD") -> list[PlannedRequest]:
@@ -310,6 +337,13 @@ def plan_fail_to_pass(base: str, head: str = "HEAD") -> list[PlannedRequest]:
             argv=tuple(pytest_replay_argv(Path(tmp / "junit.xml"), [CHANGED_TESTS_PLACEHOLDER])),
             condition=replay,
         ),
+        PlannedRequest(
+            method="git",
+            target="ls-tree",
+            argv=tuple(ls_tree_argv(MERGE_BASE_PLACEHOLDER, CHANGED_TESTS_PLACEHOLDER)),
+            condition=both(replay, UNCHANGED_CHECK),
+        ),
+        git(cat_file_argv(BLOB_PLACEHOLDER), both(replay, UNCHANGED_CHECK)),
         git(worktree_remove_argv(tree), replay),
         git(worktree_prune_argv(), replay),
     ]
@@ -356,6 +390,53 @@ def _run_pytest_on_base(
     return outcomes or (), ReplayCouldNotRun(exit_status=result.returncode, output_tail=output)
 
 
+def _test_location(
+    outcome: TestCaseOutcome, files: Sequence[str]
+) -> tuple[str, tuple[str, ...], str] | None:
+    """The changed test file, the class names and the function name that `outcome` names, or
+    None when it names no changed test file. The JUnit class name is the file's module path, then
+    the classes of the test, and a parametrized test's name ends in its case id."""
+    name = outcome.name.partition("[")[0]
+    for path in files:
+        module = PurePosixPath(path).with_suffix("").as_posix().replace("/", ".")
+        if outcome.classname == module:
+            return path, (), name
+        if outcome.classname.startswith(f"{module}."):
+            return path, tuple(outcome.classname.removeprefix(f"{module}.").split(".")), name
+    return None
+
+
+def _unchanged_failures(
+    root: Path,
+    merge_base: str,
+    tree_dir: Path,
+    files: Sequence[str],
+    outcomes: Sequence[TestCaseOutcome],
+) -> tuple[str, ...]:
+    """The test ids of the tests that failed on base though the fix leaves them alone (#3124).
+
+    A test is unchanged when its function in the replay tree, which holds the head's tests, has the
+    syntax tree of the function in the merge base. A failed test that is not in a changed file, or
+    that either source does not show, counts as changed.
+    """
+    parses: dict[str, tuple[ParsedTests | None, ParsedTests | None]] = {}
+    unchanged: list[str] = []
+    for outcome in outcomes:
+        if outcome.status != "failed" or (location := _test_location(outcome, files)) is None:
+            continue
+        path, classes, name = location
+        if path not in parses:
+            head_file = tree_dir / path
+            head_source = head_file.read_text(encoding="utf-8") if head_file.is_file() else None
+            base_source = (
+                read_file_at_revision(root, merge_base, path) if head_source is not None else None
+            )
+            parses[path] = (parse_tests(base_source), parse_tests(head_source))
+        if not is_test_changed(classes, name, *parses[path]):
+            unchanged.append(outcome.test_id)
+    return tuple(dict.fromkeys(unchanged))
+
+
 def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPassReport:
     """Replay changed `tests/**/test_*.py` files against the merge-base tree."""
     merge_base, files = changed_test_files(root, base, head)
@@ -370,6 +451,11 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
         try:
             materialise_base_with_head_tests(root, merge_base, head, tree_dir)
             outcomes, could_not_run = _run_pytest_on_base(tree_dir, junit_path, files)
+            unchanged_failed = (
+                ()
+                if could_not_run
+                else _unchanged_failures(root, merge_base, tree_dir, files, outcomes)
+            )
         finally:
             remove_materialised_base(root, tree_dir)
     return FailToPassReport(
@@ -378,6 +464,7 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
         changed_test_files=files,
         outcomes=outcomes,
         could_not_run=could_not_run,
+        unchanged_failed=unchanged_failed,
     )
 
 
@@ -389,6 +476,21 @@ def _could_not_run_lines(could_not_run: ReplayCouldNotRun, files: str) -> list[s
     if not could_not_run.output_tail:
         return [reason]
     return [reason, MESSAGES.ci.fail_to_pass_replay_output.format(output=could_not_run.output_tail)]
+
+
+def _unsatisfied_reason(report: FailToPassReport, files_label: str) -> str:
+    """The sentence that tells the author why a replay that ran does not satisfy the gate."""
+    if not report.changed_test_files:
+        return MESSAGES.ci.fail_to_pass_no_tests
+    if report.host_path_guard_failures:
+        guarded = dict.fromkeys(outcome.test_id for outcome in report.host_path_guard_failures)
+        return MESSAGES.ci.fail_to_pass_guard_failed.format(tests=", ".join(guarded))
+    if report.unchanged_failed:
+        return MESSAGES.ci.fail_to_pass_unchanged_failed.format(
+            tests=", ".join(report.unchanged_failed)
+        )
+    tests_str = ", ".join(outcome.test_id for outcome in report.outcomes) or files_label
+    return MESSAGES.ci.fail_to_pass_none_failed.format(tests=tests_str)
 
 
 def format_fail_to_pass_report(report: FailToPassReport) -> str:
@@ -417,9 +519,5 @@ def format_fail_to_pass_report(report: FailToPassReport) -> str:
         )
     )
     if not report.satisfied:
-        if not report.changed_test_files:
-            lines.append(MESSAGES.ci.fail_to_pass_no_tests)
-        else:
-            tests_str = ", ".join(outcome.test_id for outcome in report.outcomes) or files_label
-            lines.append(MESSAGES.ci.fail_to_pass_none_failed.format(tests=tests_str))
+        lines.append(_unsatisfied_reason(report, files_label))
     return "\n".join(lines)

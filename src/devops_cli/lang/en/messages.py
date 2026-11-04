@@ -1724,6 +1724,17 @@ class CIMessages:
     fail_to_pass_none_failed: str = (
         "A fix needs at least one changed test that fails in the call phase on base ({tests})."
     )
+    fail_to_pass_guard_failed: str = (
+        "The host path guard of the test harness stopped the replay on base ({tests}). The replay "
+        "proves nothing about the fix. The cause is one of two. The harness does not allow a path "
+        "that every checkout reads: merge the change to the harness first, in a pull request that "
+        "is not a fix, and replay this fix against the new base. Or a test reads a host path with "
+        "no fake: fake that path in the test."
+    )
+    fail_to_pass_unchanged_failed: str = (
+        "A test that the fix does not change fails on base ({tests}). A test that fails on base "
+        "must be one that the fix adds or changes."
+    )
     fail_to_pass_could_not_run: str = (
         "The fail-to-pass replay could not run on base: pytest exited with status {status} "
         "replaying {files}. Merge the change to the test harness or to the dependencies first, in "

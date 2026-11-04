@@ -135,7 +135,9 @@ class _FailToPassState:
     stderr: str = ""
     changed_test_files: tuple[str, ...] = ("tests/test_mod.py",)
     base_files: dict[str, str] = field(default_factory=dict)
+    base_tests: dict[str, str] = field(default_factory=dict)
     active_worktrees: set[Path] = field(default_factory=set)
+    satisfied: bool | None = None
 
 
 @pytest.fixture
@@ -190,6 +192,21 @@ def _pytest_answer(replay_state: _FailToPassState, call: ProcessCall) -> Process
     )
 
 
+def _ls_tree_answer(replay_state: _FailToPassState, call: ProcessCall) -> ProcessAnswer:
+    """The tree entry of a test file that the merge base holds, or none (exit 128)."""
+    path = call.argv[-1]
+    if path not in replay_state.base_tests:
+        return ProcessAnswer(returncode=128, stdout="")
+    return ProcessAnswer(returncode=0, stdout=f"100644 blob blob:{path}\t{path}\0")
+
+
+def _cat_file_answer(replay_state: _FailToPassState, call: ProcessCall) -> ProcessAnswer:
+    """The text of the test file that `_ls_tree_answer` named."""
+    return ProcessAnswer(
+        returncode=0, stdout=replay_state.base_tests[call.argv[-1].removeprefix("blob:")]
+    )
+
+
 @pytest.fixture(autouse=True)
 def _setup_fail_to_pass_fake(git_fake: GitFake, replay_state: _FailToPassState) -> None:
     git_fake.answer(
@@ -205,6 +222,12 @@ def _setup_fail_to_pass_fake(git_fake: GitFake, replay_state: _FailToPassState) 
         ),
     )
     git_fake.answer(lambda call: "ls-files" in call.argv, ProcessAnswer(returncode=0, stdout=""))
+    git_fake.answer(
+        lambda call: "ls-tree" in call.argv, lambda call: _ls_tree_answer(replay_state, call)
+    )
+    git_fake.answer(
+        lambda call: "cat-file" in call.argv, lambda call: _cat_file_answer(replay_state, call)
+    )
     git_fake.answer(lambda call: "archive" in call.argv, ProcessAnswer(returncode=0, stdout=""))
     git_fake.answer(
         lambda call: "worktree" in call.argv,
@@ -247,6 +270,7 @@ def _replay_report(
         "changed_test_files": ("tests/test_mod.py",),
         "outcomes": outcomes,
         "could_not_run": could_not_run,
+        "unchanged_failed": (),
     }
 
 
@@ -700,6 +724,188 @@ def test_a_replay_that_collects_no_tests_is_an_empty_replay(
 
 
 # =============================================================================
+# A replay that proves nothing (#3124)
+# =============================================================================
+
+BASE_TESTS = """\
+def test_kept():
+    assert 1 == 1
+
+
+def test_fixed():
+    assert 1 == 1
+"""
+
+HEAD_TESTS = """\
+def test_kept():
+    assert 1 == 1
+
+
+def test_fixed():
+    assert 1 == 2
+"""
+
+
+def _junit(*cases: tuple[str, str, str]) -> str:
+    """A JUnit report of `tests/test_mod.py` with one case per (name, tag, message): a tag of
+    `failure` or `error` gives the case that child, and an empty tag a passing case."""
+    lines = ['<?xml version="1.0" encoding="utf-8"?>', "<testsuites>", '<testsuite name="pytest">']
+    for name, tag, message in cases:
+        case = f'<testcase classname="tests.test_mod" name="{name}" time="0.001"'
+        lines.append(
+            f'{case}><{tag} message="{message}">x</{tag}></testcase>' if tag else f"{case} />"
+        )
+    return "\n".join([*lines, "</testsuite>", "</testsuites>"])
+
+
+def _replay_of_test_mod(
+    tmp_path: Path, replay_state: _FailToPassState, *, base: str | None, head: str, junit: str
+) -> str:
+    """Replay `tests/test_mod.py`, which holds `head` and which `base` held at the merge base
+    (None when the merge base had no such file), and return the report text."""
+    repo = _branch_changing_a_test(tmp_path)
+    (repo / "tests" / "test_mod.py").write_text(head, encoding="utf-8")
+    if base is not None:
+        replay_state.base_tests["tests/test_mod.py"] = base
+    _replayed_pytest(replay_state, exit_status=1, junit_xml=junit)
+    report = run_fail_to_pass(repo, base="main")
+    replay_state.satisfied = report.satisfied
+    return format_fail_to_pass_report(report)
+
+
+@pytest.mark.parametrize("tag", ["failure", "error"], ids=["call", "teardown"])
+def test_a_host_path_guard_message_in_a_replay_failure_refuses_the_replay(
+    tag: str, tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A failure of the host path guard is no fail-to-pass result (#3124): the guard can fail
+    every test of the replay tree, so a replay that holds one proves nothing, though a changed
+    test failed in it."""
+    text = _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=HEAD_TESTS,
+        junit=_junit(
+            ("test_fixed", "failure", "assert 1 == 2"),
+            (
+                "test_kept",
+                tag,
+                "Failed: host path reached without a fake: "
+                "/home/runner/work/devops-cli/.git/worktrees/tree/HEAD",
+            ),
+        ),
+    )
+
+    assert (replay_state.satisfied, text.splitlines()[-1]) == (
+        False,
+        "The host path guard of the test harness stopped the replay on base "
+        "(tests.test_mod::test_kept). The replay proves nothing about the fix. The cause is one "
+        "of two. The harness does not allow a path that every checkout reads: merge the change to "
+        "the harness first, in a pull request that is not a fix, and replay this fix against the "
+        "new base. Or a test reads a host path with no fake: fake that path in the test.",
+    )
+
+
+@pytest.mark.parametrize(
+    "edge_message",
+    [
+        "Failed: network edge reached without a fake: 127.0.0.1:6379",
+        "Failed: process edge reached without a fake: gh api user",
+        "Failed: keyring edge reached without a fake: devops-cli/token",
+    ],
+    ids=["network-edge", "process-edge", "keyring-edge"],
+)
+def test_an_edge_guard_message_in_a_changed_test_keeps_the_replay_satisfied(
+    edge_message: str, tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A fix that stops code from reaching an edge proves itself by a changed test that fails on
+    base at that edge, as docs/TESTING.md teaches, so the gate counts that failure (#3124)."""
+    _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=HEAD_TESTS,
+        junit=_junit(("test_fixed", "failure", edge_message)),
+    )
+
+    assert replay_state.satisfied is True
+
+
+def test_a_test_that_the_fix_leaves_alone_and_that_fails_on_base_refuses_the_replay(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A changed test file can hold a test that the fix does not change (#3124). That test must
+    pass on base: its failure there is not the fix's."""
+    text = _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=HEAD_TESTS,
+        junit=_junit(
+            ("test_fixed", "failure", "assert 1 == 2"), ("test_kept", "failure", "assert 0")
+        ),
+    )
+
+    assert (replay_state.satisfied, text.splitlines()[-1]) == (
+        False,
+        "A test that the fix does not change fails on base (tests.test_mod::test_kept). "
+        "A test that fails on base must be one that the fix adds or changes.",
+    )
+
+
+def test_a_test_that_fails_on_base_after_a_changed_helper_does_not_refuse_the_replay(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A fix can change a helper that a test of the file runs. That test fails on base for a
+    reason that the fix adds, so the replay stays valid (#3124)."""
+    _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base="def helper():\n    return 1\n\n\n" + BASE_TESTS,
+        head="def helper():\n    return 2\n\n\n" + HEAD_TESTS,
+        junit=_junit(
+            ("test_fixed", "failure", "assert 1 == 2"), ("test_kept", "failure", "assert 0")
+        ),
+    )
+
+    assert replay_state.satisfied is True
+
+
+def test_a_parametrized_test_that_the_fix_changes_stays_changed_in_each_case(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """The case ids of a parametrized test are no part of its function name."""
+    _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=HEAD_TESTS,
+        junit=_junit(("test_fixed[a]", "failure", "x"), ("test_fixed[b]", "failure", "x")),
+    )
+
+    assert replay_state.satisfied is True
+
+
+@pytest.mark.parametrize(
+    "base", [None, "def test_other():\n    pass\n"], ids=["new-file", "new-test"]
+)
+def test_a_fix_with_one_new_test_that_fails_in_full_on_base_stays_satisfied(
+    base: str | None, tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A fix that adds one test, alone in its file or beside another test it does not touch, fails
+    every test of that file on base, and the replay is valid: a new test is a changed test."""
+    _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=base,
+        head="def test_fixed():\n    assert 1 == 2\n",
+        junit=_junit(("test_fixed", "failure", "assert 1 == 2")),
+    )
+
+    assert replay_state.satisfied is True
+
+
+# =============================================================================
 # Dry runs (#2260)
 # =============================================================================
 
@@ -734,11 +940,13 @@ def test_fail_to_pass_dry_run_lists_the_replay_and_starts_nothing(
     assert " -m pytest " in lines[7]
     assert lines[7].endswith("'<changed test files>'")
     assert lines[8:] == [
+        "git --literal-pathspecs ls-tree -z --full-tree '<merge-base>' -- '<changed test files>'",
+        "git cat-file blob '<blob of the changed test file>'",
         "git worktree remove --force '<temp-dir>/tree'",
         "git worktree prune",
     ]
     assert all(
-        "[only if a changed test file exists]" in line for line in _plan_lines(result.output)[5:]
+        "[only if a changed test file exists" in line for line in _plan_lines(result.output)[5:]
     )
 
 
@@ -783,6 +991,8 @@ def test_fail_to_pass_runs_the_processes_of_its_plan(
     }
     planned = []
     for request in plan_fail_to_pass("main"):
+        if "failed on base" in request.condition:
+            continue  # Read only when a test failed on base: this replay ran no test.
         line = shlex.join(request.argv)
         for placeholder, value in values.items():
             line = line.replace(shlex.quote(placeholder), value).replace(placeholder, value)

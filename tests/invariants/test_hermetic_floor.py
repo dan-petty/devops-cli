@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from devops_cli.config import os_keyring
+from devops_cli.config.constants import CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE
 from devops_cli.config.settings import load_settings
 from devops_cli.telemetry.tracer import get_tracer
 from tests.support.fakes.keyring import FakeKeyring
@@ -651,8 +652,9 @@ def test_host_path_access_to_proc_or_tiktoken_fails_with_edge_name(
     )
     result.assert_outcomes(failed=2, errors=2)
     output = result.stdout.str()
-    assert "host path reached without a fake: /proc/mounts" in output
-    assert "host path reached without a fake: /usr/local/share/tiktoken/test.bpe" in output
+    guard = CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE
+    assert f"{guard}: /proc/mounts" in output
+    assert f"{guard}: /usr/local/share/tiktoken/test.bpe" in output
 
 
 def test_tokenizer_cache_points_to_the_recorded_directory(
