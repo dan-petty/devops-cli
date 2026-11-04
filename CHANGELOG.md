@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.56.0](https://github.com/dan-petty/devops-cli/compare/v0.55.4...v0.56.0) (2026-11-04)
+
+
+### Features
+
+* **k8s:** GPU thresholds set embedding-only and per-GPU tiers ([#3509](https://github.com/dan-petty/devops-cli/issues/3509)) ([67d3f47](https://github.com/dan-petty/devops-cli/commit/67d3f473aecc498481a9433e4a757ed438291813)), closes [#3501](https://github.com/dan-petty/devops-cli/issues/3501)
+
+
+### Bug Fixes
+
+* **ci:** refuse a replay that proves nothing about the fix ([#3514](https://github.com/dan-petty/devops-cli/issues/3514)) ([719a697](https://github.com/dan-petty/devops-cli/commit/719a697299fe62119faf3aa2ea52563391c6efe0))
+* **config:** config unset --dry-run writes nothing, hides credentials ([#3512](https://github.com/dan-petty/devops-cli/issues/3512)) ([b3280ba](https://github.com/dan-petty/devops-cli/commit/b3280baddcc05383381ea48f3e2e33ec1c451cb7))
+* **roadmap:** a stop carries a typed class and the failed check ([#3513](https://github.com/dan-petty/devops-cli/issues/3513)) ([3437b9e](https://github.com/dan-petty/devops-cli/commit/3437b9e927a178eb2ab86274c241011212f9911c))
+
 ## [0.55.4](https://github.com/dan-petty/devops-cli/compare/v0.55.3...v0.55.4) (2026-11-04)
 
 
