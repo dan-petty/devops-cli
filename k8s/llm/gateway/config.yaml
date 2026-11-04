@@ -294,8 +294,9 @@ router_settings:
   # least-busy routes requests to the backend with the fewest in-flight requests,
   # preventing pile-ups behind long generations across Ollama nodes.
   routing_strategy: least-busy
-  # Spread embedding batches across order 1 tiers (#2027). Under least-busy, zero-in-flight
-  # ties select the first deployment every time.
+  # Spread embedding batches across order 1 tiers (#2027). Under least-busy, every embedding batch
+  # went to the first deployment at 1, 2, 4 and 8 streams: 0.55 batches a second on two GPUs,
+  # against 0.85 to 1.08 with simple-shuffle (#3518).
   routing_groups:
     - group_name: embedding
       models:

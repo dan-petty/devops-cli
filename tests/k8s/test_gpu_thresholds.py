@@ -168,6 +168,7 @@ def test_a_tier_at_both_thresholds_runs_one_embedding_instance_per_gpu() -> None
         {
             "OLLAMA_CONTEXT_LENGTH": str(CONST_RAG_MAX_CHUNK_TOKENS),
             "OLLAMA_MAX_LOADED_MODELS": "1",
+            "LLAMA_ARG_THREADS": "1",
             "OLLAMA_NOPRUNE": "1",
         },
         1,
@@ -243,7 +244,8 @@ def test_a_tier_newer_than_both_thresholds_runs_as_its_template_says() -> None:
 
 
 def test_the_two_thresholds_act_alone() -> None:
-    """The embedding threshold changes what a tier serves, the per-GPU one how many instances."""
+    """The embedding threshold changes what a tier serves and its CPU threads, the per-GPU one how
+    many instances. A chat tier keeps the default thread count, which it needs on the CPU."""
     embedding_only = _render("pascal", "kepler")
     per_gpu = _render("kepler", "pascal")
     (single,) = _daemonsets(embedding_only).values()
@@ -254,6 +256,8 @@ def test_the_two_thresholds_act_alone() -> None:
         _env(single)["OLLAMA_SCHED_SPREAD"],
         _routes(embedding_only),
         _env(_daemonsets(per_gpu)["ollama-24gib-slow-gpu0"])["OLLAMA_MAX_LOADED_MODELS"],
+        _env(single)["LLAMA_ARG_THREADS"],
+        "LLAMA_ARG_THREADS" in _env(_daemonsets(per_gpu)["ollama-24gib-slow-gpu0"]),
         [order for _, _, order in _routes(per_gpu)],
     ) == (
         ["ollama-48gib-embed"],
@@ -261,6 +265,8 @@ def test_the_two_thresholds_act_alone() -> None:
         "1",
         [("qwen3-embedding:0.6b", "http://ollama-48gib-embed.llm.svc.cluster.local:11434", 1)],
         "2",
+        "1",
+        False,
         [3, 3],
     )
 

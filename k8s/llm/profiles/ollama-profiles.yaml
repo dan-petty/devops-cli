@@ -11,9 +11,10 @@
 # gpu-thresholds.yaml and tier-templates/ set the region between the two "rendered" lines:
 # `devops ai gateway render --apply` writes it, so do not edit it. With the thresholds at pascal,
 # ollama-24gib-embed-gpu0 and -gpu1 run on a node with two 24 GiB Pascal GPUs. Each claims one GPU
-# and keeps the embedder loaded for good. Measured on two Quadro P6000 (#3501): 0.50 batches of 32
-# chunks a second on one instance and 0.99 on both. OLLAMA_NUM_PARALLEL of 2 or 4 and num_batch up
-# to 8192 gave no gain, so these tiers also serve one request at a time.
+# and keeps the embedder loaded for good. Measured on two Quadro P6000 (#3501, #3518): 0.56 batches
+# of 32 chunks a second on one instance and 1.10 on both. OLLAMA_NUM_PARALLEL of 2 or 4 and num_batch
+# up to 8192 gave no gain, so these tiers also serve one request at a time. LLAMA_ARG_THREADS of 1
+# keeps the speed and uses 1.2 CPU cores, not 12.
 # ollama-64gib sets LLAMA_ARG_CACHE_RAM to 4096 MiB and a container memory limit of 12Gi. Node
 # gemini has 15.3 GiB of memory, and its 160000 context length can exhaust host memory without
 # a prompt cache bound (#2382).
@@ -680,6 +681,8 @@ spec:
               value: q8_0
             - name: OLLAMA_NO_CLOUD
               value: '1'
+            - name: LLAMA_ARG_THREADS
+              value: '1'
             - name: OLLAMA_NOPRUNE
               value: '1'
           image: ollama/ollama:0.40.12
@@ -849,6 +852,8 @@ spec:
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_NO_CLOUD
+              value: '1'
+            - name: LLAMA_ARG_THREADS
               value: '1'
             - name: OLLAMA_NOPRUNE
               value: '1'
