@@ -62,3 +62,10 @@ When a pull request only adds files of active change folders, shard 1 SHALL run 
 #### Scenario: A plan-only pull request
 - **WHEN** the filter step reports `outside_plan` as `false`
 - **THEN** only shard 1 runs the invariant tests, and the aggregate job skips its checkout, download, combine and changed-line coverage steps
+
+### Requirement: The implement watch reads the log of a failed shard
+When the join check `Tests & Coverage` and a shard check `Tests & Coverage (shard n of N)` both fail, the roadmap implement watch SHALL name the shard check as the failed check, because the log of the join check holds no test output.
+
+#### Scenario: A shard and the join fail
+- **WHEN** the join check and one shard check are failed checks of the pull request
+- **THEN** the watch reports the shard check, and the fix step reads the log of that shard

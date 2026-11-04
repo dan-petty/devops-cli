@@ -30,10 +30,10 @@ The measure shows that the cost is not one slow step. It is the work of 18,000 t
 
 ## Impact
 
-- Code: `src/devops_cli/commands/ci.py`, `src/devops_cli/github/client.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`
+- Code: `src/devops_cli/roadmap/implement_pull.py`, `src/devops_cli/commands/ci.py`, `src/devops_cli/github/client.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`
 - Workflow: `.github/workflows/ci.yml`
 - Dependencies: `pyproject.toml`, `uv.lock`
-- Documents: `docs/TESTING.md`, `docs/SDLC.md`, `docs/commands/ci.md`, `docs/CLI_REFERENCE.md`, `README.md`, `docs/adr/0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md`
+- Documents: `docs/TESTING.md`, `docs/SDLC.md`, `docs/commands/ci.md`, `docs/CLI_REFERENCE.md`, `docs/adr/0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md`
 - Tests: `tests/commands/test_ci.py`, `tests/github/test_ci_job_time.py`, `tests/invariants/test_workflow_contracts.py`
 
 ## Feasibility

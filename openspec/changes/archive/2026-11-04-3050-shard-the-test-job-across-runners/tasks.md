@@ -36,10 +36,17 @@ Reads: `.github/workflows/ci.yml`, `tests/invariants/test_workflow_contracts.py`
 
 ## 5. State the new test jobs in the documents
 
-Reads: `docs/TESTING.md`, `docs/SDLC.md`, `docs/adr/0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md`. Changes: `docs/TESTING.md`, `docs/SDLC.md`, `docs/adr/0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md`, `docs/commands/ci.md`, `docs/CLI_REFERENCE.md`, `docs/MCP_TOOLS.md`, `README.md`.
+Reads: `docs/TESTING.md`, `docs/SDLC.md`, `docs/adr/0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md`. Changes: `docs/TESTING.md`, `docs/SDLC.md`, `docs/adr/0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md`, `docs/commands/ci.md`, `docs/CLI_REFERENCE.md`, `docs/MCP_TOOLS.md`.
 
 - [x] 5.1 Describe the shards, the join and the 20-run window in `docs/TESTING.md` and `docs/SDLC.md`, add the line to ADR 0014, and run `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci --check --only docs` passes
+
+## 6. Read the log of a failed shard in the implement watch
+
+Reads: `src/devops_cli/roadmap/implement_pull.py`, `tests/roadmap/test_roadmap_implement_pull.py`. Changes: `src/devops_cli/roadmap/implement_pull.py`, `tests/roadmap/test_roadmap_implement_pull.py`.
+
+- [x] 6.1 Make the watch name a failed shard check before the failed join check, and test it with both checks failed
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_pull.py` passes
 
 ## Workflow follow-up
 
