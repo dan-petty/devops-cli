@@ -66,6 +66,39 @@ def test_a_path_that_no_commit_held_says_so(repo: StageRepo) -> None:
     assert probe.missing == ("src/devops_cli/never.py",)
 
 
+def test_a_cited_bare_name_names_the_file_under_a_folder(repo: StageRepo) -> None:
+    under_folder = "src/devops_cli/roadmap/stage_specs.py"
+    repo.track({under_folder: "def read_base():\n    return {}\n"})
+
+    probe = _probe(repo, "Change `stage_specs.py`.")
+
+    assert "The path `stage_specs.py` is no file at the root of the staging commit." in probe.text
+    assert f"These files of the commit are candidates: `{under_folder}`." in probe.text
+    assert "No commit in the history deleted or renamed it." in probe.text
+    assert probe.missing == ("stage_specs.py",)
+
+
+def test_a_cited_root_file_lists_no_same_name_file(repo: StageRepo) -> None:
+    repo.track({"README.md": "# Read me\n"})
+
+    probe = _probe(repo, "Change `README.md`.")
+
+    assert probe.lines == ("The path `README.md` is a file of the staging commit.",)
+    assert probe.missing == ()
+
+
+def test_a_cited_bare_name_names_at_most_five_same_name_files(repo: StageRepo) -> None:
+    folders = "abcde"
+    names = {f"src/{folder}/same_name.py": "x = 1\n" for folder in folders}
+    repo.track({**names, "src/f/same_name.py": "x = 1\n"})
+
+    probe = _probe(repo, "Change `same_name.py`.")
+
+    candidates = [path for path in names if path in probe.text]
+    assert candidates == sorted(names)
+    assert "src/f/same_name.py" not in probe.text
+
+
 def test_the_replay_of_2971_names_the_commit_that_removed_validate_url(repo: StageRepo) -> None:
     probe = _probe(repo, "The check `validate_url` rejects a private address.")
 
@@ -128,5 +161,5 @@ def test_every_command_reads_and_the_checkout_does_not_change(
 
     _probe(repo, body)
 
-    assert {args[0] for args in ran} == {"cat-file", "grep", "log"}
+    assert {args[0] for args in ran} == {"cat-file", "grep", "log", "ls-tree"}
     assert repo.git("status", "--porcelain") == ""
