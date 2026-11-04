@@ -178,7 +178,7 @@ jobs:
           path: .data/.coverage
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
 
   # The required check. It waits for the shards, fails when one did not succeed (a skipped job
   # would count as a pass for a required check), joins their coverage data and applies the floor
@@ -273,12 +273,11 @@ jobs:
   # request is one sample, so this job reads the last twenty completed pushes to main from the
   # Actions API and fails when the mean of the `Tests & Coverage` check is over 300 s (#2699). The
   # time of a run is the time from the first shard job to the end of the job `Tests & Coverage`,
-  # which joins the shards (#3050). It
-  # runs on every push to main and on the daily schedule, beside the test job, and no pull request
-  # waits for it: the history it reads is main's, which a pull request cannot change. It sees the
-  # runs before this one. It reads the conclusion of the test job, not of the run, so a run that
-  # this job turned red still gives its test time to the next window. It needs `actions: read`
-  # only.
+  # which joins the shards (#3050). The job runs on every push to main and on the daily schedule,
+  # beside the test job, and no pull request waits for it: the history it reads is main's, which a
+  # pull request cannot change. It sees the runs before this one. It reads the conclusion of the
+  # test job, not of the run, so a run that this job turned red still gives its test time to the
+  # next window. It needs `actions: read` only.
   job-time:
     name: Test Job Duration
     if: github.event_name == 'push' || github.event_name == 'schedule'
