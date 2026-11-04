@@ -4,15 +4,19 @@
 The stage proposal check SHALL refuse a plan that names an attribute that the Pydantic model of the staged commit does not define, and SHALL name the reference and the module of the model in the problem.
 
 #### Scenario: PullStatus lacks labels
-- **WHEN** A plan names `PullStatus.labels`, and `PullStatus` in `src/devops_cli/github/client.py` of the staged commit defines no `labels` field.
+- **WHEN** A plan names `PullStatus.labels`, and the recorded `PullStatus` of `src/devops_cli/github/client.py` defines no `labels` field.
 - **THEN** `check_proposal` returns a problem that names `PullStatus.labels` and `src/devops_cli/github/client.py`.
 
 #### Scenario: A model field that exists passes
-- **WHEN** A plan names `PullStatus.state`, and `PullStatus` in `src/devops_cli/github/client.py` of the staged commit defines `state`.
+- **WHEN** A plan names `PullStatus.state`, and the recorded `PullStatus` of `src/devops_cli/github/client.py` defines `state`.
 - **THEN** `check_proposal` returns no problem for that reference.
 
 #### Scenario: A name that is no model class is left alone
-- **WHEN** A plan names `stage_ready.item`, and no Pydantic model class of the staged tree is named `stage_ready`.
+- **WHEN** A plan names `stage_ready.item`, and no Pydantic model class of the staged commit is named `stage_ready`.
+- **THEN** `check_proposal` returns no problem for that reference.
+
+#### Scenario: A caller gives no model map
+- **WHEN** `check_proposal` runs with no `models` argument on a plan that names `PullStatus.labels`.
 - **THEN** `check_proposal` returns no problem for that reference.
 
 ### Requirement: The module of a model that a plan extends is in changes
