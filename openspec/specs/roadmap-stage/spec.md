@@ -1452,6 +1452,7 @@ The stage prompt SHALL tell the planner to list every module of a moved name pre
 #### Scenario: The stage prompt describes a prefix move
 - **WHEN** A test reads `src/devops_cli/ai/tasks/roadmap_stage_change.md`.
 - **THEN** The prompt text tells the planner to name every module of the prefix, not the entry module only, and to verify the prefix.
+
 ### Requirement: The stage context lists an overlapping pull request
 The stage context builder SHALL list each open pull request that changes a path that the item body cites, with its number, title, state and the shared paths.
 
@@ -1509,3 +1510,29 @@ The stage context builder SHALL read the open pull requests and their files in o
 #### Scenario: 150 open pull requests cost two requests
 - **WHEN** A test gives the builder a fake client and 150 open pull requests.
 - **THEN** The fake client records two GraphQL requests and no other request.
+
+### Requirement: The stage check names the message file a task needs
+The stage check SHALL return a problem that names `src/devops_cli/lang/en/messages.py` when a rendered task text of a group names `MESSAGES.roadmap` and no group lists that file in `changes`.
+
+#### Scenario: A task text names a message without the message file
+- **WHEN** A plan has a task text that names `MESSAGES.roadmap` and no group lists `src/devops_cli/lang/en/messages.py` in `changes`.
+- **THEN** `content_problems` returns a problem that names `src/devops_cli/lang/en/messages.py`.
+
+#### Scenario: A task text names a message with the message file
+- **WHEN** A plan has a task text that names `MESSAGES.roadmap` and a group lists `src/devops_cli/lang/en/messages.py` in `changes`.
+- **THEN** `content_problems` returns no problem about `src/devops_cli/lang/en/messages.py`.
+
+#### Scenario: A task text names a dotted message entry
+- **WHEN** A plan has a task text that names `MESSAGES.roadmap.some_entry` and no group lists `src/devops_cli/lang/en/messages.py` in `changes`.
+- **THEN** `content_problems` returns a problem that names `src/devops_cli/lang/en/messages.py`.
+
+### Requirement: The verification prompt names the missing path of a needed file
+The verification prompt `src/devops_cli/ai/tasks/roadmap_stage_verify.md` SHALL name `missing_path` for a code change that needs a file that the plan does not change, and SHALL keep the type for a file that does not exist and that no earlier group creates.
+
+#### Scenario: The prompt names the missing path type
+- **WHEN** The verification prompt `src/devops_cli/ai/tasks/roadmap_stage_verify.md` is read.
+- **THEN** The prompt states that a code change that needs an unchanged file is a `missing_path` finding.
+
+#### Scenario: The prompt keeps the absent-file case
+- **WHEN** The verification prompt `src/devops_cli/ai/tasks/roadmap_stage_verify.md` is read.
+- **THEN** The prompt states that a file that does not exist and that no earlier group creates is a `missing_path` finding.
