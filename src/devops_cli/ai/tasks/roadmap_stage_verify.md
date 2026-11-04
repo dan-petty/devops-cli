@@ -6,7 +6,7 @@ Check the plan against the issue and against `files`. Look for these defects.
 
 The nine types are `missing_path`, `false_premise`, `spec_delta_wrong`, `verify_form`, `task_order`, `criterion_dropped`, `ignores_existing_code`, `contrived_test` and `other`. Each one is described below.
 
-- `missing_path`: the plan names a file that does not exist and that no earlier group creates.
+- `missing_path`: the plan names a file that does not exist and that no earlier group creates, or a code change needs a file that the plan does not change.
 - `false_premise`: the plan claims a fact about the code, a tool or the system that `files` or the issue contradict, or that nothing in the input supports.
 - `spec_delta_wrong`: the spec delta changes a requirement that does not exist, adds one that duplicates another, or has a scenario that no test can assert.
 - `verify_form`: the verification command of a group does not run the work of the group, or gives a different answer on each run.

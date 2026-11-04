@@ -108,6 +108,10 @@ _CHANGES_DIRECTORY: Final[str] = "openspec/changes"
 # Only `openspec archive` writes a living spec, from the spec delta of the change folder, so no
 # task group changes or creates a path under this prefix (#3295).
 _LIVING_SPEC_DIRECTORY: Final[str] = "openspec/specs/"
+# The catalog of the roadmap messages. A task text that names `MESSAGES.roadmap` needs this file
+# in `changes`, so the stage check names it when no group lists it (#3405).
+_MESSAGES_FILE: Final[str] = "src/devops_cli/lang/en/messages.py"
+_MESSAGE_NAME: Final[re.Pattern[str]] = re.compile(r"\bMESSAGES\.roadmap\b")
 _SENTENCE_END: Final[str] = f"{string.whitespace}."
 REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
 
@@ -573,14 +577,27 @@ def _squash(text: str) -> str:
     return " ".join(text.split())
 
 
+def _message_file_problems(proposal: StageProposal) -> list[str]:
+    """What is wrong with a plan that names a `MESSAGES.roadmap` entry in a rendered task text and
+    changes no file that defines it (#3405)."""
+    named = any(
+        _MESSAGE_NAME.search(text) for group in proposal.groups for text in _task_texts(group)
+    )
+    if not named or any(_MESSAGES_FILE in group.changes for group in proposal.groups):
+        return []
+    return [MESSAGES.roadmap.stage_problem_message_file.format(path=_MESSAGES_FILE)]
+
+
 def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> list[str]:
     """What is wrong with the text of `proposal` that no schema says (#3200): a text that is too
     short or a placeholder word (`is_placeholder` of the pull request form), a `feasibility` that
-    quotes no line of `probes` when there are some, and a plan that builds its own code and gives
-    no cost of tokens and time in `existing_tool`. The replay (`stage_eval_gates`) and the job
-    both call this through `check_proposal`, so one rule set judges both."""
+    quotes no line of `probes` when there are some, a task text that names a `MESSAGES.roadmap`
+    entry while no group changes the message file (#3405), and a plan that builds its own code and
+    gives no cost of tokens and time in `existing_tool`. The replay (`stage_eval_gates`) and the
+    job both call this through `check_proposal`, so one rule set judges both."""
     texts = MESSAGES.roadmap
     problems = [p for field, text in _plan_texts(proposal) for p in _text_problems(field, text)]
+    problems.extend(_message_file_problems(proposal))
     lines = [_squash(line) for line in probes if line.strip()]
     if lines:
         feasibility = _squash(" ".join(proposal.feasibility))
