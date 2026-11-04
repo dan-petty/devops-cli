@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.56.4](https://github.com/dan-petty/devops-cli/compare/v0.56.3...v0.56.4) (2026-11-04)
+
+
+### Bug Fixes
+
+* **roadmap:** run a project step only where the repo has it ([#3534](https://github.com/dan-petty/devops-cli/issues/3534)) ([640c352](https://github.com/dan-petty/devops-cli/commit/640c352f087f5256465781bfbd2a88c007e2f49b))
+
 ## [0.56.3](https://github.com/dan-petty/devops-cli/compare/v0.56.2...v0.56.3) (2026-11-04)
 
 
