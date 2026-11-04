@@ -8,8 +8,9 @@ classify every answer, and dial only the vetted addresses, as IP literals. TLS s
 hostname: httpcore2 takes `server_hostname` from the request's origin, not from the address the
 backend dialled.
 
-The address classes come from #897's predicates (`is_non_public_ip`, pydantic-ai's
-`is_cloud_metadata_ip` and the metadata names), so this check and every pre-flight check agree.
+The address classes come from #897's predicates (`is_non_public_ip`,
+`is_cloud_metadata_ip` of `devops_cli.core.validation` and the metadata names), so this check
+and every pre-flight check agree.
 Cloud metadata addresses are refused at every level. Other link-local addresses, such as the
 169.254.1.2 a rootless Podman container reaches its host at, are refused at the public and
 loopback levels and allowed at the private level.

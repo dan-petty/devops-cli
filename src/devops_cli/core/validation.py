@@ -21,6 +21,7 @@ from devops_cli.config.constants import (
     CONST_CLOUD_METADATA_DNS_HOSTNAMES,
     CONST_CLOUD_METADATA_IPV4,
     CONST_CLOUD_METADATA_IPV6,
+    CONST_IETF_PROTOCOL_ASSIGNMENTS,
     CONST_IPV4_EMBEDDING_IPV6_PREFIXES,
     CONST_ISATAP_INTERFACE_IDS,
     CONST_K8S_LABEL_RE,
@@ -29,7 +30,6 @@ from devops_cli.config.constants import (
     CONST_LOW32_OFFSETS,
     CONST_NAT64_PREFIXES,
     CONST_PRIVATE_NETWORKS,
-    CONST_TEREDO_PREFIX,
 )
 from devops_cli.exceptions import (
     InvalidURLError,
@@ -101,8 +101,8 @@ def _exhaustive_embedded_ipv4s(ip: ipaddress.IPv6Address) -> set[ipaddress.IPv4A
         ipaddress.IPv4Address(bytes(packed[i] for i in offsets))
         for offsets in CONST_ALL_EMBEDDED_OFFSETS
     }
-    if ip in CONST_TEREDO_PREFIX:
-        candidates.add(ipaddress.IPv4Address(int.from_bytes(packed[12:16], "big") ^ 0xFFFFFFFF))
+    if ip.teredo is not None:
+        candidates.add(ip.teredo[1])
     return candidates
 
 
@@ -118,11 +118,17 @@ def _standard_embedded_ipv4s(ip: ipaddress.IPv6Address) -> set[ipaddress.IPv4Add
         candidates.add(ip.ipv4_mapped)
     if ip.sixtofour is not None:
         candidates.add(ip.sixtofour)
+    # NAT64 (RFC 6052, RFC 8215): `ipaddress` has no property for it, and `is_global` is True for
+    # the NAT64 form of a documentation or private address such as `64:ff9b::c000:201`.
     for prefix, offsets_list in CONST_NAT64_PREFIXES:
         if ip in prefix:
             candidates.update(at(offsets) for offsets in offsets_list)
+    # IPv4-compatible (RFC 4291 section 2.5.5.1): `ipaddress` has no property for it, and
+    # `is_global` is True for `::a00:1`.
     if int(ip) >> 32 == 0 and not ip.is_loopback and not ip.is_unspecified:
         candidates.add(at(CONST_LOW32_OFFSETS))
+    # ISATAP (RFC 5214): `ipaddress` has no property for it, and `is_global` is True for
+    # `2606:4700::5efe:a00:1`.
     if packed[8:12] in CONST_ISATAP_INTERFACE_IDS:
         candidates.add(at(CONST_LOW32_OFFSETS))
     return candidates
@@ -164,14 +170,32 @@ def is_cloud_metadata_ip(
 def is_private_ip(
     ip: str | ipaddress.IPv4Address | ipaddress.IPv6Address,
 ) -> bool:
-    """Classify if an IP address belongs to RFC 1918 / non-globally routable networks."""
+    """Classify if an IP address belongs to RFC 1918 / non-globally routable networks.
+
+    `ipaddress` decides each address, and each IPv4 address that the address embeds, from the
+    IANA special-purpose registries. Multicast and the block `192.0.0.0/24` are added on top.
+    """
     parsed = _parse_ip(str(ip))
     if parsed is None:
         return True
     targets: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = [parsed]
     if isinstance(parsed, ipaddress.IPv6Address):
         targets.extend(_embedded_ipv4s(parsed, exhaustive=False))
-    return any(target in network for target in targets for network in CONST_PRIVATE_NETWORKS)
+    return any(_is_not_public(target) for target in targets)
+
+
+def _is_not_public(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Return True for a single address that `ipaddress` or a documented rule keeps off the web.
+
+    `is_global` is True for multicast, so `is_multicast` is a second test. It is also True for
+    `192.0.0.9` and `192.0.0.10`, which IANA marks as globally reachable. The code refuses the
+    whole block 192.0.0.0/24 (RFC 6890), as it did before, and so loosens no guard.
+    """
+    return (
+        not addr.is_global
+        or addr.is_multicast
+        or (isinstance(addr, ipaddress.IPv4Address) and addr in CONST_IETF_PROTOCOL_ASSIGNMENTS)
+    )
 
 
 def __getattr__(name: str) -> Any:
@@ -334,11 +358,11 @@ def is_non_public_ip(
     """Return True if the IP address or network is private, loopback, link-local, or non-global.
 
     A range is non-public when it is not global, when either end is non-public, or when it
-    overlaps one of pydantic-ai's non-public blocks or a private IPv4 block's NAT64 or
-    IPv4-compatible image, so `8.0.0.0/5` (which holds 10.0.0.0/8) and `64::/16` (which holds
-    `64:ff9b::/96`) are refused. Space only Python's `is_global` treats as non-global, such as
-    `3fff::/20`, is not looked for inside a wider range. An IPv4 range never overlaps an IPv6
-    block. An ISATAP-style interface id, which the classifier also reads as an IPv4 address,
+    overlaps one of the special-purpose blocks of `CONST_PRIVATE_NETWORKS` or a private IPv4
+    block's NAT64 or IPv4-compatible image, so `8.0.0.0/5` (which holds 10.0.0.0/8) and
+    `64::/16` (which holds `64:ff9b::/96`) are refused. Space only Python's `is_global` treats as
+    non-global, such as `3fff::/20`, is not looked for inside a wider range. An IPv4 range never
+    overlaps an IPv6 block. An ISATAP-style interface id, which the classifier also reads as an IPv4 address,
     occurs in every /64, so it is not taken to hide one inside a range: `2606:4700::/48` stays
     public.
     """
