@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.55.4](https://github.com/dan-petty/devops-cli/compare/v0.55.3...v0.55.4) (2026-11-04)
+
+
+### Bug Fixes
+
+* **mcp:** confine every MCP path parameter to the work tree ([#3467](https://github.com/dan-petty/devops-cli/issues/3467)) ([e5df741](https://github.com/dan-petty/devops-cli/commit/e5df741e156da1819fe4418c29077c298154fba3))
+
 ## [0.55.3](https://github.com/dan-petty/devops-cli/compare/v0.55.2...v0.55.3) (2026-11-04)
 
 
