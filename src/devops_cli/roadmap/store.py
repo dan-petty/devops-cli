@@ -185,7 +185,8 @@ class StageRecordKey(StrEnum):
     tokens, the task group over the budget that stopped the item, which a person decides, and the
     file cap in tokens of the measure that made the stop: a stop under another cap is stale. The
     Service records `stage.ready`, the number of the draft pull request that it has seen leave the
-    draft state (#2865)."""
+    draft state (#2865), and `stage.needs_fix`, the number of the draft that it told about the
+    label `plan/needs-fix` (#3264)."""
 
     BRANCH = "stage.branch"
     PR = "stage.pr"
@@ -194,6 +195,7 @@ class StageRecordKey(StrEnum):
     NEEDS_SPLIT = "stage.needs_split"
     FILE_CAP = "stage.file_cap"
     READY = "stage.ready"
+    NEEDS_FIX = "stage.needs_fix"
 
 
 class ImplementRecordKey(StrEnum):

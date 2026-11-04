@@ -35,6 +35,9 @@ repos:
         exclude: ^(\.devcontainer/|\.vscode/)
         stages: [pre-commit]
       - id: check-added-large-files
+        # The recorded tiktoken encodings are data that the test floor loads, and each is larger
+        # than the default limit (#3265).
+        exclude: ^tests/fixtures/tiktoken/
         stages: [pre-commit]
       - id: detect-private-key
         exclude: ^tests/(ai/test_review_prompt_guardrails\.py|security/test_security_gitleaks\.py)$

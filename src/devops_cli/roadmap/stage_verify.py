@@ -8,7 +8,9 @@ of the golden set (`stage_eval_cases.DefectType`). A reply with another type fai
 `chat_structured` sends it back once.
 
 A finding of type `missing_path`, `false_premise` or `ignores_existing_code` whose `quote` is a
-text of the input (`VerificationInput.contains`) returns the plan to the planner once. Every other
+text of the input (`VerificationInput.contains`) returns the plan to the planner once. An open
+finding keeps the plan from staging as clean: a finding of an open type, or one that reports a
+placeholder, keeps the plan in draft with the label `plan/needs-fix` (#3264). Every other
 finding is advice: the job lists it in its comment. The pass never merges and never marks a
 pull request ready. `devops roadmap eval verify` scores the pass on the golden set
 (`stage_verify_eval`).
@@ -32,6 +34,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_VERIFY_MAX_FILES,
 )
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.pull_form import is_placeholder
 from devops_cli.roadmap.stage_change import safe_text
 from devops_cli.roadmap.stage_eval_cases import DefectType
 from devops_cli.security.sanitizer import mask_secrets
@@ -46,6 +49,11 @@ _REPLY_RETURNS: Final[int] = 1
 RETURN_TYPES: Final[frozenset[DefectType]] = frozenset(
     {DefectType.MISSING_PATH, DefectType.FALSE_PREMISE, DefectType.IGNORES_EXISTING_CODE}
 )
+# The types that keep the plan in draft when a finding quotes its evidence. `spec_delta_wrong`
+# joins the return types, and a finding that reports a placeholder joins them all (#3264).
+OPEN_TYPES: Final[frozenset[DefectType]] = RETURN_TYPES | {DefectType.SPEC_DELTA_WRONG}
+# The label of a plan pull request with an open finding (#3264).
+PLAN_NEEDS_FIX_LABEL: Final[str] = "plan/needs-fix"
 # The keys of a group of the plan that name files.
 _FILE_KEYS: Final[tuple[str, ...]] = ("reads", "changes")
 
@@ -188,6 +196,21 @@ def returning(findings: Sequence[Finding], given: VerificationInput) -> list[Fin
     return [f for f in findings if f.type in RETURN_TYPES and given.contains(f.quote)]
 
 
+def _reports_placeholder(finding: Finding) -> bool:
+    """Whether the quote of `finding` is a placeholder text, such as `placeholder` or `x`."""
+    return is_placeholder(finding.quote)
+
+
+def open_findings(findings: Sequence[Finding], given: VerificationInput) -> list[Finding]:
+    """The findings that keep the plan in draft: a type of `OPEN_TYPES` or a placeholder, and a
+    quote that is in the input (#3264). A finding without such a quote is advice."""
+    return [
+        f
+        for f in findings
+        if (f.type in OPEN_TYPES or _reports_placeholder(f)) and given.contains(f.quote)
+    ]
+
+
 def _line(finding: Finding) -> str:
     quote = (
         MESSAGES.roadmap.stage_finding_quote.format(quote=safe_text(finding.quote))
@@ -216,7 +239,18 @@ def findings_section(findings: Sequence[Finding]) -> str:
     return MESSAGES.roadmap.stage_comment_findings.format(findings=lines)
 
 
+def open_findings_section(findings: Sequence[Finding]) -> str:
+    """The section of the comment that lists the open `findings` first, or an empty text for
+    none (#3264)."""
+    if not findings:
+        return ""
+    lines = "\n".join(_line(finding) for finding in findings)
+    return MESSAGES.roadmap.stage_comment_open_findings.format(findings=lines)
+
+
 __all__ = [
+    "OPEN_TYPES",
+    "PLAN_NEEDS_FIX_LABEL",
     "RETURN_TYPES",
     "Finding",
     "Verification",
@@ -224,6 +258,8 @@ __all__ = [
     "cited_files",
     "cited_paths",
     "findings_section",
+    "open_findings",
+    "open_findings_section",
     "return_problem",
     "returning",
     "verify",

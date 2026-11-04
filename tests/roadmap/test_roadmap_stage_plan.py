@@ -34,12 +34,14 @@ from devops_cli.openspec.tool import isolated_openspec
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import StagedChange, StagePlan, parse_filters, plan_item, plan_stage
 from devops_cli.roadmap.stage_change import (
+    CREATED_LINE_TOKENS,
     StageGroup,
     StageProposal,
     StageSpec,
     StageSplit,
     check_proposal,
     closing_keyword_in,
+    measure_groups,
     render_change,
 )
 from devops_cli.roadmap.stage_criteria import StageCriterion
@@ -346,6 +348,38 @@ def test_a_large_file_counts_at_most_the_file_cap_of_the_step(
 
 
 @pytest.mark.usefixtures("openspec")
+def test_a_group_that_creates_a_large_file_is_counted_over_the_budget(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(update={"creates_lines": {"tests/test_sample.py": 1500}})
+    )
+    model_fake.answer(make_stage_proposal(groups=[group]), StageSplit(groups=[group]))
+
+    plan = _plan(store, stage_repo, step_tokens=40_000)
+
+    (stopped,) = plan.over_budget
+    assert stopped.worst.tokens >= 1500 * CREATED_LINE_TOKENS
+    assert stopped.worst.tokens > 40_000
+
+
+def test_a_created_file_adds_32_tokens_for_each_estimated_line(stage_repo: StageRepo) -> None:
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(update={"creates_lines": {"tests/test_sample.py": 1500}})
+    )
+    small = group.model_copy(update={"creates_lines": {"tests/test_sample.py": 1}})
+
+    (big,) = measure_groups(stage_repo.clone, [group], shared=[])
+    (one,) = measure_groups(stage_repo.clone, [small], shared=[])
+
+    assert big.tokens - one.tokens == (1500 - 1) * CREATED_LINE_TOKENS
+
+
+@pytest.mark.usefixtures("openspec")
 def test_a_group_over_the_budget_is_split_once(
     store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
@@ -518,9 +552,22 @@ def test_a_group_with_no_changed_file_a_blank_text_or_a_stray_new_path_is_refuse
     assert len(raised.value.errors()) > 0
 
 
+def test_a_created_path_with_no_line_estimate_is_refused_naming_the_path() -> None:
+    with pytest.raises(ValidationError, match=r"tests/test_sample\.py"):
+        StageGroup.model_validate(_group(creates_lines={}))
+
+
+def test_a_line_estimate_for_a_path_that_the_group_does_not_create_is_refused() -> None:
+    with pytest.raises(ValidationError, match=r"src/devops_cli/sample\.py"):
+        StageGroup.model_validate(
+            _group(creates_lines={"tests/test_sample.py": 40, "src/devops_cli/sample.py": 10})
+        )
+
+
 def test_a_group_with_no_reads_is_valid_and_its_line_says_none() -> None:
     group = _group(reads=[], changes=["src/devops_cli/sample.py", "tests/test_sample.py"])
     group["creates"] = ["tests/test_sample.py"]
+    group["creates_lines"] = {"tests/test_sample.py": 40}
 
     tasks = _tasks_of(group)
 
@@ -1282,7 +1329,13 @@ NO_SPEC_PROBLEM = (
 def _changed(title: str, *paths: str) -> StageGroup:
     """A group that changes only `paths`: a behavior group when one is source code, else an other
     group that a command proves."""
-    update: dict[str, Any] = {"title": title, "changes": list(paths), "creates": [], "reads": []}
+    update: dict[str, Any] = {
+        "title": title,
+        "changes": list(paths),
+        "creates": [],
+        "creates_lines": {},
+        "reads": [],
+    }
     if not any(path.startswith("src/") for path in paths):
         update |= {"kind": "other", "test": None, "verify": "uv run devops ci docs"}
     return StageGroup.model_validate({**make_stage_proposal().groups[0].model_dump(), **update})

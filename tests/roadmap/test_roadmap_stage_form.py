@@ -29,7 +29,12 @@ VERIFY_PROBLEM = (
 def _plan(*changes: str, creates: tuple[str, ...] = (), verify: str | None = None) -> StageProposal:
     """The sample proposal, with one group that changes `changes` and creates `creates`."""
     base = make_stage_proposal().groups[0].model_dump()
-    update: dict[str, Any] = {"reads": [], "changes": list(changes), "creates": list(creates)}
+    update: dict[str, Any] = {
+        "reads": [],
+        "changes": list(changes),
+        "creates": list(creates),
+        "creates_lines": {path: 10 for path in creates},
+    }
     sourced = any(path.startswith("src/") for path in changes)
     if not sourced:
         update |= {"kind": "other", "test": None}
