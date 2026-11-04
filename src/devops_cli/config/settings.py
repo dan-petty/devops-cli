@@ -1694,8 +1694,8 @@ def remove_config_key(
     as a save does. A copy shows the value of each credential that the removal takes out of the
     file, and of the same credential in each older copy, as `***REDACTED***`, so the removal leaves
     no copy that holds the credential (#2645). A dry run returns the same removal, with no copy,
-    and writes nothing. A key that the file does not hold raises ConfigurationError, and the file
-    stays as it is.
+    and writes nothing. The diff of the removal shows each credential as `***REDACTED***`. A key
+    that the file does not hold raises ConfigurationError, and the file stays as it is.
     """
     import difflib
 
@@ -1712,9 +1712,18 @@ def remove_config_key(
         )
     path, line = found
     content = round_trip.edit(text, {path: round_trip.ABSENT}, name=str(dest_path))
+    # The diff shows no credential: it compares the file with every credential redacted to the
+    # same file without the key. The diff cannot use `content`, which still holds a comment line
+    # that holds the value of a credential, and which the redaction drops (#3218).
+    shown = write_history.redact_credentials(
+        previous or b"",
+        write_history.credential_paths(previous, (), _SECRET_FIELDS),
+        name=str(dest_path),
+    ).decode("utf-8")
+    shown_content = round_trip.edit(shown, {path: round_trip.ABSENT}, name=str(dest_path))
     diff = difflib.unified_diff(
-        text.splitlines(),
-        content.splitlines(),
+        shown.splitlines(),
+        shown_content.splitlines(),
         fromfile=str(dest_path),
         tofile=str(dest_path),
         n=0,

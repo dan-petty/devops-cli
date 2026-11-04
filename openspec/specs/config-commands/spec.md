@@ -154,11 +154,19 @@ When the active config file does not hold the key, `devops config unset <key>` S
 - **THEN** the command exits 1 with the message `The config file <file> does not hold the key 'ai.no_such_key'. Nothing changed.`, and the file and its directory do not change
 
 ### Requirement: devops config unset --dry-run writes nothing
-`devops config unset <key> --dry-run` SHALL print the dry-run response with the file, the key, its line and the lines of the unified diff of the removal, and SHALL write no file and no audit record.
+`devops --dry-run config unset <key>` SHALL print the dry-run response with the file, the key, its line and the lines of the unified diff of the removal, SHALL write no file, no backup and no audit record, and SHALL show `***REDACTED***` in place of the value of each credential that the config file holds (the keys of `_SECRET_FIELDS`). The line numbers of the diff count the lines of the redacted text, so they can differ from `line` after a credential of more than one line.
 
 #### Scenario: A dry run of a removal
-- **WHEN** `devops config unset ai.vllm_url --dry-run` runs and the config file holds `ai.vllm_url` on line 7
+- **WHEN** `devops --dry-run config unset ai.vllm_url` runs and the config file holds `ai.vllm_url` on line 7
 - **THEN** the command exits 0, the dry-run response holds the key, the line 7 and the diff lines `@@ -7 +6,0 @@` and `-  vllm_url: <value>`, and the file, its directory and the audit log do not change
+
+#### Scenario: A dry run of a credential removal
+- **WHEN** `devops --dry-run config unset ai.api_key` runs and the config file holds a credential key on line 4
+- **THEN** the output holds `***REDACTED***`, holds no value of that key, and the config file and its directory are unchanged
+
+#### Scenario: A dry run of a credential that a comment line also holds
+- **WHEN** `devops --dry-run config unset ai.api_key` runs and a comment line of the config file holds the value of that key
+- **THEN** no line of the diff holds the value, also not as a comment line, and the config file and its directory are unchanged
 
 ### Requirement: The error of a refused key names its file, its line and the command that removes it
 When a config file holds a key that a settings section refuses (`ai`, `ai.tasks` or `ai.tasks.<task>`), loading the settings SHALL fail with a configuration error that gives one line for each such key. The line SHALL name the full dotted key, the file and the line of the key, and the `devops config unset` command that removes it. For a key in a config file that is not the active one, the command SHALL set `DEVOPS_CLI_CONFIG` to that file.

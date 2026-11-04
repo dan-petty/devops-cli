@@ -418,3 +418,91 @@ ai:
         "merge key" in raised.value.message,
         "'api_key'" in raised.value.message,
     ) == (True, True, True)
+
+
+_BLOCK_SECRET = "FAKE-3218-line-one"
+_WITH_BLOCK_SECRET = f"""\
+ai:
+  provider: ollama
+  api_key: |
+    {_BLOCK_SECRET}
+    FAKE-3218-line-two
+  model: qwen3
+"""
+_WITH_COMMENTED_SECRET = f"""\
+ai:
+  provider: ollama
+  # The old key was {_SECRET}.
+  api_key: {_SECRET}
+  model: qwen3
+"""
+
+
+def _assert_dry_run_hides(
+    config_path: Path, key: str, text: str, values: tuple[str, ...]
+) -> ConfigKeyRemoval:
+    """A dry run of the removal of `key` writes nothing, and its diff holds none of `values`."""
+    _use(config_path, text)
+
+    removal = remove_config_key(key, dry_run=True)
+
+    assert not [value for value in values if value in removal.diff]
+    assert "***REDACTED***" in removal.diff
+    assert config_path.read_text(encoding="utf-8") == text
+    assert _names(config_path.parent) == ["config.yaml"]
+    assert removal.backup is None
+    return removal
+
+
+def test_a_dry_run_of_a_credential_removal_shows_the_placeholder_not_the_value(
+    isolate_devops_cli_config: Path, isolate_data_dir: Path
+) -> None:
+    removal = _assert_dry_run_hides(
+        isolate_devops_cli_config, "ai.api_key", _WITH_SECRET, (_SECRET,)
+    )
+
+    assert "-  api_key: '***REDACTED***'\n" in removal.diff
+    assert written_keys(isolate_data_dir) == []
+
+
+def test_a_dry_run_of_a_block_scalar_credential_removal_hides_each_line_of_it(
+    isolate_devops_cli_config: Path,
+) -> None:
+    _assert_dry_run_hides(
+        isolate_devops_cli_config,
+        "ai.api_key",
+        _WITH_BLOCK_SECRET,
+        (_BLOCK_SECRET, "FAKE-3218-line-two"),
+    )
+
+
+def test_a_dry_run_of_a_section_removal_hides_each_credential_in_it(
+    isolate_devops_cli_config: Path,
+) -> None:
+    text = f"{_WITH_SECRET}grafana:\n  token: {_SECRET}-grafana\n"
+
+    _assert_dry_run_hides(isolate_devops_cli_config, "ai", text, (_SECRET,))
+
+
+def test_a_dry_run_hides_the_value_that_a_comment_line_also_holds(
+    isolate_devops_cli_config: Path,
+) -> None:
+    """The redacted text drops the comment line, so the diff holds the value in no line (#3218)."""
+    removal = _assert_dry_run_hides(
+        isolate_devops_cli_config, "ai.api_key", _WITH_COMMENTED_SECRET, (_SECRET,)
+    )
+
+    assert [line for line in removal.diff.splitlines() if line.startswith("+")] == [
+        "+++ " + removal.path
+    ]
+
+
+def test_a_dry_run_keeps_the_value_of_a_key_that_is_no_credential_in_the_diff(
+    isolate_devops_cli_config: Path,
+) -> None:
+    _use(isolate_devops_cli_config, _WITH_SECRET)
+
+    removal = remove_config_key("ai.model", dry_run=True)
+
+    assert "-  model: qwen3   # the model of every task\n" in removal.diff
+    assert _SECRET not in removal.diff

@@ -69,7 +69,7 @@ def _copy(source: Path, dest: Path, redact: Collection[KeyPath]) -> None:
         shutil.copy2(source, dest)
         return
     data = source.read_bytes()
-    redacted = _redact(data, redact, name=str(source))
+    redacted = redact_credentials(data, redact, name=str(source))
     if redacted == data and dest == source:
         return
     partial = dest.with_name(f"{dest.name}.tmp")
@@ -79,7 +79,7 @@ def _copy(source: Path, dest: Path, redact: Collection[KeyPath]) -> None:
     os.replace(partial, dest)
 
 
-def _redact(data: bytes, paths: Collection[KeyPath], *, name: str) -> bytes:
+def redact_credentials(data: bytes, paths: Collection[KeyPath], *, name: str) -> bytes:
     """The YAML `data` with the value of each key path of `paths` replaced by
     `CONST_CONFIG_REDACTED_VALUE`, when `data` holds a value there that is not empty and is not
     the replacement. A comment line that holds the replaced value loses its comment. `data` that

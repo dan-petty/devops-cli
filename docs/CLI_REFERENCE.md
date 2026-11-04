@@ -2730,7 +2730,9 @@ it copies the file to `<name>.bak-<YYYYMMDD-HHMMSS>` before the change. In that 
 each older copy, a credential that the command removes shows as `***REDACTED***`, so no copy
 holds its value. A key that the file does not hold exits 1. A credential in the OS keyring
 stays. Store a credential before you remove it, with `devops config set <key>`, or with
-`--from-file <path>` for a multi-line one.
+`--from-file <path>` for a multi-line one. With the root option `--dry-run`, the command
+prints the unified diff of the removal, with each credential as `***REDACTED***`, and it
+writes no file, no copy and no audit record.
 
 ```bash
 devops config unset <key>
