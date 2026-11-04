@@ -79,6 +79,11 @@ SHOUT = '"""Shout."""\n\n\ndef shout(text: str) -> str:\n    """Shout `text`."""
 SHOUT_DOC = "# Context\nThe shout function upper-cases a text.\n"
 TASKS_PATH = f"{CHANGE_DIR}/tasks.md"
 
+# The declaration of the project steps (#3484) that devops-cli keeps on its default branch. A test
+# world holds it on `main`, as the repository of devops-cli does; `undeclare_steps` takes it off.
+STEPS_FILE = ".devops/roadmap.toml"
+STEPS_DECLARATION = "[implement.steps]\ndocs = true\narchive = true\n"
+
 OPEN_DRAFT = {
     "state": "open",
     "draft": True,
@@ -485,6 +490,14 @@ class JobWorld:
         return out.splitlines()
 
 
+def undeclare_steps(repo: StageRepo) -> None:
+    """Take the declaration of the project steps off `main` of `origin`, as a target repository
+    that is not devops-cli has none."""
+    repo.git("rm", "-q", STEPS_FILE)
+    repo.git("commit", "-q", "-m", "Declare no project step")
+    repo.git("push", "-q", "origin", "main")
+
+
 def _world(
     repo: StageRepo,
     github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
@@ -499,6 +512,7 @@ def _world(
     where git runs for real and the project's own commands are answered. The kernel call that makes
     the job's process unreadable is answered too: it would change the test run. For a Planned item,
     GitHub makes pull request 5 when the job opens it."""
+    repo.track({STEPS_FILE: STEPS_DECLARATION})
     monkeypatch.setattr("devops_cli.core.process_hardening._prctl", lambda *_args: 0)
     # The runner Job acts as the App, with a token for the one repository. The test mints no token.
     monkeypatch.setattr("devops_cli.roadmap.implement_run.acts_as_github_app", lambda: True)

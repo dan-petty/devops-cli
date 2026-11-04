@@ -78,11 +78,12 @@ class Readiness:
 
 @dataclass(frozen=True)
 class ChangeFacts:
-    """What the decision reads about the change folder: whether it is archived, and its
-    `tasks.md`."""
+    """What the decision reads about the change folder: whether it is archived, whether the
+    target requires the archive (#3484), and its `tasks.md`."""
 
     archived: bool
     tasks_text: str = ""
+    archive_required: bool = True
 
 
 @dataclass(frozen=True)
@@ -134,7 +135,7 @@ def _judge_completeness(draft: Draft) -> Readiness | None:
                     for g in unticked
                 )
                 return Readiness(Answer.REFUSE, reason)
-            if not draft.change.archived:
+            if draft.change.archive_required and not draft.change.archived:
                 return Readiness(Answer.REFUSE, texts.draft_change_not_archived)
             return None
         case DraftKind.AGENT | DraftKind.PERSON:
