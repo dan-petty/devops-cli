@@ -283,6 +283,50 @@ def test_a_title_that_the_check_refuses_stops_the_item_before_the_job_writes_it(
     assert "not in the form" in job_world.issue_comments()[0]
 
 
+def test_a_title_with_an_undeclared_type_stops_the_item_before_the_job_writes_it(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The `Semantic PR title` check refuses a type that the project does not declare (#3368),
+    and a person may edit the issue title to hold one after staging."""
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement_run.delivery_title",
+        lambda *_args: "wip(cli): add a flag",
+    )
+
+    applied = job_world.run(two_groups())
+
+    status, record = _item(job_world)
+    assert (applied.stopped, status, record.get("implement.stopped")) == (
+        (1,),
+        "Blocked",
+        "pull request",
+    )
+    assert job_world.sent("PATCH", f"pulls/{PULL}") == []
+    assert "is not a type of the project" in job_world.issue_comments()[0]
+
+
+def test_a_title_with_no_type_stops_a_planned_item_before_the_first_push(
+    planned_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Planned item whose delivery title has no Conventional Commit type stops before `_publish`
+    pushes the branch, so `origin` holds no branch and no draft pull request exists (#3368)."""
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement_run.delivery_title", lambda *_args: "Add a flag: "
+    )
+
+    applied = planned_world.run(two_groups())
+
+    status, record = _item(planned_world)
+    assert (applied.stopped, status, record.get("implement.stopped")) == (
+        (1,),
+        "Blocked",
+        "push",
+    )
+    assert planned_world.repo.origin_git("branch", "--list", BRANCH).strip() == ""
+    assert planned_world.sent("POST", "pulls") == []
+    assert "not in the form" in planned_world.issue_comments()[0]
+
+
 def test_the_changes_of_the_archive_and_the_documents_are_in_the_pushed_tree(
     job_world: JobWorld,
 ) -> None:
