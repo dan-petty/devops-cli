@@ -17,9 +17,9 @@ most sure to the one that is least sure:
 
 1. An exit status that a signal gives: 137 is `oom`, and 124 and 143 are `timeout`.
 2. A refusal of a tool is `refused_tool`.
-3. The text, for the causes outside the code of the item: `oom`, `timeout`, `conflict`, `parser`
-   (before `provider`, as a provider that cannot parse the call answers with an HTTP error too),
-   `provider`, `refused_tool`.
+3. The text, for the causes outside the code of the item: `oom`, `timeout`, `read_only_path`,
+   `conflict`, `parser` (before `provider`, as a provider that cannot parse the call answers with
+   an HTTP error too), `provider`, `refused_tool`.
 4. The text, then the log of the check, for the checks of the item: `types`, `lint`, `test`.
 5. `premise_false` and `plan_defect`, from the text.
 6. The name of the check, for a check whose log shows no sign of its class.
@@ -63,6 +63,7 @@ class FailureClass(StrEnum):
     TESTS_LOST = "tests_lost"
     HEAD_MOVED = "head_moved"
     OUTPUT_CAP = "output_cap"
+    READ_ONLY_PATH = "read_only_path"
 
 
 class FailureAction(StrEnum):
@@ -98,6 +99,7 @@ ACTION_BY_CLASS: Final[Mapping[FailureClass, FailureAction]] = MappingProxyType(
         FailureClass.TESTS_LOST: FailureAction.RETRY,
         FailureClass.HEAD_MOVED: FailureAction.RETRY,
         FailureClass.OUTPUT_CAP: FailureAction.RAISE_LIMIT,
+        FailureClass.READ_ONLY_PATH: FailureAction.WAIT,
     }
 )
 
@@ -161,6 +163,9 @@ _CAUSE_RULES: Final[tuple[tuple[FailureClass, re.Pattern[str]], ...]] = (
         r"ran out of time|timed out|TimeoutExpired|did not finish in \d+|no complete reply in"
         r"|deadline ?exceeded",
     ),
+    # A command wrote to a path that the Job mounts read-only (`EROFS`, errno 30). A new attempt
+    # or a new image writes to the same path, so only a person can change the cause (#3484).
+    _rule(FailureClass.READ_ONLY_PATH, r"Read-only file system|\bEROFS\b"),
     _rule(
         FailureClass.CONFLICT,
         r"merge conflict|CONFLICT \(|rebase onto origin/\S+ stopped|non-fast-forward",

@@ -65,6 +65,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS,
     CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES,
     CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
+    CONST_ROADMAP_IMPLEMENT_STEPS_FILE,
     CONST_ROADMAP_STATUS_IN_PROGRESS,
     CONST_ROADMAP_STATUS_IN_REVIEW,
 )
@@ -131,6 +132,7 @@ from devops_cli.roadmap.implement_step import (
     run_fix_step,
     run_step,
 )
+from devops_cli.roadmap.implement_steps import ProjectStep, declared_steps
 from devops_cli.roadmap.implement_trace import (
     ImplementTrace,
     SummaryRow,
@@ -173,9 +175,10 @@ class _Mark(NamedTuple):
     scoped: int
     notes: int
     amendments: int = 0
+    skipped: int = 0
 
 
-_NOTHING_YET = _Mark(0, 0, 0, 0)
+_NOTHING_YET = _Mark(0, 0, 0, 0, 0)
 
 
 class _StopError(Exception):
@@ -431,6 +434,9 @@ class _ItemRun:
     # the tests check was narrower than the changed files.
     scoped: list[ScopedResult] = field(default_factory=list)
     scoped_notes: list[str] = field(default_factory=list)
+    # The project steps that the job skipped, because the default branch does not declare them
+    # (#3484), in order, each once.
+    skipped_steps: list[ProjectStep] = field(default_factory=list)
     # The trace of the run (#3032): the events of the steps and of the commands of the job.
     trace: ImplementTrace = field(default_factory=ImplementTrace)
     _step: str = field(default="", init=False, repr=False)
@@ -876,8 +882,19 @@ class _ItemRun:
                 raise _stopped_by(self.step, outcome)
             self._record(group=str(group.number), sha=outcome.commit)
 
+    def _runs(self, step: ProjectStep) -> bool:
+        """Whether the job runs `step`: the default branch declares it. A step that it does not
+        declare is noted for the comment, once (#3484)."""
+        if step in declared_steps(self.path, f"origin/{self.default}"):
+            return True
+        if step not in self.skipped_steps:
+            self.skipped_steps.append(step)
+        return False
+
     def _generate_docs(self) -> None:
-        """Generate the documents and commit what changed."""
+        """Generate the documents and commit what changed, where the target declares the step."""
+        if not self._runs(ProjectStep.DOCS):
+            return
         self.step = MESSAGES.roadmap.implement_step_names["docs"]
         self._program([BIN_UV, "run", BIN_DEVOPS, "docs", "generate", "--sync-readme"])
         self._commit_if_changed(f"docs: regenerate the documentation (#{self.number})")
@@ -886,7 +903,7 @@ class _ItemRun:
         names = MESSAGES.roadmap.implement_step_names
         self._generate_docs()
         change = self._active_change()
-        if change is None:
+        if change is None or not self._runs(ProjectStep.ARCHIVE):
             return
         self.step = names["archive"]
         self._program([BIN_UV, "run", BIN_DEVOPS, "openspec", "archive", change.name])
@@ -1062,7 +1079,11 @@ class _ItemRun:
     def _mark(self) -> _Mark:
         """How many outcomes, scoped runs, notes and amendments there are now, for `_comment`."""
         return _Mark(
-            len(self.outcomes), len(self.scoped), len(self.scoped_notes), len(self.amendments)
+            len(self.outcomes),
+            len(self.scoped),
+            len(self.scoped_notes),
+            len(self.amendments),
+            len(self.skipped_steps),
         )
 
     def _comment(self, pull: int, since: _Mark) -> None:
@@ -1073,7 +1094,13 @@ class _ItemRun:
         table = summary_table(self._row(outcome) for outcome in self.outcomes[since.outcomes :])
         amend_lines = [amendment.line() for amendment in self.amendments[since.amendments :]]
         scoped_lines = self._scoped_lines(since)
-        lines = "\n".join([*amend_lines, *scoped_lines])
+        skipped_lines = [
+            texts.implement_pull_comment_skipped.format(
+                step=step.value, file=CONST_ROADMAP_IMPLEMENT_STEPS_FILE
+            )
+            for step in self.skipped_steps[since.skipped :]
+        ]
+        lines = "\n".join([*amend_lines, *skipped_lines, *scoped_lines])
         body = "\n\n".join(part for part in (table, lines) if part)
         comment = texts.implement_pull_comment.format(
             marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, lines=body or "-"
@@ -1197,7 +1224,12 @@ class _ItemRun:
         elif active := self._active_change():
             active_tasks = active / "tasks.md"
             tasks_text = active_tasks.read_text(encoding="utf-8") if active_tasks.is_file() else ""
-            change = ChangeFacts(archived=False, tasks_text=tasks_text)
+            change = ChangeFacts(
+                archived=False,
+                tasks_text=tasks_text,
+                archive_required=ProjectStep.ARCHIVE
+                in declared_steps(self.path, f"origin/{self.default}"),
+            )
         else:
             change = None
 

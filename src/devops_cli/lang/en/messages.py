@@ -2799,6 +2799,10 @@ class RoadmapMessages:
     implement_stop_split_invalid: str = "The split reply has problems: {problems}"
     implement_pull_comment_scoped: str = "- scoped check {name}: {result}, {seconds:.0f} s"
     implement_pull_comment_scoped_note: str = "- scoped check tests: {note}"
+    implement_pull_comment_skipped: str = (
+        "- step {step}: skipped, because the default branch does not declare it in {file}"
+    )
+    implement_steps_invalid: str = "{file} on the default branch is not valid: {reason}"
     implement_scoped_tests_uncovered: str = "not run, because no test covers the changed files"
     implement_scoped_tests_narrowed: str = (
         "the changed files select more than {limit} test modules, so only the changed test "

@@ -64,6 +64,12 @@ EXCERPT_2747 = (
     "Ollama_chatException - KeyError: <text>, Got unexpected response from Ollama: "
     "{<text>: <text>}\nRefused commands: cd 2, python 1. Other retries: 0."
 )
+# #3484, the docs step in a target repository: the installed copy of the command wrote outside the
+# worktree, to a path that the Job mounts read-only.
+EXCERPT_3484 = (
+    "uv run devops docs generate --sync-readme exited with status 1.\n"
+    "OSError: [Errno 30] Read-only file system: '/app/docs'"
+)
 # #2924, the review notes of the pull request: ten tests failed on the base.
 EXCERPT_2924 = (
     "Fail-to-pass run (`uv run devops ci fail-to-pass --base origin/main`): 10 tests failed on "
@@ -413,7 +419,26 @@ def test_the_classifier_never_returns_a_class_that_a_site_sets() -> None:
     from_classifier = {case.values[1] for case in [*REAL, *FROM_THE_JOB]}
     from_stops = {case.values[0].expected for case in STOPS}
     assert not (from_classifier | from_stops) & TYPED_BY_SITE
-    assert from_classifier | from_stops | TYPED_BY_SITE == set(FailureClass)
+    assert from_classifier | from_stops | TYPED_BY_SITE | {FailureClass.READ_ONLY_PATH} == set(
+        FailureClass
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        EXCERPT_3484,
+        "OSError: [Errno 30] Read-only file system: '/app/docs'",
+        "git: error: unable to write the file: EROFS",
+    ],
+)
+def test_a_write_to_a_read_only_path_is_the_class_read_only_path_and_is_not_retried(
+    text: str,
+) -> None:
+    klass = classify_failure(FailureEvidence(text=text))
+
+    assert klass is FailureClass.READ_ONLY_PATH
+    assert action_for(klass) is FailureAction.WAIT
 
 
 def test_the_classifier_reads_the_log_of_the_check() -> None:
@@ -469,6 +494,7 @@ def test_the_classes_are_the_seventeen_of_the_taxonomy() -> None:
         "tests_lost",
         "head_moved",
         "output_cap",
+        "read_only_path",
     }
 
 
@@ -496,6 +522,7 @@ def test_the_default_actions_are_the_ones_of_the_design() -> None:
         "tests_lost": "retry",
         "head_moved": "retry",
         "output_cap": "raise_limit",
+        "read_only_path": "wait",
     }
 
 
