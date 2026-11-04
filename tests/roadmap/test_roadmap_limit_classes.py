@@ -114,6 +114,18 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "one line of the map; the lines of the map fit one tool answer",
     ),
     "CONST_ROADMAP_STAGE_SPEC_MAX_CHARS": ("raised", "was 8000; one `read_spec` answer"),
+    "CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS": (
+        "window",
+        "context of the first plan request; fixed, so a larger window gives no larger request",
+    ),
+    "CONST_ROADMAP_STAGE_BODY_MAX_TOKENS": (
+        "window",
+        "body of the item in the first plan request; fixed, as the context cap is",
+    ),
+    "CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS": (
+        "window",
+        "room that the first plan request leaves below the limit of the tools for their answers",
+    ),
     "CONST_ROADMAP_STAGE_REFERENCE_NAME_MAX_CHARS": (
         "kept",
         "the text `references` searches for; a name is short, and a longer text is no name",
@@ -431,6 +443,22 @@ def test_a_reply_at_the_output_cap_ends_before_the_deadline_of_the_call() -> Non
 
 def test_the_body_of_an_item_in_the_alternatives_check_is_a_share_of_the_planner_window() -> None:
     assert constants.CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS <= PLANNER_WINDOW // 4
+
+
+def test_the_first_plan_request_and_its_reserve_fit_below_the_limit_of_the_tools() -> None:
+    """Context, body and reserve, with 8,000 tokens for the prompts, the names of the capabilities
+    and the other keys (the request counts about 34,000 tokens with the prompts, #3477)."""
+    limit = (
+        PLANNER_WINDOW - PLANNER_WINDOW // constants.CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE
+    )
+
+    assert (
+        constants.CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS
+        + constants.CONST_ROADMAP_STAGE_BODY_MAX_TOKENS
+        + 8000
+        + constants.CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS
+        <= limit
+    )
 
 
 def test_the_lines_of_the_repo_map_fit_one_tool_answer() -> None:

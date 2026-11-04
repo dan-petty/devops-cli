@@ -87,6 +87,11 @@ class RecordingClient:
         self.replies: list[StageProposal] = []
         self.calls = 0
 
+    @property
+    def reads_specs(self) -> bool:
+        """Whether the inner client reads the specs with `read_spec`, as the job does."""
+        return bool(getattr(self._inner, "reads_specs", False))
+
     def chat_structured[M: BaseModel](
         self, system: str, prompt: str, schema: type[M], *, max_retries: int
     ) -> M:

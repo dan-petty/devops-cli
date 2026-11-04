@@ -2903,7 +2903,16 @@ class RoadmapMessages:
         "and {output_tokens} output tokens. {calls}"
     )
     stage_comment_calls: str = "The tool calls, in order:\n\n{calls}"
-    stage_comment_no_calls: str = "The model made no tool call."
+    # A run with no tool call states why (#3477): no request offered a tool, because the request
+    # reached the limit of the context window, or the run offered tools and the model chose none.
+    stage_comment_no_calls: str = (
+        "The model made no tool call. The run offered tools on {offered} of {requests} "
+        "request(s), and the model called none."
+    )
+    stage_comment_no_tools_offered: str = (
+        "The model made no tool call. The run offered no tool, because each request reached the "
+        "tool-removal limit of the context window."
+    )
     stage_comment_call: str = "{index}. `{name}({argument})`"
     # The model review of the plan (#3153): a finding, its evidence, what goes back to the planner,
     # and the section of the comment.

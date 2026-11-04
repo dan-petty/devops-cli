@@ -15,6 +15,7 @@ from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_STEP_TOKENS
 from devops_cli.exceptions import GitHubOperationError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
+from devops_cli.roadmap import stage
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import ended_by_stop
 from devops_cli.roadmap.stage import (
@@ -524,6 +525,37 @@ def test_the_comment_of_an_item_that_made_no_tool_call_says_so(
     (comment,) = _comments(store)
     assert "The plan run made 1 model request(s)" in comment
     assert "The model made no tool call." in comment
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_of_a_run_that_offered_no_tool_names_the_tool_removal_limit(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    opened: GitHubApiFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(stage, "analysis_window", lambda: 100)
+
+    _stage(store, stage_repo, toolbox=Script(make_stage_proposal()))
+
+    (comment,) = _comments(store)
+    assert (
+        "The model made no tool call. The run offered no tool, because each request reached the "
+        "tool-removal limit of the context window." in comment
+    )
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_of_a_run_that_offered_tools_says_the_model_chose_none(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    _stage(store, stage_repo, toolbox=Script(make_stage_proposal()))
+
+    (comment,) = _comments(store)
+    assert (
+        "The model made no tool call. The run offered tools on 1 of 1 request(s), and the model "
+        "called none." in comment
+    )
 
 
 def test_the_comment_of_an_item_planned_with_one_call_has_no_report(

@@ -10,7 +10,7 @@ The tools:
 - `file_symbols`: lists the classes, functions and methods of one source file, with their lines.
 - `callers`: lists the places that call a function, a method or a class.
 - `repo_map`: maps the symbols of the source files in one directory.
-- `read_spec`: lists the specs, lists the requirements of one spec, or returns the whole text of one requirement. Use it to copy the requirement that a `modified` entry replaces.
+- `read_spec`: lists the specs, gives the purpose and lists the requirements of one spec, or returns the whole text of one requirement. Use it to copy the requirement that a `modified` entry replaces.
 
 How to work:
 

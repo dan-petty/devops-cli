@@ -38,6 +38,20 @@ The model plans with read-only tools. The toolset `base` has nine tools that rea
 
 The two GitHub tools only read. They use the client and the App token of the Service, so they add no permission and no host. The tool masks secrets in the text from GitHub, cuts it, and marks it as data. The prompt tells the model that this text is no instruction. A failure of GitHub (no such item, the rate limit, no connection) is an answer as text, and the run goes on. With `base` the model has no GitHub tool, and the job needs no GitHub read for the plan. The golden-set run (`devops roadmap eval stage`) has no GitHub client, so its GitHub tools answer that GitHub is not available.
 
+## The window of the plan run
+
+The plan run reads the context window of the task `analysis`. The Service sets `context_window` 65,536 for `analysis` in the key `ai.tasks.analysis` of [k8s/devops/configmap.example.yaml](../../k8s/devops/configmap.example.yaml). The model of the task, `deepseek-v4.1-flash-1017`, has `max_input_tokens` 1,048,576 in [k8s/llm/gateway/config.yaml](../../k8s/llm/gateway/config.yaml). The job uses the setting and not the larger value of the model.
+
+The run hook offers no tool when the messages and one quarter of the window reach the window. For 65,536 tokens, the limit is 49,152 tokens. A request over the limit gets no tool, and the model writes a plan about code that it did not read. So the first request has fixed caps, and the caps do not grow with the window:
+
+| Part of the first request | Cap |
+| :--- | :--- |
+| Repository context | 20,480 tokens, or half of a window that is smaller than 40,960 tokens |
+| Body of the item | 8,192 tokens, or one quarter of a window that is smaller than 32,768 tokens |
+| Capabilities | The names only. `read_spec` gives the purpose and the requirements of one capability on demand. |
+
+With the prompts, the first request counts about 34,000 tokens, and it leaves at least 8,192 tokens below the limit for the answers of the tools. The trace of the run records the tools that each request offered. When a run makes no tool call, the stage comment says why: either each request reached the limit and offered no tool, or the run offered tools and the model chose none.
+
 ## The verification pass
 
 After the checks, a model of the task `ai.tasks.verification` reviews the plan with the issue and the files that the plan cites. A finding of the type `missing_path`, `false_premise` or `ignores_existing_code` that quotes its evidence sends the plan back once. An open finding is a finding of one of those types, of `spec_delta_wrong`, or one that reports a placeholder, and it keeps the plan pull request a draft with the label `plan/needs-fix`. The stage comment lists the open findings first. Every other finding goes into the comment, and no finding keeps the plan as a staged plan of the round. The row `stage_ready` refuses a green draft that holds `plan/needs-fix`. A later stage round that finds no open finding removes the label, and a person may remove it too. The requirement "A verification pass follows the gates" of [roadmap-stage](../../openspec/specs/roadmap-stage/spec.md) holds the rules, and [the roadmap workflow](../ROADMAP_WORKFLOW.md#measure-the-verification-pass) tells how to score the pass.
