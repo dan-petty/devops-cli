@@ -688,8 +688,9 @@ class _Planner:
         self._pull_repo = pull_repo
         self._grep = grep
         self._today: date = datetime.now(UTC).date()
-        # Whether the run reads the capabilities with `read_spec`: then the request names them.
-        self._specs_on_demand = isinstance(client, ToolboxClient) and client.reads_specs
+        # Whether the run reads the capabilities with `read_spec`: then the request names them. A
+        # client that wraps the toolbox client (the recorder of the golden set) forwards the flag.
+        self._specs_on_demand = bool(getattr(client, "reads_specs", False))
         # Whether the model split the groups of the item in hand: it does so once for each item.
         self._split_asked = False
         # The lines of the premise probe of the item in hand, for the quote rule of `feasibility`.

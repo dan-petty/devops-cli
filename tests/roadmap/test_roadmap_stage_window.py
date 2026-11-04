@@ -25,8 +25,9 @@ from devops_cli.config.constants import (
 )
 from devops_cli.roadmap import stage
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.stage import parse_filters, plan_stage
-from devops_cli.roadmap.stage_toolbox import ToolboxModel
+from devops_cli.roadmap.stage import openspec_tool, parse_filters, plan_item, plan_stage
+from devops_cli.roadmap.stage_eval_run import RecordingClient
+from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_stage import (
@@ -98,6 +99,14 @@ def _script() -> Script:
     return Script(call("list_files", directory="src"), _PLAN, without_tools=_PLAN)
 
 
+def _code(tokens: int) -> str:
+    """Code-like text of more than `tokens` tokens. Quotes, backslashes and newlines grow when
+    the request is encoded as JSON, so this text counts more in the request than in the cap."""
+    return "\n".join(
+        f'    value_{n} = {{"key": "a\\tb", "n": {n}}}  # "quoted" \\ text' for n in range(tokens)
+    )
+
+
 def test_a_first_request_with_the_context_and_the_body_at_their_caps_offers_the_tools_and_a_reserve(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
@@ -119,6 +128,28 @@ def test_a_first_request_with_the_context_and_the_body_at_their_caps_offers_the_
         "read_spec" in script.tools_offered[0],
         _first_request_tokens(script) <= _limit(WINDOW) - CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS,
     ) == (CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS, CONST_ROADMAP_STAGE_BODY_MAX_TOKENS, True, True)
+
+
+def test_a_first_request_of_code_with_the_context_and_the_body_at_their_caps_offers_the_tools(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reserve of the spec holds for plain text. Quotes and newlines grow in the JSON of the
+    request, so for code the reserve is smaller, and the request must still stay under the limit."""
+    monkeypatch.setattr(stage, "analysis_window", lambda: WINDOW)
+    stage_repo.track(
+        {"docs/adr/0001-a-decision.md": _code(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)}
+    )
+    seed_stageable(store, body=_code(3 * CONST_ROADMAP_STAGE_BODY_MAX_TOKENS))
+    script = _script()
+
+    _plan(store, stage_repo, script)
+
+    assert (
+        "read_spec" in script.tools_offered[0],
+        _first_request_tokens(script) < _limit(WINDOW),
+    ) == (True, True)
 
 
 def test_the_first_request_names_the_capabilities_and_holds_no_capability_json(
@@ -151,6 +182,41 @@ def test_the_first_request_names_the_capabilities_and_holds_no_capability_json(
         "Rule 1 of capability-000" in prompt,
         "read_spec" in script.tools_offered[0],
     ) == (sorted([*names, "roadmap-refine"]), False, False, True)
+
+
+def test_the_recorder_of_the_golden_set_keeps_the_names_only_request(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo
+) -> None:
+    """The golden set wraps the toolbox client in the recorder, and plans as the job does."""
+    names = [f"capability-{n:03d}" for n in range(5)]
+    stage_repo.track(
+        {
+            f"openspec/specs/{name}/spec.md": (
+                f"# {name} Specification\n\n## Purpose\nThe purpose of {name}.\n\n"
+                f"## Requirements\n\n### Requirement: Rule of {name}\nThe rule SHALL hold.\n"
+            )
+            for name in names
+        }
+    )
+    target = store.item(seed_stageable(store))
+    assert target is not None
+    sha = stage_repo.git("rev-parse", "HEAD")
+    script = _script()
+
+    with openspec_tool() as tool:
+        toolbox = ToolboxClient(
+            script.model(),
+            RecordingClient(object()),
+            stage_repo.clone,
+            sha,
+            openspec=tool,  # type: ignore[arg-type]
+        )
+        plan_item(target, client=RecordingClient(toolbox), checkout=stage_repo.clone, sha=sha)
+
+    assert (
+        _first_request(script)["capabilities"],
+        "read_spec" in script.tools_offered[0],
+    ) == (sorted([*names, "roadmap-refine"]), True)
 
 
 @pytest.mark.parametrize("window", [WINDOW, GATEWAY_WINDOW])
