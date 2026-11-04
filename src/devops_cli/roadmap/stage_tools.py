@@ -252,10 +252,8 @@ class StageTools(InvestigationTools):
         found = {entry["name"]: entry for entry in shown["requirements"]}
         if not requirement:
             purpose = " ".join(str(shown.get("overview", "")).split())
-            listed = [f"Purpose: {purpose}"] if purpose else []
-            return (
-                cut([*listed, *found]) if found else f"The spec {capability} holds no requirement."
-            )
+            listed = [*([f"Purpose: {purpose}"] if purpose else []), *found]
+            return cut(listed) if listed else f"The spec {capability} holds no requirement."
         entry = found.get(requirement.strip())
         if entry is None:
             return f"The spec {capability} holds no requirement {requirement.strip()}."

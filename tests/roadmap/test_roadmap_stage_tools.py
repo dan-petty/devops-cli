@@ -370,6 +370,23 @@ def test_read_spec_lists_the_capabilities_and_the_requirements(tools: StageTools
     )
 
 
+def test_read_spec_gives_the_purpose_of_a_capability_with_no_requirement(
+    tools: StageTools, openspec_fake: OpenSpecFake
+) -> None:
+    bare = json.loads(_SHOW)
+    bare["requirements"] = []
+    openspec_fake.script(("show", "sample", "--type", "spec", "--json"), 0, json.dumps(bare))
+    empty = json.dumps({**bare, "overview": ""})
+
+    purpose = tools.read_spec("sample")
+    openspec_fake.script(("show", "sample", "--type", "spec", "--json"), 0, empty)
+
+    assert (purpose, tools.read_spec("sample")) == (
+        "Purpose: The sample spec greets people and leaves politely, for the tests.",
+        "The spec sample holds no requirement.",
+    )
+
+
 def test_read_spec_returns_the_whole_text_of_one_requirement(tools: StageTools) -> None:
     text = tools.read_spec("sample", "The sample greets")
 
