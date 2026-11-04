@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.56.5](https://github.com/dan-petty/devops-cli/compare/v0.56.4...v0.56.5) (2026-11-04)
+
+
+### Code Refactoring
+
+* **security:** ask ipaddress for single-address egress checks ([#3540](https://github.com/dan-petty/devops-cli/issues/3540)) ([4485be2](https://github.com/dan-petty/devops-cli/commit/4485be2368244194eb619cc16550bbcee63678b2))
+
 ## [0.56.4](https://github.com/dan-petty/devops-cli/compare/v0.56.3...v0.56.4) (2026-11-04)
 
 
