@@ -12,6 +12,7 @@ import json
 import shutil
 import subprocess
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -281,6 +282,58 @@ def test_a_title_that_the_check_refuses_stops_the_item_before_the_job_writes_it(
     )
     assert job_world.sent("PATCH", f"pulls/{PULL}") == []
     assert "not in the form" in job_world.issue_comments()[0]
+
+
+def test_a_title_with_a_type_that_the_project_does_not_declare_stops_the_item(
+    job_world: JobWorld,
+) -> None:
+    """A person may edit the title of the issue after staging (#3368). The type `wip` is not a
+    Conventional Commit type, so the job stops the item and writes no pull request title."""
+    issue = job_world.store._roadmap.issues[1]
+    job_world.store._roadmap.issues[1] = issue.model_copy(update={"title": "wip(cli): add a flag"})
+
+    applied = job_world.run(two_groups())
+
+    status, record = _item(job_world)
+    assert (applied.stopped, status, record.get("implement.stopped")) == (
+        (1,),
+        "Blocked",
+        "pull request",
+    )
+    assert job_world.sent("PATCH", f"pulls/{PULL}") == []
+    assert "wip" in job_world.issue_comments()[0]
+
+
+def test_a_title_with_no_type_stops_a_planned_item_before_the_first_push(
+    planned_world: JobWorld,
+) -> None:
+    """A Planned item has no branch until `_publish`. A person may edit the title after the plan
+    reads it, so the job checks the title again before the first push. A title with no type stops
+    the item with no branch on `origin` and no draft (#3368)."""
+    plan = planned_world.plan()
+    (target,) = plan.selected
+    edited = replace(
+        plan,
+        selected=(replace(target, item=target.item.model_copy(update={"title": "Add a flag"})),),
+    )
+
+    applied = apply_implement(
+        planned_world.store,
+        edited,
+        source=planned_world.repo.clone,
+        model=two_groups().model(),
+        window=WINDOW,
+    )
+
+    status, record = _item(planned_world)
+    assert (applied.stopped, status, record.get("implement.stopped")) == (
+        (1,),
+        "Blocked",
+        "push",
+    )
+    assert planned_world.repo.origin_git("branch", "--list", BRANCH) == ""
+    assert planned_world.sent("POST", "pulls") == []
+    assert "not in the form" in planned_world.issue_comments()[0]
 
 
 def test_the_changes_of_the_archive_and_the_documents_are_in_the_pushed_tree(

@@ -4,6 +4,7 @@
 
 - **Put both tests in `tests/roadmap/test_roadmap_implement_job.py`, beside the #3319 test.** The guard is one function, `_delivery_title`, and its tests belong in the module that already holds the refused-title test, so a reader sees every case together and no new module mirrors one helper.
 - **Use `planned_world` for the first-push case and assert that `origin` holds no branch, not that the job deletes one.** `_publish` calls `_delivery_title` before `_push`, so a refused title stops the item before the branch reaches `origin`; a deletion assertion would describe code that no longer exists.
+- **Edit the title of the planned item after the plan reads it.** The plan refuses a Planned item whose title has no Conventional Commit type, so the test changes the title on the selected target's item, as a person's edit after the plan reaches the job does.
 - **Set `skip_specs: true` and write no spec delta.** The change adds tests for behavior that `openspec/specs/roadmap-implement-job/spec.md` already states in the requirement `The pull request that delivers the code has the type of the issue`, and a test changes no behavior that a consumer observes.
 
 ## Rejected alternatives
