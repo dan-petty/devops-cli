@@ -9,10 +9,12 @@ reads the draft of a person, and with no such item it sends no request.
 For each such item the round reads the pull request. One that is not an open draft is only
 recorded in `stage.ready`, so no later round reads it. One that is merged also sets the Status of
 its item with the function of `status_sync.py`: the plan is merged (#2920). An open draft goes to
-`draft_readiness` with its check runs. When the function says yes, the round reads the pull request once more. If a
-person pushed a commit or marked it ready since the first read, the draft waits, because no check
-judged that head. A window of milliseconds stays, since `gh pr ready` takes no expected head.
-Else the round marks the pull request ready with `mark_ready`, the function that the implement
+`draft_readiness` with its check runs. A green draft that holds the label `plan/needs-fix` stays a
+draft, and the round comments that the label is the reason once and records `stage.needs_fix`
+(#3264). When the function says yes and the label is absent, the round reads the pull request once
+more. If a person pushed a commit or marked it ready since the first read, the draft waits, because
+no check judged that head. A window of milliseconds stays, since `gh pr ready` takes no expected
+head. Else the round marks the pull request ready with `mark_ready`, the function that the implement
 job uses, and records `stage.ready`. The check runs are read without the commit statuses: the App
 token holds `checks: read` and no `statuses`.
 
@@ -44,6 +46,7 @@ from devops_cli.roadmap.implement_pull import (
     mark_ready,
 )
 from devops_cli.roadmap.stage import StageFailure, raise_for_failed, write_each
+from devops_cli.roadmap.stage_verify import PLAN_NEEDS_FIX_LABEL
 from devops_cli.roadmap.status_sync import facts_of, sync_status
 from devops_cli.roadmap.store import (
     GitHubState,
@@ -97,6 +100,15 @@ def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome
     readiness = draft_readiness(Draft(DraftKind.STAGE_PLAN, status, item, checks))
     if readiness.answer is not Answer.READY:
         return _Outcome.WAITING
+    if PLAN_NEEDS_FIX_LABEL in status.labels:
+        if item.job_record.get(StageRecordKey.NEEDS_FIX) != str(number):
+            client.comment_on_pull(
+                repo, number, MESSAGES.roadmap.stage_ready_needs_fix.format(pull=number)
+            )
+            store.set_marks(item, {StageRecordKey.NEEDS_FIX: str(number)})
+        return _Outcome.WAITING
+    if item.job_record.get(StageRecordKey.NEEDS_FIX):
+        store.set_marks(item, {StageRecordKey.NEEDS_FIX: None})
     again = client.get_pull_status(repo, number)
     if not again.is_open_draft or again.head_sha != status.head_sha:
         return _Outcome.WAITING
