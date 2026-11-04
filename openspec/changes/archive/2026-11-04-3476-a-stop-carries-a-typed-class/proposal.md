@@ -47,6 +47,7 @@ Confirmed on 2026-11-04 at `origin/main` (67d3f473).
 - The fault set of #3075 does not exist: a search for `3075` in `src`, `tests`, `docs` and `openspec` finds no fault set. The change adds no case to it.
 - The fixture of the 39 stop texts cannot be copied from the issue window, because the comments hold task text and agent text of other items. The fixture is built from synthetic stop texts that follow each real pattern the issue names: the fix step with no change and a success claim, a lost test, a moved HEAD, the output cap, the not-ticked stop whose task text holds `devops ci test`, the scoped check with a log, the refused tool, and the stops that already had a right class.
 - `uv run devops ci test tests/roadmap/test_roadmap_failure.py tests/roadmap/test_roadmap_implement_job_scoped.py` runs offline.
+- Fail-to-pass: `uv run devops ci fail-to-pass --base origin/main` replays the new and changed tests on the base tree. 17 tests fail on the base and pass now (one module also fails to import on the base, because the new class names do not exist there).
 
 ## Existing Tool Considered
 
