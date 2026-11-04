@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Annotated, Any, BinaryIO
 
@@ -690,18 +691,30 @@ def audit_stream(
 _AUDIT_READ_ERRORS: tuple[type[Exception], ...] = (*_YAML_LOAD_ERRORS, OSError)
 
 
+def _plaintext_secret_keys(
+    node: dict[Any, Any], secret_options: frozenset[str], prefix: str = ""
+) -> Iterator[str]:
+    """Yield the dotted key of each secret-named key in ``node`` that holds a value, at any depth."""
+    from devops_cli.security.sanitizer import is_secret_field
+
+    for name, value in node.items():
+        dotted = f"{prefix}.{name}" if prefix else str(name)
+        # A secret-named key that is no longer an option is still a plaintext secret.
+        if value and is_secret_field(str(name), dotted, secret_options):
+            yield dotted
+        elif isinstance(value, dict):
+            yield from _plaintext_secret_keys(value, secret_options, dotted)
+
+
 def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str] | None:
-    """Return each secret-named key that holds a value in ``cfg_file``, as ``<path>:<section>.<key>``,
+    """Return each secret-named key that holds a value in ``cfg_file``, as ``<path>:<dotted key>``,
     or None if the file is unreadable.
 
     A leak names the full path: the global config file and a project config file can both have the
-    name ``config.yaml`` (#2426).
+    name ``config.yaml`` (#2426). A key is found at its full dotted key, at any depth (#2511).
     """
     import yaml
 
-    from devops_cli.security.sanitizer import is_secret_field
-
-    secret_options = secret_keys()
     try:
         raw_cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8")) or {}
     except _AUDIT_READ_ERRORS as err:
@@ -712,16 +725,7 @@ def _scan_yaml_for_secret_keys(cfg_file: Path) -> list[str] | None:
         return None
     if not isinstance(raw_cfg, dict):
         return []
-    leaks: list[str] = []
-    for section_name, section_dict in raw_cfg.items():
-        if not isinstance(section_dict, dict):
-            continue
-        for opt_name, value in section_dict.items():
-            composite = f"{section_name}.{opt_name}"
-            # A secret-named key that is no longer an option is still a plaintext secret.
-            if value and is_secret_field(str(opt_name), composite, secret_options):
-                leaks.append(f"{cfg_file}:{composite}")
-    return leaks
+    return [f"{cfg_file}:{key}" for key in _plaintext_secret_keys(raw_cfg, secret_keys())]
 
 
 def _detect_keyring_secret_leaks(scanned_files: list[Path]) -> tuple[list[str], list[Path]]:
