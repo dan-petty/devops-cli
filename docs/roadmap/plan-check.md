@@ -19,6 +19,9 @@ issue that the body plans, for its acceptance criteria. It builds no model clien
 
 - The stage gates: `check_proposal` and `validate_change`. The command reports each problem with
   the file and the words of the stage job.
+- The read: the reader reports each change file that it cannot read, each task group that the
+  model refuses and each `Verification:` command that the implement step cannot run, as a `read`
+  problem. It never ends in a traceback.
 - The title: `docs(openspec): plan #<issue> <summary>`, with at most `SUMMARY_MAX_CHARS`
   characters after the colon.
 - The body: at most `BODY_MAX_CHARS` characters, one `Plans #<issue>` line, and no closing keyword

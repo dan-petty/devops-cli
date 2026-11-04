@@ -21,6 +21,7 @@ from typing import Final
 from pydantic import ValidationError
 
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.implement_shell_policy import shown, verification_problem
 from devops_cli.roadmap.stage_change import (
     REGENERATE_DOCUMENTS,
     GroupKind,
@@ -290,6 +291,22 @@ def _kind(text: str, first: _Task) -> GroupKind:
     return GroupKind.BEHAVIOR if first.suffix == _FAILS_ON_BASE else GroupKind.OTHER
 
 
+def _verification_problems(group: TaskGroup, first: _Task) -> list[str]:
+    """The reason for each verification command of `group` that the step cannot run. The step runs
+    every code span of every `Verification:` line (`step_files`), so the reader judges all of
+    them, and not the one command that the plan record keeps."""
+    commands = dict.fromkeys(
+        [*group.verification_commands, *([first.verification] if first.verification else [])]
+    )
+    return [
+        MESSAGES.roadmap.plan_read_bad_verification.format(
+            group=group.number, command=shown(command), reason=reason
+        )
+        for command in commands
+        if (reason := verification_problem(command)) is not None
+    ]
+
+
 def _group(group: TaskGroup) -> StageGroup:
     files = _group_files(group.text)
     if not group.tasks:
@@ -297,6 +314,8 @@ def _group(group: TaskGroup) -> StageGroup:
     first = _task(group, 0)
     if not first.text:
         raise PlanReadError(_TASKS, MESSAGES.roadmap.plan_read_bad_task.format(text=first.text))
+    if problems := _verification_problems(group, first):
+        raise PlanReadError(_TASKS, " ".join(problems))
     if _kind(group.text, first) is GroupKind.BEHAVIOR:
         if len(group.tasks) < 2:
             raise PlanReadError(_TASKS, MESSAGES.roadmap.plan_read_bad_task.format(text=first.text))
@@ -363,13 +382,35 @@ def _criteria(text: str) -> list[StageCriterion]:
     return found
 
 
+def _reasons(exc: ValidationError) -> str:
+    """The problems of a pydantic error as one line of text, with no trace and no link."""
+    return " ".join(
+        ".".join(str(part) for part in error["loc"]) + f": {error['msg']}"
+        if error["loc"]
+        else str(error["msg"])
+        for error in exc.errors(include_url=False)
+    )
+
+
+def _read_group(group: TaskGroup) -> StageGroup:
+    """The `StageGroup` of `group`. A group that the model refuses raises `PlanReadError`."""
+    try:
+        return _group(group)
+    except ValidationError as exc:
+        reason = MESSAGES.roadmap.plan_read_bad_group.format(
+            title=group.title, reason=_reasons(exc)
+        )
+        raise PlanReadError(_TASKS, reason) from exc
+
+
 def read_change(files: Mapping[str, str]) -> StageProposal:
     """The `StageProposal` that the change folder in `files` holds, by path from the repository
-    root. A file that the reader cannot parse raises `PlanReadError` that names it."""
+    root. A file that the reader cannot parse raises `PlanReadError` that names it, and no other
+    error leaves the reader for a plan that is wrong in form."""
     root = _header(files)
     why, what_changes, feasibility, existing_tool = _proposal(files[f"{root}/{_PROPOSAL}"])
     decisions, rejected = _design(files[f"{root}/{_DESIGN}"])
-    groups = [_group(group) for group in parse_task_groups(files[f"{root}/{_TASKS}"])]
+    groups = [_read_group(group) for group in parse_task_groups(files[f"{root}/{_TASKS}"])]
     specs = [
         _spec(path, text)
         for path, text in sorted(files.items())
@@ -392,4 +433,4 @@ def read_change(files: Mapping[str, str]) -> StageProposal:
             criteria=criteria,
         )
     except ValidationError as exc:
-        raise PlanReadError(root, str(exc)) from exc
+        raise PlanReadError(root, _reasons(exc)) from exc

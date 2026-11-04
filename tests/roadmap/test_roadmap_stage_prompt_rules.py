@@ -432,3 +432,8 @@ def test_the_prompt_states_the_dependencies_rule() -> None:
     assert "`dependencies`" in _PROMPT
     assert "`overlaps`" in _PROMPT
     assert "empty list" in _PROMPT
+
+
+def test_the_prompt_names_a_sample_file_by_a_bare_name() -> None:
+    assert "gets a bare name with no folder, such as `test_sample.py`" in _PROMPT
+    assert "the check reads a name with a folder as a path of the repository" in _PROMPT

@@ -3335,6 +3335,10 @@ class RoadmapMessages:
     plan_read_bad_proposal: str = "`proposal.md` has no `## Why` section."
     plan_read_bad_tasks: str = "`tasks.md` holds a group with no `Reads: ... Changes: ...` line."
     plan_read_bad_task: str = "`tasks.md` holds a task that the reader cannot read: {text}"
+    plan_read_bad_group: str = "Group `{title}` breaks a rule of the plan: {reason}"
+    plan_read_bad_verification: str = (
+        "Group {group} names the verification `{command}`, and the step cannot run it: {reason}."
+    )
     plan_read_bad_criterion: str = (
         "`tasks.md` holds a criterion that the reader cannot read: {text}"
     )
