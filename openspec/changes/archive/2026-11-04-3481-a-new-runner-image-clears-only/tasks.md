@@ -11,12 +11,12 @@ Reads: `src/devops_cli/roadmap/store.py`, `src/devops_cli/config/settings.py`, `
 
 ## 2. Clear by digest only a stop that a retry can fix
 
-Reads: `src/devops_cli/roadmap/stop_clear.py`, `src/devops_cli/roadmap/failure.py`, `src/devops_cli/roadmap/implement_submit.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stop_clear.py`. Changes: `src/devops_cli/roadmap/stop_clear.py`, `src/devops_cli/roadmap/implement_submit.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stop_clear.py`.
+Reads: `src/devops_cli/roadmap/stop_clear.py`, `src/devops_cli/roadmap/failure.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stop_clear.py`. Changes: `src/devops_cli/roadmap/stop_clear.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stop_clear.py`.
 
 - [x] 2.1 Add cases to `tests/roadmap/test_roadmap_stop_clear.py`: a new digest alone does not clear a stop of class `plan_defect`, `refused_tool`, `premise_false` or `test`, and does not clear a stop with no class, `implement: retry` still clears these, a stop of class `provider`, `timeout` or `ci_infra` clears and records its entry, the class limit and the item limit hold a stop (also for `ci_infra`) until `implement: retry`, a clear writes at most one comment in 24 hours and still records the entry, a record that does not parse stops the digest clear, and the rule reads no template for a class that it does not clear
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stop_clear.py` fails on the base
-- [x] 2.2 Change `stop_clear.py`: gate rule `digest` on the action `retry` of `ACTION_BY_CLASS`, count the entries of `implement.digest_clears` against the two limits, record the entry with the clear, cap the comment with `implement.digest_clear_commented_at`, and remove the text `Never a loop`. Pass the limits from `implement_submit.py`. Change the digest comment in `messages.py` to state the class and the limits
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stop_clear.py tests/roadmap/test_roadmap_implement_submit.py` passes
+- [x] 2.2 Change `stop_clear.py`: gate rule `digest` on the action `retry` of `ACTION_BY_CLASS`, count the entries of `implement.digest_clears` against the two limits, record the entry with the clear, cap the comment with `implement.digest_clear_commented_at`, and remove the text `Never a loop`. `clear_stops` reads the limits from the settings when the caller passes none. Change the digest comment in `messages.py` to state the class and the limits
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stop_clear.py` passes
 - [x] 2.3 No rule reads image content, and the docstring no longer says `Never a loop`
   - Verification: `! git grep -n "Never a loop" src/devops_cli/roadmap/stop_clear.py`
 
