@@ -38,7 +38,7 @@ The two GitHub tools only read. They use the client and the App token of the Ser
 
 ## The verification pass
 
-After the checks, a model of the task `ai.tasks.verification` reviews the plan with the issue and the files that the plan cites. A finding of the type `missing_path`, `false_premise` or `ignores_existing_code` that quotes its evidence sends the plan back once. Every other finding goes into the comment, and the draft still opens. The requirement "A verification pass follows the gates" of [roadmap-stage](../../openspec/specs/roadmap-stage/spec.md) holds the rules, and [the roadmap workflow](../ROADMAP_WORKFLOW.md#measure-the-verification-pass) tells how to score the pass.
+After the checks, a model of the task `ai.tasks.verification` reviews the plan with the issue and the files that the plan cites. A finding of the type `missing_path`, `false_premise` or `ignores_existing_code` that quotes its evidence sends the plan back once. An open finding is a finding of one of those types, of `spec_delta_wrong`, or one that reports a placeholder, and it keeps the plan pull request a draft with the label `plan/needs-fix`. The stage comment lists the open findings first. Every other finding goes into the comment, and no finding keeps the plan as a staged plan of the round. The row `stage_ready` refuses a green draft that holds `plan/needs-fix`. A later stage round that finds no open finding removes the label, and a person may remove it too. The requirement "A verification pass follows the gates" of [roadmap-stage](../../openspec/specs/roadmap-stage/spec.md) holds the rules, and [the roadmap workflow](../ROADMAP_WORKFLOW.md#measure-the-verification-pass) tells how to score the pass.
 
 ## Failures and clean-up
 
