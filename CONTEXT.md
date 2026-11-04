@@ -49,7 +49,7 @@ An item that is in progress, in review or done.
 _Avoid_: active, claimed
 
 **Blocked**:
-An item waiting on something outside the roadmap, such as hardware, an upstream release or a person's decision. A blocked item is not started. A stop of the implement job also blocks an item, until a person comments `implement: retry` or a new runner image rolls out (see docs/ROADMAP_WORKFLOW.md). Waiting on another item is a dependency, not blocked.
+An item waiting on something outside the roadmap, such as hardware, an upstream release or a person's decision. A blocked item is not started. A stop of the implement job also blocks an item, until a person comments `implement: retry`, or a new runner image rolls out for a stop whose class a retry can fix (see docs/ROADMAP_WORKFLOW.md). Waiting on another item is a dependency, not blocked.
 _Avoid_: on hold, waiting
 
 **Dependency**:
@@ -135,7 +135,7 @@ The pure function that decides when any draft pull request is ready for review: 
 _Avoid_: ready check, draft gate
 
 **Implementing**:
-Taking a Staged or Planned item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, draft readiness, and `gh pr ready`. A step may ask for a bounded change of its plan, or for a split when its inputs exceed the limit. A false premise returns the item to New with its evidence. A step whose agent forgot a tick gets one more turn for the ticks. A stopped item is Blocked, shows the masked diff of the work it discarded, and waits for the comment `implement: retry` or, one time for each new runner image, for the clear rule of the Service. A person merges.
+Taking a Staged or Planned item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, draft readiness, and `gh pr ready`. A step may ask for a bounded change of its plan, or for a split when its inputs exceed the limit. A false premise returns the item to New with its evidence. A step whose agent forgot a tick gets one more turn for the ticks. A stopped item is Blocked, shows the masked diff of the work it discarded, and waits for the comment `implement: retry` or, for a stop whose class a retry can fix, for a new runner image within the limits of the Service. A person merges.
 _Avoid_: building, executing
 
 **Runner**:

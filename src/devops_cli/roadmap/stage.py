@@ -117,6 +117,7 @@ from devops_cli.roadmap.agent_run import RunTrace
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_type
+from devops_cli.roadmap.digest_clears import has_digest_clear
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
 from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels, remove_pull_labels
@@ -461,11 +462,13 @@ def _target_of(item: Item) -> StageTarget:
     return StageTarget(item, commit_type(item.title) or "", _slug_of(item.title))
 
 
-def priority_order(item: Item) -> tuple[int, int]:
-    """The sort key of an item: highest priority first, then the lowest number."""
+def priority_order(item: Item) -> tuple[int, bool, int]:
+    """The sort key of an item: highest priority first, then an item with no digest clear before
+    an item with one (#3481), then the lowest number. Priority comes first, so a retried item of a
+    higher priority still goes before a new item of a lower priority."""
     values = CONST_ROADMAP_PRIORITY_VALUES
     rank = values.index(item.priority) if item.priority in values else len(values)
-    return rank, item.number
+    return rank, has_digest_clear(item), item.number
 
 
 def _named_item(judge: _Judge, store: RoadmapStore, number: int) -> StageSelection:

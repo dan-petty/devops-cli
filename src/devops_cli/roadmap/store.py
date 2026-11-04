@@ -206,7 +206,9 @@ class ImplementRecordKey(StrEnum):
     (#3032). A person clears
     `implement.stopped` with a comment. The Service records the runner Job it made for the item
     and, once the Job ended, its state (#2667), and the digest of the runner image that the template
-    named when it made the Job (#2912): the digest of the stop that the Job leaves."""
+    named when it made the Job (#2912): the digest of the stop that the Job leaves. The Service
+    keeps the digest clears of an item as a JSON list, and the time of the last comment of a clear
+    (#3481); a clear of a stop does not remove them."""
 
     GROUP = "implement.group"
     SHA = "implement.sha"
@@ -221,6 +223,8 @@ class ImplementRecordKey(StrEnum):
     JOB = "implement.job"
     JOB_STATE = "implement.job_state"
     JOB_DIGEST = "implement.job_digest"
+    DIGEST_CLEARS = "implement.digest_clears"
+    DIGEST_CLEAR_COMMENTED_AT = "implement.digest_clear_commented_at"
 
 
 JobRecord = dict[

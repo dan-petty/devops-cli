@@ -2653,8 +2653,10 @@ class RoadmapMessages:
         "{marker}\nStopped at {step}.\n\n{check}{failure}\n\n{table}\n\nReason:\n\n{reason}\n\n"
         "Last message of the agent (a claim that no check verified): "
         "{last}{diff}\n\nThe item is Blocked, and the job will not run it. Fix the cause. "
-        "Then comment `implement: retry`. The Service also clears the stop one time when a new "
-        "runner image rolls out.{note}"
+        "Then comment `implement: retry`. The Service clears the stop on its own when a new runner "
+        "image rolls out, but only if a retry can fix the class of the stop and the limits of "
+        "`roadmap.implement.digest_clears_per_class` and `roadmap.implement.digest_clears_per_item` "
+        "allow it.{note}"
     )
     implement_comment_check: str = "Failed check: `{name}`.\n\n"
     implement_comment_check_log: str = (
@@ -2697,8 +2699,10 @@ class RoadmapMessages:
     implement_job_report_no_log: str = "(no log: the Job has no pod)"
     implement_job_report_stopped: str = (
         "\n\n{failure}\n\nThe Job left this item without a result. The item is Blocked, and the job "
-        "will not run it. Fix the cause. Then comment `implement: retry`. The Service also "
-        "clears the stop one time when a new runner image rolls out."
+        "will not run it. Fix the cause. Then comment `implement: retry`. The Service clears the "
+        "stop on its own when a new runner image rolls out, but only if a retry can fix the class "
+        "of the stop and the limits of `roadmap.implement.digest_clears_per_class` and "
+        "`roadmap.implement.digest_clears_per_item` allow it."
     )
     implement_job_report_stalled: str = (
         "\n\nThe Job made no progress for {seconds} seconds, so the Service ended it by its "
@@ -2719,9 +2723,11 @@ class RoadmapMessages:
     )
     stop_clear_digest: str = (
         "{marker}\nCleared the stop at {stopped} by the rule `{rule}`: the runner image changed "
-        "since the stop, from {old} to {new}. The item is {status} again, and the Service takes "
-        "it in the next round. The Service clears a stop one time for each runner image. A new "
-        "stop on this image waits for a comment `implement: retry`."
+        "since the stop, from {old} to {new}, and the class `{failure_class}` of the stop is one "
+        "that a new attempt can fix. The item is {status} again, and the Service takes it in the "
+        "next round. The Service clears at most {per_class} for each class and {per_item} for "
+        "each item by digest. A stop of another class, a new stop on this image, and a stop "
+        "over a limit wait for a comment `implement: retry`."
     )
     implement_comment_finished: str = (
         "{marker}\nPull request #{pull} is ready for review. The checks passed.\n\n"

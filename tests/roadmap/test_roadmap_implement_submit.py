@@ -929,7 +929,7 @@ def test_a_stop_that_the_runner_wrote_is_cleared_after_the_report_when_the_diges
         _held(store, number),
         ItemField.STATUS,
         "Blocked",
-        marks={ImplementRecordKey.STOPPED: "group 1"},
+        marks={ImplementRecordKey.STOPPED: "group 1", ImplementRecordKey.FAILURE: "provider"},
     )
     _end(kube, "Failed")
     _roll(kube, DIGEST_B)

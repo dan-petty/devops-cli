@@ -328,6 +328,18 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "setting",
         "already a setting; the repair turns of a step",
     ),
+    "DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_CLASS": (
+        "setting",
+        "already a setting; the clears by a new runner image for one class of stop",
+    ),
+    "DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_ITEM": (
+        "setting",
+        "already a setting; the clears by a new runner image for one item",
+    ),
+    "CONST_ROADMAP_STOP_CLEAR_COMMENT_WINDOW_HOURS": (
+        "kept",
+        "the period of one comment of a clear by digest for an item",
+    ),
     "DEFAULT_ROADMAP_IMPLEMENT_LIMIT": ("kept", "items of one round"),
     "DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS": ("kept", "the pace of the reads of GitHub"),
     "DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES": ("other", "a schedule"),

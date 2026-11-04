@@ -1,19 +1,30 @@
-"""The clear rules of a stop (#2912): the Service takes an item out of Blocked when a person asks
-for a retry, or one time when the runner image changed since the stop.
+"""The clear rules of a stop (#2912, #3481): the Service takes an item out of Blocked when a person
+asks for a retry, or when the runner image changed since the stop and the class of the stop has the
+action `retry`, within the limits of the item.
 
 The roadmap is in memory. The digest of the CronJob template is a function that a test counts.
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER as MARKER
 from devops_cli.exceptions import GitHubRateLimitError
 from devops_cli.exceptions.k8s import ClusterJobError
+from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.digest_clears import (
+    DigestClear,
+    encode_clears,
+    last_clear_comment,
+    recorded_clears,
+)
+from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureAction, FailureClass
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.planned import PlannedChanges
-from devops_cli.roadmap.stop_clear import StopsCleared, clear_stops
+from devops_cli.roadmap.stop_clear import DigestLimits, StopsCleared, clear_stops
 from devops_cli.roadmap.store import ImplementRecordKey, IssueComment, Item, ItemField
 from tests.support.roadmap_stage import STAGE_REPO
 
@@ -22,6 +33,10 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 DIGEST_A = "sha256:" + "a" * 64
 DIGEST_B = "sha256:" + "b" * 64
 NO_PLANS = PlannedChanges("main", {}, {})
+NOW = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
+LIMITS = DigestLimits(per_class=1, per_item=3)
+RETRY_CLASSES = [c for c, action in ACTION_BY_CLASS.items() if action is FailureAction.RETRY]
+OTHER_CLASSES = [c for c, action in ACTION_BY_CLASS.items() if action is not FailureAction.RETRY]
 
 
 class Template:
@@ -50,9 +65,11 @@ def _blocked(
     digest: str | None = DIGEST_A,
     status: str = "Blocked",
     stopped: str | None = "group 1",
+    implement_failure: str | None = "provider",
     **marks: str,
 ) -> int:
-    """An item that a stop of the job set Blocked, with its stop comment."""
+    """An item that a stop of the job set Blocked, with its stop comment. The class of the stop is
+    `provider`, whose action is `retry`."""
     number = store.seed_issue("fix(cli): one", fields={ItemField.PRIORITY: "P2-Medium"})
     item = store.item(number)
     assert item is not None
@@ -65,6 +82,7 @@ def _blocked(
             ImplementRecordKey.JOB: "devops-cli-runner-1",
             ImplementRecordKey.JOB_STATE: "failed",
             ImplementRecordKey.JOB_DIGEST: digest,
+            ImplementRecordKey.FAILURE: implement_failure,
             **{ImplementRecordKey(key.replace("_", ".", 1)): value for key, value in marks.items()},
         },
     )
@@ -87,9 +105,19 @@ def _bodies(store: InMemoryRoadmapStore, number: int) -> list[str]:
 
 
 def _clear(
-    store: InMemoryRoadmapStore, template: Template, planned: PlannedChanges = NO_PLANS
+    store: InMemoryRoadmapStore,
+    template: Template,
+    planned: PlannedChanges = NO_PLANS,
+    *,
+    limits: DigestLimits = LIMITS,
+    now: datetime = NOW,
 ) -> StopsCleared:
-    return clear_stops(store, planned=planned, digest=template)
+    return clear_stops(store, planned=planned, digest=template, limits=limits, now=now)
+
+
+def _entry(klass: FailureClass, digest: str = DIGEST_A, age: timedelta = timedelta(days=2)) -> str:
+    """The record of one earlier digest clear, `age` before `NOW`."""
+    return encode_clears((DigestClear(failure_class=klass, digest=digest, time=NOW - age),))
 
 
 def test_a_new_digest_clears_the_stop_and_the_comment_names_the_rule_and_both_digests(
@@ -117,7 +145,7 @@ def test_a_clear_removes_the_failure_class_and_the_check_with_the_stop(
 ) -> None:
     number = _blocked(
         store,
-        implement_failure="types",
+        implement_failure="timeout",
         implement_check="static",
         implement_check_log="a.py:3: error: bad",
     )
@@ -414,3 +442,259 @@ def test_an_idle_pass_reads_the_comments_of_each_stop_and_nothing_else(
     cleared = _clear(store, Template(DIGEST_A))
 
     assert (cleared.cleared, reads) == ((), ["comments"] * len(numbers))
+
+
+def test_the_action_table_has_retry_classes_and_others() -> None:
+    """The rule reads the table, so a test holds the classes that the cases below name."""
+    assert {"provider", "timeout", "ci_infra"} <= {c.value for c in RETRY_CLASSES}
+    assert {"plan_defect", "refused_tool", "premise_false", "test"} <= {
+        c.value for c in OTHER_CLASSES
+    }
+
+
+@pytest.mark.parametrize("text", ["implement_comment_stopped", "implement_job_report_stopped"])
+def test_a_stop_comment_names_the_class_rule_and_the_limits_of_the_digest_clear(text: str) -> None:
+    """The stop comments must not promise a clear of every stop by a new runner image."""
+    body = " ".join(getattr(MESSAGES.roadmap, text).split())
+
+    assert "one time" not in body
+    assert "only if a retry can fix the class of the stop" in body
+    assert "roadmap.implement.digest_clears_per_class" in body
+    assert "roadmap.implement.digest_clears_per_item" in body
+
+
+@pytest.mark.parametrize("klass", OTHER_CLASSES)
+def test_a_new_digest_alone_does_not_clear_a_stop_of_a_class_that_a_retry_cannot_fix(
+    store: InMemoryRoadmapStore, klass: FailureClass
+) -> None:
+    number = _blocked(store, implement_failure=klass.value)
+    template = Template(DIGEST_B)
+
+    cleared = _clear(store, template)
+
+    assert (
+        cleared.cleared,
+        _item(store, number).status,
+        template.reads,
+        len(_bodies(store, number)),
+    ) == ((), "Blocked", 0, 1)
+
+
+@pytest.mark.parametrize("klass", OTHER_CLASSES)
+@pytest.mark.parametrize("association", ["OWNER", "MEMBER", "COLLABORATOR"])
+def test_implement_retry_still_clears_a_stop_of_any_class(
+    store: InMemoryRoadmapStore, klass: FailureClass, association: str
+) -> None:
+    number = _blocked(store, implement_failure=klass.value)
+    store.seed_comment(number, "implement: retry", author_association=association)
+
+    cleared = _clear(store, Template(DIGEST_A))
+
+    assert (
+        cleared.cleared,
+        _item(store, number).status,
+        "rule `retry`" in _bodies(store, number)[-1],
+    ) == ((number,), "Ready", True)
+
+
+def test_a_new_digest_does_not_clear_a_stop_with_no_class_on_record(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _blocked(store, implement_failure=None)
+
+    cleared = _clear(store, Template(DIGEST_B))
+
+    assert (cleared.cleared, _item(store, number).status) == ((), "Blocked")
+
+
+def test_a_new_digest_does_not_clear_a_stop_with_a_class_the_table_does_not_know(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _blocked(store, implement_failure="made_up")
+
+    cleared = _clear(store, Template(DIGEST_B))
+
+    assert (cleared.cleared, _item(store, number).status) == ((), "Blocked")
+
+
+@pytest.mark.parametrize("klass", RETRY_CLASSES)
+def test_a_new_digest_clears_a_stop_of_a_retry_class_and_records_the_clear(
+    store: InMemoryRoadmapStore, klass: FailureClass
+) -> None:
+    number = _blocked(store, implement_failure=klass.value)
+
+    cleared = _clear(store, Template(DIGEST_B))
+
+    assert (
+        cleared.cleared,
+        _item(store, number).status,
+        recorded_clears(_item(store, number)),
+    ) == ((number,), "Ready", (DigestClear(failure_class=klass, digest=DIGEST_B, time=NOW),))
+
+
+def test_a_clear_by_retry_keeps_the_record_of_the_clears_and_adds_none(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _blocked(store, implement_digest_clears=_entry(FailureClass.PROVIDER))
+    store.seed_comment(number, "implement: retry", author_association="OWNER")
+
+    _clear(store, Template(DIGEST_B))
+
+    assert [c.digest for c in recorded_clears(_item(store, number))] == [DIGEST_A]
+
+
+@pytest.mark.parametrize("klass", RETRY_CLASSES)
+def test_a_stop_at_the_class_limit_stays_until_implement_retry(
+    store: InMemoryRoadmapStore, klass: FailureClass
+) -> None:
+    number = _blocked(store, implement_failure=klass.value, implement_digest_clears=_entry(klass))
+    template = Template(DIGEST_B)
+
+    held = _clear(store, template)
+    store.seed_comment(number, "implement: retry", author_association="OWNER")
+    retried = _clear(store, template)
+
+    assert (held.cleared, retried.cleared, _item(store, number).status) == ((), (number,), "Ready")
+
+
+def test_a_second_retry_class_clears_below_the_item_limit(store: InMemoryRoadmapStore) -> None:
+    number = _blocked(
+        store, implement_failure="timeout", implement_digest_clears=_entry(FailureClass.PROVIDER)
+    )
+
+    cleared = _clear(store, Template(DIGEST_B))
+
+    assert (
+        cleared.cleared,
+        [c.failure_class.value for c in recorded_clears(_item(store, number))],
+    ) == ((number,), ["provider", "timeout"])
+
+
+def test_a_stop_at_the_item_limit_stays_until_implement_retry(
+    store: InMemoryRoadmapStore,
+) -> None:
+    earlier = encode_clears(
+        tuple(
+            DigestClear(failure_class=klass, digest=DIGEST_A, time=NOW - timedelta(days=2))
+            for klass in (FailureClass.TIMEOUT, FailureClass.CI_INFRA, FailureClass.PARSER)
+        )
+    )
+    number = _blocked(store, implement_failure="provider", implement_digest_clears=earlier)
+    template = Template(DIGEST_B)
+
+    held = _clear(store, template)
+    store.seed_comment(number, "implement: retry", author_association="OWNER")
+    retried = _clear(store, template)
+
+    assert (held.cleared, retried.cleared) == ((), (number,))
+
+
+def test_the_limits_are_values_of_the_pass(store: InMemoryRoadmapStore) -> None:
+    number = _blocked(store, implement_digest_clears=_entry(FailureClass.PROVIDER))
+
+    wide = _clear(store, Template(DIGEST_B), limits=DigestLimits(per_class=2, per_item=3))
+
+    assert (wide.cleared, len(recorded_clears(_item(store, number)))) == ((number,), 2)
+
+
+@pytest.mark.parametrize("limits", [DigestLimits(0, 3), DigestLimits(1, 0)])
+def test_a_limit_of_zero_turns_the_clear_by_digest_off(
+    store: InMemoryRoadmapStore, limits: DigestLimits
+) -> None:
+    number = _blocked(store)
+
+    cleared = _clear(store, Template(DIGEST_B), limits=limits)
+
+    assert (cleared.cleared, _item(store, number).status) == ((), "Blocked")
+
+
+def test_a_clear_by_digest_writes_one_comment_in_a_day_and_records_each_clear(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _blocked(store, implement_failure="timeout")
+    first = _clear(store, Template(DIGEST_B))
+    store.set_field(
+        _item(store, number),
+        ItemField.STATUS,
+        "Blocked",
+        marks={
+            ImplementRecordKey.STOPPED: "group 2",
+            ImplementRecordKey.FAILURE: "ci_infra",
+            ImplementRecordKey.JOB_DIGEST: DIGEST_B,
+        },
+    )
+    comments = len(_bodies(store, number))
+
+    second = _clear(store, Template(DIGEST_A), now=NOW + timedelta(hours=23))
+
+    assert (
+        first.cleared,
+        second.cleared,
+        len(_bodies(store, number)) - comments,
+        len(recorded_clears(_item(store, number))),
+        last_clear_comment(_item(store, number)),
+    ) == ((number,), (number,), 0, 2, NOW)
+
+
+def test_a_clear_by_digest_after_a_day_writes_a_comment_and_sets_the_time(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _blocked(
+        store,
+        implement_failure="timeout",
+        implement_digest_clears=_entry(FailureClass.PROVIDER),
+        implement_digest_clear_commented_at=(NOW - timedelta(hours=24)).isoformat(),
+    )
+    comments = len(_bodies(store, number))
+
+    _clear(store, Template(DIGEST_B))
+
+    assert (len(_bodies(store, number)) - comments, last_clear_comment(_item(store, number))) == (
+        1,
+        NOW,
+    )
+
+
+def test_the_comment_of_a_clear_by_digest_names_the_class_and_the_limits(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _blocked(store, implement_failure="timeout")
+
+    _clear(store, Template(DIGEST_B))
+
+    comment = _bodies(store, number)[-1]
+    assert (
+        "`timeout`" in comment,
+        "1 for each class" in comment,
+        "3 for each item" in comment,
+    ) == (
+        True,
+        True,
+        True,
+    )
+
+
+def test_a_clear_by_retry_is_never_held_back_by_the_comment_cap(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _blocked(
+        store, implement_digest_clear_commented_at=(NOW - timedelta(hours=1)).isoformat()
+    )
+    store.seed_comment(number, "implement: retry", author_association="OWNER")
+
+    _clear(store, Template(DIGEST_A))
+
+    assert "rule `retry`" in _bodies(store, number)[-1]
+
+
+@pytest.mark.parametrize("mark", ["implement_digest_clears", "implement_digest_clear_commented_at"])
+def test_a_record_that_does_not_parse_stops_the_clear_by_digest_but_not_a_retry(
+    store: InMemoryRoadmapStore, mark: str
+) -> None:
+    number = _blocked(store, **{mark: "not valid"})
+    held = _clear(store, Template(DIGEST_B))
+    store.seed_comment(number, "implement: retry", author_association="OWNER")
+
+    retried = _clear(store, Template(DIGEST_B))
+
+    assert (held.cleared, held.failed, retried.cleared) == ((), (), (number,))

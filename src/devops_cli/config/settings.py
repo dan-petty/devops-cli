@@ -99,6 +99,8 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS,
+    DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_CLASS,
+    DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_ITEM,
     DEFAULT_ROADMAP_IMPLEMENT_LADDER_TIERS,
     DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
@@ -897,6 +899,16 @@ class RoadmapImplementConfig(BaseModel):
     repair_rounds: Annotated[int, Variable()] = Field(
         description="The most extra turns that one implementation step gives the agent after its first run: one for each failed `ruff`, `mypy` or hook of the project, and one for each time that tasks stay unticked. The same number bounds the fix steps that the scoped checks before a push cause. When no round is left, the step or the item stops. 0 gives the agent no extra turn",
         default=DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
+        ge=0,
+    )
+    digest_clears_per_class: Annotated[int, Variable()] = Field(
+        description="The most stops of one failure class that a new runner image clears for one item. Only a class whose default action is `retry` clears by digest. A stop at the limit stays Blocked until a trusted `implement: retry` comment. 0 turns the clear by digest off",
+        default=DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_CLASS,
+        ge=0,
+    )
+    digest_clears_per_item: Annotated[int, Variable()] = Field(
+        description="The most stops of all classes that a new runner image clears for one item. A stop at the limit stays Blocked until a trusted `implement: retry` comment. 0 turns the clear by digest off",
+        default=DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_ITEM,
         ge=0,
     )
     ladder: Annotated[dict[str, list[str]], Variable()] = Field(

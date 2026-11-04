@@ -3245,6 +3245,8 @@ CONST_ROADMAP_IMPLEMENT_HEAD_POLLS: Final[int] = 20
 # comment of the job on an item.
 CONST_ROADMAP_IMPLEMENT_RETRY_COMMENT: Final[str] = "implement: retry"
 CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER: Final[str] = "<!-- devops roadmap implement -->"
+# The comment of a clear by digest (#3481): an item gets at most one in this many hours.
+CONST_ROADMAP_STOP_CLEAR_COMMENT_WINDOW_HOURS: Final[int] = 24
 # The runner Job of the Service's `implement` row (#2667). The label that holds a digest of the
 # repository (`owner/name` is no label value), the lines of a Job's log that the report of an ended
 # Job quotes, and the step that a stop by the Service records, as the job records a group.

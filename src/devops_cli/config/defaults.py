@@ -733,6 +733,9 @@ DEFAULT_PYPI_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_ROADMAP_STAGE_LIMIT: int = 3
 # The most extra turns of an implement step (#3043): each fixes a failed check or asks for ticks.
 DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS: int = 3
+# The most stops of one failure class, and of one item, that a new runner image clears (#3481).
+DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_CLASS: int = 1
+DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_ITEM: int = 3
 # The tier of each step class of the model ladder (#3060) when no setting names another: the local
 # gateway group of the implement task. One tier keeps every attempt on the same model until a
 # person names a stronger tier, as `devops-reasoning`, after it.
