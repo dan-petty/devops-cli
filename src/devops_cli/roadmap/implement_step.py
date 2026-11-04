@@ -124,6 +124,7 @@ from devops_cli.roadmap.implement_strays import stray_files
 from devops_cli.roadmap.implement_test_names import lost_since
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.implement_trace import ImplementTrace
+from devops_cli.roadmap.step_commit import step_commit_title
 from devops_cli.roadmap.step_files import (
     CHECKBOXES,
     GroupTask,
@@ -219,12 +220,15 @@ def fix_group(fix: FixRequest, groups: Sequence[TaskGroup]) -> TaskGroup:
 class StepInputs:
     """What one step gives the model: the instructions, the user message, and their tokens.
     `change` is the change folder, and `tasks_md` is the text of its `tasks.md` before the run,
-    read with its line ends. The job writes that text back after each turn. `hooks` is the trusted
-    configuration of the hooks (`trusted_config`), or None when the repository has no hook (#3043)."""
+    read with its line ends. The job writes that text back after each turn. `item_title` is the
+    title of the item, which gives the type and the scope of the step commit. `hooks` is the
+    trusted configuration of the hooks (`trusted_config`), or None when the repository has no hook
+    (#3043)."""
 
     group: TaskGroup
     change: Path
     tasks_md: str
+    item_title: str
     instructions: str
     message: str
     tokens: int
@@ -331,6 +335,7 @@ def build_step_inputs(
         group=chosen,
         change=change,
         tasks_md=raw_tasks,
+        item_title=held.title,
         instructions=instructions,
         message=message,
         tokens=tokens,
@@ -1410,7 +1415,9 @@ def _attempt(
     reason = reason or _unticked_failure(inputs) or ""
     commit = ""
     if not reason:
-        commit, reason = _commit(source, f"{inputs.group.title} (#{item})")
+        commit, reason = _commit(
+            source, step_commit_title(inputs.item_title, inputs.group.title, item)
+        )
     if reason:
         diff, cut, reason = _read_discarded_diff(source, start, reason)
         return outcome.model_copy(update={"reason": reason, "diff": diff, "diff_cut": cut})
@@ -1435,9 +1442,10 @@ def run_step(
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
-    The step commits the group as `<group title> (#<item>)` when every exit check passes, and
-    otherwise resets the checkout to the commit it started at, also when the agent made commits or
-    the run raises. It reads the item once and writes nothing to GitHub. A failed model call ends
+    The step commits the group with the type and the scope of the item, the group title and the
+    issue reference (`step_commit_title`) when every exit check passes. Otherwise it resets the
+    checkout to the commit it started at, also when the agent made commits or the run raises. It
+    reads the item once and writes nothing to GitHub. A failed model call ends
     the step as stopped, with the diff of the work. Raises `RoadmapImplementError` for a step it
     refuses to start, and `AICredentialsError` when the model refuses the key. With `fix`, the
     step makes the failed check pass and ticks no task (`run_fix_step`). `hooks` is the trusted
@@ -1494,8 +1502,9 @@ def run_fix_step(
     trace: ImplementTrace | None = None,
 ) -> StepOutcome:
     """Run the fix of the failed check `fix` for item `item` in the checkout `source`: a step
-    whose group is "Make check <name> pass". It commits as `<that title> (#<item>)` when the
-    exit checks pass, and `tasks.md` is as it was. Its ladder is the `repair` ladder (#3060)."""
+    whose group is "Make check <name> pass". It commits with the type and the scope of the item,
+    that title and the issue reference (`step_commit_title`) when the exit checks pass, and
+    `tasks.md` is as it was. Its ladder is the `repair` ladder (#3060)."""
     return run_step(
         store,
         item=item,

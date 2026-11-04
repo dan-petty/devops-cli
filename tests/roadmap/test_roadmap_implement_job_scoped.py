@@ -178,7 +178,7 @@ def test_an_ast_grep_violation_is_repaired_before_the_first_push(job_world: JobW
     assert (applied.ready, applied.stopped) == ((1,), ())
     assert job_world.origin_log()[-2:] == [
         "docs(openspec): archive the change (#1)",
-        "Make check static pass (#1)",
+        "fix(roadmap): Make check static pass (#1)",
     ]
     assert len(_git_push(job_world)) == 1
     assert _count(job_world, STATIC) == 2

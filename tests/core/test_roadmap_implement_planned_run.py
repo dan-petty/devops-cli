@@ -55,8 +55,8 @@ def test_two_groups_make_a_new_branch_a_draft_a_closing_body_and_a_ready_pull_re
 
     assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
     assert planned_world.origin_log() == [
-        "The first group (#1)",
-        "The second group (#1)",
+        "fix(roadmap): The first group (#1)",
+        "fix(roadmap): The second group (#1)",
         "docs: regenerate the documentation (#1)",
         "docs(openspec): archive the change (#1)",
     ]
@@ -120,7 +120,7 @@ def test_a_group_that_is_ticked_on_main_is_not_run_again(planned_world: JobWorld
     applied = planned_world.run(script)
 
     assert (applied.ready, len(script.seen)) == ((1,), 2)
-    assert planned_world.origin_log()[0] == "The second group (#1)"
+    assert planned_world.origin_log()[0] == "fix(roadmap): The second group (#1)"
 
 
 def test_a_stop_before_the_first_commit_pushes_nothing_and_opens_no_pull_request(
@@ -149,7 +149,7 @@ def test_a_stop_after_a_commit_pushes_the_branch_and_opens_a_draft_that_closes_n
 
     (created,) = planned_world.sent("POST", "pulls")
     status, record = _item(planned_world)
-    assert planned_world.origin_log() == ["The first group (#1)"]
+    assert planned_world.origin_log() == ["fix(roadmap): The first group (#1)"]
     assert (created["draft"], "Closes" in created["body"]) == (True, False)
     assert (status, record["implement.stopped"], record["implement.pr"]) == (
         "Blocked",
@@ -180,8 +180,8 @@ def test_a_retry_takes_over_the_branch_and_the_draft_that_the_stop_left(
         None,
     )
     assert planned_world.origin_log() == [
-        "The first group (#1)",
-        "The second group (#1)",
+        "fix(roadmap): The first group (#1)",
+        "fix(roadmap): The second group (#1)",
         "docs: regenerate the documentation (#1)",
         "docs(openspec): archive the change (#1)",
     ]
@@ -222,8 +222,8 @@ def test_a_failed_archive_stops_a_planned_item_and_pushes_what_passed(
     assert (applied.stopped, record.get("implement.stopped")) == ((1,), "archive")
     assert len(planned_world.sent("POST", "pulls")) == 1
     assert planned_world.origin_log() == [
-        "The first group (#1)",
-        "The second group (#1)",
+        "fix(roadmap): The first group (#1)",
+        "fix(roadmap): The second group (#1)",
         "docs: regenerate the documentation (#1)",
     ]
 

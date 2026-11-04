@@ -275,7 +275,7 @@ def test_a_group_that_the_agent_completes_ends_done_with_one_commit(
         "The group is done.",
         2,
         before,
-        "The first group (#1)",
+        "chore: The first group (#1)",
         [TASKS_PATH, "src/sample.py", "tests/test_sample.py"],
         "",
     )
@@ -2113,7 +2113,7 @@ def test_a_fix_step_commits_the_fix_with_the_tasks_as_they_were(
         FIX_TITLE,
         "",
         before,
-        f"{FIX_TITLE} (#1)",
+        f"chore: {FIX_TITLE} (#1)",
         "src/sample.py",
     )
 

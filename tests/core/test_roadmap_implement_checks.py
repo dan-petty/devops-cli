@@ -67,7 +67,7 @@ def test_a_check_that_fails_once_gets_a_fix_step_with_its_log_and_then_passes(
     applied = job_world.run(script)
 
     assert (applied.ready, applied.stopped) == ((1,), ())
-    assert job_world.origin_log()[-1] == f"Make check {CHECK} pass (#1)"
+    assert job_world.origin_log()[-1] == f"fix(roadmap): Make check {CHECK} pass (#1)"
     first_fix_request = script.seen[4]
     prompt = " ".join(
         str(getattr(part, "content", "")) for m in first_fix_request for part in m.parts
@@ -97,7 +97,7 @@ def test_a_conflict_on_the_rebase_after_the_fix_pushes_the_fix_commit(job_world:
         "Blocked",
         "push",
     )
-    assert job_world.origin_log()[-1] == f"Make check {CHECK} pass (#1)"
+    assert job_world.origin_log()[-1] == f"fix(roadmap): Make check {CHECK} pass (#1)"
     assert job_world.pull.ready_calls == []
 
 
@@ -120,7 +120,7 @@ def test_a_check_that_fails_in_the_last_round_stops_the_item_and_leaves_the_draf
     assert len(script.seen) == 6
     assert job_world.pull.ready_calls == []
     assert f"The check {CHECK} failed." in job_world.issue_comments()[0]
-    assert job_world.origin_log()[-1] == f"Make check {CHECK} pass (#1)"
+    assert job_world.origin_log()[-1] == f"fix(roadmap): Make check {CHECK} pass (#1)"
 
 
 def test_a_fix_step_that_stops_stops_the_item_at_the_fix(job_world: JobWorld) -> None:
@@ -236,7 +236,7 @@ def test_a_check_that_fails_twice_gets_two_fix_steps_and_then_passes(job_world: 
     applied = job_world.run(script)
 
     assert (applied.ready, applied.stopped) == ((1,), ())
-    assert job_world.origin_log()[-2:] == [f"Make check {CHECK} pass (#1)"] * 2
+    assert job_world.origin_log()[-2:] == [f"fix(roadmap): Make check {CHECK} pass (#1)"] * 2
     assert len(script.seen) == 8
 
 
@@ -285,4 +285,4 @@ def test_the_rounds_after_the_push_come_from_the_setting(
     applied = job_world.run(script)
 
     assert (applied.stopped, len(script.seen)) == ((1,), 4)
-    assert job_world.origin_log()[-1] != f"Make check {CHECK} pass (#1)"
+    assert job_world.origin_log()[-1] != f"fix(roadmap): Make check {CHECK} pass (#1)"
