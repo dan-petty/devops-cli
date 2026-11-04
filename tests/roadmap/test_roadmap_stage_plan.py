@@ -34,12 +34,14 @@ from devops_cli.openspec.tool import isolated_openspec
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import StagedChange, StagePlan, parse_filters, plan_item, plan_stage
 from devops_cli.roadmap.stage_change import (
+    CREATED_LINE_TOKENS,
     StageGroup,
     StageProposal,
     StageSpec,
     StageSplit,
     check_proposal,
     closing_keyword_in,
+    measure_groups,
     render_change,
 )
 from devops_cli.roadmap.stage_criteria import StageCriterion
@@ -154,12 +156,15 @@ def test_a_valid_plan_gives_the_branch_the_title_the_body_and_the_files(
     assert change.files == snapshot
 
 
+SAMPLE_PROBE = "The path `src/devops_cli/sample.py` is a file of the staging commit."
+
+
 @pytest.mark.usefixtures("openspec")
 def test_the_model_input_holds_the_probe_of_each_cited_path_and_identifier(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
     seed_stageable(store, body="Fix `keep` in `src/devops_cli/sample.py`, not `gone_function`.")
-    model_fake.answer(make_stage_proposal())
+    model_fake.answer(make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"]))
 
     _plan(store, stage_repo)
 
@@ -170,6 +175,34 @@ def test_the_model_input_holds_the_probe_of_each_cited_path_and_identifier(
         "`gone_function` has no definition at the staging commit. "
         "No commit in the history added or removed its text.",
     ]
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_feasibility_that_quotes_no_probe_line_goes_back_to_the_model_with_the_problem(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    seed_stageable(store, body="Fix the file `src/devops_cli/sample.py`.")
+    quoted = make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"])
+    model_fake.answer(make_stage_proposal(), quoted)
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    assert "quotes no line of the probes" in model_fake.sent[1].messages[-1].content
+    assert len(model_fake.sent) == 2
+    assert len(plan.ready) == 1
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_feasibility_that_quotes_a_probe_line_is_accepted_at_once(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    seed_stageable(store, body="Fix the file `src/devops_cli/sample.py`.")
+    model_fake.answer(make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"]))
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    assert len(model_fake.sent) == 1
+    assert len(plan.ready) == 1
 
 
 @pytest.mark.usefixtures("openspec")
@@ -312,6 +345,38 @@ def test_a_large_file_counts_at_most_the_file_cap_of_the_step(
     assert (plan.over_budget, model_fake.call_count) == ((), 1)
     (group,) = plan.ready[0].groups
     assert group.tokens <= budget
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_group_that_creates_a_large_file_is_counted_over_the_budget(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(update={"creates_lines": {"tests/test_sample.py": 1500}})
+    )
+    model_fake.answer(make_stage_proposal(groups=[group]), StageSplit(groups=[group]))
+
+    plan = _plan(store, stage_repo, step_tokens=40_000)
+
+    (stopped,) = plan.over_budget
+    assert stopped.worst.tokens >= 1500 * CREATED_LINE_TOKENS
+    assert stopped.worst.tokens > 40_000
+
+
+def test_a_created_file_adds_32_tokens_for_each_estimated_line(stage_repo: StageRepo) -> None:
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(update={"creates_lines": {"tests/test_sample.py": 1500}})
+    )
+    small = group.model_copy(update={"creates_lines": {"tests/test_sample.py": 1}})
+
+    (big,) = measure_groups(stage_repo.clone, [group], shared=[])
+    (one,) = measure_groups(stage_repo.clone, [small], shared=[])
+
+    assert big.tokens - one.tokens == (1500 - 1) * CREATED_LINE_TOKENS
 
 
 @pytest.mark.usefixtures("openspec")
@@ -487,9 +552,22 @@ def test_a_group_with_no_changed_file_a_blank_text_or_a_stray_new_path_is_refuse
     assert len(raised.value.errors()) > 0
 
 
+def test_a_created_path_with_no_line_estimate_is_refused_naming_the_path() -> None:
+    with pytest.raises(ValidationError, match=r"tests/test_sample\.py"):
+        StageGroup.model_validate(_group(creates_lines={}))
+
+
+def test_a_line_estimate_for_a_path_that_the_group_does_not_create_is_refused() -> None:
+    with pytest.raises(ValidationError, match=r"src/devops_cli/sample\.py"):
+        StageGroup.model_validate(
+            _group(creates_lines={"tests/test_sample.py": 40, "src/devops_cli/sample.py": 10})
+        )
+
+
 def test_a_group_with_no_reads_is_valid_and_its_line_says_none() -> None:
     group = _group(reads=[], changes=["src/devops_cli/sample.py", "tests/test_sample.py"])
     group["creates"] = ["tests/test_sample.py"]
+    group["creates_lines"] = {"tests/test_sample.py": 40}
 
     tasks = _tasks_of(group)
 
@@ -718,6 +796,43 @@ def test_a_proposal_the_rules_refuse_goes_back_to_the_model_once(
     assert len(plan.ready) == 1
 
 
+@pytest.mark.parametrize("summary", ["plan the form of a task", "Plan: the form of a task"])
+def test_a_summary_that_repeats_plan_in_the_title_goes_back_to_the_model_once(
+    summary: str,
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    model_fake.answer(make_stage_proposal(summary=summary), make_stage_proposal())
+
+    plan = _plan(store, stage_repo)
+
+    first, second = _requests(model_fake)
+    assert "problem" not in first
+    assert "repeats the word `plan`" in second["problem"]
+    (change,) = plan.ready
+    assert change.title == "docs(openspec): plan #1 Stop the job dropping a comment"
+
+
+def test_a_summary_with_the_issue_number_goes_back_and_a_second_one_stops_the_item(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    model_fake.answer(make_stage_proposal(summary="Stop #1 dropping a comment"))
+
+    plan = _plan(store, stage_repo)
+
+    first, second = _requests(model_fake)
+    assert "problem" not in first
+    assert "repeats the issue number `#1`" in second["problem"]
+    assert plan.ready == ()
+
+
 def _naming(path: str, *, verify: str | None = None) -> StageProposal:
     """The sample proposal, with a second changed file `path` that no group creates."""
     group = make_stage_proposal().groups[0]
@@ -804,6 +919,36 @@ def test_a_split_reply_with_a_missing_path_goes_back_to_the_model_once(
     plan = _plan(store, stage_repo, step_tokens=6000)
 
     assert "`src/devops_cli/old.py`" in _requests(model_fake)[2]["problem"]
+    assert model_fake.call_count == 3
+    assert len(plan.ready) == 1
+
+
+@pytest.mark.usefixtures("openspec")
+@pytest.mark.parametrize(
+    "verify",
+    [
+        "uv run pytest tests/test_x.py",
+        "uv run devops ci test tests/x.py` and `git push origin HEAD",
+    ],
+)
+def test_a_split_group_with_a_verify_command_of_a_wrong_form_goes_back_to_the_model_once(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verify: str,
+) -> None:
+    heavy = heavy_group(stage_repo)
+    bad = heavy.model_copy(update={"title": "Bad", **NO_FILES, "verify": verify})
+    model_fake.answer(
+        make_stage_proposal(groups=[heavy]),
+        StageSplit(groups=[bad]),
+        make_stage_proposal(),
+    )
+
+    plan = _plan(store, stage_repo, step_tokens=6000)
+
+    assert "`verify` command" in _requests(model_fake)[2]["problem"]
     assert model_fake.call_count == 3
     assert len(plan.ready) == 1
 
@@ -1184,7 +1329,13 @@ NO_SPEC_PROBLEM = (
 def _changed(title: str, *paths: str) -> StageGroup:
     """A group that changes only `paths`: a behavior group when one is source code, else an other
     group that a command proves."""
-    update: dict[str, Any] = {"title": title, "changes": list(paths), "creates": [], "reads": []}
+    update: dict[str, Any] = {
+        "title": title,
+        "changes": list(paths),
+        "creates": [],
+        "creates_lines": {},
+        "reads": [],
+    }
     if not any(path.startswith("src/") for path in paths):
         update |= {"kind": "other", "test": None, "verify": "uv run devops ci docs"}
     return StageGroup.model_validate({**make_stage_proposal().groups[0].model_dump(), **update})

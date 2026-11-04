@@ -185,7 +185,8 @@ class StageRecordKey(StrEnum):
     tokens, the task group over the budget that stopped the item, which a person decides, and the
     file cap in tokens of the measure that made the stop: a stop under another cap is stale. The
     Service records `stage.ready`, the number of the draft pull request that it has seen leave the
-    draft state (#2865)."""
+    draft state (#2865), and `stage.needs_fix`, the number of the draft that it told about the
+    label `plan/needs-fix` (#3264)."""
 
     BRANCH = "stage.branch"
     PR = "stage.pr"
@@ -194,12 +195,14 @@ class StageRecordKey(StrEnum):
     NEEDS_SPLIT = "stage.needs_split"
     FILE_CAP = "stage.file_cap"
     READY = "stage.ready"
+    NEEDS_FIX = "stage.needs_fix"
 
 
 class ImplementRecordKey(StrEnum):
     """What the implement job records in an Item's job record (#2665): the last task group that
     passed, the commit the job ended on, the branch and the pull request it works on (#2714), the
-    step that stopped the item and the class of its failure (#3065), and the spend of its steps as JSON. A person clears
+    step that stopped the item and the class of its failure (#3065), the spend of its steps as JSON, and the
+    trace of its last run as JSON (#3032). A person clears
     `implement.stopped` with a comment. The Service records the runner Job it made for the item
     and, once the Job ended, its state (#2667), and the digest of the runner image that the template
     named when it made the Job (#2912): the digest of the stop that the Job leaves."""
@@ -211,6 +214,7 @@ class ImplementRecordKey(StrEnum):
     STOPPED = "implement.stopped"
     FAILURE = "implement.failure"
     SPEND = "implement.spend"
+    TRACE = "implement.trace"
     JOB = "implement.job"
     JOB_STATE = "implement.job_state"
     JOB_DIGEST = "implement.job_digest"

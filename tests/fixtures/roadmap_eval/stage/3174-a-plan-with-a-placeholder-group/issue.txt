@@ -1,0 +1,85 @@
+### What happened
+
+At 5 items a day, the first pass over 141 open issues takes about a month, and nothing shows how much is left.
+
+### What should happen
+
+- While items have no check, the row checks `roadmap.alternatives.first_pass_limit` items a round (20 by default). When every open item has a check, it goes back to `roadmap.alternatives.limit` (5) for the rechecks.
+- The model-lane budget and the request budget of the Service hold; the setting and its default are in `configmap.example.yaml`, `defaults.py` and the documents, as other settings are.
+
+### Evidence (2026-10-31)
+
+- `devops_cli_firecrawl_searches_total`: about 4 searches in 7 days. `devops_cli_roadmap_alternatives_total` over 14 days: only the verdict `not-applicable` (about 34 checks), never `covers`, `partly` or `none`.
+- The comments on #886, #1082 and #1329 read "Alternatives check: not-applicable. Tool: none found" with no reason and no queries. #1082 (argo cd points to gitea for git and container registries) is a plausible case for open tools.
+- The row checks at most 5 items a day (`roadmap.alternatives.limit`); `dan-petty/devops-cli` has 141 open issues.
+- The row for `devops-cli` failed 3 rounds on 2026-10-30 at 00:10 UTC (a `UnexpectedModelBehavior` stop, a reply that gave `not-applicable` after a tool ran, and the then-500 GitHub requests an hour budget), so it was suspended. A plan run on 2026-10-31 stopped again on #1359 (`UnexpectedModelBehavior`).
+- AGENTS.md rule 3 says to use an open tool before building. This check is the part of the project that asks the question for every item.
+
+Tracker: #2908 (one issue workflow). Owner request of 2026-10-31: confirm that all issues are vetted for open alternatives.
+
+### Acceptance criteria
+
+- [ ] A test shows 20 items in a round while 25 have no check, and 5 once all have one.
+- [ ] The round respects the Service budget and lane order.
+- [ ] `uv run devops ci` passes.
+
+<!-- devops-roadmap-refine:start -->
+<!-- checked-at: sha=e093ac8d609b8bc972bbbe3658706c24087d45c5 -->
+## Proposed design
+
+### Problem statement
+The alternatives check processes at most 5 items per round. With 141 open issues, the first pass takes about a month. The first pass needs a higher per-round limit so that every open item gets a check in a reasonable time, while rechecks keep the lower limit to protect the model-lane budget.
+
+### Acceptance criteria
+
+### Requirement: First-pass limit applies while items lack a check
+While at least one open item has no check, the alternatives row SHALL check at most roadmap.alternatives.first_pass_limit items per round.
+
+#### Scenario: 25 open items have no check
+- **WHEN** The alternatives row runs and 25 open items have no check
+- **THEN** The row checks at most 20 items in that round
+
+### Requirement: Recheck limit applies when all items have a check
+When every open item has a check, the alternatives row SHALL check at most roadmap.alternatives.limit items per round.
+
+#### Scenario: All open items have a check
+- **WHEN** The alternatives row runs and every open item already has a check
+- **THEN** The row checks at most 5 items in that round
+
+### Requirement: Budget and lane order hold
+The alternatives row SHALL respect the Service model-lane budget and the lane order of the model lane.
+
+#### Scenario: Round runs within the model lane
+- **WHEN** The alternatives row runs in the model lane after refine
+- **THEN** The row does not exceed the model-lane request budget and runs in the lane order
+
+### Requirement: CI passes
+The change SHALL pass uv run devops ci.
+
+#### Scenario: Full CI run
+- **WHEN** A developer runs uv run devops ci on the branch
+- **THEN** All checks pass
+
+### Existing Tool Considered
+No check has run. This change modifies the project's own roadmap service row. No open, maintained tool or library provides a configurable first-pass batch limit for an internal service row. The project builds this in its own code. The written cost is small: add one integer setting to defaults.py and configmap.example.yaml, change the item-selection logic of the alternatives row to pick the limit by whether any open item lacks a check, and write one test. The tokens to build, keep and fix this code are a few hundred tokens of logic and one test, well under one step of the implement job.
+
+### Key questions
+- **What is the name and default of the new setting?**: The setting is roadmap.alternatives.first_pass_limit with a default of 20. It follows the naming pattern of the existing roadmap.alternatives.limit setting. [sources: k8s/README.md:610]
+- **What is the switching logic between the first-pass limit and the recheck limit?**: If at least one open item has no check, the row uses first_pass_limit (20). When every open item has a check, the row uses limit (5). This is a two-state switch based on whether any item still lacks a check. (best practice) [sources: k8s/README.md:610]
+  - Chosen: Two-state switch: any item lacks a check vs all have a check. The body states this logic directly. It is simple, testable, and matches the acceptance criteria.
+  - Rejected: Gradual ramp: reduce the limit as more items get a check. More complex, not stated in the body, and harder to test. Rejected.
+  - Rejected: Always use the higher limit. Would waste the model-lane budget on rechecks. The body explicitly keeps the lower limit for rechecks. Rejected.
+- **Where does the new setting live in the repository?**: The setting and its default go in configmap.example.yaml, defaults.py, and the documents, following the pattern of other roadmap.alternatives settings. [sources: k8s/README.md:610]
+- **Does the model-lane budget and the Service request budget hold with the higher first-pass limit?**: Yes. The body states that the model-lane budget and the request budget of the Service hold. The first-pass limit of 20 is within the existing budget because the budget is per-round, not per-item, and the row already runs within the model lane after refine. [sources: k8s/README.md:610]
+
+### Fit
+Fits in one pull request.
+
+### Suspected block
+None.
+
+### Dependencies
+None.
+<!-- devops-roadmap-refine:end -->
+
+<!-- devops-roadmap-record {"Effort": "Low", "Owner": null, "Priority": "P2-Medium", "Status": "In Review", "Value": "Medium", "implement.branch": "feat/2947-the-first-pass-of-the-alternatives", "implement.failure": null, "implement.job": "devops-cli-runner-20261103-085143-60d9", "implement.job_digest": "sha256:ef0d0ace3359daaf57e2bb1904dd131a16eca5fd52c54ffdcfeb5cf25f2c41f8", "implement.job_state": "succeeded", "implement.spend": "{\"requests\": 49, \"input_tokens\": 3561069, \"output_tokens\": 39451}", "implement.stopped": null, "refine.alternatives_asked": null, "refine.block_paths": null, "refine.blocked_by": null, "refine.body_hash": "1ce5e63dfa2236d8534eca787d3aeddf59d737fac66b0d6c8ae18ffb089fb06b", "refine.failed_body_hash": null, "refine.needs_split": "false", "refine.next_step": "ready", "refine.section_hash": "4d97bbe306d54692719e56cab49de3baee948653d3d3ef81a608050f1705d2ed", "stage.branch": null, "stage.file_cap": null, "stage.groups": null, "stage.needs_split": null, "stage.pr": null, "stage.ready": null, "stage.sha": null} -->

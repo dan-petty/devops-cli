@@ -132,3 +132,35 @@ def test_the_prompt_lists_the_work_that_the_job_does_in_place_of_the_agent() -> 
         )
         if work not in prompt.split("Follow them")[1].split("Work in this order")[0]
     ] == []
+
+
+def test_the_prompt_names_the_plan_request_block_and_five_kinds() -> None:
+    prompt = load_task_prompt(PROMPT)
+
+    assert "plan-request" in prompt
+    for kind in ("path", "command", "task", "premise", "scope"):
+        assert f"`{kind}`" in prompt or f'"{kind}"' in prompt or kind in prompt
+
+
+def test_the_prompt_says_an_agent_asking_for_amendment_changes_no_file_and_ticks_no_task() -> None:
+    prompt = load_task_prompt(PROMPT)
+
+    lowered = prompt.lower()
+    assert "change no file" in lowered or "changes no file" in lowered
+    assert "tick no task" in lowered or "ticks no task" in lowered
+
+
+def test_the_prompt_says_the_job_decides_and_requirement_or_criterion_waits_for_person() -> None:
+    prompt = load_task_prompt(PROMPT)
+
+    lowered = prompt.lower()
+    assert "job decides" in lowered
+    assert "waits for a person" in lowered or "wait for a person" in lowered
+    assert "requirement" in lowered
+    assert "criterion" in lowered
+
+
+def test_the_prompt_no_longer_holds_write_the_file_at_that_path_anyway() -> None:
+    prompt = load_task_prompt(PROMPT)
+
+    assert "write the file at that path anyway" not in prompt

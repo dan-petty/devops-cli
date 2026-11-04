@@ -173,6 +173,7 @@ def _running(github: _GitHub) -> None:
             0,
             "PR #335 satisfies merge readiness: 0 conflicts, 0 unresolved threads.",
         ),
+        (lambda g: g.pull(_pr(body="x" * 1001)), (), 0, "1,001"),
         (
             lambda g: g.pull(_pr(merged=True, state="closed")),
             (),
@@ -272,6 +273,7 @@ def _running(github: _GitHub) -> None:
     ],
     ids=[
         "ready",
+        "long-body",
         "merged",
         "closed",
         "conflicts",

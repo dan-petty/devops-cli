@@ -685,7 +685,11 @@ def implement_requests(
         *within(store.set_marks(target), cond["clear_stop"], repeat=each_item),
         git("rebase", tree, "rebase", "origin/main"),
         other("model", "model_step", "model", repeat=each_group),
+        other("model", "model_split", "model", when=cond["split"], repeat=each_item),
         git("commit", tree, "commit", "-m", _p("title"), repeat=each_group),
+        git("amend", tree, "commit", "-m", _p("title"), when=cond["amend"], repeat=each_group),
+        *within(store.comment(target), cond["return"], repeat=each_item),
+        *within(store.set_field(target, "Status"), cond["return"], repeat=each_item),
         other("process", "docs", "uv", "run", "devops", "docs", "generate", "--sync-readme"),
         git("commit", tree, "commit", "-m", _p("title"), when=cond["docs_commit"]),
         other("process", "archive", "uv", "run", "devops", "openspec", "archive", _p("change")),
@@ -723,13 +727,15 @@ def implement_requests(
 
 
 def explain_requests(
-    repo: str, *, item: int
+    repo: str, *, item: int, trace: bool = False
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap explain` reads, in order (#2911). It makes no write and no model call.
     It reads what the plan of the implement job reads, which covers the clone, the issues, the
     branches and the change folders, and the open issue that a stage item depends on. The
     command reads the heads of `origin` and the plans once and gives them to both jobs, so the list
-    holds each read once."""
+    holds each read once. With `trace` it reads the one issue and nothing else (#3032)."""
+    if trace:
+        return tuple(StoreRequests(repo).issue(f"#{item}")), ()
     reads, _ = implement_requests(repo, item=item)
     blockers = within(
         StoreRequests(repo).issue(_p("blocker")), repeat=MESSAGES.roadmap.plan_repeat["blocker"]

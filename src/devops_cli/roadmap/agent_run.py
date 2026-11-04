@@ -120,7 +120,7 @@ def run_error_message(stopped: AgentRunError) -> str:
     return "".join(char for char in description if char.isprintable()).strip()
 
 
-def _argument_json(call: ToolCallPart) -> str:
+def argument_json(call: ToolCallPart) -> str:
     """The argument of a tool call as compact JSON, with each value under a secret-suggesting name
     hidden. A model writes the argument, so a secret in it would reach the trace comment (#3222).
     `bounded_text` masks the rest by form. An argument that is no JSON object is already wrapped
@@ -181,7 +181,7 @@ class RunTrace:
         self.output_tokens += reply.usage.output_tokens
         for part in reply.parts:
             if isinstance(part, ToolCallPart) and part.tool_name in tools:
-                argument = bounded_text(_argument_json(part))
+                argument = bounded_text(argument_json(part))
                 self.tool_calls.append(
                     ToolCallRecord(
                         part.tool_name, argument[:CONST_ROADMAP_RUN_TRACE_ARGUMENT_CHARS]
@@ -219,6 +219,7 @@ def record_run_spend(
 __all__ = [
     "RunTrace",
     "ToolCallRecord",
+    "argument_json",
     "body_error_text",
     "bounded_text",
     "drain_events",

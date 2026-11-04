@@ -9,6 +9,9 @@ and `verify_form`. A defect that it refuses for another reason than a missing pa
 (#3005): a group that the schema of the reply refuses. `criteria` is the criteria rule (#3019): an
 acceptance criterion of the issue that the `criteria` list leaves out. A recorded plan has no such
 list, so the replay does not judge it, and its defects of this type have the gate `none`.
+`content` is the content rule (#3200): a text of the plan is no placeholder and no text too
+short, and a plan that builds its own code gives its cost. It catches the type `other`.
+`check_proposal` holds the same rule, so the gate `paths` lists its problems too.
 `PENDING_GATES` lists the types for which a gate is planned and not built: a defect of such a type
 is marked `pending`, and it fails nothing. It is empty now (#3208).
 A false premise has no gate here: the job probes it at the staging commit before the plan
@@ -36,10 +39,12 @@ from pydantic import ValidationError
 
 from devops_cli.roadmap.stage_change import (
     GroupKind,
+    StageDecision,
     StageGroup,
     StageProposal,
     StageSpec,
     check_proposal,
+    content_problems,
 )
 from devops_cli.roadmap.stage_criteria import StageCriterion, criterion_problems
 from devops_cli.roadmap.stage_eval_cases import (
@@ -77,8 +82,15 @@ class PlanUnderTest:
         groups = [_group_of(raw, problems) for raw in case.groups]
         specs = [spec for raw in case.plan["specs"] if (spec := _spec_of(raw, problems))]
         criteria = [StageCriterion.model_validate(raw) for raw in case.plan.get("criteria", [])]
+        decisions = [StageDecision.model_validate(raw) for raw in case.plan.get("decisions", [])]
         proposal = StageProposal.model_construct(
-            **{**case.plan, "specs": specs, "groups": groups, "criteria": criteria}
+            **{
+                **case.plan,
+                "specs": specs,
+                "groups": groups,
+                "criteria": criteria,
+                "decisions": decisions,
+            }
         )
         return cls(
             proposal,
@@ -153,6 +165,14 @@ def _criteria_gate(plan: PlanUnderTest) -> list[str]:
     return criterion_problems(plan.proposal.criteria, plan.issue_body, len(plan.proposal.groups))
 
 
+def _content_gate(plan: PlanUnderTest) -> list[str]:
+    """The content rule (#3200): a text of the plan is no placeholder and no word that is too
+    short, and a plan that builds its own code gives its cost. `check_proposal` runs the same
+    function. The replay reads no git, so it holds no probe lines and does not judge the quote of
+    `feasibility`."""
+    return content_problems(plan.proposal)
+
+
 def _kind_gate(plan: PlanUnderTest) -> list[str]:
     return list(plan.schema_problems)
 
@@ -161,6 +181,7 @@ GATES: Final[tuple[Gate, ...]] = (
     Gate(GateName.PATHS, "#3010", DefectType.MISSING_PATH, _path_gate),
     Gate(GateName.KIND, "#3005", DefectType.CONTRIVED_TEST, _kind_gate),
     Gate(GateName.CRITERIA, "#3019", DefectType.CRITERION_DROPPED, _criteria_gate),
+    Gate(GateName.CONTENT, "#3200", DefectType.OTHER, _content_gate),
 )
 # The gates that are not built yet, by the type of defect they will catch, with the issue that
 # plans each. #3012, #3013, #3015 and #3017 built theirs, and the replay judged the defects of

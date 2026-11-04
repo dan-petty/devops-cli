@@ -43,14 +43,15 @@ worktree, which the job removes; the new owner starts from the branch on `origin
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import textwrap
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, NoReturn
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.config.commands import BIN_DEVOPS, BIN_GIT, BIN_UV
@@ -76,6 +77,7 @@ from devops_cli.exceptions import (
     GitOperationError,
     RoadmapImplementError,
 )
+from devops_cli.exceptions.roadmap import OverWindowError
 from devops_cli.git.worktree_add import add_worktree
 from devops_cli.github.check_verdict import PRCheckItem, read_check_runs
 from devops_cli.github.session import get_github_session
@@ -85,6 +87,7 @@ from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import default_branch, git
 from devops_cli.roadmap.failure import (
     FailureAction,
+    FailureClass,
     FailureEvidence,
     classify_failure,
     failure_lines,
@@ -92,6 +95,14 @@ from devops_cli.roadmap.failure import (
 )
 from devops_cli.roadmap.fence import code_fence
 from devops_cli.roadmap.implement import GIT_OPERATION, ImplementPlan, ImplementTarget
+from devops_cli.roadmap.implement_amend import (
+    Amendment,
+    Applied,
+    PlanRequest,
+    _record_amendment,
+    judge,
+    parse_request,
+)
 from devops_cli.roadmap.implement_hooks import install_hook_environments, trusted_config
 from devops_cli.roadmap.implement_pull import (
     Answer,
@@ -118,15 +129,34 @@ from devops_cli.roadmap.implement_step import (
     run_fix_step,
     run_step,
 )
+from devops_cli.roadmap.implement_trace import (
+    ImplementTrace,
+    SummaryRow,
+    last_failing_command,
+    summary_table,
+)
+from devops_cli.roadmap.pull_form import title_problems
 from devops_cli.roadmap.pull_labels import (
     add_pull_labels,
     declared_labels,
     remove_pull_labels,
     stale_labels,
 )
-from devops_cli.roadmap.stage_change import closing_keyword_in, delivery_title, safe_text
+from devops_cli.roadmap.return_item import apply_return, plan_return
+from devops_cli.roadmap.stage_change import (
+    closing_keyword_in,
+    criteria_section,
+    delivery_title,
+    group_text,
+    measure_groups,
+    safe_text,
+)
+from devops_cli.roadmap.stage_criteria import StageCriterion, criterion_problems
+from devops_cli.roadmap.stage_form import form_problems
+from devops_cli.roadmap.stage_paths import StagedTree, path_problems
+from devops_cli.roadmap.stage_split import ask_split
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status
-from devops_cli.roadmap.step_files import parse_task_groups, section_text
+from devops_cli.roadmap.step_files import TaskGroup, parse_task_groups, section_text
 from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField, RoadmapStore
 from devops_cli.roadmap.title_labels import title_labels
 from devops_cli.security.sanitizer import mask_secrets
@@ -140,17 +170,19 @@ class _Mark(NamedTuple):
     outcomes: int
     scoped: int
     notes: int
+    amendments: int = 0
 
 
-_NOTHING_YET = _Mark(0, 0, 0)
+_NOTHING_YET = _Mark(0, 0, 0, 0)
 
 
 class _StopError(Exception):
     """An item stops: the job's own signal, caught where the item's run ends. `push` says whether
     the commits that passed are worth pushing. `diff` is the diff of the work that a stopped step
     discarded, and `diff_cut` says that it was cut (#2721). `status` is the exit status of the command
-    that failed, `check` the name of the check that failed, and `repair_rounds` the fix rounds that
-    the job ran before it stopped: they are the evidence of the failure class (#3065)."""
+    that failed, `check` the name of the check that failed, `repair_rounds` the fix rounds that
+    the job ran before it stopped, and `tier_changes` the tier moves of the step: they are the
+    evidence of the failure class (#3065, #3060)."""
 
     def __init__(
         self,
@@ -164,6 +196,9 @@ class _StopError(Exception):
         status: int | None = None,
         check: str = "",
         repair_rounds: int = 0,
+        tier_changes: int = 0,
+        failure_class: FailureClass | None = None,
+        action_left: FailureAction | None = None,
     ) -> None:
         super().__init__(reason)
         self.step = step
@@ -175,6 +210,9 @@ class _StopError(Exception):
         self.status = status
         self.check = check
         self.repair_rounds = repair_rounds
+        self.tier_changes = tier_changes
+        self.failure_class = failure_class
+        self.action_left = action_left
 
 
 class _ClaimedError(Exception):
@@ -194,6 +232,7 @@ class _Ended(StrEnum):
     READY = "ready"
     STOPPED = "stopped"
     YIELDED = "yielded"
+    RETURNED = "returned"
 
 
 @dataclass(frozen=True)
@@ -216,10 +255,12 @@ class ImplementApplied:
     stopped: tuple[int, ...] = ()
     failed: tuple[ImplementFailure, ...] = ()
     yielded: tuple[int, ...] = ()
+    returned: tuple[int, ...] = ()
 
 
 def _stopped_by(step: str, outcome: StepOutcome) -> _StopError:
-    """The stop of an item for a step that stopped, with the diff of its discarded work."""
+    """The stop of an item for a step that stopped, with the diff of its discarded work and the
+    tier moves that the step made before it stopped."""
     return _StopError(
         step,
         outcome.reason,
@@ -227,6 +268,7 @@ def _stopped_by(step: str, outcome: StepOutcome) -> _StopError:
         diff=outcome.diff,
         diff_cut=outcome.diff_cut,
         repair_rounds=outcome.repair_rounds,
+        tier_changes=max(0, len(outcome.tiers) - 1),
     )
 
 
@@ -292,6 +334,49 @@ def _worktree(source: Path, target: ImplementTarget) -> Iterator[Path]:
         git(source, "branch", "-D", target.branch, operation=GIT_OPERATION)
 
 
+def _parse_tasks_criteria(tasks_md: str) -> list[StageCriterion]:
+    if "## Criteria" not in tasks_md:
+        return []
+    section = tasks_md.partition("## Criteria\n\n")[2].partition("\n\n## ")[0]
+    criteria: list[StageCriterion] = []
+    for line in section.splitlines():
+        line = line.strip()
+        if not line.startswith("- "):
+            continue
+        content = line[2:].strip()
+        if content.startswith("Group "):
+            num_part, _, text = content[6:].partition(":")
+            if num_part.isdigit():
+                criteria.append(StageCriterion(group=int(num_part), criterion=text.strip()))
+        elif content.startswith("Pending person:"):
+            rest = content[15:].strip()
+            crit, _, reason = rest.partition(",")
+            criteria.append(
+                StageCriterion(
+                    group="pending-person",
+                    criterion=crit.strip(),
+                    reason=reason.strip(),
+                )
+            )
+    return criteria
+
+
+def _replace_criteria_section(tasks_md: str, new_criteria_sec: str) -> str:
+    if "## Criteria" in tasks_md:
+        start_idx = tasks_md.index("## Criteria")
+        end_idx = tasks_md.find("\n## ", start_idx + len("## Criteria"))
+        if end_idx != -1:
+            return tasks_md[:start_idx] + new_criteria_sec + tasks_md[end_idx + 1 :]
+        return tasks_md[:start_idx] + new_criteria_sec
+    if "## Workflow follow-up" in tasks_md:
+        wf_idx = tasks_md.index("## Workflow follow-up")
+        return tasks_md[:wf_idx] + new_criteria_sec + tasks_md[wf_idx:]
+    if "## Amendments" in tasks_md:
+        am_idx = tasks_md.index("## Amendments")
+        return tasks_md[:am_idx] + new_criteria_sec + tasks_md[am_idx:]
+    return tasks_md.rstrip() + "\n\n" + new_criteria_sec
+
+
 @dataclass
 class _ItemRun:
     """The run of one item in its worktree."""
@@ -303,20 +388,39 @@ class _ItemRun:
     model: Any
     window: int
     default: str
-    step: str = ""
+    model_for_tier: Callable[[str], Any] | None = None
+    splitter: Any = None
+    split_done: bool = False
     change: str = ""
     outcomes: list[StepOutcome] = field(default_factory=list)
+    amendments: list[Amendment] = field(default_factory=list)
     # Every run of a scoped check (#3043), in order, the failed runs too, and the notes that say why
     # the tests check was narrower than the changed files.
     scoped: list[ScopedResult] = field(default_factory=list)
     scoped_notes: list[str] = field(default_factory=list)
+    # The trace of the run (#3032): the events of the steps and of the commands of the job.
+    trace: ImplementTrace = field(default_factory=ImplementTrace)
+    _step: str = field(default="", init=False, repr=False)
     # The draft pull request: the target's, or for a Planned item the one `_publish` opens.
     pull: int | None = field(init=False)
+    last_comment_mark: _Mark = field(default=_NOTHING_YET, init=False)
+    returned: bool = False
 
     def __post_init__(self) -> None:
         self.pull = self.target.pull
+        self.last_comment_mark = _NOTHING_YET
 
     # ── Small helpers ──
+
+    @property
+    def step(self) -> str:
+        """The step that runs now. It labels the events of the trace."""
+        return self._step
+
+    @step.setter
+    def step(self, value: str) -> None:
+        self._step = value
+        self.trace.step = value
 
     @property
     def number(self) -> int:
@@ -340,11 +444,22 @@ class _ItemRun:
         return held
 
     def _spend(self) -> str:
+        """The spend of every step, itemized under the tier that served it (#3060)."""
+        tiers: dict[str, dict[str, int]] = {}
+        for outcome in self.outcomes:
+            for tier, spend in outcome.tier_spend.items():
+                held = tiers.setdefault(
+                    tier, {"requests": 0, "input_tokens": 0, "output_tokens": 0}
+                )
+                held["requests"] += spend.requests
+                held["input_tokens"] += spend.input_tokens
+                held["output_tokens"] += spend.output_tokens
         return json.dumps(
             {
                 "requests": sum(o.requests for o in self.outcomes),
                 "input_tokens": sum(o.input_tokens for o in self.outcomes),
                 "output_tokens": sum(o.output_tokens for o in self.outcomes),
+                "tiers": tiers,
             }
         )
 
@@ -354,7 +469,9 @@ class _ItemRun:
             "sha": ImplementRecordKey.SHA,
             "spend": ImplementRecordKey.SPEND,
         }
-        self.store.set_marks(self._fresh(), {keys[name]: value for name, value in marks.items()})
+        written: dict[Any, str | None] = {keys[name]: value for name, value in marks.items()}
+        written[ImplementRecordKey.TRACE] = self.trace.encode()
+        self.store.set_marks(self._fresh(), written)
 
     def _program(self, argv: Sequence[str]) -> None:
         """Run a command of the project in the worktree, outside any agent shell. Raises
@@ -365,8 +482,10 @@ class _ItemRun:
         try:
             done = run_subprocess(list(argv), cwd=self.path, quiet=True, timeout=limit)
         except subprocess.TimeoutExpired as exc:
+            self.trace.check(shown, None)
             reason = texts.implement_stop_program_timeout.format(command=shown, seconds=limit)
             raise _StopError(self.step, reason) from exc
+        self.trace.check(shown, done.returncode)
         if done.returncode != 0:
             output = _tail(f"{done.stdout or ''}{done.stderr or ''}")
             reason = texts.implement_stop_program_failed.format(
@@ -392,6 +511,8 @@ class _ItemRun:
         """Run the item from the first step to a ready pull request. Raises `_StopError`."""
         self._start()
         self._groups()
+        if self.returned:
+            return
         self._finish_change()
         self._require_unclaimed(MESSAGES.roadmap.implement_boundary_end)
         pull = self._push()
@@ -401,7 +522,10 @@ class _ItemRun:
 
     def _start(self) -> None:
         self.step = MESSAGES.roadmap.implement_step_names["rebase"]
-        marks: dict[Any, str | None] = {ImplementRecordKey.BRANCH: self.branch}
+        marks: dict[Any, str | None] = {
+            ImplementRecordKey.BRANCH: self.branch,
+            ImplementRecordKey.TRACE: None,
+        }
         if self.pull is not None:
             marks[ImplementRecordKey.PR] = str(self.pull)
         if self.target.retry:
@@ -455,30 +579,265 @@ class _ItemRun:
         if owner is not None:
             raise _ClaimedError(owner, boundary)
 
+    def _return_premise(self, request: PlanRequest) -> None:
+        texts = MESSAGES.roadmap
+        evidence = mask_secrets(request.evidence.strip())[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS]
+        comment = texts.implement_comment_premise_failed.format(
+            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+            evidence=evidence,
+        )
+        apply_return(self.store, plan_return(self.store, self.number, comment, self.repo))
+        self.store.set_marks(
+            self._fresh(),
+            {
+                ImplementRecordKey.GROUP: None,
+                ImplementRecordKey.SHA: None,
+                ImplementRecordKey.BRANCH: None,
+                ImplementRecordKey.PR: None,
+            },
+        )
+        self.returned = True
+
+    def _raise_question(self, outcome: StepOutcome, reason: str) -> NoReturn:
+        raise _StopError(
+            self.step,
+            reason,
+            outcome.last_message,
+            diff=outcome.diff,
+            diff_cut=outcome.diff_cut,
+            failure_class=FailureClass.PLAN_DEFECT,
+            action_left=FailureAction.WAIT,
+        )
+
+    def _handle_request_stop(
+        self,
+        group_number: int,
+        request: PlanRequest,
+        outcome: StepOutcome,
+        tasks_text: str,
+        tasks_file: Path,
+        amended_groups: set[int],
+    ) -> bool:
+        texts = MESSAGES.roadmap
+        if request.kind == "premise":
+            if request.evidence.strip():
+                self._return_premise(request)
+                return True
+            self._raise_question(outcome, texts.implement_stop_question_empty_premise)
+        if group_number in amended_groups:
+            self._raise_question(
+                outcome,
+                texts.implement_stop_question_second.format(
+                    group=group_number, defect=request.defect, evidence=request.evidence
+                ),
+            )
+        if request.kind == "scope":
+            self._raise_question(
+                outcome,
+                texts.implement_stop_question_scope.format(
+                    defect=request.defect, evidence=request.evidence
+                ),
+            )
+        return self._apply_or_refuse(
+            group_number, request, outcome, tasks_text, tasks_file, amended_groups
+        )
+
+    def _apply_or_refuse(
+        self,
+        group_number: int,
+        request: PlanRequest,
+        outcome: StepOutcome,
+        tasks_text: str,
+        tasks_file: Path,
+        amended_groups: set[int],
+    ) -> bool:
+        tree = StagedTree.read(self.path, operation=GIT_OPERATION)
+        judged = judge(request, tasks_text, tree)
+        if isinstance(judged, Applied):
+            tasks_file.write_text(judged.tasks_md, encoding="utf-8")
+            self._commit_if_changed(
+                f"docs(openspec): amend the plan of group {group_number} (#{self.number})"
+            )
+            self.amendments.append(judged.amendment)
+            amended_groups.add(group_number)
+            return False
+        texts = MESSAGES.roadmap
+        self._raise_question(
+            outcome,
+            texts.implement_stop_question_refused.format(
+                rule=judged.reason, defect=request.defect, evidence=request.evidence
+            ),
+        )
+
+    def _handle_over_window(
+        self,
+        group: TaskGroup,
+        err: OverWindowError,
+        change: Path,
+        tasks_text: str,
+        tasks_file: Path,
+        tasks: list[TaskGroup],
+    ) -> None:
+        texts = MESSAGES.roadmap
+        if self.splitter is None:
+            raise _StopError(
+                self.step,
+                texts.implement_stop_split_missing,
+                failure_class=FailureClass.PLAN_DEFECT,
+                action_left=FailureAction.WAIT,
+            )
+        if self.split_done:
+            raise _StopError(
+                self.step,
+                texts.implement_stop_split_second,
+                failure_class=FailureClass.PLAN_DEFECT,
+                action_left=FailureAction.WAIT,
+            )
+
+        current_criteria = _parse_tasks_criteria(tasks_text)
+        asked = {
+            "number": self.number,
+            "title": self.target.item.title,
+            "budget": err.limit,
+            "groups": [
+                {
+                    "number": group.number,
+                    "title": group.title,
+                    "tokens": err.measured,
+                    "over_budget": True,
+                    "text": group.text,
+                }
+            ],
+            "criteria": [c.model_dump() for c in current_criteria],
+        }
+        split = ask_split(self.splitter, asked)
+        self.split_done = True
+
+        form_probs = form_problems(split.groups)
+        if form_probs:
+            raise _StopError(
+                self.step,
+                texts.implement_stop_split_invalid.format(problems=" ".join(form_probs)),
+                failure_class=FailureClass.PLAN_DEFECT,
+                action_left=FailureAction.WAIT,
+            )
+
+        tree = StagedTree.read(self.path, operation=GIT_OPERATION)
+        path_probs = path_problems(split.groups, tree)
+        if path_probs:
+            raise _StopError(
+                self.step,
+                texts.implement_stop_split_invalid.format(problems=" ".join(path_probs)),
+                failure_class=FailureClass.PLAN_DEFECT,
+                action_left=FailureAction.WAIT,
+            )
+
+        new_total_groups = len(tasks) - 1 + len(split.groups)
+        crit_probs = criterion_problems(split.criteria, self.target.item.body, new_total_groups)
+        if crit_probs:
+            raise _StopError(
+                self.step,
+                texts.implement_stop_split_invalid.format(problems=" ".join(crit_probs)),
+                failure_class=FailureClass.PLAN_DEFECT,
+                action_left=FailureAction.WAIT,
+            )
+
+        change_docs = [
+            (change / name).read_text(encoding="utf-8")
+            for name in ("proposal.md", "design.md")
+            if (change / name).exists()
+        ]
+        shared = [self.target.item.body, *change_docs]
+        measured = measure_groups(self.path, split.groups, shared=shared)
+        over = next((m for m in measured if m.tokens > err.limit), None)
+        if over is not None:
+            raise _StopError(
+                self.step,
+                texts.implement_stop_split_over_budget.format(
+                    title=over.group.title, tokens=over.tokens
+                ),
+                failure_class=FailureClass.PLAN_DEFECT,
+                action_left=FailureAction.WAIT,
+            )
+
+        shift = len(split.groups) - 1
+        new_md = tasks_text
+        for g in reversed(tasks):
+            if g.number > group.number:
+                new_num = g.number + shift
+                renumbered_text = re.sub(
+                    rf"^## {g.number}\.", f"## {new_num}.", g.text, count=1, flags=re.MULTILINE
+                )
+                renumbered_text = re.sub(
+                    rf"- \[([ xX])\] {g.number}\.(\d+)", rf"- [\1] {new_num}.\2", renumbered_text
+                )
+                new_md = new_md.replace(g.text, renumbered_text, 1)
+
+        split_rendered = "\n\n".join(
+            group_text(group.number + i, sg).rstrip() for i, sg in enumerate(split.groups)
+        )
+        new_md = new_md.replace(group.text, split_rendered, 1)
+
+        if split.criteria:
+            new_crit = criteria_section(split.criteria)
+            new_md = _replace_criteria_section(new_md, new_crit)
+
+        split_amendment = Amendment(
+            group=group.number,
+            kind="split",
+            defect="group over the window limit",
+            evidence=f"{err.measured} tokens > {err.limit} tokens",
+            old=f"group {group.number}",
+            new=f"groups {group.number} to {group.number + len(split.groups) - 1}",
+        )
+        new_md = _record_amendment(new_md, split_amendment.bullet())
+        self.amendments.append(split_amendment)
+        tasks_file.write_text(new_md, encoding="utf-8")
+        self._commit_if_changed(f"docs(openspec): split group {group.number} (#{self.number})")
+
     def _groups(self) -> None:
         change = self._active_change()
         if change is None:
             return
         self.change = change.name
-        tasks = parse_task_groups((change / "tasks.md").read_text(encoding="utf-8"))
-        for group in tasks:
-            if all(task.ticked for task in group.tasks):
-                continue
+        tasks_file = change / "tasks.md"
+        amended_groups: set[int] = set()
+
+        while True:
+            tasks_text = tasks_file.read_text(encoding="utf-8")
+            tasks = parse_task_groups(tasks_text)
+            group = next((g for g in tasks if not all(task.ticked for task in g.tasks)), None)
+            if group is None:
+                break
             self.step = _step_label(group.number)
             self._require_unclaimed(
                 MESSAGES.roadmap.implement_boundary_group.format(group=group.number)
             )
-            outcome = run_step(
-                self.store,
-                item=self.number,
-                group=group.number,
-                source=self.path,
-                model=self.model,
-                window=self.window,
-                hooks=self._hooks_config(),
-            )
+            try:
+                outcome = run_step(
+                    self.store,
+                    item=self.number,
+                    group=group.number,
+                    source=self.path,
+                    model=self.model,
+                    window=self.window,
+                    hooks=self._hooks_config(),
+                    model_for_tier=self.model_for_tier,
+                    trace=self.trace,
+                )
+            except OverWindowError as err:
+                self._handle_over_window(group, err, change, tasks_text, tasks_file, tasks)
+                continue
             self.outcomes.append(outcome)
             if outcome.status is StepStatus.STOPPED:
+                request = parse_request(outcome.last_message)
+                if request is not None:
+                    returned = self._handle_request_stop(
+                        group.number, request, outcome, tasks_text, tasks_file, amended_groups
+                    )
+                    if returned:
+                        return
+                    continue
                 raise _stopped_by(self.step, outcome)
             self._record(group=str(group.number), sha=outcome.commit)
 
@@ -524,6 +883,8 @@ class _ItemRun:
         checks = scoped_checks(self.default, tests.paths, config=self._hooks_config())
         results = run_scoped_checks(self.path, checks)
         self.scoped.extend(results)
+        for result in results:
+            self.trace.check(result.command, result.status)
         return next((result for result in results if not result.passed), None)
 
     def _scoped_checks(self) -> None:
@@ -573,11 +934,12 @@ class _ItemRun:
         the archive. A draft that GitHub refuses takes the branch off `origin` again, so no branch
         stays without a pull request, and stops the item with nothing left to push."""
         texts = MESSAGES.roadmap
+        title = self._delivery_title()
         self._git("push", "-u", "origin", self.branch)
         try:
             created = get_github_session().client.create_draft_pull(
                 self.repo,
-                title=self._delivery_title(),
+                title=title,
                 body=texts.implement_pull_body_draft.format(number=self.number),
                 head=self.branch,
                 base=self.default,
@@ -594,9 +956,21 @@ class _ItemRun:
 
     def _delivery_title(self) -> str:
         """The title of the pull request: the title of the issue, with a scope that
-        `.github/labels.yml` declares on the default branch and no other (#2800)."""
+        `.github/labels.yml` declares on the default branch and no other (#2800). The check
+        `Semantic PR title` counts the summary in UTF-16 units, so a long summary stops the item
+        before the job writes a title that the check refuses (#3292)."""
         declared = declared_labels(self.store, ref=None)
-        return delivery_title(self.target.item.title, declared)
+        title = delivery_title(self.target.item.title, declared)
+        problems = title_problems(title, declared)
+        if problems:
+            raise _StopError(
+                self.step,
+                MESSAGES.roadmap.implement_stop_title_refused.format(
+                    problems=" ".join(problems), title=title
+                ),
+                push=False,
+            )
+        return title
 
     def _archived_name(self) -> str:
         """The folder `openspec archive` made for the change: `<date>-<issue>-<slug>`."""
@@ -645,21 +1019,26 @@ class _ItemRun:
             )
 
     def _mark(self) -> _Mark:
-        """How many outcomes, scoped runs and notes there are now, for `_comment`."""
-        return _Mark(len(self.outcomes), len(self.scoped), len(self.scoped_notes))
+        """How many outcomes, scoped runs, notes and amendments there are now, for `_comment`."""
+        return _Mark(
+            len(self.outcomes), len(self.scoped), len(self.scoped_notes), len(self.amendments)
+        )
 
     def _comment(self, pull: int, since: _Mark) -> None:
-        """Comment on the pull request with the steps, the scoped runs and the notes that came
-        after `since`: the repair rounds are in the trace (#3043)."""
+        """Comment on the pull request with the table of the steps, the amendments, the scoped
+        runs and the notes that came after `since`: the repair rounds are in the attempts of the
+        table (#3043)."""
         texts = MESSAGES.roadmap
-        lines = [
-            *(self._outcome_line(outcome) for outcome in self.outcomes[since.outcomes :]),
-            *self._scoped_lines(since),
-        ]
+        table = summary_table(self._row(outcome) for outcome in self.outcomes[since.outcomes :])
+        amend_lines = [amendment.line() for amendment in self.amendments[since.amendments :]]
+        scoped_lines = self._scoped_lines(since)
+        lines = "\n".join([*amend_lines, *scoped_lines])
+        body = "\n\n".join(part for part in (table, lines) if part)
         comment = texts.implement_pull_comment.format(
-            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, lines="\n".join(lines) or "-"
+            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, lines=body or "-"
         )
         get_github_session().client.comment_on_pull(self.repo, pull, comment)
+        self.last_comment_mark = self._mark()
 
     def _scoped_lines(self, since: _Mark) -> list[str]:
         """One line for each run of a scoped check after `since`: its name, its result and its
@@ -681,17 +1060,40 @@ class _ItemRun:
         ]
         return [*runs, *notes]
 
-    def _outcome_line(self, outcome: StepOutcome) -> str:
-        texts = MESSAGES.roadmap
-        commit = texts.implement_pull_comment_commit.format(commit=outcome.commit[:12])
-        return texts.implement_pull_comment_line.format(
-            step=_step_label(outcome.group) if outcome.group else texts.implement_step_fix,
-            title=outcome.title,
+    def _row(self, outcome: StepOutcome) -> SummaryRow:
+        """The row of the table for a step: its attempts are the first turn and the repair
+        rounds, and its last failing command is in the trace."""
+        step = _step_label(outcome.group) if outcome.group else MESSAGES.roadmap.implement_step_fix
+        return SummaryRow(
+            step=step,
             status=outcome.status.value,
-            requests=outcome.requests,
-            rounds=outcome.repair_rounds,
-            commit=commit if outcome.commit else "",
+            attempts=1 + outcome.repair_rounds,
+            tokens_in=outcome.input_tokens,
+            tokens_out=outcome.output_tokens,
+            command=last_failing_command(self.trace.events, step),
         )
+
+    def _stop_table(self, stop: _StopError) -> str:
+        """The table of every step of the run for the stop comment. The step that stopped is in
+        it, with the name of the failed check of the pull request when no command failed. A stop
+        that has no outcome, as a command of the job, a push or the checks, gets a row of its
+        own, with the repair rounds of the stop as its attempts."""
+        rows = [self._row(outcome) for outcome in self.outcomes]
+        failing = last_failing_command(self.trace.events, stop.step, stop.check)
+        if rows and rows[-1].step == stop.step and self.outcomes[-1].status is StepStatus.STOPPED:
+            rows[-1] = replace(rows[-1], command=failing)
+        else:
+            rows.append(
+                SummaryRow(
+                    step=stop.step,
+                    status=StepStatus.STOPPED.value,
+                    attempts=1 + stop.repair_rounds,
+                    tokens_in=0,
+                    tokens_out=0,
+                    command=failing,
+                )
+            )
+        return summary_table(rows)
 
     def _checks(self, pull: int) -> None:
         """Watch the checks. A failed check gets a fix step, a push and a new watch, at most
@@ -730,6 +1132,8 @@ class _ItemRun:
             model=self.model,
             window=self.window,
             hooks=self._hooks_config(),
+            model_for_tier=self.model_for_tier,
+            trace=self.trace,
         )
         self.outcomes.append(outcome)
         if outcome.status is StepStatus.STOPPED:
@@ -772,6 +1176,7 @@ class _ItemRun:
             ImplementRecordKey.SHA: head,
             ImplementRecordKey.PR: str(pull),
             ImplementRecordKey.SPEND: self._spend(),
+            ImplementRecordKey.TRACE: self.trace.encode(),
         }
         self.store.set_field(
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_REVIEW, marks=marks
@@ -816,24 +1221,38 @@ class _ItemRun:
         """Push what passed, tell the item why, set it Blocked, and record the step."""
         texts = MESSAGES.roadmap
         note = self._push_passed() if stop.push else ""
+        if self.pull is not None and self.amendments:
+            self._comment(self.pull, self.last_comment_mark)
         last = safe_text(mask_secrets(stop.last_message))[
             :CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS
         ]
         reason = textwrap.indent(
             mask_secrets(stop.reason).strip()[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS], "    "
         )
-        klass = classify_failure(
-            FailureEvidence(
-                text=stop.reason,
-                exit_status=stop.status,
-                check=stop.check,
-                agent=stop.last_message,
+        klass = (
+            stop.failure_class
+            if stop.failure_class is not None
+            else classify_failure(
+                FailureEvidence(
+                    text=stop.reason,
+                    exit_status=stop.status,
+                    check=stop.check,
+                    agent=stop.last_message,
+                )
             )
         )
+        taken: FailureAction | None = None
+        if stop.tier_changes:
+            taken = FailureAction.CHANGE_TIER
+        elif stop.repair_rounds:
+            taken = FailureAction.REPAIR
+        elif any(_step_label(a.group) == stop.step for a in self.amendments):
+            taken = FailureAction.AMEND
+        left = stop.action_left if stop.action_left is not None else left_action(klass, taken)
         print_muted(
             texts.implement_failure_trace.format(
                 failure_class=klass.value,
-                left=left_action(klass, FailureAction.REPAIR if stop.repair_rounds else None).value,
+                left=left.value,
             )
         )
         self.store.comment(
@@ -841,7 +1260,14 @@ class _ItemRun:
             texts.implement_comment_stopped.format(
                 marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
                 step=stop.step,
-                failure=failure_lines(klass, repair_rounds=stop.repair_rounds),
+                failure=failure_lines(
+                    klass,
+                    repair_rounds=stop.repair_rounds,
+                    taken=taken,
+                    left=left,
+                    tier_changes=stop.tier_changes,
+                ),
+                table=self._stop_table(stop),
                 reason=reason,
                 last=last or texts.implement_comment_last_none,
                 diff=_diff_section(stop),
@@ -852,6 +1278,7 @@ class _ItemRun:
             ImplementRecordKey.STOPPED: stop.step,
             ImplementRecordKey.FAILURE: klass.value,
             ImplementRecordKey.SPEND: self._spend(),
+            ImplementRecordKey.TRACE: self.trace.encode(),
         }
         if self.pull is not None:
             marks[ImplementRecordKey.PR] = str(self.pull)
@@ -895,11 +1322,23 @@ def _implement_item(
     *,
     model: Any,
     window: int,
+    model_for_tier: Callable[[str], Any] | None = None,
+    splitter: Any = None,
 ) -> _Ended:
     """Run one item: how its run ended (`_Ended`)."""
     default = default_branch(source, operation=GIT_OPERATION)
     with _worktree(source, target) as path:
-        run = _ItemRun(store, repo, path, target, model, window, default)
+        run = _ItemRun(
+            store,
+            repo,
+            path,
+            target,
+            model,
+            window,
+            default,
+            model_for_tier=model_for_tier,
+            splitter=splitter,
+        )
         try:
             run.execute()
         except _ClaimedError as claimed:
@@ -911,6 +1350,8 @@ def _implement_item(
             raise
         except (DevOpsCLIError, AIClientError, subprocess.TimeoutExpired) as exc:
             return run.end_stopped(_error_stop(run.step, exc))
+        if run.returned:
+            return _Ended.RETURNED
     return _Ended.READY
 
 
@@ -921,6 +1362,8 @@ def apply_implement(
     source: Path | str,
     model: Any,
     window: int,
+    model_for_tier: Callable[[str], Any] | None = None,
+    splitter: Any = None,
 ) -> ImplementApplied:
     """Run each selected item of the plan, one after the other. A stopped item does not stop the
     run, and an item whose writes fail is reported while the others still run. Rejected GitHub or
@@ -937,7 +1380,16 @@ def apply_implement(
     for target in plan.selected:
         item = target.item
         try:
-            how = _implement_item(store, plan.repo, checkout, target, model=model, window=window)
+            how = _implement_item(
+                store,
+                plan.repo,
+                checkout,
+                target,
+                model=model,
+                window=window,
+                model_for_tier=model_for_tier,
+                splitter=splitter,
+            )
         except AICredentialsError, GitHubUnauthenticatedError:
             raise
         except (DevOpsCLIError, AIClientError) as exc:
@@ -953,6 +1405,7 @@ def apply_implement(
         tuple(ended[_Ended.STOPPED]),
         tuple(failed),
         tuple(ended[_Ended.YIELDED]),
+        tuple(ended[_Ended.RETURNED]),
     )
 
 

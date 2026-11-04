@@ -48,6 +48,7 @@ def test_every_gate_still_refuses_every_known_bad_plan_it_must(cases: list[Stage
         GateName.PATHS: (True, 0),
         GateName.KIND: (True, 0),
         GateName.CRITERIA: (False, 0),
+        GateName.CONTENT: (True, 0),
     }
 
 
@@ -86,7 +87,7 @@ def test_a_defect_of_a_type_that_waited_for_a_gate_is_judged_or_says_why_not(
     judged = [d for d in defects if d.gate is not GateName.NONE]
     unjudged = [d for d in defects if d.gate is GateName.NONE]
 
-    assert len(defects) == 72
+    assert len(defects) == 73
     assert all(d.gate is GateName.PATHS and d.message for d in judged)
     assert all(d.reason for d in unjudged)
     assert not any(d.reason for d in judged)
@@ -103,10 +104,10 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
 
     assert counts[DefectType.MISSING_PATH] == (31, 0, 0)
     assert counts[DefectType.SPEC_DELTA_WRONG] == (5, 0, 20)
-    assert counts[DefectType.VERIFY_FORM] == (4, 0, 12)
+    assert counts[DefectType.VERIFY_FORM] == (5, 0, 12)
     assert counts[DefectType.TASK_ORDER] == (0, 0, 8)
     assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)
-    assert report.judged() == (64, 299)
+    assert report.judged() == (66, 302)
 
 
 def test_the_judged_share_counts_the_caught_and_the_missed_and_not_the_rest(
@@ -234,6 +235,7 @@ def test_a_pending_defect_of_a_type_with_a_gate_is_stale(cases: list[StageCase])
 def test_a_defect_that_no_gate_judges_fails_nothing(cases: list[StageCase]) -> None:
     case = next(c for c in cases if any(d.type is DefectType.OTHER for d in c.defects))
     other = next(d for d in case.defects if d.type is DefectType.OTHER)
+    other = other.model_copy(update={"gate": GateName.NONE})
 
     replay = replay_case(case.model_copy(update={"defects": (other,)}))
 
@@ -244,7 +246,6 @@ def test_a_defect_that_no_gate_judges_fails_nothing(cases: list[StageCase]) -> N
 def test_the_gates_and_the_pending_gates_cover_each_type_once_but_those_no_gate_judges() -> None:
     caught = {gate.catches for gate in GATES}
     unjudged = {
-        DefectType.OTHER,
         DefectType.FALSE_PREMISE,
         DefectType.SPEC_DELTA_WRONG,
         DefectType.VERIFY_FORM,
@@ -377,3 +378,66 @@ def test_a_defect_that_the_replay_cannot_show_is_not_a_miss_of_a_gate(
     assert (defect.gate, bool(defect.reason)) == (GateName.NONE, True)
     assert replay.outcomes[0].status is DefectStatus.UNJUDGED
     assert replay.failures == []
+
+
+def test_the_content_gate_catches_the_other_type_and_run_gates_holds_its_key() -> None:
+    assert gate_for(DefectType.OTHER) is GateName.CONTENT
+    assert GateName.CONTENT in {gate.name for gate in GATES}
+
+
+def _placeholder_case(cases: list[StageCase]) -> StageCase:
+    return next(c for c in cases if c.pull == 3167)
+
+
+def test_the_replay_catches_a_placeholder_in_why_through_the_content_gate(
+    cases: list[StageCase],
+) -> None:
+    case = _placeholder_case(cases)
+    defect = next(d for d in case.defects if d.gate is GateName.CONTENT)
+
+    replay = replay_case(case)
+
+    assert case.plan["why"] == "x"
+    assert defect.type is DefectType.OTHER
+    assert run_gates(PlanUnderTest.of_case(case)).keys() >= {GateName.CONTENT}
+    assert next(o.status for o in replay.outcomes if o.defect is defect) is DefectStatus.CAUGHT
+    assert replay.failures == []
+
+
+def test_the_replay_catches_a_verify_command_of_true_through_the_paths_gate(
+    cases: list[StageCase],
+) -> None:
+    case = _placeholder_case(cases)
+    defect = next(d for d in case.defects if d.type is DefectType.VERIFY_FORM)
+
+    replay = replay_case(case)
+
+    assert [g["verify"] for g in case.groups] == ["true"]
+    assert next(o.status for o in replay.outcomes if o.defect is defect) is DefectStatus.CAUGHT
+
+
+def test_a_content_gate_that_stops_refusing_a_plan_fails_the_replay(
+    cases: list[StageCase],
+) -> None:
+    case = _placeholder_case(cases)
+    real = "The job plans a real change here."
+    group = {**case.groups[0], "implementation": real}
+    written = case.model_copy(
+        update={
+            "plan": {
+                **case.plan,
+                "why": real,
+                "existing_tool": real,
+                "feasibility": [real],
+                "groups": [group],
+            }
+        }
+    )
+
+    replay = replay_case(written)
+
+    assert replay.problems[GateName.CONTENT] == []
+    assert [o.status for o in replay.outcomes if o.defect.gate is GateName.CONTENT] == [
+        DefectStatus.MISSED
+    ]
+    assert any("no longer refuses" in failure for failure in replay.failures)
