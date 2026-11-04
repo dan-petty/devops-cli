@@ -7,6 +7,7 @@ session, its check runs are read through the session, and `gh pr ready` is the c
 
 from __future__ import annotations
 
+import json
 import subprocess
 from datetime import timedelta
 from typing import Any
@@ -20,6 +21,7 @@ from devops_cli.roadmap.implement_pull import Answer, Readiness
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, JobOutcome
 from devops_cli.roadmap.stage_ready import mark_stage_ready
+from devops_cli.roadmap.stage_verify import PLAN_NEEDS_FIX_LABEL
 from devops_cli.roadmap.store import (
     CloseReason,
     GitHubState,
@@ -46,9 +48,16 @@ def _pull(
     draft: bool = True,
     merged: bool = False,
     head: str = HEAD,
+    labels: tuple[str, ...] = (),
 ) -> None:
     """GitHub's answer to the read of pull request `number`."""
-    payload = {"state": state, "draft": draft, "merged": merged, "head": {"sha": head}}
+    payload = {
+        "state": state,
+        "draft": draft,
+        "merged": merged,
+        "head": {"sha": head},
+        "labels": [{"name": name} for name in labels],
+    }
     api.route("GET", f"/repos/{STAGE_REPO}/pulls/{number}", github_json(payload))
 
 
@@ -113,6 +122,38 @@ def test_a_green_draft_is_marked_ready_once_and_recorded(
         _record(store, number)[StageRecordKey.READY],
         _item(store, number).status,
     ) == ((number,), [("pr", "ready", str(PULL), "--repo", STAGE_REPO)], str(PULL), "Ready")
+
+
+def test_a_green_draft_with_the_open_finding_label_stays_a_draft_and_is_not_marked(
+    store: InMemoryRoadmapStore, api: GitHubApiFake, ready: _Ready
+) -> None:
+    number = seed_staged(store)
+    _pull(api, labels=(PLAN_NEEDS_FIX_LABEL,))
+    _checks(api, PASS, {**PASS, "name": "Lint"})
+    api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/issues/{PULL}/comments",
+        github_json({"id": 1}, status=201),
+    )
+
+    applied = mark_stage_ready(store, repo=STAGE_REPO)
+    second = mark_stage_ready(store, repo=STAGE_REPO)
+
+    comments = [
+        json.loads(sent.content)["body"]
+        for sent in api.sent
+        if sent.method == "POST" and sent.url.path.endswith(f"issues/{PULL}/comments")
+    ]
+    assert (
+        applied.marked,
+        applied.waiting,
+        second.marked,
+        len(comments),
+        ready.calls,
+        StageRecordKey.READY in _record(store, number),
+        StageRecordKey.NEEDS_FIX in _record(store, number),
+        PLAN_NEEDS_FIX_LABEL in comments[0],
+    ) == ((), (number,), (), 1, [], False, True, True)
 
 
 @pytest.mark.parametrize(

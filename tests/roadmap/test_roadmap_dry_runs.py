@@ -524,3 +524,36 @@ def test_the_implement_plan_reads_the_labels_file_and_lists_the_label_writes() -
         == ("gh", "api", "-X", "DELETE", f"repos/{REPO}/issues/<pull request>/labels/<label>")
     )
     assert unlabel.condition != ""
+
+
+def test_the_implement_plan_lists_amendment_commit_split_and_return_with_conditions() -> None:
+    from devops_cli.lang import MESSAGES
+    from devops_cli.roadmap.request_plan import implement_requests
+
+    _, writes = implement_requests(REPO)
+
+    cond = MESSAGES.roadmap.implement_request_conditions
+    amend = next(
+        request
+        for request in writes
+        if request.argv[3:5] == ("commit", "-m") and request.condition == cond["amend"]
+    )
+    split = next(
+        request
+        for request in writes
+        if request.method == "model" and request.condition == cond["split"]
+    )
+    return_comment = next(
+        request
+        for request in writes
+        if request.condition == cond["return"] and any("comments" in arg for arg in request.argv)
+    )
+    return_status = next(
+        request
+        for request in writes
+        if request.condition == cond["return"] and "Status" in request.target
+    )
+    assert amend.condition != ""
+    assert split.condition != ""
+    assert return_comment.condition != ""
+    assert return_status.condition != ""

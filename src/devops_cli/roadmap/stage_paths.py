@@ -7,8 +7,9 @@ the group that names it creates it. The groups are in order, so a group sees the
 groups before it and of itself.
 
 A group names paths in four places: `reads`, `changes`, the code spans of its three tasks, and the
-words of `verify`. The paths of a negative search are the paths of its fixed shape (#3263). Only the code spans of a task count, as the implement step reads those and no
-other text (`step_files`). A word is a path when its last name ends in a suffix that a tracked file
+words of `verify`. The paths of a negative search are the paths of its fixed shape (#3263). Only
+the code spans of a task count, as the implement step reads those and no other text
+(`step_files`). A word is a path when its last name ends in a suffix that a tracked file
 has, or when its first folder is a top-level name of the tree. A word with no folder is no path:
 it is a search pattern or a fixture that a test writes at run time (`ruff.toml`), and the implement
 step accepts a name that holds no file as a file it creates. A label such as `status/blocked`, a
@@ -97,6 +98,10 @@ class StagedTree:
             return True
         return has_magic(path) and any(fnmatchcase(file, path) for file in self._files)
 
+    def has_folder(self, path: str) -> bool:
+        """Whether the tree holds the folder `path`."""
+        return path.rstrip("/") in self._folders
+
     def same_name(self, path: str) -> list[str]:
         """The files of the tree with the file name of `path`, sorted, at most `SAME_NAME_MAX`."""
         return self._by_name.get(PurePosixPath(path).name, [])[:SAME_NAME_MAX]
@@ -117,6 +122,12 @@ class StagedTree:
         return [path for word in text.split() if (path := self.as_path(word)) is not None]
 
 
+def _keep_slash(path: str) -> str:
+    """`path` in normal form, with the trailing slash kept: a path that ends in `/` is a folder,
+    and `README.md/` matches nothing in git."""
+    return posixpath.normpath(path) + ("/" if path.endswith("/") else "")
+
+
 def _verify_paths(verify: str, tree: StagedTree) -> list[str]:
     """The paths that the `verify` command names. A negative search names its paths for sure: the
     reader of the step gives them, one-folder words such as `src/` included, which `as_path`
@@ -130,8 +141,7 @@ def _verify_paths(verify: str, tree: StagedTree) -> list[str]:
     if words[:1] == [NEGATIVE_SEARCH_WORD] and not isinstance(
         found := read_negative_search(words), str
     ):
-        paths = (posixpath.normpath(path) for path in found.paths)
-        return [path for path in paths if path != "."]
+        return [_keep_slash(path) for path in found.paths if posixpath.normpath(path) != "."]
     return tree.paths_in(verify)
 
 
@@ -186,7 +196,8 @@ def path_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]:
             created |= {path, *_folders_of(path)}
         for place, named in _named(group, tree):
             path = named.rstrip("/")
-            if path in reported or path in created or tree.has(path):
+            exists = tree.has_folder(path) if named.endswith("/") else tree.has(path)
+            if path in reported or path in created or exists:
                 continue
             reported.add(path)
             problems.append(_problem(number, place, path, tree, creators.get(path)))

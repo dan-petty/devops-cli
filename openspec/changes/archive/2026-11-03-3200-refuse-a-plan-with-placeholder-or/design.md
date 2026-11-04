@@ -1,0 +1,26 @@
+# Design
+
+## Decisions
+
+- **Run the content checks in `check_proposal` as a new `content_problems` function, with `probes: Sequence[str] = ()` as a keyword parameter.**: The stage job and the replay both call `check_proposal`, so one function holds the rule and the replay proves it on the golden set.
+- **Reuse `is_placeholder` of `src/devops_cli/roadmap/pull_form.py` for the placeholder rule, and add no second word list or strip rule.**: `pull_form.py` already holds the placeholder words and the strip rule for the pull request form, and two lists would drift apart.
+- **Set the bound in `PLAN_FIELD_MIN_CHARS = 10`.**: It refuses the recorded short fields and keeps a short real sentence such as `No alternative.`
+- **Add `builds_own: bool = False` to `StageProposal`, and apply the cost rule only when it is true.**: The gate reads a fact that the model states, and not a phrase that it happens to write.
+- **Match a token count as a number with an optional `k` before `token` or `tokens`, and a time as a number before `hour`, `hours`, `minute` or `minutes`, ignoring case.**: It is the cost form that rule 3 of `AGENTS.md` asks for, and it accepts `80k tokens and 4 hours`.
+- **Compare each probe line against `feasibility` as an exact substring after collapsing whitespace, and judge only when `probes` is not empty, and pass the probe lines of the item from `_request` to the `check_proposal` call of `_settle` in `stage.py`.**: The prompt already asks for the quote, and a job that read no probe has nothing to quote.
+- **Add no verify rule: the form check of #3015 and #3263 already refuses `true`, `:` and `exit 0`.**: `form_problems` of `src/devops_cli/roadmap/stage_form.py` accepts only a command that starts with `uv run devops` or a `! git grep -n <name>` check, so a second rule would state the same refusal twice. The replay records the `true` command of the plan of #3167 as a `verify_form` defect that the `paths` gate catches.
+- **Keep the bound of `STAGE_SUMMARY_MAX_CHARS` and refuse a summary that ends with `...` in the schema.**: #3249 already bounds `StageProposal.summary` to the room that the title lead leaves (47 characters for a number of six digits), the value that `roadmap_stage_change.md` tells the model, and `staging_title` is not cut. The issue text says 40, which is stale. Only the refusal of a text that ends with `...` is missing, and the reply returns to the model once with it.
+- **Replace `textwrap.shorten` in `delivery_title` with the full summary.**: `staging_title` stopped cutting in #3249, and `delivery_title` is the one call left. A title that ends in `...` hides the summary, and the pull request form already judges a long delivery title.
+- **Add `GateName.CONTENT` and a `Gate` that catches `DefectType.OTHER` and calls `content_problems`.**: `run_gates` keys by gate name, so one defect type maps to one gate and the replay reports the result.
+- **Record the placeholder plan of #3167 as one golden-set case with two defects, and update the case-count and evaluated-pull assertions of `tests/roadmap/test_roadmap_stage_eval_cases.py` for it.**: The plan of pull request #3167 holds `x` in each text and `true` as its verify command, so one case proves both gates: an `other` defect through `content` and a `verify_form` defect through `paths`. The other recorded plans (#3174, #3175) hold no placeholder text in the head commit of their pull requests.
+
+## Rejected alternatives
+
+- **Check the content only in the stage job, before the replay.**: `stage_eval_gates.py` holds `GATES` and `replay_case`, and both call `check_proposal`. A check outside `check_proposal` would leave the replay unable to prove the rule on a recorded plan.
+- **Add a second placeholder word list and strip rule to `stage_change.py`.**: `src/devops_cli/roadmap/pull_form.py` already holds `def is_placeholder(text: str) -> bool:`, so a second list would state one rule twice.
+- **Infer that the plan builds its own code from words in `existing_tool`.**: The issue body records four plans that carried `x` or `todo` in that field, so a phrase match would refuse a good plan or accept a placeholder one.
+- **Require a token and time cost in every `existing_tool`.**: `AGENTS.md` rule 3 asks for the cost only when the change builds its own code: `To build instead, write the cost in the issue or pull request`.
+- **Keep `textwrap.shorten` in `delivery_title`.**: It writes `...` at the end of a long summary and hides the real summary.
+- **Reuse the `PATHS` gate for the placeholder plans.**: `GATES` maps `GateName.PATHS` to `DefectType.MISSING_PATH` and `run_gates` keys the problems by gate name, so an `other` defect in the `paths` gate would read as a missing path. `check_proposal` holds the content check, so the `paths` gate also lists its problems, and the case holds the `content` gate for the `other` defect.
+- **Leave the recorded placeholder plans with the gate `none`.**: `PENDING_GATES` is empty and `_status` marks a defect with gate `none` as `UNJUDGED`, so the replay would prove nothing about the new gate.
+- **Add a new validation library for the cross-field rules.**: `stage_change.py` already holds `check_proposal` with the spec-delta, form, path and criteria checks, so a second library would duplicate the rule set and add a dependency.

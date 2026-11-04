@@ -24,6 +24,18 @@ from devops_cli.roadmap.failure import (
     left_action,
 )
 from devops_cli.roadmap.implement_step import commands_failure
+from devops_cli.roadmap.stage import (
+    StageApplied,
+    StagedChange,
+    StagePlan,
+    StageResult,
+    StageTarget,
+    stage_results,
+)
+from devops_cli.roadmap.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage_verify import Finding
+from devops_cli.roadmap.store import Item
+from tests.support.builders import make_stage_proposal
 from tests.support.fakes.process import ProcessFake
 from tests.support.implement_step import make_checkout
 
@@ -128,6 +140,11 @@ FROM_THE_JOB = [
         FailureEvidence(text="Task group 2, Route the stage row, has a task that is not ticked."),
         FailureClass.PLAN_DEFECT,
         id="plan-unticked-group",
+    ),
+    pytest.param(
+        FailureEvidence(text=TEXTS.stage_ready_needs_fix.format(pull=5)),
+        FailureClass.PLAN_DEFECT,
+        id="plan-open-finding",
     ),
     pytest.param(
         FailureEvidence(text=TEXTS.implement_stop_no_change, agent=AGENT_2175),
@@ -325,6 +342,27 @@ def test_the_lines_of_a_stop_name_the_class_the_action_taken_and_the_action_left
     ]
 
 
+def test_a_tier_change_that_did_not_work_is_taken_and_leaves_wait() -> None:
+    """A parser failure that moved the step to another tier took `change_tier` (#3060)."""
+    moved = failure_lines(FailureClass.PARSER, tier_changes=1)
+
+    assert left_action(FailureClass.PARSER, FailureAction.CHANGE_TIER) is FailureAction.WAIT
+    assert moved.splitlines() == [
+        "Failure class: `parser`.",
+        "Action taken: `change_tier`, 1 tier move(s).",
+        "Action left: `wait`: wait for a person.",
+    ]
+
+
+def test_failure_lines_names_amend_taken_and_wait_left() -> None:
+    lines = failure_lines(FailureClass.PLAN_DEFECT, taken=FailureAction.AMEND)
+    assert lines.splitlines() == [
+        "Failure class: `plan_defect`.",
+        "Action taken: `amend`.",
+        "Action left: `wait`: wait for a person.",
+    ]
+
+
 # ── A refused verification command is a refused tool (#3263) ──────────────────────────────
 
 
@@ -379,3 +417,62 @@ def test_a_verification_command_that_ran_and_failed_is_not_a_refused_tool() -> N
     )
 
     assert classify_failure(FailureEvidence(text=reason)) is FailureClass.TYPES
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python -m pytest tests/roadmap/test_rate_limit.py",
+        "! git grep -n 'timed out' src/ -x",
+        "! git grep -n x src/ -k 'out of memory'",
+        "! git grep -n x src/ -k 'merge conflict'",
+        "! git grep -n x src/ -k JSONDecodeError",
+        "curl https://example.com/ModelHTTPError",
+    ],
+    ids=["rate-limit", "timed-out", "out-of-memory", "merge-conflict", "parser", "provider"],
+)
+def test_a_word_of_a_refused_command_does_not_change_its_class(
+    tmp_path: Path, implement_programs: ProcessFake, command: str
+) -> None:
+    """The echoed command can hold the words of any other rule, so the rule for a refused command
+    is read first, at the start of the text."""
+    reason = commands_failure(make_checkout(tmp_path), [command])
+
+    assert reason is not None
+    klass = classify_failure(FailureEvidence(text=reason))
+    assert (klass, action_for(klass)) == (FailureClass.REFUSED_TOOL, FailureAction.WAIT)
+
+
+def test_a_refused_command_inside_a_longer_text_is_not_the_rule_for_a_refused_command() -> None:
+    inner = TEXTS.implement_stop_command_refused.format(command="x", reason="y")
+
+    assert classify_failure(FailureEvidence(text=f"timed out\n{inner}")) is FailureClass.TIMEOUT
+
+
+def test_a_staged_item_with_an_open_finding_is_a_failed_attempt_not_a_staged_plan() -> None:
+    item = Item(
+        number=1, title="fix(roadmap): the job drops a comment", url="https://example.com/1"
+    )
+    open_finding = Finding(
+        type=DefectType.OTHER,
+        where="tasks.md",
+        problem="The task group says placeholder.",
+        quote="placeholder",
+    )
+    change = StagedChange(
+        target=StageTarget(item, "fix", "the-job-drops-a-comment"),
+        title="docs(openspec): plan #1",
+        body="Plans #1",
+        files={},
+        groups=(),
+        validated=True,
+        budget=1000,
+        proposal=make_stage_proposal(),
+        open_findings=(open_finding,),
+    )
+
+    results = stage_results(
+        StagePlan(repo="example/roadmap", ready=(change,)), StageApplied(staged=(1,))
+    )
+
+    assert results == {1: StageResult.FAILED}

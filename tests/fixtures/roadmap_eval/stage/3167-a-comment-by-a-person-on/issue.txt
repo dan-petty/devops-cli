@@ -1,0 +1,114 @@
+## Problem or Motivation
+
+A person's comment on an item does not start a suspended row again. This was found while work on #2753 checked the "input changes" rule.
+
+The rule is in `_round_input` and `FailureLedger.suspended` (`src/devops_cli/roadmap/run.py`). The input of a round is a digest of two things. One is the changes since the oldest last success. A change is a `labeled`, `unlabeled`, `closed` or `reopened` issue event (`ChangeKind` in `src/devops_cli/roadmap/store.py`). The other is the time of the round, when the batch holds a trigger that is not a poll. A comment is neither: the issue events carry no comment, and the Service takes only the `issues` webhook event (`CONST_ROADMAP_WEBHOOK_EVENTS`; step 8 of the Roadmap service setup in `k8s/README.md`: "only the Issues event"). A delivery of `issue_comment` gets `no_subscriber` and starts no round.
+
+So a row that is suspended (`devops_cli_service_job_suspended` is 1) stays suspended after a person answers on an item of that row. The answer waits until an issue event arrives for some other reason.
+
+[ADR 0009](docs/adr/0009-one-webhook-router-delivers-each-event-to-the-consumers-subscribed-to-it.md) left `issue_comment` out on purpose: #1361 measured 940 webhook triggers in one hour, and no job was due on most of them. A fix must not bring that load back.
+
+## Proposed Solution & Architectural Design
+
+Make a comment by a person on an item of a suspended row new input for that row, and add no round for each comment of the repository. Options to weigh:
+
+- Subscribe the roadmap consumer to `issue_comment` (created) and refuse the comments of the App bot, of pull requests and of issues that are not Items of the row. This needs each repository hook to send the event, and a person changes a hook in the repository settings.
+- Read the newest comment time of the Items of the suspended row at the poll, and add it to the input digest. This costs a comment listing for each Item at each poll, so measure the requests first (ADR 0016 counted 775 for one read of the Items).
+
+Check the choice against the hourly budget and ADR 0009 before it is built.
+
+## Target Subsystem
+
+`src/devops_cli/roadmap/run.py`, `src/devops_cli/server/routes/webhooks.py`, `k8s/README.md`.
+
+## Existing Tool Considered
+
+The `issue_comment` event of the GitHub webhook that the Service already receives. No new tool is needed.
+
+## Acceptance criteria
+
+- A row that failed its limit of rounds runs again after a person comments on one of its items.
+- A comment by the App bot, and a poll with no new comment, leave the row suspended.
+- The extra GitHub requests of the change are measured and stay under the hourly budget.
+
+<!-- devops-roadmap-refine:start -->
+<!-- checked-at: sha=3f3103abea8b6d4676a99584a28653cc18f3b361 -->
+## Proposed design
+
+### Problem statement
+A person's comment on an Item does not restart a suspended roadmap row. The row waits until an issue event arrives for another reason. The Service receives only the Issues webhook event, and the input digest holds only issue events and the round time. A fix must not restore the webhook load that ADR 0009 removed.
+
+### Acceptance criteria
+
+### Requirement: Suspended row restarts on person comment
+A suspended roadmap row SHALL run again when a person comments on an Item after the row's last failed round.
+
+#### Scenario: Person comments on an Item
+- **WHEN** A row is suspended and a person adds a comment to an Item that the row reads
+- **THEN** The row's input digest differs from the failed input, and the row is not suspended
+
+### Requirement: Bot comment leaves row suspended
+A comment by the App bot on an Item SHALL NOT change the input digest of a suspended row.
+
+#### Scenario: App bot comments on an Item
+- **WHEN** A row is suspended and the App bot adds a comment to an Item that the row reads
+- **THEN** The row's input digest is unchanged and the row remains suspended
+
+### Requirement: Poll with no new comment leaves row suspended
+A poll that finds no new person comment on the Items of a suspended row SHALL leave the row suspended.
+
+#### Scenario: Poll with no new person comment
+- **WHEN** A row is suspended and a poll runs with no new person comment on its Items
+- **THEN** The row's input digest is unchanged and the row remains suspended
+
+### Requirement: Extra requests stay under budget
+The comment reads of a poll SHALL stay under the hourly GitHub request budget.
+
+#### Scenario: Three failing rows with ten updated Items each
+- **WHEN** A poll reads comment times for three failing rows with ten updated Items each
+- **THEN** The store records three issue listings and 30 comment listings, and the total is below the 500 request budget
+
+### Requirement: Comment author is read
+The store SHALL return the author login of each issue comment.
+
+#### Scenario: GitHub comment carries an author
+- **WHEN** The GitHub store reads an issue comment
+- **THEN** The IssueComment holds the author login from the GitHub API
+
+### Existing Tool Considered
+No check has run. The GitHub issue_comment webhook event covers comment detection, but it lacks a filter for suspended rows and brings every repository comment delivery; ADR 0009 rejected that load. The GitHub REST issue-comment listing covers the data, but it lacks Item and bot filtering. The change builds the filter and digest code: about 8,000 tokens to build, 2,000 tokens per fix to keep, and 2 days elapsed.
+
+### Key questions
+- **What does the current input digest hold?**: The digest holds the issue changes since the oldest last success and the round time when the batch holds a non-poll trigger. [sources: src/devops_cli/roadmap/run.py, src/devops_cli/roadmap/store.py]
+- **Which mechanism detects a new person comment on an Item of a failing row?**: Poll the newest person comment time for the Items of a row that has a failure. Use the GitHub REST issue-comment listing. Do not subscribe to issue_comment. (best practice) [sources: docs/adr/0009-one-webhook-router-delivers-each-event-to-the-consumers-subscribed-to-it.md, docs/adr/0003-polling-is-how-the-roadmap-sees-changes.md, src/devops_cli/roadmap/run.py, k8s/README.md]
+  - Rejected: Subscribe to the issue_comment webhook. ADR 0009 rejects the 940 deliveries per hour and needs a person to change each repository hook.
+  - Chosen: Poll comment times for failing rows. Polling is the source of truth in ADR 0003. The read is limited to rows with a failure.
+  - Rejected: Add COMMENT to ChangeKind. A comment is not an issue event. The change touches the store protocol and every reader.
+- **How does the digest filter the App bot's comments?**: Add an author login to IssueComment. Skip a comment whose author equals the current actor. Skip any author that ends with [bot]. (best practice) [sources: src/devops_cli/roadmap/store.py, src/devops_cli/roadmap/github_store.py, src/devops_cli/roadmap/run.py]
+  - Chosen: Filter by author login. The App bot login is known from the session. GitHub returns user.login on each comment.
+  - Rejected: Filter by author_association. A GitHub App bot is not a person. Its association is not a reliable filter.
+  - Rejected: Use only the issue updated_at. A bot comment also moves updated_at, so the row would restart on its own write.
+- **Where does the comment time enter the input digest?**: Compute the digest for each row in _execute_due_rows. When the ledger holds a failure for the row, add the newest non-bot comment time to the digest. Read only Items updated since the row's last success. (best practice) [sources: src/devops_cli/roadmap/run.py, src/devops_cli/roadmap/store.py]
+  - Chosen: Per-row digest with comment time. One comment restarts only the rows that read the Item. The digest stays stable when no new comment arrives.
+  - Rejected: One lane digest with all comment times. A comment on one Item would restart every suspended row in the lane, and the cost covers all rows.
+  - Rejected: Add COMMENT to ChangeKind. A comment is not an issue event, and the store protocol would change.
+- **What is the cost of the comment reads?**: A row with a failure reads the open Items updated since its last success. It then reads comments on each updated Item. A row with no failure reads nothing. The full Items read cost 775 requests in ADR 0016, so the since filter is required. A test counts the requests and holds them under the budget. (best practice) [sources: docs/adr/0016-labels-hold-the-roadmap-items-fields.md, src/devops_cli/roadmap/run.py, k8s/README.md]
+  - Chosen: Read only updated Items of failing rows. The cost is bounded by the Items that changed since the last success, and only failing rows pay it.
+  - Rejected: Read every Item of every suspended row at each poll. The full Items read cost 775 requests in ADR 0016 and can exceed the 500 request budget.
+  - Rejected: Read every repository comment at each poll. The comment listing can page through every comment and has no Item filter.
+- **How does the ledger keep a suspended row suspended when no new comment arrives?**: Include the newest comment time only when the ledger holds a failure for the row. Use the same since time until the row succeeds, so the same comment time gives the same digest. (best practice) [sources: src/devops_cli/roadmap/run.py, src/devops_cli/roadmap/store.py]
+  - Chosen: Stable comment time in the digest. The same newest comment time keeps the digest equal to the failed input.
+  - Rejected: Use the round time in the digest. Every poll would change the digest and restart the row.
+  - Rejected: Store the comment time in the ledger record. The record format is fixed for rolling upgrades, and a restart must keep the suspension.
+
+### Fit
+Fits in one pull request.
+
+### Suspected block
+None.
+
+### Dependencies
+None.
+<!-- devops-roadmap-refine:end -->
+
+<!-- devops-roadmap-record {"Effort": "Medium", "Priority": "P2-Medium", "Status": "Ready", "Value": "Medium", "refine.alternatives_asked": null, "refine.block_paths": null, "refine.blocked_by": null, "refine.body_hash": "8a4e676fceab641ebaa23e666fd9eb0d09082f607adfd7a29b8beef50a6531fa", "refine.failed_body_hash": null, "refine.needs_split": "false", "refine.next_step": "ready", "refine.section_hash": "a2353e98bfd2e49d9649feea8bb214de75fbbc582638d8f8efd7598412310edb", "stage.branch": "feat/2754-a-comment-by-a-person-on", "stage.file_cap": null, "stage.groups": "[[\"x\", 4190]]", "stage.needs_split": null, "stage.pr": "3167", "stage.ready": "3167", "stage.sha": "fe3c59ad558ea986a2f7783e4f6c407a331f61a7"} -->

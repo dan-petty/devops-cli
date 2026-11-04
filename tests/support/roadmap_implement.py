@@ -448,7 +448,13 @@ class JobWorld:
         )
 
     def run(
-        self, script: ModelScript, *, limit: int = 1, item: int | None = None
+        self,
+        script: ModelScript,
+        *,
+        limit: int = 1,
+        item: int | None = None,
+        splitter: Any = None,
+        window: int = WINDOW,
     ) -> ImplementApplied:
         """Plan and apply a run with the scripted model."""
         return apply_implement(
@@ -456,7 +462,8 @@ class JobWorld:
             self.plan(item=item, limit=limit),
             source=self.repo.clone,
             model=script.model(),
-            window=WINDOW,
+            window=window,
+            splitter=splitter,
         )
 
     def issue_comments(self, number: int = 1) -> list[str]:

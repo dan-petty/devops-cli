@@ -229,7 +229,9 @@ def test_an_item_whose_plan_names_a_missing_path_twice_gets_no_branch_and_no_dra
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
 ) -> None:
     group = make_stage_proposal().groups[0]
-    lost = group.model_copy(update={"changes": ["src/devops_cli/missing.py"], "creates": []})
+    lost = group.model_copy(
+        update={"changes": ["src/devops_cli/missing.py"], "creates": [], "creates_lines": {}}
+    )
     model_fake.answer(make_stage_proposal(groups=[lost]))
 
     applied = _stage(store, stage_repo)

@@ -17,7 +17,7 @@ It also leaves out an item that an agent or a person claimed with an `owner/*` l
 (the model reads the body), an item whose "Dependencies" section names an open issue, a held item
 (`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit that `origin` lacks), an item whose plan is already on the default branch or whose
 change is archived there (`planned.read_planned_changes`, one read of the tree for the round), an
-item whose title gives no branch name, an item whose text looks like a secret, and an item whose
+item whose title gives no branch name or whose summary is over `SUMMARY_MAX_CHARS` units (#3369), an item whose text looks like a secret, and an item whose
 record holds `stage.needs_split` made with the file cap of now (`stage.file_cap`): a stop under
 another measure does not count. A run takes at most `--limit`
 items, highest priority first. `--item` takes the one item it names when that item is open and
@@ -45,8 +45,10 @@ a missing path stops the item, so no draft opens. The groups of a split are chec
 way. After the checks, the model review of the plan (`stage_verify`, #3153) reads the issue, the
 plan and the files that the plan cites with the client of the task `verification`. A finding of
 the type `missing_path`, `false_premise` or `ignores_existing_code` that quotes its evidence sends
-the plan back to the planner once; every other finding goes into the comment of the item. The
-review never merges and never marks a draft ready. `plan_item` plans one item with a given client
+the plan back to the planner once. A finding of such a type, of `spec_delta_wrong`, or one that
+reports a placeholder is open: the job keeps the draft with the label `plan/needs-fix` and puts
+the finding first in the comment (#3264). Every other finding goes into the comment of the item.
+The review never merges and never marks a draft ready. `plan_item` plans one item with a given client
 and checkout: the golden set of the job runs
 it on each case (`stage_eval_run`, #3028). The plan writes nothing to git or to GitHub. A model call
 that fails skips its item; rejected credentials stop the run.
@@ -114,14 +116,14 @@ from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
-from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels
+from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
+from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels, remove_pull_labels
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
 from devops_cli.roadmap.refine_investigation import analysis_window
 from devops_cli.roadmap.return_item import apply_return, plan_return
 from devops_cli.roadmap.stage_change import (
     MeasuredGroup,
     StageProposal,
-    StageSplit,
     check_proposal,
     closing_keyword_in,
     measure_groups,
@@ -133,16 +135,21 @@ from devops_cli.roadmap.stage_change import (
 )
 from devops_cli.roadmap.stage_criteria import criterion_problems
 from devops_cli.roadmap.stage_filter import split_filter_entry
+from devops_cli.roadmap.stage_form import form_problems
 from devops_cli.roadmap.stage_github import StageGitHub
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage_probe import probe_premise
 from devops_cli.roadmap.stage_specs import BaseSpec, read_base_specs
+from devops_cli.roadmap.stage_split import ask_split
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
 from devops_cli.roadmap.stage_verify import (
+    PLAN_NEEDS_FIX_LABEL,
     Finding,
     VerificationInput,
     findings_section,
+    open_findings,
+    open_findings_section,
     return_problem,
     returning,
     verify,
@@ -393,9 +400,13 @@ class _Judge:
         )
 
     def _title(self, item: Item) -> str | None:
+        texts = MESSAGES.roadmap
         if commit_type(item.title) is None:
-            return MESSAGES.roadmap.stage_left_title_type
-        return None if _slug_of(item.title) else MESSAGES.roadmap.stage_left_title_slug
+            return texts.stage_left_title_type
+        length = summary_length(item.title.partition(":")[2].strip())
+        if length > SUMMARY_MAX_CHARS:
+            return texts.stage_left_title_long.format(length=length, limit=SUMMARY_MAX_CHARS)
+        return None if _slug_of(item.title) else texts.stage_left_title_slug
 
     def _dependency(self, item: Item) -> str | None:
         open_issues = [
@@ -491,7 +502,6 @@ def select_stageable(
 # ── The plan of one item ──────────────────────────────────────────────────────
 
 _CHANGE_TASK: Final[str] = "roadmap_stage_change.md"
-_SPLIT_TASK: Final[str] = "roadmap_stage_split.md"
 # The model window is shared by the reply, the body of the item and the repository context.
 _WINDOW_SHARE_CONTEXT: Final[int] = 2
 _WINDOW_SHARE_BODY: Final[int] = 4
@@ -509,7 +519,9 @@ class StagedChange:
     `openspec validate` ran on it (it does not without the binary), the budget of the run, and
     what the plan runs of the toolbox did (#3037). The trace is empty for an item planned with one
     call. `proposal` is the plan that the files render, and `findings` are the points that the
-    model review of the plan raised and that returned no plan (#3153): the comment lists them."""
+    model review of the plan raised and that returned no plan (#3153): the comment lists them.
+    `open_findings` are the findings that keep the draft with the label `plan/needs-fix`
+    (#3264); they are a part of `findings`."""
 
     target: StageTarget
     title: str
@@ -521,6 +533,7 @@ class StagedChange:
     proposal: StageProposal
     trace: RunTrace = field(default_factory=RunTrace)
     findings: tuple[Finding, ...] = ()
+    open_findings: tuple[Finding, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -655,6 +668,8 @@ class _Planner:
         self._today: date = datetime.now(UTC).date()
         # Whether the model split the groups of the item in hand: it does so once for each item.
         self._split_asked = False
+        # The lines of the premise probe of the item in hand, for the quote rule of `feasibility`.
+        self._probe_lines: tuple[str, ...] = ()
 
     def plan(self, target: StageTarget) -> StagedChange | OverBudget | PremiseFailed:
         """The change of `target`, the group that stops it, or the evidence that its premise is
@@ -717,8 +732,8 @@ class _Planner:
         passes the checks and the review again, a refused revision stops the item, and a reply
         that sets `premise_failed` returns the item. Every
         other finding, and every finding of the revised plan, stays on the change for the
-        comment."""
-        findings, returned = self._review(target, change, verifier)
+        comment. An open finding keeps the draft with `plan/needs-fix` (#3264)."""
+        findings, returned, _ = self._review(target, change, verifier)
         if returned:
             again = {
                 **request,
@@ -735,23 +750,31 @@ class _Planner:
             if isinstance(outcome, OverBudget):
                 return outcome
             change = outcome
-            findings, _ = self._review(target, change, verifier)
-        return replace(change, findings=tuple(findings))
+            findings, _, open_ = self._review(target, change, verifier)
+        else:
+            given = self._input_of(target, change)
+            open_ = open_findings(findings, given)
+        return replace(change, findings=tuple(findings), open_findings=tuple(open_))
 
-    def _review(
-        self, target: StageTarget, change: StagedChange, verifier: StageClient
-    ) -> tuple[list[Finding], list[Finding]]:
-        """The findings of the model review of `change`, and those that return the plan."""
+    def _input_of(self, target: StageTarget, change: StagedChange) -> VerificationInput:
+        """The input that the pass reads for `change`."""
         item = target.item
-        given = VerificationInput.of(
+        return VerificationInput.of(
             number=item.number,
             title=item.title,
             body=item.body,
             plan=change.proposal.model_dump(mode="json"),
             source=self._source,
         )
+
+    def _review(
+        self, target: StageTarget, change: StagedChange, verifier: StageClient
+    ) -> tuple[list[Finding], list[Finding], list[Finding]]:
+        """The findings of the model review of `change`, those that return the plan, and those
+        that are open."""
+        given = self._input_of(target, change)
         findings = verify(verifier, given)
-        return findings, returning(findings, given)
+        return findings, returning(findings, given), open_findings(findings, given)
 
     def _request(self, target: StageTarget) -> dict[str, Any]:
         item = target.item
@@ -765,9 +788,11 @@ class _Planner:
             "capabilities": [self._specs[name].request_entry(name) for name in sorted(self._specs)],
             "budget": self._budget,
         }
-        probes = probe_premise(self._source, self._sha, item.body).text
-        if probes:
-            request["probes"] = probes
+        probe = probe_premise(self._source, self._sha, item.body)
+        # The checks of the reply read the same lines as the model (#3200): `feasibility` quotes one.
+        self._probe_lines = probe.lines
+        if probe.text:
+            request["probes"] = probe.text
         return request
 
     def _ask[M: BaseModel](self, schema: type[M], task: str, request: Mapping[str, Any]) -> M:
@@ -789,10 +814,13 @@ class _Planner:
             self._tree_of(target, proposal),
             requirements=self._requirements,
             issue_body=target.item.body,
+            probes=self._probe_lines,
         )
         if problems:
             return _Refused(" ".join(problems), proposal)
         title = staging_title(target.item.number, proposal.summary)
+        if problems := title_problems(title):
+            return _Refused(" ".join(problems), proposal)
         body = pull_request_body(target.item.number, target.change, proposal)
         keyword = closing_keyword_in(f"{title}\n{body}")
         if keyword is not None:
@@ -800,7 +828,8 @@ class _Planner:
         asked, files, measured = self._fit(target, proposal)
         if asked is not proposal:
             # The split gave new groups, and the model can bring old paths back with them.
-            problems = path_problems(asked.groups, self._tree.with_files(files))
+            problems = form_problems(asked.groups)
+            problems.extend(path_problems(asked.groups, self._tree.with_files(files)))
             problems.extend(criterion_problems(asked.criteria, target.item.body, len(asked.groups)))
             if problems:
                 return _Refused(" ".join(problems), asked)
@@ -859,7 +888,7 @@ class _Planner:
             ],
             "criteria": [entry.model_dump() for entry in proposal.criteria],
         }
-        split = self._ask(StageSplit, _SPLIT_TASK, asked)
+        split = ask_split(self._client, asked)
         proposal = proposal.model_copy(update={"groups": split.groups, "criteria": split.criteria})
         files, measured = self._build(target, proposal)
         return proposal, files, measured
@@ -1254,10 +1283,16 @@ def _run_report(trace: RunTrace) -> str:
 
 
 def _notes(change: StagedChange) -> str:
-    """The notes that end the comment of a staged item: the report of the plan runs, and a
-    validation that did not run."""
+    """The notes that end the comment of a staged item: the open findings first, then the other
+    findings, the report of the plan runs, and a validation that did not run (#3264)."""
     unvalidated = "" if change.validated else MESSAGES.roadmap.stage_comment_not_validated
-    return _run_report(change.trace) + unvalidated + findings_section(change.findings)
+    advisory = tuple(finding for finding in change.findings if finding not in change.open_findings)
+    return (
+        open_findings_section(change.open_findings)
+        + findings_section(advisory)
+        + _run_report(change.trace)
+        + unvalidated
+    )
 
 
 def _label_pull(store: RoadmapStore, pull_number: int, title: str) -> str:
@@ -1270,6 +1305,22 @@ def _label_pull(store: RoadmapStore, pull_number: int, title: str) -> str:
         raise
     except GitHubOperationError as exc:
         return MESSAGES.roadmap.stage_comment_labels_failed.format(pull=pull_number, error=exc)
+    return ""
+
+
+def _label_needs_fix(store: RoadmapStore, pull: CreatedPull, change: StagedChange) -> str:
+    """Apply `plan/needs-fix` when `change` has an open finding, and remove it when it has none
+    (#3264). A refused label gives a failure note for the comment; rejected credentials stop the
+    run."""
+    try:
+        if change.open_findings:
+            add_pull_labels(store, pull.number, (PLAN_NEEDS_FIX_LABEL,))
+        elif PLAN_NEEDS_FIX_LABEL in pull.labels:
+            remove_pull_labels(store, pull.number, (PLAN_NEEDS_FIX_LABEL,))
+    except GitHubUnauthenticatedError:
+        raise
+    except GitHubOperationError as exc:
+        return MESSAGES.roadmap.stage_comment_labels_failed.format(pull=pull.number, error=exc)
     return ""
 
 
@@ -1292,6 +1343,7 @@ def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChang
         },
     )
     label_note = _label_pull(store, pull.number, change.title)
+    label_note += _label_needs_fix(store, pull, change)
     texts = MESSAGES.roadmap
     store.comment(
         target.item.number,
@@ -1442,13 +1494,18 @@ class StageResult(StrEnum):
 
 def stage_results(plan: StagePlan, applied: StageApplied) -> dict[int, StageResult]:
     """The result of each item a run handled, by issue number. A write that failed moves its item
-    from staged or needs_split to failed, so an item has one result (#2659)."""
+    from staged or needs_split to failed, so an item has one result (#2659). An item staged with
+    an open finding is a failed attempt, so the round counts no staged plan (#3264)."""
     results = dict.fromkeys((left.number for left in plan.left_out), StageResult.SKIPPED)
     results |= dict.fromkeys(applied.staged, StageResult.STAGED)
     results |= dict.fromkeys(applied.stopped, StageResult.NEEDS_SPLIT)
     results |= dict.fromkeys(applied.returned, StageResult.RETURNED)
     results |= dict.fromkeys(
         (failure.number for failure in (*plan.failed, *applied.failed)), StageResult.FAILED
+    )
+    open_items = {change.target.item.number for change in plan.ready if change.open_findings}
+    results |= dict.fromkeys(
+        (number for number in applied.staged if number in open_items), StageResult.FAILED
     )
     return results
 

@@ -2,6 +2,75 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.53.3](https://github.com/dan-petty/devops-cli/compare/v0.53.2...v0.53.3) (2026-11-03)
+
+
+### Bug Fixes
+
+* **roadmap:** measure a group with one exact token counter ([#3377](https://github.com/dan-petty/devops-cli/issues/3377)) ([36943aa](https://github.com/dan-petty/devops-cli/commit/36943aaa3e2268081d27b9aa477a4ec982bf6539))
+* **roadmap:** refuse an overlong title summary at stage ([#3381](https://github.com/dan-petty/devops-cli/issues/3381)) ([df40366](https://github.com/dan-petty/devops-cli/commit/df40366d4af38cc554e278c8409b6df6557d2d9b))
+
+## [0.53.2](https://github.com/dan-petty/devops-cli/compare/v0.53.1...v0.53.2) (2026-11-03)
+
+
+### Bug Fixes
+
+* **roadmap:** reject living-spec paths in a stage task group ([#3376](https://github.com/dan-petty/devops-cli/issues/3376)) ([8671477](https://github.com/dan-petty/devops-cli/commit/8671477fb28864c539284f1c44b07ef138d78f37))
+
+## [0.53.1](https://github.com/dan-petty/devops-cli/compare/v0.53.0...v0.53.1) (2026-11-03)
+
+
+### Bug Fixes
+
+* **roadmap:** check the plan title in the stage job ([#3360](https://github.com/dan-petty/devops-cli/issues/3360)) ([6abedcf](https://github.com/dan-petty/devops-cli/commit/6abedcfa30e20b77471884533667ece50c7009d4))
+
+## [0.53.0](https://github.com/dan-petty/devops-cli/compare/v0.52.1...v0.53.0) (2026-11-03)
+
+
+### Features
+
+* **roadmap:** a model ladder for retries, chosen per attempt ([#3366](https://github.com/dan-petty/devops-cli/issues/3366)) ([3055c34](https://github.com/dan-petty/devops-cli/commit/3055c34a7d25776bdcb1fce8b0908ab1564dcb61))
+* **roadmap:** refuse a stage plan with placeholder or cut text ([#3367](https://github.com/dan-petty/devops-cli/issues/3367)) ([7ced0c7](https://github.com/dan-petty/devops-cli/commit/7ced0c767f363ce54d280711b6e7cbefaa317c38))
+
+
+### Bug Fixes
+
+* **roadmap:** count the implement title like the CI check ([#3319](https://github.com/dan-petty/devops-cli/issues/3319)) ([be129c9](https://github.com/dan-petty/devops-cli/commit/be129c992345474513958036ac0f2533264d7e80))
+
+## [0.52.1](https://github.com/dan-petty/devops-cli/compare/v0.52.0...v0.52.1) (2026-11-03)
+
+
+### Code Refactoring
+
+* **roadmap:** move intake-eval to roadmap eval intake ([#3364](https://github.com/dan-petty/devops-cli/issues/3364)) ([3ba02a7](https://github.com/dan-petty/devops-cli/commit/3ba02a7e1a9392b6b48011e6cd01213b4ebd4ba1))
+
+## [0.52.0](https://github.com/dan-petty/devops-cli/compare/v0.51.0...v0.52.0) (2026-11-03)
+
+
+### Features
+
+* **pr:** warn when a pull request body is over 1,000 characters ([#3362](https://github.com/dan-petty/devops-cli/issues/3362)) ([6f3f292](https://github.com/dan-petty/devops-cli/commit/6f3f292be0dfd0be5947e78ddc4763d0a5cf4861))
+* **roadmap:** the implement agent can amend a defective plan ([#3361](https://github.com/dan-petty/devops-cli/issues/3361)) ([bf1d8c6](https://github.com/dan-petty/devops-cli/commit/bf1d8c61ddfc6233026cb421b8a47b1dc3c23d9e))
+
+
+### Bug Fixes
+
+* **roadmap:** check a split reply and the white space of openspec ([#3357](https://github.com/dan-petty/devops-cli/issues/3357)) ([8613a2d](https://github.com/dan-petty/devops-cli/commit/8613a2da2fd75a748abe82459177f91adf41bbcd))
+* **roadmap:** keep the class of a refused command ([#3359](https://github.com/dan-petty/devops-cli/issues/3359)) ([e5b8191](https://github.com/dan-petty/devops-cli/commit/e5b8191b530bed2a37a0c87cecaf3f8c2c5887f5))
+
+## [0.51.0](https://github.com/dan-petty/devops-cli/compare/v0.50.0...v0.51.0) (2026-11-03)
+
+
+### Features
+
+* **roadmap:** first pass of alternatives takes 20 items a round ([#3353](https://github.com/dan-petty/devops-cli/issues/3353)) ([78bdd53](https://github.com/dan-petty/devops-cli/commit/78bdd530e6ce695b596b47dc3b4c7d5f74a5a3a9))
+* **roadmap:** keep and show a trace of each run ([#3355](https://github.com/dan-petty/devops-cli/issues/3355)) ([21722f7](https://github.com/dan-petty/devops-cli/commit/21722f7c6444ce66fbc9a02445172e9c34242397))
+
+
+### Bug Fixes
+
+* **roadmap:** refuse a bare task and a repeated title word ([#3356](https://github.com/dan-petty/devops-cli/issues/3356)) ([ed77fe8](https://github.com/dan-petty/devops-cli/commit/ed77fe8a2fa8c0da580c5a0a4ce1eedee0e4f463))
+
 ## [0.50.0](https://github.com/dan-petty/devops-cli/compare/v0.49.0...v0.50.0) (2026-11-03)
 
 

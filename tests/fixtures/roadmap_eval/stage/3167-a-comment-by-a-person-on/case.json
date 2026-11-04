@@ -1,0 +1,42 @@
+{
+ "issue": 2754,
+ "pull": 3167,
+ "title": "feat(roadmap): a comment by a person on an item starts a suspended row again",
+ "change": "2754-a-comment-by-a-person-on",
+ "merge_commit": "fe3c59ad558ea986a2f7783e4f6c407a331f61a7",
+ "base_commit": "ac16675ab369e849730c285de2e1fc21e1bc2323",
+ "verdict": "reject",
+ "scores": {
+  "premise_ok": 1,
+  "fidelity": 1,
+  "task_quality": 1,
+  "rule_compliance": 1,
+  "accuracy": 1
+ },
+ "state": "closed",
+ "summary": "The plan of pull request #3167, which the stage job opened and a person closed. Every text of the plan is the placeholder `x`, and the one `verify` command is `true`. No gate of the job refused it when it was staged (#3200).",
+ "notes": [
+  "The pull request was never merged. The plan is the change folder at the head commit of the pull request, and `merge_commit` holds that commit.",
+  "The scores are the lowest, set by hand: the plan has no premise check, no task and no usable text."
+ ],
+ "defects": [
+  {
+   "type": "other",
+   "severity": "blocker",
+   "where": "proposal.md",
+   "problem": "Why, What Changes, Feasibility and Existing Tool Considered each hold only `x`. The plan says nothing that an implement job can use, and it checks no premise.",
+   "evidence": "proposal.md of the head commit of pull request #3167: `## Why` is `x`, `## Feasibility` is `- x`, `## Existing Tool Considered` is `x`.",
+   "gate": "content",
+   "message": "The text of why is the placeholder"
+  },
+  {
+   "type": "verify_form",
+   "severity": "blocker",
+   "where": "tasks.md",
+   "problem": "The only verify command is `true`, which passes on each run. It proves nothing about the change.",
+   "evidence": "tasks.md of the head commit of pull request #3167: `1.1 x, and verify that `true` passes`.",
+   "gate": "paths",
+   "message": "gives the `verify` command `true`"
+  }
+ ]
+}

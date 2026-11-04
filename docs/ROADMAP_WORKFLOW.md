@@ -18,7 +18,7 @@ The state of an Item is in labels on its issue ([ADR 0016](adr/0016-labels-hold-
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | 1. Capture | `status/new` | Row `intake` places each candidate ([intake page](roadmap/intake.md)) | `devops roadmap intake --title "<title>" --body-file <file> --confirm` | The same command, or a new issue on GitHub | None |
 | 2. Refine | `status/ready` | Rows `refine` and `alternatives` ([refine page](roadmap/refine.md), [alternatives page](roadmap/alternatives.md)) | `devops roadmap refine --item <number> --confirm` | The same command, and an answer to each open question in the issue | None |
-| 3. Plan | `status/ready` while the plan pull request is open, then `status/planned` | Row `stage` opens a draft plan pull request ([stage page](roadmap/stage.md)). Row `stage_ready` marks it ready when its checks pass | Write the change folder `openspec/changes/<issue>-<slug>/` as the first commit of the implementation branch | The same | G1 |
+| 3. Plan | `status/ready` while the plan pull request is open, then `status/planned` | Row `stage` opens a draft plan pull request ([stage page](roadmap/stage.md)). Row `stage_ready` marks it ready when its checks pass and it holds no `plan/needs-fix` label | Write the change folder `openspec/changes/<issue>-<slug>/` as the first commit of the implementation branch | The same | G1 |
 | 4. Claim | One `owner/*` label | Row `implement` sets `owner/service` when it makes a Job | `devops repos worktrees add <issue> --type <type> --slug <slug>` sets `owner/agent` | `devops roadmap claim <number> --as human --confirm` | None |
 | 5. Implement | `status/in-progress` | The runner Job runs one step for each task group ([implement page](roadmap/implement.md)) | Tests first, then code, in a draft pull request made with `devops pr create` | The same | None |
 | 6. Verify | `status/in-review` | The runner Job watches the checks, runs bounded fix steps, and asks the readiness function to mark the pull request ready | `devops pr monitor <pr_number>`, then `devops pr ready <pr_number>`, which asks the same function | The same | None |
@@ -29,7 +29,7 @@ Notes on the table:
 
 - A plan that an agent or a person writes is part of the one pull request that closes the issue. It has no separate gate G1. G1 exists for a plan that the Service stages.
 - A person can do every step of an agent or of the Service. A person's claim beats the Service's claim.
-- The command `devops roadmap explain <number>` says why the stage job and the implement job take an Item or leave it out. It names the first rule that fails for each job. It calls no model and writes nothing. The option `--why` on `devops roadmap stage` and `devops roadmap implement` lists the open Items that the filter does not name.
+- The command `devops roadmap explain <number>` says why the stage job and the implement job take an Item or leave it out. It names the first rule that fails for each job. It calls no model and writes nothing. With `--trace`, it prints the trace of the last run of the implement job from the record of the issue, and no verdict. The option `--why` on `devops roadmap stage` and `devops roadmap implement` lists the open Items that the filter does not name.
 - The command `devops roadmap inbox` lists what waits for a person, in the order of the gates. Each line shows the one command or action that clears it. [The inbox page](roadmap/inbox.md) tells what it lists and reads.
 - The command `devops roadmap return <number> --comment "<evidence>" --confirm` sends an Item back to `status/new` when it cannot be built as written.
 - Refine moves a part of an Item that cannot be built or decided now to new issues when the rest of the Item is Ready (#2423). [The refine page](roadmap/refine.md) tells how.
@@ -103,8 +103,9 @@ These are all the keys of the job record, by the job that writes them:
 | Stage | `stage.branch`, `stage.pr`, `stage.sha` | The staged branch, its draft pull request and its last commit |
 | Stage | `stage.groups`, `stage.needs_split`, `stage.file_cap` | The task groups with their size, the group over the budget, and the cap of that measure |
 | Stage | `stage.ready` | The plan pull request that the Service has seen leave the draft state |
+| Stage | `stage.needs_fix` | The plan pull request that the Service told about the label `plan/needs-fix` |
 | Implement | `implement.group`, `implement.sha`, `implement.branch`, `implement.pr` | The last group that passed, the last commit, the branch and the pull request |
-| Implement | `implement.stopped`, `implement.failure`, `implement.spend` | The step that stopped the Item, the class of its failure, and the spend of its steps |
+| Implement | `implement.stopped`, `implement.failure`, `implement.spend`, `implement.trace` | The step that stopped the Item, the class of its failure, the spend of its steps, and the trace of its last run |
 | Implement | `implement.job`, `implement.job_state`, `implement.job_digest` | The runner Job that the Service made, its state after a round reported it, and the digest of the runner image that the Job ran |
 
 ## The stop and retry path
@@ -133,7 +134,7 @@ A stop has a class (`roadmap/failure.py`, #3065). The classifier is a pure funct
 | `test` | `repair` | A test failed |
 | `lint` | `repair` | A lint, format, hook or static check failed |
 | `types` | `repair` | `mypy` or another type check failed |
-| `plan_defect` | `amend` | The plan cannot be run as written: the step changed no file, left a task unticked, or its inputs do not fit the window |
+| `plan_defect` | `amend` | The plan cannot be run as written: the step changed no file, left a task unticked, its inputs do not fit the window, or the model review of the stage found an open finding. A plan with an open finding stays in draft with `plan/needs-fix` and counts as no staged plan |
 | `premise_false` | `return` | The premise of the Item is false |
 | `oom` | `raise_limit` | A process was killed for memory |
 | `timeout` | `retry` | A command, a model call or the watch of the checks ran out of time |
@@ -141,7 +142,28 @@ A stop has a class (`roadmap/failure.py`, #3065). The classifier is a pure funct
 | `conflict` | `wait` | A rebase or the pull request has a merge conflict |
 | `ci_infra` | `retry` | The infrastructure failed, and every failure that no other class matches |
 
-The Job runs one action by itself: the fix rounds of `roadmap.implement.repair_rounds` for a failed check. The action left is the default of the class, or `wait` when the Job took that default already. A person runs the other actions. The issues #3060, #3062 and #3098 own their dispatch.
+The Job runs these actions by itself:
+- the fix rounds of `roadmap.implement.repair_rounds` for a failed check,
+- `amend` for a request of the kinds `path`, `command` and `task`,
+- `return` for a `premise` request,
+- the split of a group whose inputs exceed the context window.
+
+The action left is the default of the class, or `wait` when the Job took that default already. A person runs the other actions. The issues #3060, #3062 and #3098 own their dispatch.
+
+## Amendments
+
+A stopped step can request a small change of its plan. The last message of the step must end with a JSON block that has the info string `plan-request`. The job judges the request with deterministic rules before it stops the item.
+
+The judge applies only these kinds of requests:
+- `path`: replace a missing path with a tracked file that has the same file name. The old path must not be marked `(new)` in the group.
+- `command`: replace a verification command with a permitted program that starts with `uv run devops`. The new command must keep the paths in the same order.
+- `task`: append one unticked task at the end of the group, with the next task number.
+
+An amendment changes only the text of an unticked group in `tasks.md` and the section `## Amendments`. It never changes `proposal.md`, `design.md`, files under `specs/`, the section `## Criteria`, a ticked task or files outside the change folder. The job applies at most one amendment for each group. It commits the change, adds a bullet to `## Amendments`, and runs the group again.
+
+When the input tokens of a group exceed the limit, the job splits the group once for each item. It calls the stage split prompt to make new groups under the limit. It renumbers the later groups and criteria, records the amendment, and runs the new groups.
+
+A `scope` request, an empty premise, a second request for a group, or a request that breaks a rule stops the item. The job sets `status/blocked`, records `implement.failure` as `plan_defect`, and leaves the action `wait`. The stop comment asks a person the question and quotes the request, the defect and the evidence. The plan does not change.
 
 ## The three gates
 

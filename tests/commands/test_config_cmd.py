@@ -228,6 +228,38 @@ def test_config_show_includes_the_reference_models_and_their_provider(
     ) == (0, "gpt-4o", "text-embedding-3-large", "openai")
 
 
+def test_config_show_prints_the_ladder_of_each_step_class(
+    config: Callable[..., Path],
+) -> None:
+    """`devops config show` lists the tiers of each step class of the implement step (#3060)."""
+    config(
+        roadmap={
+            "implement": {
+                "ladder": {
+                    "edit": ["devops-coder", "devops-reasoning"],
+                    "repair": ["devops-coder", "devops-reasoning"],
+                }
+            }
+        }
+    )
+
+    table = runner.invoke(app, ["show"])
+    printed = runner.invoke(app, ["show", "--json"])
+    values = {row["key"]: row["value"] for row in json.loads(printed.stdout)}
+
+    assert (
+        table.exit_code,
+        "roadmap.implement.ladder" in table.stdout,
+        values["roadmap.implement.ladder"]["edit"],
+        values["roadmap.implement.ladder"]["repair"],
+    ) == (
+        0,
+        True,
+        ["devops-coder", "devops-reasoning"],
+        ["devops-coder", "devops-reasoning"],
+    )
+
+
 def test_config_show_warns_about_a_reference_model_that_genai_prices_does_not_know(
     config: Callable[..., Path], caplog: pytest.LogCaptureFixture
 ) -> None:
