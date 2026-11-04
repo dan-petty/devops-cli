@@ -22,7 +22,7 @@ Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage.p
 - [x] 2.4 In `src/devops_cli/ai/tasks/roadmap_stage_change.md`, delete the rule and the key `premise_failed`, and tell the model to state in `feasibility` that the issue cannot be built as written. Update `tests/roadmap/test_roadmap_stage_kind.py`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_kind.py` passes
 - [x] 2.5 Check that no source file names the deleted key
-  - Verification: `! git grep -n premise_failed src/devops_cli`
+  - Verification: `! git grep -nw premise_failed src/devops_cli`
 
 ## 3. Refine: one reply text type and a failure that moves no item
 

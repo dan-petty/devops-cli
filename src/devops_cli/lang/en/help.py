@@ -1558,11 +1558,10 @@ class RoadmapCommandHelp:
         "Make no request: print the reads that a run makes, in order, with placeholders."
     )
     repair: str = (
-        "Find the items that a placeholder reply of a model stalled, and set them back: an item "
-        "that the stage job returned to New with filler evidence goes back to Ready, and an item "
-        "that refine blocked with a stub proposal loses its stub section and refine block. It "
-        "leaves each item that a person set or answered. It reads GitHub, calls no model, and "
-        "writes only with --confirm. Details: docs/roadmap/repair.md."
+        "Find the items that a placeholder reply of a model stalled. A returned item goes back "
+        "to Ready. A stub refine item loses its stub section and its refine block. An item that "
+        "a person set or answered stays as it is. This command reads GitHub and calls no model. "
+        "It writes only with --confirm. Details: docs/roadmap/repair.md."
     )
     repair_dry_run: str = (
         "Make no request: print the requests that a run makes, in order, with placeholders."
