@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,6 +31,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.worktree_add import issue_holder, read_remote_heads
+from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.openspec.tool import isolated_openspec
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import StagedChange, StagePlan, parse_filters, plan_item, plan_stage
@@ -100,6 +102,33 @@ def openspec(openspec_fake: OpenSpecFake) -> OpenSpecFake:
     return openspec_fake
 
 
+def _pull_page(nodes: list[dict[str, Any]], *, next_page: bool = False) -> dict[str, Any]:
+    """One page of the GraphQL read of the open pull requests."""
+    return {
+        "data": {
+            "repository": {
+                "pullRequests": {
+                    "nodes": nodes,
+                    "pageInfo": {
+                        "hasNextPage": next_page,
+                        "endCursor": "cursor-1" if next_page else None,
+                    },
+                }
+            }
+        }
+    }
+
+
+@pytest.fixture
+def open_pulls_api(github_api: GitHubApiFake) -> GitHubApiFake:
+    """GitHub, answering the read of the open pull requests with none, with fresh GraphQL quota."""
+    get_github_rate_limiter().update_quota(
+        "graphql", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+    )
+    github_api.route("POST", "/graphql", github_json(_pull_page([])))
+    return github_api
+
+
 def _plan(
     store: InMemoryRoadmapStore,
     repo: StageRepo,
@@ -161,7 +190,10 @@ SAMPLE_PROBE = "The path `src/devops_cli/sample.py` is a file of the staging com
 
 @pytest.mark.usefixtures("openspec")
 def test_the_model_input_holds_the_probe_of_each_cited_path_and_identifier(
-    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    open_pulls_api: GitHubApiFake,
 ) -> None:
     seed_stageable(store, body="Fix `keep` in `src/devops_cli/sample.py`, not `gone_function`.")
     model_fake.answer(make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"]))
@@ -178,8 +210,67 @@ def test_the_model_input_holds_the_probe_of_each_cited_path_and_identifier(
 
 
 @pytest.mark.usefixtures("openspec")
+def test_the_model_input_holds_an_overlap_and_the_other_senders_of_a_cited_metric(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    open_pulls_api: GitHubApiFake,
+) -> None:
+    metric = "devops_cli_github_requests_total"
+    stage_repo.track(
+        {
+            "src/devops_cli/telemetry/instruments.py": f'NAME = "{metric}"\n',
+            "docs/TELEMETRY.md": f"| `{metric}` | requests |\n",
+        }
+    )
+    seed_stageable(store, body=f"Fix `src/devops_cli/sample.py` and `{metric}`.")
+    open_pulls_api.route(
+        "POST",
+        "/graphql",
+        github_json(
+            _pull_page(
+                [
+                    {
+                        "number": 3173,
+                        "title": "docs(openspec): plan #3173 the telemetry page",
+                        "state": "OPEN",
+                        "files": {"nodes": [{"path": "src/devops_cli/sample.py"}]},
+                    }
+                ]
+            )
+        ),
+    )
+    model_fake.answer(
+        make_stage_proposal(
+            feasibility=[f"The probe shows: {SAMPLE_PROBE}"],
+            dependencies=["#3173 changes `src/devops_cli/sample.py`, so this plan waits for it."],
+        )
+    )
+
+    _plan(store, stage_repo)
+
+    (request,) = _requests(model_fake)
+    assert request["overlaps"] == [
+        {
+            "number": 3173,
+            "title": "docs(openspec): plan #3173 the telemetry page",
+            "state": "open",
+            "plan": True,
+            "paths": ["src/devops_cli/sample.py"],
+        }
+    ]
+    assert request["metric_senders"][metric] == [
+        "docs/TELEMETRY.md",
+        "src/devops_cli/telemetry/instruments.py",
+    ]
+
+
+@pytest.mark.usefixtures("openspec")
 def test_a_feasibility_that_quotes_no_probe_line_goes_back_to_the_model_with_the_problem(
-    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    open_pulls_api: GitHubApiFake,
 ) -> None:
     seed_stageable(store, body="Fix the file `src/devops_cli/sample.py`.")
     quoted = make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"])
@@ -194,7 +285,10 @@ def test_a_feasibility_that_quotes_no_probe_line_goes_back_to_the_model_with_the
 
 @pytest.mark.usefixtures("openspec")
 def test_a_feasibility_that_quotes_a_probe_line_is_accepted_at_once(
-    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    open_pulls_api: GitHubApiFake,
 ) -> None:
     seed_stageable(store, body="Fix the file `src/devops_cli/sample.py`.")
     model_fake.answer(make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"]))

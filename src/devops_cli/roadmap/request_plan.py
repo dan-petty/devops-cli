@@ -509,6 +509,13 @@ def stage_requests(
             "openspec/changes/archive/",
         ),
         git("tracked_files", clone, "ls-files", "-z", when=cond["tracked_files"]),
+        PlannedRequest(
+            "GraphQL read",
+            req["open_pulls"],
+            argv=("POST", f"{CONST_URL_GITHUB_API_BASE}/graphql"),
+            condition=cond["open_pulls"],
+            repeat=each_item,
+        ),
         git("fetch_branch", clone, "fetch", "-q", "origin", branch, repeat=each_closed),
         PlannedRequest("model", req["model_change"], repeat=each_item),
         PlannedRequest(
