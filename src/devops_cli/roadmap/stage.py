@@ -86,7 +86,9 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_PRIORITY_VALUES,
+    CONST_ROADMAP_STAGE_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
+    CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
     CONST_ROADMAP_STATUS_READY,
     CONST_ROADMAP_TRUSTED_AUTHORS,
 )
@@ -513,7 +515,9 @@ def select_stageable(
 # ── The plan of one item ──────────────────────────────────────────────────────
 
 _CHANGE_TASK: Final[str] = "roadmap_stage_change.md"
-# The model window is shared by the reply, the body of the item and the repository context.
+# The model window is shared by the reply, the body of the item and the repository context. A cap
+# is the smaller of its fixed size and this share of the window: a larger window gives no larger
+# cap, so the first plan request leaves room below the limit of the tools (#3477).
 _WINDOW_SHARE_CONTEXT: Final[int] = 2
 _WINDOW_SHARE_BODY: Final[int] = 4
 # A reply that fails its schema goes back to the model once, with the violations; a second one
@@ -684,6 +688,8 @@ class _Planner:
         self._pull_repo = pull_repo
         self._grep = grep
         self._today: date = datetime.now(UTC).date()
+        # Whether the run reads the capabilities with `read_spec`: then the request names them.
+        self._specs_on_demand = isinstance(client, ToolboxClient) and client.reads_specs
         # Whether the model split the groups of the item in hand: it does so once for each item.
         self._split_asked = False
         # The lines of the premise probe of the item in hand, for the quote rule of `feasibility`.
@@ -804,11 +810,19 @@ class _Planner:
         request: dict[str, Any] = {
             "number": item.number,
             "title": item.title,
-            "body": truncate_to_token_limit(item.body, self._window // _WINDOW_SHARE_BODY),
-            "context": collect_context(
-                self._source, self._sha, item.body, max_tokens=self._window // _WINDOW_SHARE_CONTEXT
+            "body": truncate_to_token_limit(
+                item.body,
+                min(CONST_ROADMAP_STAGE_BODY_MAX_TOKENS, self._window // _WINDOW_SHARE_BODY),
             ),
-            "capabilities": [self._specs[name].request_entry(name) for name in sorted(self._specs)],
+            "context": collect_context(
+                self._source,
+                self._sha,
+                item.body,
+                max_tokens=min(
+                    CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS, self._window // _WINDOW_SHARE_CONTEXT
+                ),
+            ),
+            "capabilities": self._capabilities(),
             "budget": self._budget,
         }
         self._read_overlaps(item.body)
@@ -824,6 +838,16 @@ class _Planner:
         if probe.text:
             request["probes"] = probe.text
         return request
+
+    def _capabilities(self) -> list[Any]:
+        """The capabilities for the request. A run with `read_spec` gets the names, and reads the
+        purpose and the requirements of a capability on demand: the entries of 170 capabilities
+        count about 28,000 tokens, as much as the window leaves for the whole first request
+        (#3477). A run with no tool gets the entries."""
+        names = sorted(self._specs)
+        if self._specs_on_demand:
+            return names
+        return [self._specs[name].request_entry(name) for name in names]
 
     def _read_overlaps(self, body: str) -> None:
         """Read the open pull requests whose files meet the paths that `body` cites, and the files
@@ -1337,11 +1361,14 @@ def _run_report(trace: RunTrace) -> str:
         )
         for index, call in enumerate(trace.tool_calls, start=1)
     ]
-    listed = (
-        texts.stage_comment_calls.format(calls="\n".join(calls))
-        if calls
-        else texts.stage_comment_no_calls
-    )
+    if calls:
+        listed = texts.stage_comment_calls.format(calls="\n".join(calls))
+    elif any(trace.offered):
+        listed = texts.stage_comment_no_calls.format(
+            offered=sum(1 for tools in trace.offered if tools), requests=len(trace.offered)
+        )
+    else:
+        listed = texts.stage_comment_no_tools_offered
     return texts.stage_comment_run.format(
         requests=trace.requests,
         input_tokens=trace.input_tokens,

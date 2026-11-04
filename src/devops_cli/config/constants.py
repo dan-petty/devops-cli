@@ -3067,6 +3067,16 @@ CONST_ROADMAP_STAGE_LOG_MAX_COUNT: Final[int] = 40
 CONST_ROADMAP_STAGE_MAP_MAX_FILES: Final[int] = 40
 CONST_ROADMAP_STAGE_MAP_LINE_CHARS: Final[int] = 180
 CONST_ROADMAP_STAGE_SPEC_MAX_CHARS: Final[int] = 16000
+# The first plan request (#3477): the repository context and the body of the item each have a fixed
+# cap that does not grow with the window. A cap is also at most a share of a small window
+# (`_WINDOW_SHARE_CONTEXT` and `_WINDOW_SHARE_BODY` in the stage module). For the planner window of
+# 65,536 tokens, the hook that ends the tools (`CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE`)
+# stops them at 49,152 tokens. The request with the prompts and the names of the capabilities
+# counts about 34,000 tokens at the caps. The reserve is the room that the first request leaves
+# below that limit for the answers of the tools. `read_spec` gives the capabilities on demand.
+CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS: Final[int] = 20_480
+CONST_ROADMAP_STAGE_BODY_MAX_TOKENS: Final[int] = 8_192
+CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS: Final[int] = 8_192
 # The three extra tools of the planner (#3238). `references` names a text of at most 100
 # characters and lists at most 60 files, with the count of matches of each (the count is exact: the
 # search has no cap for a file). `read_issue` shows the first 1500 characters of a body, the last

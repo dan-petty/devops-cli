@@ -310,6 +310,21 @@ def _within_window_of(
     return hook
 
 
+def _recording(
+    hook: Callable[[RunContext[None], list[ToolDefinition]], list[ToolDefinition]],
+    offered: list[tuple[str, ...]],
+) -> Callable[[RunContext[None], list[ToolDefinition]], list[ToolDefinition]]:
+    """`hook`, that also adds the names of the tools it offers to `offered`, one entry for each
+    model request (#3477)."""
+
+    def record(ctx: RunContext[None], tool_defs: list[ToolDefinition]) -> list[ToolDefinition]:
+        tools = hook(ctx, tool_defs)
+        offered.append(tuple(tool.name for tool in tools))
+        return tools
+
+    return record
+
+
 def _tokens_of(messages: Sequence[ModelMessage]) -> int:
     """The tokens of every message of a run: its instructions, requests, replies and tool answers.
     The JSON form is a little longer than the text a model reads, so the count errs high."""
@@ -368,7 +383,8 @@ def investigate[T: BaseModel](
 
     `limits` replaces the budget of refine, and must set `request_limit` and `tool_calls_limit`,
     which the hook `_within_budget` reads. `output_retries` replaces the retries of a reply that
-    breaks the schema. `trace` takes what the run did, also when it stops (#3037). `window` is the
+    breaks the schema. `trace` takes what the run did, also when it stops (#3037), and the tools
+    that each request offered (#3477). `window` is the
     context window of the model in tokens: a request that would leave less than
     `1 / CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE` of it for the reply offers no tool.
 
@@ -376,6 +392,7 @@ def investigate[T: BaseModel](
     other failed model call.
     """
     function_tools = tools.tools()
+    offered: list[tuple[str, ...]] = []
     agent: Agent[None, T] = Agent(
         model,
         output_type=output_type,
@@ -387,7 +404,7 @@ def investigate[T: BaseModel](
             if output_retries is None
             else output_retries,
         },
-        capabilities=[PrepareTools(_within_window_of(window))],
+        capabilities=[PrepareTools(_recording(_within_window_of(window), offered))],
     )
     if output_check is not None:
         _retry_once(agent, output_check)
@@ -414,7 +431,7 @@ def investigate[T: BaseModel](
             return result.output
         finally:
             if trace is not None:
-                trace.absorb(messages, tools=tool_names)
+                trace.absorb(messages, tools=tool_names, offered=offered)
             record_run_spend(model, messages, time.monotonic() - started, stage="analysis")
     raise error
 

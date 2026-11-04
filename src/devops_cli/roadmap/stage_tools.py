@@ -231,7 +231,8 @@ class StageTools(InvestigationTools):
 
     def read_spec(self, capability: str = "", requirement: str = "") -> str:
         """Read a base spec of the project. Without a capability, list the capabilities. With one,
-        list its requirement names. With a requirement name too, return the whole requirement.
+        give its purpose and list its requirement names. With a requirement name too, return the
+        whole requirement.
 
         Args:
             capability: The name of the capability, such as `roadmap-stage`.
@@ -250,7 +251,11 @@ class StageTools(InvestigationTools):
         shown = tool.read_json(["show", capability, "--type", "spec", "--json"], self.source)
         found = {entry["name"]: entry for entry in shown["requirements"]}
         if not requirement:
-            return cut(list(found)) or f"The spec {capability} holds no requirement."
+            purpose = " ".join(str(shown.get("overview", "")).split())
+            listed = [f"Purpose: {purpose}"] if purpose else []
+            return (
+                cut([*listed, *found]) if found else f"The spec {capability} holds no requirement."
+            )
         entry = found.get(requirement.strip())
         if entry is None:
             return f"The spec {capability} holds no requirement {requirement.strip()}."

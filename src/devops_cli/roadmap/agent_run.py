@@ -144,31 +144,42 @@ class ToolCallRecord:
 @dataclass
 class RunTrace:
     """What a run of an agent did (#3037): its tool calls in order, the count of its model
-    requests, its input and output tokens, and the count of schema violations in the last retry
-    prompt of its output tool."""
+    requests, its input and output tokens, the count of schema violations in the last retry
+    prompt of its output tool, and the names of the function tools that each request offered, in
+    order (#3477). A request that offered none holds an empty tuple."""
 
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     requests: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
     violations: int = 0
+    offered: list[tuple[str, ...]] = field(default_factory=list)
 
     @classmethod
     def combined(cls, traces: Iterable[RunTrace]) -> RunTrace:
-        """One trace for all `traces`, in order: their tool calls joined and their counts summed.
-        The violations are those of the last trace that had any."""
+        """One trace for all `traces`, in order: their tool calls and offers joined and their counts
+        summed. The violations are those of the last trace that had any."""
         total = cls()
         for trace in traces:
             total.tool_calls.extend(trace.tool_calls)
+            total.offered.extend(trace.offered)
             total.requests += trace.requests
             total.input_tokens += trace.input_tokens
             total.output_tokens += trace.output_tokens
             total.violations = trace.violations or total.violations
         return total
 
-    def absorb(self, messages: Sequence[ModelMessage], *, tools: Collection[str]) -> None:
+    def absorb(
+        self,
+        messages: Sequence[ModelMessage],
+        *,
+        tools: Collection[str],
+        offered: Iterable[tuple[str, ...]] = (),
+    ) -> None:
         """Add the run of `messages` to the trace. `tools` are the names of the function tools of
-        the run: a call to any other tool is the output tool's and is no tool call of the trace."""
+        the run: a call to any other tool is the output tool's and is no tool call of the trace.
+        `offered` holds the tools that each request offered, which the messages do not record."""
+        self.offered.extend(offered)
         for message in messages:
             if isinstance(message, ModelResponse):
                 self._add_reply(message, tools)

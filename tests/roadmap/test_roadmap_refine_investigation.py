@@ -21,6 +21,7 @@ from pydantic_ai import Tool
 from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior
 from pydantic_ai.messages import (
     ModelMessage,
+    ModelMessagesTypeAdapter,
     ModelResponse,
     TextPart,
     ToolCallPart,
@@ -30,11 +31,15 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.usage import UsageLimits
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
+from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config.constants import (
+    CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE,
     CONST_ROADMAP_REFINE_INVESTIGATION_MAX_REQUESTS,
     CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS,
     CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS,
+    CONST_ROADMAP_REFINE_MAX_REPLIES,
+    CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS,
     CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES,
     CONST_ROADMAP_RUN_ERROR_CHARS,
 )
@@ -249,6 +254,53 @@ def test_the_window_of_the_analysis_task_ends_the_tools_before_the_counts_do(
         0,
         True,
     )
+
+
+def _words(tokens: int) -> str:
+    """Text of more than `tokens` tokens, with no repeated word."""
+    return " ".join(f"word{n}" for n in range(tokens))
+
+
+def _refine_request_tokens(git_repo: Path, *, body: int, replies: int, reply_tokens: int) -> int:
+    """The tokens of the first request of a refine investigation for an item with a body of `body`
+    tokens and `replies` replies of `reply_tokens` tokens each, as the run hook counts them: every
+    message, as JSON. The model is scripted, so nothing reaches a model."""
+    store = InMemoryRoadmapStore(repo=REPO, is_private=True)
+    number = store.seed_issue(
+        "Item", body=_words(body), fields={ItemField.STATUS: "New", ItemField.PRIORITY: "P1-High"}
+    )
+    for _ in range(replies):
+        store.seed_comment(number, _words(reply_tokens), author_association="OWNER")
+    script = Script(_SETTLED)
+
+    _round(store, git_repo, _FIRST, script)
+
+    return count_tokens(ModelMessagesTypeAdapter.dump_json(script.seen[0]).decode())
+
+
+def test_the_refine_request_of_a_large_item_passes_the_tool_removal_limit(
+    git_repo: Path, window: Callable[[int], None]
+) -> None:
+    """The measure of #3477: refine reads the same window as the stage job, 65,536 tokens, so its
+    investigation offers no tool from 49,152 tokens on. Refine cuts the replies, not the body. The
+    largest Ready body is about 3,400 tokens; this item has a body of 8,192 tokens and three
+    replies of 1,000 tokens. The test prints the counts. The worst case, 10 replies at their cap of 4,096
+    tokens, prints too: it is over the limit, and this change does not alter refine."""
+    window(65536)
+    limit = 65536 - 65536 // CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE
+    large = _refine_request_tokens(git_repo, body=8192, replies=3, reply_tokens=1000)
+    worst = _refine_request_tokens(
+        git_repo,
+        body=8192,
+        replies=CONST_ROADMAP_REFINE_MAX_REPLIES,
+        reply_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS,
+    )
+    print(
+        f"refine request: {large} tokens for a large item, {worst} tokens for the worst case; "
+        f"the tool-removal limit is {limit} tokens"
+    )
+
+    assert (large < limit, limit) == (True, 49152)
 
 
 @pytest.mark.usefixtures("wide_window")

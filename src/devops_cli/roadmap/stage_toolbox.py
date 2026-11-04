@@ -93,6 +93,11 @@ class ToolboxClient:
         if problem is not None:
             raise RoadmapStageError(problem)
 
+    @property
+    def reads_specs(self) -> bool:
+        """Whether `read_spec` can read the specs: the run has OpenSpec."""
+        return self._tools.openspec is not None
+
     def chat_structured[M: BaseModel](
         self, system: str, prompt: str, schema: type[M], *, max_retries: int
     ) -> M:

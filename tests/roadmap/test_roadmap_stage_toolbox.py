@@ -36,6 +36,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import StageToolset
 from devops_cli.exceptions.roadmap import RoadmapStageError
+from devops_cli.roadmap.agent_run import RunTrace
 from devops_cli.roadmap.stage_change import StageProposal, StageSplit
 from devops_cli.roadmap.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.stage_tools import StageTools
@@ -323,6 +324,26 @@ def test_a_window_takes_the_tools_away_before_the_messages_pass_it(
         True,
     )
     assert count_tokens(last) < window
+
+
+def test_the_trace_records_the_tools_offered_for_each_request(
+    checkout: tuple[Path, str],
+) -> None:
+    source, sha = _big_file_checkout(checkout)
+    script = Script(_read("src/big.py"), without_tools=_PLAN)
+    client = ToolboxClient(script.model(), _Inner(), source, sha, window=12000)
+
+    _plan(client)
+
+    (trace,) = client.traces
+    assert [list(offered) for offered in trace.offered] == script.tools_offered
+    assert (trace.offered[0], trace.offered[-1]) == (tuple(_EXTENDED_TOOLS), ())
+
+
+def test_the_combined_trace_holds_the_offers_of_every_run() -> None:
+    first, second = RunTrace(offered=[("read_file",)]), RunTrace(offered=[("read_file",), ()])
+
+    assert RunTrace.combined([first, second]).offered == [("read_file",), ("read_file",), ()]
 
 
 def test_a_run_with_no_window_keeps_the_tools_until_the_budget_takes_them(
