@@ -2919,6 +2919,10 @@ class RoadmapMessages:
     stage_split_record: str = "{title} ({tokens} tokens)"
     stage_probe_path_present: str = "The path `{path}` is a file of the staging commit."
     stage_probe_path_missing: str = "The path `{path}` is no file of the staging commit. {removal}"
+    stage_probe_path_missing_root: str = (
+        "The path `{path}` is no file at the root of the staging commit. These files of the "
+        "commit are candidates: {candidates}. {removal}"
+    )
     stage_probe_removed: str = "Commit {commit} deleted or renamed it."
     stage_probe_path_never: str = "No commit in the history deleted or renamed it."
     stage_probe_defined: str = "`{name}` is defined at {where}"

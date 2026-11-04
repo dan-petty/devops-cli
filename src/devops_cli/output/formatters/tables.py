@@ -211,7 +211,11 @@ def format_network_references_table(refs: list[Any]) -> TablePayload:
         scope_str = "[dim]Local[/dim]" if is_local else "[bold cyan]External[/bold cyan]"
         status_val = getattr(network_reference, "security_status", "Safe")
         status_text = str(status_val).upper()
-        if "⚠️" in status_text or "RISK" in status_text or "MALICIOUS" in status_text:
+        if (
+            "⚠️" in status_text
+            or ("RISK" in status_text and "LOW" not in status_text)
+            or "MALICIOUS" in status_text
+        ):
             color = "red"
         elif "UNCHECKED" in status_text:
             color = "yellow"
