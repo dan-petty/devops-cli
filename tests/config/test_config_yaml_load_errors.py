@@ -46,12 +46,12 @@ def _leaks(*texts: str) -> list[str]:
 def test_the_helper_names_the_file_the_type_and_the_position_of_a_marked_error() -> None:
     error, shown = _refusal(
         lambda: load_yaml(
-            lambda: yaml.safe_load(_NOT_YAML), name="/tmp/c.yaml", action="Cannot read"
+            lambda: yaml.safe_load(_NOT_YAML), name="config.yaml", action="Cannot read"
         )
     )
 
     assert (error.message, error.__cause__, error.__context__) == (
-        "Cannot read: /tmp/c.yaml is not valid YAML (ScannerError) at line 2, column 22.",
+        "Cannot read: config.yaml is not valid YAML (ScannerError) at line 2, column 22.",
         None,
         None,
     )
