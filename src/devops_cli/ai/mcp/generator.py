@@ -12,6 +12,7 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
+from devops_cli.ai.mcp.path_confinement import PATH_CONFINEMENTS, confine_value, confinement_root
 from devops_cli.config.constants import CONST_MCP_EXPOSURE_TABLE
 from devops_cli.core.command_resolver import module_click_command
 from devops_cli.docs.generator import _clean_text
@@ -94,6 +95,29 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
     # No `show`: it prints the secret in plain text, and a tool never returns a credential (#3222).
     ("vault", "get"): {
         "allowed": frozenset({"path", "key", "dry_run"}),
+        "required": frozenset(),
+    },
+    # No `output_path`: the command prints its graph, so the model needs no file (#3300).
+    ("ai", "ast", "graph"): {
+        "allowed": frozenset({"target_dir", "max_files", "fmt"}),
+        "required": frozenset(),
+    },
+    # No `output`: the tool prints the alerts, so the model needs no file (#3300).
+    ("k8s", "security-stream"): {
+        "allowed": frozenset(
+            {
+                "namespace",
+                "label",
+                "severity",
+                "duration",
+                "tail",
+                "follow",
+                "simulate",
+                "dry_run",
+                "output_format",
+                "json_output",
+            }
+        ),
         "required": frozenset(),
     },
 }
@@ -307,6 +331,25 @@ def _check_model_endpoints(path: tuple[str, ...], kwargs: dict[str, Any]) -> Non
         raise ValidationError(ERRORS.mcp.model_names_endpoint, field="models")
 
 
+def _check_path_confinement(tool_name: str, kwargs: dict[str, Any]) -> None:
+    """Resolve each kept path argument under the work tree before the command starts.
+
+    The root comes from the server process, never from an argument, so a model that calls the
+    tool cannot move the boundary that confines it (#3300).
+    """
+    names = PATH_CONFINEMENTS.get(tool_name)
+    if not names:
+        return
+    root = confinement_root()
+    for name in sorted(names):
+        if name not in kwargs:
+            continue
+        value = kwargs[name]
+        if value is None or value == "":
+            continue
+        kwargs[name] = confine_value(root, name, value)
+
+
 def _check_oidc_token_reference(path: tuple[str, ...], kwargs: dict[str, Any]) -> None:
     """Refuse an OIDC token of the sign tool that is not a `keyring:<name>` reference.
 
@@ -401,6 +444,7 @@ def _create_tool_function(
         from devops_cli.ai.mcp.server import _run_mcp_cmd
 
         bound = sig.bind(*args, **kwargs)
+        _check_path_confinement(tool_name, bound.arguments)
         bound.apply_defaults()
         _check_sandbox_preconditions(path, bound.arguments)
         _check_model_endpoints(path, bound.arguments)

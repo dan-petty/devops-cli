@@ -22,6 +22,7 @@ from devops_cli.ai.mcp.argument_contract import (
     schema_violations,
 )
 from devops_cli.ai.mcp.generator import generate_mcp_tools
+from devops_cli.ai.mcp.path_confinement import confine_value, confinement_root
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_FASTMCP_OPERATIONS_LOGGER,
@@ -144,7 +145,8 @@ def scan_uv_audit(directory: str = ".") -> str:
     _validate_mcp_arg("directory", directory)
     from devops_cli.ai.tools.builtin_tools import scan_uv_audit as _native_uv_audit
 
-    return _native_uv_audit(directory=directory)
+    confined = confine_value(confinement_root(), "directory", directory)
+    return _native_uv_audit(directory=str(confined))
 
 
 # ── FastMCP Dynamic System State Resources ─────────────────────────────────────

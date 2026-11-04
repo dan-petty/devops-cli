@@ -166,7 +166,6 @@ Synthesize whole-repository symbol dependency and reference graph.
 |---|---|---|---|---|
 | `target_dir` | `string` | No | - | Target source directory to verify or analyze. |
 | `max_files` | `integer` | No | `100` | Maximum source files to include. |
-| `output_path` | `string` | No | - | Destination file path for output report or artifacts. |
 | `fmt` | `string` | No | `json` | Output format for synthesized code graph: 'json' or 'dot'. |
 
 ### `ai_ast_parse`
@@ -1381,7 +1380,6 @@ Stream runtime security anomaly events from Kubernetes Falco eBPF probes.
 | `simulate` | `boolean` | No | `False` | Generate simulated kernel eBPF security anomalies for testing. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
-| `output` | `string` | No | - | Export discovered alerts to JSON file |
 
 ### `k8s_status`
 
