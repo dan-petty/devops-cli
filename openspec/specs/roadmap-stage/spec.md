@@ -1374,3 +1374,138 @@ An item whose plan carries an open finding SHALL NOT count as a staged plan in t
 #### Scenario: The round counts a plan with an open finding
 - **WHEN** The stage records an open finding for an item and the Service counts the round.
 - **THEN** The round budget counts no staged plan for the item, and the failure record of the item has class `plan_defect`.
+
+### Requirement: A task group writes no file under openspec/changes
+A `StageGroup` SHALL reject a path in `changes` or `creates` that is `openspec/changes` or that starts with `openspec/changes/`, and SHALL accept such a path in `reads`.
+
+#### Scenario: A change-folder path in changes
+- **WHEN** a `StageGroup` sets `changes` to `openspec/changes/3060-model-tier-ladder/proposal.md`
+- **THEN** validation fails with a message that names that path and the rule
+
+#### Scenario: A change-folder path in creates
+- **WHEN** a `StageGroup` sets `creates` and `changes` to `openspec/changes/3060-model-tier-ladder/tasks.md`
+- **THEN** validation fails with a message that names that path
+
+#### Scenario: The change folder itself
+- **WHEN** a `StageGroup` sets `changes` to `openspec/changes`
+- **THEN** validation fails
+
+#### Scenario: A change-folder path in reads
+- **WHEN** a `StageGroup` sets `reads` to `openspec/changes/3060-model-tier-ladder/proposal.md` and changes `src/devops_cli/roadmap/stage_change.py`
+- **THEN** validation succeeds
+
+### Requirement: The path check reports a change-folder path
+`path_problems` SHALL report a group path that is `openspec/changes` or that starts with `openspec/changes/`, in the place where the group names it, so that `check_proposal` refuses a recorded plan that skipped the schema.
+
+#### Scenario: A recorded group that creates a change file
+- **WHEN** `path_problems` runs on a group built without validation that creates `openspec/changes/3060-model-tier-ladder/proposal.md`
+- **THEN** it returns one problem that names the group, the path and the rule
+
+#### Scenario: A recorded group that only reads a change file
+- **WHEN** `path_problems` runs on a group that reads `openspec/changes/3060-model-tier-ladder/proposal.md` in a tree that holds that file
+- **THEN** it returns no problem
+
+### Requirement: The stage prompt forbids a change-folder write
+The roadmap stage prompt SHALL state that an implementation group must not change or create a path under `openspec/changes/`.
+
+#### Scenario: The prompt states the rule
+- **WHEN** the prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` is read
+- **THEN** it holds a sentence that names `openspec/changes/` and forbids the change and the creation of a path under it
+
+### Requirement: A move group names every module of its prefix
+The stage plan check SHALL refuse a group that moves a top-level Python module by name prefix and leaves another module of that prefix for no later group. A top-level module is a `.py` file directly under the folder. A file whose name starts with `test_`, and `conftest.py`, is no module of a job prefix.
+
+#### Scenario: A move group omits a module of its prefix
+- **WHEN** The staged tree holds `src/devops_cli/roadmap/stage_ready.py` and `src/devops_cli/roadmap/stage_verify.py`, and one group lists `src/devops_cli/roadmap/stage_ready.py` in `changes` and `src/devops_cli/roadmap/stage/ready.py` in `creates`, with no later group.
+- **THEN** `check_proposal` returns a problem that names `src/devops_cli/roadmap/stage_verify.py`.
+
+#### Scenario: A later group moves the missing module
+- **WHEN** The staged tree holds `src/devops_cli/roadmap/stage_ready.py` and `src/devops_cli/roadmap/stage_verify.py`, the first group moves `stage_ready.py` into `stage/`, and a later group moves `stage_verify.py` into `stage/`.
+- **THEN** `check_proposal` returns no problem for either module.
+
+#### Scenario: A move group leaves a module of another prefix
+- **WHEN** The staged tree holds `src/devops_cli/roadmap/stage_ready.py` and `src/devops_cli/roadmap/status.py`, and a group moves `stage_ready.py` into `stage/`.
+- **THEN** `check_proposal` returns no problem for `src/devops_cli/roadmap/status.py`.
+
+#### Scenario: A move group leaves a test module
+- **WHEN** The staged tree holds `src/devops_cli/roadmap/stage_ready.py` and `tests/roadmap/test_roadmap_stage_ready.py`, and a group moves `stage_ready.py` into `stage/`.
+- **THEN** `check_proposal` returns no problem for `tests/roadmap/test_roadmap_stage_ready.py`.
+
+### Requirement: A move group verifies the whole prefix
+The stage plan check SHALL refuse a move group whose `! git grep` verify literal equals the import path of one top-level module of the moved prefix, the bare prefix included.
+
+#### Scenario: A move group verifies one sampled import
+- **WHEN** A move group for prefix `stage` gives the verify command `! git grep -n -F devops_cli.roadmap.stage_ready src/ tests/`.
+- **THEN** `check_proposal` returns a problem that says the verify command must cover the prefix.
+
+#### Scenario: A move group verifies the bare prefix
+- **WHEN** A move group for prefix `stage` gives the verify command `! git grep -n -F devops_cli.roadmap.stage src/ tests/`.
+- **THEN** `check_proposal` returns a problem, because the literal names `stage.py` and matches the new `stage/` package.
+
+#### Scenario: A move group verifies the dotted prefix
+- **WHEN** A move group for prefix `stage` gives the verify command `! git grep -n -F devops_cli.roadmap.stage_ src/ tests/`.
+- **THEN** `check_proposal` returns no problem about the verify command.
+
+### Requirement: The stage prompt asks for every module of a prefix
+The stage prompt SHALL tell the planner to list every module of a moved name prefix in the group `changes` and to give a `verify` command that covers the prefix, with the layout invariant test or with a `! git grep` literal that names no single module.
+
+#### Scenario: The stage prompt describes a prefix move
+- **WHEN** A test reads `src/devops_cli/ai/tasks/roadmap_stage_change.md`.
+- **THEN** The prompt text tells the planner to name every module of the prefix, not the entry module only, and to verify the prefix.
+### Requirement: The stage context lists an overlapping pull request
+The stage context builder SHALL list each open pull request that changes a path that the item body cites, with its number, title, state and the shared paths.
+
+#### Scenario: A fake pull request changes a cited path
+- **WHEN** A test gives the builder a fake client that holds pull request 3173, which changes `docs/TELEMETRY.md`, and an item body that cites `docs/TELEMETRY.md`.
+- **THEN** The context holds one entry with number 3173, its title, its state and `docs/TELEMETRY.md`.
+
+#### Scenario: A fake pull request changes a path that no item body cites
+- **WHEN** A test gives the builder a fake client that holds pull request 3173, which changes `docs/TELEMETRY.md`, and an item body that cites only `src/devops_cli/roadmap/stage.py`.
+- **THEN** The context holds no overlap entry.
+
+### Requirement: A plan pull request carries a plan mark
+The stage context builder SHALL mark an open pull request whose title has the type `docs(openspec)` as a plan pull request.
+
+#### Scenario: A plan pull request overlaps a cited path
+- **WHEN** A test gives the builder a fake client that holds pull request 3252, titled `docs(openspec): plan #3252 stage context`, which changes `src/devops_cli/roadmap/stage_overlap.py`, and an item body that cites that path.
+- **THEN** The context entry holds the number, the title, the state, the plan mark and `src/devops_cli/roadmap/stage_overlap.py`.
+
+#### Scenario: A pull request that is no plan carries no mark
+- **WHEN** A test gives the builder a fake client that holds pull request 3253, titled `feat(roadmap): stage context`, which changes `src/devops_cli/roadmap/stage.py`, and an item body that cites that path.
+- **THEN** The context entry holds the number and no plan mark.
+
+### Requirement: A cited metric lists its other senders
+For each cited metric name, the stage context builder SHALL list the other files that hold the name, from `git grep -w` at the staged commit.
+
+#### Scenario: A cited counter lists the files that hold its name
+- **WHEN** A test gives the builder an item body that cites `devops_cli_github_requests_total` and a staged tree that holds the name in two files.
+- **THEN** The context lists `src/devops_cli/telemetry/instruments.py` and `docs/TELEMETRY.md` under the cited name.
+
+#### Scenario: A name that `INSTRUMENTS` does not hold lists no sender
+- **WHEN** A test gives the builder an item body that cites `devops_cli_dashboard_panel` and a staged tree that holds the name in one file.
+- **THEN** The context lists no sender under that name.
+
+### Requirement: The gate refuses an empty Dependencies part on an overlap
+`check_proposal` SHALL refuse a reply whose `dependencies` field is empty when the context lists an overlap, and SHALL name the pull request and the shared path.
+
+#### Scenario: An overlap with an empty Dependencies field
+- **WHEN** `check_proposal` gets a reply whose `dependencies` field is empty and a context that lists pull request 3173 on `docs/TELEMETRY.md`.
+- **THEN** The problems hold one sentence that names pull request 3173 and `docs/TELEMETRY.md`.
+
+#### Scenario: A reply that names the overlap passes
+- **WHEN** `check_proposal` gets a reply whose `dependencies` field names pull request 3173 and `docs/TELEMETRY.md`, and a context that lists that overlap.
+- **THEN** The problems hold no sentence about the overlap.
+
+### Requirement: The stage prompt states the Dependencies rule
+The stage prompt SHALL tell the planner to write each overlap and each shared metric sender into the `dependencies` field.
+
+#### Scenario: The prompt holds the Dependencies rule
+- **WHEN** A test reads the stage prompt file.
+- **THEN** The prompt holds a rule that names the `dependencies` field, the empty list and the overlap entry.
+
+### Requirement: The overlap read costs a stated number of GitHub requests
+The stage context builder SHALL read the open pull requests and their files in one GraphQL request for each 100 open pull requests, and SHALL state that count in the comment of the staged item.
+
+#### Scenario: 150 open pull requests cost two requests
+- **WHEN** A test gives the builder a fake client and 150 open pull requests.
+- **THEN** The fake client records two GraphQL requests and no other request.

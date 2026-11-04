@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from devops_cli.roadmap.stage_change import StageGroup
+from devops_cli.roadmap.stage_change import GroupKind, StageGroup
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from tests.support.builders import make_stage_proposal
 
@@ -276,6 +276,44 @@ def test_the_files_added_to_a_tree_exist_in_it() -> None:
     tree = TREE.with_files(["openspec/changes/1-a/tasks.md"])
 
     assert (len(_problems(group)), _problems(group, tree=tree)) == (1, [])
+
+
+# ── A change-folder path a group never writes (#3285) ────────────────────────
+
+
+def _construct(**update: object) -> StageGroup:
+    """A group that skips the schema of the reply, as the replay builds one when it fails."""
+    base = {
+        "title": "Keep the last comment",
+        "kind": GroupKind.BEHAVIOR,
+        "reads": ["src/devops_cli/sample.py"],
+        "changes": ["src/devops_cli/sample.py"],
+        "creates": [],
+        "test": "Write `test_the_job_keeps_the_last_comment` in `tests/test_sample.py`",
+        "implementation": "Keep the last comment in `src/devops_cli/sample.py`",
+        "documentation": "Change no document",
+        "verify": "uv run devops ci test tests/test_sample.py",
+    }
+    return StageGroup.model_construct(**{**base, **update})
+
+
+def test_a_recorded_group_that_creates_a_change_folder_path_is_reported() -> None:
+    group = _construct(
+        changes=["src/devops_cli/sample.py", "openspec/changes/1-a/proposal.md"],
+        creates=["openspec/changes/1-a/proposal.md"],
+    )
+
+    (problem,) = _problems(group)
+
+    assert "openspec/changes/1-a/proposal.md" in problem
+    assert "must not change or create" in problem
+
+
+def test_a_group_that_only_reads_a_change_folder_path_has_no_problem() -> None:
+    group = _construct(reads=["src/devops_cli/sample.py", "openspec/changes/1-a/tasks.md"])
+    tree = TREE.with_files(["openspec/changes/1-a/tasks.md"])
+
+    assert _problems(group, tree=tree) == []
 
 
 # ── The plans of 2026-10-31 ───────────────────────────────────────────────────

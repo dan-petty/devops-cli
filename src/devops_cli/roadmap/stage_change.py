@@ -22,7 +22,7 @@ from datetime import date
 from enum import StrEnum
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Any, Final, Self
+from typing import TYPE_CHECKING, Annotated, Any, Final, Self
 
 from pydantic import (
     AfterValidator,
@@ -45,13 +45,17 @@ from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, is_placeholder, summ
 from devops_cli.roadmap.refine import sanitize_text
 from devops_cli.roadmap.stage_criteria import PENDING_PERSON, StageCriterion, criterion_problems
 from devops_cli.roadmap.stage_form import form_problems
-from devops_cli.roadmap.stage_paths import StagedTree, path_problems
+from devops_cli.roadmap.stage_move import move_prefix_problems, move_verify_problems
+from devops_cli.roadmap.stage_paths import StagedTree, change_folder_paths, path_problems
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
 from devops_cli.roadmap.step_rules import rules_sections
 
+if TYPE_CHECKING:
+    from devops_cli.roadmap.stage_overlap import Overlap
+
 # A plan is documentation, not a fix or a feature: only the types feat, fix, perf, refactor and
 # revert add a line to the changelog, so a pull request that only plans an item has this type.
-_STAGING_TYPE: Final[str] = "docs(openspec)"
+STAGING_TYPE: Final[str] = "docs(openspec)"
 _ELLIPSIS: Final[str] = "..."
 # A character shows nothing to a reader when its category is a space, a control, a format mark
 # (such as U+200B or U+FEFF), a surrogate, a private use or an unassigned mark, or when it is one
@@ -105,7 +109,7 @@ _CHANGES_DIRECTORY: Final[str] = "openspec/changes"
 # task group changes or creates a path under this prefix (#3295).
 _LIVING_SPEC_DIRECTORY: Final[str] = "openspec/specs/"
 _SENTENCE_END: Final[str] = f"{string.whitespace}."
-_REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
+REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
 
 # ── The reply ─────────────────────────────────────────────────────────────────
 
@@ -321,6 +325,13 @@ class StageGroup(_Reply):
             raise ValueError(" ".join(problems))
         return self
 
+    @model_validator(mode="after")
+    def _no_change_folder_writes(self) -> Self:
+        problems = _change_folder_problems(self)
+        if problems:
+            raise ValueError(" ".join(problems))
+        return self
+
 
 def _behavior_problems(group: StageGroup) -> list[str]:
     """What breaks the rules of a `behavior` group: no test, no command for it, a process, or no
@@ -348,6 +359,16 @@ def _other_problems(group: StageGroup) -> list[str]:
         (group.verify is not None and group.process is not None, texts.stage_kind_two_checks),
     )
     return [text.format(title=group.title) for broken, text in found if broken]
+
+
+def _change_folder_problems(group: StageGroup) -> list[str]:
+    """The `changes` and `creates` paths of `group` that are the change folder or sit under it.
+    A group reads the change it implements, and it writes nothing there: the stage job writes the
+    change before the groups run (#3285)."""
+    return [
+        MESSAGES.roadmap.stage_bad_change_path.format(path=path)
+        for path in change_folder_paths([*group.changes, *group.creates])
+    ]
 
 
 # The keys of the plan: a reply that does not set `premise_failed` gives each of them.
@@ -391,6 +412,7 @@ class StageProposal(_Reply):
     specs: list[StageSpec] = Field(default_factory=list)
     groups: list[StageGroup] = Field(default_factory=list, min_length=1)
     criteria: list[StageCriterion] = Field(default_factory=list)
+    dependencies: list[Line] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -579,6 +601,7 @@ def check_proposal(
     requirements: Mapping[str, Collection[str]] | None = None,
     issue_body: str = "",
     probes: Sequence[str] = (),
+    overlaps: Sequence[Overlap] = (),
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
@@ -586,12 +609,29 @@ def check_proposal(
     `tree` the files that exist when the change is written. `issue_body` is the whole body of the
     issue: each acceptance criterion in it needs an entry in `criteria` (#3019), and a body with
     none needs no entry. `probes` holds the lines of the premise probe that the model read: when it
-    is not empty, `feasibility` quotes one (#3200)."""
+    is not empty, `feasibility` quotes one (#3200). `overlaps` lists the open pull requests that
+    change a path the item cites: the plan names each in `dependencies` (#3252)."""
     problems = _delta_problems(proposal, known, requirements or {})
     problems.extend(content_problems(proposal, probes))
     problems.extend(form_problems(proposal.groups))
     problems.extend(path_problems(proposal.groups, tree))
+    problems.extend(move_prefix_problems(proposal.groups, tree))
+    problems.extend(move_verify_problems(proposal.groups, tree))
     problems.extend(criterion_problems(proposal.criteria, issue_body, len(proposal.groups)))
+    problems.extend(_overlap_problems(proposal.dependencies, overlaps))
+    return problems
+
+
+def _overlap_problems(dependencies: Sequence[str], overlaps: Sequence[Overlap]) -> list[str]:
+    """One sentence for each overlap that no `dependencies` entry names by its number and a
+    shared path."""
+    texts = MESSAGES.roadmap
+    problems: list[str] = []
+    for overlap in overlaps:
+        path = overlap.paths[0]
+        if any(f"#{overlap.number}" in entry and path in entry for entry in dependencies):
+            continue
+        problems.append(texts.stage_problem_dependencies.format(pull=overlap.number, path=path))
     return problems
 
 
@@ -676,13 +716,15 @@ def _proposal_file(proposal: StageProposal, known: Collection[str]) -> str:
     texts = MESSAGES.roadmap
     changes = [*proposal.what_changes, texts.stage_fits_one_pr]
     impact = _impact(proposal.groups) or texts.stage_none
+    dependencies = _bullets(proposal.dependencies) or texts.stage_none
     return (
         f"# Proposal\n\n## Why\n\n{proposal.why.strip()}\n\n"
         f"## What Changes\n\n{_bullets(changes)}\n\n"
         f"## Capabilities\n\n{_capabilities(proposal.specs, known)}\n\n"
         f"## Impact\n\n{impact}\n\n"
         f"## Feasibility\n\n{_bullets(proposal.feasibility)}\n\n"
-        f"## Existing Tool Considered\n\n{proposal.existing_tool.strip()}\n"
+        f"## Existing Tool Considered\n\n{proposal.existing_tool.strip()}\n\n"
+        f"## Dependencies\n\n{dependencies}\n"
     )
 
 
@@ -723,7 +765,7 @@ def _task_texts(group: StageGroup) -> list[str]:
     if group.documentation is not None:
         tasks.append(
             texts.stage_task_documents.format(
-                work=group.documentation, command=_REGENERATE_DOCUMENTS
+                work=group.documentation, command=REGENERATE_DOCUMENTS
             )
         )
     return tasks
@@ -815,7 +857,7 @@ def staging_title(number: int, summary: str) -> str:
             ),
             failed_items=[number],
         )
-    return f"{_STAGING_TYPE}: {lead}{shown}"
+    return f"{STAGING_TYPE}: {lead}{shown}"
 
 
 def delivery_title(issue_title: str, declared: Collection[str]) -> str:

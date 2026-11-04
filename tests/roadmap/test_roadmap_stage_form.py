@@ -11,6 +11,7 @@ import pytest
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.roadmap.stage_change import StageGroup, StageProposal, check_proposal
 from devops_cli.roadmap.stage_form import form_problems
+from devops_cli.roadmap.stage_overlap import Overlap
 from devops_cli.roadmap.stage_paths import StagedTree
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
@@ -252,3 +253,40 @@ def test_every_example_test_path_of_the_prompt_and_the_config_is_mirrored(text: 
 
     assert paths
     assert [path for path in paths if not _mirrored(path)] == []
+
+
+# ── The open pull requests that change a cited path (#3252) ──────────────────
+
+_OVERLAP = Overlap(
+    number=3173,
+    title="docs(openspec): plan #3173 the telemetry page",
+    state="open",
+    plan=True,
+    paths=("docs/TELEMETRY.md",),
+)
+_DEPENDENCY_PROBLEM = (
+    "The open pull request #3173 changes `docs/TELEMETRY.md`, and no entry of `dependencies` "
+    "names it. Add an entry that names #3173 and `docs/TELEMETRY.md`, or show in that entry why "
+    "the overlap is no dependency."
+)
+
+
+def _overlap_problems(plan: StageProposal) -> list[str]:
+    """What `check_proposal` finds in a plan whose files exist, against one overlap."""
+    group = plan.groups[0]
+    tree = StagedTree([*group.changes, "src/devops_cli/sample.py", "tests/test_sample.py"])
+    return check_proposal(plan, ["comment-thread"], tree, overlaps=[_OVERLAP])
+
+
+def test_an_overlap_with_no_dependency_is_refused_and_named() -> None:
+    plan = _plan(CODE, MIRRORED, creates=(MIRRORED,))
+
+    assert _overlap_problems(plan) == [_DEPENDENCY_PROBLEM]
+
+
+def test_a_dependency_that_names_the_overlap_is_accepted() -> None:
+    plan = _plan(CODE, MIRRORED, creates=(MIRRORED,)).model_copy(
+        update={"dependencies": ["#3173 changes `docs/TELEMETRY.md`, so this plan waits for it."]}
+    )
+
+    assert _overlap_problems(plan) == []

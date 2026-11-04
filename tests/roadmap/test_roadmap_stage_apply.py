@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import stat
+import time
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -13,6 +14,7 @@ from devops_cli import exceptions
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_STEP_TOKENS
 from devops_cli.exceptions import GitHubOperationError
+from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import ended_by_stop
 from devops_cli.roadmap.stage import (
@@ -223,6 +225,46 @@ def test_a_staged_item_gets_one_comment_and_a_record_and_keeps_its_status(
         item.job_record.get(StageRecordKey.NEEDS_SPLIT),
         item.job_record.get(StageRecordKey.FILE_CAP),
     ) == (BRANCH, "5", sha, ["Keep the last comment"], None, None)
+
+
+def test_the_comment_states_the_graphql_requests_of_the_overlap_read(
+    stage_repo: StageRepo, model_fake: ModelFake, github_api: GitHubApiFake
+) -> None:
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    seed_stageable(store, body="Fix `src/devops_cli/sample.py`.")
+    get_github_rate_limiter().update_quota(
+        "graphql", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+    )
+    github_api.route(
+        "POST",
+        "/graphql",
+        github_json(
+            {
+                "data": {
+                    "repository": {
+                        "pullRequests": {
+                            "nodes": [],
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        }
+                    }
+                }
+            }
+        ),
+    )
+    github_api.route("POST", PULLS, OPENED)
+    model_fake.answer(
+        make_stage_proposal(
+            feasibility=[
+                "The probe shows: The path `src/devops_cli/sample.py` is a file of the staging "
+                "commit."
+            ]
+        )
+    )
+
+    _stage(store, stage_repo)
+
+    (comment,) = _comments(store)
+    assert "1 GraphQL request(s)" in comment
 
 
 def test_an_item_whose_plan_names_a_missing_path_twice_gets_no_branch_and_no_draft(
