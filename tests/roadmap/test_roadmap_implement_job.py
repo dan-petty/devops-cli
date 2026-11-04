@@ -228,8 +228,8 @@ def test_two_groups_end_in_commits_a_pushed_branch_a_closing_body_and_a_ready_pu
     assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
     assert job_world.origin_log() == [
         "fix(roadmap): plan",
-        "The first group (#1)",
-        "The second group (#1)",
+        "fix(roadmap): The first group (#1)",
+        "fix(roadmap): The second group (#1)",
         "docs: regenerate the documentation (#1)",
         "docs(openspec): archive the change (#1)",
     ]
@@ -379,7 +379,12 @@ def test_a_group_whose_tasks_are_ticked_on_the_branch_is_not_run_again(
     (job_world.repo.clone / TASKS_PATH).write_text(TICKED_FIRST, encoding="utf-8")
     job_world.repo.git("add", "-A")
     job_world.repo.git(
-        "-c", "user.name=devops-roadmap[bot]", "commit", "-q", "-m", "The first group (#1)"
+        "-c",
+        "user.name=devops-roadmap[bot]",
+        "commit",
+        "-q",
+        "-m",
+        "fix(roadmap): The first group (#1)",
     )
     job_world.repo.git("push", "-q", "origin", f"tmp:{BRANCH}")
     job_world.repo.git("switch", "-q", "main")
@@ -391,8 +396,8 @@ def test_a_group_whose_tasks_are_ticked_on_the_branch_is_not_run_again(
     assert (applied.ready, len(script.seen)) == ((1,), 2)
     assert job_world.origin_log()[:3] == [
         "fix(roadmap): plan",
-        "The first group (#1)",
-        "The second group (#1)",
+        "fix(roadmap): The first group (#1)",
+        "fix(roadmap): The second group (#1)",
     ]
 
 
@@ -648,7 +653,7 @@ def test_a_stop_pushes_the_commits_of_the_steps_that_passed_and_leaves_the_draft
 
     job_world.run(script)
 
-    assert job_world.origin_log() == ["fix(roadmap): plan", "The first group (#1)"]
+    assert job_world.origin_log() == ["fix(roadmap): plan", "fix(roadmap): The first group (#1)"]
     assert job_world.pull.ready_calls == []
     assert job_world.sent("PATCH", f"pulls/{PULL}") == []
     _, record = _item(job_world)
@@ -695,8 +700,8 @@ def test_a_conflict_on_the_rebase_before_the_push_pushes_the_commits_that_passed
     assert (applied.stopped, status, record.get("implement.stopped")) == ((1,), "Blocked", "push")
     assert job_world.origin_log() == [
         "fix(roadmap): plan",
-        "The first group (#1)",
-        "The second group (#1)",
+        "fix(roadmap): The first group (#1)",
+        "fix(roadmap): The second group (#1)",
         "docs: regenerate the documentation (#1)",
         "docs(openspec): archive the change (#1)",
     ]

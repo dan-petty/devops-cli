@@ -39,7 +39,7 @@ The command writes the tasks file back to its text before the run and keeps only
 
 **Repair.** An agent whose `ruff`, `mypy` or hook fails, or that forgets a tick, gets more turns. The setting `roadmap.implement.repair_rounds` bounds them. The turns may change only the files that the agent changed.
 
-**Result.** When every check passes, the command commits the checkout as `<group title> (#<item>)`. Otherwise it resets the checkout to the commit where the step started. It reports the step as stopped, with the reason and the masked diff of the work it discarded, and exits 1.
+**Result.** When every check passes, the command commits the checkout as `<type>(<scope>): <group title> (#<item>)`. The type and the scope are those of the item title, and the title falls back to `chore` when the item title has no Conventional Commit type. Otherwise it resets the checkout to the commit where the step started. It reports the step as stopped, with the reason and the masked diff of the work it discarded, and exits 1.
 
 A step writes nothing to GitHub.
 

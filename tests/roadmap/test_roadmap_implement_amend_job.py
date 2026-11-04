@@ -116,8 +116,8 @@ def test_wrong_test_path_ends_in_delivered_pr_with_corrected_path(
     assert job_world.origin_log() == [
         "fix(roadmap): plan",
         "docs(openspec): amend the plan of group 1 (#1)",
-        "The first group (#1)",
-        "The second group (#1)",
+        "fix(roadmap): The first group (#1)",
+        "fix(roadmap): The second group (#1)",
         "docs: regenerate the documentation (#1)",
         "docs(openspec): archive the change (#1)",
     ]
