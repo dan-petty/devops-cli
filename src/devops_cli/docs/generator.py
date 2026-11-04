@@ -902,8 +902,8 @@ class DocGenerator:
             "",
             "`devops config unset <key>` removes a key and its value from the same file, with the "
             "same copy and audit record. It edits the file and loads no settings, and "
-            "`--dry-run` prints the change, with the lines of its unified diff, and writes "
-            "nothing. The `ai` section "
+            "`--dry-run` prints the change, with the lines of its unified diff and each "
+            "credential as `***REDACTED***`, and writes nothing. The `ai` section "
             "and each section under it refuse a key that they do not declare. Such a key stops "
             "every command that loads the settings, with an error that names the full dotted "
             "key, its file and line, the release that removed the key when devops-cli knows it, "
