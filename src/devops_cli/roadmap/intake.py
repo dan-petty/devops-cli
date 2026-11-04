@@ -135,8 +135,9 @@ from devops_cli.exceptions.git import (
 )
 from devops_cli.exceptions.roadmap import RoadmapIntakeError
 from devops_cli.exceptions.security import SecurityError
+from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.commit_title import commit_scope, commit_type
+from devops_cli.roadmap.commit_title import commit_scope, commit_summary, commit_type
 from devops_cli.roadmap.intake_model import (
     IntakeModel,
     ModelEvidence,
@@ -146,6 +147,7 @@ from devops_cli.roadmap.intake_model import (
     UnusableProposalError,
 )
 from devops_cli.roadmap.intake_requests import Spend, planned_requests
+from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length
 from devops_cli.roadmap.store import (
     ChangeKind,
     CloseReason,
@@ -201,6 +203,20 @@ class NewCandidate:
         for part, text in (("title", self.title), ("body", self.body), ("source", self.source)):
             if text and redact_text(text) != text:
                 raise SecurityError(MESSAGES.roadmap.intake_secret.format(part=part))
+
+    def refuse_long_summary(self) -> None:
+        """Raise `ValidationError` when the title has a Conventional Commit type and a summary
+        over `SUMMARY_MAX_CHARS` (#3486). Every job that takes the item later leaves it out for
+        that, so it is refused before it is an issue. The message names the length and the
+        limit."""
+        if commit_type(self.title) is None:
+            return
+        length = summary_length(commit_summary(self.title))
+        if length > SUMMARY_MAX_CHARS:
+            raise ValidationError(
+                MESSAGES.pr.form_summary_long.format(length=length, limit=SUMMARY_MAX_CHARS),
+                field="title",
+            )
 
 
 @dataclass(frozen=True)

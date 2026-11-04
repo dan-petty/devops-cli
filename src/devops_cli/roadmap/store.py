@@ -840,6 +840,20 @@ class RoadmapStore(Protocol):
     def unlabel_issue(self, number: int, label: str) -> None:
         """Remove `label` from issue or pull request `number`, keeping its other labels."""
 
+    # ── What the title repair reads and writes (#3486) ──
+
+    def set_title(self, number: int, title: str) -> None:
+        """Write `title` as the title of issue `number`, changing nothing else, raising if it is
+        not an issue of this repository."""
+
+    def pull_title(self, number: int) -> str | None:
+        """The title of pull request `number`, open, closed or merged, or None when `number` is no
+        pull request of this repository."""
+
+    def last_renamed_at(self, number: int) -> datetime | None:
+        """When someone last changed the title of issue `number`, from its timeline, or None when
+        the title never changed."""
+
     def evidence_holds(self, evidence: Evidence) -> bool:
         """Whether GitHub confirms the evidence: the advisory exists, the run of this repository
         failed, or the commit exists in this repository."""

@@ -1274,6 +1274,46 @@ def test_closures_past_the_connection_limit_raise() -> None:
         store.closures(950)
 
 
+def test_last_renamed_at_reads_the_newest_title_change_of_the_timeline() -> None:
+    nodes: list[dict[str, Any]] = [
+        {"__typename": "RenamedTitleEvent", "createdAt": "2026-10-01T10:00:00Z"},
+        {"__typename": "RenamedTitleEvent", "createdAt": "2026-10-02T09:00:00Z"},
+    ]
+    store, runner = recorded_store({"timelineItems": _timeline(nodes)})
+
+    renamed = store.last_renamed_at(950)
+
+    assert renamed == datetime(2026, 10, 2, 9, tzinfo=UTC)
+    assert "RENAMED_TITLE_EVENT" in " ".join(runner.calls[0][0])
+
+
+def test_last_renamed_at_is_none_for_a_title_that_never_changed() -> None:
+    store, _ = recorded_store({"timelineItems": _timeline([])})
+    assert store.last_renamed_at(950) is None
+
+
+def test_set_title_patches_only_the_title() -> None:
+    store, runner = recorded_store(
+        {"-X PATCH": issue_payload(950), "issues/950": issue_payload(950)}
+    )
+
+    store.set_title(950, "fix(roadmap): a short summary")
+
+    assert runner.writes == [["api", "-X", "PATCH", f"repos/{REPO}/issues/950", "--input", "-"]]
+    sent = next(kwargs["input"] for args, kwargs in runner.calls if "PATCH" in args)
+    assert json.loads(sent) == {"title": "fix(roadmap): a short summary"}
+
+
+def test_pull_title_reads_a_pull_request_through_the_issues_endpoint() -> None:
+    pull = issue_payload(951, title="docs(openspec): plan #950 Add it", pull_request={"url": "u"})
+    store, _ = recorded_store({"issues/951": pull, "issues/952": issue_payload(952)})
+
+    assert (store.pull_title(951), store.pull_title(952)) == (
+        "docs(openspec): plan #950 Add it",
+        None,
+    )
+
+
 def test_label_issue_posts_one_label_and_keeps_the_others() -> None:
     store, runner = recorded_store({"-X POST": []})
     store.label_issue(950, "type/bug")

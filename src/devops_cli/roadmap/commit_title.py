@@ -25,3 +25,9 @@ def commit_scope(title: str) -> str | None:
     _, opened, rest = title.partition(":")[0].partition("(")
     scope = rest.removesuffix("!").removesuffix(")") if opened else ""
     return scope.strip() or None
+
+
+def commit_summary(title: str) -> str:
+    """The summary of `title`: the text after its first colon, with no space at its ends. A title
+    with no colon has no summary, and the text is empty."""
+    return title.partition(":")[2].strip()

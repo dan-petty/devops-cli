@@ -199,6 +199,15 @@ class StoreRequests:
         args = gh.closures_args(self.repo, _number(subject))
         return [self.gh(args, "closures", subject=subject)]
 
+    def renames(self, subject: str) -> Requests:
+        """The title changes on the timeline of an issue (#3486)."""
+        args = gh.renames_args(self.repo, _number(subject))
+        return [self.gh(args, "renames", subject=subject)]
+
+    def pull_title(self, subject: str, pull: str) -> Requests:
+        """The read of the plan pull request of an item, through the issues endpoint."""
+        return [self.gh(gh.issue_args(self.repo, _number(pull)), "pull_title", subject=subject)]
+
     def evidence(self, subject: str) -> Requests:
         """One read per piece of evidence, by its kind."""
         value = _p("evidence")
@@ -217,6 +226,10 @@ class StoreRequests:
         """One `PATCH` of an issue, its fields as JSON on stdin."""
         args = gh.issue_edit_args(self.repo, _number(subject))
         return self.gh(args, key, stdin=stdin, subject=subject, **values)
+
+    def set_title(self, subject: str) -> Requests:
+        """One `PATCH` that writes the title of an issue (#3486)."""
+        return [self._edit(subject, "set_title", gh.issue_edit(title=_p("title")))]
 
     def set_marks(self, subject: str) -> Requests:
         """The issue now, then its body with the job record's marks."""
@@ -456,6 +469,42 @@ def alternatives_requests(
         ],
         cond["check_on"],
         each_item,
+    )
+    return tuple(reads), tuple(writes)
+
+
+def retitle_requests(
+    repo: str,
+    *,
+    item: int | None = None,
+    limit: int | None = None,
+) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
+    """What `devops roadmap retitle` reads, in order, and the writes `--confirm` makes after them
+    (#3486). The run reads every issue. For each item with a long title it reads the comments and
+    the title changes of the item, then the title of its plan pull request when the item is
+    Planned, or runs the model when it is not. `--item` names the item, and `limit` caps the
+    items of a run."""
+    del limit
+    store = StoreRequests(repo)
+    texts = MESSAGES.roadmap
+    cond, rep, methods = texts.plan_conditions, texts.plan_repeat, texts.plan_methods
+    subject = f"#{item}" if item is not None else _p("item")
+    each_item = rep["retitle_item"]
+    model = PlannedRequest(
+        method=methods["model"],
+        target=texts.plan_targets["model_run"].format(subject=subject),
+    )
+    reads = [
+        *store.every_issue(),
+        *within(
+            [*store.comments_on(subject), *store.renames(subject)],
+            repeat=each_item,
+        ),
+        *within(store.pull_title(subject, _p("pull")), cond["planned"], each_item),
+        *within([model], cond["unplanned"], each_item),
+    ]
+    writes = within(
+        [*store.set_title(subject), *store.comment(subject)], cond["retitled"], each_item
     )
     return tuple(reads), tuple(writes)
 
@@ -804,6 +853,7 @@ __all__ = [
     "planned_session_read",
     "refine_requests",
     "render_dry_run",
+    "retitle_requests",
     "stage_requests",
     "within",
 ]

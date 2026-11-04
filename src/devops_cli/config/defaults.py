@@ -719,6 +719,9 @@ DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION: str = "OWNER"
 DEFAULT_ROADMAP_REFINE_LIMIT: int = 3
 # The most candidates one Service round of intake decides, one model call each (#1360).
 DEFAULT_ROADMAP_INTAKE_LIMIT: int = 5
+# `devops roadmap retitle` (#3486): the most items one run examines. A run asks the model once for
+# each item that has no plan, so the cap bounds its spend.
+DEFAULT_ROADMAP_RETITLE_LIMIT: int = 25
 # `devops roadmap alternatives` (#2650): the most items one run checks, and the days after which a
 # check is old. The Service's row is due twice a day, about (#2652).
 DEFAULT_ROADMAP_ALTERNATIVES_LIMIT: int = 5

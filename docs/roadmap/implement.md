@@ -47,6 +47,8 @@ A step writes nothing to GitHub.
 
 The job takes each Staged or Planned item that a label filter names. The default filter is `status=ready`, `status=planned` and `effort=low`. `--item` takes one item that is Staged or Planned, and ignores the filter and the limit.
 
+The job leaves out a Planned item whose title has no Conventional Commit type, or whose title summary has more than 60 characters. It judges the title before it reads the plan or makes a model request. `devops roadmap retitle` shortens such a title.
+
 - A **Staged** item has its staged branch and draft on `origin`.
 - A **Planned** item has its change folder on the default branch and no branch. The job makes the branch `<type>/<issue>-<slug>` there, with the slug of the folder. It opens the draft when the branch first holds a commit.
 

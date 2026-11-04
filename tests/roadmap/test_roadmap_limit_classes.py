@@ -191,6 +191,7 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "other",
         "the policy that says a tool is maintained",
     ),
+    "DEFAULT_ROADMAP_RETITLE_LIMIT": ("setting", "items that one retitle run examines"),
     "DEFAULT_ROADMAP_ALTERNATIVES_LIMIT": ("kept", "items of one round"),
     "DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT": (
         "setting",
