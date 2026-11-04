@@ -3,9 +3,14 @@ action that the class takes by default.
 
 A stop of the implement job holds one reason and the last error. Before this module a person chose
 the recovery each time. `classify_failure` is a pure function: it reads the exit status, the error
-text, the refusal of a tool and the name of the check, and returns one `FailureClass`. It reads
-no file, makes no request and changes no state. `ACTION_BY_CLASS` is the one table of defaults: each
-class has exactly one `FailureAction`.
+text, the refusal of a tool, the name of the check and the log of the check, and returns one
+`FailureClass`. It reads no file, makes no request and changes no state. It never reads the last
+message of the agent, which is a claim that no check verified (#3476). `ACTION_BY_CLASS` is the one
+table of defaults: each class has exactly one `FailureAction`.
+
+**Typed classes.** A stop site that knows its cause passes the class itself: `no_change_in_fix`,
+`not_ticked`, `tests_lost`, `head_moved` and `output_cap` come from the step, and no rule below
+makes them. The rules are the fallback for a stop whose cause has no class of its own.
 
 **Order of the rules.** The first rule that matches wins, and the order goes from the cause that is
 most sure to the one that is least sure:
@@ -15,8 +20,8 @@ most sure to the one that is least sure:
 3. The text, for the causes outside the code of the item: `oom`, `timeout`, `conflict`, `parser`
    (before `provider`, as a provider that cannot parse the call answers with an HTTP error too),
    `provider`, `refused_tool`.
-4. The text, for the checks of the item: `types`, `lint`, `test`.
-5. `premise_false` and `plan_defect`, from the text and from the message of the agent.
+4. The text, then the log of the check, for the checks of the item: `types`, `lint`, `test`.
+5. `premise_false` and `plan_defect`, from the text.
 6. The name of the check, for a check whose log shows no sign of its class.
 7. Anything else is `ci_infra`, whose default action is one retry. A failure that matches no rule
    must not stop the item for good, and the class list is fixed.
@@ -53,6 +58,11 @@ class FailureClass(StrEnum):
     REFUSED_TOOL = "refused_tool"
     CONFLICT = "conflict"
     CI_INFRA = "ci_infra"
+    NO_CHANGE_IN_FIX = "no_change_in_fix"
+    NOT_TICKED = "not_ticked"
+    TESTS_LOST = "tests_lost"
+    HEAD_MOVED = "head_moved"
+    OUTPUT_CAP = "output_cap"
 
 
 class FailureAction(StrEnum):
@@ -83,20 +93,26 @@ ACTION_BY_CLASS: Final[Mapping[FailureClass, FailureAction]] = MappingProxyType(
         FailureClass.REFUSED_TOOL: FailureAction.WAIT,
         FailureClass.CONFLICT: FailureAction.WAIT,
         FailureClass.CI_INFRA: FailureAction.RETRY,
+        FailureClass.NO_CHANGE_IN_FIX: FailureAction.WAIT,
+        FailureClass.NOT_TICKED: FailureAction.AMEND,
+        FailureClass.TESTS_LOST: FailureAction.RETRY,
+        FailureClass.HEAD_MOVED: FailureAction.RETRY,
+        FailureClass.OUTPUT_CAP: FailureAction.RAISE_LIMIT,
     }
 )
 
 
 class FailureEvidence(NamedTuple):
     """What the classifier reads: the error text, the exit status of the command that failed, the
-    text of the refusal of a tool, the name of the check that failed, and the last message of the
-    agent. Each field is empty or None when the failure has none."""
+    text of the refusal of a tool, the name of the check that failed, and the log of that check.
+    Each field is empty or None when the failure has none. The last message of the agent is no
+    evidence: it is a claim that no check verified (#3476)."""
 
     text: str = ""
     exit_status: int | None = None
     refusal: str = ""
     check: str = ""
-    agent: str = ""
+    log: str = ""
 
 
 # The signals of the kernel and of the Job controller: SIGKILL of a pod that went over its memory
@@ -190,11 +206,12 @@ _PREMISE = re.compile(
     r"|already (deleted|removed|fixed|implemented)|does not exist in the current codebase",
     _FLAGS,
 )
-# The plan cannot be run as written: the step changed nothing, left a task unticked, or its inputs
-# do not fit the window. An open finding of the stage keeps the plan in draft for the same class
-# (#3264).
+# The plan cannot be run as written: a task of an archived change is not ticked, or the inputs of
+# the step do not fit the window. An open finding of the stage keeps the plan in draft for the same
+# class (#3264). The stops of a step that changed no file or left a task unticked are typed by the
+# step (#3476).
 _PLAN = re.compile(
-    r"changed no file|task of the group is not ticked|has a task that is not ticked"
+    r"has a task that is not ticked"
     r"|inputs of the step measure|not a file on the default branch|open finding|plan/needs-fix",
     _FLAGS,
 )
@@ -226,10 +243,14 @@ def classify_failure(evidence: FailureEvidence) -> FailureClass:
         return by_signal
     if evidence.refusal.strip() or _REFUSED_AT_START.search(evidence.text):
         return FailureClass.REFUSED_TOOL
-    found = _first(_CAUSE_RULES, evidence.text) or _first(_CHECK_RULES, evidence.text)
+    found = (
+        _first(_CAUSE_RULES, evidence.text)
+        or _first(_CHECK_RULES, evidence.text)
+        or _first(_CHECK_RULES, evidence.log)
+    )
     if found is not None:
         return found
-    if _PREMISE.search(f"{evidence.text}\n{evidence.agent}"):
+    if _PREMISE.search(evidence.text):
         return FailureClass.PREMISE_FALSE
     if _PLAN.search(evidence.text):
         return FailureClass.PLAN_DEFECT

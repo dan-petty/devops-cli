@@ -59,6 +59,7 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_ARCHIVE_DIR,
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS,
+    CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS,
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
     CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
     CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS,
@@ -121,6 +122,7 @@ from devops_cli.roadmap.implement_scoped_ci import (
     run_scoped_checks,
     scoped_checks,
 )
+from devops_cli.roadmap.implement_shell_policy import shown
 from devops_cli.roadmap.implement_step import (
     FixRequest,
     StepOutcome,
@@ -180,9 +182,10 @@ class _StopError(Exception):
     """An item stops: the job's own signal, caught where the item's run ends. `push` says whether
     the commits that passed are worth pushing. `diff` is the diff of the work that a stopped step
     discarded, and `diff_cut` says that it was cut (#2721). `status` is the exit status of the command
-    that failed, `check` the name of the check that failed, `repair_rounds` the fix rounds that
-    the job ran before it stopped, and `tier_changes` the tier moves of the step: they are the
-    evidence of the failure class (#3065, #3060)."""
+    that failed, `check` the name of the check that failed, `check_log` the log of that check,
+    `repair_rounds` the fix rounds that the job ran before it stopped, and `tier_changes` the tier
+    moves of the step: they are the evidence of the failure class (#3065, #3060, #3476).
+    `failure_class` is the class that the site of the stop passes, when it knows its cause."""
 
     def __init__(
         self,
@@ -195,6 +198,7 @@ class _StopError(Exception):
         diff_cut: bool = False,
         status: int | None = None,
         check: str = "",
+        check_log: str = "",
         repair_rounds: int = 0,
         tier_changes: int = 0,
         failure_class: FailureClass | None = None,
@@ -209,6 +213,7 @@ class _StopError(Exception):
         self.diff_cut = diff_cut
         self.status = status
         self.check = check
+        self.check_log = check_log
         self.repair_rounds = repair_rounds
         self.tier_changes = tier_changes
         self.failure_class = failure_class
@@ -258,18 +263,46 @@ class ImplementApplied:
     returned: tuple[int, ...] = ()
 
 
-def _stopped_by(step: str, outcome: StepOutcome) -> _StopError:
-    """The stop of an item for a step that stopped, with the diff of its discarded work and the
-    tier moves that the step made before it stopped."""
+def _stopped_by(step: str, outcome: StepOutcome, *, check: str = "", log: str = "") -> _StopError:
+    """The stop of an item for a step that stopped, with the class that the step passes, the diff
+    of its discarded work and the tier moves that the step made before it stopped. A fix step
+    gives the check that it was to fix and the log of that check (#3476)."""
     return _StopError(
         step,
         outcome.reason,
         outcome.last_message,
         diff=outcome.diff,
         diff_cut=outcome.diff_cut,
+        check=check,
+        check_log=log,
         repair_rounds=outcome.repair_rounds,
         tier_changes=max(0, len(outcome.tiers) - 1),
+        failure_class=outcome.failure_class,
     )
+
+
+def _check_section(check: str, log: str) -> str:
+    """The first part of the stop comment: the failed check, and the end of its log when the stop
+    has one. Empty when no check is known (#3476)."""
+    texts = MESSAGES.roadmap
+    if not check:
+        return ""
+    name = check.replace("`", "'")
+    if not log:
+        return texts.implement_comment_check.format(name=name)
+    return texts.implement_comment_check_log.format(name=name, fence=code_fence(log), log=log)
+
+
+def _check_log_end(log: str) -> str:
+    """The end of the log of a failed check for a comment and the record: secrets masked, each
+    line escaped so it holds no raw control character, and at most
+    `CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS` characters (#3476). The masking reads the last
+    `4 * CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS` characters: a secret that the start of that part
+    splits lies in the part that the cut drops."""
+    window = log[-4 * CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS :]
+    lines = mask_secrets(window).strip().splitlines()
+    text = "\n".join(shown(line, CONST_ROADMAP_IMPLEMENT_REASON_CHARS) for line in lines)
+    return text[-CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS:]
 
 
 def _diff_section(stop: _StopError) -> str:
@@ -531,6 +564,8 @@ class _ItemRun:
         if self.target.retry:
             marks[ImplementRecordKey.STOPPED] = None
             marks[ImplementRecordKey.FAILURE] = None
+            marks[ImplementRecordKey.CHECK] = None
+            marks[ImplementRecordKey.CHECK_LOG] = None
         self.store.set_field(
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_PROGRESS, marks=marks
         )
@@ -916,7 +951,13 @@ class _ItemRun:
                 reason = MESSAGES.roadmap.implement_stop_scoped_failed.format(
                     name=failed.name, rounds=budget, command=failed.command, output=failed.log
                 )
-                raise _StopError(self.step, reason, check=failed.name, repair_rounds=budget)
+                raise _StopError(
+                    self.step,
+                    reason,
+                    check=failed.name,
+                    check_log=failed.log,
+                    repair_rounds=budget,
+                )
             self._fix(failed.name, failed.log)
             self._generate_docs()
 
@@ -1137,7 +1178,7 @@ class _ItemRun:
         )
         self.outcomes.append(outcome)
         if outcome.status is StepStatus.STOPPED:
-            raise _stopped_by(self.step, outcome)
+            raise _stopped_by(self.step, outcome, check=check, log=log)
 
     def _ready(self, pull: int) -> None:
         self.step = MESSAGES.roadmap.implement_step_names["ready"]
@@ -1237,10 +1278,12 @@ class _ItemRun:
                     text=stop.reason,
                     exit_status=stop.status,
                     check=stop.check,
-                    agent=stop.last_message,
+                    log=stop.check_log,
                 )
             )
         )
+        check = stop.check or last_failing_command(self.trace.events, stop.step)
+        check_log = _check_log_end(stop.check_log)
         taken: FailureAction | None = None
         if stop.tier_changes:
             taken = FailureAction.CHANGE_TIER
@@ -1260,6 +1303,7 @@ class _ItemRun:
             texts.implement_comment_stopped.format(
                 marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
                 step=stop.step,
+                check=_check_section(check, check_log),
                 failure=failure_lines(
                     klass,
                     repair_rounds=stop.repair_rounds,
@@ -1277,6 +1321,8 @@ class _ItemRun:
         marks: dict[Any, str | None] = {
             ImplementRecordKey.STOPPED: stop.step,
             ImplementRecordKey.FAILURE: klass.value,
+            ImplementRecordKey.CHECK: check or None,
+            ImplementRecordKey.CHECK_LOG: check_log or None,
             ImplementRecordKey.SPEND: self._spend(),
             ImplementRecordKey.TRACE: self.trace.encode(),
         }

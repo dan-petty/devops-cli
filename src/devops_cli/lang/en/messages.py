@@ -2638,11 +2638,15 @@ class RoadmapMessages:
     implement_stop_error: str = "{error}: {message}"
     implement_stop_push_failed: str = "\nThe push of the commits that passed failed too.\n{output}"
     implement_comment_stopped: str = (
-        "{marker}\nStopped at {step}.\n\n{failure}\n\n{table}\n\nReason:\n\n{reason}\n\n"
-        "Last message of the agent: "
+        "{marker}\nStopped at {step}.\n\n{check}{failure}\n\n{table}\n\nReason:\n\n{reason}\n\n"
+        "Last message of the agent (a claim that no check verified): "
         "{last}{diff}\n\nThe item is Blocked, and the job will not run it. Fix the cause. "
         "Then comment `implement: retry`. The Service also clears the stop one time when a new "
         "runner image rolls out.{note}"
+    )
+    implement_comment_check: str = "Failed check: `{name}`.\n\n"
+    implement_comment_check_log: str = (
+        "Failed check: `{name}`. The end of its log:\n\n{fence}\n{log}\n{fence}\n\n"
     )
     implement_failure_lines: str = (
         "Failure class: `{failure_class}`.\nAction taken: {taken}.\nAction left: {left}."

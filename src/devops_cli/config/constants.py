@@ -3170,6 +3170,9 @@ CONST_ROADMAP_IMPLEMENT_REASON_PATHS: Final[int] = 20
 # gives the count of the rest.
 CONST_ROADMAP_IMPLEMENT_REASON_TESTS: Final[int] = 10
 CONST_ROADMAP_IMPLEMENT_REASON_CHARS: Final[int] = 4000
+# The most characters of the end of the log of a failed check that a stop shows in its comment and
+# keeps in the job record (#3476). The end of a log holds the failed lines.
+CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS: Final[int] = 2000
 # The most characters of the output of a hook stage that a step keeps (#3043). The stop comment and
 # the message of a repair turn cut a reason to the limit above, so the output leaves room for the
 # line that names the stage. The output keeps its end, where pre-commit prints the failed hooks.
