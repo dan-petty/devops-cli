@@ -45,6 +45,7 @@ ROADMAP_PERMISSIONS = {
     "checks": "read",
     "actions": "read",
     "metadata": "read",
+    "workflows": "write",
 }
 
 
@@ -192,7 +193,7 @@ def test_a_reply_that_grants_more_keeps_the_token_and_logs_only_the_permission_n
             APP_LOGGER,
             logging.INFO,
             "GitHub App devops-roadmap[bot] has a new installation token with these permissions: "
-            "actions, administration, checks, contents, issues, metadata, pull_requests",
+            "actions, administration, checks, contents, issues, metadata, pull_requests, workflows",
         )
     ]
 
@@ -218,8 +219,8 @@ def test_an_installation_without_a_requested_permission_fails_naming_the_permiss
         "POST /app/installations/42/access_tokens (HTTP 422): The permissions requested are not "
         "granted to this installation. The installation must grant each permission that the "
         "token asks for: actions (read), checks (read), contents (write), issues (write), "
-        "metadata (read), pull_requests (write). Check the App ID, the installation ID and the "
-        "private key in DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY.",
+        "metadata (read), pull_requests (write), workflows (write). Check the App ID, the "
+        "installation ID and the private key in DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY.",
         "exit_code": 1,
         "details": {"operation": "gh_auth_token"},
     }
