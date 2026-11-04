@@ -45,6 +45,7 @@ from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, is_placeholder, summ
 from devops_cli.roadmap.refine import sanitize_text
 from devops_cli.roadmap.stage_criteria import PENDING_PERSON, StageCriterion, criterion_problems
 from devops_cli.roadmap.stage_form import form_problems
+from devops_cli.roadmap.stage_move import move_prefix_problems, move_verify_problems
 from devops_cli.roadmap.stage_paths import StagedTree, change_folder_paths, path_problems
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
 from devops_cli.roadmap.step_rules import rules_sections
@@ -608,6 +609,8 @@ def check_proposal(
     problems.extend(content_problems(proposal, probes))
     problems.extend(form_problems(proposal.groups))
     problems.extend(path_problems(proposal.groups, tree))
+    problems.extend(move_prefix_problems(proposal.groups, tree))
+    problems.extend(move_verify_problems(proposal.groups, tree))
     problems.extend(criterion_problems(proposal.criteria, issue_body, len(proposal.groups)))
     return problems
 

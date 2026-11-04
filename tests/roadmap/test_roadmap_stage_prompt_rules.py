@@ -368,6 +368,15 @@ def test_the_prompt_holds_each_verify_form_that_the_config_gives() -> None:
     assert config_forms <= prompt_forms
 
 
+# ── A move of a name prefix (#3372) ──────────────────────────────────────────
+
+
+def test_the_prompt_asks_for_every_module_of_a_moved_prefix() -> None:
+    assert "lists every module of that prefix in `changes`" in _PROMPT
+    assert "not the entry module only" in _PROMPT
+    assert "never one sampled module" in _PROMPT
+
+
 # ── The phrases that a document and the prompt keep together ──────────────────
 
 _SHARED = [
