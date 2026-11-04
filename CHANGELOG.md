@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.56.2](https://github.com/dan-petty/devops-cli/compare/v0.56.1...v0.56.2) (2026-11-04)
+
+
+### Bug Fixes
+
+* **roadmap:** a plan request leaves room for the planner tools ([#3523](https://github.com/dan-petty/devops-cli/issues/3523)) ([ee0f9c3](https://github.com/dan-petty/devops-cli/commit/ee0f9c32a686df8815e37a4293a248d5dd07ca5a))
+
 ## [0.56.1](https://github.com/dan-petty/devops-cli/compare/v0.56.0...v0.56.1) (2026-11-04)
 
 
