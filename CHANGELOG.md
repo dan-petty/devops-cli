@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.53.6](https://github.com/dan-petty/devops-cli/compare/v0.53.5...v0.53.6) (2026-11-04)
+
+
+### Bug Fixes
+
+* **roadmap:** check every module of a moved prefix ([#3419](https://github.com/dan-petty/devops-cli/issues/3419)) ([3d0bec9](https://github.com/dan-petty/devops-cli/commit/3d0bec91f0b3c982d08bcad572ee78517e02da79))
+
 ## [0.53.5](https://github.com/dan-petty/devops-cli/compare/v0.53.4...v0.53.5) (2026-11-04)
 
 
