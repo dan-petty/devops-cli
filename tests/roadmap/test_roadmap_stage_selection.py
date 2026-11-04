@@ -18,7 +18,7 @@ from devops_cli.roadmap.stage import (
     parse_filters,
     select_stageable,
 )
-from devops_cli.roadmap.store import GitHubState, ItemField, StageRecordKey
+from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, ItemField, StageRecordKey
 
 REPO = "example/roadmap"
 BUG = ("type/bug",)
@@ -369,6 +369,45 @@ def test_the_limit_caps_the_run_by_priority_and_then_by_number(
 
     assert _numbers(_select(store, limit=3)) == [critical, first, second]
     assert _numbers(_select(store, limit=1)) == [critical]
+
+
+def _retried(store: InMemoryRoadmapStore, number: int) -> None:
+    """Record one digest clear on the item (#3481)."""
+    item = store.item(number)
+    assert item is not None
+    store.set_marks(item, {ImplementRecordKey.DIGEST_CLEARS: '[{"class":"provider"}]'})
+
+
+def test_inside_one_priority_an_item_with_no_digest_clear_goes_before_a_retried_item(
+    store: InMemoryRoadmapStore,
+) -> None:
+    retried = _seed(store)
+    new = _seed(store)
+    _retried(store, retried)
+
+    assert _numbers(_select(store)) == [new, retried]
+
+
+def test_a_retried_item_of_a_higher_priority_goes_before_a_new_item_of_a_lower_priority(
+    store: InMemoryRoadmapStore,
+) -> None:
+    new = _seed(store, priority="P2-Medium")
+    retried = _seed(store, priority="P1-High")
+    _retried(store, retried)
+
+    assert _numbers(_select(store)) == [retried, new]
+
+
+def test_items_with_the_same_priority_and_attempt_state_go_by_number(
+    store: InMemoryRoadmapStore,
+) -> None:
+    first = _seed(store)
+    second = _seed(store)
+    third = _seed(store)
+    _retried(store, first)
+    _retried(store, second)
+
+    assert _numbers(_select(store)) == [third, first, second]
 
 
 def test_one_item_by_number_ignores_the_filter(store: InMemoryRoadmapStore) -> None:

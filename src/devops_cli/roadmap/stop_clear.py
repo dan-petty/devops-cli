@@ -7,16 +7,26 @@ Two rules take it out of Blocked, and the row `implement` runs them before it pl
 - **`retry`**: the owner, a member or a collaborator commented `implement: retry` after the last
   comment of the job. It clears at once, whatever the runner image.
 - **`digest`**: the digest in the template of CronJob `devops-cli-runner` differs from
-  `implement.job_digest`, the digest of the Job that left the stop. A new runner image may fix the
-  cause, so the Service tries the item once more.
+  `implement.job_digest`, the digest of the Job that left the stop, and the class of the stop has the
+  action `retry` in `ACTION_BY_CLASS` (#3481). A new runner image may fix the cause of such a stop,
+  so the Service tries the item once more. A new image cannot fix a plan, a premise, a refused tool
+  or a failed test, so a stop of another class, or with no class on record, waits for a retry.
 
 A clear removes `implement.stopped`, sets the Status that `derive_status` gives (Ready, or Planned
 when the plan is on the default branch), and comments the rule that ran.
 
-**Never a loop.** The next Job overwrites `implement.job_digest` with the digest of the template.
-A stop on that digest finds both digests equal, so the rule `digest` does not fire again until a
-release rolls another image. Each digest clears a stop at most one time. A stop with no digest on
-record, or a template with no digest, is cleared only by a retry.
+**Limits of the rule `digest`.** Each clear by digest adds the class, the new digest and the time
+to `implement.digest_clears` (`digest_clears.py`), and the list stays after the clear. The settings
+`roadmap.implement.digest_clears_per_class` and `roadmap.implement.digest_clears_per_item` bound
+the entries of one class and of one item. A stop at a limit stays Blocked until a retry. A record
+that does not parse stops the rule, with a warning in the log. The comment of a clear by digest
+shows at most one time in 24 hours for an item (`implement.digest_clear_commented_at`); the clear
+is recorded either way. The next Job overwrites `implement.job_digest` with the digest of the
+template, so a stop on that digest finds both digests equal. A stop with no digest on record, or a
+template with no digest, is cleared only by a retry. The rule reads the class and the record only:
+the Service holds image digests and no map from a digest to commits, so it reads no image content.
+`priority_order` (`stage.py`) takes an item with no digest clear before a retried item of the same
+priority, so a retried item does not keep new items from running.
 
 **What it clears.** Only a stop that the Service set: the item is open, holds Blocked with the
 label that a job last recorded, and records a stop. A Blocked label that a person set stays. The
@@ -32,17 +42,30 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import partial
+from typing import NamedTuple
+
+from pydantic import ValidationError
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
     CONST_ROADMAP_STATUS_BLOCKED,
+    CONST_ROADMAP_STOP_CLEAR_COMMENT_WINDOW_HOURS,
 )
+from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import GitHubRateLimitError
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claimed_by
+from devops_cli.roadmap.digest_clears import (
+    DigestClear,
+    encode_clears,
+    last_clear_comment,
+    recorded_clears,
+)
+from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureAction, FailureClass
 from devops_cli.roadmap.implement import retry_asked
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stage import StageFailure, write_each
@@ -121,35 +144,127 @@ def _new_digest(item: Item, template_digest: Callable[[], str | None]) -> str | 
     return current if current and current != recorded else None
 
 
-def _rule(
-    item: Item, comments: list[IssueComment], template_digest: Callable[[], str | None]
-) -> tuple[ClearRule, str | None] | None:
-    """The rule that clears the stop of `item`, with the new digest for the rule `digest`, or None.
-    A retry wins, and needs no read of the template."""
-    if retry_asked(comments):
-        return ClearRule.RETRY, None
+class DigestLimits(NamedTuple):
+    """The most clears by digest for one class of stop, and for one item. 0 turns the rule off."""
+
+    per_class: int
+    per_item: int
+
+    @classmethod
+    def from_settings(cls) -> DigestLimits:
+        implement = load_settings().roadmap.implement
+        return cls(implement.digest_clears_per_class, implement.digest_clears_per_item)
+
+
+@dataclass(frozen=True)
+class _Decision:
+    """The rule that clears a stop. For the rule `digest` it holds the new digest, the list of the
+    clears after this one, and whether the clear writes its comment."""
+
+    rule: ClearRule
+    new: str | None = None
+    clears: tuple[DigestClear, ...] = ()
+    failure_class: FailureClass | None = None
+    comment: bool = True
+
+
+def _retry_class(item: Item) -> FailureClass | None:
+    """The class of the stop of `item` when its action in `ACTION_BY_CLASS` is `retry`, else None.
+    A stop with no class on record, or with a class that the table does not hold, gives None."""
+    try:
+        klass = FailureClass(item.job_record.get(ImplementRecordKey.FAILURE) or "")
+    except ValueError:
+        return None
+    return klass if ACTION_BY_CLASS.get(klass) is FailureAction.RETRY else None
+
+
+def _digest_decision(
+    item: Item,
+    template_digest: Callable[[], str | None],
+    limits: DigestLimits,
+    now: datetime,
+) -> _Decision | None:
+    """The rule `digest` for `item`, or None. The class and the limits come first, so the template
+    is read only for a stop that the rule may clear. A record that does not parse gives None."""
+    klass = _retry_class(item)
+    if klass is None:
+        return None
+    try:
+        clears = recorded_clears(item)
+        commented = last_clear_comment(item)
+    except ValidationError as error:
+        logger.warning(
+            "Item #%d: no clear by digest, a record is not valid: %s", item.number, error
+        )
+        return None
+    if len(clears) >= limits.per_item:
+        return None
+    if sum(clear.failure_class is klass for clear in clears) >= limits.per_class:
+        return None
     new = _new_digest(item, template_digest)
-    return (ClearRule.DIGEST, new) if new is not None else None
+    if new is None:
+        return None
+    window = timedelta(hours=CONST_ROADMAP_STOP_CLEAR_COMMENT_WINDOW_HOURS)
+    return _Decision(
+        ClearRule.DIGEST,
+        new,
+        (*clears, DigestClear(failure_class=klass, digest=new, time=now)),
+        klass,
+        comment=commented is None or now - commented >= window,
+    )
 
 
-def _comment(rule: ClearRule, item: Item, status: str, current: str | None) -> str:
+def _rule(
+    item: Item,
+    comments: list[IssueComment],
+    template_digest: Callable[[], str | None],
+    limits: DigestLimits,
+    now: datetime,
+) -> _Decision | None:
+    """The rule that clears the stop of `item`, or None. A retry wins, clears a stop of any class,
+    and needs no read of the template."""
+    if retry_asked(comments):
+        return _Decision(ClearRule.RETRY)
+    return _digest_decision(item, template_digest, limits, now)
+
+
+def _comment(decision: _Decision, item: Item, status: str, limits: DigestLimits) -> str:
     texts = MESSAGES.roadmap
     stopped = item.job_record.get(ImplementRecordKey.STOPPED)
-    if rule is ClearRule.RETRY:
+    if decision.rule is ClearRule.RETRY:
         return texts.stop_clear_retry.format(
             marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
-            rule=rule.value,
+            rule=decision.rule.value,
             stopped=stopped,
             status=status,
         )
     return texts.stop_clear_digest.format(
         marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
-        rule=rule.value,
+        rule=decision.rule.value,
         stopped=stopped,
         old=item.job_record.get(ImplementRecordKey.JOB_DIGEST),
-        new=current,
+        new=decision.new,
+        failure_class=decision.failure_class.value if decision.failure_class else "",
+        per_class=limits.per_class,
+        per_item=limits.per_item,
         status=status,
     )
+
+
+def _marks(decision: _Decision, now: datetime) -> dict[ImplementRecordKey, str | None]:
+    """What a clear writes in the record with the Status: it removes the stop, its class and the failed check. A clear
+    by digest also keeps the list of the clears, and the time of its comment when it writes one."""
+    marks: dict[ImplementRecordKey, str | None] = {
+        ImplementRecordKey.STOPPED: None,
+        ImplementRecordKey.FAILURE: None,
+        ImplementRecordKey.CHECK: None,
+        ImplementRecordKey.CHECK_LOG: None,
+    }
+    if decision.rule is ClearRule.DIGEST:
+        marks[ImplementRecordKey.DIGEST_CLEARS] = encode_clears(decision.clears)
+        if decision.comment:
+            marks[ImplementRecordKey.DIGEST_CLEAR_COMMENTED_AT] = now.isoformat()
+    return marks
 
 
 def _clear_one(
@@ -158,6 +273,8 @@ def _clear_one(
     planned: PlannedChanges,
     template_digest: Callable[[], str | None],
     cleared: list[int],
+    limits: DigestLimits,
+    now: datetime,
 ) -> None:
     """Clear the stop of `item` by the first rule that holds. The rule comes from the cached item
     and one listing of the comments. Only when a rule holds, the issue is read again: an item that
@@ -165,27 +282,17 @@ def _clear_one(
     round. The write comes before the comment, because the comment starts with the marker of the
     job and so ends a retry that the stop waited for."""
     comments = store.comments_on(item.number)
-    if _rule(item, comments, template_digest) is None:
+    if _rule(item, comments, template_digest, limits, now) is None:
         return
     current = store.item(item.number)
     if current is None or not is_service_stop(current):
         return
-    if (decided := _rule(current, comments, template_digest)) is None:
+    if (decided := _rule(current, comments, template_digest, limits, now)) is None:
         return
-    rule, new = decided
     status = derive_status(StatusFacts(plan_merged=plan_merged(current, planned)))
-    store.set_field(
-        current,
-        ItemField.STATUS,
-        status,
-        marks={
-            ImplementRecordKey.STOPPED: None,
-            ImplementRecordKey.FAILURE: None,
-            ImplementRecordKey.CHECK: None,
-            ImplementRecordKey.CHECK_LOG: None,
-        },
-    )
-    store.comment(current.number, _comment(rule, current, status, new))
+    store.set_field(current, ItemField.STATUS, status, marks=_marks(decided, now))
+    if decided.comment:
+        store.comment(current.number, _comment(decided, current, status, limits))
     cleared.append(current.number)
 
 
@@ -194,16 +301,25 @@ def clear_stops(
     *,
     planned: PlannedChanges,
     digest: Callable[[], str | None],
+    limits: DigestLimits | None = None,
+    now: datetime | None = None,
 ) -> StopsCleared:
     """Clear each stop of the Service that a rule clears. `digest` reads the digest in the template
     of CronJob `devops-cli-runner`; the pass reads it at most one time, a read that fails
-    included, and only for a stop that records a digest. An item that fails does not stop the others; a rate limit, rejected
+    included, and only for a stop that records a digest and a class that a retry can fix. `limits`
+    default to the settings `roadmap.implement.digest_clears_per_class` and `_per_item`, and `now`
+    to the current time. An item that fails does not stop the others; a rate limit, rejected
     credentials and the stop of the Service stop the pass."""
     template_digest = _TemplateDigest(digest)
+    held = limits or DigestLimits.from_settings()
+    moment = now or datetime.now(UTC)
     cleared: list[int] = []
     failed: list[StageFailure] = []
     writes = [
-        (item, partial(_clear_one, store, item, planned, template_digest, cleared))
+        (
+            item,
+            partial(_clear_one, store, item, planned, template_digest, cleared, held, moment),
+        )
         for item in store.items()
         if is_service_stop(item)
     ]
@@ -212,4 +328,4 @@ def clear_stops(
     return StopsCleared(tuple(cleared), tuple(failed))
 
 
-__all__ = ["ClearRule", "StopsCleared", "clear_stops", "is_service_stop"]
+__all__ = ["ClearRule", "DigestLimits", "StopsCleared", "clear_stops", "is_service_stop"]

@@ -2719,9 +2719,11 @@ class RoadmapMessages:
     )
     stop_clear_digest: str = (
         "{marker}\nCleared the stop at {stopped} by the rule `{rule}`: the runner image changed "
-        "since the stop, from {old} to {new}. The item is {status} again, and the Service takes "
-        "it in the next round. The Service clears a stop one time for each runner image. A new "
-        "stop on this image waits for a comment `implement: retry`."
+        "since the stop, from {old} to {new}, and the class `{failure_class}` of the stop is one "
+        "that a new attempt can fix. The item is {status} again, and the Service takes it in the "
+        "next round. The Service clears at most {per_class} for each class and {per_item} for "
+        "each item by digest. A stop of another class, a new stop on this image, and a stop "
+        "over a limit wait for a comment `implement: retry`."
     )
     implement_comment_finished: str = (
         "{marker}\nPull request #{pull} is ready for review. The checks passed.\n\n"

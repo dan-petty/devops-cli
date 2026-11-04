@@ -49,7 +49,7 @@ An item that is in progress, in review or done.
 _Avoid_: active, claimed
 
 **Blocked**:
-An item waiting on something outside the roadmap, such as hardware, an upstream release or a person's decision. A blocked item is not started. A stop of the implement job also blocks an item, until a person comments `implement: retry` or a new runner image rolls out (see docs/ROADMAP_WORKFLOW.md). Waiting on another item is a dependency, not blocked.
+An item waiting on something outside the roadmap, such as hardware, an upstream release or a person's decision. A blocked item is not started. A stop of the implement job also blocks an item, until a person comments `implement: retry`, or a new runner image rolls out for a stop whose class a retry can fix (see docs/ROADMAP_WORKFLOW.md). Waiting on another item is a dependency, not blocked.
 _Avoid_: on hold, waiting
 
 **Dependency**:
