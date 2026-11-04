@@ -109,3 +109,14 @@ The `security_intel_network` reply for a target whose lookup has the outcome `un
 #### Scenario: A failed lookup of a domain
 - **WHEN** the Radar lookup of a domain fails and the user calls `security_intel_network` for it
 - **THEN** the reply has no line of threat categories and holds neither "verified" nor "Safe"
+
+### Requirement: The table colors a low-risk status green and a flagged status red
+The table of network references SHALL color a status red when it holds the warning sign, holds "MALICIOUS", or holds "RISK" without "LOW". A status that holds "Low Risk" and neither the warning sign nor "MALICIOUS" SHALL be green, as any other safe status.
+
+#### Scenario: A low-risk reference
+- **WHEN** the table is built for a reference with the status "✓ Safe / Low Risk"
+- **THEN** the status cell is "[green]✓ Safe / Low Risk[/green]"
+
+#### Scenario: A flagged reference
+- **WHEN** the table is built for a reference with the status "⚠️ Flagged (known botnet)" and for one with the status "High Risk"
+- **THEN** both status cells are wrapped in "[red]" and "[/red]"
