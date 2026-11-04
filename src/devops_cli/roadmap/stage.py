@@ -137,6 +137,16 @@ from devops_cli.roadmap.stage_criteria import criterion_problems
 from devops_cli.roadmap.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage_form import form_problems
 from devops_cli.roadmap.stage_github import StageGitHub
+from devops_cli.roadmap.stage_overlap import (
+    Overlap,
+    PullReads,
+    cited_instruments,
+    grep_at,
+    metric_senders,
+    open_pulls,
+    overlaps,
+    session_pull_reads,
+)
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage_probe import probe_premise
 from devops_cli.roadmap.stage_specs import BaseSpec, read_base_specs
@@ -154,6 +164,7 @@ from devops_cli.roadmap.stage_verify import (
     returning,
     verify,
 )
+from devops_cli.roadmap.step_files import code_spans
 from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore, StageRecordKey
 from devops_cli.security.sanitizer import mask_secrets, redact_text
 from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL, emit
@@ -534,6 +545,7 @@ class StagedChange:
     trace: RunTrace = field(default_factory=RunTrace)
     findings: tuple[Finding, ...] = ()
     open_findings: tuple[Finding, ...] = ()
+    pulls_requests: int = 0
 
 
 @dataclass(frozen=True)
@@ -652,6 +664,9 @@ class _Planner:
         tool: OpenSpecTool | None,
         toolbox: ToolboxClient | None = None,
         verifier: StageClient | None = None,
+        pull_reads: Callable[[], PullReads] | None = None,
+        pull_repo: str = "",
+        grep: Callable[[str], Sequence[str]] | None = None,
     ) -> None:
         self._client = client
         self._toolbox = toolbox
@@ -665,11 +680,19 @@ class _Planner:
         self._budget = budget
         self._window = window
         self._tool = tool
+        self._pull_reads = pull_reads
+        self._pull_repo = pull_repo
+        self._grep = grep
         self._today: date = datetime.now(UTC).date()
         # Whether the model split the groups of the item in hand: it does so once for each item.
         self._split_asked = False
         # The lines of the premise probe of the item in hand, for the quote rule of `feasibility`.
         self._probe_lines: tuple[str, ...] = ()
+        # The open pull requests that overlap the paths of the item in hand, and the files that
+        # hold a cited metric (#3252). The gate reads the overlaps.
+        self._overlaps: tuple[Overlap, ...] = ()
+        self._pull_requests = 0
+        self._metric_senders: dict[str, tuple[str, ...]] = {}
 
     def plan(self, target: StageTarget) -> StagedChange | OverBudget | PremiseFailed:
         """The change of `target`, the group that stops it, or the evidence that its premise is
@@ -788,12 +811,40 @@ class _Planner:
             "capabilities": [self._specs[name].request_entry(name) for name in sorted(self._specs)],
             "budget": self._budget,
         }
+        self._read_overlaps(item.body)
+        if self._overlaps:
+            request["overlaps"] = [overlap.entry() for overlap in self._overlaps]
+        if self._metric_senders:
+            request["metric_senders"] = {
+                name: list(files) for name, files in self._metric_senders.items()
+            }
         probe = probe_premise(self._source, self._sha, item.body)
         # The checks of the reply read the same lines as the model (#3200): `feasibility` quotes one.
         self._probe_lines = probe.lines
         if probe.text:
             request["probes"] = probe.text
         return request
+
+    def _read_overlaps(self, body: str) -> None:
+        """Read the open pull requests whose files meet the paths that `body` cites, and the files
+        that hold each metric name that `body` cites (#3252). A failed read adds no entry and
+        never stops the item."""
+        self._overlaps = ()
+        self._pull_requests = 0
+        cited = set(self._tree.paths_in(body))
+        for span in code_spans(body):
+            cited.update(self._tree.paths_in(span))
+        if cited and self._pull_reads is not None:
+            try:
+                read = open_pulls(self._pull_reads(), self._pull_repo)
+            except GitHubOperationError:
+                read = None
+            if read is not None:
+                self._pull_requests = read.requests
+                self._overlaps = overlaps(read.pulls, cited)
+        self._metric_senders = (
+            metric_senders(cited_instruments(body), self._grep) if self._grep is not None else {}
+        )
 
     def _ask[M: BaseModel](self, schema: type[M], task: str, request: Mapping[str, Any]) -> M:
         return self._client.chat_structured(
@@ -815,6 +866,7 @@ class _Planner:
             requirements=self._requirements,
             issue_body=target.item.body,
             probes=self._probe_lines,
+            overlaps=self._overlaps,
         )
         if problems:
             return _Refused(" ".join(problems), proposal)
@@ -851,6 +903,7 @@ class _Planner:
             self._tool is not None,
             self._budget,
             proposal,
+            pulls_requests=self._pull_requests,
         )
 
     def _tree_of(self, target: StageTarget, proposal: StageProposal) -> StagedTree:
@@ -1145,6 +1198,9 @@ def _planner_of(
         window=window,
         tool=tool,
         verifier=verifier,
+        pull_reads=None if repo is None else session_pull_reads,
+        pull_repo=repo or "",
+        grep=partial(grep_at, checkout, sha, operation=_GIT_OPERATION),
     )
 
 
@@ -1284,13 +1340,20 @@ def _run_report(trace: RunTrace) -> str:
 
 def _notes(change: StagedChange) -> str:
     """The notes that end the comment of a staged item: the open findings first, then the other
-    findings, the report of the plan runs, and a validation that did not run (#3264)."""
+    findings, the report of the plan runs, the read of the open pull requests, and a validation
+    that did not run (#3264, #3252)."""
     unvalidated = "" if change.validated else MESSAGES.roadmap.stage_comment_not_validated
+    read = (
+        MESSAGES.roadmap.stage_comment_overlaps.format(requests=change.pulls_requests)
+        if change.pulls_requests
+        else ""
+    )
     advisory = tuple(finding for finding in change.findings if finding not in change.open_findings)
     return (
         open_findings_section(change.open_findings)
         + findings_section(advisory)
         + _run_report(change.trace)
+        + read
         + unvalidated
     )
 

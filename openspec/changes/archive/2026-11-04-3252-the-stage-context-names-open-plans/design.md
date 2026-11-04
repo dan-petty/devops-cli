@@ -9,6 +9,7 @@
 - **A cited metric is a name that `INSTRUMENTS` holds, and its senders are the files that `git grep -w` finds at the staged commit.**: `INSTRUMENTS` is the single list of instruments, and `tests/telemetry/test_telemetry_instruments.py` already ties every metric to it.
 - **A pull request whose title has the type `docs(openspec)` is marked as a plan pull request.**: The stage job gives every plan that title, so the mark tells a plan from the pull request that implements it with no extra read.
 - **The prompt lists `dependencies` under reply keys, and PR records replay evaluation scores.**: `test_the_top_level_keys_of_the_reply_are_the_fields_of_the_proposal` checks that `StageProposal` fields match the prompt reply keys. Per `docs/ROADMAP_WORKFLOW.md:233`, changes to the prompt or gates state model replay scores before and after.
+- **The staged comment states the GraphQL request count.**: The count is the one that `open_pulls` returns: one request for each 100 open pull requests. The comment names it, so a person can judge the extra reads against the rate limit ledger.
 
 ## Rejected alternatives
 

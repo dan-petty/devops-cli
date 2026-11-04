@@ -2877,6 +2877,10 @@ class RoadmapMessages:
     )
     stage_comment_group: str = "{index}. {title}: {tokens} tokens"
     stage_comment_labels_failed: str = "\n\nLabels not added to #{pull}: {error}"
+    stage_comment_overlaps: str = (
+        "\n\nThe stage job read the open pull requests and their files in {requests} GraphQL "
+        "request(s)."
+    )
     # The report of the plan run of the toolbox (#3037), after the task groups.
     stage_comment_run: str = (
         "\n\nThe plan run made {requests} model request(s), and used {input_tokens} input tokens "
@@ -2991,6 +2995,7 @@ class RoadmapMessages:
             "fetch_default": "fetch the default branch, to read its plans",
             "default_plans": "the change folders of the default branch",
             "tracked_files": "the tracked files of the clone, to check the paths of each plan",
+            "open_pulls": "the open pull requests and their files, to find an overlap",
             "model_change": "the analysis model plans the change of the item",
             "model_split": "the analysis model splits the task groups over the budget",
             "model_correction": "the analysis model corrects a change that fails its checks",
@@ -3008,6 +3013,7 @@ class RoadmapMessages:
     stage_request_conditions: dict[str, str] = field(
         default_factory=lambda: {
             "tracked_files": "the filter names an item",
+            "open_pulls": "the item cites a path",
             "model_split": "a task group is over the budget",
             "model_correction": "the change fails its checks",
             "validate": "the openspec binary is on PATH",
@@ -3074,6 +3080,10 @@ class RoadmapMessages:
         "Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD)."
     )
     stage_bad_path: str = "'{path}' is not a path inside the repository."
+    stage_bad_change_path: str = (
+        "`{path}` is the change folder or a path under it. A task group must not change or "
+        "create `openspec/changes` or a path under it."
+    )
     stage_bad_capability: str = (
         "'{capability}' is not a name. Use lowercase letters and digits joined by single hyphens."
     )
@@ -3157,10 +3167,25 @@ class RoadmapMessages:
         "Group {group} creates `{path}`, and the directory `{directory}` does not mirror the code "
         "that the plan changes. A new test goes in {expected}. Move it there."
     )
+    stage_problem_move_prefix: str = (
+        "Group {group} moves the prefix `{prefix}` in `{folder}`, and the staged tree also holds "
+        "`{path}`. No group names `{path}` in `changes`. List every module of the prefix in the "
+        "group that moves it, or in a later group."
+    )
+    stage_problem_move_verify: str = (
+        "Group {group} gives the `verify` command `{command}` for the moved prefix `{prefix}`, "
+        "and its literal `{literal}` names one module of the moved prefix. Search the dotted "
+        "prefix, such as `{expected}`, so the check covers every module."
+    )
     stage_problem_path_later: str = (
         "Group {group} names `{path}` in {place}. The staged commit has no such file, and group "
         "{later} creates it after group {group}. Move group {later} before group {group}, or "
         "move the work that needs `{path}` into group {later} or a group after it."
+    )
+    stage_problem_dependencies: str = (
+        "The open pull request #{pull} changes `{path}`, and no entry of `dependencies` names it. "
+        "Add an entry that names #{pull} and `{path}`, or show in that entry why the overlap is "
+        "no dependency."
     )
     stage_path_same_name: str = "These files have the same name: {names}."
     stage_path_no_same_name: str = "No file has this name."
@@ -3248,6 +3273,59 @@ class RoadmapMessages:
     stage_pull_request_body: str = (
         "Plans #{number}\n\n{body}\n\nChange: `openspec/changes/{change}/`"
     )
+    # The plan check of a plan pull request (#3201): the reader of the change folder and the
+    # problems that the command reports.
+    plan_read_missing_file: str = "The change folder has no `{name}`."
+    plan_read_bad_proposal: str = "`proposal.md` has no `## Why` section."
+    plan_read_bad_tasks: str = "`tasks.md` holds a group with no `Reads: ... Changes: ...` line."
+    plan_read_bad_task: str = "`tasks.md` holds a task that the reader cannot read: {text}"
+    plan_read_bad_criterion: str = (
+        "`tasks.md` holds a criterion that the reader cannot read: {text}"
+    )
+    plan_read_bad_requirement: str = (
+        "`{path}` holds a requirement with no scenario, so the reader cannot read it."
+    )
+    plan_read_bad_spec: str = "`{path}` is no spec delta under `specs/<capability>/`."
+    plan_check_line: str = "{path}: {rule}: {message}"
+    plan_check_title: str = "The title is not `docs(openspec): plan #{number} <summary>`."
+    plan_check_title_long: str = (
+        "The text of the title after the colon has {length} characters, and the limit is {limit}."
+    )
+    plan_check_body_plans: str = "The body needs the line `Plans #{number}`, and it has none."
+    plan_check_body_plans_other: str = (
+        "The body names `Plans #{found}`, and the pull request plans #{number}."
+    )
+    plan_check_body_closes: str = (
+        "The body holds the closing keyword `{keyword}` before an issue reference. A plan pull "
+        "request closes no issue."
+    )
+    plan_check_body_long: str = "The body has {length} characters, and the limit is {limit}."
+    plan_check_check_missing: str = "The pull request has no check `{name}`."
+    plan_check_check_failed: str = (
+        "The check `{name}` has the state `{state}`, and it needs `success`."
+    )
+    plan_check_check_unread: str = "The check `{name}` could not be read: {reason}."
+    plan_check_folder_none: str = "The head holds no change folder `openspec/changes/{issue}-*/`."
+    plan_check_folder_many: str = (
+        "The head holds {count} change folders for issue #{issue}: {folders}."
+    )
+    plan_check_read: str = "The plan reader cannot read `{path}`: {reason}"
+    plan_check_moved_changed: str = (
+        "The base spec of `{capability}` moved since the plan at the requirement `{requirement}`: "
+        "{before} became {after}."
+    )
+    plan_check_moved_missing: str = (
+        "The base spec of `{capability}` no longer holds the requirement `{requirement}`."
+    )
+    plan_check_changed: str = "The plan check could not read the pull request {number}: {reason}"
+    plan_check_removed: str = "The pull request {number} has no title in GitHub."
+    plan_check_failed: str = "The plan check found {count} problem(s)."
+    plan_check_ok: str = "The plan check found no problem."
+    plan_check_request_pull: str = "the pull request {number} and its base"
+    plan_check_request_body: str = "the body of pull request {number}"
+    plan_check_request_issue: str = "the issue that the body plans"
+    plan_check_request_issue_condition: str = "the body holds the line `Plans #`"
+    plan_check_request_checks: str = "the checks of the head commit"
     # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.
     plan_dry_run: str = (
         "Dry run: no request was made. A run makes these requests, in order; a value in "

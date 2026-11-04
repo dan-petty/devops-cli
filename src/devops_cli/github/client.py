@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+from collections.abc import Mapping
 from datetime import datetime
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
@@ -13,6 +14,7 @@ from urllib.parse import quote, urlencode
 from pydantic import AliasPath, BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from devops_cli.config.constants import (
+    CONST_GH_API_GRAPHQL_ENDPOINT,
     CONST_GH_CLI,
     CONST_GITHUB_DIFF_MEDIA_TYPE,
     CONST_GITHUB_SEARCH_MAX_RESULTS,
@@ -593,6 +595,25 @@ class GitHubClient:
                 details={"path": path[:CONST_MAX_ERROR_DETAIL_LENGTH]},
             )
         return diff
+
+    def graphql(self, query: str, variables: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Send one GraphQL request through the session and return its answer, with its `data`.
+
+        The session paces and charges the request as a `graphql` request, so the read counts once
+        in `devops_cli_github_requests_total`. An answer that is no GraphQL object raises
+        `GitHubUnreadError`.
+        """
+        payload: dict[str, Any] = {"query": query}
+        if variables:
+            payload["variables"] = dict(variables)
+        path = f"/{CONST_GH_API_GRAPHQL_ENDPOINT}"
+        answer = self._session.rest("POST", path, body=payload)
+        if not isinstance(answer, dict):
+            raise GitHubUnreadError(
+                f"GitHub's answer to POST {path} is no GraphQL object: {type(answer).__name__}",
+                details={"path": path},
+            )
+        return answer
 
 
 def parse_paginated_json(text: str) -> list[dict[str, Any]]:
