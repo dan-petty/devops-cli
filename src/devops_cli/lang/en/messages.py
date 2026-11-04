@@ -2873,6 +2873,11 @@ class RoadmapMessages:
         "An earlier run stopped on a task group over the budget: {detail}. A person decides, or "
         "runs the job with --item {number}."
     )
+    stage_left_planned_limit: str = (
+        "The count of Planned items is {count}, and the setting roadmap.stage.planned_limit is "
+        "{limit}. The job plans no new item until a delivery lowers the count. An item with the "
+        "priority {priority} passes the limit."
+    )
     stage_left_secret: str = (
         "The title or the body looks like a secret, so the model does not read it."
     )
@@ -3410,6 +3415,7 @@ class RoadmapMessages:
             "blocked": "Items in status/blocked",
             "claim": "Claims with no activity for {days} days",
             "labels": "Repository state that a person owns",
+            "queue": "The stage job waits for deliveries",
             "person": "Pull requests of people and agents",
         }
     )
@@ -3427,6 +3433,10 @@ class RoadmapMessages:
             "claim": "{title} (claimed by {owner})",
             "labels": "{count} label(s) of {path} are missing or changed on GitHub: {names}",
             "more_labels": "{names}, and {more} more",
+            "queue": (
+                "The count of Planned items is {count}, and roadmap.stage.planned_limit is "
+                "{limit}. The stage job plans no new item."
+            ),
         }
     )
     inbox_clears: dict[str, str] = field(
@@ -3446,6 +3456,10 @@ class RoadmapMessages:
             ),
             "claim": "devops roadmap release {number} --repo {repo} --confirm",
             "labels": "devops gh labels sync --repo {repo}",
+            "queue": (
+                "Deliver Planned items with `devops roadmap implement --repo {repo}`, "
+                "or raise roadmap.stage.planned_limit."
+            ),
         }
     )
     plan_repeat_page: str = "per page, while GitHub links a next one"

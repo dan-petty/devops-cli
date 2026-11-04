@@ -818,6 +818,7 @@ def inbox_cmd(
     """List what waits for a person, each line with its age and the step that clears it."""
     from datetime import UTC, datetime
 
+    from devops_cli.config.settings import load_settings
     from devops_cli.roadmap.inbox import read_inbox, render_inbox
     from devops_cli.roadmap.request_plan import inbox_requests
 
@@ -828,7 +829,12 @@ def inbox_cmd(
         return
     with _exit_on_failure("Could not read the inbox"):
         _, store = _open_store(target)
-        inbox = read_inbox(store, repo=target, now=datetime.now(UTC))
+        inbox = read_inbox(
+            store,
+            repo=target,
+            now=datetime.now(UTC),
+            planned_limit=load_settings().roadmap.stage.planned_limit,
+        )
     write_stdout(render_inbox(inbox, repo=target) + "\n")
 
 

@@ -107,6 +107,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_LIMIT,
+    DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
     DEFAULT_ROADMAP_STAGE_TOOLSET,
     DEFAULT_RUNS_DATA_DIR,
@@ -869,6 +870,11 @@ class RoadmapStageConfig(BaseModel):
     limit: Annotated[int, Variable()] = Field(
         description="The most items that one run of the stage job takes",
         default=DEFAULT_ROADMAP_STAGE_LIMIT,
+        ge=1,
+    )
+    planned_limit: Annotated[int, Variable()] = Field(
+        description="The count of open Planned items at which the stage job plans no new item. An item with the highest priority label passes the limit, and so does the item that `--item` names. `devops roadmap explain` names the limit for an item that it holds, and `devops roadmap inbox` states when it holds",
+        default=DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
         ge=1,
     )
     step_tokens: Annotated[int, Variable()] = Field(
