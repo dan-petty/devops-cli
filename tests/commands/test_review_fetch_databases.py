@@ -27,7 +27,7 @@ _REPORT = json.dumps(
 
 
 @pytest.fixture
-def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def lockfile_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A tree with one lockfile, and cache directories for the two tools below `tmp_path`."""
     monkeypatch.setenv(CONST_OSV_DB_DIR_ENV, str(tmp_path / "osv"))
     monkeypatch.setenv("TRIVY_CACHE_DIR", str(tmp_path / "trivy"))
@@ -45,7 +45,7 @@ def _answer(process_fake: ProcessFake, program: str, answer: ProcessAnswer) -> N
 
 
 def test_the_command_reports_each_database_it_fetched_and_where(
-    cli: Callable[..., Any], process_fake: ProcessFake, tree: Path, tmp_path: Path
+    cli: Callable[..., Any], process_fake: ProcessFake, lockfile_tree: Path, tmp_path: Path
 ) -> None:
     _answer(process_fake, "osv-scanner", ProcessAnswer(returncode=1, stdout=_REPORT))
     _answer(process_fake, "trivy", ProcessAnswer())
@@ -53,7 +53,7 @@ def test_the_command_reports_each_database_it_fetched_and_where(
     database.mkdir(parents=True)
     (database / "all.zip").write_bytes(b"advisories\n")
 
-    result = cli("review", "fetch-databases", str(tree))
+    result = cli("review", "fetch-databases", str(lockfile_tree))
 
     assert result.exit_code == 0
     assert result.output == (
@@ -63,37 +63,37 @@ def test_the_command_reports_each_database_it_fetched_and_where(
 
 
 def test_the_command_says_when_the_tree_names_no_ecosystem(
-    cli: Callable[..., Any], process_fake: ProcessFake, tree: Path, tmp_path: Path
+    cli: Callable[..., Any], process_fake: ProcessFake, lockfile_tree: Path, tmp_path: Path
 ) -> None:
-    (tree / "uv.lock").unlink()
+    (lockfile_tree / "uv.lock").unlink()
     _answer(process_fake, "trivy", ProcessAnswer())
 
-    result = cli("review", "fetch-databases", str(tree))
+    result = cli("review", "fetch-databases", str(lockfile_tree))
 
     assert result.exit_code == 0
     assert result.output == (
-        f"! No osv-scanner database fetched: the lockfiles of {tree} name no ecosystem that has "
+        f"! No osv-scanner database fetched: the lockfiles of {lockfile_tree} name no ecosystem that has "
         "one.\n"
         f"✓ Fetched the Trivy database and checks into {tmp_path / 'trivy'}.\n"
     )
 
 
 def test_the_command_exits_with_1_and_shows_the_error_of_a_tool_that_failed(
-    cli: Callable[..., Any], process_fake: ProcessFake, tree: Path
+    cli: Callable[..., Any], process_fake: ProcessFake, lockfile_tree: Path
 ) -> None:
     _answer(process_fake, "osv-scanner", ProcessAnswer(returncode=1, stdout=_REPORT))
     _answer(process_fake, "trivy", ProcessAnswer(returncode=1, stderr="no route to host\n"))
 
-    result = cli("review", "fetch-databases", str(tree))
+    result = cli("review", "fetch-databases", str(lockfile_tree))
 
     assert result.exit_code == 1
     assert "trivy did not fetch its database (exit code 1): no route to host" in result.output
 
 
 def test_a_dry_run_lists_the_commands_and_starts_none(
-    cli: Callable[..., Any], process_fake: ProcessFake, tree: Path, tmp_path: Path
+    cli: Callable[..., Any], process_fake: ProcessFake, lockfile_tree: Path, tmp_path: Path
 ) -> None:
-    result = cli("review", "fetch-databases", str(tree), "--dry-run")
+    result = cli("review", "fetch-databases", str(lockfile_tree), "--dry-run")
 
     assert result.exit_code == 0
     assert result.output.splitlines()[0] == (

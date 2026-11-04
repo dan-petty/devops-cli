@@ -65,7 +65,7 @@ def trivy_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
-def tree(tmp_path: Path, osv_cache: Path, trivy_cache: Path) -> Path:
+def lockfile_tree(tmp_path: Path, osv_cache: Path, trivy_cache: Path) -> Path:
     """A tree with the lockfile of two ecosystems, and the two cache directories of the tools."""
     root = tmp_path / "tree"
     root.mkdir()
@@ -105,9 +105,9 @@ def _ran(process_fake: ProcessFake) -> list[tuple[str, ...]]:
 
 
 def test_the_plan_lists_each_command_with_the_directory_the_sandbox_binds(
-    tree: Path, osv_cache: Path, trivy_cache: Path
+    lockfile_tree: Path, osv_cache: Path, trivy_cache: Path
 ) -> None:
-    plan = plan_database_fetches(tree)
+    plan = plan_database_fetches(lockfile_tree)
 
     assert [(request.argv[0], request.argv[1:3], request.env) for request in plan] == [
         ("osv-scanner", ("scan", "source"), ((CONST_OSV_DB_DIR_ENV, str(osv_cache)),)),
@@ -121,18 +121,18 @@ def test_the_plan_lists_each_command_with_the_directory_the_sandbox_binds(
         "--download-offline-databases",
         "--all-packages",
         "--lockfile",
-        str(tree / "package-lock.json"),
+        str(lockfile_tree / "package-lock.json"),
         "--lockfile",
-        str(tree / "uv.lock"),
+        str(lockfile_tree / "uv.lock"),
     )
 
 
 def test_a_fetch_writes_the_directories_that_a_review_binds(
-    process_fake: ProcessFake, tree: Path, osv_cache: Path, trivy_cache: Path
+    process_fake: ProcessFake, lockfile_tree: Path, osv_cache: Path, trivy_cache: Path
 ) -> None:
     _answer_tools(process_fake)
 
-    fetched, failed = fetch_databases(tree)
+    fetched, failed = fetch_databases(lockfile_tree)
 
     assert failed == []
     assert fetched == [
@@ -150,18 +150,18 @@ def test_a_fetch_writes_the_directories_that_a_review_binds(
 
 
 def test_a_vulnerable_lockfile_is_a_fetch_that_succeeded(
-    process_fake: ProcessFake, tree: Path
+    process_fake: ProcessFake, lockfile_tree: Path
 ) -> None:
     """osv-scanner exits with 1 when a package of the lockfile is vulnerable."""
     _answer_tools(process_fake, osv_code=1)
 
-    _, failed = fetch_databases(tree)
+    _, failed = fetch_databases(lockfile_tree)
 
     assert failed == []
 
 
 def test_a_fetch_renews_the_age_of_the_database_it_confirmed_and_of_no_other(
-    process_fake: ProcessFake, tree: Path, old_database: Callable[[str, float], Path]
+    process_fake: ProcessFake, lockfile_tree: Path, old_database: Callable[[str, float], Path]
 ) -> None:
     """osv-scanner rewrites a file only when upstream changed it, so the fetch sets the modified
     time of the file of each ecosystem in the report."""
@@ -173,7 +173,7 @@ def test_a_fetch_renews_the_age_of_the_database_it_confirmed_and_of_no_other(
     paths = (pypi, npm, crates)
     before = [path.stat().st_mtime for path in paths]
 
-    fetched, _ = fetch_databases(tree)
+    fetched, _ = fetch_databases(lockfile_tree)
 
     renewed = [path.stat().st_mtime > old for path, old in zip(paths, before, strict=True)]
     assert renewed == [True, True, False]
@@ -199,23 +199,25 @@ def test_a_tree_with_no_lockfile_gets_no_osv_scanner_fetch(
 
 
 def test_a_file_that_ends_in_lock_but_is_no_lockfile_is_not_named_to_osv_scanner(
-    process_fake: ProcessFake, tree: Path
+    process_fake: ProcessFake, lockfile_tree: Path
 ) -> None:
     """osv-scanner stops with exit code 127 and prints no report for a file it cannot read."""
-    (tree / "rules.lock").write_text("{}\n", encoding="utf-8")
+    (lockfile_tree / "rules.lock").write_text("{}\n", encoding="utf-8")
 
-    plan = plan_database_fetches(tree)
+    plan = plan_database_fetches(lockfile_tree)
 
-    assert str(tree / "rules.lock") not in plan[0].argv
+    assert str(lockfile_tree / "rules.lock") not in plan[0].argv
 
 
-def test_a_failed_fetch_does_not_skip_the_other_tool(process_fake: ProcessFake, tree: Path) -> None:
+def test_a_failed_fetch_does_not_skip_the_other_tool(
+    process_fake: ProcessFake, lockfile_tree: Path
+) -> None:
     _answer_tools(
         process_fake,
         trivy=ProcessAnswer(returncode=1, stderr=f"downloading\n{_TRIVY_ERROR}\n"),
     )
 
-    fetched, failed = fetch_databases(tree)
+    fetched, failed = fetch_databases(lockfile_tree)
 
     assert [database.tool for database in fetched] == ["osv-scanner"]
     assert [(error.message, error.exit_code) for error in failed] == [
@@ -224,7 +226,7 @@ def test_a_failed_fetch_does_not_skip_the_other_tool(process_fake: ProcessFake, 
 
 
 def test_an_osv_scanner_that_fails_gives_its_error_and_the_trivy_fetch_still_runs(
-    process_fake: ProcessFake, tree: Path
+    process_fake: ProcessFake, lockfile_tree: Path
 ) -> None:
     process_fake.answer(
         _starts("osv-scanner"),
@@ -232,7 +234,7 @@ def test_an_osv_scanner_that_fails_gives_its_error_and_the_trivy_fetch_still_run
     )
     process_fake.answer(_starts("trivy"), ProcessAnswer())
 
-    fetched, failed = fetch_databases(tree)
+    fetched, failed = fetch_databases(lockfile_tree)
 
     assert [database.tool for database in fetched] == ["trivy"]
     assert [error.message for error in failed] == [
@@ -241,11 +243,11 @@ def test_an_osv_scanner_that_fails_gives_its_error_and_the_trivy_fetch_still_run
 
 
 def test_an_osv_scanner_report_that_is_not_json_is_a_failed_fetch(
-    process_fake: ProcessFake, tree: Path
+    process_fake: ProcessFake, lockfile_tree: Path
 ) -> None:
     process_fake.answer(_starts("osv-scanner"), ProcessAnswer(returncode=0, stdout="not json"))
     process_fake.answer(_starts("trivy"), ProcessAnswer())
 
-    _, failed = fetch_databases(tree)
+    _, failed = fetch_databases(lockfile_tree)
 
     assert [error.details["tool_name"] for error in failed] == ["osv-scanner"]
