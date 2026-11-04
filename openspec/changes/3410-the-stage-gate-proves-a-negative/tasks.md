@@ -20,19 +20,19 @@ Reads: `src/devops_cli/roadmap/stage_form.py`, `src/devops_cli/roadmap/stage_cha
 
 ## 3. Read the evidence from the eval case in the replay
 
-Reads: `src/devops_cli/roadmap/stage_eval_gates.py`, `src/devops_cli/roadmap/stage_change.py`, `tests/roadmap/test_roadmap_stage_eval_gates.py`. Changes: `src/devops_cli/roadmap/stage_eval_gates.py`, `tests/roadmap/test_roadmap_stage_eval_gates.py`.
+Reads: `src/devops_cli/roadmap/stage_eval_cases.py`, `src/devops_cli/roadmap/stage_eval_gates.py`, `src/devops_cli/roadmap/stage_change.py`, `tests/roadmap/test_roadmap_stage_eval_cases.py`, `tests/roadmap/test_roadmap_stage_eval_gates.py`. Changes: `src/devops_cli/roadmap/stage_eval_cases.py`, `src/devops_cli/roadmap/stage_eval_gates.py`, `tests/roadmap/test_roadmap_stage_eval_cases.py`, `tests/roadmap/test_roadmap_stage_eval_gates.py`.
 
-- [ ] 3.1 Write tests/roadmap/test_roadmap_stage_eval_gates.py first: the replay of a case with a negative-search verify command reads the recorded paths from the case, reports a problem when the record holds no path, and reports no problem when a recorded path survives the change
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_eval_gates.py` fails on the base
-- [ ] 3.2 Read the search evidence of the case in src/devops_cli/roadmap/stage_eval_gates.py and pass it to check_proposal as the search record. The replay starts no git process and reaches no network
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_eval_gates.py` passes
+- [ ] 3.1 Write the tests first: tests/roadmap/test_roadmap_stage_eval_cases.py reads a case whose facts.json holds a search_evidence mapping and asserts that CaseFacts holds it and gives an empty mapping by default, and tests/roadmap/test_roadmap_stage_eval_gates.py replays a case with a negative-search verify command, reads the recorded paths from the case, reports a problem when the record holds no path, and reports no problem when a recorded path survives the change
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_eval_cases.py tests/roadmap/test_roadmap_stage_eval_gates.py` fails on the base
+- [ ] 3.2 Add the search_evidence mapping to CaseFacts in src/devops_cli/roadmap/stage_eval_cases.py, with an empty mapping by default so the recorded cases keep their shape. Read the mapping in PlanUnderTest.of_case and pass it to check_proposal as the search record in the paths gate of src/devops_cli/roadmap/stage_eval_gates.py. The replay starts no git process and reaches no network
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_eval_cases.py tests/roadmap/test_roadmap_stage_eval_gates.py` passes
 
-## 4. Add the case of the plan of the moved modules
+## 4. Add the case of a move of the stage modules
 
-Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage_form.py`, `src/devops_cli/roadmap/stage_eval_gates.py`. Changes: `tests/roadmap/test_roadmap_stage_negative_search.py` (new).
+Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage_form.py`, `src/devops_cli/roadmap/stage_eval_cases.py`, `src/devops_cli/roadmap/stage_eval_gates.py`, `tests/roadmap/test_roadmap_stage_move_prefix.py`. Changes: `tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/case.json` (new), `tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/issue.txt` (new), `tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/plan.json` (new), `tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/facts.json` (new), `tests/roadmap/test_roadmap_stage_negative_search.py` (new).
 
-- [ ] 4.1 Add tests/roadmap/test_roadmap_stage_negative_search.py, which holds the plan of #3378 as a proposal with the move group of the stage modules, and asserts the refusal of a literal with no recorded hit, the refusal of the whole module prefix of the moved modules, and the acceptance of the literal with the trailing underscore whose recorded hit survives the change
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_negative_search.py` passes
+- [ ] 4.1 Add the golden-set case of a move of the stage modules: plan.json holds the move group of the stage modules with a literal with no hit, the bare prefix `devops_cli.roadmap.stage` and the dotted prefix `devops_cli.roadmap.stage_`, and facts.json holds the recorded search evidence for each literal. Add tests/roadmap/test_roadmap_stage_negative_search.py, which loads the case through tests/fixtures/roadmap_eval/stage/, replays it with replay_case, and asserts the refusal of the literal with no recorded hit, the refusal of the bare prefix whose created `stage/` package keeps it, and the acceptance of the dotted prefix whose recorded hit survives the change
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_negative_search.py tests/roadmap/test_roadmap_stage_eval_cases.py` passes
 
 ## 5. Ask the planner for the hit count
 
