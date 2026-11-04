@@ -1441,6 +1441,18 @@ class RoadmapCommandHelp:
         "Make no request: print the requests a run makes, in order, with placeholders for "
         "values a read gives."
     )
+    plan_check: str = (
+        "Check a plan pull request: the stage gates without a model, the title, the body, the "
+        "`Semantic PR title` check and a base spec that moved since the plan. Details: "
+        "docs/roadmap/plan-check.md."
+    )
+    plan_check_arg: str = "The number of the plan pull request to check."
+    plan_check_json: str = (
+        "Print the problems as a JSON array of objects with path, rule and message."
+    )
+    plan_check_dry_run: str = (
+        "Make no request: print the reads that a run makes, in order, with placeholders."
+    )
     explain: str = (
         "Say, for one issue, whether the stage job and the implement job take it. For each job "
         "the answer is yes, or no with the reason of the first rule that fails: the issue is "

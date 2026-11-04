@@ -55,7 +55,7 @@ if TYPE_CHECKING:
 
 # A plan is documentation, not a fix or a feature: only the types feat, fix, perf, refactor and
 # revert add a line to the changelog, so a pull request that only plans an item has this type.
-_STAGING_TYPE: Final[str] = "docs(openspec)"
+STAGING_TYPE: Final[str] = "docs(openspec)"
 _ELLIPSIS: Final[str] = "..."
 # A character shows nothing to a reader when its category is a space, a control, a format mark
 # (such as U+200B or U+FEFF), a surrogate, a private use or an unassigned mark, or when it is one
@@ -109,7 +109,7 @@ _CHANGES_DIRECTORY: Final[str] = "openspec/changes"
 # task group changes or creates a path under this prefix (#3295).
 _LIVING_SPEC_DIRECTORY: Final[str] = "openspec/specs/"
 _SENTENCE_END: Final[str] = f"{string.whitespace}."
-_REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
+REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
 
 # ── The reply ─────────────────────────────────────────────────────────────────
 
@@ -765,7 +765,7 @@ def _task_texts(group: StageGroup) -> list[str]:
     if group.documentation is not None:
         tasks.append(
             texts.stage_task_documents.format(
-                work=group.documentation, command=_REGENERATE_DOCUMENTS
+                work=group.documentation, command=REGENERATE_DOCUMENTS
             )
         )
     return tasks
@@ -857,7 +857,7 @@ def staging_title(number: int, summary: str) -> str:
             ),
             failed_items=[number],
         )
-    return f"{_STAGING_TYPE}: {lead}{shown}"
+    return f"{STAGING_TYPE}: {lead}{shown}"
 
 
 def delivery_title(issue_title: str, declared: Collection[str]) -> str:

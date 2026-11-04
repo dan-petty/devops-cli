@@ -1,7 +1,9 @@
+# roadmap-plan-check Specification
+
 ## Purpose
 How `devops roadmap plan-check` judges a plan pull request: the change folder that it reads at the head of the pull request, the stage gates it runs with no model, the checks of the pull request itself, and how it reports each problem to a person and to an agent.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Plan-check reads the change folder at the pull request head
 `devops roadmap plan-check <pull-request>` SHALL read the change folder of the pull request from its head commit.
@@ -19,11 +21,19 @@ How `devops roadmap plan-check` judges a plan pull request: the change folder th
 - **THEN** the command prints a problem that names the issue and exits 1.
 
 ### Requirement: The plan reader builds a StageProposal from a change folder
-The plan reader SHALL build a `StageProposal` from the files of a change folder, with the same gate inputs as the proposal that `render_change` wrote.
+The plan reader SHALL build a `StageProposal` from the files of a change folder, with the same gate inputs as the proposal that `render_change` wrote. The estimate of the lines of a created file is no gate input, and the reader SHALL give each created path one line.
 
 #### Scenario: A rendered change reads back
 - **WHEN** `render_change` writes a valid proposal with groups, specs and criteria
-- **THEN** the reader gives a `StageProposal` whose `groups`, `specs`, `criteria` and `skip_specs` equal the original.
+- **THEN** the reader gives a `StageProposal` whose `groups`, `specs`, `criteria` and `skip_specs` equal the original, with one estimated line for each created path.
+
+#### Scenario: A created path reads back with one line
+- **WHEN** `render_change` writes a group that creates `tests/test_sample.py` and estimates 40 lines
+- **THEN** the reader gives that path in `creates` with an estimate of 1 line.
+
+#### Scenario: A plan with inline verification reads back
+- **WHEN** `tasks.md` names the kind of a group and holds `Verify that ... fails on the base` in the task text, as an older stage job wrote it
+- **THEN** the reader gives the group its kind, its verification command and the task text without the verification phrase.
 
 #### Scenario: A change folder with no criteria section reads back with no criterion
 - **WHEN** `tasks.md` holds no `## Criteria` section
