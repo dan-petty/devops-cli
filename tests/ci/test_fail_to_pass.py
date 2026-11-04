@@ -773,36 +773,62 @@ def _replay_of_test_mod(
     return format_fail_to_pass_report(report)
 
 
-@pytest.mark.parametrize(
-    "guard_message",
-    [
-        "Failed: host path reached without a fake: /home/runner/work/devops-cli/.git/worktrees/tree/HEAD",
-        "Failed: network edge reached without a fake: 127.0.0.1:6379",
-        "Failed: process edge reached without a fake: gh api user",
-    ],
-    ids=["host-path", "network-edge", "process-edge"],
-)
 @pytest.mark.parametrize("tag", ["failure", "error"], ids=["call", "teardown"])
-def test_a_guard_message_in_a_replay_failure_refuses_the_replay(
-    guard_message: str, tag: str, tmp_path: Path, replay_state: _FailToPassState
+def test_a_host_path_guard_message_in_a_replay_failure_refuses_the_replay(
+    tag: str, tmp_path: Path, replay_state: _FailToPassState
 ) -> None:
-    """A failure of the test harness's guard is no fail-to-pass result (#3124): the guard can
-    fail every test of the replay tree, so a replay that holds one proves nothing, though a
-    changed test failed in it."""
+    """A failure of the host path guard is no fail-to-pass result (#3124): the guard can fail
+    every test of the replay tree, so a replay that holds one proves nothing, though a changed
+    test failed in it."""
     text = _replay_of_test_mod(
         tmp_path,
         replay_state,
         base=BASE_TESTS,
         head=HEAD_TESTS,
-        junit=_junit(("test_fixed", "failure", "assert 1 == 2"), ("test_kept", tag, guard_message)),
+        junit=_junit(
+            ("test_fixed", "failure", "assert 1 == 2"),
+            (
+                "test_kept",
+                tag,
+                "Failed: host path reached without a fake: "
+                "/home/runner/work/devops-cli/.git/worktrees/tree/HEAD",
+            ),
+        ),
     )
 
     assert (replay_state.satisfied, text.splitlines()[-1]) == (
         False,
-        "A guard of the test harness stopped the replay on base (tests.test_mod::test_kept). "
-        "The replay proves nothing about the fix. Merge the change to the harness first, in a "
-        "pull request that is not a fix. Then replay this fix against the new base.",
+        "The host path guard of the test harness stopped the replay on base "
+        "(tests.test_mod::test_kept). The replay proves nothing about the fix. The cause is one "
+        "of two. The harness does not allow a path that every checkout reads: merge the change to "
+        "the harness first, in a pull request that is not a fix, and replay this fix against the "
+        "new base. Or a test reads a host path with no fake: fake that path in the test.",
     )
+
+
+@pytest.mark.parametrize(
+    "edge_message",
+    [
+        "Failed: network edge reached without a fake: 127.0.0.1:6379",
+        "Failed: process edge reached without a fake: gh api user",
+        "Failed: keyring edge reached without a fake: devops-cli/token",
+    ],
+    ids=["network-edge", "process-edge", "keyring-edge"],
+)
+def test_an_edge_guard_message_in_a_changed_test_keeps_the_replay_satisfied(
+    edge_message: str, tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A fix that stops code from reaching an edge proves itself by a changed test that fails on
+    base at that edge, as docs/TESTING.md teaches, so the gate counts that failure (#3124)."""
+    _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=HEAD_TESTS,
+        junit=_junit(("test_fixed", "failure", edge_message)),
+    )
+
+    assert replay_state.satisfied is True
 
 
 def test_a_test_that_the_fix_leaves_alone_and_that_fails_on_base_refuses_the_replay(

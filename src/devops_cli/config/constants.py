@@ -2326,10 +2326,12 @@ CONST_FAIL_TO_PASS_JUNIT_ROOT_TAG: Final[str] = "testsuites"
 # was given: interrupted (2), internal error (3) and usage error (4). A replay ending so could not
 # run on base; exit 5, no tests collected, is an empty replay (#1669).
 CONST_FAIL_TO_PASS_COULD_NOT_RUN_EXIT_STATUSES: Final[frozenset[int]] = frozenset({2, 3, 4})
-# The phrase every guard of the test harness (`tests/conftest.py`) puts in its failure: a host
-# path, a network edge, a process edge or a keyring edge reached without a fake. A replay failure
-# that holds it failed on the harness, not on the fix (#3124).
-CONST_FAIL_TO_PASS_GUARD_MESSAGE: Final[str] = "reached without a fake"
+# The message of the host path guard of the test harness (`tests/conftest.py`), which refuses a
+# file open outside the checkout, the temporary directory and the interpreter. A test of the
+# replay tree fails with it when the harness does not allow a path that every checkout reads
+# (#3124). The network, process and keyring guards are no part of it: a fix can prove itself by
+# a test that fails on base at one of those edges.
+CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE: Final[str] = "host path reached without a fake"
 
 # ── Terraform / OpenTofu HCL AST Analysis ────────────────────────────────────
 # HCL configuration file extensions recognised by Terraform and OpenTofu.

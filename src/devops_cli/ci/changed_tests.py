@@ -17,7 +17,7 @@ from devops_cli.config.constants import CONST_TEST_FILE_PREFIX
 _QualifiedName = tuple[str, ...]
 
 
-class _ParsedTests(NamedTuple):
+class ParsedTests(NamedTuple):
     """The syntax trees of a test file, as dumps: its test functions by qualified name, and the
     rest of the file once those functions are taken out."""
 
@@ -49,7 +49,7 @@ def _collect(
             found[(*prefix, node.name)] = ast.dump(node)
 
 
-def _parse(source: str | None) -> _ParsedTests | None:
+def parse_tests(source: str | None) -> ParsedTests | None:
     """The syntax trees of `source`, or None when there is no source or it does not parse."""
     if source is None:
         return None
@@ -59,22 +59,21 @@ def _parse(source: str | None) -> _ParsedTests | None:
         return None
     functions: dict[_QualifiedName, str] = {}
     _collect(tree.body, (), functions)
-    return _ParsedTests(functions, ast.dump(_WithoutTests().visit(tree)))
+    return ParsedTests(functions, ast.dump(_WithoutTests().visit(tree)))
 
 
 def is_test_changed(
-    class_path: tuple[str, ...], name: str, base_source: str | None, head_source: str | None
+    class_path: tuple[str, ...], name: str, base: ParsedTests | None, head: ParsedTests | None
 ) -> bool:
-    """Whether the test `name`, in the classes `class_path`, differs between the two sources of
-    its file, or the file differs around its tests.
+    """Whether the test `name`, in the classes `class_path`, differs between the two parses of
+    its file (`parse_tests`), or the file differs around its tests.
 
-    A test that is new, or that one source does not hold or cannot parse, counts as changed. A
-    helper or fixture that changes makes every test of the file changed, since a test that runs
-    other code can fail on the base for a reason that the fix adds. The gate refuses a replay for
-    a test that it knows to be unchanged and for no other.
+    A test that is new, or that a parse does not hold, counts as changed. A parse of None means
+    that the source is missing or does not parse. A helper or fixture that changes makes every
+    test of the file changed, since a test that runs other code can fail on the base for a reason
+    that the fix adds. The gate refuses a replay for a test that it knows to be unchanged and for
+    no other.
     """
-    base = _parse(base_source)
-    head = _parse(head_source)
     if base is None or head is None or base.rest != head.rest:
         return True
     key = (*class_path, name)

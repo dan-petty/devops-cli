@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from devops_cli.ci.changed_tests import is_test_changed
+from devops_cli.ci.changed_tests import is_test_changed, parse_tests
 
 BASE = '''\
 """Module docstring."""
@@ -91,7 +91,7 @@ def test_a_test_is_changed_when_its_function_differs_or_is_new(
 ) -> None:
     """A test is unchanged only when its function of the base has the same statements, whatever
     the layout and comments, and a test the head does not hold is not known unchanged."""
-    assert is_test_changed(class_path, name, BASE, HEAD) is changed
+    assert is_test_changed(class_path, name, parse_tests(BASE), parse_tests(HEAD)) is changed
 
 
 @pytest.mark.parametrize(
@@ -106,7 +106,7 @@ def test_a_test_is_changed_when_its_function_differs_or_is_new(
 def test_a_change_around_the_tests_makes_every_test_changed(head: str) -> None:
     """A helper, import or fixture that changes is code that each test of the file runs, so a
     test that fails on base after it is no test the fix left alone."""
-    assert is_test_changed((), "test_kept", BASE, head) is True
+    assert is_test_changed((), "test_kept", parse_tests(BASE), parse_tests(head)) is True
 
 
 @pytest.mark.parametrize(
@@ -118,4 +118,4 @@ def test_a_test_with_a_source_that_cannot_be_compared_is_changed(
     base: str | None, head: str | None
 ) -> None:
     """The check refuses a replay for a test it knows to be unchanged only."""
-    assert is_test_changed((), "test_kept", base, head) is True
+    assert is_test_changed((), "test_kept", parse_tests(base), parse_tests(head)) is True

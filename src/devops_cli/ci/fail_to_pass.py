@@ -9,9 +9,9 @@ The run exits non-zero unless at least one changed test fails in the call phase 
 workflow runs it only for a fix pull request that changes `src/` (#1879), so the command reads no
 title, label or body. A replay whose pytest was interrupted, stopped with an internal or usage
 error, or wrote no complete JUnit report could not run on base, and fails (#1669). A changed test
-file that cannot be collected on base is reported as errored. A replay with a failure that a guard
-of the test harness raised, or with a failed test that the fix does not change, proves nothing
-about the fix and fails too (#3124).
+file that cannot be collected on base is reported as errored. A replay with a failure that the host
+path guard of the test harness raised, or with a failed test that the fix does not change, proves
+nothing about the fix and fails too (#3124).
 """
 
 from __future__ import annotations
@@ -26,10 +26,10 @@ from pathlib import Path, PurePath, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict
 
-from devops_cli.ci.changed_tests import is_test_changed
+from devops_cli.ci.changed_tests import ParsedTests, is_test_changed, parse_tests
 from devops_cli.config.constants import (
     CONST_FAIL_TO_PASS_COULD_NOT_RUN_EXIT_STATUSES,
-    CONST_FAIL_TO_PASS_GUARD_MESSAGE,
+    CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE,
     CONST_FAIL_TO_PASS_JUNIT_ROOT_TAG,
     CONST_FAIL_TO_PASS_JUNIT_TAG_STATUS,
     CONST_FAIL_TO_PASS_PYTEST_FLAGS,
@@ -109,25 +109,25 @@ class FailToPassReport(BaseModel):
         return sum(1 for outcome in self.outcomes if outcome.status == "errored")
 
     @property
-    def guard_failures(self) -> tuple[TestCaseOutcome, ...]:
-        """The failures and errors that a guard of the test harness raised (#3124)."""
+    def host_path_guard_failures(self) -> tuple[TestCaseOutcome, ...]:
+        """The failures and errors that the host path guard of the test harness raised (#3124)."""
         return tuple(
             outcome
             for outcome in self.outcomes
             if outcome.status in ("failed", "errored")
-            and CONST_FAIL_TO_PASS_GUARD_MESSAGE in outcome.message
+            and CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE in outcome.message
         )
 
     @property
     def satisfied(self) -> bool:
         """Whether the fail-to-pass gate is satisfied: a replay that could not run never is, and
-        otherwise at least one changed test fails on base, no failure comes from a guard of the
-        test harness, and every test that fails on base is one that the fix adds or changes
+        otherwise at least one changed test fails on base, no failure comes from the host path guard
+        of the test harness, and every test that fails on base is one that the fix adds or changes
         (#3124)."""
         return (
             self.could_not_run is None
             and self.failed_count > 0
-            and not self.guard_failures
+            and not self.host_path_guard_failures
             and not self.unchanged_failed
         )
 
@@ -419,20 +419,20 @@ def _unchanged_failures(
     syntax tree of the function in the merge base. A failed test that is not in a changed file, or
     that either source does not show, counts as changed.
     """
-    sources: dict[str, tuple[str | None, str | None]] = {}
+    parses: dict[str, tuple[ParsedTests | None, ParsedTests | None]] = {}
     unchanged: list[str] = []
     for outcome in outcomes:
         if outcome.status != "failed" or (location := _test_location(outcome, files)) is None:
             continue
         path, classes, name = location
-        if path not in sources:
+        if path not in parses:
             head_file = tree_dir / path
             head_source = head_file.read_text(encoding="utf-8") if head_file.is_file() else None
             base_source = (
                 read_file_at_revision(root, merge_base, path) if head_source is not None else None
             )
-            sources[path] = (base_source, head_source)
-        if not is_test_changed(classes, name, *sources[path]):
+            parses[path] = (parse_tests(base_source), parse_tests(head_source))
+        if not is_test_changed(classes, name, *parses[path]):
             unchanged.append(outcome.test_id)
     return tuple(dict.fromkeys(unchanged))
 
@@ -482,8 +482,8 @@ def _unsatisfied_reason(report: FailToPassReport, files_label: str) -> str:
     """The sentence that tells the author why a replay that ran does not satisfy the gate."""
     if not report.changed_test_files:
         return MESSAGES.ci.fail_to_pass_no_tests
-    if report.guard_failures:
-        guarded = dict.fromkeys(outcome.test_id for outcome in report.guard_failures)
+    if report.host_path_guard_failures:
+        guarded = dict.fromkeys(outcome.test_id for outcome in report.host_path_guard_failures)
         return MESSAGES.ci.fail_to_pass_guard_failed.format(tests=", ".join(guarded))
     if report.unchanged_failed:
         return MESSAGES.ci.fail_to_pass_unchanged_failed.format(
