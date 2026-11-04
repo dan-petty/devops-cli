@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.55.0](https://github.com/dan-petty/devops-cli/compare/v0.54.0...v0.55.0) (2026-11-04)
+
+
+### Features
+
+* **roadmap:** format step commits with conventional prefixes ([#3432](https://github.com/dan-petty/devops-cli/issues/3432)) ([96aa8db](https://github.com/dan-petty/devops-cli/commit/96aa8db7dae6b8637840b98e0628c1c62e0f74c9))
+
 ## [0.54.0](https://github.com/dan-petty/devops-cli/compare/v0.53.6...v0.54.0) (2026-11-04)
 
 
