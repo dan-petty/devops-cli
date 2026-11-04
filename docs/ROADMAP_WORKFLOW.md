@@ -236,6 +236,10 @@ The programs that the shell refuses, and what to run instead:
 
 The runner image holds the tools that the gate and the hooks need, listed in `RUNNER_TOOLS` in `src/devops_cli/roadmap/runner_tools.py`. The image leaves out `actionlint`, `shellcheck` and Trivy, because the image scan fails on the newest release of each (#3108), and it leaves out npm, so a Job cannot run the `audit` row, the `actionlint` row or the IaC scan of Trivy. The pull request runs them. The shell can start only the programs above. The checks of a group run them through `uv run`.
 
+## The open plans in the stage context
+
+Before the planner writes a change, the stage job reads the open pull requests of the repository and the files that each one changes, in one GraphQL request for each 100 open pull requests. It lists each pull request whose files meet a path that the item body cites, with its number, title, state, plan mark and shared paths. For each metric name that the item body cites and that `INSTRUMENTS` holds, it lists the other files that hold the name at the staged commit. The stage prompt tells the planner to write each entry into `dependencies`, and the gate refuses a plan whose `dependencies` field is empty when the context lists an overlap. The comment of the staged item states the number of GraphQL requests.
+
 ## Measure the stage job
 
 The stage job has a golden set: the 37 plans of 2026-11-01, each with the defects a review found in it, and 3 good plans. It lives in `tests/fixtures/roadmap_eval/stage/`, one folder for each plan. A change of the stage prompt or of the checks needs a measure, and this set gives it.

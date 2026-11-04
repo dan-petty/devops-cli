@@ -2877,6 +2877,10 @@ class RoadmapMessages:
     )
     stage_comment_group: str = "{index}. {title}: {tokens} tokens"
     stage_comment_labels_failed: str = "\n\nLabels not added to #{pull}: {error}"
+    stage_comment_overlaps: str = (
+        "\n\nThe stage job read the open pull requests and their files in {requests} GraphQL "
+        "request(s)."
+    )
     # The report of the plan run of the toolbox (#3037), after the task groups.
     stage_comment_run: str = (
         "\n\nThe plan run made {requests} model request(s), and used {input_tokens} input tokens "
@@ -2991,6 +2995,7 @@ class RoadmapMessages:
             "fetch_default": "fetch the default branch, to read its plans",
             "default_plans": "the change folders of the default branch",
             "tracked_files": "the tracked files of the clone, to check the paths of each plan",
+            "open_pulls": "the open pull requests and their files, to find an overlap",
             "model_change": "the analysis model plans the change of the item",
             "model_split": "the analysis model splits the task groups over the budget",
             "model_correction": "the analysis model corrects a change that fails its checks",
@@ -3008,6 +3013,7 @@ class RoadmapMessages:
     stage_request_conditions: dict[str, str] = field(
         default_factory=lambda: {
             "tracked_files": "the filter names an item",
+            "open_pulls": "the item cites a path",
             "model_split": "a task group is over the budget",
             "model_correction": "the change fails its checks",
             "validate": "the openspec binary is on PATH",
@@ -3175,6 +3181,11 @@ class RoadmapMessages:
         "Group {group} names `{path}` in {place}. The staged commit has no such file, and group "
         "{later} creates it after group {group}. Move group {later} before group {group}, or "
         "move the work that needs `{path}` into group {later} or a group after it."
+    )
+    stage_problem_dependencies: str = (
+        "The open pull request #{pull} changes `{path}`, and no entry of `dependencies` names it. "
+        "Add an entry that names #{pull} and `{path}`, or show in that entry why the overlap is "
+        "no dependency."
     )
     stage_path_same_name: str = "These files have the same name: {names}."
     stage_path_no_same_name: str = "No file has this name."

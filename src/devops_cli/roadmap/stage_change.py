@@ -22,7 +22,7 @@ from datetime import date
 from enum import StrEnum
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Any, Final, Self
+from typing import TYPE_CHECKING, Annotated, Any, Final, Self
 
 from pydantic import (
     AfterValidator,
@@ -49,6 +49,9 @@ from devops_cli.roadmap.stage_move import move_prefix_problems, move_verify_prob
 from devops_cli.roadmap.stage_paths import StagedTree, change_folder_paths, path_problems
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
 from devops_cli.roadmap.step_rules import rules_sections
+
+if TYPE_CHECKING:
+    from devops_cli.roadmap.stage_overlap import Overlap
 
 # A plan is documentation, not a fix or a feature: only the types feat, fix, perf, refactor and
 # revert add a line to the changelog, so a pull request that only plans an item has this type.
@@ -409,6 +412,7 @@ class StageProposal(_Reply):
     specs: list[StageSpec] = Field(default_factory=list)
     groups: list[StageGroup] = Field(default_factory=list, min_length=1)
     criteria: list[StageCriterion] = Field(default_factory=list)
+    dependencies: list[Line] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -597,6 +601,7 @@ def check_proposal(
     requirements: Mapping[str, Collection[str]] | None = None,
     issue_body: str = "",
     probes: Sequence[str] = (),
+    overlaps: Sequence[Overlap] = (),
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
@@ -604,7 +609,8 @@ def check_proposal(
     `tree` the files that exist when the change is written. `issue_body` is the whole body of the
     issue: each acceptance criterion in it needs an entry in `criteria` (#3019), and a body with
     none needs no entry. `probes` holds the lines of the premise probe that the model read: when it
-    is not empty, `feasibility` quotes one (#3200)."""
+    is not empty, `feasibility` quotes one (#3200). `overlaps` lists the open pull requests that
+    change a path the item cites: the plan names each in `dependencies` (#3252)."""
     problems = _delta_problems(proposal, known, requirements or {})
     problems.extend(content_problems(proposal, probes))
     problems.extend(form_problems(proposal.groups))
@@ -612,6 +618,20 @@ def check_proposal(
     problems.extend(move_prefix_problems(proposal.groups, tree))
     problems.extend(move_verify_problems(proposal.groups, tree))
     problems.extend(criterion_problems(proposal.criteria, issue_body, len(proposal.groups)))
+    problems.extend(_overlap_problems(proposal.dependencies, overlaps))
+    return problems
+
+
+def _overlap_problems(dependencies: Sequence[str], overlaps: Sequence[Overlap]) -> list[str]:
+    """One sentence for each overlap that no `dependencies` entry names by its number and a
+    shared path."""
+    texts = MESSAGES.roadmap
+    problems: list[str] = []
+    for overlap in overlaps:
+        path = overlap.paths[0]
+        if any(f"#{overlap.number}" in entry and path in entry for entry in dependencies):
+            continue
+        problems.append(texts.stage_problem_dependencies.format(pull=overlap.number, path=path))
     return problems
 
 
@@ -696,13 +716,15 @@ def _proposal_file(proposal: StageProposal, known: Collection[str]) -> str:
     texts = MESSAGES.roadmap
     changes = [*proposal.what_changes, texts.stage_fits_one_pr]
     impact = _impact(proposal.groups) or texts.stage_none
+    dependencies = _bullets(proposal.dependencies) or texts.stage_none
     return (
         f"# Proposal\n\n## Why\n\n{proposal.why.strip()}\n\n"
         f"## What Changes\n\n{_bullets(changes)}\n\n"
         f"## Capabilities\n\n{_capabilities(proposal.specs, known)}\n\n"
         f"## Impact\n\n{impact}\n\n"
         f"## Feasibility\n\n{_bullets(proposal.feasibility)}\n\n"
-        f"## Existing Tool Considered\n\n{proposal.existing_tool.strip()}\n"
+        f"## Existing Tool Considered\n\n{proposal.existing_tool.strip()}\n\n"
+        f"## Dependencies\n\n{dependencies}\n"
     )
 
 
