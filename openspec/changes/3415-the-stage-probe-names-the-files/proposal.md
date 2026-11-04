@@ -7,8 +7,10 @@ The probe of #3011 reports a cited bare file name as missing when the name exist
 ## What Changes
 
 - The probe lists the files of a cited bare name that the staged tree holds under a folder, and names them as candidates, when the root holds no such file.
+- The probe says a cited path with a same-name file is no file at the *root* of the staging commit, not that it is no file of the commit.
 - The probe test asserts that a cited bare name with no root file gets the file under `src/devops_cli/roadmap/` as its candidate.
-- The probe reads the tree of the staging commit once, within its command bound, and keeps the result for a cited path that exists at the root.
+- The probe reads the tree of the staging commit once, on the first cited path that is missing, within its command bound, and keeps a cited path that exists at the root on its present line.
+- The test that pins the command kinds of the probe adds `ls-tree`.
 - The change fits one pull request.
 
 ## Capabilities
@@ -23,7 +25,7 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/stage_probe.py`
+- Code: `src/devops_cli/roadmap/stage_probe.py`, `src/devops_cli/lang/en/messages.py`
 - Tests: `tests/roadmap/test_roadmap_stage_probe.py`
 
 ## Feasibility
