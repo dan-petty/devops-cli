@@ -215,11 +215,12 @@ def test_tf_cost_command_dry_run(tmp_path: Path) -> None:
         assert "infracost breakdown" in result.output
 
 
-def test_tf_cost_breakdown_mcp_tool(tmp_path: Path) -> None:
+def test_tf_cost_breakdown_mcp_tool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify FastMCP tool tf_cost_breakdown produces valid JSON output."""
     from devops_cli.ai.mcp.server import tf_cost_breakdown
 
-    out = tf_cost_breakdown(directory=str(tmp_path), mock=True)
+    monkeypatch.chdir(tmp_path)
+    out = tf_cost_breakdown(directory=".", mock=True)
     assert "total_monthly_cost" in out
 
 

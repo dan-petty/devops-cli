@@ -258,6 +258,9 @@ class MCPErrorMessages:
         "Invalid value for 'oidc_token': use a reference of the form keyring:<name>. "
         "A token in an argument passes through the model, so the tool never takes the token itself."
     )
+    path_outside_root: str = (
+        "Invalid value for '{name}': the path must resolve inside the server work tree '{root}'."
+    )
     conflicting_symbol_and_pattern: str = (
         "Cannot specify both 'symbol' and 'pattern'; provide one or the other."
     )

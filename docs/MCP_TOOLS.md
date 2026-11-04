@@ -166,7 +166,6 @@ Synthesize whole-repository symbol dependency and reference graph.
 |---|---|---|---|---|
 | `target_dir` | `string` | No | - | Target source directory to verify or analyze. |
 | `max_files` | `integer` | No | `100` | Maximum source files to include. |
-| `output_path` | `string` | No | - | Destination file path for output report or artifacts. |
 | `fmt` | `string` | No | `json` | Output format for synthesized code graph: 'json' or 'dot'. |
 
 ### `ai_ast_parse`
@@ -370,7 +369,6 @@ Introspect an installed Python package and extract its public API contract.
 |---|---|---|---|---|
 | `package_name` | `string` | Yes | - | Introspect an installed Python package and extract its public API contract. |
 | `max_depth` | `integer` | No | `1` | Maximum module recursion depth for package introspection. |
-| `output_dir` | `string` | No | - | Directory path for generated output files. |
 
 ### `ai_ingest_query_library`
 
@@ -1233,8 +1231,6 @@ Create or update a kubernetes.io/tls secret from certificate and private key fil
 |---|---|---|---|---|
 | `secret_name` | `string` | Yes | - | Name of the Kubernetes TLS secret to create or update. |
 | `namespace` | `string` | No | `default` | Kubernetes namespace. |
-| `cert_path` | `string` | No | `` | Path to TLS certificate file (.crt or .pem). |
-| `key_path` | `string` | No | `` | Path to TLS private key file (.key or .pem). |
 | `context` | `string` | No | - | Kubernetes cluster context name. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
@@ -1305,7 +1301,6 @@ Generate Homelab certificates and apply TLS secrets across Kubernetes cluster na
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `context` | `string` | No | - | Kubernetes cluster context name. |
-| `tls_dir` | `string` | No | `` | Directory with generated TLS certificates. |
 | `secret_name` | `string` | No | `homelab-tls` | Name of the Kubernetes TLS secret to create or update. |
 | `stack` | `string` | No | `all` | Stack to operate on: infra | llm | logging | devops | gitea | chat | all. |
 | `overwrite` | `boolean` | No | `False` | Overwrite existing files or resources if they exist. |
@@ -1381,7 +1376,6 @@ Stream runtime security anomaly events from Kubernetes Falco eBPF probes.
 | `simulate` | `boolean` | No | `False` | Generate simulated kernel eBPF security anomalies for testing. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
-| `output` | `string` | No | - | Export discovered alerts to JSON file |
 
 ### `k8s_status`
 
@@ -2016,7 +2010,6 @@ Generate AI Bill of Materials (AIBOM) with model licenses and hardware estimates
 |---|---|---|---|---|
 | `target` | `string` | No | `.` | Target directory or model repository to analyze for AI models and AIBOM. |
 | `format_type` | `string` | No | `cyclonedx` | AIBOM format output (cyclonedx, json). |
-| `output_file` | `string` | No | - | Destination file path for generated AIBOM manifest. |
 
 ### `scan_complexity`
 
@@ -2098,7 +2091,6 @@ Generate Software Bill of Materials (SBOM) using Trivy (#1439).
 |---|---|---|---|---|
 | `target` | `string` | No | `.` | Target directory, file, or repository to scan. |
 | `format_type` | `string` | No | `cyclonedx` | SBOM format output (cyclonedx, spdx, json). |
-| `output_file` | `string` | No | - | Destination file path for generated SBOM document. |
 
 ### `scan_secrets`
 
@@ -2179,7 +2171,6 @@ List the managed SSH keys of the project prefix with their age and rotation stat
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `key_dir` | `string` | No | - | Directory where SSH keys are stored. |
 | `prefix` | `string` | No | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 | `all_projects` | `boolean` | No | `False` | List the managed keys of all projects, not only the keys of the prefix. |
 
@@ -2193,7 +2184,6 @@ Show the active SSH key and days until rotation.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `key_dir` | `string` | No | - | Directory where SSH keys are stored. |
 | `prefix` | `string` | No | - | Optional prefix for the SSH key name (defaults to config setting, devcontainer name, or basename pwd). |
 
 ### `telemetry_logfire`
