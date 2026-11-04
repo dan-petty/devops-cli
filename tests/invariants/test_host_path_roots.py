@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from tests.support.fakes.process import ProcessFake
-from tests.support.host_paths import checkout_roots, is_allowed_host_path
+from tests.support.host_paths import allowed_host_roots, checkout_roots, is_allowed_host_path
 
 
 def _linked_worktree(tmp_path: Path) -> tuple[Path, Path]:
@@ -47,6 +47,24 @@ def test_a_test_in_a_linked_worktree_may_open_the_head_file_of_its_git_directory
         is_allowed_host_path(str(main / "secret.txt"), roots),
         process_fake.calls,
     ] == [True, True, True, False, []]
+
+
+def test_the_roots_of_the_guard_hold_the_git_directory_of_a_linked_worktree(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """`allowed_host_roots`, which the root conftest installs in the file open guard, holds the
+    common git directory of a linked worktree, and it starts no process. The temporary directory
+    is a root too, so this test checks the allowed path and `checkout_roots` checks the refused
+    one."""
+    main, worktree = _linked_worktree(tmp_path)
+
+    roots = allowed_host_roots(worktree)
+
+    assert [
+        main / ".git" in roots,
+        is_allowed_host_path(str(main / ".git" / "worktrees" / "tree" / "HEAD"), roots),
+        process_fake.calls,
+    ] == [True, True, []]
 
 
 def test_a_checkout_that_is_not_a_linked_worktree_adds_no_git_directory(tmp_path: Path) -> None:
