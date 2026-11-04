@@ -16,8 +16,12 @@ The stage check SHALL return a problem that names `src/devops_cli/lang/en/messag
 - **THEN** `content_problems` returns a problem that names `src/devops_cli/lang/en/messages.py`.
 
 ### Requirement: The verification prompt names the missing path of a needed file
-The verification prompt `src/devops_cli/ai/tasks/roadmap_stage_verify.md` SHALL name `missing_path` for a code change that needs a file that the plan does not change.
+The verification prompt `src/devops_cli/ai/tasks/roadmap_stage_verify.md` SHALL name `missing_path` for a code change that needs a file that the plan does not change, and SHALL keep the type for a file that does not exist and that no earlier group creates.
 
 #### Scenario: The prompt names the missing path type
 - **WHEN** The verification prompt `src/devops_cli/ai/tasks/roadmap_stage_verify.md` is read.
 - **THEN** The prompt states that a code change that needs an unchanged file is a `missing_path` finding.
+
+#### Scenario: The prompt keeps the absent-file case
+- **WHEN** The verification prompt `src/devops_cli/ai/tasks/roadmap_stage_verify.md` is read.
+- **THEN** The prompt states that a file that does not exist and that no earlier group creates is a `missing_path` finding.
