@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.56.3](https://github.com/dan-petty/devops-cli/compare/v0.56.2...v0.56.3) (2026-11-04)
+
+
+### Bug Fixes
+
+* **roadmap:** a new runner image clears only a stop that it can fix ([#3527](https://github.com/dan-petty/devops-cli/issues/3527)) ([48f94d7](https://github.com/dan-petty/devops-cli/commit/48f94d79f5a8b6414b9538ad01c8e2e59c97f3b7))
+* **roadmap:** a shell refusal of the implement step counts no tool retry ([#3526](https://github.com/dan-petty/devops-cli/issues/3526)) ([1905269](https://github.com/dan-petty/devops-cli/commit/1905269c77c7124a01127a381ef6b5a1e9064f2f))
+
 ## [0.56.2](https://github.com/dan-petty/devops-cli/compare/v0.56.1...v0.56.2) (2026-11-04)
 
 
