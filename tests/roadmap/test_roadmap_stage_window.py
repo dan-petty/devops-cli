@@ -9,7 +9,7 @@ test reaches a model.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 import yaml
@@ -40,6 +40,7 @@ from tests.support.roadmap_stage import (
 from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
+    from devops_cli.roadmap.stage import StageClient
     from tests.support.fakes.openspec import OpenSpecFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store", "model_fake")
@@ -206,10 +207,10 @@ def test_the_recorder_of_the_golden_set_keeps_the_names_only_request(
     with openspec_tool() as tool:
         toolbox = ToolboxClient(
             script.model(),
-            RecordingClient(object()),
+            cast("StageClient", object()),
             stage_repo.clone,
             sha,
-            openspec=tool,  # type: ignore[arg-type]
+            openspec=tool,
         )
         plan_item(target, client=RecordingClient(toolbox), checkout=stage_repo.clone, sha=sha)
 
