@@ -7,7 +7,7 @@ The implement job must stop an item whose delivery title the pull request form r
 ## What Changes
 
 - Add a test to `tests/roadmap/test_roadmap_implement_job.py` for an issue title `wip(cli): add a flag`, whose type `wip` the project does not declare: the job stops the item and writes no pull request title.
-- Add a test for a Planned item whose delivery title has no type: the job stops before `_publish` pushes the branch, so `origin` holds no branch and no draft pull request exists.
+- Add a test for a Planned item whose delivery title has no type, with the title edited in the planned target because the plan judge already refuses such an issue title: the job stops before `_publish` pushes the branch, so `origin` holds no branch and no draft pull request exists.
 - The change alters no behavior that a consumer observes, because it adds tests for behavior that `openspec/specs/roadmap-implement-job/spec.md` already states. It has no spec delta and sets `skip_specs: true`.
 - The change fits one pull request.
 
