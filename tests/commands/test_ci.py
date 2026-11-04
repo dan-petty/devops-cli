@@ -1091,7 +1091,7 @@ def test_ci_workflow_has_tooling_cache_step() -> None:
     assert ".ruff_cache" in default_paths
 
     ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
-    test_steps = ci["jobs"]["test"]["steps"]
+    test_steps = ci["jobs"]["test-shard"]["steps"]
     setup = next(s for s in test_steps if "setup-toolchain" in str(s.get("uses", "")))
     assert ".pytest_cache" in str(setup.get("with", {}).get("tooling-cache-paths", ""))
 
@@ -1194,7 +1194,7 @@ def test_changed_line_coverage_step_fails_a_pull_request_below_ninety_percent() 
     checkout = next(s for s in steps if "actions/checkout" in str(s.get("uses", "")))
 
     assert (
-        names.index("Changed-Line Coverage") > names.index("Tests & Coverage Quality Gate"),
+        names.index("Changed-Line Coverage") > names.index("Combine and Check Coverage"),
         step.get("if"),
         step.get("env"),
         "diff-cover .data/coverage.xml" in run and '--compare-branch="origin/${BASE_REF}"' in run,
@@ -1231,12 +1231,21 @@ def test_ci_workflow_parallelizes_quality_gates() -> None:
     ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
     jobs = ci["jobs"]
 
-    assert {"static", "test", "devcontainer", "service-image", "runner-image"}.issubset(jobs.keys())
-    # No `needs:` between them, so they start concurrently rather than in sequence.
+    assert {
+        "static",
+        "test-shard",
+        "test",
+        "devcontainer",
+        "service-image",
+        "runner-image",
+    }.issubset(jobs.keys())
+    # No `needs:` between them, so they start concurrently rather than in sequence. The one wait is
+    # the join of the test shards: the job `Tests & Coverage` needs them and nothing else (#3050).
     assert all(
         not jobs[name].get("needs")
-        for name in ("static", "test", "devcontainer", "service-image", "runner-image")
+        for name in ("static", "test-shard", "devcontainer", "service-image", "runner-image")
     )
+    assert jobs["test"].get("needs") == "test-shard"
 
 
 def test_the_devcontainer_image_is_built_for_a_pull_request_or_a_dispatch() -> None:
@@ -2670,13 +2679,21 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "Run actionlint",
         ): "Runs the pinned actionlint via the docker image, so the gate skips it (#1119)",
         (
-            "test",
+            "test-shard",
             "Install promtool",
         ): "Installs the pinned promtool that the rule tests of the test row run, with the lock's installer",
         (
-            "test",
+            "test-shard",
             "Plan-Only Invariant Tests",
         ): "Path-filtered pytest of tests/invariants alone when a pull request only adds a plan (#2860)",
+        (
+            "test",
+            "Require Passing Test Shards",
+        ): "Fails the required check when a test shard did not succeed, as a skipped job would pass (#3050)",
+        (
+            "test",
+            "Combine and Check Coverage",
+        ): "Joins the coverage data of the shards and applies fail_under to the whole, never a check table row (#3050)",
         (
             "job-time",
             "Check the duration of Tests & Coverage",

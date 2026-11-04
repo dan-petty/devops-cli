@@ -652,6 +652,8 @@ Run tests, linting, formatting, and type-checks. A run that selects test, securi
 | `force` | `boolean` | No | `False` | Bypass CI execution cache and force re-execution of all quality gates. |
 | `only` | `array[string]` | No | - | Run only the specified check names (comma-separated or repeated). |
 | `skip` | `array[string]` | No | - | Skip the specified check names (comma-separated or repeated). |
+| `shard` | `integer` | No | `1` | Number of the part of the test suite this run covers, from 1 to --shards. CI runs each part on its own runner. |
+| `shards` | `integer` | No | `1` | Number of parts the test suite splits into. Above 1, the run covers one part, checks no coverage floor and leaves no cached verdict. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `config_audit_keys`

@@ -172,15 +172,15 @@ def test_a_job_that_ran_to_an_end_counts_whatever_the_run_concluded(
 def test_a_slow_failed_job_among_fast_runs_puts_the_mean_over_the_limit(
     github_api: GitHubApiFake, cli: Callable[..., Any]
 ) -> None:
-    """Nine runs of 250 s and one failed run of 600 s average 285 s with the failure counted, and
-    over a limit of 280 s: the slow run is seen, not dropped for its conclusion."""
-    ids = _route_runs(github_api, [250.0] * 10)
+    """Nineteen runs of 250 s and one failed run of 600 s average 267.5 s with the failure counted,
+    and over a limit of 260 s: the slow run is seen, not dropped for its conclusion."""
+    ids = _route_runs(github_api, [250.0] * 20)
     job = _job(_JOB, "2026-10-29T10:00:00Z", "2026-10-29T10:10:00Z", "failure")
     github_api.route("GET", _jobs_path(ids[5]), github_json({"total_count": 1, "jobs": [job]}))
 
-    result = cli("ci", "job-time", "--repo", _REPO, "--limit", "280")
+    result = cli("ci", "job-time", "--repo", _REPO, "--limit", "260")
 
-    assert (result.exit_code, "took 285 s on average" in _said(result)) == (1, True)
+    assert (result.exit_code, "took 268 s on average" in _said(result)) == (1, True)
 
 
 def test_a_job_that_has_not_ended_is_left_out(github_api: GitHubApiFake) -> None:
@@ -274,8 +274,8 @@ def test_the_check_reads_the_runs_through_the_client(github_api: GitHubApiFake) 
 def test_the_command_exits_0_and_names_the_mean_when_the_job_is_inside_the_limit(
     github_api: GitHubApiFake, cli: Callable[..., Any]
 ) -> None:
-    """Ten runs of 100 s average 100 s, well inside the default limit of 300 s."""
-    _route_runs(github_api, [100.0] * 10)
+    """Twenty runs of 100 s average 100 s, well inside the default limit of 300 s."""
+    _route_runs(github_api, [100.0] * 20)
 
     result = cli("ci", "job-time", "--repo", _REPO)
 
@@ -289,8 +289,8 @@ def test_the_command_exits_0_and_names_the_mean_when_the_job_is_inside_the_limit
 def test_the_command_exits_1_and_names_the_mean_when_the_job_is_over_the_limit(
     github_api: GitHubApiFake, cli: Callable[..., Any]
 ) -> None:
-    """Ten runs of 400 s average 400 s: the check fails and the output says by how much."""
-    _route_runs(github_api, [400.0] * 10)
+    """Twenty runs of 400 s average 400 s: the check fails and the output says by how much."""
+    _route_runs(github_api, [400.0] * 20)
 
     result = cli("ci", "job-time", "--repo", _REPO)
 
@@ -320,12 +320,77 @@ def test_the_command_takes_the_limit_and_the_count_from_its_options(
 def test_the_command_exits_1_when_fewer_runs_than_wanted_exist(
     github_api: GitHubApiFake, cli: Callable[..., Any]
 ) -> None:
-    """Three runs of 100 s are inside the limit, and still no pass: ten were asked for."""
+    """Three runs of 100 s are inside the limit, and still no pass: twenty were asked for."""
     _route_runs(github_api, [100.0] * 3)
 
     result = cli("ci", "job-time", "--repo", _REPO)
 
-    assert (result.exit_code, "Only 3 of the last 10 runs" in _said(result)) == (1, True)
+    assert (result.exit_code, "Only 3 of the last 20 runs" in _said(result)) == (1, True)
+
+
+def _route_sharded_run(
+    api: GitHubApiFake, shard_starts: list[str], aggregate: tuple[str, str], *, extra: list[Any]
+) -> None:
+    """Route one run whose check ran in shards: a job `Tests & Coverage (shard n of N)` that
+    started at each of `shard_starts`, the job `Tests & Coverage` from `aggregate[0]` to
+    `aggregate[1]`, and the `extra` jobs."""
+    runs = [{"id": 100, "head_branch": "main", "event": "push"}]
+    api.route("GET", _RUNS, github_json({"total_count": 1, "workflow_runs": runs}))
+    total = len(shard_starts)
+    jobs = [
+        _job(f"{_JOB} (shard {n} of {total})", start, "2026-10-29T10:03:00Z")
+        for n, start in enumerate(shard_starts, start=1)
+    ]
+    jobs.append(_job(_JOB, *aggregate))
+    jobs.extend(extra)
+    api.route("GET", _jobs_path(100), github_json({"total_count": len(jobs), "jobs": jobs}))
+
+
+def test_a_run_with_shard_jobs_is_timed_from_the_first_shard_to_the_end_of_the_job(
+    github_api: GitHubApiFake,
+) -> None:
+    """The job `Tests & Coverage` only joins the shards and lasts about a minute, so its own time
+    would hide the wait of a person. The time of the check runs from the first start of a shard to
+    the end of the job (#3050)."""
+    _route_sharded_run(
+        github_api,
+        ["2026-10-29T10:00:03Z", "2026-10-29T10:00:00Z", "2026-10-29T10:00:05Z"],
+        ("2026-10-29T10:03:10Z", "2026-10-29T10:04:10Z"),
+        extra=[],
+    )
+
+    assert [run.seconds for run in _read(count=1)] == [250.0]
+
+
+def test_a_job_with_a_longer_name_does_not_change_the_time_of_the_check(
+    github_api: GitHubApiFake,
+) -> None:
+    """Only the job of the name and the jobs named `<name> (…)` belong to the check: a job named
+    `Tests & Coverage Report` that started earlier is not one of them."""
+    _route_sharded_run(
+        github_api,
+        ["2026-10-29T10:00:00Z"],
+        ("2026-10-29T10:03:10Z", "2026-10-29T10:04:10Z"),
+        extra=[_job(f"{_JOB} Report", "2026-10-29T09:00:00Z", "2026-10-29T09:01:00Z")],
+    )
+
+    assert [run.seconds for run in _read(count=1)] == [250.0]
+
+
+def test_a_run_whose_aggregate_job_was_cancelled_is_left_out_though_its_shards_ran(
+    github_api: GitHubApiFake,
+) -> None:
+    """The shards began, and the job that ends the check did not run to its end: the run says
+    nothing of the time of the check."""
+    runs = [{"id": 100, "head_branch": "main", "event": "push"}]
+    github_api.route("GET", _RUNS, github_json({"total_count": 1, "workflow_runs": runs}))
+    jobs = [
+        _job(f"{_JOB} (shard 1 of 1)", "2026-10-29T10:00:00Z", "2026-10-29T10:02:00Z"),
+        _job(_JOB, "2026-10-29T10:02:10Z", "2026-10-29T10:02:20Z", "cancelled"),
+    ]
+    github_api.route("GET", _jobs_path(100), github_json({"total_count": 2, "jobs": jobs}))
+
+    assert _read(count=1) == []
 
 
 def test_a_dry_run_lists_the_requests_and_makes_none(

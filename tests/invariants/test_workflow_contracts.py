@@ -952,7 +952,7 @@ def test_the_static_job_installs_the_pinned_node_and_openspec_before_the_gate() 
 def test_the_test_job_installs_the_pinned_promtool_before_the_gate() -> None:
     """The test job puts the pinned promtool on PATH before the gate, so the rule checks and
     rule unit tests of `tests/test_k8s_monitoring_alerting.py` run and do not skip (#2472)."""
-    steps = _steps(WORKFLOWS_DIR / "ci.yml", "test")
+    steps = _steps(WORKFLOWS_DIR / "ci.yml", "test-shard")
     names = [step.get("name") for step in steps]
     install = steps[names.index("Install promtool")]
     assert (
@@ -1399,85 +1399,127 @@ PLAN_STEP = "Detect Plan-Only Changes"
 FULL_SUITE_STEP = "Tests & Coverage Quality Gate"
 PLAN_SUITE_STEP = "Plan-Only Invariant Tests"
 COVERAGE_STEP = "Changed-Line Coverage"
+SHARDS_STEP = "Require Passing Test Shards"
+COMBINE_STEP = "Combine and Check Coverage"
 # Only the exact text `false` selects the reduced run: a skipped filter step leaves no output.
 FULL_SUITE_WHEN = "steps.changes.outputs.outside_plan != 'false'"
-PLAN_SUITE_WHEN = "steps.changes.outputs.outside_plan == 'false'"
+PLAN_SUITE_WHEN = "steps.changes.outputs.outside_plan == 'false' && matrix.shard == 1"
 COVERAGE_WHEN = f"github.event_name == 'pull_request' && {FULL_SUITE_WHEN}"
-FULL_GATE = "uv run devops ci --check --no-cache --only test"
+FULL_GATE = 'uv run devops ci --check --no-cache --only test --shard "$SHARD" --shards "$SHARDS"'
 PLAN_GATE = "uv run devops ci test tests/invariants"
+# The test row runs in shards on separate runners, and the job `Tests & Coverage` joins them
+# (#3050). The job ids: the shards are `test-shard`, the required check is `test`.
+SHARD_JOB = "test-shard"
+JOIN_JOB = "test"
+SHARD_NAME = "Tests & Coverage (shard ${{ matrix.shard }} of ${{ strategy.job-total }})"
+JOIN_IF = "${{ !cancelled() && github.event_name != 'schedule' }}"
+SHARD_MATRIX = {"fail-fast": False, "matrix": {"shard": [1, 2, 3, 4]}}
+# The steps of the join that a plan-only pull request skips, as they need the data of the shards.
+JOIN_FULL_STEPS = (
+    "Check out repository",
+    "Set up uv toolchain",
+    "Download Coverage Data",
+    COMBINE_STEP,
+)
 
 
 def _plan_only_problems(jobs: dict[str, Any]) -> list[str]:
-    """What differs from the plan-only contract in the job `test` of a workflow's `jobs`: the
-    filter step, the two runs and the coverage step with their conditions, and a job that no
-    condition or `needs` can make skip or wait, so the required check always reports."""
-    job = jobs["test"]
-    steps = {step.get("name"): step for step in job["steps"]}
-    order = [step.get("name") for step in job["steps"]]
-    plan, full = steps.get(PLAN_STEP, {}), steps.get(FULL_SUITE_STEP, {})
-    reduced, coverage = steps.get(PLAN_SUITE_STEP, {}), steps.get(COVERAGE_STEP, {})
+    """What differs from the plan-only contract in the jobs `test-shard` and `test` of a
+    workflow's `jobs`: the filter step of each, the shard run and the join steps with their
+    conditions, and a required job that no condition can make skip, and that waits only for the
+    shards, so the required check always reports."""
+    shard, join = jobs[SHARD_JOB], jobs[JOIN_JOB]
+    shard_steps = {step.get("name"): step for step in shard["steps"]}
+    join_steps = {step.get("name"): step for step in join["steps"]}
+    full, reduced = shard_steps.get(FULL_SUITE_STEP, {}), shard_steps.get(PLAN_SUITE_STEP, {})
+    coverage, required = join_steps.get(COVERAGE_STEP, {}), join_steps.get(SHARDS_STEP, {})
+    order = [step.get("name") for step in join["steps"]]
     expected = [
-        ("job name", job["name"], "Tests & Coverage"),
-        ("job if", job["if"], "github.event_name != 'schedule'"),
-        ("job needs", _needs(job), []),
-        ("jobs that need it", [n for n, o in jobs.items() if "test" in _needs(o)], []),
-        ("permissions", job["permissions"], {"contents": "read", "pull-requests": "read"}),
-        ("filter id", plan.get("id"), "changes"),
-        ("filter action", plan.get("uses"), PATHS_FILTER),
-        ("filter event", plan.get("if"), PLAN_WHEN),
-        (
-            "filter inputs",
-            plan.get("with"),
-            {"filters": PLAN_FILTERS, "predicate-quantifier": "some-with-excludes"},
-        ),
-        ("filter fails open", plan.get("continue-on-error"), None),
+        ("shard job name", shard["name"], SHARD_NAME),
+        ("shard job if", shard["if"], "github.event_name != 'schedule'"),
+        ("shard job needs", _needs(shard), []),
+        ("shard matrix", shard.get("strategy"), SHARD_MATRIX),
+        ("job name", join["name"], "Tests & Coverage"),
+        ("job if", join["if"], JOIN_IF),
+        ("job needs", _needs(join), [SHARD_JOB]),
+        ("jobs that need it", [n for n, o in jobs.items() if JOIN_JOB in _needs(o)], []),
+        ("shard permissions", shard["permissions"], {"contents": "read", "pull-requests": "read"}),
+        ("permissions", join["permissions"], {"contents": "read", "pull-requests": "read"}),
         ("full suite", (full.get("if"), full.get("run")), (FULL_SUITE_WHEN, FULL_GATE)),
         ("plan suite", (reduced.get("if"), reduced.get("run")), (PLAN_SUITE_WHEN, PLAN_GATE)),
         ("coverage condition", coverage.get("if"), COVERAGE_WHEN),
         (
+            "failed shards fail the check",
+            required.get("if"),
+            "needs.test-shard.result != 'success'",
+        ),
+        (
+            "plan-only skips the join",
+            [join_steps.get(name, {}).get("if") for name in JOIN_FULL_STEPS],
+            [FULL_SUITE_WHEN] * len(JOIN_FULL_STEPS),
+        ),
+        (
             "order",
-            [n for n in order if n in (PLAN_STEP, FULL_SUITE_STEP, PLAN_SUITE_STEP, COVERAGE_STEP)],
-            [PLAN_STEP, FULL_SUITE_STEP, PLAN_SUITE_STEP, COVERAGE_STEP],
+            [n for n in order if n in (PLAN_STEP, SHARDS_STEP, COMBINE_STEP, COVERAGE_STEP)],
+            [PLAN_STEP, SHARDS_STEP, COMBINE_STEP, COVERAGE_STEP],
         ),
     ]
+    for label, job in (("shard", shard), ("join", join)):
+        plan = {step.get("name"): step for step in job["steps"]}.get(PLAN_STEP, {})
+        expected += [
+            (f"{label} filter id", plan.get("id"), "changes"),
+            (f"{label} filter action", plan.get("uses"), PATHS_FILTER),
+            (f"{label} filter event", plan.get("if"), PLAN_WHEN),
+            (
+                f"{label} filter inputs",
+                plan.get("with"),
+                {"filters": PLAN_FILTERS, "predicate-quantifier": "some-with-excludes"},
+            ),
+            (f"{label} filter fails open", plan.get("continue-on-error"), None),
+        ]
     return [f"{label}: {actual!r}" for label, actual, wanted in expected if actual != wanted]
 
 
 def test_a_plan_only_pull_request_runs_the_invariant_tests_and_no_more() -> None:
-    """The job `Tests & Coverage` takes about 300 s to 370 s, and a pull request that only adds a
+    """The test row takes 355 s to 528 s on one runner, and a pull request that only adds a
     plan under `openspec/changes/` changes no line that the suite tests, except the files that
     the tests of `tests/invariants` read: names and forms, private addresses, the pull request
     template and the architectural rules. A `dorny/paths-filter` step finds such a pull request,
-    and the job then runs `tests/invariants` and no coverage step. Any other pull request, push or
-    manual run gets the full gate. The job keeps its name, its `if` and an empty `needs`, and
-    its steps are skipped, not the job, so the required check reports success (#2860)."""
+    and shard 1 then runs `tests/invariants` while no shard runs the gate or a coverage step. Any
+    other pull request, push or manual run gets the full gate. The job `Tests & Coverage` keeps
+    its name and waits only for the shards, and its steps are skipped, not the job, so the
+    required check reports success (#2860, #3050)."""
     jobs = _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"]
 
     assert _plan_only_problems(jobs) == []
     assert Path("tests/invariants").is_dir()
 
 
-def _without_step(jobs: dict[str, Any], name: str) -> dict[str, Any]:
-    """`jobs` with the step `name` removed from the job `test`."""
+def _with_steps(jobs: dict[str, Any], name: str, change: Any) -> dict[str, Any]:
+    """`jobs` with `change(step)` applied to every step named `name` of the shard and join jobs;
+    a step it returns None for is removed."""
     changed = copy.deepcopy(jobs)
-    changed["test"]["steps"] = [s for s in changed["test"]["steps"] if s.get("name") != name]
+    for job_id in (SHARD_JOB, JOIN_JOB):
+        steps = [change(s) if s.get("name") == name else s for s in changed[job_id]["steps"]]
+        changed[job_id]["steps"] = [s for s in steps if s is not None]
     return changed
+
+
+def _without_step(jobs: dict[str, Any], name: str) -> dict[str, Any]:
+    """`jobs` with the step `name` removed."""
+    return _with_steps(jobs, name, lambda _step: None)
 
 
 def _with_step_field(jobs: dict[str, Any], name: str, field: str, value: Any) -> dict[str, Any]:
-    """`jobs` with `field` of the step `name` of the job `test` set to `value`."""
-    changed = copy.deepcopy(jobs)
-    step = next(s for s in changed["test"]["steps"] if s.get("name") == name)
-    step[field] = value
-    return changed
+    """`jobs` with `field` of the step `name` set to `value`."""
+    return _with_steps(jobs, name, lambda step: {**step, field: value})
 
 
 def _with_filters(jobs: dict[str, Any], filters: str) -> dict[str, Any]:
     """`jobs` with the filters of the plan step set to `filters`."""
-    changed = copy.deepcopy(jobs)
-    step = next(s for s in changed["test"]["steps"] if s.get("name") == PLAN_STEP)
-    step["with"] = {**step["with"], "filters": filters}
-    return changed
+    return _with_steps(
+        jobs, PLAN_STEP, lambda step: {**step, "with": {**step["with"], "filters": filters}}
+    )
 
 
 @pytest.mark.parametrize(
@@ -1495,6 +1537,12 @@ def _with_filters(jobs: dict[str, Any], filters: str) -> dict[str, Any]:
         ),
         lambda jobs: _with_filters(jobs, "outside_plan:\n  - '**'\n  - '!openspec/changes/**'\n"),
         lambda jobs: _with_filters(jobs, "outside_plan:\n  - 'src/**'\n"),
+        lambda jobs: _without_step(jobs, SHARDS_STEP),
+        lambda jobs: _with_step_field(
+            jobs, SHARDS_STEP, "if", "needs.test-shard.result == 'failure'"
+        ),
+        lambda jobs: _without_step(jobs, COMBINE_STEP),
+        lambda jobs: _with_step_field(jobs, COMBINE_STEP, "if", "always()"),
     ],
     ids=[
         "no filter",
@@ -1507,6 +1555,10 @@ def _with_filters(jobs: dict[str, Any], filters: str) -> dict[str, Any]:
         "coverage runs for a plan",
         "archive counts as plan",
         "only src counts as outside",
+        "no failing step for a failed shard",
+        "a failed shard fails only on a failure result",
+        "no combine of the coverage data",
+        "combine always runs",
     ],
 )
 def test_the_plan_only_contract_fails_when_a_part_is_removed_or_widened(

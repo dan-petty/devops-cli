@@ -807,8 +807,19 @@ class CICommandHelp:
         "API. A job that passed, failed or timed out counts, whatever the run concluded. Fails "
         "too when fewer runs than asked for could be read."
     )
+    shard: str = (
+        "Number of the part of the test suite this run covers, from 1 to --shards. CI runs each "
+        "part on its own runner."
+    )
+    shards: str = (
+        "Number of parts the test suite splits into. Above 1, the run covers one part, checks no "
+        "coverage floor and leaves no cached verdict."
+    )
     job_time_repo: str = "Repository as owner/name. Default: the origin of the current checkout."
-    job_time_job: str = "Name of the job whose time is read."
+    job_time_job: str = (
+        "Name of the check whose time is read: the job of that name, timed from the first start "
+        "of it or of its shard jobs named '<name> (...)'."
+    )
     job_time_workflow: str = "Workflow file that holds the job."
     job_time_branch: str = "Branch whose push runs are read."
     job_time_runs: str = "How many of the last runs the mean covers."

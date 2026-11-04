@@ -644,19 +644,47 @@ def _gate_slot(needed: bool) -> Iterator[None]:
 # =============================================================================
 
 
-def _resolve_pytest_cmd() -> list[str]:
+def _resolve_pytest_cmd(*, shard: int = 1, shards: int = 1) -> list[str]:
     """Construct check command line arguments for the pytest and coverage row.
 
     The row prints the term report and writes no XML report: only CI's changed-line coverage
     step reads `coverage.xml`, and it writes the file from the combined data (#1743).
+
+    With `shards` above 1 the row runs the part `shard` of the suite (#3050). `pytest-split`
+    deals the tests one after the other to the group with the fewest tests so far
+    (`least_duration` with no stored durations), so the heavy tests of a directory spread over the
+    shards. A shard measures a part of the tree: it checks no floor and prints no report, and the
+    job that combines the data of every shard does both.
     """
-    return [
+    cmd = [
         "uv",
         "run",
         "pytest",
         f"--durations={CONST_CI_SLOWEST_TESTS_SHOWN}",
         "--cov=src",
-        "--cov-report=term-missing",
+    ]
+    if shards == 1:
+        return [*cmd, "--cov-report=term-missing"]
+    return [
+        *cmd,
+        "--cov-report=",
+        "--cov-fail-under=0",
+        "--splits",
+        str(shards),
+        "--group",
+        str(shard),
+        "--splitting-algorithm",
+        "least_duration",
+    ]
+
+
+def _with_test_shard(specs: Sequence[CheckSpec], *, shard: int, shards: int) -> list[CheckSpec]:
+    """The rows `specs`, with the command of the `test` row set to run its part of the suite."""
+    return [
+        spec.model_copy(update={"cmd": _resolve_pytest_cmd(shard=shard, shards=shards)})
+        if spec.name == "test"
+        else spec
+        for spec in specs
     ]
 
 
@@ -1443,6 +1471,14 @@ def all_checks(
             "--skip", help="Skip the specified check names (comma-separated or repeated)."
         ),
     ] = None,
+    shard: Annotated[
+        int,
+        typer.Option("--shard", min=1, help=HELP.ci.shard),
+    ] = 1,
+    shards: Annotated[
+        int,
+        typer.Option("--shards", min=1, help=HELP.ci.shards),
+    ] = 1,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -1451,6 +1487,10 @@ def all_checks(
     """Run all CI checks concurrently in parallel with non-blocking async execution."""
     if dry_run:
         set_dry_run(True)
+    if shard > shards:
+        raise typer.BadParameter(
+            MESSAGES.ci.shard_above_total.format(shard=shard, shards=shards), param_hint="--shard"
+        )
     root = _get_project_root()
     if not ctx.meta.get(CONST_CI_SUBCOMMAND_SHOWS_HELP_META_KEY):
         _announce_gate_root(root)
@@ -1458,7 +1498,10 @@ def all_checks(
         return
 
     selected_specs = resolve_selected_specs(only=only, skip=skip)
-    is_narrowed = bool(only or skip)
+    if shards > 1:
+        selected_specs = _with_test_shard(selected_specs, shard=shard, shards=shards)
+    # A shard proves a part of the suite, so it trusts and records no cached verdict (#3050).
+    is_narrowed = bool(only or skip) or shards > 1
 
     effective_fix = fix and not check
     ci_options = {"fix": effective_fix, "check": check}

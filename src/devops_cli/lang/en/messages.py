@@ -1650,6 +1650,7 @@ class CIMessages:
     gate_slot_holder: str = "process {pid} in {worktree}"
     gate_slot_holder_unknown: str = "another run"
     test_budget_exceeded: str = "Tests took {duration}, over the {budget} budget. Slowest tests:"
+    shard_above_total: str = "Shard {shard} is above the {shards} shards that were asked for."
     job_time_title: str = "{job}: last runs of {workflow} on {branch}"
     job_time_ok: str = (
         "The last {count} runs of {job} took {mean:.0f} s on average. The limit is {limit:.0f} s."

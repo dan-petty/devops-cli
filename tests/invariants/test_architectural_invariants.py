@@ -1140,7 +1140,12 @@ def test_only_update_prs_holds_actions_write_permission_and_ci_dispatches() -> N
         actions_write_jobs,
         "workflow_dispatch" in on_triggers,
         job_ifs.get("Static Analysis") in (None, "github.event_name != 'schedule'"),
-        job_ifs.get("Tests & Coverage") in (None, "github.event_name != 'schedule'"),
+        job_ifs.get("Tests & Coverage")
+        in (
+            None,
+            "github.event_name != 'schedule'",
+            "${{ !cancelled() && github.event_name != 'schedule' }}",
+        ),
     ) == (
         ACTIONS_WRITE_ALLOWLIST,
         True,
