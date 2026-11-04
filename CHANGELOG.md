@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.54.0](https://github.com/dan-petty/devops-cli/compare/v0.53.6...v0.54.0) (2026-11-04)
+
+
+### Features
+
+* **roadmap:** add the plan-check command ([#3425](https://github.com/dan-petty/devops-cli/issues/3425)) ([96c5c04](https://github.com/dan-petty/devops-cli/commit/96c5c040d1f3dc8700a9524055ba588d003eeab0))
+* **roadmap:** name the open plans in the stage context ([#3421](https://github.com/dan-petty/devops-cli/issues/3421)) ([e9cdf32](https://github.com/dan-petty/devops-cli/commit/e9cdf327ffb933c50ab8c28c8f3e51d262d200c9))
+
 ## [0.53.6](https://github.com/dan-petty/devops-cli/compare/v0.53.5...v0.53.6) (2026-11-04)
 
 
