@@ -111,7 +111,7 @@ class Repaired:
     failed: tuple[StageFailure, ...] = ()
 
 
-def _the_services(item: Item) -> bool:
+def _job_set_new(item: Item) -> bool:
     """Whether a job set the Status New of `item`, and no person or runner holds it."""
     return (
         item.state is GitHubState.OPEN
@@ -151,7 +151,7 @@ def _stub_section(item: Item) -> bool:
 def _stall_of(store: RoadmapStore, item: Item) -> StallKind | None:
     """The cause that stalled `item`, or None. The record names the cause, and the newest comment
     confirms it: a comment after the comment of the job means a person replied."""
-    if not _the_services(item):
+    if not _job_set_new(item):
         return None
     step = item.job_record.get(RefineRecordKey.NEXT_STEP)
     if step == NextStep.READY.value:
