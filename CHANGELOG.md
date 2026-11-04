@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.55.2](https://github.com/dan-petty/devops-cli/compare/v0.55.1...v0.55.2) (2026-11-04)
+
+
+### Bug Fixes
+
+* **output:** the network table colors a safe low-risk reference red ([#3442](https://github.com/dan-petty/devops-cli/issues/3442)) ([53cffca](https://github.com/dan-petty/devops-cli/commit/53cffca8ea481f0dd3019efa19f48f65ec0a07c5))
+* **roadmap:** name a cited bare file in the probe ([#3452](https://github.com/dan-petty/devops-cli/issues/3452)) ([4ada738](https://github.com/dan-petty/devops-cli/commit/4ada738e2231d880b44815cfce32625d0ab4df0b))
+
 ## [0.55.1](https://github.com/dan-petty/devops-cli/compare/v0.55.0...v0.55.1) (2026-11-04)
 
 
