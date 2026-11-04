@@ -10,3 +10,7 @@
 #### Scenario: A dry run of a credential removal
 - **WHEN** `devops --dry-run config unset ai.api_key` runs and the config file holds a credential key on line 4
 - **THEN** the output holds `***REDACTED***`, holds no value of that key, and the config file and its directory are unchanged
+
+#### Scenario: A dry run of a credential that a comment line also holds
+- **WHEN** `devops --dry-run config unset ai.api_key` runs and a comment line of the config file holds the value of that key
+- **THEN** no line of the diff holds the value, also not as a comment line, and the config file and its directory are unchanged

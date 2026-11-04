@@ -6,7 +6,7 @@
   - `unset_value` lacks access to raw file bytes, removed key paths, and `_SECRET_FIELDS`.
   - Replacing diff text line-by-line cannot redact multi-line block scalars because stripped secret lines omit key names.
   - Removing an entire section (such as `devops config unset ai`) deletes multiple keys, including nested credentials.
-  - Calling `write_history._redact` on the previous content with `credential_paths(previous, path, _SECRET_FIELDS)` replaces secret values with `CONST_CONFIG_REDACTED_VALUE` (`src/devops_cli/config/constants.py:48`). The diff computed against `content` safely displays `CONST_CONFIG_REDACTED_VALUE`.
+  - Calling `write_history._redact` on the previous content with `credential_paths(previous, path, _SECRET_FIELDS)` replaces secret values with `CONST_CONFIG_REDACTED_VALUE` (`src/devops_cli/config/constants.py:48`). `_redact` drops a comment line that holds the replaced value, and `round_trip.edit` keeps that line in `content`. So the diff compares the redacted text with the redacted text after the key removal, on both sides, never with `content`. `content` for the live write stays unredacted.
 - **Render dry-run output via `render_dry_run_result` in `src/devops_cli/output/console.py`**:
   - Call `render_dry_run_result(command=CONST_CONFIG_UNSET_COMMAND, action="remove_config_key", target=removal.path, details={"key": removal.key, "line": removal.line, "diff": removal.diff.splitlines()})`.
   - This preserves standard JSON dry-run output and avoids new message keys.
