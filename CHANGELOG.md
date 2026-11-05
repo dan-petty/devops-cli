@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.62.1](https://github.com/dan-petty/devops-cli/compare/v0.62.0...v0.62.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* **roadmap:** the job ticks passing groups and removes strays ([#3606](https://github.com/dan-petty/devops-cli/issues/3606)) ([529c237](https://github.com/dan-petty/devops-cli/commit/529c237a5420041c6df244ab279129168a78c9b7))
+* **roadmap:** the path problem names the (new) mark of a plan folder ([#3475](https://github.com/dan-petty/devops-cli/issues/3475)) ([b967c28](https://github.com/dan-petty/devops-cli/commit/b967c280a5d0fa195ae31f9bb8c398a0db14ff12))
+
 ## [0.62.0](https://github.com/dan-petty/devops-cli/compare/v0.61.0...v0.62.0) (2026-11-05)
 
 
