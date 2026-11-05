@@ -89,3 +89,21 @@ tests:
       - eval_time: 10m
         alertname: RoadmapServiceItemStuck
         exp_alerts: []
+
+  - name: A blocked item with no number series is named without a number
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_roadmap_item_age_seconds{job="roadmap-service", repo="example/app", state="blocked", plan="false"}'
+        values: '90000x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: RoadmapServiceItemStuck
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              state: blocked
+              plan: "false"
+            exp_annotations:
+              summary: "Item of example/app has been in state blocked for 1d 1h 0m 0s"
+              description: "An item of the roadmap has stayed in one state for more than 24 hours: a blocked item, or a ready item with a plan that waits for a person. Run devops roadmap inbox to see the item (k8s/README.md, Roadmap service)."
