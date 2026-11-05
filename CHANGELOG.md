@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.62.0](https://github.com/dan-petty/devops-cli/compare/v0.61.0...v0.62.0) (2026-11-05)
+
+
+### Features
+
+* **roadmap:** implement falls back to medium-effort items ([#3614](https://github.com/dan-petty/devops-cli/issues/3614)) ([30c23ce](https://github.com/dan-petty/devops-cli/commit/30c23ce6f96e6413927c82fc98c1517751813be5))
+
 ## [0.61.0](https://github.com/dan-petty/devops-cli/compare/v0.60.0...v0.61.0) (2026-11-05)
 
 
