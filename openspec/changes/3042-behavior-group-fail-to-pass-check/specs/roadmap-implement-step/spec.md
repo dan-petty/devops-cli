@@ -7,12 +7,12 @@ The implement step SHALL replay the test files of a behavior group on the base c
 #### Scenario: Tests pass on base
 
 - **WHEN** every test of the test files of a behavior group passes on the base commit
-- **THEN** the step stops with a message that names the test files, and it gets one repair round that may change only test files.
+- **THEN** the step stops with a message that names the test files, and it gets a repair round of `roadmap.implement.repair_rounds` that may change only test files.
 
 #### Scenario: Tests error on base
 
-- **WHEN** a test file of a behavior group cannot be collected on the base commit, and no test of the group fails there
-- **THEN** the step stops with a message, and the collection error does not count as a failure on the base commit.
+- **WHEN** a test file of a behavior group stops with an error on the base commit, before any assertion runs, and no test of the group fails there
+- **THEN** the step stops with a message, and the error does not count as a failure on the base commit.
 
 #### Scenario: A test fails on base
 
@@ -35,11 +35,11 @@ The implement step SHALL add one check event to the trace for each replay of a b
 
 ### Requirement: The PR comment shows the fail-to-pass result of each behavior group
 
-The PR comment of a step SHALL show one line for each behavior group that passed the exit checks. The line SHALL name the group, the result on the base commit and the tests that failed there.
+The PR comment of a step SHALL show one line for each behavior group that the step replayed on the base commit. The line SHALL name the group, the result on the base commit and the tests that failed there.
 
-#### Scenario: A behavior group passed
+#### Scenario: A behavior group is replayed
 
-- **WHEN** a behavior group passes the exit checks after a test failed on the base commit
+- **WHEN** the step replays a behavior group on the base commit, and the group then passes or stops
 - **THEN** the PR comment holds one line that names the group, the result of the replay and the failed test.
 
 ### Requirement: A group of kind other records its verify output

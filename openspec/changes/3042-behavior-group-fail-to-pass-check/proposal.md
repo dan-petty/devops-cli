@@ -6,7 +6,7 @@ A behavior group starts with a failing test (AGENTS.md rule 4). The implement st
 
 ## What Changes
 
-- For a behavior group, the step replays the test files of the group on the base commit of the group, with the head's tests overlaid. A group whose tests pass on the base is refused. A group whose tests only error on the base, such as a collection error, is refused too. The step gives one repair round for these refusals, and the round may change only test files.
+- For a behavior group, the step replays the test files of the group on the base commit of the group, with the head's tests overlaid. A group whose tests pass on the base is refused. A group whose tests only error on the base, such as a collection error, is refused too. These refusals get a repair round of the setting `roadmap.implement.repair_rounds`, and the round may change only test files.
 - A group that changes no test file is refused. It gets no repair round.
 - The step records each base replay as a check event of the trace, with its exit status.
 - The PR comment shows the fail-to-pass result of each behavior group.
