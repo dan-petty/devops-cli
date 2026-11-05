@@ -11,6 +11,7 @@ from pathlib import Path
 from devops_cli.config.constants import CONST_GIT_CLI
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import GitOperationError
+from devops_cli.git.branch_authors import LOG_FORMAT, person_authors
 from devops_cli.git.worktree_inventory import git_message
 from devops_cli.lang import MESSAGES
 from devops_cli.security.sanitizer import mask_secrets
@@ -38,10 +39,9 @@ def default_branch(source: Path, *, operation: str) -> str:
 
 def branch_authors(source: Path, branch: str, *, operation: str) -> list[str]:
     """The author name of each commit that `origin/<branch>` holds past the default branch, after
-    a fetch of the branch. The name is what `worktrees add` reads when it takes a branch over."""
+    a fetch of the branch, except a clean merge (#3392). The name is what `worktrees add` reads
+    when it takes a branch over."""
     git(source, "fetch", "-q", "origin", branch, operation=operation)
     default = default_branch(source, operation=operation)
-    log = git(
-        source, "log", "--format=%an", f"origin/{default}..origin/{branch}", operation=operation
-    )
-    return log.splitlines()
+    log = git(source, "log", LOG_FORMAT, f"origin/{default}..origin/{branch}", operation=operation)
+    return person_authors([CONST_GIT_CLI, "-C", str(source)], log)

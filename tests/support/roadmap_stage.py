@@ -78,6 +78,62 @@ class StageRepo:
         self.git("switch", "-q", "main")
         self.git("branch", "-q", "-D", branch)
 
+    def push_merge(
+        self, branch: str, *, author: str = "Person", by_hand: str | None = None
+    ) -> None:
+        """Update `branch` of `origin` with a merge of `main` by `author`, as the Update branch
+        button does. `main` moves first, so the merge is not empty. `by_hand`, when set, names a
+        file that the merge commit also writes, so the merge changes a file by hand."""
+        self.git("fetch", "-q", "origin")
+        self._advance_main(f"{branch.replace('/', '-')}-advance.txt", "advance\n")
+        self.git("switch", "-q", "-c", branch, f"origin/{branch}")
+        self.git(
+            "-c", f"user.name={author}", "merge", "-q", "--no-ff", "--no-commit", "origin/main"
+        )
+        if by_hand is not None:
+            (self.clone / by_hand).write_text(by_hand, encoding="utf-8")
+        self._finish_merge(branch, author)
+
+    def push_conflict_merge(self, branch: str, *, author: str = "Person") -> None:
+        """Update `branch` of `origin` by `author` with a merge of `main` that resolves a conflict.
+        The App commit on `branch` and a commit on `main` write `shared.txt` with other text, so
+        the merge conflicts, and `author` writes the resolved text."""
+        self.git("fetch", "-q", "origin")
+        self.git("switch", "-q", "-c", branch, f"origin/{branch}")
+        (self.clone / "shared.txt").write_text("branch side\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("-c", f"user.name={STAGE_NAME}", "commit", "-q", "-m", "work")
+        self.git("push", "-q", "origin", branch)
+        self._advance_main("shared.txt", "main side\n")
+        self.git("switch", "-q", branch)
+        merge = subprocess.run(
+            ["git", "merge", "-q", "--no-ff", "--no-commit", "origin/main"],
+            cwd=self.clone,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert merge.returncode == 1, merge.stdout
+        (self.clone / "shared.txt").write_text("resolved\n", encoding="utf-8")
+        self._finish_merge(branch, author)
+
+    def _advance_main(self, name: str, text: str) -> None:
+        """Commit `name` with `text` to `main` and push it, so `main` moves past the branch."""
+        self.git("switch", "-q", "main")
+        (self.clone / name).write_text(text, encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", f"main: {name}")
+        self.git("push", "-q", "origin", "main")
+
+    def _finish_merge(self, branch: str, author: str) -> None:
+        """Commit the staged merge as `author`, push `branch`, and leave the clone on `main` with
+        no local `branch`, as `push_branch` does."""
+        self.git("add", "-A")
+        self.git("-c", f"user.name={author}", "commit", "-q", "-m", "Update branch")
+        self.git("push", "-q", "origin", branch)
+        self.git("switch", "-q", "main")
+        self.git("branch", "-q", "-D", branch)
+
     def stray_branch(self, branch: str, *, own_commit: bool = False) -> None:
         """Make the local `branch` with no worktree, at `main` or with one commit that `origin`
         lacks, as a job that died before its cleanup leaves it (#2724)."""
