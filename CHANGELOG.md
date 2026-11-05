@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.62.2](https://github.com/dan-petty/devops-cli/compare/v0.62.1...v0.62.2) (2026-11-05)
+
+
+### Bug Fixes
+
+* **roadmap:** render only the steps a plan needs ([#3496](https://github.com/dan-petty/devops-cli/issues/3496)) ([83cb6c5](https://github.com/dan-petty/devops-cli/commit/83cb6c51606f7607b54dacc857707243c67936ec))
+* **roadmap:** the implement job refuses a plan that fails the plan check ([#3615](https://github.com/dan-petty/devops-cli/issues/3615)) ([233d397](https://github.com/dan-petty/devops-cli/commit/233d39728babb589a569661a78f623bb71c32424))
+
 ## [0.62.1](https://github.com/dan-petty/devops-cli/compare/v0.62.0...v0.62.1) (2026-11-05)
 
 
