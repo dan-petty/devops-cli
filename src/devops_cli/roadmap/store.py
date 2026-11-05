@@ -201,7 +201,10 @@ class StageRecordKey(StrEnum):
     draft state (#2865), and `stage.needs_fix`, the number of the draft that it told about the
     label `plan/needs-fix` (#3264). When the last plan or write of the item failed, the record
     holds the time of the failure and the class of its error (#3493), until a run stages the item
-    or stops it on the budget."""
+    or stops it on the budget. When a person closes the plan pull request with no merge, the job
+    clears every key and records the rejection in `stage.rejected` as JSON (#3503): the pull
+    request, the hash of the text of the item, the time of the close and the files that the reason
+    names."""
 
     BRANCH = "stage.branch"
     PR = "stage.pr"
@@ -213,6 +216,7 @@ class StageRecordKey(StrEnum):
     NEEDS_FIX = "stage.needs_fix"
     FAILED_AT = "stage.failed_at"
     FAILED_ERROR = "stage.failed_error"
+    REJECTED = "stage.rejected"
 
 
 class ImplementRecordKey(StrEnum):

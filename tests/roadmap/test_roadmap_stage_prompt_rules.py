@@ -443,3 +443,23 @@ def test_the_prompt_states_the_dependencies_rule() -> None:
 def test_the_prompt_names_a_sample_file_by_a_bare_name() -> None:
     assert "gets a bare name with no folder, such as `test_sample.py`" in _PROMPT
     assert "the check reads a name with a folder as a path of the repository" in _PROMPT
+
+
+# ── A plan that a person rejected (#3503) ─────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "task",
+    ["roadmap_stage_change.md", "roadmap_refine_proposal.md", "roadmap_refine_investigation.md"],
+)
+def test_the_prompts_name_the_key_that_holds_the_reason_of_a_rejected_plan(task: str) -> None:
+    prompt = load_task_prompt(task)
+
+    assert ("rejected_plan" if task == "roadmap_stage_change.md" else "stage_return") in prompt
+    assert "rejected" in prompt
+
+
+def test_the_stage_prompt_says_the_plan_must_not_state_the_false_premise_again() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "Do not plan again the premise that the reason shows to be false." in prompt

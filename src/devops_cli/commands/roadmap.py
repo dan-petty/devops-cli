@@ -428,6 +428,10 @@ def stage_cmd(
                 removed=len(applied.removed),
             )
         )
+        if applied.rejected:
+            print_success(
+                MESSAGES.roadmap.stage_applied_rejected.format(rejected=len(applied.rejected))
+            )
         failures += applied.failed
     else:
         print_info(MESSAGES.roadmap.preview_only)

@@ -72,6 +72,18 @@ The reply of the planner has no key to say that the premise of the issue is fals
 
 Each run also removes the draft and the branch of a closed item, when only the identity of the session wrote to them.
 
+## A plan that a person rejected
+
+A person rejects a plan when they close its pull request with no merge. The reason stays on the closed pull request, so the stage job copies it to the issue. In each run the job reads the plan pull request of each open New or Ready item that holds `stage.pr` and has no plan on the default branch. With `--item` it reads the pull request of that item only. For a pull request that is closed and not merged, the job does these things in order:
+
+1. It deletes the staged branch, when only the identity of the session wrote to it (the rule for a closed item). A branch with a commit of another author stays, and the plan lists it.
+2. It posts one comment on the issue. The comment holds the marker of the stage job, the marker of a rejected plan, the number of the pull request and the reason. The reason is the last comment on the pull request that a person with write access wrote and that has more than 60 characters. The comments of the Service bot and of a roadmap job do not count, and a short last comment such as `rejected` does not count: the job takes the comment before it. The job masks secrets and cuts the reason to the token cap of a reply of refine. When no comment qualifies, the comment says so.
+3. It sets the Status to New, clears the stage record and writes `stage.rejected`: the pull request, the hash of the text of the item outside the section of refine, the time of the close and the files that the reason names.
+
+The stage selection then leaves out the item, and `devops roadmap explain <number>` names the pull request. The hold ends when a person edits the text of the item, or when a commit on the default branch changes a file that the reason names. A rewrite of the section of refine does not end it. `--item` overrules it. A run that stages the item again clears `stage.rejected`.
+
+Refine reads the comment as `stage_return`, because it is a comment of the stage job, and gives the item one new look. The request of the stage job holds the reason as `rejected_plan` for an item with a `stage.rejected` record. Both prompts say that the reason is the word of a person, and that a plan or a proposal must not state again the premise that the reason shows to be false. The row `stage_ready` cannot do this work: it reads a plan pull request until it marks it ready, and then it reads it no more.
+
 ## Modes
 
 | Flag | What the run does |

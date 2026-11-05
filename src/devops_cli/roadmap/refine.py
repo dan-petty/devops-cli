@@ -140,6 +140,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_OUTSIDE_MARKER,
     CONST_ROADMAP_REFINE_START_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
+    CONST_ROADMAP_STAGE_REJECTED_MARKER,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
 )
@@ -1648,7 +1649,7 @@ def _without_other_jobs_comments(comments: Sequence[IssueComment]) -> list[Issue
 _ISSUE_REF_RE = re.compile(r"(?<![\w/#])#(\d+)\b")
 
 
-def _changed_since(store: RoadmapStore, paths: Sequence[str], since: datetime) -> bool:
+def changed_since(store: RoadmapStore, paths: Sequence[str], since: datetime) -> bool:
     """Whether a commit on the default branch changed one of `paths` at or after `since`."""
     for path in paths:
         changed = store.path_changed_at(path)
@@ -1660,10 +1661,10 @@ def _changed_since(store: RoadmapStore, paths: Sequence[str], since: datetime) -
 def _cited_code_changed(store: RoadmapStore, item: Item, since: datetime) -> bool:
     """Whether a commit on the default branch changed a path the item's block cites at or after
     `since`, the time of refine's last comment on it (#2005)."""
-    return _changed_since(store, _recorded_block_paths(item), since)
+    return changed_since(store, _recorded_block_paths(item), since)
 
 
-def _text_paths(text: str) -> list[str]:
+def text_paths(text: str) -> list[str]:
     """The repository paths that `text` names, each once, without its line, the first
     `CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS` of them."""
     paths: list[str] = []
@@ -1710,7 +1711,7 @@ def _named_cause_ended(store: RoadmapStore, item: Item, text: str, since: dateti
     """Whether an issue that `text`, the wait text of `item`, names closed, or a file that it
     names changed, at or after `since`, the time of refine's last comment (#3483). The paths need
     not be the ones the round recorded as the cause of a block."""
-    if _changed_since(store, _text_paths(text), since):
+    if changed_since(store, text_paths(text), since):
         return True
     return any(_closed_since(store, number, since) for number in _text_issues(text, item.number))
 
@@ -2278,8 +2279,10 @@ def _stage_evidence(returned: IssueComment | None) -> str | None:
     to the token cap of a reply, or None when the job returned no item (#3483)."""
     if returned is None:
         return None
-    text = returned.body.replace(CONST_ROADMAP_STAGE_COMMENT_MARKER, "").strip()
-    return truncate_to_token_limit(text, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
+    text = returned.body
+    for marker in (CONST_ROADMAP_STAGE_COMMENT_MARKER, CONST_ROADMAP_STAGE_REJECTED_MARKER):
+        text = text.replace(marker, "")
+    return truncate_to_token_limit(text.strip(), max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
 
 
 def _replies_for_model(comments: Sequence[IssueComment]) -> list[str]:
