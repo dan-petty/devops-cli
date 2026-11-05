@@ -31,9 +31,9 @@ Reads: `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/refine.py`, `t
 
 Reads: `src/devops_cli/roadmap/planned.py`, `src/devops_cli/roadmap/plan_read.py`, `tests/roadmap/test_roadmap_stage_planned.py`. Changes: `src/devops_cli/roadmap/planned.py`, `tests/roadmap/test_roadmap_stage_planned.py`.
 
-- [ ] 4.1 In `tests/roadmap/test_roadmap_stage_planned.py`, add `test_closed_plan_naming_a_path_is_no_dependency`. It merges the plan of a closed item that marks a path `(new)`, and asserts that the open-plan creates map holds no entry for that path, while the plan of an open item holds it. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_planned.py` fails on the base
+- [x] 4.1 In `tests/roadmap/test_roadmap_stage_planned.py`, add `test_closed_plan_naming_a_path_is_no_dependency`. It merges the plan of a closed item that marks a path `(new)`, and asserts that the open-plan creates map holds no entry for that path, while the plan of an open item holds it. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_planned.py` fails on the base
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_planned.py` fails on the base
-- [ ] 4.2 Add `open_creates(store, source, planned)` to `src/devops_cli/roadmap/planned.py`. It maps each path that an active change of an open item marks `(new)` to the number of that item, read with `created_paths` and `tasks_on_default`
+- [x] 4.2 Add `open_creates(store, source, planned)` to `src/devops_cli/roadmap/planned.py`. It maps each path that an active change of an open item marks `(new)` to the number of that item, read with `created_paths` and `tasks_on_default`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_planned.py` passes
 
 ## 5. Refuse a plan that creates a path an open plan creates
