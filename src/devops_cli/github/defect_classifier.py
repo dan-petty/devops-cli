@@ -14,14 +14,30 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, Final
 
-from devops_cli.config.constants import (
-    CONST_DEFECT_TITLE_PATTERN,
-    CONST_HARDENING_SURFACES,
-)
+from devops_cli.config.constants import CONST_DEFECT_TITLE_PATTERN
 
 _DEFECT_TITLE_RE = re.compile(CONST_DEFECT_TITLE_PATTERN, re.IGNORECASE)
+
+# The declared surfaces where defect pull requests record hardening guardrails or lessons (#697,
+# #1151, #1979, #3479). Only this module reads the table, so it lives here. Each entry is a file, a
+# glob of files in one folder, or a folder that ends in `/` and covers every file below it. A
+# regression test and a living spec requirement are checks that fail when the defect returns, so
+# they count. A change folder under openspec/changes/ is not here: every item pull request writes
+# one.
+_HARDENING_SURFACES: Final[tuple[str, ...]] = (
+    "docs/TESTING.md",
+    "ARCHITECTURE.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "src/devops_cli/ai/tasks/*.md",
+    "src/devops_cli/ai/knowledge_base/",
+    ".devops/review.toml",
+    "src/devops_cli/review/rules/",
+    "tests/",
+    "openspec/specs/",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,12 +112,12 @@ def is_defect_pr(
 def match_hardening_surface(file_path: str) -> str | None:
     """Match a changed file path against the declared hardening surfaces.
 
-    `CONST_HARDENING_SURFACES` holds the surfaces. Each one is a file, a glob of files in one
-    folder, or a folder that ends in `/` and covers every file below it. A change folder under
+    `_HARDENING_SURFACES` holds the surfaces. Each one is a file, a glob of files in one folder,
+    or a folder that ends in `/` and covers every file below it. A change folder under
     `openspec/changes/` is no surface: every item pull request writes one.
     """
     path = PurePosixPath(file_path.replace("\\", "/").strip().lstrip("/"))
-    for surface in CONST_HARDENING_SURFACES:
+    for surface in _HARDENING_SURFACES:
         pattern = f"{surface}**" if surface.endswith("/") else surface
         if path.full_match(pattern):
             return surface
@@ -143,12 +159,12 @@ def audit_pr_hardening(
             number=pr_number,
             title=title,
             classification=classification,
-            surface_additions={s: 0 for s in CONST_HARDENING_SURFACES},
+            surface_additions={s: 0 for s in _HARDENING_SURFACES},
             total_files=0,
             empty_file_list=True,
         )
 
-    counts: dict[str, int] = {s: 0 for s in CONST_HARDENING_SURFACES}
+    counts: dict[str, int] = {s: 0 for s in _HARDENING_SURFACES}
     for file_info in files:
         path = str(file_info.get("path", "")).strip()
         additions = int(file_info.get("additions", 0))

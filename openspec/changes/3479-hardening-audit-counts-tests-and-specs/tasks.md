@@ -6,7 +6,7 @@ Reads: `src/devops_cli/github/defect_classifier.py`, `src/devops_cli/config/cons
 
 - [x] 1.1 In `tests/github/test_defect_classifier.py`, write first: a defect pull request with additions under `tests/` is hardened and names `tests/`; one with additions under `openspec/specs/` is hardened and names `openspec/specs/`; one with additions under `src/` only is not hardened and names no surface; one with additions under `openspec/changes/` and `src/` only is not hardened; the recorded file list of pull request 3467 (`tests/fixtures/github/pull_request_3467_view.json`) is hardened through `tests/` and `openspec/specs/`. Change the two older tests that hold a `tests/` line as unhardened or that read the surface list of the workflow
   - Verification: `uv run devops ci test tests/github/test_defect_classifier.py` fails on the base
-- [x] 1.2 Add `tests/` and `openspec/specs/` to `CONST_HARDENING_SURFACES`. Make `match_hardening_surface` read the constant with `PurePosixPath.full_match` and delete its if-chain, and name both surfaces in the docstring of `defect_classifier.py`
+- [x] 1.2 Move the table from `CONST_HARDENING_SURFACES` in `config/constants.py` to `_HARDENING_SURFACES` in `defect_classifier.py` and add `tests/` and `openspec/specs/` to it. Make `match_hardening_surface` read the table with `PurePosixPath.full_match` and delete its if-chain, and name both surfaces in the docstring of `defect_classifier.py`
   - Verification: `uv run devops ci test tests/github/test_defect_classifier.py tests/commands/test_pr_hardening_report.py` passes
 
 ## 2. Report to the job summary and file no issue

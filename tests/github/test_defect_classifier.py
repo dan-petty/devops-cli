@@ -85,8 +85,6 @@ def test_defect_classifier_combined_and_reasons() -> None:
 
 def test_match_hardening_surface_declared_surfaces() -> None:
     """Verify that only the declared hardening surfaces match."""
-    from devops_cli.config.constants import CONST_HARDENING_SURFACES
-
     test_paths = [
         ("docs/TESTING.md", "docs/TESTING.md"),
         ("ARCHITECTURE.md", "ARCHITECTURE.md"),
@@ -119,24 +117,30 @@ def test_match_hardening_surface_declared_surfaces() -> None:
     ]
 
     actual = [(path, match_hardening_surface(path)) for path, _ in test_paths]
-    assert (
-        actual,
-        CONST_HARDENING_SURFACES,
-    ) == (
-        test_paths,
-        (
-            "docs/TESTING.md",
-            "ARCHITECTURE.md",
-            "SECURITY.md",
-            "CONTRIBUTING.md",
-            "src/devops_cli/ai/tasks/*.md",
-            "src/devops_cli/ai/knowledge_base/",
-            ".devops/review.toml",
-            "src/devops_cli/review/rules/",
-            "tests/",
-            "openspec/specs/",
-        ),
+    assert actual == test_paths
+
+
+def test_audit_pr_hardening_reports_each_declared_surface() -> None:
+    """The audit names the declared surfaces in order, with a zero count for each one it misses."""
+    audit = audit_pr_hardening(
+        pr_number=3479,
+        title="fix(ci): repair the hardening audit",
+        labels=["type/bug"],
+        files=[{"path": "src/devops_cli/commands/pr.py", "additions": 5, "deletions": 0}],
     )
+
+    assert list(audit.surface_additions.items()) == [
+        ("docs/TESTING.md", 0),
+        ("ARCHITECTURE.md", 0),
+        ("SECURITY.md", 0),
+        ("CONTRIBUTING.md", 0),
+        ("src/devops_cli/ai/tasks/*.md", 0),
+        ("src/devops_cli/ai/knowledge_base/", 0),
+        (".devops/review.toml", 0),
+        ("src/devops_cli/review/rules/", 0),
+        ("tests/", 0),
+        ("openspec/specs/", 0),
+    ]
 
 
 def test_audit_pr_hardening_with_additions() -> None:
