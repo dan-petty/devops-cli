@@ -23,8 +23,10 @@ person asked for it.
 A Ready proposal for an item that one of the two bots opened goes through a review before the item
 is Ready (`refine_judge`, #3502): an approval is recorded as `RefineRecordKey.JUDGE`, and a refusal
 keeps the item New, waiting for a body edit, with one comment that lists each open finding. The
-round also writes one comment, with `CONST_ROADMAP_REFINE_OUTSIDE_MARKER`, on an item that the jobs
-do not trust. The model reads only the comments of trusted authors (`trust.trusted_replies`).
+approval holds only while the body is the one that the review read (`trust.is_approved`), so a
+round also looks again at a Ready item of a bot whose body changed since, and reviews it. The round
+also writes one comment, with `CONST_ROADMAP_REFINE_OUTSIDE_MARKER`, on an item that the jobs do
+not trust. The model reads only the comments of trusted authors (`trust.trusted_replies`).
 
 A part of an item that cannot be built as written, or that waits on a question or a block that only
 a person or an outside event settles, moves to new issues (`deferred`, #2423) when the rest of the
@@ -83,7 +85,6 @@ refine logs the skip and writes nothing for the item, and the round does not fai
 from __future__ import annotations
 
 import fnmatch
-import hashlib
 import itertools
 import json
 import logging
@@ -151,6 +152,12 @@ from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.exceptions.roadmap import RoadmapRefineError
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.body_hash import (
+    body_hashes,
+    extract_section_and_outside,
+    hash_text,
+    is_unchanged,
+)
 from devops_cli.roadmap.intake import (
     IntakePlan,
     NewCandidate,
@@ -180,7 +187,7 @@ from devops_cli.roadmap.store import (
     StageRecordKey,
     Verdict,
 )
-from devops_cli.roadmap.trust import is_bot_filed, is_trusted, trusted_replies
+from devops_cli.roadmap.trust import is_approved, is_bot_filed, is_trusted, trusted_replies
 from devops_cli.telemetry.instruments import ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL, emit
 
 if TYPE_CHECKING:
@@ -420,52 +427,6 @@ class RefineApplied:
     readied_count: int
     split_count: int
     comments_posted: int
-
-
-# ── Parsing & Hashes ──────────────────────────────────────────────────────────
-
-
-def extract_section_and_outside(
-    body: str,
-    start_marker: str = CONST_ROADMAP_REFINE_START_MARKER,
-    end_marker: str = CONST_ROADMAP_REFINE_END_MARKER,
-) -> tuple[str, str | None]:
-    """Returns (body_outside_section, section_inside_markers_or_none). The section is the one
-    between the two markers, refine's by default; another job's block (#2650) has its own."""
-    start_idx = body.find(start_marker)
-    if start_idx == -1:
-        return body, None
-    end_idx = body.find(end_marker, start_idx + len(start_marker))
-    if end_idx == -1:
-        return body, None
-
-    section_inside = body[start_idx + len(start_marker) : end_idx]
-    outside = body[:start_idx] + body[end_idx + len(end_marker) :]
-    return outside, section_inside
-
-
-def hash_text(text: str) -> str:
-    """SHA-256 hex digest of stripped text."""
-    return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
-
-
-def _body_hashes(body: str) -> tuple[str, str | None]:
-    """The hash of `body` outside its refine section, and the section's, None when it holds none.
-    The block of the alternatives job (#2650) is no part of either: it is not a person's text."""
-    body, _ = extract_section_and_outside(
-        body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
-    )
-    outside, inside = extract_section_and_outside(body)
-    return hash_text(outside), (hash_text(inside) if inside else None)
-
-
-def _is_unchanged(item: Item, body: str) -> bool:
-    """Whether `body` hashes as refine last recorded for `item`, outside the section and in it."""
-    recorded = (
-        item.job_record.get(RefineRecordKey.BODY_HASH),
-        item.job_record.get(RefineRecordKey.SECTION_HASH),
-    )
-    return _body_hashes(body) == recorded
 
 
 # ── The check of the alternatives job (#2652) ────────────────────────────────
@@ -1839,7 +1800,7 @@ class _Selection:
             )
             self.waiting.append(replace(outside, notice=not told))
             return
-        if _is_unchanged(item, item.body) and not _needs_second_look(item):
+        if is_unchanged(item, item.body) and not _needs_second_look(item):
             waits = _still_waiting(self.store, item, self.comments_on)
             if waits is not None:
                 self.waiting.append(waits)
@@ -1886,8 +1847,9 @@ def _is_unrefined_ready(item: Item) -> bool:
 
 
 def _refinable(items: Sequence[Item], *, unrefined_ready: bool) -> list[Item]:
-    """`items`' open New items, their unrefined Ready ones when `unrefined_ready`, and the Ready
-    ones that hold a covering tool no round asked about (#2652), highest priority first."""
+    """`items`' open New items, their unrefined Ready ones when `unrefined_ready`, the Ready ones
+    that hold a covering tool no round asked about (#2652), and the Ready ones that a bot opened
+    and whose approval no longer holds (#3502), highest priority first."""
     picked = [
         it
         for it in items
@@ -1896,6 +1858,7 @@ def _refinable(items: Sequence[Item], *, unrefined_ready: bool) -> list[Item]:
             it.status == CONST_ROADMAP_STATUS_NEW
             or (unrefined_ready and _is_unrefined_ready(it))
             or (it.status == CONST_ROADMAP_STATUS_READY and _needs_second_look(it))
+            or (it.status == CONST_ROADMAP_STATUS_READY and not is_approved(it))
         )
     ]
     return sorted(picked, key=lambda it: _priority_rank(it.priority))
@@ -2054,7 +2017,7 @@ def refine_one_item(
             current_body,
             proposal,
             source,
-            unchanged=_is_unchanged(item, current_body),
+            unchanged=is_unchanged(item, current_body),
         )
         is_ready = judge is JudgeVerdict.APPROVED
     needs_split = not proposal.fits_one_pr
@@ -2085,7 +2048,7 @@ def refine_one_item(
     new_body = outside.rstrip() + "\n\n" + rendered_section
 
     if len(new_body) > CONST_ROADMAP_REFINE_MAX_BODY_CHARS:
-        seen_body_hash, seen_section_hash = _body_hashes(current_body)
+        seen_body_hash, seen_section_hash = body_hashes(current_body)
         too_big = f"new body would exceed {CONST_ROADMAP_REFINE_MAX_BODY_CHARS} characters"
         return RefinedItem(
             item=item,
@@ -2120,7 +2083,7 @@ def refine_one_item(
         needs_split=needs_split,
         reason_comment=comment,
         new_body=new_body,
-        body_hash=_body_hashes(current_body)[0],
+        body_hash=body_hashes(current_body)[0],
         section_hash=s_hash,
         next_step=step,
         step_details=details,
@@ -2129,7 +2092,7 @@ def refine_one_item(
         alternatives_asked=check.tool if check and check.verdict is Verdict.COVERS else None,
         read_hash=hash_text(outside),
         deferred=deferred,
-        after_stage_return=returned is not None and _is_unchanged(item, current_body),
+        after_stage_return=returned is not None and is_unchanged(item, current_body),
         judge=judge,
     )
 
@@ -2418,7 +2381,7 @@ def _body_unchanged_since_read(store: RoadmapStore, number: int, body_hash: str)
     """Whether issue `number` still holds the text that `body_hash` hashes, the body without
     the alternatives job's block and refine's section, so what refine learned from the body it
     read still holds; a body a person changed since is reported."""
-    if _body_hashes(store.read_issue_body(number))[0] == body_hash:
+    if body_hashes(store.read_issue_body(number))[0] == body_hash:
         return True
     logger.warning("Skipping #%d: the body changed between the read and the write.", number)
     return False
@@ -2435,11 +2398,17 @@ def _outside_unchanged_since_read(store: RoadmapStore, number: int, read_hash: s
     return False
 
 
+def _without_verdict(item: Item) -> JobRecord:
+    """The mark that clears the verdict of the review, when `item` holds one. A write of the hashes
+    with no review ends the approval: the hashes then belong to a body that no review read (#3502)."""
+    return {RefineRecordKey.JUDGE: None} if RefineRecordKey.JUDGE in item.job_record else {}
+
+
 def _record_failure(store: RoadmapStore, failure: RefineFailure) -> None:
     """Record a failure the item's own text caused: the first records the body it was about, and
     a second on the same body settles the item as unchanged, like the size guard (#1526)."""
     item = failure.item
-    body_hash, section_hash = _body_hashes(item.body)
+    body_hash, section_hash = body_hashes(item.body)
     if not _body_unchanged_since_read(store, item.number, body_hash):
         return
     if item.job_record.get(RefineRecordKey.FAILED_BODY_HASH) != body_hash:
@@ -2452,6 +2421,7 @@ def _record_failure(store: RoadmapStore, failure: RefineFailure) -> None:
             RefineRecordKey.SECTION_HASH: section_hash,
             RefineRecordKey.FAILED_BODY_HASH: None,
             RefineRecordKey.NEXT_STEP: NextStep.EDIT.value,
+            **_without_verdict(item),
         },
     )
 
@@ -2467,6 +2437,7 @@ def _record_unwritten(store: RoadmapStore, plan: RefinePlan) -> None:
                     RefineRecordKey.BODY_HASH: r.body_hash,
                     RefineRecordKey.SECTION_HASH: r.section_hash,
                     RefineRecordKey.NEXT_STEP: r.next_step.value,
+                    **_without_verdict(r.item),
                 },
             )
     for failure in plan.failed_items:
@@ -2692,8 +2663,6 @@ __all__ = [
     "check_ready",
     "collect_context",
     "dry_run_refine",
-    "extract_section_and_outside",
-    "hash_text",
     "inspect_checkout",
     "needs_investigation",
     "next_step_of",

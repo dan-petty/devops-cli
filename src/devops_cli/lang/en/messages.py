@@ -2169,9 +2169,9 @@ class RoadmapMessages:
             ),
             "edit": (
                 "Refine cannot set this item to Ready at {sha}. A bot opened the item, so a "
-                "review of the issue and of the proposal must approve it first, and the review "
+                "review of the issue and of the proposal must approve it first. The review "
                 "found the defects below. A person edits the body to answer them. The next "
-                "refine round and the review look at the item again only after a body edit."
+                "refine round looks at the item again only after a body edit."
             ),
         }
     )
@@ -2227,15 +2227,15 @@ class RoadmapMessages:
     # (#2478, #3502), and the comment that tells its author once.
     refine_outside_author: str = (
         "The author is {author}, and its association with the repository is {association}. A "
-        "refine round refines only the items that the owner, a member or a collaborator "
-        "opened, and the items that the Service App's bot or github-actions[bot] opened. A "
-        "person refines this item with --item {number}."
+        "refine round refines only the items that these accounts opened: the owner, a member, "
+        "a collaborator, the Service App's bot and github-actions[bot]. A person refines this "
+        "item with --item {number}."
     )
     refine_outside_notice: str = (
         "{marker}\nRefine leaves this item alone. Its author is {author}, and its association "
-        "with the repository is {association}. A refine round refines only the items that the "
-        "owner, a member or a collaborator opened, and the items that the Service App's bot or "
-        "github-actions[bot] opened. A person with write access refines this item with "
+        "with the repository is {association}. A refine round refines only the items that "
+        "these accounts opened: the owner, a member, a collaborator, the Service App's bot and "
+        "github-actions[bot]. A person with write access refines this item with "
         "`devops roadmap refine --item {number}`. Refine writes no second comment about this."
     )
     refine_author_unknown: str = "unknown"
@@ -2662,13 +2662,13 @@ class RoadmapMessages:
         "A step stopped it at {stopped}. A person fixes the cause and comments `implement: retry`."
     )
     implement_left_author: str = (
-        "Its author is {author}, with the association {association}. The job takes only the items "
-        "that the owner, a member or a collaborator opened, and the items that the Service App's "
-        "bot or github-actions[bot] opened."
+        "Its author is {author}, with the association {association}. The job takes only the "
+        "items that these accounts opened: the owner, a member, a collaborator, the Service "
+        "App's bot and github-actions[bot]."
     )
     implement_left_unjudged: str = (
-        "A bot opened the item, and no review of refine approved it. A refine round reviews it "
-        "when its proposal is ready."
+        "A bot opened the item, and no review of refine approved its body as it is now. A "
+        "refine round reviews the item again."
     )
     implement_left_no_app: str = (
         "No GitHub App slug is set in service.github_app.slug, so the author of a commit "
@@ -3008,13 +3008,13 @@ class RoadmapMessages:
     )
     stage_left_author: str = (
         "The author is {author}, and its association with the repository is {association}. The "
-        "model reads the body, so the stage job takes only the items that the owner, a member or "
-        "a collaborator opened, and the items that the Service App's bot or github-actions[bot] "
-        "opened."
+        "stage job gives the body to a model. It takes only the items that these accounts "
+        "opened: the owner, a member, a collaborator, the Service App's bot and "
+        "github-actions[bot]."
     )
     stage_left_unjudged: str = (
-        "A bot opened the item, and no review of refine approved it. A refine round reviews it "
-        "when its proposal is ready."
+        "A bot opened the item, and no review of refine approved its body as it is now. A "
+        "refine round reviews the item again."
     )
     stage_left_dependency: str = "The item depends on the open issue {issues}."
     stage_left_blocked: str = (
@@ -3806,6 +3806,11 @@ class RoadmapMessages:
                 "recorded its newest comment"
             ),
             "deferred": "the proposal defers a part of the item",
+            "outside_author": "an account that the jobs do not trust opened the item",
+            "outside_notice": (
+                "an account that the jobs do not trust opened the item, and no comment of "
+                "refine tells its author yet"
+            ),
             "planned": "the item is Planned",
             "unplanned": "the item is not Planned",
             "retitled": "a person did not change the title since the last job comment",
@@ -3815,6 +3820,7 @@ class RoadmapMessages:
         default_factory=lambda: {
             "milestone": "for each open milestone, by due date and then by number",
             "item": "for each item the run judges or changes",
+            "outside_item": "for each item that an account that the jobs do not trust opened",
             "recheck_folder": "for each change folder on the default branch",
             "blocker": "for each open item a blocked item waits on",
             "block_path": (

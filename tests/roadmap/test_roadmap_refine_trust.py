@@ -17,9 +17,11 @@ from typing import Any
 
 import pytest
 
+from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.config.constants import (
     CONST_ROADMAP_ACTIONS_BOT_LOGIN,
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
+    CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
     CONST_ROADMAP_REFINE_OUTSIDE_MARKER,
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -35,6 +37,8 @@ from devops_cli.roadmap.refine_judge import judge
 from devops_cli.roadmap.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage_verify import Finding, Verification
 from devops_cli.roadmap.store import ItemField, JudgeVerdict, RefineRecordKey
+from devops_cli.roadmap.trust import is_approved
+from tests.support.fakes.model import ModelFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -93,15 +97,17 @@ def app_login(config: Callable[..., Path]) -> str:
 
 
 class _Proposer:
-    """The proposal step's client: it answers each request with `proposal`, and keeps each
-    request document."""
+    """The proposal step's client: it answers each request with `proposal`, or raises it when it is
+    an error, and keeps each request document."""
 
-    def __init__(self, proposal: RefinementProposal = _READY) -> None:
+    def __init__(self, proposal: RefinementProposal | Exception = _READY) -> None:
         self.proposal = proposal
         self.prompts: list[str] = []
 
     def chat_structured(self, system: str, prompt: str, schema: type[Any], **_: Any) -> Any:
         self.prompts.append(prompt)
+        if isinstance(self.proposal, Exception):
+            raise self.proposal
         return self.proposal
 
 
@@ -249,6 +255,105 @@ def test_a_body_edit_after_a_refusal_makes_the_review_look_again(
     ) == (2, "Ready", "approved")
 
 
+def _edit_outside_the_section(store: InMemoryRoadmapStore, number: int) -> None:
+    """A person adds a line to the body, outside the section that refine wrote."""
+    body = store.read_issue_body(number)
+    store.write_issue_body(number, body.replace("Make a report.", "Make a report, with a table."))
+
+
+def _approved(store: InMemoryRoadmapStore, number: int) -> bool:
+    item = store.item(number)
+    assert item is not None
+    return is_approved(item)
+
+
+def test_a_body_edit_ends_the_approval_and_a_round_reviews_the_text_again(
+    store: InMemoryRoadmapStore, git_repo: Path
+) -> None:
+    number = _seed(store)
+    proposer, verifier = _Proposer(), _Verifier()
+    _round(store, git_repo, proposer, verifier)
+    before = _approved(store, number)
+
+    _edit_outside_the_section(store, number)
+    edited = _approved(store, number)
+    _round(store, git_repo, proposer, verifier)
+
+    assert (
+        before,
+        edited,
+        _approved(store, number),
+        len(verifier.prompts),
+        _status(store, number),
+    ) == (
+        True,
+        False,
+        True,
+        2,
+        "Ready",
+    )
+
+
+def test_a_review_that_refuses_the_edited_text_sets_the_item_back_to_new(
+    store: InMemoryRoadmapStore, git_repo: Path
+) -> None:
+    number = _seed(store)
+    proposer, verifier = _Proposer(), _Verifier()
+    _round(store, git_repo, proposer, verifier)
+    _edit_outside_the_section(store, number)
+    verifier.findings = [_FALSE_PREMISE]
+
+    _round(store, git_repo, proposer, verifier)
+
+    assert (
+        _approved(store, number),
+        _status(store, number),
+        _record(store, number, RefineRecordKey.JUDGE),
+        _record(store, number, RefineRecordKey.NEXT_STEP),
+    ) == (False, "New", "refused", "edit")
+
+
+def test_an_item_that_a_round_records_with_no_review_loses_its_approval_too_big_to_refine(
+    store: InMemoryRoadmapStore, git_repo: Path
+) -> None:
+    number = _seed(store)
+    proposer, verifier = _Proposer(), _Verifier()
+    _round(store, git_repo, proposer, verifier)
+    _edit_outside_the_section(store, number)
+    too_big = _READY.model_copy(
+        update={"problem_statement": "A" * CONST_ROADMAP_REFINE_MAX_BODY_CHARS}
+    )
+
+    _round(store, git_repo, _Proposer(too_big), verifier)
+
+    assert (
+        _approved(store, number),
+        _record(store, number, RefineRecordKey.JUDGE),
+        _record(store, number, RefineRecordKey.NEXT_STEP),
+        len(verifier.prompts),
+    ) == (False, None, "edit", 2)
+
+
+def test_an_item_that_a_round_records_with_no_review_loses_its_approval_failing_on_its_own_text(
+    store: InMemoryRoadmapStore, git_repo: Path
+) -> None:
+    number = _seed(store)
+    verifier = _Verifier()
+    _round(store, git_repo, _Proposer(), verifier)
+    _edit_outside_the_section(store, number)
+    failing = _Proposer(StructuredOutputValidationError("never valid", violations=2))
+
+    _round(store, git_repo, failing, verifier)
+    _round(store, git_repo, failing, verifier)
+
+    assert (
+        _approved(store, number),
+        _record(store, number, RefineRecordKey.JUDGE),
+        _record(store, number, RefineRecordKey.NEXT_STEP),
+        len(verifier.prompts),
+    ) == (False, None, "edit", 1)
+
+
 def test_a_proposal_that_is_not_ready_gets_no_review_and_no_verdict(
     store: InMemoryRoadmapStore, git_repo: Path
 ) -> None:
@@ -295,27 +400,20 @@ def test_item_refines_an_item_of_a_bot_with_the_review_too(
 def test_the_review_uses_the_client_of_the_verification_task_and_builds_it_only_for_a_bot_item(
     store: InMemoryRoadmapStore,
     git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    model_fake: ModelFake,
     login: str,
     tasks: list[str],
 ) -> None:
-    built: list[str] = []
-    verifier = _Verifier()
-
-    def get_client(task: str | None = None, **_: Any) -> _Verifier:
-        built.append(str(task))
-        return verifier
-
-    monkeypatch.setattr("devops_cli.roadmap.refine.get_llm_client", get_client)
+    model_fake.answer(Verification(findings=[]))
     _seed(store, login, "OWNER" if login == "a-person" else CONTRIBUTOR)
 
     plan = plan_refine(store, repo=REPO, source=git_repo, model=_Proposer())
 
-    assert (built, len(verifier.prompts), [r.is_ready for r in plan.refined_items]) == (
-        tasks,
-        len(tasks),
-        [True],
-    )
+    assert (
+        [call["task"] for call in model_fake.factory_calls],
+        len(model_fake.sent),
+        [r.is_ready for r in plan.refined_items],
+    ) == (tasks, len(tasks), [True])
 
 
 def test_the_review_keeps_the_approval_of_an_unchanged_item_with_no_model_call(

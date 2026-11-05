@@ -60,6 +60,7 @@ from devops_cli.config.settings import reset_settings_cache
 from devops_cli.exceptions import RoadmapRefineError, RoadmapRunError, ended_by_stop
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.roadmap import store as roadmap_store_module
+from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
@@ -74,8 +75,6 @@ from devops_cli.roadmap.refine import (
     check_person_edits,
     check_ready,
     collect_context,
-    extract_section_and_outside,
-    hash_text,
     inspect_checkout,
     needs_investigation,
     plan_refine,
@@ -2905,9 +2904,9 @@ def _outside_author(association: str, number: int) -> str:
     """The detail line of an item that an account that the jobs do not trust opened."""
     return (
         f"The author is unknown, and its association with the repository is {association}. A "
-        "refine round refines only the items that the owner, a member or a collaborator "
-        "opened, and the items that the Service App's bot or github-actions[bot] opened. A "
-        f"person refines this item with --item {number}."
+        "refine round refines only the items that these accounts opened: the owner, a member, "
+        "a collaborator, the Service App's bot and github-actions[bot]. A person refines this "
+        f"item with --item {number}."
     )
 
 

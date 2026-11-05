@@ -17,6 +17,7 @@ from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git import worktree_add
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import planned
+from devops_cli.roadmap.body_hash import hash_text
 from devops_cli.roadmap.explain import (
     Explanation,
     JobVerdict,
@@ -27,7 +28,6 @@ from devops_cli.roadmap.explain import (
 )
 from devops_cli.roadmap.implement import parse_implement_filters
 from devops_cli.roadmap.implement_trace import ImplementTrace
-from devops_cli.roadmap.refine import hash_text
 from devops_cli.roadmap.stage import parse_filters
 from devops_cli.roadmap.store import (
     GitHubState,

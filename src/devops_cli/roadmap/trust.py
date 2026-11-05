@@ -7,9 +7,10 @@ of the Service App's bot (`service.github_app.bot_login`) or `github-actions[bot
 both bots the association CONTRIBUTOR, so the login is the only proof of who wrote the item.
 
 An item of a bot is also text that a person did not write, so a job takes it only after the review
-of refine approved it (`JudgeVerdict`). The review is a model, so it is no security control: the
-login is the control, and refine's model reads only the replies of trusted authors
-(`trusted_replies`).
+of refine approved it (`JudgeVerdict`). The approval covers the text that the review read: it holds
+while the body hashes as refine recorded with the verdict (`body_hash`). A body edit ends it, and a
+refine round reviews the item again. The review is a model, so it is no security control: the login
+is the control, and refine's model reads only the replies of trusted authors (`trusted_replies`).
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_TRUSTED_AUTHORS,
 )
 from devops_cli.config.settings import load_settings
+from devops_cli.roadmap.body_hash import is_unchanged
 from devops_cli.roadmap.store import IssueComment, Item, JudgeVerdict, RefineRecordKey
 
 
@@ -45,10 +47,12 @@ def is_trusted(item: Item) -> bool:
 
 def is_approved(item: Item) -> bool:
     """Whether a job that takes `item` after refine may take it: a person opened it, or the review
-    of refine approved the item that a bot opened."""
+    of refine approved the item that a bot opened, and its body is still the one that the review
+    read."""
     if not is_bot_filed(item):
         return True
-    return item.job_record.get(RefineRecordKey.JUDGE) == JudgeVerdict.APPROVED.value
+    approved = item.job_record.get(RefineRecordKey.JUDGE) == JudgeVerdict.APPROVED.value
+    return approved and is_unchanged(item, item.body)
 
 
 def trusted_replies(comments: Sequence[IssueComment]) -> list[IssueComment]:

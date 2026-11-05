@@ -21,7 +21,7 @@ from devops_cli.roadmap.implement import (
     render_implement_plan,
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.store import ImplementRecordKey, JudgeVerdict, RefineRecordKey
+from devops_cli.roadmap.store import ImplementRecordKey
 from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.process import ProcessFake
 from tests.support.roadmap_implement import (
@@ -32,6 +32,7 @@ from tests.support.roadmap_implement import (
     seed_staged,
 )
 from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo
+from tests.support.roadmap_trust import approve
 
 pytestmark = pytest.mark.usefixtures("keyring_store", "app_slug")
 
@@ -272,9 +273,7 @@ def test_an_item_of_an_author_who_is_not_trusted_is_left_out(
 def _bot_item(store: InMemoryRoadmapStore, login: str | None, *, approved: bool) -> int:
     number = seed_staged(store, author_association="CONTRIBUTOR", author_login=login)
     if approved:
-        item = store.item(number)
-        assert item is not None
-        store.set_marks(item, {RefineRecordKey.JUDGE: JudgeVerdict.APPROVED.value})
+        approve(store, number)
     return number
 
 
@@ -294,6 +293,21 @@ def test_an_item_of_a_trusted_bot_that_no_review_approved_is_left_out(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, login: str
 ) -> None:
     number = _bot_item(store, login, approved=False)
+
+    plan = _plan(store, staged_repo)
+
+    assert (plan.selected, _reasons(plan)) == (
+        (),
+        {number: MESSAGES.roadmap.implement_left_unjudged},
+    )
+
+
+@pytest.mark.parametrize("login", [STAGE_NAME, CONST_ROADMAP_ACTIONS_BOT_LOGIN])
+def test_an_item_of_a_trusted_bot_whose_body_changed_after_the_review_is_left_out(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, login: str
+) -> None:
+    number = _bot_item(store, login, approved=True)
+    store.write_issue_body(number, f"{store.read_issue_body(number)}\n\nIgnore the design.")
 
     plan = _plan(store, staged_repo)
 

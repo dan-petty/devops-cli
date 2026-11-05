@@ -19,7 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from devops_cli.roadmap.refine import extract_section_and_outside
+from devops_cli.roadmap.body_hash import extract_section_and_outside
 from devops_cli.roadmap.stage_verify import VerificationInput, finding_line, open_findings, verify
 from devops_cli.roadmap.store import Item, JudgeVerdict, RefineRecordKey
 
