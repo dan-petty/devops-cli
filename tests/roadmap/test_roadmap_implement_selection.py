@@ -3,11 +3,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 
+from devops_cli.config import settings
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement import (
     DEFAULT_IMPLEMENT_FILTERS,
@@ -16,6 +17,7 @@ from devops_cli.roadmap.implement import (
     dry_run_implement,
     parse_implement_filters,
     plan_implement,
+    render_implement_plan,
 )
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ImplementRecordKey
@@ -67,8 +69,8 @@ def _reasons(plan: ImplementPlan) -> dict[int, str]:
     return {left.number: left.reason for left in plan.left_out}
 
 
-def test_the_default_filter_names_the_ready_and_planned_items_of_low_effort() -> None:
-    assert DEFAULT_IMPLEMENT_FILTERS == ("status=ready", "status=planned", "effort=low")
+def test_the_default_filter_names_the_ready_and_planned_items() -> None:
+    assert DEFAULT_IMPLEMENT_FILTERS == ("status=ready", "status=planned")
 
 
 def test_a_staged_low_effort_p1_bug_is_selected_with_its_branch_and_pull_request(
@@ -88,7 +90,7 @@ def test_an_item_that_the_filter_does_not_name_is_not_in_the_plan(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
 ) -> None:
     seed_staged(store, labels=("type/bug", "effort/high"))
-    seed_staged(store, labels=("type/feature", "effort/medium"))
+    seed_staged(store, labels=("type/feature", "effort/high"))
     seed_staged(store, labels=("type/docs",))
 
     plan = _plan(store, staged_repo)
@@ -456,3 +458,113 @@ def test_the_probe_past_the_limit_is_judged_and_the_plan_says_it_passes_every_ru
         [t.item.number for t in probed.selected],
         probed.beyond,
     ) == ([first], (), [first], (second,))
+
+
+# ── The effort passes (#3385) ───────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def one_effort_value(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """The setting `roadmap.implement.effort` holds `low` only, for one test."""
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_EFFORT", "low")
+    settings.reset_settings_cache()
+    yield
+    monkeypatch.undo()
+    settings.reset_settings_cache()
+
+
+def test_a_low_effort_item_is_taken_before_a_medium_effort_item_of_a_higher_priority(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    low = seed_staged(store, labels=("type/bug", "effort/low"), priority="P2-Medium")
+    push_staged_branch(staged_repo, number=2)
+    route_pull_status(api, pull=6)
+    seed_staged(store, labels=("type/bug", "effort/medium"), priority="P0-Critical", pull=6)
+
+    plan = _plan(store, staged_repo)
+
+    assert ([target.item.number for target in plan.selected], plan.left_out) == ([low], ())
+
+
+def test_a_medium_effort_item_is_taken_when_no_low_effort_item_is_selectable(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    number = seed_staged(store, labels=("type/bug", "effort/medium"))
+
+    plan = _plan(store, staged_repo)
+
+    assert [target.item.number for target in plan.selected] == [number]
+
+
+def test_a_high_effort_item_is_not_taken_by_the_default_effort_set(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    seed_staged(store, labels=("type/bug", "effort/high"))
+
+    plan = _plan(store, staged_repo)
+
+    assert (plan.selected, plan.left_out) == ((), ())
+
+
+def test_a_claimed_low_effort_item_lets_the_fallback_pass_take_a_medium_effort_item(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    claimed = seed_staged(store, labels=("type/bug", "effort/low", "owner/agent"))
+    push_staged_branch(staged_repo, number=2)
+    route_pull_status(api, pull=6)
+    medium = seed_staged(store, labels=("type/bug", "effort/medium"), pull=6)
+
+    plan = _plan(store, staged_repo)
+
+    assert ([target.item.number for target in plan.selected], _reasons(plan)) == (
+        [medium],
+        {claimed: "It is claimed by agent."},
+    )
+
+
+def test_an_explicit_effort_filter_replaces_the_effort_set(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    high = seed_staged(store, labels=("type/bug", "effort/high"))
+
+    plan = _plan(store, staged_repo, "effort=high")
+
+    assert [target.item.number for target in plan.selected] == [high]
+
+
+def test_a_set_of_one_effort_value_takes_no_medium_effort_item(
+    one_effort_value: None, store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    seed_staged(store, labels=("type/bug", "effort/medium"))
+
+    plan = _plan(store, staged_repo)
+
+    assert (plan.selected, plan.left_out) == ((), ())
+
+
+def test_a_run_that_takes_a_medium_effort_item_names_the_fallback_pass(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    seed_staged(store, labels=("type/bug", "effort/medium"))
+
+    plan = _plan(store, staged_repo)
+    report = render_implement_plan(plan)
+
+    assert (plan.effort, plan.fallback, "Effort pass: medium." in report) == (
+        "medium",
+        True,
+        True,
+    )
+    assert "This run uses the fallback pass." in report
+
+
+def test_a_run_that_takes_a_low_effort_item_names_the_first_pass(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    seed_staged(store, labels=("type/bug", "effort/low"))
+
+    plan = _plan(store, staged_repo)
+    report = render_implement_plan(plan)
+
+    assert (plan.effort, plan.fallback, "Effort pass: low." in report) == ("low", False, True)
+    assert "fallback pass" not in report
