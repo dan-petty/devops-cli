@@ -18,7 +18,7 @@
 
 ## 3. Prove the fix and pass the gate (other)
 
-- [ ] 3.1 Run the fail-to-pass check. Confirm that the new tests fail on `origin/main`.
+- [x] 3.1 Run the fail-to-pass check. Confirm that the new tests fail on `origin/main`.
   Verification: `uv run devops ci fail-to-pass --base origin/main`
 - [ ] 3.2 Run the full gate with no failure.
   Verification: `uv run devops ci`
