@@ -154,4 +154,4 @@ def test_the_kind_option_keeps_the_lines_of_one_class(
 
 def test_an_unknown_kind_is_a_usage_error(cli: Callable[..., Any]) -> None:
     result = cli("roadmap", "inbox", "--repo", REPO, "--kind", "nope")
-    assert (result.exit_code, "nope is no class of the inbox" in result.output) == (2, True)
+    assert (result.exit_code, "Invalid value for '--kind'" in result.output) == (2, True)
