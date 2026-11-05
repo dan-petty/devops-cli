@@ -36,8 +36,9 @@ import threading
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import date, datetime
 from http import HTTPStatus
+from pathlib import PurePosixPath
 from typing import Any, Protocol
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from pydantic import AliasPath, BaseModel, Field, TypeAdapter
 from pydantic import ValidationError as MalformedPayloadError
@@ -291,11 +292,20 @@ class _IsPrivatePayload(BaseModel):
     is_private: bool = Field(validation_alias=AliasPath("data", "repository", "isPrivate"))
 
 
+def _is_pull_request_url(url: str) -> bool:
+    """Whether `url`, the page of a comment, is on a pull request. GitHub gives
+    `https://github.com/<owner>/<repo>/pull/<number>#issuecomment-<id>` for such a comment and
+    `.../issues/<number>#issuecomment-<id>` for a comment on an issue. The `issue_url` field names
+    `issues/<number>` for both, so only this field tells them apart (#2754)."""
+    return PurePosixPath(urlsplit(url).path).parts[3:4] == ("pull",)
+
+
 class _CommentPayload(BaseModel):
     body: str = ""
     created_at: datetime
     author_association: str | None = None
     author_login: str | None = Field(default=None, validation_alias=AliasPath("user", "login"))
+    html_url: str = ""
 
     def comment(self) -> IssueComment:
         return IssueComment(
@@ -303,6 +313,7 @@ class _CommentPayload(BaseModel):
             created_at=self.created_at,
             author_association=self.author_association,
             author_login=self.author_login,
+            on_pull_request=_is_pull_request_url(self.html_url),
         )
 
 

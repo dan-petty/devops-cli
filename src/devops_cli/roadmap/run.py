@@ -38,6 +38,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from itertools import islice
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -70,6 +71,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_SOURCE_POLL,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
@@ -1111,6 +1113,11 @@ def service_state_dir(data_dir: Path | str | None = None) -> Path:
     return _resolve_data_dir(data_dir) / "roadmap"
 
 
+def _has_push(batch: Mapping[tuple[str, str, str], int]) -> bool:
+    """Whether the batch holds a trigger other than a poll, such as a webhook delivery."""
+    return any(key[0] != CONST_SERVICE_SOURCE_POLL for key in batch)
+
+
 def _round_input(
     changes: Sequence[Change],
     batch: Mapping[tuple[str, str, str], int],
@@ -1126,9 +1133,8 @@ def _round_input(
     `comment_at`, when the newest comment of a person was made, so that person's answer is new
     input for it (#2754). A row with no such comment has the digest it had before."""
     seen = [(change.kind.value, change.number, change.at.isoformat()) for change in changes]
-    pushed = any(key[0] != CONST_SERVICE_SOURCE_POLL for key in batch)
     hour = None if reads_changes else at.strftime("%Y-%m-%dT%H")
-    parts: list[Any] = [seen, at.isoformat() if pushed else None, hour]
+    parts: list[Any] = [seen, at.isoformat() if _has_push(batch) else None, hour]
     if comment_at is not None:
         parts.append(comment_at.isoformat())
     return hashlib.sha256(json.dumps(parts).encode("utf-8")).hexdigest()
@@ -1150,11 +1156,17 @@ def _row_inputs(
     }
 
 
+_COMMENT_WINDOW = DEFAULT_GH_REST_PER_PAGE
+"""How many of the newest comments of a repository a round reads for a comment of a person: one
+page of the listing, so the read is one request (#2754)."""
+
+
 def _person_comment_stamps(
     rows: Sequence[JobRow],
     initially_due: Mapping[str, bool],
     schedule: Mapping[str, datetime],
     failures: FailureLedger,
+    batch: Mapping[tuple[str, str, str], int],
     repo: str,
     store: RoadmapStore,
 ) -> dict[str, datetime]:
@@ -1163,10 +1175,17 @@ def _person_comment_stamps(
     that a person's answer gives to a suspended row (#2754).
 
     One read serves all those rows: the comments of the repository, newest first, from the oldest
-    last success among them (with no limit when one never succeeded), up to the first comment of
-    a person. A comment older than a row's own last success is no input for it, so what a row
-    holds never depends on the other rows that set the start of the read. With no such row the
-    round reads nothing. A read that fails raises, as the read of the changes does."""
+    last success among them (from the first comment when one never succeeded), up to the first
+    comment of a person. The read stops at the newest `_COMMENT_WINDOW` comments. A person's comment that
+    more comments than that have followed counts as no comment, so the row has the input it had
+    before and runs again once. A comment older than a row's own last success is no input for
+    it, so what a row holds never depends on the other rows that set the start of the read.
+
+    The round reads nothing when a webhook started it, since the time of such a round is already
+    new input for every row, and when no row that may run failed a round. A read that fails
+    raises, as the read of the changes does."""
+    if _has_push(batch):
+        return {}
     failed = [
         row.name
         for row in rows
@@ -1180,7 +1199,12 @@ def _person_comment_stamps(
     since = min(known) if len(known) == len(lasts) else None
     actor = _current_actor(store)
     newest = next(
-        (c.created_at for c in store.comments_since(since) if is_person_comment(c, actor)), None
+        (
+            c.created_at
+            for c in islice(store.comments_since(since), _COMMENT_WINDOW)
+            if is_person_comment(c, actor)
+        ),
+        None,
     )
     if newest is None:
         return {}
@@ -1349,8 +1373,8 @@ def run_due_jobs(
     With no trigger in the batch, rows are judged on no changes, which reads nothing; a round
     whose rows are all not due reads no more than its changes. Each row is judged by
     `schedule.json` as the round found it, and each success is written as it happens. When a row
-    that may run failed a round before, the round reads the comments of the repository once, for
-    a comment of a person is new input for such a row (#2754).
+    that may run failed a round before, a round that only polls reads the newest comments of the
+    repository once, for a comment of a person is new input for such a row (#2754).
     """
     current_time = now or datetime.now(UTC)
     base_data = _resolve_data_dir(data_dir)
@@ -1377,7 +1401,9 @@ def run_due_jobs(
         return _simulate_dry_run(rows, initially_due)
 
     ledger = failures or FailureLedger()
-    comment_stamps = _person_comment_stamps(rows, initially_due, schedule, ledger, repo, store)
+    comment_stamps = _person_comment_stamps(
+        rows, initially_due, schedule, ledger, active_batch, repo, store
+    )
     return _execute_due_rows(
         rows,
         initially_due,

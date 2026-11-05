@@ -62,17 +62,19 @@ def is_approved(item: Item) -> bool:
 
 
 def is_person_comment(comment: IssueComment, actor: str | None) -> bool:
-    """Whether a person with write access made `comment`: only such a comment is new input for a
-    roadmap job that failed its rounds (#2754). The author's association is OWNER, MEMBER or
-    COLLABORATOR, as the repository is public and no other account may start a job. The login does
-    not end in `[bot]`, since a bot with write access is no person, and it is not `actor`, the
-    account that the process acts as, whose own comments never start its own jobs."""
+    """Whether a person with write access made `comment` on an issue: only such a comment is new
+    input for a roadmap job that failed its rounds (#2754). The author's association is OWNER,
+    MEMBER or COLLABORATOR, as the repository is public and no other account may start a job. The
+    login does not end in `[bot]`, since a bot with write access is no person, and it is not
+    `actor`, the account that the process acts as, whose own comments never start its own jobs.
+    A comment on a pull request is not one, since the items of the jobs are issues."""
     login = comment.author_login
     return (
         comment.author_association in CONST_ROADMAP_TRUSTED_AUTHORS
         and login is not None
         and login != actor
         and not login.endswith(_BOT_LOGIN_SUFFIX)
+        and not comment.on_pull_request
     )
 
 

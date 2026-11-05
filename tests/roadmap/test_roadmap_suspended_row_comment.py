@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 from devops_cli.config.defaults import (
+    DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_MEMORY_ACTOR,
     DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
@@ -31,6 +32,7 @@ from devops_cli.roadmap.store import IssueComment
 REPO = "example-org/repo1"
 START = datetime(2026, 11, 5, 12, tzinfo=UTC)
 POLL = {("poll", "", ""): 1}
+WEBHOOK = {("webhook", "issues", "labeled"): 1}
 LIMIT = DEFAULT_SERVICE_MAX_FAILED_ROUNDS
 PERSON = ("alice", "OWNER")
 APP_BOT = ("devops-cli-service[bot]", "CONTRIBUTOR")
@@ -95,15 +97,22 @@ class _World:
 
         return run
 
-    def poll(self, step: timedelta = timedelta(minutes=30), *, dry_run: bool = False) -> list[str]:
-        """One round that a poll starts, `step` after the last, and the rows that ran in it."""
+    def poll(
+        self,
+        step: timedelta = timedelta(minutes=30),
+        *,
+        dry_run: bool = False,
+        batch: Mapping[tuple[str, str, str], int] = POLL,
+    ) -> list[str]:
+        """One round that `batch` starts (a poll unless given), `step` after the last, and the
+        rows that ran in it."""
         self.clock.now += step
         before = len(self.ran)
         try:
             run_due_jobs(
                 REPO,
                 self.store,
-                POLL,
+                batch,
                 table=self._table,
                 data_dir=self._tmp_path,
                 now=self.clock.now,
@@ -114,13 +123,29 @@ class _World:
             pass
         return self.ran[before:]
 
-    def comment(self, author: tuple[str | None, str | None]) -> None:
-        """A comment on the item, 30 seconds after the last round."""
+    def comment(
+        self, author: tuple[str | None, str | None], *, on_pull_request: bool = False
+    ) -> None:
+        """A comment on the item, or on a pull request, 30 seconds after the last round."""
         self.clock.now += timedelta(seconds=30)
         login, association = author
+        number = self.issue
+        if on_pull_request:
+            number = self.store.seed_pull("A pull request", head_ref="feat/1-a-change")
         self.store.seed_comment(
-            self.issue, "An answer", author_login=login, author_association=association
+            number, "An answer", author_login=login, author_association=association
         )
+
+    def bury(self) -> None:
+        """Newer comments of the bot, enough to fill the window that a round reads."""
+        for _ in range(DEFAULT_GH_REST_PER_PAGE):
+            self.clock.now += timedelta(seconds=1)
+            self.store.seed_comment(
+                self.issue,
+                "A notice",
+                author_login=APP_BOT[0],
+                author_association=APP_BOT[1],
+            )
 
     def suspend(self) -> None:
         """Run the rounds that make the `intake` row fail its limit, and one more that the
@@ -163,6 +188,17 @@ def test_a_comment_of_another_author_leaves_a_suspended_job_suspended(
     world.suspend()
 
     world.comment(author)
+
+    assert world.poll() == []
+
+
+def test_a_comment_of_a_person_on_a_pull_request_leaves_a_suspended_job_suspended(
+    tmp_path: Path,
+) -> None:
+    world = _World(tmp_path)
+    world.suspend()
+
+    world.comment(PERSON, on_pull_request=True)
 
     assert world.poll() == []
 
@@ -224,6 +260,45 @@ def test_the_round_reads_the_comments_once_for_all_failed_jobs_and_stops_at_a_pe
     # The first round has no failed job. Each later round reads once, takes the comment of the
     # bot, which is newest, and stops at the comment of the person before it.
     assert reads == [(0, 0), (1, 2), (1, 2), (1, 2)]
+
+
+def test_a_round_reads_one_page_of_comments_at_most(tmp_path: Path) -> None:
+    """A comment of a person that a page of newer comments follows is not read: the round
+    keeps its input, and the job stays suspended."""
+    world = _World(tmp_path)
+    world.suspend()
+    world.comment(PERSON)
+    world.bury()
+    taken = world.store.taken
+
+    assert world.poll() == []
+    assert world.store.taken - taken == DEFAULT_GH_REST_PER_PAGE
+
+
+def test_a_comment_of_a_person_that_a_page_of_comments_follows_starts_the_job_once_more(
+    tmp_path: Path,
+) -> None:
+    """The input of the job held that comment. When it falls out of the page that a round reads,
+    the input is the one of before, so the job runs again and counts from one."""
+    world = _World(tmp_path)
+    world.suspend()
+    world.comment(PERSON)
+    assert [world.poll() for _ in range(LIMIT + 1)] == [["intake"]] * LIMIT + [[]]
+
+    world.bury()
+
+    assert [world.poll() for _ in range(LIMIT + 1)] == [["intake"]] * LIMIT + [[]]
+
+
+def test_a_round_that_a_webhook_started_reads_no_comments(tmp_path: Path) -> None:
+    """The time of such a round is new input for every job, so a comment adds nothing."""
+    world = _World(tmp_path)
+    world.suspend()
+    world.comment(PERSON)
+    reads = world.store.reads
+
+    assert world.poll(batch=WEBHOOK) == ["intake"]
+    assert world.store.reads == reads
 
 
 def test_a_round_with_no_failed_job_reads_no_comments(tmp_path: Path) -> None:

@@ -449,13 +449,15 @@ class InMemoryRoadmapStore(RoadmapStore):
     ) -> None:
         """Add a comment as another commenter made it, with their relation to the repository and
         their login, as GitHub gives them: the owner's relation unless given, since GitHub gives
-        one for every comment. Seeding records no change and no write."""
-        self._require_issue(number, "roadmap.issue.seed_comment")
+        one for every comment. Seeding records no change and no write. A pull request takes a
+        comment as it does on GitHub, and the comment says so (#2754)."""
+        issue = self._require_issue(number, "roadmap.issue.seed_comment", pull_request=True)
         made = IssueComment(
             body=body,
             created_at=as_utc(self._roadmap.clock()),
             author_association=author_association,
             author_login=author_login,
+            on_pull_request=issue.pull_request,
         )
         self._roadmap.comments.setdefault(number, []).append(made)
 

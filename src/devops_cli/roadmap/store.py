@@ -374,7 +374,8 @@ class IssueRecord(BaseModel):
 class IssueComment(BaseModel):
     """One comment on an issue: its body, when it was made, and the commenter's relation to the
     repository as GitHub gives it (`OWNER`, `MEMBER`, `COLLABORATOR`, `NONE` and others), None
-    when the store does not know it, and the commenter's login."""
+    when the store does not know it, and the commenter's login. `on_pull_request` says that the
+    comment is on a pull request, which GitHub's comment listings mix with the issues (#2754)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -382,6 +383,7 @@ class IssueComment(BaseModel):
     created_at: datetime
     author_association: str | None = None
     author_login: str | None = None
+    on_pull_request: bool = False
 
 
 class Closure(BaseModel):

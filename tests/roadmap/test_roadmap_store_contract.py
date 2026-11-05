@@ -1014,6 +1014,19 @@ def test_the_comments_of_the_repository_come_newest_first_from_the_time_asked(
     ) == (["three", "two", "one"], ["three", "two"], [])
 
 
+def test_a_comment_on_a_pull_request_says_so(store: InMemoryRoadmapStore) -> None:
+    """GitHub's comment listings mix the issues with the pull requests (#2754)."""
+    issue = store.seed_issue("an issue")
+    pull = store.seed_pull("a pull request", head_ref="feat/1-a-change")
+    store.seed_comment(issue, "on the issue")
+    store.seed_comment(pull, "on the pull request")
+
+    assert {(c.body, c.on_pull_request) for c in store.comments_since(None)} == {
+        ("on the pull request", True),
+        ("on the issue", False),
+    }
+
+
 def test_a_path_changed_when_the_newest_commit_that_changed_it_was_made(
     store: InMemoryRoadmapStore, clock: SteppedClock
 ) -> None:

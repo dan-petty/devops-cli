@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlsplit
 import httpx2
 import pytest
 
+from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.exceptions.git import (
     GitHubFileNotFoundError,
     GitHubOperationError,
@@ -1243,15 +1244,19 @@ def test_a_comment_carries_its_authors_login_and_association() -> None:
     ]
 
 
-def _repository_comment(created_at: str, login: str, association: str) -> dict[str, Any]:
-    """A comment as the listing of the whole repository gives it."""
+def _repository_comment(
+    created_at: str, login: str, association: str, *, page: str = "issues"
+) -> dict[str, Any]:
+    """A comment as the listing of the whole repository gives it: `page` is `issues` for a
+    comment on an issue and `pull` for one on a pull request, and `issue_url` is the same for
+    both, as GitHub gives it."""
     return {
         "body": "An answer",
         "created_at": created_at,
         "author_association": association,
         "user": {"login": login},
         "issue_url": f"{API}/repos/{REPO}/issues/844",
-        "html_url": f"https://github.com/{REPO}/issues/844#issuecomment-1",
+        "html_url": f"https://github.com/{REPO}/{page}/844#issuecomment-1",
     }
 
 
@@ -1285,6 +1290,27 @@ def test_comments_since_reads_the_repository_comments_newest_first_from_the_time
     assert (github_api.requested, runner.calls) == ([f"GET {API}{listing}"], [])
 
 
+def test_comments_since_tells_a_comment_on_a_pull_request_from_one_on_an_issue(
+    github_api: GitHubApiFake,
+) -> None:
+    listing = f"{COMMENTS_LISTING}&per_page=100"
+    github_api.route(
+        "GET",
+        listing,
+        github_json(
+            [
+                _repository_comment("2026-11-05T13:00:00Z", "alice", "OWNER", page="pull"),
+                _repository_comment("2026-11-05T12:30:00Z", "alice", "OWNER"),
+            ]
+        ),
+    )
+    store, _ = over_github()
+
+    found = list(store.comments_since(None))
+
+    assert [c.on_pull_request for c in found] == [True, False]
+
+
 def test_comments_since_with_no_time_sends_no_since_parameter(github_api: GitHubApiFake) -> None:
     listing = f"{COMMENTS_LISTING}&per_page=100"
     github_api.route("GET", listing, github_json([]))
@@ -1315,6 +1341,25 @@ def test_comments_since_sends_no_request_for_a_page_the_caller_does_not_read(
     first = next(store.comments_since(None))
 
     assert (first.author_login, len(github_api.sent)) == ("alice", 1)
+
+
+def test_comments_since_sends_one_request_for_the_first_page_of_comments(
+    github_api: GitHubApiFake,
+) -> None:
+    """A caller that takes one page of comments and no more sends no request for the next page
+    that the first one links, as the round of the Service does (#2754)."""
+    listing = f"{COMMENTS_LISTING}&per_page=100"
+    second = f"{COMMENTS_LISTING}&per_page=100&page=2"
+    page = [
+        _repository_comment("2026-11-05T13:00:00Z", "devops-cli-service[bot]", "CONTRIBUTOR")
+    ] * DEFAULT_GH_REST_PER_PAGE
+    github_api.route("GET", listing, github_json(page, headers=next_page(second)))
+    github_api.route("GET", second, github_json([]))
+    store, _ = over_github()
+
+    taken = list(itertools.islice(store.comments_since(None), DEFAULT_GH_REST_PER_PAGE))
+
+    assert (len(taken), github_api.requested) == (DEFAULT_GH_REST_PER_PAGE, [f"GET {API}{listing}"])
 
 
 def test_path_changed_at_reads_the_newest_commit_of_a_path_once_for_the_stores_life() -> None:
