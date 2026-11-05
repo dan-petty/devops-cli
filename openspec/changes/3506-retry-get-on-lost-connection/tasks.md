@@ -4,9 +4,9 @@
 
 - [x] 1.1 Write failing tests in `tests/github/test_github_session.py` for a GET that loses its connection once and then answers, for a GET that loses its connection on every attempt, for a POST that loses its connection, for a listing that loses page 3, and for a lost GET that waits through the identity ledger.
   Verification: `uv run devops ci test tests/github/test_github_session.py`
-- [ ] 1.2 Retry a lost GET in `SessionGitHubAPI._request` in `src/devops_cli/github/session_transport.py`, with `lost_connection_wait`, and let `refused_retry` in `src/devops_cli/github/error_classifier.py` accept a transport error with no status.
+- [x] 1.2 Retry a lost GET in `SessionGitHubAPI._request` in `src/devops_cli/github/session_transport.py`, with `lost_connection_wait`, and let `refused_retry` in `src/devops_cli/github/error_classifier.py` accept a transport error with no status.
   Verification: `uv run devops ci test tests/github/test_github_session.py tests/github/test_github_errors.py`
-- [ ] 1.3 Update the module docstring of `src/devops_cli/github/session_transport.py` to state the lost-connection rule and its budget.
+- [x] 1.3 Update the module docstring of `src/devops_cli/github/session_transport.py` to state the lost-connection rule and its budget.
   Verification: `uv run devops ci test tests/github/test_github_session.py`
 
 ## 2. Document the retry rule

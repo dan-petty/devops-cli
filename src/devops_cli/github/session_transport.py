@@ -14,8 +14,13 @@ names. gidgethub's `handle_rate_limit_error` hook retries a rate limit, and a re
 with a 5xx, up to `DEFAULT_GH_MAX_RETRIES` times, waiting what the ledger's `retry_delay` gives;
 a rate limit's wait holds every request of the identity, from any thread, until it ends, also
 when the request is not sent again (#2474, #2523).
-A write that got a 5xx may have been applied, so it is not sent again; a refused connect and a
-refused origin are not retried either. Every use of the ledger runs in a worker thread, since its
+A write that got a 5xx may have been applied, so it is not sent again. A GET whose connection is
+lost before its answer is read (`httpx2.RemoteProtocolError`, `httpx2.ReadError` or
+`httpx2.WriteError`) is sent again by `_request`, up to `DEFAULT_GH_MAX_RETRIES` times, after the
+ledger's wait from the read floor; a lost write is not sent again, since GitHub may have applied
+it. Each gidgethub attempt has its own budget of these resends, so one GET sends at most nine
+requests (#3506). A refused connect, a connect or read timeout and a refused origin are not
+retried. Every use of the ledger runs in a worker thread, since its
 lock may be held through another thread's quota refresh. What still fails is raised as the error
 `github.error_classifier` names for it.
 
@@ -99,6 +104,11 @@ _API_ORIGIN: Final[httpx2.Origin] = httpx2.URL(CONST_URL_GITHUB_API_BASE).origin
 # What leaves a request without an answer to read: no connection or no complete response
 # (httpx2), and an answer that does not decode (ValueError, LookupError; see the classifier).
 _UNREAD: Final = (httpx2.HTTPError, ValueError, LookupError)
+
+# A connection that ended or failed once the request was on the wire, and a request that did not
+# go out whole: what a GET is sent again after (#3506). A refused connect, a timeout and a local
+# protocol error are not in it.
+_LOST_CONNECTION: Final = (httpx2.RemoteProtocolError, httpx2.ReadError, httpx2.WriteError)
 
 # A path's template delimiters, percent-encoded, so gidgethub's expansion keeps them as text.
 _LITERAL_PATH: Final = str.maketrans(
@@ -224,6 +234,32 @@ def retry_wait(
     return wait
 
 
+def lost_connection_wait(
+    error: httpx2.TransportError, *, method: str, url: str, attempt: int, identity: str
+) -> float | None:
+    """The wait before a GET whose connection was lost is sent again, recorded as a throttle on
+    the identity's ledger, or None when it is not sent again: any method but GET, since GitHub may
+    have applied a write it did not answer, and a loss after `DEFAULT_GH_MAX_RETRIES` resends. The
+    wait is the ledger's delay from the read floor, as a read's 5xx waits. Raises
+    GitHubRateLimitError, naming the request, for a wait past `max_rate_limit_wait`."""
+    if method != "GET" or attempt > DEFAULT_GH_MAX_RETRIES:
+        return None
+    command = _gh_api_command(url)
+    resource = gh_request_resource(command)
+    limiter = identity_rate_limiter(identity)
+    try:
+        wait = limiter.retry_delay(
+            None,
+            attempt=attempt,
+            subcommand=resource,
+            floor=DEFAULT_GH_SERVER_ERROR_RETRY_FLOOR_SECONDS,
+        )
+    except GitHubRateLimitError as refusal:
+        raise refused_retry(refusal, error, method=method, path=command[1]) from refusal
+    limiter.record_throttle(wait, resource=resource)
+    return wait
+
+
 class SessionGitHubAPI(GitHubAPI):
     """gidgethub's httpx2 adapter, paced, charged and retried on its identity's ledger, and sent
     with the identity's token."""
@@ -249,18 +285,57 @@ class SessionGitHubAPI(GitHubAPI):
         self, method: str, url: str, headers: Mapping[str, str], body: bytes = b""
     ) -> tuple[int, Mapping[str, str], bytes]:
         """Send one attempt once the ledger allows it, with the current token, and charge what
-        its answer reports.
+        its answer reports. A GET whose connection is lost is paced and sent again, after the
+        ledger's wait, while `_resend_after_lost` allows it.
 
         The pacing wait may run until the quota resets, so a close does not wait it out.
         """
-        resource, token = await anyio.to_thread.run_sync(
-            self._pace, method, url, abandon_on_cancel=True
+        attempt = 1
+        while True:
+            resource, token = await anyio.to_thread.run_sync(
+                self._pace, method, url, abandon_on_cancel=True
+            )
+            sent = {**headers, "authorization": f"token {token}"}
+            try:
+                answer = await super()._request(method, url, sent, body)
+            except _LOST_CONNECTION as error:
+                if not await self._resend_after_lost(
+                    error, method=method, url=url, attempt=attempt
+                ):
+                    raise
+                attempt += 1
+                continue
+            self._last_body_empty = (answer[2] == b"") and bool(answer[1].get("content-type"))
+            await anyio.to_thread.run_sync(charge_response, answer[1], resource, self._identity.key)
+            return answer
+
+    async def _resend_after_lost(
+        self, error: httpx2.TransportError, *, method: str, url: str, attempt: int
+    ) -> bool:
+        """Wait the ledger's delay before a lost GET is sent again, and log the wait; False when
+        the request is not sent again, so its lost connection raises."""
+        wait = await anyio.to_thread.run_sync(
+            partial(
+                lost_connection_wait,
+                error,
+                method=method,
+                url=url,
+                attempt=attempt,
+                identity=self._identity.key,
+            )
         )
-        sent = {**headers, "authorization": f"token {token}"}
-        answer = await super()._request(method, url, sent, body)
-        self._last_body_empty = (answer[2] == b"") and bool(answer[1].get("content-type"))
-        await anyio.to_thread.run_sync(charge_response, answer[1], resource, self._identity.key)
-        return answer
+        if wait is None:
+            return False
+        logger.warning(
+            "GitHub lost the connection of %s %s on attempt %d (%s); retrying in %.2fs",
+            method,
+            httpx2.URL(url).path,
+            attempt,
+            type(error).__name__,
+            wait,
+        )
+        await self.sleep(wait)
+        return True
 
     async def sleep(self, seconds: float) -> None:
         """Wait on the portal's loop, so other requests keep running."""
