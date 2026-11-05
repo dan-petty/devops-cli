@@ -229,6 +229,21 @@ def test_a_304_answer_counts_once_with_status_304(
     ]
 
 
+def test_a_get_that_loses_its_connection_counts_each_attempt_with_its_status(
+    github_api: GitHubApiFake, otlp: FakeCollector
+) -> None:
+    """A lost GET is sent again (#3506). The lost attempt counts with status none, and the attempt
+    that gets the answer counts with its status."""
+    github_api.route("GET", "/user", httpx2.RemoteProtocolError, github_json({"login": "octocat"}))
+
+    get_github_session().rest("GET", "/user")
+
+    assert otlp.points(GITHUB_REQUESTS_TOTAL.name) == [
+        ({"resource": "core", "method": "GET", "status": "none", **_UNSCOPED}, 1.0),
+        ({"resource": "core", "method": "GET", "status": "200", **_UNSCOPED}, 1.0),
+    ]
+
+
 def test_a_request_that_gets_no_answer_counts_with_status_none(
     github_api: GitHubApiFake, otlp: FakeCollector
 ) -> None:
