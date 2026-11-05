@@ -929,7 +929,7 @@ class RoadmapImplementConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
     effort: Annotated[list[str], Variable()] = Field(
-        description="The effort values of the implement job's passes, in order: the job takes an item of the first effort, and an item of the next effort only when no item of the first effort is selectable. Each value is `low`, `medium` or `high`, given once. A high-effort item stays out of the default set",
+        description="The effort values of the implement job's passes, in order. The job takes an item of the first effort. It takes an item of the next effort only when no item of the first effort is selectable. Each value is `low`, `medium` or `high`, given once. A high-effort item stays out of the default set",
         default_factory=lambda: list(DEFAULT_ROADMAP_IMPLEMENT_EFFORT),
         min_length=1,
     )
