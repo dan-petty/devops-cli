@@ -256,7 +256,7 @@ def test_negative_search_parts_reads_the_literal_and_the_paths() -> None:
     found = negative_search_parts(DOTTED)
 
     assert found is not None
-    assert (found.literal, found.paths) == ("devops_cli.roadmap.stage_", ("src/", "tests/"))
+    assert (found.literals, found.paths) == (("devops_cli.roadmap.stage_",), ("src/", "tests/"))
 
 
 @pytest.mark.parametrize("command", ["uv run devops ci", "! git grep -n", "!"])
@@ -309,6 +309,36 @@ def test_search_problems_records_no_hit_only_when_the_caller_gives_evidence() ->
     groups = [_search_group(NO_HIT)]
 
     assert search_problems(groups) == []
+
+
+E_TWO = (
+    "! git grep -n -e devops_cli.roadmap.stage_ -e devops_cli.roadmap.stage_missing -- src/ tests/"
+)
+
+
+def test_each_e_literal_has_its_own_hit_check() -> None:
+    evidence = {"devops_cli.roadmap.stage_": ("src/a.py",), "devops_cli.roadmap.stage_missing": ()}
+
+    (problem,) = search_problems([_search_group(E_TWO)], evidence)
+
+    assert "already passes before the change and proves nothing" in problem
+    assert "devops_cli.roadmap.stage_missing" in problem
+
+
+def test_record_search_evidence_records_each_e_literal() -> None:
+    seen: list[str] = []
+
+    def search(literal: str) -> tuple[str, ...]:
+        seen.append(literal)
+        return ("src/a.py",) if literal == "devops_cli.roadmap.stage_" else ()
+
+    evidence = record_search_evidence([_search_group(E_TWO)], search)
+
+    assert seen == ["devops_cli.roadmap.stage_", "devops_cli.roadmap.stage_missing"]
+    assert evidence == {
+        "devops_cli.roadmap.stage_": ("src/a.py",),
+        "devops_cli.roadmap.stage_missing": (),
+    }
 
 
 # ── The examples of the prompt and of the rules ───────────────────────────────

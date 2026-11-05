@@ -1889,6 +1889,18 @@ def test_check_proposal_accepts_a_recorded_hit_that_survives_the_change() -> Non
     assert _search_problems(_move_plan(DOTTED), {"devops_cli.roadmap.stage_": (STAGE_OLD,)}) == []
 
 
+E_MOVE = "! git grep -n -e devops_cli.roadmap.stage_ -e devops_cli.roadmap.stage -- src/ tests/"
+
+
+def test_a_move_group_checks_each_e_literal() -> None:
+    evidence = {"devops_cli.roadmap.stage_": (STAGE_OLD,), "devops_cli.roadmap.stage": (STAGE_OLD,)}
+
+    problems = _search_problems(_move_plan(E_MOVE), evidence)
+
+    assert any("its literal `devops_cli.roadmap.stage`" in p for p in problems)
+    assert not any("its literal `devops_cli.roadmap.stage_`" in p for p in problems)
+
+
 # ── The requirement that the base spec already has (#3013) ────────────────────
 
 DUPLICATE_PROBLEM = (
