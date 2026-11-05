@@ -448,15 +448,15 @@ tests:
     interval: 1m
     input_series:
       # Pod a counts 3 failures from minute 0 to minute 3, then stays at 3. Pod b starts at zero at
-      # minute 10 (#3495) and counts 2 failures by minute 12.
+      # minute 10 (#3495) and counts 2 failures by minute 12. Both series reach the eval time, so
+      # increase() extrapolates to no window edge, and the sum is exactly the 5 counts.
       - series: 'devops_cli_service_implement_failures_total{job="roadmap-service", pod="a", repo="example/app", class="ci_infra"}'
-        values: '0+1x3 3x40'
+        values: '0+1x3 3x46'
       - series: 'devops_cli_service_implement_failures_total{job="roadmap-service", pod="b", repo="example/app", class="ci_infra"}'
         values: '_x10 0+1x2 2x40'
     promql_expr_test:
-      # increase() extrapolates to the window edges, so the sum reads 5.03 where the counts are 5.
       - expr: sum(increase(devops_cli_service_implement_failures_total{job="roadmap-service", class="ci_infra"}[1h]))
         eval_time: 50m
         exp_samples:
           - labels: '{}'
-            value: 5.034090909090909
+            value: 5
