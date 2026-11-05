@@ -509,6 +509,14 @@ def test_a_prose_word_after_a_credential_keyword_and_a_colon_is_left_alone(
             'password: "correcthorse"', "password=<masked-password>", id="plain-word-in-quotes"
         ),
         pytest.param("token: 'unexpected'", "token=<masked-token>", id="plain-word-in-quote-marks"),
+        pytest.param(
+            "password:=correcthorse", "password=<masked-password>", id="assignment-operator"
+        ),
+        pytest.param("token:=abcdefghijkl", "token=<masked-token>", id="assignment-with-letters"),
+        pytest.param("token:=abcdefg", "token=<masked-token>", id="assignment-with-a-short-value"),
+        pytest.param(
+            "token: =correcthorse", "token=<masked-token>", id="equals-sign-after-a-space"
+        ),
     ],
 )
 def test_a_value_that_reads_as_a_credential_is_still_masked_after_a_colon(

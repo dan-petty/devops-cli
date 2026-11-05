@@ -175,17 +175,25 @@ def _mask_literal(match: re.Match[str], masked: str, is_code: bool = False) -> s
     Rewriting code before review hides defects: an MD5-hashed password or a token read from
     the query string turn into what look like harmless redactions.
 
-    A colon is also prose punctuation: buildx writes "failed to fetch oauth token: unexpected
-    status from GET ...", and the value "unexpected" was rewritten, so the printed error no
-    longer said what failed. So after a colon, an unquoted value that reads as a word is left
-    as written. An equals sign or a quote mark states an assignment, and a value there is
-    masked whatever it looks like: a password can be a plain word.
+    A colon is also prose punctuation. buildx writes "failed to fetch oauth token: unexpected
+    status from GET ...". The rule rewrote the word "unexpected", so the printed error did not
+    say what failed. After a colon, an unquoted value that reads as a word stays as written.
+
+    An equals sign states an assignment, and so does a quote mark. Such a value stays masked
+    whatever it looks like, because a password can be a plain word. The value of `token:=word`
+    starts with an equals sign, so it stays masked too.
     """
     value = match.group("value")
     quote = match.group("quote")
     if is_code and not quote and _is_code_value(value):
         return match.group(0)
-    if match.group("sep") == ":" and not quote and not _looks_like_a_credential(value.rstrip(".")):
+    is_prose = (
+        match.group("sep") == ":"
+        and not quote
+        and not value.startswith("=")
+        and not _looks_like_a_credential(value.rstrip("."))
+    )
+    if is_prose:
         return match.group(0)
     return masked
 
