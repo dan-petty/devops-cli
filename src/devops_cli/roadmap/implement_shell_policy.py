@@ -147,14 +147,16 @@ IMPLEMENT_SHELL_REPLACEMENTS: dict[str, str] = {
 # The negative search: `! git grep [options] <literal> [--] <path>...`. The step runs the words
 # after `!` and the search passes when git exits 1, which means no match. An option is one word of
 # these letters: line numbers, no binary files, fixed strings, any case, whole words, file names,
-# counts and a quiet run. No option reads a file (`-f`), opens a program (`-O`), leaves the
-# repository (`--no-index`) or takes a value (`-e`), so every other option is refused.
+# counts and a quiet run. The option `-e` takes one literal, and a search may repeat it: git matches
+# any of the literals. No other option reads a file (`-f`), opens a program (`-O`), leaves the
+# repository (`--no-index`) or takes a value, so every other option is refused.
 NEGATIVE_SEARCH_START: tuple[str, ...] = (NEGATIVE_SEARCH_WORD, BIN_GIT, "grep")
 NEGATIVE_SEARCH_OPTION_LETTERS = "nIFiwlcq"
 NEGATIVE_SEARCH_LITERAL_SIGNS = "_ . : / = @ + , # % ~ -"
 _OPTION = re.compile(rf"-[{NEGATIVE_SEARCH_OPTION_LETTERS}]+")
 _LITERAL = re.compile(r"[\w .:/=@+,#%~-]+", re.ASCII)
 _PATH = re.compile(r"[\w.+@~*/-]+", re.ASCII)
+_E_OPTION = "-e"
 _PATHS_MARK = "--"
 _SHOWN_CHARS = 60
 
@@ -227,17 +229,24 @@ def _is_path(word: str) -> bool:
 
 @dataclass(frozen=True)
 class NegativeSearch:
-    """A negative search in the fixed shape, read from its words."""
+    """A negative search in the fixed shape, read from its words. `literals` holds one literal, or
+    each `-e` literal when `by_e` is set."""
 
     options: tuple[str, ...]
-    literal: str
+    literals: tuple[str, ...]
     paths: tuple[str, ...]
+    by_e: bool = False
 
     @property
     def argv(self) -> list[str]:
-        """The command that the step runs: the paths follow `--`, so git never reads one as a
-        revision."""
-        return [BIN_GIT, "grep", *self.options, self.literal, _PATHS_MARK, *self.paths]
+        """The command that the step runs: each literal follows its own `-e` when `by_e` is set,
+        and the paths follow `--`, so git never reads one as a revision."""
+        patterns = (
+            [word for literal in self.literals for word in (_E_OPTION, literal)]
+            if self.by_e
+            else list(self.literals)
+        )
+        return [BIN_GIT, "grep", *self.options, *patterns, _PATHS_MARK, *self.paths]
 
 
 def shown(text: str, limit: int = _SHOWN_CHARS) -> str:
@@ -249,22 +258,54 @@ def shown(text: str, limit: int = _SHOWN_CHARS) -> str:
     return escaped if len(escaped) <= limit else f"{escaped[:limit]}..."
 
 
+def _read_e_literals(options: tuple[str, ...], rest: list[str]) -> NegativeSearch | str:
+    """The negative search whose literals are `-e` options, read from `rest`, which starts with the
+    first `-e`. Each value is a plain literal and never a word that starts with `-`. `--` comes
+    after the last value and before the paths, and no word may stand between them."""
+    texts = MESSAGES.roadmap
+    literals: list[str] = []
+    while rest[:1] == [_E_OPTION]:
+        rest.pop(0)
+        if not rest or rest[0] == _PATHS_MARK:
+            return texts.search_reason_e_value
+        value = rest.pop(0)
+        if value.startswith("-") or _LITERAL.fullmatch(value) is None:
+            return texts.search_reason_literal.format(
+                word=shown(value), signs=NEGATIVE_SEARCH_LITERAL_SIGNS
+            )
+        literals.append(value)
+    if not rest:
+        return texts.search_reason_no_path
+    if rest[0] != _PATHS_MARK:
+        return texts.search_reason_e_forms.format(word=shown(rest[0]))
+    del rest[0]
+    if not rest:
+        return texts.search_reason_no_path
+    bad = next((word for word in rest if not _is_path(word)), None)
+    if bad is not None:
+        return texts.search_reason_path.format(word=shown(bad))
+    return NegativeSearch(options, tuple(literals), tuple(rest), by_e=True)
+
+
 def read_negative_search(words: Sequence[str]) -> NegativeSearch | str:
     """The negative search in `words`, or the reason that the step refuses it. The words are `!`,
-    `git`, `grep`, options of `NEGATIVE_SEARCH_OPTION_LETTERS`, one literal, an optional `--` and at
-    least one path. The reason is a sentence for the reason of the step and for the gate."""
+    `git`, `grep`, options of `NEGATIVE_SEARCH_OPTION_LETTERS`, then either one literal or one or
+    more `-e` literals, an optional `--` (required with `-e`) and at least one path. The reason is a
+    sentence for the reason of the step and for the gate."""
     texts = MESSAGES.roadmap
     if tuple(words[:3]) != NEGATIVE_SEARCH_START:
         return texts.search_reason_start
     rest = list(words[3:])
     options: list[str] = []
-    while rest and rest[0].startswith("-"):
+    while rest and rest[0].startswith("-") and rest[0] != _E_OPTION:
         if _OPTION.fullmatch(rest[0]) is None:
             return texts.search_reason_option.format(
                 word=shown(rest[0]),
                 letters=" ".join(f"-{c}" for c in NEGATIVE_SEARCH_OPTION_LETTERS),
             )
         options.append(rest.pop(0))
+    if rest[:1] == [_E_OPTION]:
+        return _read_e_literals(tuple(options), rest)
     if not rest:
         return texts.search_reason_no_text
     literal = rest.pop(0)
@@ -279,7 +320,7 @@ def read_negative_search(words: Sequence[str]) -> NegativeSearch | str:
     bad = next((word for word in rest if not _is_path(word)), None)
     if bad is not None:
         return texts.search_reason_path.format(word=shown(bad))
-    return NegativeSearch(tuple(options), literal, tuple(rest))
+    return NegativeSearch(tuple(options), (literal,), tuple(rest))
 
 
 @dataclass(frozen=True)

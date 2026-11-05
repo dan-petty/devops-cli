@@ -2507,6 +2507,11 @@ class RoadmapMessages:
     )
     search_reason_no_path: str = "it gives no path"
     search_reason_path: str = "the word `{word}` is not a path of the checkout"
+    search_reason_e_value: str = "the option `-e` has no literal after it"
+    search_reason_e_forms: str = (
+        "the word `{word}` comes after an `-e` literal, and the search takes one literal with no "
+        "`-e`, or one or more `-e` literals and then `--`"
+    )
     verify_reason_unparsed: str = "it is not a valid command line"
     verify_reason_bytes: str = "a word holds a NUL byte or a character that cannot be encoded"
     verify_reason_long: str = "it is longer than {limit} characters"
