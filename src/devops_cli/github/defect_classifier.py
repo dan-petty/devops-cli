@@ -1,11 +1,11 @@
-"""Defect pull request classification and declared hardening surface analysis (#697, #1151, #1979).
+"""Defect pull request classification and hardening surface analysis (#697, #1151, #1979, #3479).
 
 A pull request is classified as a defect fix if it carries `type/bug` or `type/security`
 labels (as defined in `.github/labels.yml`) or has a Conventional Commits `fix(...)` / `fix:`
-title. Defect pull requests must record hardening guardrails or lessons on at least one declared
+title. Defect pull requests should record hardening guardrails or lessons on at least one declared
 hardening surface (`docs/TESTING.md`, `ARCHITECTURE.md`, `SECURITY.md`, `CONTRIBUTING.md`,
-`src/devops_cli/ai/tasks/*.md`, `src/devops_cli/ai/knowledge_base/`, `.devops/review.toml`, or
-`src/devops_cli/review/rules/`).
+`src/devops_cli/ai/tasks/*.md`, `src/devops_cli/ai/knowledge_base/`, `.devops/review.toml`,
+`src/devops_cli/review/rules/`, `tests/` or `openspec/specs/`).
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 from typing import Any
 
 from devops_cli.config.constants import (
@@ -95,38 +96,15 @@ def is_defect_pr(
 def match_hardening_surface(file_path: str) -> str | None:
     """Match a changed file path against the declared hardening surfaces.
 
-    Declared surfaces:
-    - `docs/TESTING.md`
-    - `ARCHITECTURE.md`
-    - `SECURITY.md`
-    - `CONTRIBUTING.md`
-    - `src/devops_cli/ai/tasks/*.md`
-    - `src/devops_cli/ai/knowledge_base/`
-    - `.devops/review.toml`
-    - `src/devops_cli/review/rules/`
+    `CONST_HARDENING_SURFACES` holds the surfaces. Each one is a file, a glob of files in one
+    folder, or a folder that ends in `/` and covers every file below it. A change folder under
+    `openspec/changes/` is no surface: every item pull request writes one.
     """
-    normalized = file_path.replace("\\", "/").strip().lstrip("/")
-    if normalized == "docs/TESTING.md":
-        return "docs/TESTING.md"
-    if normalized == "ARCHITECTURE.md":
-        return "ARCHITECTURE.md"
-    if normalized == "SECURITY.md":
-        return "SECURITY.md"
-    if normalized == "CONTRIBUTING.md":
-        return "CONTRIBUTING.md"
-    if normalized.startswith("src/devops_cli/ai/tasks/") and normalized.endswith(".md"):
-        rel = normalized[len("src/devops_cli/ai/tasks/") :]
-        if "/" not in rel:
-            return "src/devops_cli/ai/tasks/*.md"
-    if normalized.startswith("src/devops_cli/ai/knowledge_base/"):
-        return "src/devops_cli/ai/knowledge_base/"
-    if normalized == ".devops/review.toml":
-        return ".devops/review.toml"
-    if (
-        normalized.startswith("src/devops_cli/review/rules/")
-        and normalized != "src/devops_cli/review/rules/"
-    ):
-        return "src/devops_cli/review/rules/"
+    path = PurePosixPath(file_path.replace("\\", "/").strip().lstrip("/"))
+    for surface in CONST_HARDENING_SURFACES:
+        pattern = f"{surface}**" if surface.endswith("/") else surface
+        if path.full_match(pattern):
+            return surface
     return None
 
 

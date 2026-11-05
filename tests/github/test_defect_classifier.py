@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
+
 from devops_cli.github.defect_classifier import (
     audit_pr_hardening,
     classify_defect_pr,
     is_defect_pr,
     match_hardening_surface,
 )
+from tests.support.paths import FIXTURES
 
 
 def test_defect_classifier_by_labels() -> None:
@@ -82,10 +85,7 @@ def test_defect_classifier_combined_and_reasons() -> None:
 
 def test_match_hardening_surface_declared_surfaces() -> None:
     """Verify that only the declared hardening surfaces match."""
-    import re
-
     from devops_cli.config.constants import CONST_HARDENING_SURFACES
-    from tests.support.paths import REPO_ROOT
 
     test_paths = [
         ("docs/TESTING.md", "docs/TESTING.md"),
@@ -108,18 +108,20 @@ def test_match_hardening_surface_declared_surfaces() -> None:
         ("docs/SDLC.md", None),
         ("docs/CLI_REFERENCE.md", None),
         ("src/devops_cli/commands/pr.py", None),
-        ("tests/test_ci.py", None),
+        ("tests/test_ci.py", "tests/"),
+        ("tests/github/test_defect_classifier.py", "tests/"),
+        ("tests/fixtures/github/pull_request_3467_view.json", "tests/"),
+        ("openspec/specs/pr-hardening-audit/spec.md", "openspec/specs/"),
+        ("openspec/changes/3479-example/proposal.md", None),
+        ("openspec/changes/archive/2026-11-05-3479-example/design.md", None),
+        ("openspec/config.yaml", None),
+        ("src/devops_cli/tests/helper.py", None),
     ]
 
-    workflow = (REPO_ROOT / ".github/workflows/defect-pr-hardening-audit.yml").read_text(
-        encoding="utf-8"
-    )
-    workflow_surfaces = tuple(re.findall(r"^\s*-\s*`([^`]+)`\s*$", workflow, re.MULTILINE))
     actual = [(path, match_hardening_surface(path)) for path, _ in test_paths]
     assert (
         actual,
         CONST_HARDENING_SURFACES,
-        workflow_surfaces,
     ) == (
         test_paths,
         (
@@ -131,8 +133,9 @@ def test_match_hardening_surface_declared_surfaces() -> None:
             "src/devops_cli/ai/knowledge_base/",
             ".devops/review.toml",
             "src/devops_cli/review/rules/",
+            "tests/",
+            "openspec/specs/",
         ),
-        CONST_HARDENING_SURFACES,
     )
 
 
@@ -173,10 +176,11 @@ def test_audit_pr_hardening_missing_additions() -> None:
     """Audit PR hardening when zero additions exist on declared surfaces."""
     files = [
         {"path": "src/devops_cli/commands/pr.py", "additions": 30, "deletions": 10},
-        {"path": "tests/test_pr.py", "additions": 50, "deletions": 0},
+        {"path": "tests/test_pr.py", "additions": 0, "deletions": 50},  # deletions only
         {"path": "docs/TESTING.md", "additions": 0, "deletions": 5},  # deletions only
         {"path": "AGENTS.md", "additions": 10, "deletions": 0},  # not a hardening surface
         {"path": "docs/SDLC.md", "additions": 25, "deletions": 0},  # not a surface
+        {"path": "openspec/changes/698-example/proposal.md", "additions": 40, "deletions": 0},
     ]
 
     audit = audit_pr_hardening(
@@ -217,3 +221,98 @@ def test_audit_pr_hardening_empty_file_list() -> None:
         False,
         0,
     )
+
+
+def test_defect_pr_that_adds_a_regression_test_is_hardened() -> None:
+    """A defect PR whose only guardrail is a line under tests/ is hardened and names tests/."""
+    audit = audit_pr_hardening(
+        pr_number=3479,
+        title="fix(ci): repair the hardening audit",
+        labels=["type/bug"],
+        files=[
+            {"path": "src/devops_cli/github/defect_classifier.py", "additions": 8, "deletions": 1},
+            {"path": "tests/github/test_defect_classifier.py", "additions": 30, "deletions": 0},
+        ],
+    )
+
+    assert (audit.is_hardened, audit.hardened_surfaces, audit.surface_additions["tests/"]) == (
+        True,
+        ("tests/",),
+        30,
+    )
+
+
+def test_defect_pr_that_adds_a_living_spec_requirement_is_hardened() -> None:
+    """A defect PR whose only guardrail is a line under openspec/specs/ is hardened and names it."""
+    audit = audit_pr_hardening(
+        pr_number=3479,
+        title="fix(ci): repair the hardening audit",
+        labels=["type/bug"],
+        files=[
+            {"path": "src/devops_cli/github/defect_classifier.py", "additions": 8, "deletions": 1},
+            {"path": "openspec/specs/pr-hardening-audit/spec.md", "additions": 12, "deletions": 0},
+        ],
+    )
+
+    assert (
+        audit.is_hardened,
+        audit.hardened_surfaces,
+        audit.surface_additions["openspec/specs/"],
+    ) == (True, ("openspec/specs/",), 12)
+
+
+def test_defect_pr_that_adds_only_product_code_is_not_hardened() -> None:
+    """A defect PR with additions under src/ only is not hardened and names no surface."""
+    audit = audit_pr_hardening(
+        pr_number=3479,
+        title="fix(ci): repair the hardening audit",
+        labels=["type/bug"],
+        files=[
+            {"path": "src/devops_cli/github/defect_classifier.py", "additions": 8, "deletions": 1},
+            {"path": "src/devops_cli/config/constants.py", "additions": 2, "deletions": 0},
+        ],
+    )
+
+    assert (audit.is_hardened, audit.hardened_surfaces) == (False, ())
+
+
+def test_defect_pr_that_adds_only_a_change_folder_is_not_hardened() -> None:
+    """A change folder is no guardrail: every item PR writes one, so none would fail the audit."""
+    audit = audit_pr_hardening(
+        pr_number=3479,
+        title="fix(ci): repair the hardening audit",
+        labels=["type/bug"],
+        files=[
+            {"path": "src/devops_cli/github/defect_classifier.py", "additions": 8, "deletions": 1},
+            {"path": "openspec/changes/3479-example/proposal.md", "additions": 40, "deletions": 0},
+            {
+                "path": "openspec/changes/archive/2026-11-05-3479-example/design.md",
+                "additions": 22,
+                "deletions": 0,
+            },
+        ],
+    )
+
+    assert (audit.is_hardened, audit.hardened_surfaces) == (False, ())
+
+
+def test_defect_pr_3467_recorded_file_list_is_hardened() -> None:
+    """The file list that `gh pr view 3467` gave is hardened through its tests and living spec."""
+    recorded = json.loads(
+        (FIXTURES / "github" / "pull_request_3467_view.json").read_text(encoding="utf-8")
+    )
+
+    audit = audit_pr_hardening(
+        pr_number=recorded["number"],
+        title=recorded["title"],
+        labels=recorded["labels"],
+        files=recorded["files"],
+    )
+
+    assert (
+        audit.classification.is_defect,
+        audit.is_hardened,
+        audit.hardened_surfaces,
+        audit.surface_additions["tests/"],
+        audit.surface_additions["openspec/specs/"],
+    ) == (True, True, ("tests/", "openspec/specs/"), 186, 64)

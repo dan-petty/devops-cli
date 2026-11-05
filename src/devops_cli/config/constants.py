@@ -4037,7 +4037,10 @@ CONST_PR_CLOSING_ISSUE_LABELS_PAGE: Final[int] = 100
 # The `gh pr list --author` value `devops pr update --all` lists with: the account gh runs as,
 # so a pull request that a bot or another person owns is never updated.
 CONST_PR_UPDATE_AUTHOR: Final[str] = "@me"
-# The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697, #1151, #1979).
+# The declared surfaces where defect pull requests record hardening guardrails or lessons (#697,
+# #1151, #1979, #3479). A regression test and a living spec requirement are checks that fail when
+# the defect returns, so they count. A change folder under openspec/changes/ is not here: every
+# item pull request writes one.
 CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (
     "docs/TESTING.md",
     "ARCHITECTURE.md",
@@ -4047,6 +4050,8 @@ CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (
     "src/devops_cli/ai/knowledge_base/",
     ".devops/review.toml",
     "src/devops_cli/review/rules/",
+    "tests/",
+    "openspec/specs/",
 )
 # Conventional commit title pattern identifying a bug fix pull request (#697).
 CONST_DEFECT_TITLE_PATTERN: Final[str] = r"^fix(?:\([^()]*\))?!?:\s*"
