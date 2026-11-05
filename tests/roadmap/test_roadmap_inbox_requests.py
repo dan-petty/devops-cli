@@ -6,6 +6,9 @@ cannot drift from a run. The inbox sends only reads, and never reads the listing
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.github_store import (
@@ -74,3 +77,19 @@ def test_a_run_reads_three_listings_a_file_and_a_commit_that_differing_labels_ma
         ("", ""),
         ("", differ),
     ]
+
+
+def test_the_dry_run_lists_reads_for_each_service_repo_and_no_write(
+    cli: Callable[..., Any],
+    config: Callable[..., Any],
+    roadmap_store_repos: list[str],
+) -> None:
+    config(service={"repos": ["example/app", "example/roadmap"]})
+
+    result = cli("roadmap", "inbox", "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert roadmap_store_repos == []
+    for repo in ("example/app", "example/roadmap"):
+        assert f"{API}{listing_path(pulls_endpoint(repo))}" in result.output
+    assert "PATCH" not in result.output

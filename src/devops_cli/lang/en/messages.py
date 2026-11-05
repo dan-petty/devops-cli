@@ -3542,6 +3542,9 @@ class RoadmapMessages:
     # `devops roadmap inbox` (#2915).
     inbox_title: str = "Waiting for a person in {repo}. The age is the time since the last update."
     inbox_empty: str = "Nothing waits for a person in {repo}."
+    inbox_no_repos: str = (
+        "The inbox has no repository to read. Set service.repos, or pass --repo owner/name."
+    )
     inbox_footer: str = (
         "Not listed: an image digest that is not rolled yet. "
         "Run `devops argo cd apps status devops` to read it."

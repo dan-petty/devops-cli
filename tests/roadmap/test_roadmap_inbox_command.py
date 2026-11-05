@@ -64,3 +64,53 @@ def test_the_dry_run_opens_no_store_and_lists_the_reads_and_no_write(
 @pytest.mark.parametrize("flag", ["--confirm", "--plan"])
 def test_the_inbox_takes_no_write_option(cli: Callable[..., Any], flag: str) -> None:
     assert cli("roadmap", "inbox", "--repo", REPO, flag).exit_code == 2
+
+
+def _seed_labels(store: InMemoryRoadmapStore) -> None:
+    store.seed_file(CONST_ROADMAP_LABELS_PATH, "- name: type/bug\n  color: D73A4A\n")
+    store.seed_label("type/bug", "D73A4A")
+
+
+def test_without_repo_the_inbox_reads_each_service_repo(
+    cli: Callable[..., Any],
+    config: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    roadmap_store_repos: list[str],
+) -> None:
+    config(service={"repos": ["example/app", "example/roadmap"]})
+    _seed_labels(roadmap_store)
+
+    result = cli("roadmap", "inbox")
+
+    assert result.exit_code == 0, result.output
+    assert roadmap_store_repos == ["example/app", "example/roadmap"]
+    assert "Nothing waits for a person in example/app." in result.stdout
+    assert "Nothing waits for a person in example/roadmap." in result.stdout
+
+
+def test_with_repo_the_inbox_reads_that_repo_only(
+    cli: Callable[..., Any],
+    config: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    roadmap_store_repos: list[str],
+) -> None:
+    config(service={"repos": ["example/app", "example/roadmap"]})
+    _seed_labels(roadmap_store)
+
+    result = cli("roadmap", "inbox", "--repo", REPO)
+
+    assert result.exit_code == 0, result.output
+    assert roadmap_store_repos == [REPO]
+
+
+def test_without_repo_and_no_service_repos_the_inbox_fails_naming_the_setting(
+    cli: Callable[..., Any],
+    config: Callable[..., Any],
+    roadmap_store_repos: list[str],
+) -> None:
+    config(service={"repos": []})
+
+    result = cli("roadmap", "inbox")
+
+    assert (result.exit_code, "service.repos" in result.output) == (1, True)
+    assert roadmap_store_repos == []
