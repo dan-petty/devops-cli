@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.git.worktree_add import add_worktree
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 
 # The command claims the issue on the roadmap of the repository of `origin` (#2910). The roadmap
@@ -967,3 +968,18 @@ def test_a_dry_run_claims_nothing_and_lists_the_label_write(
     requests = json.loads(result.output)["requests"]
     assert (result.exit_code, _owner(roadmap_store), roadmap_store.job_writes()) == (0, [], [])
     assert any("PATCH" in line and f"issues/{number}" in line for line in requests)
+
+
+def test_add_worktree_starts_the_branch_at_the_given_base(
+    repo: Path, origin: Path, git: Git, standard_dir: Path
+) -> None:
+    base = _git_out(repo, "rev-parse", "HEAD").stdout.strip()
+    (repo / "later.txt").write_text("later\n", encoding="utf-8")
+    git(repo, "add", "later.txt")
+    git(repo, "commit", "-m", "later")
+    git(repo, "push", "origin", "main")
+
+    report = add_worktree(repo, issue=ISSUE, type_="feat", slug="worktrees-add", base=base)
+
+    assert (report.status, report.branch) == ("created", STAGED)
+    assert _git_out(standard_dir, "rev-parse", "HEAD").stdout.strip() == base

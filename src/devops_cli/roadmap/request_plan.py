@@ -539,11 +539,12 @@ def stage_requests(
     """What `devops roadmap stage` reads, in order, and the writes `--confirm` makes after them
     (#2654). The run updates its clone, reads every issue and the open issues that an item
     depends on, reads the branches of `origin` and the change folders of the default branch
-    (#2714), the tracked files of the clone (#3010) and the tasks of each open plan (#3418), and
-    for each item asks the model, and validates the change. The model is asked again only when a task group is over the budget, a
-    path of the plan is no file, or the change fails its checks. Each run then
-    fetches the staged branch of each closed item. The writes are the worktree, the commit and
-    the push of each item, the draft pull request, the record and the comment, and the removal of
+    (#2714), moves the clone to the staged commit when the round selects an item (#3301), reads
+    the tracked files of the clone (#3010) and the tasks of each open plan (#3418), and for each
+    item asks the model, and validates the change. The model is asked again only when a task group
+    is over the budget, a path of the plan is no file, or the change fails its checks. Each run
+    then fetches the staged branch of each closed item. The writes are the worktree, which starts
+    at the staged commit, the commit and the push of each item, the draft pull request, the record and the comment, and the removal of
     the draft and the branch of a closed item. `limit` and `item` change no request: they change
     how many items the run repeats them for."""
     del limit
@@ -577,6 +578,15 @@ def stage_requests(
             "origin/main",
             "openspec/changes/",
             "openspec/changes/archive/",
+        ),
+        git(
+            "move_clone",
+            clone,
+            "merge",
+            "--ff-only",
+            "-q",
+            "<staged commit>",
+            when=cond["move_clone"],
         ),
         git("tracked_files", clone, "ls-files", "-z", when=cond["tracked_files"]),
         PlannedRequest(
@@ -634,7 +644,7 @@ def stage_requests(
             "-b",
             branch,
             tree,
-            "origin/main",
+            "<staged commit>",
             repeat=each_item,
         ),
         git("commit", tree, "add", "--", f"openspec/changes/{change}", repeat=each_item),

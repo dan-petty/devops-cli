@@ -175,18 +175,22 @@ def remote_branches(ls_remote: str) -> list[str]:
     return [ref.removeprefix(CONST_REFS_HEADS_PREFIX) for ref in refs if ref]
 
 
-def _commands(repo_root: Path, branch: str, directory: Path) -> list[list[str]]:
+def _commands(
+    repo_root: Path, branch: str, directory: Path, base: str | None = None
+) -> list[list[str]]:
     """The four git commands that a run can make, in order: read the branches of `origin`, fetch
     the main branch, read the authors of the pushed branch past main, and create the worktree.
     A run makes the third only when `origin` holds the branch, and then it takes the branch over
-    instead of the fourth (`_take_over`). `--no-track` leaves a new branch with no upstream, so
+    instead of the fourth (`_take_over`). The fourth starts the new branch at `base`, or at
+    `origin/main` when `base` is None. `--no-track` leaves a new branch with no upstream, so
     that a plain `git push` cannot aim at `main`."""
     git = _git(repo_root)
+    start = _main_ref() if base is None else base
     return [
         [*git, "ls-remote", "--heads", CONST_GIT_REMOTE_ORIGIN],
         [*git, "fetch", CONST_GIT_REMOTE_ORIGIN, CONST_GIT_MAIN_BRANCH],
         [*git, "log", LOG_FORMAT, f"{_main_ref()}..{CONST_GIT_REMOTE_ORIGIN}/{branch}"],
-        [*git, "worktree", "add", "--no-track", "-b", branch, str(directory), _main_ref()],
+        [*git, "worktree", "add", "--no-track", "-b", branch, str(directory), start],
     ]
 
 
@@ -364,9 +368,10 @@ def _create(
     directory: Path,
     reclaim: ReclaimResult,
     remote_heads: str,
+    base: str | None,
 ) -> WorktreeAddReport:
-    """Add the worktree on the new `branch` at the fetched `origin/main`."""
-    _, fetch, _, create = _commands(repo_root, branch, directory)
+    """Add the worktree on the new `branch` at `base`, or at the fetched `origin/main`."""
+    _, fetch, _, create = _commands(repo_root, branch, directory, base)
     _run(fetch)
     _clear_stray_branch(repo_root, branch, remote_heads)
     _run(create)
@@ -395,11 +400,14 @@ def add_worktree(
     slug: str | None,
     dry_run: bool = False,
     reclaim: ReclaimResult | None = None,
+    base: str | None = None,
 ) -> WorktreeAddReport:
     """Create the worktree of `issue`, or take over the staged branch that `origin` holds for it.
 
     With no branch of `origin` for the issue, the worktree is on the new branch
-    `<type>/<issue>-<slug>` at the fetched `origin/main`, and `type_` and `slug` are required.
+    `<type>/<issue>-<slug>` at `base`, or at the fetched `origin/main` when `base` is None, and
+    `type_` and `slug` are required. A take-over keeps the tip of the pushed branch and ignores
+    `base`.
     With a pushed branch, the App must have written every commit of it past main, apart from a
     clean merge by a person (#3392). The run takes the branch over (`took over`), takes `type_` and
     `slug` from it, and refuses a value that differs. The run refuses an issue that a local
@@ -417,7 +425,7 @@ def add_worktree(
         branch = _new_branch(issue, type_, slug)
         planned = [
             PlannedRequest("git", " ".join(argv[1:]), argv=tuple(argv))
-            for argv in _commands(repo_root, branch, directory)
+            for argv in _commands(repo_root, branch, directory, base)
         ]
         return WorktreeAddReport(
             issue=issue,
@@ -431,7 +439,7 @@ def add_worktree(
     heads = _run([*_git(repo_root), "ls-remote", "--heads", CONST_GIT_REMOTE_ORIGIN])
     if (pushed := _staged_branch(heads, issue)) is None:
         branch = _new_branch(issue, type_, slug)
-        return _create(repo_root, issue, branch, directory, reclaim, heads)
+        return _create(repo_root, issue, branch, directory, reclaim, heads, base)
     _check_names(issue, pushed, type_, slug)
     return _take_over(repo_root, issue, pushed, directory, reclaim, heads)
 

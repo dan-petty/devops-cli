@@ -3043,6 +3043,11 @@ class RoadmapMessages:
     stage_run_stopped: str = "The plan run stopped before it gave a plan: {reason}."
     # The checkout of a plan run with tools is not the staged commit with no change (#3037).
     stage_checkout_moved: str = "The checkout is not at the staged commit {sha}."
+    # A clone with a commit that origin lacks keeps its HEAD after a fast-forward (#3301).
+    stage_clone_ahead: str = (
+        "The clone has commits that origin does not have. It cannot move to the staged commit "
+        "{sha}."
+    )
     stage_checkout_dirty: str = (
         "The checkout has changes that are not committed, so the tools would read files that the "
         "staged commit does not hold."
@@ -3125,6 +3130,7 @@ class RoadmapMessages:
     # The report of `devops roadmap stage`.
     stage_title: str = "# Stage plan for {repo}"
     stage_budget: str = "The budget of one step is {budget} tokens."
+    stage_staged_commit: str = "The staged commit is {sha}."
     stage_nothing: str = "No item to stage."
     stage_heading_ready: str = "## To stage"
     stage_heading_over: str = "## Stopped: a task group is over the budget"
@@ -3177,6 +3183,7 @@ class RoadmapMessages:
             "remote_heads": "the branches of origin",
             "fetch_default": "fetch the default branch, to read its plans",
             "default_plans": "the change folders of the default branch",
+            "move_clone": "move the clone to the staged commit, the default branch of origin",
             "tracked_files": "the tracked files of the clone, to check the paths of each plan",
             "open_pulls": "the open pull requests and their files, to find an overlap",
             "open_plan": "the tasks of each open change, to find the paths an open plan creates",
@@ -3185,7 +3192,7 @@ class RoadmapMessages:
             "model_correction": "the stage model corrects a change that fails its checks",
             "validate": "validate the change with OpenSpec in a scratch directory",
             "fetch_branch": "the staged branch of a closed item",
-            "worktree": "the worktree of the item's branch at the fetched default branch",
+            "worktree": "the worktree of the item's branch at the staged commit",
             "commit": "commit the change as the identity of the session",
             "push": "push the branch of the item",
             "pull": "open the draft pull request of the item",
@@ -3196,6 +3203,7 @@ class RoadmapMessages:
     )
     stage_request_conditions: dict[str, str] = field(
         default_factory=lambda: {
+            "move_clone": "the round selects an item",
             "tracked_files": "the filter names an item",
             "open_pulls": "the item cites a path",
             "open_plan": "the run checks the reply of an item",

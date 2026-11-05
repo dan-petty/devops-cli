@@ -103,6 +103,7 @@ from devops_cli.exceptions import (
     DevOpsCLIError,
     GitHubOperationError,
     GitHubUnauthenticatedError,
+    GitOperationError,
     RoadmapStageError,
     ServiceStoppingError,
     ToolExecutionError,
@@ -1234,10 +1235,12 @@ def read_stage_selection(
     """Select the items to stage in the clone `source`, with no model call and no write to git or
     to GitHub. `plan_stage` and `devops roadmap explain` read the selection through this one
     function. A caller that read the heads of `origin` or the plans already passes them in, so
-    that a command that judges both jobs reads each once."""
-    sha = inspect_checkout(source, repo)
+    that a command that judges both jobs reads each once. The staged commit is the default branch
+    of `origin` after the fetch, not the HEAD of the clone (#3301)."""
+    inspect_checkout(source, repo)  # refuses a clone whose origin is not `repo`
     heads = read_remote_heads(source) if heads is None else heads
     planned = read_planned_changes(source, operation=_GIT_OPERATION) if planned is None else planned
+    sha = _git(source, "rev-parse", f"origin/{planned.default}")
     selection = select_stageable(
         store,
         filters=filters,
@@ -1266,7 +1269,8 @@ def plan_stage(
     why: bool = False,
     now: datetime | None = None,
 ) -> StagePlan:
-    """Plans the stage of up to `limit` items without a write to git or to GitHub.
+    """Plans the stage of up to `limit` items without a write to GitHub. When an item is selected,
+    the clone moves to the staged commit, the default branch of `origin` after the fetch (#3301).
 
     `source` is the clone of the repository, at the default branch. `limit` and `step_tokens`
     override `roadmap.stage.limit` and `roadmap.stage.step_tokens`. At `roadmap.stage.planned_limit`
@@ -1306,6 +1310,7 @@ def plan_stage(
     )
     if not selection.selected:
         return plan
+    _move_clone(checkout, sha)
     toolbox = model if isinstance(model, ToolboxModel) else None
     client: StageClient
     if isinstance(model, ToolboxModel) or model is None:
@@ -1445,11 +1450,27 @@ def _git(cwd: Path, *args: str) -> str:
     return git(cwd, *args, operation=_GIT_OPERATION)
 
 
+def _move_clone(checkout: Path, sha: str) -> None:
+    """Move the clone to the staged commit with a fast-forward, so that its HEAD, its index and
+    its files are that commit. The toolbox refuses any other HEAD (#3301). A clone that has
+    diverged from `origin` fails with the reason of git. Git merges a clone that is ahead of `sha`
+    as up to date and keeps its HEAD, so the job also checks HEAD and fails there. The job never
+    plans on a commit it did not read.
+    """
+    _git(checkout, "merge", "--ff-only", "-q", sha)
+    if _git(checkout, "rev-parse", "HEAD") != sha:
+        raise GitOperationError(
+            MESSAGES.roadmap.stage_clone_ahead.format(sha=sha), operation=_GIT_OPERATION
+        )
+
+
 @contextmanager
-def _worktree(source: Path, target: StageTarget) -> Iterator[Path]:
-    """The worktree of the item's branch at the fetched default branch. The worktree and the
-    local branch go when the block ends, so the clone keeps its HEAD and holds no issue."""
-    report = add_worktree(source, issue=target.item.number, type_=target.type_, slug=target.slug)
+def _worktree(source: Path, target: StageTarget, base: str) -> Iterator[Path]:
+    """The worktree of the item's branch, which starts at the staged commit `base`. The worktree
+    and the local branch go when the block ends, so the clone keeps its HEAD and holds no issue."""
+    report = add_worktree(
+        source, issue=target.item.number, type_=target.type_, slug=target.slug, base=base
+    )
     path = Path(report.path)
     try:
         yield path
@@ -1578,11 +1599,14 @@ def _label_needs_fix(store: RoadmapStore, pull: CreatedPull, change: StagedChang
     return ""
 
 
-def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChange) -> None:
+def _stage_one(
+    store: RoadmapStore, repo: str, source: Path, base: str, change: StagedChange
+) -> None:
     """Make the branch, the commit, the push and the draft of one item, then record them and
-    post the one comment. The Status of the item stays as it is."""
+    post the one comment. The branch starts at the staged commit `base` (#3301). The Status of the
+    item stays as it is."""
     target = change.target
-    with _worktree(source, target) as path:
+    with _worktree(source, target, base) as path:
         sha = _commit_and_push(path, change)
         pull = _open_pull(repo, source, change)
     store.set_marks(
@@ -1751,7 +1775,7 @@ def apply_stage(
         ),
         (
             [
-                (c.target.item, partial(_stage_one, store, plan.repo, checkout, c))
+                (c.target.item, partial(_stage_one, store, plan.repo, checkout, plan.sha, c))
                 for c in plan.ready
             ],
             staged,
@@ -1822,6 +1846,8 @@ def render_stage_plan(plan: StagePlan) -> str:
         texts.stage_title.format(repo=plan.repo),
         texts.stage_budget.format(budget=plan.budget),
     ]
+    if plan.sha:
+        lines.append(texts.stage_staged_commit.format(sha=plan.sha))
     ready = [
         texts.stage_ready_line.format(
             number=c.target.item.number,
