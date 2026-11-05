@@ -174,8 +174,26 @@ def _mask_literal(match: re.Match[str], masked: str, is_code: bool = False) -> s
 
     Rewriting code before review hides defects: an MD5-hashed password or a token read from
     the query string turn into what look like harmless redactions.
+
+    A colon is also prose punctuation. buildx writes "failed to fetch oauth token: unexpected
+    status from GET ...". The rule rewrote the word "unexpected", so the printed error did not
+    say what failed. After a colon, an unquoted value that reads as a word stays as written.
+
+    An equals sign states an assignment, and so does a quote mark. Such a value stays masked
+    whatever it looks like, because a password can be a plain word. The value of `token:=word`
+    starts with an equals sign, so it stays masked too.
     """
-    if is_code and not match.group("quote") and _is_code_value(match.group("value")):
+    value = match.group("value")
+    quote = match.group("quote")
+    if is_code and not quote and _is_code_value(value):
+        return match.group(0)
+    is_prose = (
+        match.group("sep") == ":"
+        and not quote
+        and not value.startswith("=")
+        and not _looks_like_a_credential(value.rstrip("."))
+    )
+    if is_prose:
         return match.group(0)
     return masked
 
@@ -202,8 +220,8 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
         ),
         (
             re.compile(
-                r"\b(?:password|passwd|pwd)[^\S\r\n]*[:=][^\S\r\n]*(?P<quote>[\"']?)(?!<masked-)"
-                r"(?P<value>[^\s\"',;]{8,})[\"']?",
+                r"\b(?:password|passwd|pwd)[^\S\r\n]*(?P<sep>[:=])[^\S\r\n]*"
+                r"(?P<quote>[\"']?)(?!<masked-)(?P<value>[^\s\"',;]{8,})[\"']?",
                 re.IGNORECASE,
             ),
             lambda match: _mask_literal(match, "password=<masked-password>", is_code=is_code),
@@ -223,8 +241,8 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
         (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), "<masked-aws-key-id>"),
         (
             re.compile(
-                r"\b(?:token|auth_token)[^\S\r\n]*[:=][^\S\r\n]*(?P<quote>[\"']?)(?!<masked-)"
-                r"(?P<value>[^\s\"',;]{8,})[\"']?",
+                r"\b(?:token|auth_token)[^\S\r\n]*(?P<sep>[:=])[^\S\r\n]*"
+                r"(?P<quote>[\"']?)(?!<masked-)(?P<value>[^\s\"',;]{8,})[\"']?",
                 re.IGNORECASE,
             ),
             lambda match: _mask_literal(match, "token=<masked-token>", is_code=is_code),
