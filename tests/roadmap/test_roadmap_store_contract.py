@@ -950,6 +950,23 @@ def test_a_repository_file_is_read_at_its_ref_and_a_missing_one_raises(
     assert read_back == ("- name: type/bug\n", "- name: type/feature\n")
 
 
+def test_the_files_of_a_directory_are_listed_at_its_ref_and_a_missing_directory_raises(
+    store: InMemoryRoadmapStore,
+) -> None:
+    store.seed_file("docs/adr/0002-b.md", "b")
+    store.seed_file("docs/adr/0001-a.md", "a")
+    store.seed_file("docs/adr/old/0000-z.md", "z")
+    store.seed_file("docs/adr/0003-c.md", "c", ref="feat/topic")
+    store.seed_file("docs/README.md", "r")
+    listed = (
+        store.repository_files("docs/adr"),
+        store.repository_files("docs/adr", ref="feat/topic"),
+    )
+    with pytest.raises(GitHubFileNotFoundError, match=r"no docs/none"):
+        store.repository_files("docs/none")
+    assert listed == (["docs/adr/0001-a.md", "docs/adr/0002-b.md"], ["docs/adr/0003-c.md"])
+
+
 def test_a_field_write_records_marks_with_its_value_and_a_persons_records_neither(
     store: InMemoryRoadmapStore,
 ) -> None:

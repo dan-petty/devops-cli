@@ -858,6 +858,10 @@ class RoadmapStore(Protocol):
         """The text of the repository file at `path` on `ref` (the default branch when None),
         raising `GitHubFileNotFoundError` when there is no such file."""
 
+    def repository_files(self, directory: str, *, ref: str | None = None) -> list[str]:
+        """The sorted paths of the files directly in `directory` on `ref` (the default branch when
+        None), raising `GitHubFileNotFoundError` when the repository has no such directory."""
+
     def repository_is_private(self) -> bool:
         """Whether the repository is private."""
 

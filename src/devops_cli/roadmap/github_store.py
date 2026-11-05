@@ -288,6 +288,13 @@ class _IssueEventPayload(BaseModel):
         )
 
 
+class _DirectoryEntryPayload(BaseModel):
+    """One entry of the contents answer for a directory: the path and the kind of the entry."""
+
+    path: str
+    type: str
+
+
 class _IsPrivatePayload(BaseModel):
     is_private: bool = Field(validation_alias=AliasPath("data", "repository", "isPrivate"))
 
@@ -380,6 +387,7 @@ _PULL = TypeAdapter(_PullPayload)
 _LABEL = TypeAdapter(_LabelPayload)
 _EVENT = TypeAdapter(_EventPayload)
 _ISSUE_EVENT = TypeAdapter(_IssueEventPayload)
+_DIRECTORY = TypeAdapter(list[_DirectoryEntryPayload])
 _IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
 _REPOSITORY_PAYLOAD = TypeAdapter(_RepositoryPayload)
 _RELEASE = TypeAdapter(_ReleasePayload)
@@ -388,6 +396,9 @@ _TIMELINE = TypeAdapter(_TimelinePayload)
 _WORKFLOW_RUN = TypeAdapter(_WorkflowRunPayload)
 _COMMITS = TypeAdapter(list[_CommitPayload])
 _ANY_OBJECT = TypeAdapter(dict[str, Any])
+# The `type` that the contents API gives an entry that is a file; a directory, a symlink and a
+# submodule have others.
+_FILE_ENTRY = "file"
 
 _REPOSITORY = (
     "query($owner: String!, $name: String!{params}) {{ "
@@ -950,10 +961,22 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def repository_file(self, path: str, *, ref: str | None = None) -> str:
         """The raw text of `path` on `ref` through the contents API, raising when it cannot be read."""
+        return self._contents(path, ref)[0]
+
+    def repository_files(self, directory: str, *, ref: str | None = None) -> list[str]:
+        """The sorted paths of the files directly in `directory` on `ref`, from the same contents
+        request: GitHub answers a directory with a JSON array of its entries (#3505). A directory
+        that is not there raises as a missing file does, and a path that is a file is malformed."""
+        text, where = self._contents(directory, ref)
+        entries = self._validate(text, _DIRECTORY, where)
+        return sorted(entry.path for entry in entries if entry.type == _FILE_ENTRY)
+
+    def _contents(self, path: str, ref: str | None) -> tuple[str, str]:
+        """The raw answer of the contents request for `path` on `ref`, and where it was read."""
         proc = self._run(repository_file_args(self._repo, path, ref=ref))
         where = f"{path} at {ref or 'the default branch'}"
         if proc.returncode == 0:
-            return proc.stdout or ""
+            return proc.stdout or "", where
         if gh_http_status(proc.stderr or "") == HTTPStatus.NOT_FOUND:
             raise GitHubFileNotFoundError(
                 f"{self._repo} has no {where}.",
