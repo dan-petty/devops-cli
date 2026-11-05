@@ -1,6 +1,7 @@
 """`devops roadmap stage`: a plan holds no placeholder text, quotes its probe, gives the cost of
-its own code, keeps its summary whole (#3200) and names no What Changes path that no group lists
-(#3411)."""
+its own code, keeps its summary whole (#3200), names no What Changes path that no group lists
+(#3411) and gives the test that accepts its own plan when it adds a rule of the plan check
+(#3404)."""
 
 from __future__ import annotations
 
@@ -24,12 +25,25 @@ from tests.support.builders import make_stage_proposal
 PROBE = "def f(): pass"
 TREE = StagedTree(["src/devops_cli/sample.py", "tests/test_sample.py"])
 MESSAGES_FILE = "src/devops_cli/lang/en/messages.py"
+PLAN_CHECK_FILE = "src/devops_cli/roadmap/stage_change.py"
+SELF_ACCEPTANCE_TEST = (
+    "Write a test that builds the plan's own `StageProposal` and asserts that `content_problems` "
+    "returns no problem for it"
+)
 LIVING_SPEC = "openspec/specs/roadmap-stage/spec.md"
 LIVING_SPEC_TREE = TREE.with_files([LIVING_SPEC])
 
 
 def _check(proposal: StageProposal, **keywords: Any) -> list[str]:
     return check_proposal(proposal, ["comment-thread"], TREE, **keywords)
+
+
+def _plan_that_adds_a_rule(test: str) -> StageProposal:
+    sample = make_stage_proposal()
+    group = sample.groups[0].model_copy(
+        update={"changes": [*sample.groups[0].changes, PLAN_CHECK_FILE], "test": test}
+    )
+    return make_stage_proposal(groups=[group])
 
 
 def test_the_sample_plan_has_no_content_problem() -> None:
@@ -235,3 +249,30 @@ def test_a_what_changes_folder_that_a_group_writes_under_is_accepted() -> None:
     problems = _check(plan)
 
     assert not any("src/devops_cli/sample/" in p for p in problems)
+
+
+def test_a_rule_of_the_plan_check_needs_its_self_acceptance_test() -> None:
+    plan = _plan_that_adds_a_rule(
+        "Write `test_the_rule_refuses_the_plan` in `tests/roadmap/test_roadmap_stage_content.py`"
+    )
+
+    problems = content_problems(plan)
+
+    assert any("StageProposal" in p and "content_problems" in p for p in problems)
+
+
+def test_a_rule_of_the_plan_check_with_its_self_acceptance_test_is_accepted() -> None:
+    assert content_problems(_plan_that_adds_a_rule(SELF_ACCEPTANCE_TEST)) == []
+
+
+def test_a_plan_check_change_of_another_kind_needs_no_self_acceptance_test() -> None:
+    sample = make_stage_proposal()
+    group = sample.groups[0].model_copy(
+        update={
+            "kind": "other",
+            "changes": [*sample.groups[0].changes, PLAN_CHECK_FILE],
+            "test": None,
+        }
+    )
+
+    assert content_problems(make_stage_proposal(groups=[group])) == []

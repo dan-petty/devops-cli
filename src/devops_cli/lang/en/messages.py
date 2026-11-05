@@ -3310,6 +3310,13 @@ class RoadmapMessages:
         "A task text names `MESSAGES.roadmap`, and no group lists `{path}` in `changes`. Add the "
         "message to that file, and list the file in the group that adds it."
     )
+    # A plan that adds a rule of the plan check gives the test that accepts its own plan (#3404).
+    stage_problem_self_acceptance: str = (
+        "A behavior group changes `{path}`, and no group test builds the plan's own "
+        "`StageProposal` and asserts that `content_problems` returns no problem. Add a group test "
+        "that builds the plan's own `StageProposal` and asserts that `content_problems` returns "
+        "no problem for it, because the rule that the plan adds judges the plan itself."
+    )
     stage_problem_what_changes_path: str = (
         "A What Changes item names `{path}`, and no group lists it in `changes` or `creates`. List "
         "the path in the group that changes or creates it, or remove it from What Changes."
