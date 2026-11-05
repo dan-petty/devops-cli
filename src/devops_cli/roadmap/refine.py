@@ -1228,7 +1228,8 @@ def step_comment(
 # ── Rendering & Sanitization ──────────────────────────────────────────────────
 
 _IMAGE_RE = re.compile(r"!\[.*?\](?:\(.*?\)|\[.*?\])")
-_HTML_TAG_RE = re.compile(r"<[a-zA-Z/][^>]*>")
+# The `<` that opens an HTML tag, open or close: a letter or a slash comes after it.
+_HTML_TAG_OPENER_RE = re.compile(r"<(?=[a-zA-Z/])")
 # The `<` that opens an HTML comment, declaration, CDATA section or processing instruction:
 # GitHub hides the text after an unclosed one, and `<!--` can forge a marker or a record block.
 _RAW_HTML_OPENER_RE = re.compile(r"<(?=[!?])")
@@ -1356,31 +1357,59 @@ def _neutralized(match: re.Match[str], allowed_urls: set[str], fence: Callable[[
     return f"{ticks}{link}{ticks}{raw[len(link) :]}"
 
 
+def _shows_stray_backtick(text: str) -> bool:
+    """Whether `text` shows a backtick as text."""
+    return "`" in text and _shown_code(text).stray_backtick
+
+
+def _escaped_tags(text: str) -> str:
+    """`text` with the `<` of each tag outside code as an entity.
+
+    An escaped tag can hold a backtick that opens a code span, and the span then takes in or
+    leaves out a tag after it. So the step repeats until the text shows each tag in code. Each
+    pass takes a `<` away, so the loop ends.
+    """
+    while True:
+        escaped = _replace_outside_code(
+            text,
+            _HTML_TAG_OPENER_RE,
+            0,
+            lambda _: "&lt;",
+            spans_are_code=not _shows_stray_backtick(text),
+        )
+        if escaped == text:
+            return text
+        text = escaped
+
+
 def sanitize_text(text: str, allowed_urls: set[str]) -> str:
-    """Strips images and HTML tags, turns the `<` of a comment opener into an entity, and wraps
-    handles, unallowed URLs and `www.` links, and cross-repository references in code spans.
+    """Strips images, turns the `<` of a comment opener and of a tag outside code into an entity,
+    and wraps handles, unallowed URLs and `www.` links, and cross-repository references in code
+    spans.
 
-    The opener is neutralized after the tags are stripped, so a stripped tag cannot build one
-    again (#2478), and also in code, since the record block and the markers are found in the raw
-    text. A link, handle or reference in code stays as it is. An added code span takes one
-    backtick more than the longest run in the text, so it closes on its own backticks and on no
-    backtick of the model's (#2525).
+    The `<` of a comment opener becomes an entity after the images go, and also in code, since the
+    record block and the markers are found in the raw text. The `<` of a tag becomes one outside
+    code only: a tag in code is text that GitHub shows, with its words (#3504). A tag loses its
+    `<` and nothing else, so no text around a tag builds an opener again (#2478). A link, handle
+    or reference in code stays as it is. An added code span takes one backtick more than the
+    longest run in the text, so it closes on its own backticks and on no backtick of the model's
+    (#2525).
 
-    A backtick that the text shows as text makes GitHub's parser, cmark, take a later code span
-    of a length it has already closed as text, and makes markdown-it miss a code span after an
-    unclosed `[`. In such a text each added code span takes a length of its own, and a link,
-    handle or reference in a code span is wrapped too (#2525).
+    A backtick that the text shows as text makes GitHub's parser, cmark, take a later code span of
+    a length it has already closed as text, and makes markdown-it miss a code span after an
+    unclosed `[`. In such a text no span is code for a tag, each added code span takes a length of
+    its own, and a link, handle or reference in a code span is wrapped too (#2525).
     """
     # 1. Remove end markers inside text
     t = text.replace(CONST_ROADMAP_REFINE_END_MARKER, "[end-marker]")
     # 2. Remove images
     t = _IMAGE_RE.sub("", t)
-    # 3. Remove HTML tags
-    t = _HTML_TAG_RE.sub("", t)
-    # 4. Neutralize comment, declaration and processing instruction openers
+    # 3. Neutralize comment, declaration and processing instruction openers
     t = _RAW_HTML_OPENER_RE.sub("&lt;", t)
+    # 4. Neutralize tags outside code
+    t = _escaped_tags(t)
     shortest = max(map(len, _BACKTICK_RUN_RE.findall(t)), default=0) + 1
-    stray = "`" in t and _shown_code(t).stray_backtick
+    stray = _shows_stray_backtick(t)
     lengths = itertools.count(shortest) if stray else itertools.repeat(shortest)
 
     def _fence() -> str:
