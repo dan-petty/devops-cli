@@ -3156,6 +3156,7 @@ class RoadmapMessages:
             "default_plans": "the change folders of the default branch",
             "tracked_files": "the tracked files of the clone, to check the paths of each plan",
             "open_pulls": "the open pull requests and their files, to find an overlap",
+            "open_plan": "the tasks of each open change, to find the paths an open plan creates",
             "model_change": "the stage model plans the change of the item",
             "model_split": "the stage model splits the task groups over the budget",
             "model_correction": "the stage model corrects a change that fails its checks",
@@ -3174,6 +3175,7 @@ class RoadmapMessages:
         default_factory=lambda: {
             "tracked_files": "the filter names an item",
             "open_pulls": "the item cites a path",
+            "open_plan": "the run checks the reply of an item",
             "model_split": "a task group is over the budget",
             "model_correction": "the change fails its checks",
             "validate": "the openspec binary is on PATH",
@@ -3739,6 +3741,7 @@ class RoadmapMessages:
             "fact": "for each fact read the model asks for, at most {limit} for an item",
             "stage_item": "for each item the run stages, up to the limit",
             "stage_closed": "for each closed item whose record holds a staged branch",
+            "open_plan": "for each open item with a change folder, once a run",
             "implement_item": "for each item the run implements, up to the limit",
             "implement_group": "for each task group that has an unticked task",
         }

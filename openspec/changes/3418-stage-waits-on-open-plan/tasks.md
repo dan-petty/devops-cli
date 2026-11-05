@@ -62,7 +62,7 @@ Reads: `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/lang/en/message
 
 - [x] 7.1 In `tests/roadmap/test_roadmap_dry_runs.py`, add `test_the_stage_plan_reads_the_tasks_of_each_open_plan_once_for_the_round`. It asserts that `stage_requests` lists one `git show` of `origin/main:openspec/changes/<change>/tasks.md`, with a condition and a repeat. Verify that `uv run devops ci test tests/roadmap/test_roadmap_dry_runs.py` fails on the base
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_dry_runs.py` fails on the base
-- [ ] 7.2 Add the request `open_plan` to `stage_requests` in `src/devops_cli/roadmap/request_plan.py`, with its description, condition and repeat in `src/devops_cli/lang/en/messages.py`. Name the reads of the open plans in the docstring of `stage_requests`
+- [x] 7.2 Add the request `open_plan` to `stage_requests` in `src/devops_cli/roadmap/request_plan.py`, with its description, condition and repeat in `src/devops_cli/lang/en/messages.py`. Name the reads of the open plans in the docstring of `stage_requests`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_dry_runs.py` passes
 
 ## 8. Test that an archived plan names no dependency
