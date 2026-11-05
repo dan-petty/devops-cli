@@ -77,6 +77,8 @@ A claim of an agent or a person ends a running Job at its next task group. The J
 
 ## Labels and record keys
 
+When the premise probe finds a cited path that the staging commit lacks, the stage job checks the open plans. If the plan of an open item marks that path `(new)`, the stage job returns the item to New. It records that open item in `refine.blocked_by`, and it sets `refine.next_step` to `blocked`. It comments the dependency on the item. It makes no model call for the item. The stage selection leaves out the item while the recorded item is open, and refine waits in the same way. A closed item and an archived change create no dependency. The check of a plan refuses a path that the plan of an open item also creates. The problem names that item and that path.
+
 The labels on the issue hold the state. The job record holds the facts behind it. The job record is a hidden block at the end of the issue body, a JSON object ([ADR 0016](adr/0016-labels-hold-the-roadmap-items-fields.md)). It also holds the last value that a job set for each field (`Status`, `Owner`), so a job can tell its own label from a person's.
 
 | State | Label | Set by | Record keys that hold the facts |
