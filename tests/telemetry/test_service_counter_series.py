@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from devops_cli.config.constants import (
     CONST_ROADMAP_WEBHOOK_EVENTS,
     CONST_SERVICE_EVENT_OTHER,
+    CONST_SERVICE_METRIC_BUDGET_HOLDS,
     CONST_SERVICE_METRIC_CHAT_COMMANDS,
     CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
     CONST_SERVICE_METRIC_JOBS,
@@ -98,6 +99,20 @@ def test_jobs_total_carries_row_label() -> None:
     )
 
 
+def test_jobs_total_exists_at_zero_for_each_result_of_a_row() -> None:
+    _manager(REPOS)
+
+    series = _series(CONST_SERVICE_METRIC_JOBS)
+    expected = {
+        frozenset(
+            {("repo", "example/app"), ("lane", "status"), ("row", "metrics"), ("result", result)}
+        )
+        for result in ("success", "error", "stopped")
+    }
+
+    assert {key: series.get(key) for key in expected} == dict.fromkeys(expected, 0.0)
+
+
 def test_webhook_counter_exists_at_zero_for_each_declared_event_and_outcome() -> None:
     create_webhook_router(_manager(REPOS))
 
@@ -141,3 +156,11 @@ def test_chat_command_counter_exists_at_zero_for_each_result() -> None:
     }
 
     assert {key: series.get(key) for key in expected} == dict.fromkeys(expected, 0.0)
+
+
+def test_budget_hold_counter_exists_at_zero() -> None:
+    """The hold counter has no label, and it has no series until its first count without a
+    prime, so its first hold does not show in `increase()`."""
+    _manager(REPOS)
+
+    assert _series(CONST_SERVICE_METRIC_BUDGET_HOLDS) == {frozenset(): 0.0}

@@ -15,9 +15,13 @@ from devops_cli.config.constants import (
     CONST_SERVICE_CHAT_RESULT_STATUS,
     CONST_SERVICE_CHAT_RESULT_UNKNOWN_REPO,
     CONST_SERVICE_CHAT_RESULT_USAGE,
+    CONST_SERVICE_JOB_RESULT_ERROR,
+    CONST_SERVICE_JOB_RESULT_STOPPED,
+    CONST_SERVICE_JOB_RESULT_SUCCESS,
     CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_LANE_STATUS,
     CONST_SERVICE_LANE_TRIAGE,
+    CONST_SERVICE_METRIC_BUDGET_HOLDS,
     CONST_SERVICE_METRIC_CHAT_COMMANDS,
     CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
     CONST_SERVICE_METRIC_JOB_SECONDS,
@@ -29,7 +33,11 @@ from devops_cli.config.constants import (
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
-SERVICE_JOB_RESULTS = ("success", "error")
+SERVICE_JOB_RESULTS = (
+    CONST_SERVICE_JOB_RESULT_SUCCESS,
+    CONST_SERVICE_JOB_RESULT_ERROR,
+    CONST_SERVICE_JOB_RESULT_STOPPED,
+)
 """The value of the label `result` of a job that ended, as the roadmap run counts it."""
 
 SERVICE_TRIGGER_SOURCES = (CONST_SERVICE_SOURCE_WEBHOOK, CONST_SERVICE_SOURCE_POLL)
@@ -49,7 +57,8 @@ def prime_service_counters(repos: Iterable[str]) -> None:
     """Create the bounded label sets of the Service counters at zero for the repositories
     `repos`: each failure class for each repository on the failure counter, each repository,
     lane, row and result on the job counter, each repository and lane on the job seconds, each
-    repository and source on the trigger counter, and each result of the chat command."""
+    repository and source on the trigger counter, each result of the chat command, and the one
+    series of the budget holds, which has no label."""
     # The roadmap run imports the Service, so the lane tables are read when the counters are
     # primed, not when this module is imported.
     from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, TRIAGE_LANE_ROWS
@@ -93,3 +102,4 @@ def prime_service_counters(repos: Iterable[str]) -> None:
             for result in SERVICE_CHAT_RESULTS
         ),
     )
+    GLOBAL_METRICS.prime_counter(CONST_SERVICE_METRIC_BUDGET_HOLDS, [{}])

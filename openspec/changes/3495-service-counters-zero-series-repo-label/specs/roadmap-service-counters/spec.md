@@ -22,8 +22,15 @@ The Service SHALL create each bounded label set of `devops_cli_service_triggers_
 - **WHEN** the Service starts with the repositories `example/app` and `example/tools`
 - **THEN** the trigger counter exists at 0 for each repository with the sources `webhook` and `poll`, and the chat counter exists at 0 for each result `usage`, `status`, `unknown_repo` and `error`
 
+### Requirement: The Service starts the budget hold counter at zero
+The Service SHALL create the one series of `devops_cli_service_budget_holds_total` at zero when it starts.
+
+#### Scenario: The budget hold counter exists at zero after start
+- **WHEN** the Service starts
+- **THEN** the budget hold counter exists at 0 with no label
+
 ### Requirement: The job counter carries the row of the job
-The Service SHALL add 1 to `devops_cli_service_jobs_total` with the labels `repo`, `lane`, `row` and `result` for each row of a lane that ends in the roadmap run. A scoped update SHALL add 1 with the name of its job as the label `row`. The Service SHALL NOT count a lane batch as one job.
+The Service SHALL add 1 to `devops_cli_service_jobs_total` with the labels `repo`, `lane`, `row` and `result` for each row of a lane that ends in the roadmap run. A scoped update SHALL add 1 with the name of its job as the label `row`. The Service SHALL NOT count a lane batch as one job. The label `result` SHALL be `success`, `error` or `stopped`. A row or a scoped update that the stop of the Service ends SHALL count under `stopped`, and not under `error`.
 
 #### Scenario: A row that succeeds
 - **WHEN** the status lane runs the row `metrics` for `example/app` and the row succeeds
@@ -32,6 +39,17 @@ The Service SHALL add 1 to `devops_cli_service_jobs_total` with the labels `repo
 #### Scenario: Two rows of one batch
 - **WHEN** one round of the status lane runs the rows `metrics` and `implement`, and both fail
 - **THEN** the job counter for each row with `result` `error` grows by 1, and no series counts the batch
+
+#### Scenario: A row that the stop of the Service ends
+- **WHEN** the stop of the Service ends the row `implement` of the status lane
+- **THEN** the job counter of that row with `result` `stopped` grows by 1, and the counter with `result` `error` does not change
+
+### Requirement: The job failure alert reads each row
+`RoadmapServiceJobsFailing` SHALL group and join on `repo`, `lane` and `row`, so that a success of another row of the lane does not hide a row whose jobs all failed.
+
+#### Scenario: A row fails while another row of its lane succeeds
+- **WHEN** `promtool test rules` evaluates a status lane whose row `implement` fails each round and whose row `metrics` succeeds
+- **THEN** `RoadmapServiceJobsFailing` fires with the labels `repo`, `lane` `status` and `row` `implement`
 
 ### Requirement: Alerts read a counter that starts at zero with increase
 The alerts `RoadmapServiceWebhooksRejected` and `RoadmapServiceSelfDeliveriesHigh` SHALL read their counter with `increase()` and no `offset` term, because the Service starts each label set at zero.

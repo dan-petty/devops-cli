@@ -62,10 +62,38 @@ Reads: `src/devops_cli/server/counter_series.py`, `src/devops_cli/server/routes/
 - [x] 6.3 State in `src/devops_cli/docs/generator.py`, the source of `docs/TELEMETRY.md`, and in `k8s/README.md` that the identity counter is the one counter whose label set does not start at zero, and regenerate `docs/TELEMETRY.md` with `uv run devops docs generate --no-sync-readme`
   - Verification: `uv run devops ci docs` passes
 
+## 7. The job failure alert reads each row
+
+Reads: `k8s/monitoring/prometheus-values.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `src/devops_cli/server/service.py`. Changes: `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `k8s/monitoring/prometheus-values.yaml`, `k8s/README.md`.
+
+- [x] 7.1 Add a promtool case to `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml` in which the row `implement` fails each round while the row `metrics` of its lane succeeds, label the job series of the other cases with a row, and pin the rule in `tests/prometheus/test_k8s_monitoring_alerting.py`
+  - Verification: `uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` fails on the rule that joins on the lane
+- [x] 7.2 Group and join `RoadmapServiceJobsFailing` on `repo`, `lane` and `row`, and name the row in its summary, in `k8s/monitoring/prometheus-values.yaml`. Keep the fields of its Loki query
+  - Verification: `uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` passes
+- [x] 7.3 State in the two alert tables of `k8s/README.md` that the alert reads each row
+  - Verification: `uv run devops ci docs` passes
+
+## 8. A stop is no failed row
+
+Reads: `src/devops_cli/exceptions/roadmap.py`, `src/devops_cli/roadmap/run.py`. Changes: `src/devops_cli/config/constants.py`, `src/devops_cli/roadmap/run.py`, `src/devops_cli/server/counter_series.py`, `tests/roadmap/test_roadmap_run.py`, `tests/telemetry/test_service_counter_series.py`, `k8s/README.md`.
+
+- [x] 8.1 Add tests to `tests/roadmap/test_roadmap_run.py` that assert that a row and a scoped update that the stop of the Service ends count under `stopped` and a scoped update that fails counts under `error`, and a test to `tests/telemetry/test_service_counter_series.py` that asserts that a row exists at 0 for each result
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_run.py tests/telemetry/test_service_counter_series.py` fails on the count that reads only `error`
+- [x] 8.2 Count a row and a scoped update under the result of their error in `src/devops_cli/roadmap/run.py`, and prime the result `stopped` in `src/devops_cli/server/counter_series.py`
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_run.py tests/telemetry/test_service_counter_series.py` passes
+- [x] 8.3 State the three results of the job counter in `k8s/README.md`
+  - Verification: `uv run devops ci docs` passes
+
+## 9. The budget hold counter starts at zero
+
+Reads: `src/devops_cli/telemetry/metrics.py`. Changes: `tests/telemetry/test_service_counter_series.py`, `src/devops_cli/server/counter_series.py`.
+
+- [x] 9.1 Add a test to `tests/telemetry/test_service_counter_series.py` that asserts that the budget hold counter exists at 0 with no label
+  - Verification: `uv run devops ci test tests/telemetry/test_service_counter_series.py` fails on the base
+- [x] 9.2 Prime the budget hold counter in `src/devops_cli/server/counter_series.py`
+  - Verification: `uv run devops ci test tests/telemetry/test_service_counter_series.py` passes
+
 ## Workflow follow-up
 
-- Open item: agree the label `repo` of `devops_cli_service_implement_failures_total` with #3069 before this change lands. The issue says that #3069 reuses the label `class`.
-- Open item: check the live series with a Prometheus query after the deploy. This change runs no live query.
-- Open item: a person decides whether `devops_cli_service_identity_refused_total` gets a zero label set. The design defers it, and no issue records the deferral yet.
-- Open item: a round that fails before its first row counts no job, so `RoadmapServiceJobsFailing` may miss a failure at store level. A person decides whether to count it.
+- A round that fails before its first row counts no job, so `RoadmapServiceJobsFailing` does not read it: #3666.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

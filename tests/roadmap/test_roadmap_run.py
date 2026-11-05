@@ -61,6 +61,7 @@ from devops_cli.exceptions import (
     GitOperationError,
     RoadmapRefineError,
     RoadmapRunError,
+    ServiceStoppingError,
 )
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
@@ -2928,6 +2929,14 @@ def test_the_release_comments_adapter_comments_a_release_and_keeps_its_ledger(
     assert (tmp_path / "release_comments.json").is_file()
 
 
+def _job_count(lane: str, row: str, result: str) -> float:
+    """The value of the job counter of the row `row` of `lane` under `result`."""
+    return GLOBAL_METRICS.get_counter(
+        CONST_SERVICE_METRIC_JOBS,
+        labels={"repo": REPO, "lane": lane, "row": row, "result": result},
+    )
+
+
 def test_each_row_of_a_lane_counts_its_own_job(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2945,10 +2954,56 @@ def test_each_row_of_a_lane_counts_its_own_job(
         service_jobs(tmp_path)[CONST_SERVICE_LANE_STATUS](POLL, table=table)
     assert list(raised.value.failed_jobs) == ["implement"]
 
-    def count(row: str, result: str) -> float:
-        return GLOBAL_METRICS.get_counter(
-            CONST_SERVICE_METRIC_JOBS,
-            labels={"repo": REPO, "lane": CONST_SERVICE_LANE_STATUS, "row": row, "result": result},
+    assert (
+        _job_count(CONST_SERVICE_LANE_STATUS, "metrics", "success"),
+        _job_count(CONST_SERVICE_LANE_STATUS, "implement", "error"),
+    ) == (1, 1)
+
+
+def test_a_row_that_the_stop_of_the_service_ends_counts_as_stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stop is no failure of the row (#2753), so the row counts under `stopped` and the job
+    failure alert does not read it (#3495)."""
+    GLOBAL_METRICS.reset()
+    github = _service_github(_labeled(2, "alice"))
+    _serve_over(tmp_path, monkeypatch, github, stamped=False)
+
+    def stops(**_: object) -> JobOutcome:
+        raise ServiceStoppingError("the Service is stopping")
+
+    table = build_stub_table({"metrics": lambda **_: JobOutcome(), "implement": stops})
+    with pytest.raises(RoadmapRunError) as ended:
+        service_jobs(tmp_path)[CONST_SERVICE_LANE_STATUS](POLL, table=table)
+
+    assert (
+        list(ended.value.failed_jobs),
+        _job_count(CONST_SERVICE_LANE_STATUS, "implement", "stopped"),
+        _job_count(CONST_SERVICE_LANE_STATUS, "implement", "error"),
+    ) == (["implement"], 1, 0)
+
+
+@pytest.mark.parametrize(
+    ("raised", "result"),
+    [
+        (RuntimeError("the store failed"), "error"),
+        (ServiceStoppingError("the Service is stopping"), "stopped"),
+    ],
+)
+def test_a_scoped_update_that_raises_counts_under_the_result_of_its_error(
+    raised: Exception, result: str, tmp_path: Path
+) -> None:
+    """A scoped update counts as a row does: a stop under `stopped`, a failure under `error`."""
+    GLOBAL_METRICS.reset()
+
+    class RaisingModel(_IntakeModel):
+        def embed(self, texts: Sequence[str]) -> list[list[float]]:
+            raise raised
+
+    store, _, _ = _candidates(1)
+    with pytest.raises(type(raised)) as ended:
+        run_scoped_update(
+            _delivery("opened", 1), store, data_dir=tmp_path, now=NOW, model=RaisingModel()
         )
 
-    assert (count("metrics", "success"), count("implement", "error")) == (1, 1)
+    assert (ended.value, _job_count(CONST_SERVICE_LANE_TRIAGE, "intake", result)) == (raised, 1)

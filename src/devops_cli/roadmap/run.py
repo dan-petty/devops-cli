@@ -59,6 +59,9 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
     CONST_SERVICE_CAUSE_UNKNOWN,
     CONST_SERVICE_FAILURES_FILENAME,
+    CONST_SERVICE_JOB_RESULT_ERROR,
+    CONST_SERVICE_JOB_RESULT_STOPPED,
+    CONST_SERVICE_JOB_RESULT_SUCCESS,
     CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_LANE_STATUS,
     CONST_SERVICE_LANE_TRIAGE,
@@ -839,10 +842,10 @@ def run_scoped_update(
             now=now or datetime.now(UTC),
             model=model,
         )
-    except Exception:
-        _count_job(delivery.repo, update.lane, update.job, "error")
+    except Exception as exc:
+        _count_job(delivery.repo, update.lane, update.job, _failed_result(exc))
         raise
-    _count_job(delivery.repo, update.lane, update.job, "success")
+    _count_job(delivery.repo, update.lane, update.job, CONST_SERVICE_JOB_RESULT_SUCCESS)
     return outcome
 
 
@@ -1153,6 +1156,13 @@ def _format_error_line(exc: BaseException) -> str:
     return mask_secrets(first)[:256]
 
 
+def _failed_result(exc: BaseException) -> str:
+    """The `result` of a job that ended with `exc`: a stop of the Service is no failure (#2753)."""
+    return (
+        CONST_SERVICE_JOB_RESULT_STOPPED if ended_by_stop(exc) else CONST_SERVICE_JOB_RESULT_ERROR
+    )
+
+
 def _count_job(repo: str, lane: str | None, row: str, result: str) -> None:
     """Count one job that ended under its repository, lane, row and result (#3495). A run with
     no lane, such as one of the command line, counts no job."""
@@ -1203,7 +1213,7 @@ def _execute_due_rows(
         if row.needs_clone and clone_error is not None:
             failed_jobs.append(row.name)
             clone_jobs.append(row.name)
-            _count_job(repo, lane, row.name, "error")
+            _count_job(repo, lane, row.name, _failed_result(clone_error))
             continue
 
         try:
@@ -1224,10 +1234,10 @@ def _execute_due_rows(
             succeeded_jobs.append(row.name)
             _record_success(schedule_path, row.name, current_time)
             failures.succeeded(repo, row.name)
-            _count_job(repo, lane, row.name, "success")
+            _count_job(repo, lane, row.name, CONST_SERVICE_JOB_RESULT_SUCCESS)
         except Exception as exc:
             failed_jobs.append(row.name)
-            _count_job(repo, lane, row.name, "error")
+            _count_job(repo, lane, row.name, _failed_result(exc))
             outcomes[row.name] = _outcome_of_failure(exc)
             _count_failure(failures, repo, row.name, current, exc)
             if row.needs_clone and clone_path is None:

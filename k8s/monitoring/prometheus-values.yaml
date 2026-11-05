@@ -698,17 +698,19 @@ serverFiles:
             annotations:
               summary: "GitHub throttled {{ $labels.resource }} requests of the roadmap Service"
               description: "In the last 15 minutes GitHub refused a {{ $labels.resource }} request of the roadmap Service with a rate limit, or gave a 5xx for a read. The Service waited and sent the request again (k8s/README.md, Roadmap service)."
-          # When all rounds of a repository and lane fail in one hour, alert after 30 minutes.
+          # When all jobs of one row of a repository fail in one hour, alert after 30 minutes. A
+          # round counts each of its rows, so a join on the lane hides a row that fails while
+          # another row of its lane succeeds (#3495).
           - alert: RoadmapServiceJobsFailing
             expr: >-
-              sum by (repo, lane) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])) > 0
-              unless on (repo, lane)
-              sum by (repo, lane) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="success"}[1h])) > 0
+              sum by (repo, lane, row) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])) > 0
+              unless on (repo, lane, row)
+              sum by (repo, lane, row) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="success"}[1h])) > 0
             for: 30m
             labels:
               severity: warning
             annotations:
-              summary: "All {{ $labels.lane }} jobs of {{ $labels.repo }} failed in the last hour"
+              summary: "All {{ $labels.row }} jobs of {{ $labels.repo }} failed in the last hour, on the {{ $labels.lane }} lane"
               description: '{namespace="devops"} | json | repo="{{ $labels.repo }}" | lane="{{ $labels.lane }}" (k8s/README.md, Roadmap service)'
           # Each poll starts a round on every lane, every 5 minutes by default. A worker sets the
           # job start of its lane when it starts, so a lane of a new pod that starts no job also
