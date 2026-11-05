@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.61.0](https://github.com/dan-petty/devops-cli/compare/v0.60.0...v0.61.0) (2026-11-05)
+
+
+### Features
+
+* **roadmap:** check each behavior group fails on base before the change ([#3602](https://github.com/dan-petty/devops-cli/issues/3602)) ([7b8a4a1](https://github.com/dan-petty/devops-cli/commit/7b8a4a1c3a46c721aa105ddce49ceadc2d20cebd))
+* **roadmap:** the inbox lists every person wait of each service repo ([#3616](https://github.com/dan-petty/devops-cli/issues/3616)) ([b81913b](https://github.com/dan-petty/devops-cli/commit/b81913bb374e61d3dd27faf7eaa73d0173a5e7eb))
+* **telemetry:** measure how long roadmap items wait in each state ([#3601](https://github.com/dan-petty/devops-cli/issues/3601)) ([05c9ebd](https://github.com/dan-petty/devops-cli/commit/05c9ebdff79eb03212d69991fb16930b72397595))
+
+
+### Bug Fixes
+
+* **github:** send a GET again when its connection is lost ([#3608](https://github.com/dan-petty/devops-cli/issues/3608)) ([4528f49](https://github.com/dan-petty/devops-cli/commit/4528f4945c228e947091c5f816609b4d6ff88d15))
+* **roadmap:** accept a clean merge by a person on a branch ([#3603](https://github.com/dan-petty/devops-cli/issues/3603)) ([4fff490](https://github.com/dan-petty/devops-cli/commit/4fff4901718da2f9dd46de3d843c4d30c1cb8033))
+* **roadmap:** the stage job waits for an open plan that creates a path ([#3613](https://github.com/dan-petty/devops-cli/issues/3613)) ([7e66373](https://github.com/dan-petty/devops-cli/commit/7e663730f7d205b20524fa08602738b98c4bf1c2))
+
 ## [0.60.0](https://github.com/dan-petty/devops-cli/compare/v0.59.0...v0.60.0) (2026-11-05)
 
 
