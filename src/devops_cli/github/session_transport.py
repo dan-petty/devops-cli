@@ -279,31 +279,31 @@ class SessionGitHubAPI(GitHubAPI):
         )
         self._identity = identity
 
-    def _pace(self, method: str, url: str) -> tuple[str, dict[str, str] | None, str]:
-        """Wait for the attempt's turn on the ledger, then read the token to send it with: a
-        GitHub App's token is minted again when it nears its expiry during the wait. Return the
-        resource, the labels that count a paced attempt, and the token."""
-        resource, labels = pace_request(method, url, self._identity.key)
-        return resource, labels, self._identity.token()
+    def _pace(self, method: str, url: str) -> tuple[str, dict[str, str] | None]:
+        """Wait for the attempt's turn on the ledger. Return the resource it spends, and the
+        labels that count it, or None when it is not paced."""
+        return pace_request(method, url, self._identity.key)
 
     async def _request(
         self, method: str, url: str, headers: Mapping[str, str], body: bytes = b""
     ) -> tuple[int, Mapping[str, str], bytes]:
         """Send one attempt once the ledger allows it, with the current token, count it with the
-        status of its answer (none when it gets no answer), and charge what its answer reports. A
-        GET whose connection is lost is paced, counted and sent again, after the ledger's wait,
-        while `_resend_after_lost` allows it.
+        status of its answer (none when it gets no answer, a refused token included), and charge
+        what its answer reports. A GET whose connection is lost is paced, counted and sent again,
+        after the ledger's wait, while `_resend_after_lost` allows it.
 
-        The pacing wait may run until the quota resets, so a close does not wait it out.
+        The pacing wait may run until the quota resets, so a close does not wait it out. A GitHub
+        App's token is minted again here, when it nears its expiry, after the attempt is paced.
         """
         attempt = 1
         while True:
-            resource, labels, token = await anyio.to_thread.run_sync(
+            resource, labels = await anyio.to_thread.run_sync(
                 self._pace, method, url, abandon_on_cancel=True
             )
-            sent = {**headers, "authorization": f"token {token}"}
             status: int | None = None
             try:
+                token = await anyio.to_thread.run_sync(self._identity.token, abandon_on_cancel=True)
+                sent = {**headers, "authorization": f"token {token}"}
                 answer = await super()._request(method, url, sent, body)
                 status = answer[0]
             except _LOST_CONNECTION as error:

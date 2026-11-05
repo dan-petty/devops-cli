@@ -11,7 +11,7 @@ Issue #3497: the Service spends most of its GitHub budget on reads. The request 
 - The two pace lines of the rate limiter, the mandatory pause and the quota window reset, log at DEBUG.
 - The counter keeps its name and its total. Every sum over the labels gives the value it gave before.
 - The change alters the labels of a metric that a dashboard reads, so it carries a spec delta: two ADDED requirements in `github-api-metrics`.
-- This change is the first slice of #3497. It fits one pull request. The refine slice, the cache slice and the scoped intake, stage_ready and idle slices stay open, as the issue asks.
+- This change is the first slice of #3497, and it fits one pull request. The issue asks to start with refine and the log level. This slice carries the log level and the status label, and refine is the next slice. The status label comes first because acceptance criterion 1 requires it, and the next slices need it to show how many answers are 304. The refine, cache, scoped intake, stage_ready and idle slices stay open on #3497.
 
 ## Capabilities
 
@@ -23,13 +23,13 @@ Issue #3497: the Service spends most of its GitHub budget on reads. The request 
 
 - `src/devops_cli/telemetry/instruments.py`: the description of `devops_cli_github_requests_total` names the status label.
 - `src/devops_cli/github/rate_limiter.py`: `acquire` no longer counts a request, and `count_request` counts one with its status. `run_gh` counts each paced attempt with status `none`. The two pace lines log at DEBUG.
-- `src/devops_cli/github/session_transport.py`: `pace_request` returns the request labels, and `SessionGitHubAPI._request` counts each attempt with the status of its answer.
+- `src/devops_cli/github/session_transport.py`: `pace_request` returns the request labels, and `SessionGitHubAPI._request` reads the token and counts each paced attempt with the status of its answer.
 - `tests/github/test_github_api_metrics.py`, `tests/github/test_github_rate_limiter.py`.
 - `docs/TELEMETRY.md`, regenerated from the instrument description.
 
 ## Feasibility
 
-The premise holds at origin/main 0a62030c, checked with these reads:
+The premise holds at origin/main 502219a4. The commit after 0a62030c changes only release files, so the lines below hold at both. The reads are:
 
 - `src/devops_cli/telemetry/instruments.py` line 200 to 211: the description of `devops_cli_github_requests_total` names resource, method, repo and row. No status label.
 - `src/devops_cli/github/rate_limiter.py` lines 1046 and 1092: both pace lines call `logger.info`.
@@ -40,4 +40,4 @@ The premise holds at origin/main 0a62030c, checked with these reads:
 
 ## Existing Tool Considered
 
-The counter is an instrument that `emit()` sends through the telemetry layer, and the status is a label of that instrument. The change adds no library and no helper. The existing gidgethub conditional request (#983) gives the status of each answer, and prometheus_client gives the label. The change deletes the emit in `acquire` and its `method` parameter, which only the emit used.
+The counter is an instrument that `emit()` sends through the telemetry layer over OTLP, and the status is a label of that instrument. The change adds no library. It adds one function, `count_request`, in the module that owns the counter. The existing gidgethub conditional request (#983) gives the status of each answer. The change deletes the emit in `acquire` and its `method` parameter, which only the emit used.
