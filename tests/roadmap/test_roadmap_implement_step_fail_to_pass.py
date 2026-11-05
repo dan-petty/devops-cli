@@ -214,3 +214,55 @@ def test_an_other_group_runs_its_verify_commands_and_keeps_their_output(
         ("uv run devops ci test tests/test_sample.py", 0, "ran"),
         ("uv run devops docs check", 0, "ran"),
     ]
+
+
+def test_a_replay_that_could_not_run_stops_the_step_with_the_output_of_pytest(
+    store: InMemoryRoadmapStore, checkout: Path, implement_programs: ProcessFake
+) -> None:
+    implement_programs.answer(
+        lambda call: "pytest" in call.argv,
+        ProcessAnswer(returncode=2, stderr="usage error"),
+    )
+    outcome = _run(store, checkout, ModelScript(tool_calls(*WORK), say("Done.")))
+
+    assert outcome.status is StepStatus.STOPPED
+    assert outcome.reason.startswith(
+        "The tests of tests/test_sample.py could not run on the base commit. "
+        "Pytest exited with status 2.\nusage error"
+    )
+    assert _replay(outcome) == ("not_run", ())
+
+
+def test_a_replay_that_collects_no_test_does_not_prove_the_group(
+    store: InMemoryRoadmapStore, checkout: Path, implement_programs: ProcessFake
+) -> None:
+    answer_pytest_on_base(implement_programs, junit())
+
+    outcome = _run(store, checkout, ModelScript(tool_calls(*WORK), say("Done.")))
+
+    assert (outcome.status, _replay(outcome)) == (StepStatus.STOPPED, ("not_run", ()))
+
+
+def test_a_group_that_says_it_is_behavior_needs_a_test_file(
+    store: InMemoryRoadmapStore, tmp_path: Path, implement_programs: ProcessFake
+) -> None:
+    tasks = """\
+# Tasks
+
+## 1. The first group
+
+Kind: behavior.
+
+- [ ] Add `shout` to `src/sample.py`
+  - Verification: `uv run devops ci test tests/test_sample.py`
+"""
+    checkout = make_checkout(tmp_path, tasks)
+    ticked = tasks.replace("- [ ] Add", "- [x] Add")
+    script = ModelScript(
+        tool_calls(write_call("src/sample.py", SHOUT_CODE), write_call(TASKS_PATH, ticked)),
+        say("Done."),
+    )
+
+    outcome = _run(store, checkout, script)
+
+    assert (outcome.status, outcome.reason) == (StepStatus.STOPPED, NO_TEST_REASON)

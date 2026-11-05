@@ -58,7 +58,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, NamedTuple, NoReturn, assert_never
+from typing import Any, NamedTuple, NoReturn
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.config.commands import BIN_DEVOPS, BIN_GIT, BIN_UV
@@ -1611,14 +1611,10 @@ __all__ = [
 def _base_status_text(status: BaseStatus) -> str:
     """The words that the PR comment uses for the result of a replay on the base commit (#3042)."""
     texts = MESSAGES.roadmap
-    match status:
-        case BaseStatus.FAILS:
-            return texts.implement_base_fails
-        case BaseStatus.PASSES:
-            return texts.implement_base_passes
-        case BaseStatus.ERRORS:
-            return texts.implement_base_errors
-        case BaseStatus.NOT_RUN:
-            return texts.implement_base_not_run
-        case _:
-            assert_never(status)
+    words = {
+        BaseStatus.FAILS: texts.implement_base_fails,
+        BaseStatus.PASSES: texts.implement_base_passes,
+        BaseStatus.ERRORS: texts.implement_base_errors,
+        BaseStatus.NOT_RUN: texts.implement_base_not_run,
+    }
+    return words[status]

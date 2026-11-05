@@ -34,7 +34,7 @@ from datetime import datetime
 from enum import StrEnum
 from http import HTTPStatus
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, Protocol, assert_never, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from platformdirs import user_cache_dir
 from pydantic import BaseModel, ConfigDict
@@ -1223,8 +1223,6 @@ def _replay_failure(replay: BaseReplay) -> _Failure | None:
                     files=files, status=replay.exit_status, output=replay.output
                 )
             )
-        case _:
-            assert_never(replay.status)
 
 
 def _exit_failure(
