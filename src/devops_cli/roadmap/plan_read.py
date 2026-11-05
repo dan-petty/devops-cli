@@ -207,6 +207,19 @@ def _spans(text: str) -> list[tuple[str, str]]:
     ]
 
 
+def created_paths(tasks_md: str) -> list[str]:
+    """The paths that the groups of `tasks_md` mark `(new)`, each once, in file order. It reads the
+    marks in the text of each group, so it names the files of a plan whose layout `read_change`
+    refuses (#3492)."""
+    found = (
+        path
+        for group in parse_task_groups(tasks_md)
+        for path, mark in _spans(group.text)
+        if mark.startswith(_NEW_MARK)
+    )
+    return list(dict.fromkeys(found))
+
+
 def _group_files(text: str) -> _GroupFiles:
     match = _READS.search(text)
     if match is None:

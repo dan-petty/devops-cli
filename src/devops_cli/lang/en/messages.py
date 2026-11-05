@@ -3495,6 +3495,33 @@ class RoadmapMessages:
     plan_check_request_issue: str = "the issue that the body plans"
     plan_check_request_issue_condition: str = "the body holds the line `Plans #`"
     plan_check_request_checks: str = "the checks of the head commit"
+    # `devops roadmap plan-recheck` (#3492).
+    plan_recheck_line: str = "{result} {folder}"
+    plan_recheck_reason: str = "  {reason}"
+    plan_recheck_closed: str = "Issue #{issue} is closed. `openspec archive` clears the folder."
+    plan_recheck_delivered: str = (
+        "The plan marks {paths} as new, and the default branch `{branch}` holds them. "
+        "Close issue #{issue} when it is done."
+    )
+    plan_recheck_no_design: str = "The folder has no `design.md`."
+    plan_recheck_no_verification: str = (
+        "No group of `tasks.md` has a `Verification:` line, so the step runs no plan command."
+    )
+    plan_recheck_openspec: str = "`openspec validate` finds: {problem}"
+    plan_recheck_results: str = (
+        "Results: ok {ok}, rewrite {rewrite}, new-plan {new_plan}, delivered {delivered}, "
+        "cleanup {cleanup}."
+    )
+    plan_recheck_live: str = (
+        "{live} folders count. {cleanup} folders of closed issues are left out of every count."
+    )
+    plan_recheck_unverified: str = "{count} of {live} folders have no `Verification:` line."
+    plan_recheck_unreadable: str = "{count} of {live} folders fail the plan reader."
+    plan_recheck_request_fetch: str = "update the default branch of the model clone"
+    plan_recheck_request_tree: str = "list the files of the default branch"
+    plan_recheck_request_files: str = "read the files of each change folder"
+    plan_recheck_request_closed: str = "the issue of a folder that is not in the open issues"
+    plan_recheck_request_closed_condition: str = "the issue is not open"
     # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.
     plan_dry_run: str = (
         "Dry run: no request was made. A run makes these requests, in order; a value in "
@@ -3677,6 +3704,7 @@ class RoadmapMessages:
         default_factory=lambda: {
             "milestone": "for each open milestone, by due date and then by number",
             "item": "for each item the run judges or changes",
+            "recheck_folder": "for each change folder on the default branch",
             "blocker": "for each open item a blocked item waits on",
             "block_path": (
                 "for each path the block of a waiting item cites or the text of its wait names, "

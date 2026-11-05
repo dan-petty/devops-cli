@@ -217,12 +217,14 @@ def _check_problems(checks: CheckVerdictSummary) -> list[PlanProblem]:
     ]
 
 
-def _head_files(source: Path, rev: str) -> list[str]:
+def tree_files(source: Path, rev: str) -> list[str]:
+    """The paths of the files that commit `rev` tracks."""
     listing = git(source, "ls-tree", "-r", "--name-only", "-z", rev, operation=GIT_OPERATION)
     return [path for path in listing.split("\0") if path]
 
 
-def _read_files(source: Path, rev: str, paths: Sequence[str]) -> dict[str, str]:
+def files_at(source: Path, rev: str, paths: Sequence[str]) -> dict[str, str]:
+    """The text of each of `paths` at commit `rev`."""
     return {path: git(source, "show", f"{rev}:{path}", operation=GIT_OPERATION) for path in paths}
 
 
@@ -269,14 +271,15 @@ def _plan_parent(source: Path, head: str, root: str) -> str:
     return parent if commit and _has_commit(source, parent) else ""
 
 
-def _base_specs(source: Path, rev: str) -> tuple[frozenset[str], dict[str, tuple[str, ...]]]:
+def specs_at(source: Path, rev: str) -> tuple[frozenset[str], dict[str, tuple[str, ...]]]:
+    """The capabilities of the base specs at commit `rev`, and the requirement names of each."""
     if not rev:
         return frozenset(), {}
     specs: dict[str, BaseSpec] = {}
-    for path in _head_files(source, rev):
+    for path in tree_files(source, rev):
         match = _SPEC_FILE.match(path)
         if match is not None:
-            specs[match["capability"]] = read_spec(_read_files(source, rev, [path])[path])
+            specs[match["capability"]] = read_spec(files_at(source, rev, [path])[path])
     return frozenset(specs), {name: spec.requirements for name, spec in specs.items()}
 
 
@@ -285,9 +288,9 @@ def _spec_requirements(source: Path, rev: str, capability: str) -> dict[str, str
     if not rev:
         return {}
     path = f"{_SPECS}/{capability}/spec.md"
-    if path not in _head_files(source, rev):
+    if path not in tree_files(source, rev):
         return {}
-    text = _read_files(source, rev, [path])[path]
+    text = files_at(source, rev, [path])[path]
     matches = list(_REQUIREMENT.finditer(text))
     found: dict[str, str] = {}
     for index, match in enumerate(matches):
@@ -370,8 +373,8 @@ def _gate_problems(
     base_rev: str,
     issue_body: str,
 ) -> list[PlanProblem]:
-    tree = StagedTree(_head_files(source, head))
-    known, requirements = _base_specs(source, base_rev)
+    tree = StagedTree(tree_files(source, head))
+    known, requirements = specs_at(source, base_rev)
     return [
         PlanProblem(root, "stage", message)
         for message in check_proposal(
@@ -414,7 +417,7 @@ def plan_check(
 
     git(source, "fetch", "--quiet", "origin", f"refs/pull/{number}/head", operation=GIT_OPERATION)
     head = git(source, "rev-parse", "FETCH_HEAD", operation=GIT_OPERATION)
-    files = _head_files(source, head)
+    files = tree_files(source, head)
     root, folder_problems = _change_root(files, issue)
     if root is None:
         return PlanCheckResult(
@@ -432,7 +435,7 @@ def plan_check(
     base_rev = _base_revision(source, facts)
     plan_rev = _plan_parent(source, head, root)
     changed = [path for path in files if path == root or path.startswith(f"{root}/")]
-    change_files = _read_files(source, head, changed)
+    change_files = files_at(source, head, changed)
     try:
         proposal = read_change(change_files)
     except PlanReadError as exc:
