@@ -107,7 +107,7 @@ Answering an item's key questions until it is ready.
 _Avoid_: grooming
 
 **Alternative**:
-An open, maintained tool or library that covers the need of an item, in whole or in part. The alternatives check looks for one, reads its license and its last activity, and records a verdict: covers, partly, none or not-applicable. Only the job gives not-applicable, for an item in a skip class (the type test, docs, refactor, chore, ci or perf, or a fix with a stack trace); every other item gets a verdict only after a search. A person decides what an alternative means for the item: refinement asks a person to adopt a covering tool or to keep the item with a reason.
+An open, maintained tool or library that covers the need of an item, in whole or in part. The alternatives check looks for one, reads its license and its last activity, and records a verdict: covers, partly, none, not-applicable, rejected or in-use. Only the job gives not-applicable, for an item in a skip class (the type test, docs, refactor, chore, ci or perf, or a fix with a stack trace); every other item gets a verdict only after a search. The job also gives rejected, when the model names an ADR of `docs/adr/` that rejected the tool and the job finds the tool in the text of that ADR, and in-use, when the title or the body of the item already names the tool. A person decides what an alternative means for the item: refinement asks a person to adopt a covering tool or to keep the item with a reason.
 _Avoid_: competitor, substitute
 
 **Staging**:

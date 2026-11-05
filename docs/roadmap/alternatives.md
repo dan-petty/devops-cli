@@ -8,6 +8,16 @@ For each item, one agent run searches the web with Firecrawl. It reads the facts
 
 The verdict is `covers`, `partly` or `none`. For every item except those named below, the check accepts a verdict only after the run searched. A reply with no search gets one more turn to search.
 
+The job gives two more verdicts, and the model cannot give them. A `covers` or `partly` reply for a tool that an ADR rejected gets the verdict `rejected`. A reply for a tool that the title or the body of the item names gets the verdict `in-use`. Refine asks a person nothing about a `rejected` or `in-use` check. The comment says which ADR rejected the tool, and keeps the tool URL, because a newer fact can change an ADR.
+
+### What the check reads of the ADRs
+
+Once for a run, when the run checks an item that is no skip class, the check reads the files `docs/adr/<four digits>-<name>.md` of the default branch. It keeps the number, the title and the `Considered Options` section of each ADR. The request holds them as `decisions`, the newest ADR first, cut to `CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS` tokens. A repository with no `docs/adr/` sends no `decisions`.
+
+The model names the ADR that rejected its tool in the key `adr`. The job refuses the reply when the repository holds no such ADR, or when the title and the options of the ADR do not name the tool.
+
+The job decides `in-use` with no model. A text names a tool when it holds the last part of the tool name (the part after `owner/`, or the package name) as a whole word. The test ignores case and takes a space, `-`, `_` and `.` as one separator. The job reads the title and the body of the item outside its own block and outside the refine section, because both name the tool of an earlier check. A tool whose name is a common word, such as `just`, reads as in use when the item holds that word.
+
 An item of the type `test`, `docs`, `refactor`, `chore`, `ci` or `perf`, and a `fix` with a stack trace, get `not-applicable` with no model call.
 
 ## What a check writes

@@ -42,7 +42,7 @@ Reads: `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli/roadmap/adr.py`
 
 Reads: `src/devops_cli/telemetry/instruments.py`, `src/devops_cli/ai/tasks/roadmap_refine_proposal.md`, `CONTEXT.md`, `docs/roadmap/alternatives.md`, `k8s/README.md`. Changes: `src/devops_cli/telemetry/instruments.py`, `src/devops_cli/ai/tasks/roadmap_refine_proposal.md`, `CONTEXT.md`, `docs/roadmap/alternatives.md`, `k8s/README.md`, `docs/TELEMETRY.md`.
 
-- [ ] 5.1 Name `rejected` and `in-use` in the description of `devops_cli_roadmap_alternatives_total`, in the verdict list of the prompt `roadmap_refine_proposal.md`, in the entry of `CONTEXT.md` for an alternative, in `docs/roadmap/alternatives.md` (what a check does, and the ADRs it reads) and in step 14 of the section "Roadmap service" of `k8s/README.md`. Run `uv run devops docs generate --sync-readme` to write the description to `docs/TELEMETRY.md`
+- [x] 5.1 Name `rejected` and `in-use` in the description of `devops_cli_roadmap_alternatives_total`, in the verdict list of the prompt `roadmap_refine_proposal.md`, in the entry of `CONTEXT.md` for an alternative, in `docs/roadmap/alternatives.md` (what a check does, and the ADRs it reads) and in step 14 of the section "Roadmap service" of `k8s/README.md`. Run `uv run devops docs generate --sync-readme` to write the description to `docs/TELEMETRY.md`
   - Verification: `uv run devops ci docs` passes
 
 ## Criteria
