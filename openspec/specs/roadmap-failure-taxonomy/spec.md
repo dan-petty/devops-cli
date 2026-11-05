@@ -6,11 +6,11 @@ The failure taxonomy of the implement job: the 12 classes of a failure, the pure
 ## Requirements
 
 ### Requirement: The failure classes
-The failure taxonomy SHALL have these 17 classes: `provider`, `parser`, `test`, `lint`, `types`, `plan_defect`, `premise_false`, `oom`, `timeout`, `refused_tool`, `conflict`, `ci_infra`, `no_change_in_fix`, `not_ticked`, `tests_lost`, `head_moved` and `output_cap`.
+The failure taxonomy SHALL have these 19 classes: `provider`, `parser`, `test`, `lint`, `types`, `plan_defect`, `premise_false`, `oom`, `timeout`, `refused_tool`, `conflict`, `ci_infra`, `no_change_in_fix`, `not_ticked`, `tests_lost`, `head_moved`, `output_cap`, `read_only_path` and `limit_reached`.
 
 #### Scenario: The class list
 - **WHEN** a test reads the classes of the taxonomy
-- **THEN** it finds these 17 and no other
+- **THEN** it finds these 19 and no other
 
 ### Requirement: A pure classifier
 `classify_failure` SHALL map the error text, the exit status, the refusal of a tool, the name of the check and the log of the check to one class, and SHALL read no file, make no request and change no state. It SHALL NOT read the last message of the agent. Input that no rule matches SHALL be `ci_infra`.
@@ -51,11 +51,11 @@ The table test of the classifier SHALL use the stop texts of the issues #2175, #
 - **THEN** the `mypy` stop of #2175 is `types`, the tool retries of #2735 are `refused_tool`, the Ollama error of #2747 is `parser`, the failed tests of #2924 are `test`, and each synthetic stop has the class of its pattern
 
 ### Requirement: One default action for each class
-`ACTION_BY_CLASS` SHALL give each class exactly one default action: `provider`, `timeout`, `ci_infra`, `tests_lost` and `head_moved` `retry`; `parser` `change_tier`; `test`, `lint` and `types` `repair`; `plan_defect` and `not_ticked` `amend`; `premise_false` `return`; `oom` and `output_cap` `raise_limit`; `refused_tool`, `conflict` and `no_change_in_fix` `wait`.
+`ACTION_BY_CLASS` SHALL give each class exactly one default action: `provider`, `timeout`, `ci_infra`, `tests_lost` and `head_moved` `retry`; `parser` `change_tier`; `test`, `lint` and `types` `repair`; `plan_defect` and `not_ticked` `amend`; `premise_false` `return`; `oom`, `output_cap` and `limit_reached` `raise_limit`; `refused_tool`, `conflict`, `no_change_in_fix` and `read_only_path` `wait`.
 
 #### Scenario: The table
 - **WHEN** a test reads the table
-- **THEN** its keys are the 17 classes and each value is the action above
+- **THEN** its keys are the 19 classes and each value is the action above
 
 ### Requirement: The action left
 `left_action` SHALL give the default action of the class, or `wait` when the action taken is that default.
@@ -101,3 +101,10 @@ A stop whose text holds `Read-only file system` or `EROFS` SHALL have the class 
 #### Scenario: A new runner image
 - **WHEN** an item is Blocked with the class `read_only_path` and the template names a new digest
 - **THEN** the item stays Blocked until a trusted `implement: retry`
+
+### Requirement: A spent budget asks for a higher limit
+A stop with the class `limit_reached` SHALL have the action `raise_limit`.
+
+#### Scenario: A spent budget
+- **WHEN** a step stops because it spent `roadmap.implement.step_token_budget`
+- **THEN** the class of the stop is `limit_reached` and the action left is `raise_limit`
