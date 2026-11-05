@@ -426,7 +426,6 @@ DEFAULT_REVIEW_CONCURRENCY: int = 4
 DEFAULT_GATEWAY_REVIEW_SLOTS: dict[str, int] = {
     "http://ollama-48gib-fast.llm.svc.cluster.local:11434": 1,
     "http://ollama-64gib-standard.llm.svc.cluster.local:11434": 1,
-    "http://ollama-16gib-fast.llm.svc.cluster.local:11434": 1,
 }
 DEFAULT_GATEWAY_REVIEW_CONCURRENCY: int = sum(DEFAULT_GATEWAY_REVIEW_SLOTS.values())
 # The longest a gateway chat request waits for one of those slots, as long as an Ollama lease.

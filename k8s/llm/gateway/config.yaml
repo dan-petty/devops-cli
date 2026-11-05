@@ -40,9 +40,9 @@ model_list:
   # The router tries the lowest order first, shuffled among its deployments, and the next order
   # only when they all fail (#1987, #2027). Order 1 is each instance of a tier at or below the
   # embedding_only threshold, in the rendered region: an idle one embeds a batch of 32 chunks of
-  # the largest size in 2 s, and it has no chat model to wait for or to evict (#3501). The 16gib-fast
-  # tier is the fallback, at order 2: its chat model leaves no VRAM for the embedder, so each
-  # embedding evicts it. The 48gib-fast and 64gib-standard tiers hold no embedding model (#3567).
+  # the largest size in 2 s, and it has no chat model to wait for or to evict (#3501). There is no
+  # next order: ollama-16gib does not serve (k8s/README.md, GPU Placement), and the 48gib-fast and
+  # 64gib-standard tiers hold no embedding model (#3567). An embedding fails when order 1 fails.
   # num_ctx is CONST_RAG_MAX_CHUNK_TOKENS, so the largest RAG chunk fits. Without it, Ollama
   # loads the embedder with 32,768 tokens, which is more than twice the memory.
   # mode: embedding makes health checks embed rather than generate.
@@ -64,14 +64,6 @@ model_list:
     model_info:
       mode: embedding
   # END rendered by devops ai gateway render from gpu-thresholds.yaml
-  - model_name: qwen3-embedding:0.6b
-    litellm_params:
-      model: ollama/qwen3-embedding:0.6b
-      api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
-      num_ctx: 8192
-      order: 2
-    model_info:
-      mode: embedding
 
   # Background group: batch, cluster services and --watch jobs reach it through devops-background
   # (k8s/README.md), and devops-review falls back to it. It runs on the 64gib-standard tier, the
@@ -100,7 +92,6 @@ model_list:
   # devops-review: one model name spread over the interactive Ollama tiers. The least-busy
   # router sends each request to the deployment with the fewest requests in flight:
   # - qwen3.8:27b on ollama-48gib-fast (2x RTX 3090) and ollama-64gib-standard (2x Tesla V100).
-  # - gpt-oss:20b on ollama-16gib-fast.
   # devops-background is left out; it is devops-review's fallback.
   - model_name: devops-review
     litellm_params:
@@ -116,28 +107,10 @@ model_list:
       num_retries: 0
     model_info:
       max_input_tokens: 262144
-  - model_name: devops-review
-    litellm_params:
-      model: ollama_chat/gpt-oss:20b
-      api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
-      num_retries: 0
-    model_info:
-      max_input_tokens: 131072
-      supports_reasoning: true
 
-  # A review can be pinned to one model of the pool and routed as the pool routes it. gpt-oss:20b
-  # copies its devops-review deployment exactly, and has no fallback: it would send a request
-  # somewhere the pool would not. qwen3.8:27b below copies the backends and windows of its
-  # devops-review deployments, and is the fallback of devops-triage and devops-background.
-  - model_name: gpt-oss:20b
-    litellm_params:
-      model: ollama_chat/gpt-oss:20b
-      api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
-      num_retries: 0
-    model_info:
-      max_input_tokens: 131072
-      supports_reasoning: true
-
+  # A review can be pinned to the model of the pool and routed as the pool routes it. qwen3.8:27b
+  # copies the backends and windows of its devops-review deployments, and is the fallback of
+  # devops-triage and devops-background.
   - model_name: qwen3.8:27b
     litellm_params:
       model: ollama_chat/qwen3.8:27b

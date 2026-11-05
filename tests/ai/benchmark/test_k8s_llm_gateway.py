@@ -31,6 +31,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_FALLBACK_MODEL,
     DEFAULT_AI_MODEL,
     DEFAULT_BUNDLE_MODELS,
+    DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
     DEFAULT_GATEWAY_REVIEW_SLOTS,
     DEFAULT_LLM_GPU_THRESHOLDS_PATH,
     DEFAULT_LLM_TIER_TEMPLATES_PATH,
@@ -415,7 +416,6 @@ class TestK8sLLMGatewayManifests:
                 "devops-background",
                 "devops-triage",
                 "devops-review",
-                "gpt-oss:20b",
                 "qwen3.8:27b",
             ],
             "least-busy",
@@ -515,49 +515,14 @@ class TestK8sLLMGatewayManifests:
             {
                 "http://ollama-48gib-fast.llm.svc.cluster.local:11434": None,
                 "http://ollama-64gib-standard.llm.svc.cluster.local:11434": None,
-                "http://ollama-16gib-fast.llm.svc.cluster.local:11434": None,
             },
-            [0, 0, 0],
-        )
-
-    @pytest.mark.parametrize("group", ["gpt-oss:20b"])
-    def test_a_review_model_has_a_group_of_its_review_deployments_alone(self, group: str) -> None:
-        """Verify each model devops-review serves can be pinned: its own group copies that model's
-        devops-review deployments (model, backend and window, in order), so the pre-call check
-        routes a pinned review as the pool routes it, and no fallback reaches or leaves it (#475)."""
-        backend = f"ollama_chat/{group}"
-        review = [
-            m for m in _deployments("devops-review") if m["litellm_params"]["model"] == backend
-        ]
-        pinned = _deployments(group)
-        router = _gateway_config()["router_settings"]
-        fallback_groups = {
-            name
-            for rule in router["fallbacks"]
-            for source, targets in rule.items()
-            for name in (source, *targets)
-        }
-
-        assert (
-            bool(review),
-            _routes(pinned),
-            [(sorted(m), sorted(m["litellm_params"])) for m in pinned],
-            [(m.get("model_info") or {}).get("max_input_tokens") for m in pinned],
-            group in fallback_groups,
-        ) == (
-            True,
-            _routes(review),
-            [(["litellm_params", "model_info", "model_name"], ["api_base", "model", "num_retries"])]
-            * len(review),
-            [(m.get("model_info") or {}).get("max_input_tokens") for m in review],
-            False,
+            [0, 0],
         )
 
     def test_a_review_can_be_pinned_to_qwen_on_the_tiers_of_the_pool(self) -> None:
         """Verify the group `qwen3.8:27b` calls `qwen3.8:27b` on the backends and with the windows
         of the `devops-review` deployments of that model, so a review pinned to it is routed as the
-        pool routes it (#3567). Unlike a pinned `gpt-oss:20b` review, it has the fallbacks of the
-        group, since `devops-triage` and `devops-background` fall back to it."""
+        pool routes it (#3567). `devops-triage` and `devops-background` fall back to the group."""
         backend = "ollama_chat/qwen3.8:27b"
         review = [
             m for m in _deployments("devops-review") if m["litellm_params"]["model"] == backend
@@ -590,7 +555,6 @@ class TestK8sLLMGatewayManifests:
             [
                 (1, "http://ollama-24gib-embed-gpu0.llm.svc.cluster.local:11434"),
                 (1, "http://ollama-24gib-embed-gpu1.llm.svc.cluster.local:11434"),
-                (2, "http://ollama-16gib-fast.llm.svc.cluster.local:11434"),
             ],
             {"embedding"},
         )
@@ -723,8 +687,8 @@ class TestK8sLLMGatewayManifests:
         [
             pytest.param(
                 _gateway_readme(
-                    "Also `ollama/qwen3-embedding:0.6b`, `ollama_chat/gpt-oss:20b`, `qwen3.8:27b`,"
-                    " `gpt-oss:20b`, `model_info.mode: embedding`"
+                    "Also `ollama/qwen3-embedding:0.6b`, `ollama_chat/qwen3.8:27b`, `qwen3.8:27b`,"
+                    " `model_info.mode: embedding`"
                     " and `devops-review`."
                 ),
                 [],
@@ -1640,6 +1604,9 @@ def _ollama_consumers() -> set[tuple[str, str]]:
             yaml.safe_load(OPEN_WEBUI_VALUES.read_text(encoding="utf-8"))
         ),
         str(GATEWAY_CONFIG): _named_ollama_services(_gateway_config()),
+        "devops_cli.k8s.gpu_matrix.gateway_routes": _named_ollama_services(
+            get_gateway_routing_entries()
+        ),
         str(DEVCONTAINER): _named_ollama_services(
             json.loads(DEVCONTAINER.read_text(encoding="utf-8"))
         ),
@@ -1680,7 +1647,7 @@ def test_the_gpu_placement_table_says_for_each_tier_whether_it_serves() -> None:
 def test_every_ollama_consumer_names_a_service_that_selects_a_serving_tier() -> None:
     """Each place that names an Ollama Service names one that selects the pods of a tier the
     README marks as serving: the CLI's default Service and failover routes, the review slots,
-    the ollama ingress, the gateway and the devcontainer. Open WebUI names none since #1668, and
+    the ollama ingress, the gateway, the routes of the GPU matrix and the devcontainer. Open WebUI names none since #1668, and
     is held to the same rule if it names one again. Before #1637 the ingress, the CLI default
     and Open WebUI named tiers whose host was offline, and answered 503 or nothing for weeks."""
     assert (bool(_ollama_consumers()), _consumers_off_serving_tiers(_serving_tiers())) == (
@@ -1690,13 +1657,46 @@ def test_every_ollama_consumer_names_a_service_that_selects_a_serving_tier() -> 
 
 
 def test_a_tier_that_stops_serving_names_each_consumer_that_reaches_it_alone() -> None:
-    """Negative control: with ollama-16gib marked as not serving, as when its host went
+    """Negative control: with ollama-64gib marked as not serving, as when its host went
     offline, the check names exactly the consumers whose Service selects that tier alone."""
-    assert _consumers_off_serving_tiers(_serving_tiers() - {"ollama-16gib"}) == {
-        (str(GATEWAY_CONFIG), "ollama-16gib-fast"),
-        ("devops_cli.config.defaults.DEFAULT_GATEWAY_REVIEW_SLOTS", "ollama-16gib-fast"),
-        (str(DEVCONTAINER), "ollama-16gib"),
+    assert _consumers_off_serving_tiers(_serving_tiers() - {"ollama-64gib"}) == {
+        (str(GATEWAY_CONFIG), "ollama-64gib-standard"),
+        ("devops_cli.config.defaults.DEFAULT_GATEWAY_REVIEW_SLOTS", "ollama-64gib-standard"),
+        ("devops_cli.k8s.gpu_matrix.gateway_routes", "ollama-64gib-standard"),
     }
+
+
+def test_the_gateway_and_the_review_slots_send_the_16gib_tier_nothing() -> None:
+    """The host of ollama-16gib is unstable, and a cordon does not stop a DaemonSet pod. So the
+    README marks the tier as not serving, its DaemonSet and Services stay for a revert, and no
+    gateway deployment, fallback or review slot reaches it. The review pool keeps two slots."""
+    deployed_groups = {m["model_name"] for m in _full_gateway_config()["model_list"]}
+    fallback_groups = {
+        name
+        for rule in _gateway_config()["router_settings"]["fallbacks"]
+        for source, targets in rule.items()
+        for name in (source, *targets)
+    }
+
+    assert (
+        "ollama-16gib" in _serving_tiers(),
+        "ollama-16gib" in _tier_pod_labels(),
+        "ollama-16gib" in _ollama_services(),
+        sorted(service for _, service in _ollama_consumers() if "16gib" in service),
+        fallback_groups - deployed_groups,
+        DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
+    ) == (False, True, True, [], set(), 2)
+
+
+def test_a_prompt_up_to_the_window_of_the_review_pool_fits_every_deployment_of_the_pool() -> None:
+    """Each deployment of devops-review, and of its fallback devops-background, has the window of
+    262144 tokens that its tier loads, so no deployment of the pool refuses or cuts a prompt that
+    another one takes."""
+    assert {
+        (m.get("model_info") or {}).get("max_input_tokens")
+        for group in ("devops-review", "devops-background")
+        for m in _deployments(group)
+    } == {262144}
 
 
 def _tiers_of(url: str) -> set[str]:

@@ -45,7 +45,7 @@ class TestGatewaySlotsConfig:
     """Verify review in-flight requests are capped at the sum of slots in the config table."""
 
     def test_gateway_review_slots_table_and_concurrency(self) -> None:
-        """Verify DEFAULT_GATEWAY_REVIEW_SLOTS defines 3 one-slot tiers totaling 3 concurrency."""
+        """Verify DEFAULT_GATEWAY_REVIEW_SLOTS defines 2 one-slot tiers totaling 2 concurrency."""
         assert (
             DEFAULT_GATEWAY_REVIEW_SLOTS,
             DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
@@ -53,9 +53,8 @@ class TestGatewaySlotsConfig:
             {
                 "http://ollama-48gib-fast.llm.svc.cluster.local:11434": 1,
                 "http://ollama-64gib-standard.llm.svc.cluster.local:11434": 1,
-                "http://ollama-16gib-fast.llm.svc.cluster.local:11434": 1,
             },
-            3,
+            2,
         )
 
 
