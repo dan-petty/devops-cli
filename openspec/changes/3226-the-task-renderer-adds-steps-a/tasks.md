@@ -33,9 +33,9 @@ Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/message
 
 Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/test_roadmap_stage_prompt_rules.py`. Changes: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/test_roadmap_stage_prompt_rules.py`.
 
-- [ ] 4.1 Add a failing test to `tests/roadmap/test_roadmap_stage_prompt_rules.py` that reads the stage prompt and asserts that it states the imperative verb rule, the rule that names each document in a code span, and the `null` rule for a step that changes no document
+- [x] 4.1 Add a failing test to `tests/roadmap/test_roadmap_stage_prompt_rules.py` that reads the stage prompt and asserts that it states the imperative verb rule, the rule that names each document in a code span, and the `null` rule for a step that changes no document
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_prompt_rules.py` fails on the base
-- [ ] 4.2 Write the rule into the `documentation` field of `src/devops_cli/ai/tasks/roadmap_stage_change.md`: the field starts with an imperative verb, names each document in a code span, and is `null` when the step changes no document
+- [x] 4.2 Write the rule into the `documentation` field of `src/devops_cli/ai/tasks/roadmap_stage_change.md`: the field starts with an imperative verb, names each document in a code span, and is `null` when the step changes no document
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_prompt_rules.py` passes
 
 ## 5. The planning rules state the same two rules

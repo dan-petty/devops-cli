@@ -159,6 +159,12 @@ def test_the_split_prompt_says_what_a_group_with_text_means() -> None:
 # ── The limits ────────────────────────────────────────────────────────────────
 
 
+def test_the_stage_prompt_states_the_documentation_verb_rule() -> None:
+    assert "`documentation`, one text that starts with an imperative verb" in _PROMPT
+    assert "names each document in a code span" in _PROMPT
+    assert "or `null` when the step changes no document" in _PROMPT
+
+
 def _prompt_limit(key: str) -> int:
     """The number in the sentence of the prompt that says `key` has at most N characters."""
     found = re.search(rf"- `{key}`:[^\n]*?at most (\d+) characters", _PROMPT)
