@@ -1135,10 +1135,12 @@ def _complete(criterion: AcceptanceCriterion) -> bool:
     return all(part.strip() for part in criterion.model_dump().values())
 
 
-def check_ready(proposal: RefinementProposal, open_questions: Sequence[str]) -> bool:
+def check_ready(
+    proposal: RefinementProposal, open_questions: Sequence[str], blockers: Sequence[int]
+) -> bool:
     """Deterministic check: a problem statement, 1+ criterion with every part of its requirement
-    block, an answer to the existing-tool question (#1849), no open questions, fits one PR, and
-    no suspected block.
+    block, an answer to the existing-tool question (#1849), no open questions, fits one PR, no
+    open dependency (`blockers`, #3500) and no suspected block.
     """
     if not proposal.problem_statement.strip() or not proposal.existing_tool.strip():
         return False
@@ -1148,7 +1150,7 @@ def check_ready(proposal: RefinementProposal, open_questions: Sequence[str]) -> 
         return False
     if open_questions:
         return False
-    if not proposal.fits_one_pr:
+    if not proposal.fits_one_pr or blockers:
         return False
     return _suspected_block(proposal) is None
 
@@ -1159,23 +1161,29 @@ def _is_open(store: RoadmapStore, number: int) -> bool:
     return found is not None and found.state is GitHubState.OPEN
 
 
+def _open_dependencies(store: RoadmapStore, proposal: RefinementProposal) -> tuple[int, ...]:
+    """The open items that the validated proposal names as its dependencies, in its order. A
+    closed issue holds nothing back (#3500)."""
+    return tuple(dep for dep in proposal.dependencies if _is_open(store, dep))
+
+
 def next_step_of(
-    store: RoadmapStore,
     proposal: RefinementProposal,
     open_questions: Sequence[str],
+    blockers: tuple[int, ...],
     *,
     is_ready: bool,
 ) -> tuple[NextStep, tuple[str, ...], tuple[int, ...]]:
     """The next step a validated proposal gives its item, with its details and the open items
-    that block it (#1758): the open questions go to a person first, then the split, then the
-    open dependencies, then a suspected block, and last a proposal with no checkable criterion."""
+    that block it, which are `blockers` (#1758): the open questions go to a person first, then
+    the split, then the open dependencies, then a suspected block, and last a proposal with no
+    checkable criterion."""
     if is_ready:
         return NextStep.READY, (), ()
     if open_questions:
         return NextStep.PERSON, tuple(open_questions), ()
     if not proposal.fits_one_pr:
         return NextStep.SPLIT, tuple(proposal.split_offs), ()
-    blockers = tuple(dep for dep in proposal.dependencies if _is_open(store, dep))
     if blockers:
         return NextStep.BLOCKED, tuple(f"#{dep}" for dep in blockers), blockers
     block = _suspected_block(proposal)
@@ -2005,7 +2013,8 @@ def refine_one_item(
             proposal, open_questions = validate_proposal(
                 revised, current_body, allowed_urls, source, sha, store, covers
             )
-    is_ready = check_ready(proposal, open_questions)
+    blockers = _open_dependencies(store, proposal)
+    is_ready = check_ready(proposal, open_questions, blockers)
     judge: JudgeVerdict | None = None
     findings: tuple[str, ...] = ()
     if is_ready and is_bot_filed(item):
@@ -2022,7 +2031,7 @@ def refine_one_item(
         is_ready = judge is JudgeVerdict.APPROVED
     needs_split = not proposal.fits_one_pr
     step, model_details, blocked_by = next_step_of(
-        store, proposal, open_questions, is_ready=is_ready
+        proposal, open_questions, blockers, is_ready=is_ready
     )
     if findings:
         # The review refused the item: it waits for a body edit, and the comment lists each finding.
