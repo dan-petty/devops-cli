@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.58.0](https://github.com/dan-petty/devops-cli/compare/v0.57.2...v0.58.0) (2026-11-05)
+
+
+### Features
+
+* **roadmap:** a stopped step keeps its work and a new Job resumes ([#3560](https://github.com/dan-petty/devops-cli/issues/3560)) ([b82fe60](https://github.com/dan-petty/devops-cli/commit/b82fe6054769a3fdc5149e91de8030580bf3753a))
+* **roadmap:** the stage job keeps a limit on Planned items ([#3547](https://github.com/dan-petty/devops-cli/issues/3547)) ([83f8b3d](https://github.com/dan-petty/devops-cli/commit/83f8b3dcf0cb03e59f5ecd0638e287bcf461770d)), closes [#3487](https://github.com/dan-petty/devops-cli/issues/3487)
+
 ## [0.57.2](https://github.com/dan-petty/devops-cli/compare/v0.57.1...v0.57.2) (2026-11-05)
 
 
