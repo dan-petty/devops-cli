@@ -266,7 +266,7 @@ _SYSTEM = "You refine one issue."
 _PROMPT = '{"number": 12}'
 _VALID = json.dumps(
     {
-        "existing_tool": "None.",
+        "existing_tool": "No open tool covers the need.",
         "problem_statement": "Refine writes nothing.",
         "acceptance_criteria": [
             {
@@ -285,8 +285,8 @@ _MARKDOWN = (
 # Three violations: a criterion given as a string, and two keys the schema does not define.
 _THREE_VIOLATIONS = json.dumps(
     {
-        "existing_tool": "None.",
-        "problem_statement": "x",
+        "existing_tool": "No open tool covers the need.",
+        "problem_statement": "Refine writes nothing.",
         "acceptance_criteria": ["A string"],
         "issue": 12,
         "title": "t",
@@ -568,12 +568,33 @@ def test_the_validation_error_counts_the_last_replys_schema_violations(
     assert (raised.value.violations, len(sent)) == (violations, 3)
 
 
+@pytest.mark.parametrize(
+    ("reply", "error_types"),
+    [
+        (_THREE_VIOLATIONS, ("extra_forbidden", "model_type")),
+        (_MARKDOWN, ()),
+    ],
+)
+def test_the_validation_error_names_the_error_types_of_the_last_reply(
+    monkeypatch: pytest.MonkeyPatch, public_dns: str, reply: str, error_types: tuple[str, ...]
+) -> None:
+    """Verify the error carries the pydantic error types of the last reply, sorted and without
+    a repeat, and none when it held no JSON, so a caller can tell one kind of fault from another."""
+    client = _structured_client()
+    route_client(client, monkeypatch, _answering("gateway", reply))
+
+    with pytest.raises(StructuredOutputValidationError) as raised:
+        client.chat_structured(_SYSTEM, _PROMPT, RefinementProposal, backoff_seconds=0)
+
+    assert raised.value.error_types == error_types
+
+
 # Seven violations, two more than a capped report would keep: two criteria given as strings and
 # five keys the schema does not define.
 _SEVEN_VIOLATIONS = json.dumps(
     {
-        "existing_tool": "None.",
-        "problem_statement": "x",
+        "existing_tool": "No open tool covers the need.",
+        "problem_statement": "Refine writes nothing.",
         "acceptance_criteria": ["first", "second"],
         **{f"invented_{index}": index for index in range(1, 6)},
     }
@@ -581,8 +602,8 @@ _SEVEN_VIOLATIONS = json.dumps(
 # Two violations, one of them a key whose name is the model's own text.
 _INVENTED_KEY = json.dumps(
     {
-        "existing_tool": "None.",
-        "problem_statement": "x",
+        "existing_tool": "No open tool covers the need.",
+        "problem_statement": "Refine writes nothing.",
         "acceptance_criteria": ["a string"],
         "leaked_model_key": "y",
     }

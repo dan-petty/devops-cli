@@ -5,7 +5,8 @@ scratch directory. The directory also holds the base spec of each capability tha
 touches, so OpenSpec can judge a MODIFIED requirement against the real spec. OpenSpec reports a
 delta that `openspec archive` would refuse as an INFO issue on a change that is valid, with exit
 code 0. So every issue in the report counts as a problem: a change with an issue cannot be
-archived, and the model gets one try to correct it.
+archived, and the model gets one try to correct it. One issue is no problem: the note that a change
+sets `skip_specs` and so holds no delta (#3482). OpenSpec gives it as INFO for a valid plan.
 """
 
 from __future__ import annotations
@@ -24,6 +25,13 @@ from devops_cli.roadmap.stage_change import write_change_files
 
 # The most characters of a validation problem that goes back to the model or to a report.
 _PROBLEM_CHARS = 2000
+# The INFO message that OpenSpec 1.x gives for a change with `skip_specs: true` in its
+# `.openspec.yaml`. The change is valid and archivable, so the message is no problem. Any other
+# message stays a problem: it can be a delta that `openspec archive` refuses.
+_SKIP_SPECS_NOTE = (
+    "skip_specs is set in .openspec.yaml: change declares no spec-level behavior changes, "
+    "zero deltas accepted"
+)
 
 
 class _Issue(BaseModel):
@@ -58,7 +66,12 @@ def _issues_of(stdout: str) -> list[str] | None:
         report = _Report.model_validate_json(stdout)
     except ValidationError:
         return None
-    return [f"{issue.path}: {issue.message}" for item in report.items for issue in item.issues]
+    return [
+        f"{issue.path}: {issue.message}"
+        for item in report.items
+        for issue in item.issues
+        if issue.message != _SKIP_SPECS_NOTE
+    ]
 
 
 def validate_change(

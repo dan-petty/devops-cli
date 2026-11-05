@@ -188,8 +188,7 @@ def test_a_round_with_a_failed_item_and_a_handled_item_does_not_fail() -> None:
     assert (
         _raised(plan, StageApplied(staged=(2,))),
         _raised(plan, StageApplied(stopped=(2,))),
-        _raised(plan, StageApplied(returned=(3,))),
-    ) == (None, None, None)
+    ) == (None, None)
 
 
 def test_a_round_that_tried_items_and_handled_none_fails_naming_them() -> None:

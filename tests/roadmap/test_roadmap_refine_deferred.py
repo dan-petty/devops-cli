@@ -132,7 +132,7 @@ class _Proposer:
         self.proposal = proposal
         self.prompts: list[str] = []
 
-    def chat_structured(self, system: str, prompt: str, schema: type[Any]) -> Any:
+    def chat_structured(self, system: str, prompt: str, schema: type[Any], **_: Any) -> Any:
         self.prompts.append(prompt)
         return self.proposal
 

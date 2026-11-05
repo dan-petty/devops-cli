@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.57.0"
+version = "0.57.1"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
@@ -13,6 +13,7 @@ dependencies = [
     "typer==0.27.2",
     "rich==15.0.0",
     "pydantic==2.13.5",
+    "pydantic-core==2.46.5",
     "cryptography==50.0.2",
     "httpx2==2.13.1",
     "httpcore2==2.13.1",

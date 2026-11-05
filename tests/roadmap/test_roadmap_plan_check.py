@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
+
+import pytest
 
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.github.client import CommitRef, IssueView, PullRequest
@@ -234,6 +237,29 @@ def test_an_unreadable_tasks_file_is_reported(stage_repo: StageRepo) -> None:
     tasks = files[f"openspec/changes/{CHANGE}/tasks.md"]
     files[f"openspec/changes/{CHANGE}/tasks.md"] = tasks.replace(
         "Reads: `src/devops_cli/sample.py`. Changes:", "Changes:"
+    )
+    sha = _push(stage_repo, files)
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha))
+
+    assert [(p.path, p.rule) for p in result.problems] == [("tasks.md", "read")]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        "each module that names an old path",
+        f"`openspec/changes/{CHANGE}/proposal.md`",
+    ],
+    ids=["3187-no-file", "3308-change-folder"],
+)
+def test_a_plan_that_the_model_refuses_is_reported_as_a_read_problem(
+    stage_repo: StageRepo, changes: str
+) -> None:
+    files = _change()
+    tasks = files[f"openspec/changes/{CHANGE}/tasks.md"]
+    files[f"openspec/changes/{CHANGE}/tasks.md"] = re.sub(
+        r"Changes: .*?\.\n", f"Changes: {changes}.\n", tasks, count=1
     )
     sha = _push(stage_repo, files)
 

@@ -8,11 +8,15 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import BaseModel
+from pydantic import ValidationError as ModelValidationError
 
 from devops_cli.exceptions import ValidationError
 from devops_cli.roadmap.pull_form import (
     BODY_MAX_CHARS,
+    PLACEHOLDER_ERROR_TYPE,
     SUMMARY_MAX_CHARS,
+    ReplyText,
     body_problems,
     build_body,
     build_title,
@@ -266,14 +270,52 @@ def test_the_body_limit_is_the_limit_of_the_implement_job() -> None:
 # ── Placeholders ──────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("text", ["x", " X. ", "placeholder", "`TBD`", "N/A", "Lorem ipsum"])
+FILLER_REFUSAL = "Not yet: I need to inspect the repository first."
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "x",
+        " X. ",
+        "y",
+        "placeholder",
+        "`TBD`",
+        "N/A",
+        "Lorem ipsum",
+        "none",
+        "probe",
+        "__PROBE__",
+        FILLER_REFUSAL,
+        "not yet:",
+    ],
+)
 def test_a_stand_in_text_is_a_placeholder(text: str) -> None:
     assert is_placeholder(text)
 
 
-@pytest.mark.parametrize("text", ["keep a label", "x-ray the cache", "a title"])
+@pytest.mark.parametrize(
+    "text",
+    ["keep a label", "x-ray the cache", "a title", "The probe shows the path", "Not yet released"],
+)
 def test_a_real_text_is_no_placeholder(text: str) -> None:
     assert not is_placeholder(text)
+
+
+class _Reply(BaseModel):
+    answer: ReplyText
+
+
+@pytest.mark.parametrize("text", ["x", "probe", "__PROBE__", FILLER_REFUSAL])
+def test_reply_text_refuses_a_placeholder_with_its_error_type(text: str) -> None:
+    with pytest.raises(ModelValidationError) as raised:
+        _Reply(answer=text)
+    assert [error["type"] for error in raised.value.errors()] == [PLACEHOLDER_ERROR_TYPE]
+
+
+@pytest.mark.parametrize("text", ["", "Pydantic covers the schema check."])
+def test_reply_text_keeps_a_blank_text_and_a_real_sentence(text: str) -> None:
+    assert _Reply(answer=text).answer == text
 
 
 # ── The builders ──────────────────────────────────────────────────────────────

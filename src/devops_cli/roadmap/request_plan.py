@@ -818,6 +818,33 @@ def inbox_requests(
     return tuple(reads), ()
 
 
+def repair_requests(
+    repo: str,
+) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
+    """What `devops roadmap repair` reads, in order, and the writes `--confirm` makes after them
+    (#3478). It reads the open issues once and the comments of each item whose record names the
+    next step `ready` or `person`. For a listed item, `--confirm` reads the issue again, then sets
+    the Status Ready or writes the body without the refine section and clears the refine marks.
+    It calls no model."""
+    store = StoreRequests(repo)
+    target = _p("item")
+    each = MESSAGES.roadmap.plan_repeat["item"]
+    reads = [
+        *store.open_items(),
+        *within(store.comments_on(target), repeat=each),
+        *within(store.issue(target), repeat=each),
+    ]
+    writes = within(
+        [
+            *store.set_field(target, field_name="Status"),
+            *store.write_issue_body(target),
+            *store.set_marks(target),
+        ],
+        repeat=each,
+    )
+    return tuple(reads), tuple(writes)
+
+
 def render_dry_run(
     job: str,
     repo: str,

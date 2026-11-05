@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 
 import pytest
@@ -25,8 +26,11 @@ BODY = "Plans #1\n\nThe job keeps every comment it reads.\n\nChange: `openspec/c
 runner = CliRunner()
 
 
-def _plan(repo: StageRepo) -> str:
+def _plan(repo: StageRepo, *, changes: str | None = None) -> str:
     files = render_change(CHANGE, make_stage_proposal(), {"comment-thread"}, created=CREATED)
+    if changes is not None:
+        tasks = f"openspec/changes/{CHANGE}/tasks.md"
+        files[tasks] = re.sub(r"Changes: .*?\.\n", f"Changes: {changes}.\n", files[tasks], count=1)
     repo.git("switch", "-q", "-c", "plan")
     for path, text in files.items():
         (repo.clone / path).parent.mkdir(parents=True, exist_ok=True)
@@ -138,3 +142,31 @@ def test_a_valid_plan_exits_zero_with_no_line(
     result = runner.invoke(app, ["plan-check", str(PULL), "--repo", REPO], catch_exceptions=False)
 
     assert (result.exit_code, result.output) == (0, "")
+
+
+@pytest.mark.usefixtures("openspec_fake")
+@pytest.mark.parametrize(
+    "changes",
+    ["each module that names an old path", f"`openspec/changes/{CHANGE}/proposal.md`"],
+    ids=["3187-no-file", "3308-change-folder"],
+)
+def test_a_plan_that_the_model_refuses_exits_one_with_a_read_problem_and_no_trace(
+    stage_repo: StageRepo,
+    github_api,
+    openspec_fake,
+    monkeypatch: pytest.MonkeyPatch,
+    changes: str,
+) -> None:
+    head = _plan(stage_repo, changes=changes)
+    _routes(github_api, stage_repo, head)
+    openspec_fake.script(("validate", CHANGE, "--strict", "--json"), 0, VALID_REPORT)
+    monkeypatch.chdir(stage_repo.clone)
+
+    result = runner.invoke(
+        app, ["plan-check", str(PULL), "--repo", REPO, "--json"], catch_exceptions=False
+    )
+
+    assert result.exit_code == 1, result.output
+    (problem,) = json.loads(result.output)
+    assert (problem["path"], problem["rule"]) == ("tasks.md", "read")
+    assert "Traceback" not in result.output

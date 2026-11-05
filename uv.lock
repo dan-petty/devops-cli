@@ -775,7 +775,7 @@ wheels = [
 
 [[package]]
 name = "devops-cli"
-version = "0.57.0"
+version = "0.57.1"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -814,6 +814,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-ai", extra = ["spec"] },
     { name = "pydantic-ai-harness", extra = ["coder"] },
+    { name = "pydantic-core" },
     { name = "pydantic-settings" },
     { name = "pynacl" },
     { name = "python-hcl2" },
@@ -917,6 +918,7 @@ requires-dist = [
     { name = "pydantic", specifier = "==2.13.5" },
     { name = "pydantic-ai", extras = ["spec"], specifier = "==2.59.0" },
     { name = "pydantic-ai-harness", extras = ["coder"], specifier = "==0.59.0" },
+    { name = "pydantic-core", specifier = "==2.46.5" },
     { name = "pydantic-settings", specifier = "==2.15.0" },
     { name = "pynacl", specifier = "==1.6.2" },
     { name = "python-hcl2", specifier = "==8.1.4" },

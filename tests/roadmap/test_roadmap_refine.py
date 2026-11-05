@@ -267,7 +267,7 @@ class MockLLMClient:
         )
         self.calls: list[tuple[str, str, Any]] = []
 
-    def chat_structured(self, system: str, prompt: str, schema: type[Any]) -> Any:
+    def chat_structured(self, system: str, prompt: str, schema: type[Any], **_: Any) -> Any:
         self.calls.append((system, prompt, schema))
         if self.fail_with is not None:
             raise self.fail_with
@@ -590,7 +590,7 @@ def test_a_criterion_takes_the_parts_of_an_openspec_requirement_and_refuses_the_
             {**_CRITERION_JSON, "requirement": "The item has a design."}
         )
     with pytest.raises(ValidationError) as no_tool:
-        RefinementProposal.model_validate({"problem_statement": "x"})
+        RefinementProposal.model_validate({"problem_statement": "The item needs a design."})
     keyword = AcceptanceCriterion.model_validate(
         {**_CRITERION_JSON, "requirement": "The tuner MUST read the ledger."}
     )
@@ -1074,7 +1074,7 @@ _READY_PROPOSAL = json.dumps(
 _SCHEMA_MISS = json.dumps(
     {
         "existing_tool": _TOOL,
-        "problem_statement": "x",
+        "problem_statement": "The item needs a design.",
         "acceptance_criteria": ["a plain string"],
         "issue": 1,
         "leaked_model_key": "y",
@@ -1200,7 +1200,7 @@ def test_a_proposal_that_never_fits_the_schema_skips_only_its_item(
     ) == (
         [(first, "StructuredOutputValidationError", 3)],
         [second, third],
-        {first: 3, second: 1, third: 1},
+        {first: 2, second: 1, third: 1},
         [second, third],
         ("Body P1-High", "New"),
         True,
@@ -1653,9 +1653,9 @@ def test_two_replies_that_never_validate_on_the_same_body_settle_the_item(
         after_third,
         [failure.item.number for failure in edited.failed_items],
     ) == (
-        (5, (None, None, _FIRST_BODY_HASH)),
-        (8, (_FIRST_BODY_HASH, None, None)),
-        (8, [], [(first, "edit")]),
+        (4, (None, None, _FIRST_BODY_HASH)),
+        (6, (_FIRST_BODY_HASH, None, None)),
+        (6, [], [(first, "edit")]),
         [first],
     )
 

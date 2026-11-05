@@ -99,8 +99,7 @@ def test_confirm_stages_the_item_and_reports_it(
 
     assert result.exit_code == 0, result.output
     assert (
-        "Staged 1 item(s), stopped 0 on the budget, returned 0 on a false premise, removed 0 "
-        "staged branch(es)." in result.output
+        "Staged 1 item(s), stopped 0 on the budget, removed 0 staged branch(es)." in result.output
     )
     item = roadmap_store.item(1)
     assert item is not None

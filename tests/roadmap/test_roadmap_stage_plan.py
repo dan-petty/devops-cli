@@ -313,33 +313,88 @@ def test_an_issue_that_cites_nothing_has_no_probes_key(
     assert "probes" not in request
 
 
+# The texts of the return comments that the stage job wrote (#3478): filler, and real sentences that
+# state the premise holds. #3109 quotes a probe line, so a check of the quote alone passes it.
+FILLER_PREMISE_FAILED = (
+    "placeholder",
+    "x",
+    "none",
+    "probe",
+    "__PROBE__",
+    "Not yet: I need to inspect the repository first.",
+)
+PREMISE_HOLDS = (
+    "The premise holds. But the plan cannot be written as asked: the staging commit does not hold "
+    'the paths that the design needs. `probes` says "The path `k8s/example/policy.yaml` is not '
+    'listed". The change is one pull request of planning only, so it needs no premise failure.',
+    'probe: "The path `docs/research/example.md` is no file of the staging commit. No commit in '
+    'the history deleted or renamed it." This is a path the issue asks to create, so it is no '
+    "false premise. The premise of the issue holds.",
+    "The premise is not false: `form_problems` is defined at src/devops_cli/roadmap/stage_form.py:85 "
+    "and `title_problems` is imported by a test, so both gates exist and can be tightened.",
+)
+PLAN_KEYS = (
+    "summary",
+    "pull_request_body",
+    "why",
+    "what_changes",
+    "skip_specs",
+    "feasibility",
+    "existing_tool",
+    "groups",
+)
+
+
+@pytest.mark.parametrize("text", [*FILLER_PREMISE_FAILED, *PREMISE_HOLDS])
+def test_the_schema_has_no_premise_failed_key(text: str) -> None:
+    with pytest.raises(ValidationError) as alone:
+        StageProposal.model_validate({"premise_failed": text})
+    with pytest.raises(ValidationError) as beside_a_plan:
+        StageProposal.model_validate(
+            {**make_stage_proposal().model_dump(mode="json"), "premise_failed": text}
+        )
+
+    assert "premise_failed" in str(alone.value)
+    assert [(e["type"], e["loc"]) for e in beside_a_plan.value.errors()] == [
+        ("extra_forbidden", ("premise_failed",))
+    ]
+
+
+def test_a_reply_that_gives_no_key_of_the_plan_fails_the_schema_and_names_each_key() -> None:
+    with pytest.raises(ValidationError) as caught:
+        StageProposal.model_validate({})
+
+    missing = {e["loc"][0] for e in caught.value.errors() if e["type"] == "missing"}
+    assert missing == set(PLAN_KEYS)
+
+
+def test_the_json_schema_of_the_reply_requires_the_keys_of_the_plan() -> None:
+    schema = StageProposal.model_json_schema()
+
+    assert set(PLAN_KEYS) <= set(schema["required"])
+    assert "premise_failed" not in schema["properties"]
+
+
 @pytest.mark.usefixtures("openspec")
-def test_a_reply_that_says_the_premise_is_false_gives_no_plan_and_asks_for_no_second_reply(
-    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+@pytest.mark.parametrize("text", [*FILLER_PREMISE_FAILED, *PREMISE_HOLDS])
+def test_a_reply_with_premise_failed_returns_no_item_and_writes_nothing(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    text: str,
 ) -> None:
-    evidence = "`gone_function` was removed.\nSee @someone and https://example.org/x."
-    model_fake.answer(StageProposal.model_validate({"premise_failed": evidence}))
+    model_fake.answer(json.dumps({"premise_failed": text}))
+    before = store.item(item)
 
-    plan = _plan(store, stage_repo)
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
 
-    (returned,) = plan.returned
-    assert (plan.ready, plan.over_budget, model_fake.call_count) == ((), (), 1)
-    assert returned.target.item.number == item
-    assert "\n" not in returned.evidence
-    assert "`@someone`" in returned.evidence
-
-
-def test_a_blank_premise_failed_is_no_failure() -> None:
-    proposal = StageProposal.model_validate(
-        {**make_stage_proposal().model_dump(mode="json"), "premise_failed": "  "}
-    )
-
-    assert proposal.premise_failed is None
-
-
-def test_a_reply_with_no_plan_and_no_premise_failed_fails_the_schema() -> None:
-    with pytest.raises(ValidationError, match="A reply needs `groups`"):
-        StageProposal.model_validate({"premise_failed": None})
+    (failure,) = plan.failed
+    assert (plan.ready, plan.over_budget, len(model_fake.sent)) == ((), (), 2)
+    assert (failure.number, failure.error) == (item, "StructuredOutputValidationError")
+    assert store.item(item) == before
+    assert store.comments_on(item) == []
+    assert store.job_writes() == []
 
 
 @pytest.mark.usefixtures("openspec")
@@ -1158,6 +1213,39 @@ def test_a_note_of_openspec_on_a_valid_change_goes_back_to_the_model_once(
     assert model_fake.call_count == 2
 
 
+def test_the_note_that_a_change_sets_skip_specs_is_no_problem(
+    stage_repo: StageRepo, openspec_fake: OpenSpecFake
+) -> None:
+    note = (
+        "skip_specs is set in .openspec.yaml: change declares no spec-level behavior changes, "
+        "zero deltas accepted"
+    )
+    openspec_fake.script(VALIDATE, 0, validation_report(("INFO", note)))
+
+    with isolated_openspec() as tool:
+        problem = validate_change(tool, stage_repo.clone, CHANGE, {})
+
+    assert problem is None
+
+
+def test_another_note_of_openspec_stays_a_problem_next_to_the_skip_specs_note(
+    stage_repo: StageRepo, openspec_fake: OpenSpecFake
+) -> None:
+    refusal = "Archive would refuse this delta"
+    note = (
+        "skip_specs is set in .openspec.yaml: change declares no spec-level behavior changes, "
+        "zero deltas accepted"
+    )
+    openspec_fake.script(VALIDATE, 0, validation_report(("INFO", note), ("INFO", refusal)))
+
+    with isolated_openspec() as tool:
+        problem = validate_change(tool, stage_repo.clone, CHANGE, {})
+
+    assert problem is not None
+    assert refusal in problem
+    assert "skip_specs" not in problem
+
+
 def test_a_validation_that_times_out_fails_its_item_and_the_others_are_planned(
     store: InMemoryRoadmapStore,
     item: int,
@@ -1225,6 +1313,17 @@ def test_the_files_of_a_plan_pass_openspec_validate(tmp_path: Path) -> None:
         run = tool.run(["validate", "1-the-job-drops-a-comment", "--strict"], tmp_path)
 
     assert (run.returncode, run.stderr) == (0, "")
+
+
+@pytest.mark.live("openspec")
+def test_the_pinned_openspec_gives_no_problem_for_a_skip_specs_change(tmp_path: Path) -> None:
+    proposal = make_stage_proposal(skip_specs=True, specs=[])
+    files = render_change(CHANGE, proposal, [], created=TODAY.date())
+
+    with isolated_openspec() as tool:
+        problem = validate_change(tool, tmp_path, CHANGE, files)
+
+    assert problem is None
 
 
 @pytest.mark.live("openspec")

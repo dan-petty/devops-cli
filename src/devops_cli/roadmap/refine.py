@@ -67,6 +67,10 @@ body changes. A reply about an item that never validated (`StructuredOutputValid
 `ReplyRejectedError`) records the body's hash as failed, and a second one on the same body settles
 the item the same way. A failure that says nothing about the item, such as a timeout, records
 nothing (#1526).
+Each free-text field of the reply is a `ReplyText`, so a placeholder such as `x` fails the schema.
+The proposal call returns such a reply to the model once. A second one is a placeholder failure:
+refine logs the skip and writes nothing for the item, and the round does not fail for it, so
+`FailureLedger` never suspends the refine row for it (#3478).
 """
 
 from __future__ import annotations
@@ -145,6 +149,7 @@ from devops_cli.roadmap.intake import (
     plan_intake,
 )
 from devops_cli.roadmap.intake_model import IntakeModel, build_intake_model
+from devops_cli.roadmap.pull_form import PLACEHOLDER_ERROR_TYPE, ReplyText
 from devops_cli.roadmap.refine_investigation import (
     InvestigationStopped,
     InvestigationTools,
@@ -181,11 +186,11 @@ class AcceptanceCriterion(BaseModel):
     it is."""
 
     model_config = ConfigDict(extra="forbid")
-    name: str
-    requirement: str
-    scenario: str
-    when: str
-    then: str
+    name: ReplyText
+    requirement: ReplyText
+    scenario: ReplyText
+    when: ReplyText
+    then: ReplyText
 
     @field_validator("requirement")
     @classmethod
@@ -199,9 +204,9 @@ class DesignOption(BaseModel):
     """One option a decision compared, and why it was chosen or rejected (#2398)."""
 
     model_config = ConfigDict(extra="forbid")
-    option: str
+    option: ReplyText
     chosen: bool = False
-    reason: str
+    reason: ReplyText
 
 
 class QuestionAnswer(BaseModel):
@@ -209,8 +214,8 @@ class QuestionAnswer(BaseModel):
     a person makes; `body_question` is the number of the body's key question it answers (#2398)."""
 
     model_config = ConfigDict(extra="forbid")
-    question: str
-    answer: str
+    question: ReplyText
+    answer: ReplyText
     kind: Literal["fact", "decision", "person"]
     sources: list[str] = Field(default_factory=list)
     options: list[DesignOption] = Field(default_factory=list)
@@ -220,6 +225,9 @@ class QuestionAnswer(BaseModel):
 # The most parts that one proposal moves to new issues (#2423): intake makes one embedding call and
 # one proposal call for each part.
 _MAX_DEFERRED_PARTS: Final[int] = 3
+# How many times the proposal call sends a reply back to the model: one return, as the stage job
+# does. A reply with a placeholder text is sent back with the schema report (#3478).
+_REPLY_RETURNS: Final[int] = 1
 
 
 class DeferredPart(BaseModel):
@@ -228,18 +236,20 @@ class DeferredPart(BaseModel):
     rest of the item can reach Ready (#2423)."""
 
     model_config = ConfigDict(extra="forbid")
-    title: str = Field(min_length=1)
-    body: str = Field(min_length=1)
+    title: ReplyText = Field(min_length=1)
+    body: ReplyText = Field(min_length=1)
 
 
 class RefinementProposal(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    problem_statement: str
+    problem_statement: ReplyText
     acceptance_criteria: list[AcceptanceCriterion] = Field(default_factory=list)
-    existing_tool: str
+    existing_tool: ReplyText
     key_questions: list[QuestionAnswer] = Field(default_factory=list)
     fits_one_pr: bool = True
-    split_offs: list[str] = Field(default_factory=list)
+    split_offs: list[ReplyText] = Field(default_factory=list)
+    # `none` is a value of the text that CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS holds, so it is no
+    # placeholder.
     suspected_block: str | None = None
     dependencies: list[int] = Field(default_factory=list)
     block_paths: list[str] = Field(default_factory=list)
@@ -334,22 +344,32 @@ class RefineFailure:
     `item_caused` is set when the model answered about the item and no answer validated, which
     the item's own text brings again, so apply records it (#1526). A timeout or a dropped stream
     says nothing about the item.
+
+    `placeholder` is set when each violation of the last reply is a placeholder text (#3478). That
+    is a fault of the model, not of the item: apply records nothing for it, and the round does not
+    fail for it (`raise_for_failed_items`).
     """
 
     item: Item
     error: str
     violations: int = 0
     item_caused: bool = False
+    placeholder: bool = False
 
     @classmethod
     def of(cls, item: Item, exc: AIClientError) -> RefineFailure:
         """The failure `exc` made of `item`'s model call."""
         violations = exc.violations if isinstance(exc, StructuredOutputValidationError) else 0
+        placeholder = isinstance(exc, StructuredOutputValidationError) and exc.error_types == (
+            PLACEHOLDER_ERROR_TYPE,
+        )
         return cls(
             item=item,
             error=type(exc).__name__,
             violations=violations,
-            item_caused=isinstance(exc, StructuredOutputValidationError | ReplyRejectedError),
+            item_caused=not placeholder
+            and isinstance(exc, StructuredOutputValidationError | ReplyRejectedError),
+            placeholder=placeholder,
         )
 
 
@@ -1844,6 +1864,7 @@ def refine_one_item(
         _prompt("roadmap_refine_proposal.md"),
         json.dumps(request, ensure_ascii=False, indent=1),
         RefinementProposal,
+        max_retries=_REPLY_RETURNS,
     )
 
     # Step 3: Validation, and the investigation of what stays open (#2398)
@@ -2176,18 +2197,22 @@ def raise_for_failed_items(plan: RefinePlan, readied_count: int = 0) -> None:
     The error names each skipped item with its error's class and schema violation count. It is
     raised outside the handler that caught the model's error and is not chained to it, so a
     logged traceback holds no reply text.
+
+    A placeholder failure (`RefineFailure.placeholder`) fails no round: the warning of the skipped
+    item is its record, and a ledger that counts failed rounds counts none (#3478).
     """
-    if not plan.failed_items:
+    failed = [failure for failure in plan.failed_items if not failure.placeholder]
+    if not failed:
         return
     items = ", ".join(
         MESSAGES.roadmap.refine_failed_item.format(
             number=failure.item.number, error=failure.error, violations=failure.violations
         )
-        for failure in plan.failed_items
+        for failure in failed
     )
     raise RoadmapRefineError(
-        MESSAGES.roadmap.refine_failed.format(count=len(plan.failed_items), items=items),
-        failed_items=[failure.item.number for failure in plan.failed_items],
+        MESSAGES.roadmap.refine_failed.format(count=len(failed), items=items),
+        failed_items=[failure.item.number for failure in failed],
         readied_count=readied_count,
     )
 

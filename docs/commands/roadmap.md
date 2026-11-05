@@ -232,6 +232,24 @@ devops roadmap inbox [OPTIONS]
 
 ---
 
+## `devops roadmap repair`
+
+**Find the items that a placeholder reply of a model stalled. A returned item goes back to Ready. A stub refine item loses its stub section and its refine block. An item that a person set or answered stays as it is. This command reads GitHub and calls no model. It writes only with --confirm. Details: docs/roadmap/repair.md.**
+
+```bash
+devops roadmap repair [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--dry-run` | `boolean` | - | Make no request: print the requests that a run makes, in order, with placeholders. |
+| `--confirm` | `boolean` | - | Make the writes to GitHub: set the Status of a returned item to Ready, and strip the section and clear the refine block of a stub item. |
+
+---
+
 ## `devops roadmap return`
 
 **Return an item to New with an evidence comment, handing it back to refinement when it cannot be built as specified or needs a refactor beyond its scope. The item gets the label status/new in place of its other status/* label.**

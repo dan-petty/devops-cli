@@ -3039,15 +3039,6 @@ class RoadmapMessages:
     stage_probe_touched: str = "Commit {commit} last added or removed its text."
     stage_probe_name_never: str = "No commit in the history added or removed its text."
     stage_probe_skipped: str = "Not probed, the bound of {bound} commands is reached: {items}"
-    stage_comment_premise_failed: str = (
-        "{marker}\nThe stage job returned the item to New. The premise of the issue does not "
-        "hold at the staging commit, so the job planned no change and opened no pull request.\n\n"
-        "Evidence:\n\n{evidence}"
-    )
-    stage_heading_returned: str = "## Returned: the premise is false"
-    stage_returned_line: str = "- #{number} {title}: {evidence}"
-    stage_premise_plan_missing: str = "A reply needs `{field}` unless it sets `premise_failed`."
-    stage_eval_returned: str = "The reply says that the premise of the issue is false."
     stage_kept_reason: str = (
         "The branch holds {count} commit(s) by another author past the default branch, so the "
         "job keeps the branch and its draft."
@@ -3074,8 +3065,8 @@ class RoadmapMessages:
     stage_removal_gone: str = " is gone, and the job clears the record"
     stage_kept_line: str = "- #{number}: `{branch}`: {reason}"
     stage_applied: str = (
-        "Staged {staged} item(s), stopped {stopped} on the budget, returned {returned} on a "
-        "false premise, removed {removed} staged branch(es)."
+        "Staged {staged} item(s), stopped {stopped} on the budget, removed {removed} staged "
+        "branch(es)."
     )
     stage_failed: str = "the stage job failed for {count} item(s): {items}"
     stage_failed_item: str = "#{number} ({error}{reason})"
@@ -3216,6 +3207,8 @@ class RoadmapMessages:
     stage_problem_text_placeholder: str = (
         "The text of {field} is the placeholder `{text}`. Write the real text."
     )
+    # A free-text field of a model reply that holds a placeholder (#3478).
+    reply_placeholder: str = "The text is a placeholder. Write the real text."
     stage_problem_no_quote: str = (
         "The feasibility list quotes no line of the probes, word for word. Quote at least one "
         "line of the probes in feasibility."
@@ -3406,6 +3399,10 @@ class RoadmapMessages:
     plan_read_bad_proposal: str = "`proposal.md` has no `## Why` section."
     plan_read_bad_tasks: str = "`tasks.md` holds a group with no `Reads: ... Changes: ...` line."
     plan_read_bad_task: str = "`tasks.md` holds a task that the reader cannot read: {text}"
+    plan_read_bad_group: str = "Group `{title}` breaks a rule of the plan: {reason}"
+    plan_read_bad_verification: str = (
+        "Group {group} names the verification `{command}`, and the step cannot run it: {reason}."
+    )
     plan_read_bad_criterion: str = (
         "`tasks.md` holds a criterion that the reader cannot read: {text}"
     )
@@ -3638,6 +3635,12 @@ class RoadmapMessages:
             "implement_group": "for each task group that has an unticked task",
         }
     )
+    # `devops roadmap repair` (#3478).
+    repair_title: str = "# Repair for {repo}"
+    repair_line: str = "- #{number} {title}: {cause}"
+    repair_nothing: str = "No item is stalled by a placeholder reply."
+    repair_done: str = "Set back {count} item(s)."
+    repair_failed: str = "the repair pass failed for {count} item(s): {items}"
     # `devops roadmap intake` (#742).
     intake_title: str = "# Intake for {repo}"
     intake_nothing: str = "No candidates."

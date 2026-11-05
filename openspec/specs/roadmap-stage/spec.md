@@ -169,11 +169,19 @@ When the `openspec` binary is on `PATH`, the job SHALL run `openspec validate <c
 - **THEN** the job stages the item and its comment says that the validation did not run
 
 ### Requirement: The validation judges the change against the base specs
-The job SHALL run the validation in a scratch directory that also holds the base spec of each capability the change has a delta for. Any issue in the report of OpenSpec SHALL count as a problem and SHALL go back to the model once with the text of the issues. This holds also for an issue that OpenSpec gives for a valid change, such as a delta that `openspec archive` would refuse.
+The job SHALL run the validation in a scratch directory that also holds the base spec of each capability the change has a delta for. Any issue in the report of OpenSpec SHALL count as a problem and SHALL go back to the model once with its text, even for a valid change, such as a delta that `openspec archive` would refuse. The one exception is the INFO note that a change sets `skip_specs`.
 
 #### Scenario: A MODIFIED requirement that the base spec lacks
 - **WHEN** the plan modifies a requirement whose name is not in the base spec of an existing capability
 - **THEN** the validation reports the refusal and the model gets it as the problem to correct
+
+#### Scenario: A change that sets skip_specs
+- **WHEN** OpenSpec reports only the INFO message that `skip_specs` is set
+- **THEN** the validation gives no problem
+
+#### Scenario: Another issue next to the skip_specs message
+- **WHEN** OpenSpec reports the `skip_specs` message and a second INFO issue
+- **THEN** the validation gives a problem that holds the second issue and not the `skip_specs` message
 
 ### Requirement: A failure stops one item and never hides the others
 A model call that fails SHALL skip its item. The job SHALL stage the other items and record each skipped item in its job record. The command SHALL exit 1 and name each skipped item. Rejected credentials SHALL stop the run. A validation error, such as a timeout, SHALL skip its item the same way. A push that GitHub refuses SHALL stop its item with the reason and leave no remote branch without an open pull request. An item whose text looks like a secret SHALL be left out before the model reads it.
@@ -224,7 +232,7 @@ In each run the job SHALL look at the staged branch of each closed item whose re
 - **THEN** it exits 0, the GitHub fake and the model fake record no request, and the output lists the reads, the git commands and the writes
 
 ### Requirement: The Service runs the stage job on the model lane
-The model lane of the Service SHALL hold the row `stage` after the row `refine`. The row SHALL be due by its interval of 60 minutes, on its first run, and in a round where `refine` set an item Ready. The row SHALL run the stage job in the model clone of the lane and write what its plan holds. The row SHALL fail the round only when the round tried items and staged, stopped or returned none, and for a failure that no item explains. `devops roadmap run --dry-run` SHALL list the row when it is due.
+The model lane of the Service SHALL hold the row `stage` after the row `refine`. The row SHALL be due by its interval of 60 minutes, on its first run, and in a round where `refine` set an item Ready. The row SHALL run the stage job in the model clone of the lane and write what its plan holds. The row SHALL fail the round only when the round tried items and staged or stopped none, and for a failure that no item explains. `devops roadmap run --dry-run` SHALL list the row when it is due.
 
 #### Scenario: The first run
 - **WHEN** a repository has no record of a `stage` round
@@ -286,15 +294,15 @@ A filter entry SHALL be `family=value` over a label family of the stage job. The
 - **THEN** the plan holds the Ready bugs, at most 2
 
 ### Requirement: Each item of a stage round counts once by its result
-A stage round, whether the Service or the command runs it, SHALL add 1 to `devops_cli_roadmap_stage_total` for each item it handled, with the label `result`: `staged` for an item written as a branch and a draft, `needs_split` for an item stopped on a group over the budget, `returned` for an item returned to New on a false premise, `failed` for an item that failed in the plan or in the writes, and `skipped` for an item the job left out with a reason. An item SHALL count under one result.
+A stage round, whether the Service or the command runs it, SHALL add 1 to `devops_cli_roadmap_stage_total` for each item it handled, with the label `result`: `staged` for an item written as a branch and a draft, `needs_split` for an item stopped on a group over the budget, `failed` for an item that failed in the plan or in the writes, and `skipped` for an item the job left out with a reason. An item SHALL count under one result.
 
 #### Scenario: Four results in one round
 - **WHEN** a round stages one item, stops one on the budget, fails one in the model call, and leaves one out for an open dependency
 - **THEN** the counter has one point each for `staged`, `needs_split`, `failed` and `skipped`
 
 #### Scenario: A returned item
-- **WHEN** a round returns one item to New on a false premise, besides the four items above
-- **THEN** the counter also has one point for `returned`, and each item counts under one result
+- **WHEN** a round plans one item and the model answers with the key `premise_failed` twice
+- **THEN** the item counts as `failed`, and the counter has no point for `returned`
 
 #### Scenario: A plan with no write
 - **WHEN** `devops roadmap stage --plan` runs
@@ -963,27 +971,12 @@ The probes of one item SHALL run at most 10 git commands. When the issue cites m
 - **WHEN** the probe runs for an issue that cites a missing path, a missing identifier and a present path
 - **THEN** every command it ran is `cat-file`, `grep` or `log`, and `git status --porcelain` of the checkout is empty
 
-### Requirement: A false premise returns the item
-When the model reply sets `premise_failed` with evidence, the stage job SHALL comment the evidence on the issue and set its Status to New, as `devops roadmap return` does, and SHALL make no branch and no pull request for the item. The job SHALL ask for no plan from such a reply.
-
-#### Scenario: Replay of #2971
-- **WHEN** the job plans an issue that cites `validate_url`, which a commit removed, and the model replies with `premise_failed` and the evidence
-- **THEN** the issue gets the evidence as a comment and the Status New, and the repository gets no branch and no pull request
-
-#### Scenario: A plan with a true premise
-- **WHEN** the model reply sets no `premise_failed`
-- **THEN** the job stages the change as before
-
-#### Scenario: A reply with no plan and no premise_failed
-- **WHEN** the model reply sets no `premise_failed` and holds no groups
-- **THEN** the reply fails the schema and goes back to the model once
-
 ### Requirement: The prompt asks feasibility to quote the probes
-The prompt of the stage job SHALL tell the model that `probes` holds the result of read-only commands at the staging commit, SHALL ask `feasibility` to quote the lines of `probes` that confirm the premise, and SHALL tell the model to set `premise_failed` only when the probes or the inputs show that the premise of the issue is false.
+The prompt of the stage job SHALL tell the model that `probes` holds the result of read-only commands at the staging commit, SHALL ask `feasibility` to quote the lines of `probes` that confirm the premise, and SHALL tell the model that the reply has no key to report a false premise: when the issue cannot be built as written, `feasibility` says so with the evidence and the plan holds no code that compensates for it.
 
 #### Scenario: The prompt names the probes
 - **WHEN** the stage prompt loads
-- **THEN** it names `probes` and `premise_failed`, and asks `feasibility` to quote the probes
+- **THEN** it names `probes`, asks `feasibility` to quote the probes, and does not name `premise_failed` as a key to set
 
 ### Requirement: The setting toolset chooses the tools of a plan run
 The setting `roadmap.stage.toolset` SHALL be `base` or `extended`, with the variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET`. The default SHALL be `extended`. The settings SHALL refuse any other value and name it. The example ConfigMap of the Service SHALL set the key. The toolset `base` SHALL have no GitHub tool and SHALL need no GitHub client.
@@ -1711,6 +1704,13 @@ When the count of open Planned items is at `roadmap.stage.planned_limit` or over
 - **WHEN** 1 item is Planned, the setting is 1, and `devops roadmap stage --plan` runs with Ready items
 - **THEN** the plan holds no branch, makes no model call, and lists each Ready item as left out with the reason of the limit
 
+### Requirement: The stage prompt names a sample file by a bare name
+The stage prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` SHALL tell the planner to write a sample file that a test writes at run time, and that no group creates, as a bare name with no folder.
+
+#### Scenario: The prompt holds the bare-name rule
+- **WHEN** a test reads `src/devops_cli/ai/tasks/roadmap_stage_change.md`
+- **THEN** the text names `test_sample.py` as a bare name and says that a name with a folder is read as a path of the repository
+
 ### Requirement: A failed item is recorded in its job record
 When the plan or a write of an item fails, the job SHALL record the time (`stage.failed_at`) and the class of the error (`stage.failed_error`) in the job record of the item. A run that stages the item or stops it on the budget SHALL clear both keys.
 
@@ -1738,7 +1738,7 @@ The job SHALL leave an item out of the selection until `roadmap.stage.retry_hour
 - **THEN** the job takes the item
 
 ### Requirement: The row fails only when no item was handled
-The stage row SHALL fail a round with the items that failed only when the round tried at least one item and staged, stopped on the budget or returned none of them. A round in which one item failed and another was handled SHALL succeed. A round that tried no item SHALL succeed. An error that belongs to no item, such as a failed read of the repository, SHALL fail the round.
+The stage row SHALL fail a round with the items that failed only when the round tried at least one item and staged or stopped on the budget none of them. A round in which one item failed and another was handled SHALL succeed. A round that tried no item SHALL succeed. An error that belongs to no item, such as a failed read of the repository, SHALL fail the round.
 
 #### Scenario: One item fails and another stages
 - **WHEN** three rounds each fail the plan of one item and stage another item
@@ -1751,3 +1751,41 @@ The stage row SHALL fail a round with the items that failed only when the round 
 #### Scenario: A failure outside any item
 - **WHEN** three rounds each fail with an error that belongs to no item
 - **THEN** each round fails and the row is suspended
+
+### Requirement: The stage reply has no return path
+The reply schema of the stage job SHALL hold no key `premise_failed`, and SHALL require the keys `summary`, `pull_request_body`, `why`, `what_changes`, `skip_specs`, `feasibility`, `existing_tool` and `groups`. A reply that breaks the schema SHALL go back to the model once, and a second such reply SHALL fail the item with no change to its Status and no comment. The job SHALL have no outcome that returns an item to New.
+
+#### Scenario: A reply with only premise_failed
+- **WHEN** a reply is `{"premise_failed": "x"}`
+- **THEN** the schema refuses it and names the key `premise_failed` as unknown
+
+#### Scenario: A filler value of premise_failed
+- **WHEN** a reply sets `premise_failed` to each of `placeholder`, `x`, `none`, `probe`, `__PROBE__` and "Not yet: I need to inspect the repository first." and holds a valid plan
+- **THEN** the schema refuses each reply, and the job does not return the item
+
+#### Scenario: A premise text that states the premise holds
+- **WHEN** a reply sets `premise_failed` to the text of #3193, #3109 or #3255, and #3109 quotes a probe line
+- **THEN** the schema refuses each reply, and the job does not return the item
+
+#### Scenario: A reply with no plan
+- **WHEN** a reply is `{}`
+- **THEN** the schema refuses it and names each missing key
+
+#### Scenario: The job returns no item
+- **WHEN** the job plans an item and the model answers with a refused reply twice
+- **THEN** the item fails, its Status is unchanged, and the job writes no comment on it
+
+### Requirement: A placeholder text is one rule
+`is_placeholder` SHALL be true for the texts `x`, `y`, `probe`, `placeholder` and `none`, for `__PROBE__`, and for a text that starts with "Not yet:", with no case and no punctuation around the text. `ReplyText` SHALL apply that rule as a validator and SHALL raise the error type `placeholder_text`.
+
+#### Scenario: The filler words
+- **WHEN** `is_placeholder` reads `x`, `y`, `probe`, `__PROBE__`, `placeholder` and `none`
+- **THEN** it is true for each
+
+#### Scenario: The refusal of a task
+- **WHEN** `is_placeholder` reads "Not yet: I need to inspect the repository first."
+- **THEN** it is true
+
+#### Scenario: A real text
+- **WHEN** `is_placeholder` reads "The probe shows the path" and "x-ray the cache"
+- **THEN** it is false for both
