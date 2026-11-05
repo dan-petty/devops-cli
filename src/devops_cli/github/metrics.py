@@ -17,7 +17,7 @@ import logging
 import re
 import subprocess
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -27,14 +27,26 @@ if TYPE_CHECKING:
 from pydantic import BaseModel, Field
 
 from devops_cli.config.commands import BIN_GIT
-from devops_cli.config.constants import CONST_ROADMAP_TYPE_LABEL_PREFIX
+from devops_cli.config.constants import (
+    CONST_ROADMAP_STATUS_VALUES,
+    CONST_ROADMAP_TYPE_LABEL_PREFIX,
+)
 from devops_cli.core.process import acts_as_github_app, run_subprocess
 from devops_cli.core.repo import find_worktree_root, get_repo_origin_name
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.client import GhCliClient, parse_paginated_json
 from devops_cli.github.error_classifier import is_gh_refused_by_token
 from devops_cli.roadmap import store as roadmap_store
-from devops_cli.roadmap.store import GitHubState, RoadmapStore
+from devops_cli.roadmap.store import (
+    Change,
+    ChangeKind,
+    GitHubState,
+    Item,
+    ItemField,
+    RoadmapStore,
+    StageRecordKey,
+    field_label,
+)
 from devops_cli.telemetry.instruments import (
     PROJECT_CI_RUNS,
     PROJECT_COMMITS,
@@ -51,6 +63,9 @@ from devops_cli.telemetry.instruments import (
     PROJECT_TRAFFIC_REFERRERS,
     PROJECT_TRAFFIC_VIEWS,
     PROJECT_TRAFFIC_VIEWS_UNIQUES,
+    ROADMAP_CLAIM_AGE,
+    ROADMAP_ITEM_AGE,
+    ROADMAP_OLDEST_ITEM,
     emit,
 )
 
@@ -157,6 +172,18 @@ class TrafficSummaryMetric(BaseModel):
     paths: list[TrafficPathMetric] = Field(default_factory=list)
 
 
+class ItemAgeMetric(BaseModel):
+    """The age of the oldest open roadmap Item in one pair of a status and a plan flag (#2919).
+
+    `number` is the issue of that Item. A pair with no Item has the number 0 and the age 0.
+    """
+
+    state: str
+    plan: bool = False
+    number: int = 0
+    age_seconds: float = 0.0
+
+
 class ProjectMetricsReport(BaseModel):
     """Consolidated project engineering metrics report."""
 
@@ -170,6 +197,10 @@ class ProjectMetricsReport(BaseModel):
     items: list[ItemCountMetric] = Field(default_factory=list)
     taxonomy_labels: list[LabelTaxonomyMetric] = Field(default_factory=list)
     traffic: TrafficSummaryMetric = Field(default_factory=TrafficSummaryMetric)
+    # The age of the oldest Item of each pair. Empty when the report did not read the label events.
+    item_ages: list[ItemAgeMetric] = Field(default_factory=list)
+    # The age of the oldest claim, or None when the report did not read the label events.
+    claim_age_seconds: float | None = None
 
 
 def parse_tag_datetime(date_str: str) -> datetime.datetime:
@@ -444,6 +475,150 @@ def get_item_metrics(
     ]
 
 
+_LabelTimes = dict[str, datetime.datetime]
+"""The time each label of an Item was set, by label name."""
+_item_label_times: dict[tuple[str, int], tuple[tuple[str | None, str | None], _LabelTimes]] = {}
+"""The label times of each open Item, by repository and number, with the status and owner values
+the times were read for. A round reads an Item again only when one of those values changes
+(#2919)."""
+
+
+def reset_item_age_cache() -> None:
+    """Forget the label times, as a new process has read none (#2919)."""
+    _item_label_times.clear()
+
+
+def _utc_now() -> datetime.datetime:
+    return datetime.datetime.now(datetime.UTC)
+
+
+def _labeled_since(changes: Iterable[Change]) -> _LabelTimes:
+    """The time each label was set last: its last labeled change, unless an unlabeled change of
+    the same label followed it (#2919)."""
+    since: _LabelTimes = {}
+    for change in changes:
+        if change.label is None:
+            continue
+        if change.kind is ChangeKind.LABELED:
+            since[change.label] = change.at
+        elif change.kind is ChangeKind.UNLABELED:
+            since.pop(change.label, None)
+    return since
+
+
+def _label_times(store: RoadmapStore, repo: str, items: list[Item]) -> dict[int, _LabelTimes]:
+    """The label times of each Item of `items`. The store is read for an Item whose status or owner
+    value differs from the one the cache holds, and the cache then keeps this round's Items only,
+    so a closed Item leaves it (#2919)."""
+    fresh: dict[tuple[str, int], tuple[tuple[str | None, str | None], _LabelTimes]] = {}
+    for item in items:
+        key = (repo, item.number)
+        values = (item.status, item.owner)
+        held = _item_label_times.get(key)
+        if held is not None and held[0] == values:
+            times = held[1]
+        else:
+            times = _labeled_since(store.label_changes(item.number))
+        fresh[key] = (values, times)
+    _item_label_times.clear()
+    _item_label_times.update(fresh)
+    return {item.number: fresh[(repo, item.number)][1] for item in items}
+
+
+def _state_label(status: str) -> str:
+    """The `state` label of a status: its value in lower case, with a hyphen for a space."""
+    return status.lower().replace(" ", "-")
+
+
+def _age_seconds(now: datetime.datetime, since: datetime.datetime) -> float:
+    return max(0.0, (now - since).total_seconds())
+
+
+def _labeled_at(item: Item, label: str, times: _LabelTimes) -> datetime.datetime | None:
+    """When `label` was set on `item`, or None with a warning when its history holds no labeled
+    event: that item then has no age this round (#2919)."""
+    since = times.get(label)
+    if since is None:
+        logger.warning(
+            "No labeled event of %s on #%d; no age is sent for it this round.", label, item.number
+        )
+    return since
+
+
+def _pair_age(
+    status: str,
+    plan: bool,
+    found: tuple[datetime.datetime, int] | None,
+    now: datetime.datetime,
+) -> ItemAgeMetric:
+    """The age point of one pair: its oldest Item, or 0 and 0 when no Item is in it."""
+    state = _state_label(status)
+    if found is None:
+        return ItemAgeMetric(state=state, plan=plan)
+    since, number = found
+    return ItemAgeMetric(
+        state=state, plan=plan, number=number, age_seconds=_age_seconds(now, since)
+    )
+
+
+def get_item_age_metrics(
+    store: RoadmapStore, repo: str, clock: Callable[[], datetime.datetime]
+) -> tuple[list[ItemAgeMetric], float]:
+    """The age of the oldest open roadmap Item in each pair of a status and a plan flag, with its
+    number, and the age of the oldest claim, both at the time `clock` gives (#2919).
+
+    The age of an Item is the clock minus the time its status label was set. The store gives that
+    time through `label_changes`, so a label that a person removed and added again counts from the
+    second event. The plan flag is true when the job record holds the stage pull request. Raises
+    when the label events of an Item cannot be read.
+    """
+    now = clock()
+    items = [
+        item
+        for item in store.items()
+        if item.state is GitHubState.OPEN and (item.status is not None or item.owner is not None)
+    ]
+    times = _label_times(store, repo, items)
+    oldest: dict[tuple[str, bool], tuple[datetime.datetime, int]] = {}
+    claims: list[datetime.datetime] = []
+    for item in items:
+        plan = bool(item.job_record.get(StageRecordKey.PR))
+        if item.status is not None:
+            since = _labeled_at(
+                item, field_label(ItemField.STATUS, item.status), times[item.number]
+            )
+            if since is not None:
+                pair = (_state_label(item.status), plan)
+                oldest[pair] = min(oldest.get(pair, (since, item.number)), (since, item.number))
+        if item.owner is not None:
+            since = _labeled_at(item, field_label(ItemField.OWNER, item.owner), times[item.number])
+            if since is not None:
+                claims.append(since)
+    item_ages = [
+        _pair_age(status, plan, oldest.get((_state_label(status), plan)), now)
+        for status in CONST_ROADMAP_STATUS_VALUES
+        for plan in (True, False)
+    ]
+    claim_age = max((_age_seconds(now, since) for since in claims), default=0.0)
+    return item_ages, claim_age
+
+
+def _read_item_ages(
+    store: RoadmapStore, repo: str, clock: Callable[[], datetime.datetime]
+) -> tuple[list[ItemAgeMetric], float | None]:
+    """The item ages of one round. A failed read of the label events logs a warning and sends no
+    age this round, and the other sections of the report stay (#2919)."""
+    try:
+        return get_item_age_metrics(store, repo, clock)
+    except GitHubOperationError as exc:
+        logger.warning(
+            "No item age is sent for %s this round, because its label events could not be read: %s",
+            repo,
+            exc,
+        )
+        return [], None
+
+
 def get_label_taxonomy_metrics(repo: str) -> list[LabelTaxonomyMetric]:
     """Count open issues categorized by taxonomy label prefixes."""
     client = GhCliClient()
@@ -631,12 +806,18 @@ def collect_project_metrics_report(
     ci_limit: int = 50,
     milestone_filter: str | None = None,
     store: RoadmapStore | None = None,
+    item_ages: bool = False,
+    clock: Callable[[], datetime.datetime] = _utc_now,
 ) -> ProjectMetricsReport:
     """Aggregate complete project metrics across releases, CI checks, milestones, and the
     roadmap's Items.
 
     The Items are read through `store`, the roadmap store of the job; without one, through the
     roadmap store of the repository. Issues that cannot be read raise.
+
+    With `item_ages`, the report also holds the age of the oldest Item of each state and of the
+    oldest claim, at the time `clock` gives. That reads the label events of each open Item whose
+    status or owner changed, so only the metrics row of the Service asks for it (#2919).
 
     The releases are the `v*` tags of the git repository at `root`, taken as it is, so a clone
     nested in another checkout, as the roadmap jobs keep under the data directory, reports its
@@ -656,6 +837,7 @@ def collect_project_metrics_report(
     milestones = get_milestone_metrics(target_repo, milestone_filter=milestone_filter)
     taxonomy_labels = get_label_taxonomy_metrics(target_repo)
     traffic = get_repository_traffic_metrics(target_repo)
+    ages, claim_age = _read_item_ages(roadmap, target_repo, clock) if item_ages else ([], None)
 
     interval_sum = sum(r.days_since_prev for r in releases if r.days_since_prev > 0)
     interval_count = sum(1 for r in releases if r.days_since_prev > 0)
@@ -672,6 +854,8 @@ def collect_project_metrics_report(
         items=items,
         taxonomy_labels=taxonomy_labels,
         traffic=traffic,
+        item_ages=ages,
+        claim_age_seconds=claim_age,
     )
 
 
@@ -748,6 +932,18 @@ def _emit_traffic(traffic: TrafficSummaryMetric) -> None:
         emit(PROJECT_TRAFFIC_PATHS, float(p.count), {"path": p.path})
 
 
+def _emit_item_ages(report: ProjectMetricsReport) -> None:
+    """Send the age and the number of the oldest Item of each pair, and the age of the oldest
+    claim (#2919). A report that read no label events sends none, so a panel shows no data and
+    not 0."""
+    for age in report.item_ages:
+        labels = {"repo": report.repo, "state": age.state, "plan": str(age.plan).lower()}
+        emit(ROADMAP_ITEM_AGE, age.age_seconds, labels)
+        emit(ROADMAP_OLDEST_ITEM, float(age.number), labels)
+    if report.claim_age_seconds is not None:
+        emit(ROADMAP_CLAIM_AGE, report.claim_age_seconds, {"repo": report.repo})
+
+
 def emit_project_metrics_telemetry(report: ProjectMetricsReport) -> None:
     """Emit project and engineering velocity metrics over OpenTelemetry to Prometheus."""
     emit(PROJECT_RELEASES, float(report.total_releases))
@@ -779,9 +975,11 @@ def emit_project_metrics_telemetry(report: ProjectMetricsReport) -> None:
         )
 
     _emit_item_counts(report.items)
+    _emit_item_ages(report)
 
 
 __all__ = [
+    "ItemAgeMetric",
     "ItemCountMetric",
     "LabelTaxonomyMetric",
     "MilestoneMetric",
@@ -794,12 +992,14 @@ __all__ = [
     "collect_project_metrics_report",
     "emit_project_metrics_telemetry",
     "get_ci_workflow_metrics",
+    "get_item_age_metrics",
     "get_item_metrics",
     "get_item_releases",
     "get_label_taxonomy_metrics",
     "get_milestone_metrics",
     "get_release_cadence_metrics",
     "get_repository_traffic_metrics",
+    "reset_item_age_cache",
     "reset_refused_paths",
     "reset_sent_item_series",
 ]
