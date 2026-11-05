@@ -1527,8 +1527,9 @@ def _groups_recorded(groups: Sequence[MeasuredGroup]) -> str:
 
 
 def _run_report(trace: RunTrace) -> str:
-    """The report of the plan runs of an item: the counts and each tool call, in order. It is
-    empty for an item that was planned with one call, which made no run of the toolbox."""
+    """The report of the plan runs of an item: the counts, each tool call in order, and one line
+    of the calls and the empty answers of each tool (#3240). It is empty for an item that was
+    planned with one call, which made no run of the toolbox."""
     if not trace.requests:
         return ""
     texts = MESSAGES.roadmap
@@ -1546,12 +1547,16 @@ def _run_report(trace: RunTrace) -> str:
         )
     else:
         listed = texts.stage_comment_no_tools_offered
+    counts = ", ".join(
+        texts.stage_comment_tool_count.format(name=name, calls=made, empty=empty)
+        for name, (made, empty) in trace.tool_counts().items()
+    )
     return texts.stage_comment_run.format(
         requests=trace.requests,
         input_tokens=trace.input_tokens,
         output_tokens=trace.output_tokens,
         calls=listed,
-    )
+    ) + (texts.stage_comment_tool_counts.format(counts=counts) if counts else "")
 
 
 def _notes(change: StagedChange) -> str:

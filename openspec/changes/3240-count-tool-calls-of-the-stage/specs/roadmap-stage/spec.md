@@ -30,7 +30,7 @@ A plan run SHALL add 0 to `devops_cli_roadmap_tool_calls_total` with `outcome` `
 - **THEN** the counter holds nine points with the value 0 and `outcome` `ok`, one for each tool
 
 ### Requirement: A plan run measures its calls and the limit that ended its tools
-A plan run that got at least one model reply SHALL observe `devops_cli_roadmap_tool_calls_per_run` once, with its count of tool calls and the labels `row` and `toolset`. A run that ends its tools on a limit SHALL add 1, once, to `devops_cli_roadmap_tool_limit_hits_total` with the labels `row`, `toolset` and `limit`. The `limit` SHALL be `calls`, `requests` or `window`.
+A plan run that ends with a plan or a stop SHALL observe `devops_cli_roadmap_tool_calls_per_run` once, with its count of tool calls and the labels `row` and `toolset`. A run that raises because a model call failed SHALL observe no count of calls. A run that ends its tools on a limit SHALL add 1, once, to `devops_cli_roadmap_tool_limit_hits_total` with the labels `row`, `toolset` and `limit`. The `limit` SHALL be `calls`, `requests` or `window`.
 
 #### Scenario: The three limits
 - **WHEN** a plan run ends its tools because fewer calls are left than a turn needs, because one request is left, or because the messages fill the context window
@@ -48,9 +48,9 @@ A plan run that got at least one model reply SHALL observe `devops_cli_roadmap_t
 - **WHEN** one reply of the model holds one more parallel tool call than `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS`
 - **THEN** the run fails, and the limit counter holds one point with `limit` `calls`
 
-#### Scenario: A run with no model reply
-- **WHEN** the first model request of a plan run fails
-- **THEN** the histogram of calls per run holds no observation
+#### Scenario: A run whose model call fails
+- **WHEN** the first call of a plan run is a tool call, and its second model request fails
+- **THEN** the counter of calls holds the first call, and the histogram of calls per run holds no observation
 
 ### Requirement: The comment of a staged item counts the calls of each tool
 The comment of an item that the toolbox planned SHALL add one line after the list of tool calls. The line SHALL name each tool that the plan runs called, in alphabetical order, with its count of calls and its count of empty answers, as `Tool calls: read_file=3 (empty=0), search_code=2 (empty=1)`. The comment SHALL hold no such line when the plan runs made no tool call.

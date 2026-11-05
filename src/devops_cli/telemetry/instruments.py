@@ -277,8 +277,8 @@ ROADMAP_TOOL_CALLS_PER_RUN = Instrument(
     "devops_cli_roadmap_tool_calls_per_run",
     InstrumentKind.HISTOGRAM,
     "{call}",
-    "Tool calls of each plan run of the roadmap planner, by row and toolset. A run that got no "
-    "model reply adds no observation",
+    "Tool calls of each plan run of the roadmap planner, by row and toolset. A run that raised "
+    "because a model call failed adds no observation",
 )
 ROADMAP_TOOL_LIMIT_HITS_TOTAL = Instrument(
     "devops_cli_roadmap_tool_limit_hits_total",

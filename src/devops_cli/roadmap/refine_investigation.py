@@ -57,6 +57,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.roadmap.agent_run import (
+    RunLimit,
     RunTrace,
     drain_events,
     model_call_error,
@@ -285,49 +286,43 @@ class InvestigationTools:
         return [Tool(method, takes_ctx=False) for method in methods]
 
 
-def _within_budget(ctx: RunContext[None], tool_defs: list[ToolDefinition]) -> list[ToolDefinition]:
-    """The function tools while the run has budget for one more turn of calls and an answer after
-    it; none after that, so the model's next reply calls the output tool."""
+def _limit_reached(ctx: RunContext[None], window: int | None) -> RunLimit | None:
+    """The limit that takes the tools from this request, or None while the run has budget for one
+    more turn of calls and an answer after it, and its messages and a share of the `window` for
+    the reply (`CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE`) still fit it. Without a window
+    the messages are no limit. The check of the window comes last because it measures the
+    messages (#3037, #3240)."""
     limits = ctx.usage_limits or UsageLimits()
-    tool_calls_left = (limits.tool_calls_limit or 0) - ctx.usage.tool_calls
-    requests_left = (limits.request_limit or 0) - ctx.usage.requests
-    has_budget = tool_calls_left >= CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS
-    return tool_defs if has_budget and requests_left > 1 else []
+    if (limits.tool_calls_limit or 0) - ctx.usage.tool_calls < (
+        CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS
+    ):
+        return RunLimit.CALLS
+    if (limits.request_limit or 0) - ctx.usage.requests <= 1:
+        return RunLimit.REQUESTS
+    if window is not None:
+        reserve = window // CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE
+        if _tokens_of(ctx.messages) + reserve >= window:
+            return RunLimit.WINDOW
+    return None
 
 
-def _within_window_of(
-    window: int | None,
+def _offering(
+    window: int | None, offered: list[tuple[str, ...]], limits_hit: list[RunLimit]
 ) -> Callable[[RunContext[None], list[ToolDefinition]], list[ToolDefinition]]:
-    """The hook of a run: the tools of `_within_budget` while the messages and a share of the
-    `window` for the reply (`CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE`) still fit it, and
-    none after that, so the model's next reply calls the output tool (#3037). Without a window it
-    is `_within_budget`."""
-    if window is None:
-        return _within_budget
-    reserve = window // CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE
+    """The hook of a run: it offers the function tools while no limit is reached, and none after
+    that, so the model's next reply calls the output tool. It adds the names of the tools that it
+    offers to `offered`, one entry for each model request (#3477), and the first limit that it
+    reaches to `limits_hit` (#3240)."""
 
     def hook(ctx: RunContext[None], tool_defs: list[ToolDefinition]) -> list[ToolDefinition]:
-        offered = _within_budget(ctx, tool_defs)
-        if offered and _tokens_of(ctx.messages) + reserve >= window:
-            return []
-        return offered
-
-    return hook
-
-
-def _recording(
-    hook: Callable[[RunContext[None], list[ToolDefinition]], list[ToolDefinition]],
-    offered: list[tuple[str, ...]],
-) -> Callable[[RunContext[None], list[ToolDefinition]], list[ToolDefinition]]:
-    """`hook`, that also adds the names of the tools it offers to `offered`, one entry for each
-    model request (#3477)."""
-
-    def record(ctx: RunContext[None], tool_defs: list[ToolDefinition]) -> list[ToolDefinition]:
-        tools = hook(ctx, tool_defs)
+        limit = _limit_reached(ctx, window) if tool_defs else None
+        if limit is not None and not limits_hit:
+            limits_hit.append(limit)
+        tools = [] if limit is not None else tool_defs
         offered.append(tuple(tool.name for tool in tools))
         return tools
 
-    return record
+    return hook
 
 
 def _tokens_of(messages: Sequence[ModelMessage]) -> int:
@@ -387,9 +382,9 @@ def investigate[T: BaseModel](
     model gets one more turn; a later reply passes, and the caller decides on it (#2946).
 
     `limits` replaces the budget of refine, and must set `request_limit` and `tool_calls_limit`,
-    which the hook `_within_budget` reads. `output_retries` replaces the retries of a reply that
-    breaks the schema. `trace` takes what the run did, also when it stops (#3037), and the tools
-    that each request offered (#3477). `window` is the
+    which the hook `_limit_reached` reads. `output_retries` replaces the retries of a reply that
+    breaks the schema. `trace` takes what the run did, also when it stops (#3037), the tools
+    that each request offered (#3477), and the limit that ended its tools (#3240). `window` is the
     context window of the model in tokens: a request that would leave less than
     `1 / CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE` of it for the reply offers no tool.
 
@@ -398,6 +393,7 @@ def investigate[T: BaseModel](
     """
     function_tools = tools.tools()
     offered: list[tuple[str, ...]] = []
+    limits_hit: list[RunLimit] = []
     agent: Agent[None, T] = Agent(
         model,
         output_type=output_type,
@@ -409,7 +405,7 @@ def investigate[T: BaseModel](
             if output_retries is None
             else output_retries,
         },
-        capabilities=[PrepareTools(_recording(_within_window_of(window), offered))],
+        capabilities=[PrepareTools(_offering(window, offered, limits_hit))],
     )
     if output_check is not None:
         _retry_once(agent, output_check)
@@ -423,6 +419,11 @@ def investigate[T: BaseModel](
         try:
             result = agent.run_sync(request, usage_limits=limits, event_stream_handler=drain_events)
         except (UsageLimitExceeded, UnexpectedModelBehavior) as stopped:
+            # The hook takes the tools away before the requests run out, so a hard stop with no
+            # earlier limit is one reply with more calls than the budget had left. The message of
+            # the error is not read.
+            if isinstance(stopped, UsageLimitExceeded) and not limits_hit:
+                limits_hit.append(RunLimit.CALLS)
             return InvestigationStopped(
                 type(stopped).__name__,
                 run_error_message(stopped),
@@ -436,7 +437,12 @@ def investigate[T: BaseModel](
             return result.output
         finally:
             if trace is not None:
-                trace.absorb(messages, tools=tool_names, offered=offered)
+                trace.absorb(
+                    messages,
+                    tools=tool_names,
+                    offered=offered,
+                    limit=limits_hit[0] if limits_hit else None,
+                )
             record_run_spend(model, messages, time.monotonic() - started, stage="analysis")
     raise error
 

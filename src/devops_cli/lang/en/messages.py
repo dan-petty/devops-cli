@@ -3115,6 +3115,9 @@ class RoadmapMessages:
         "tool-removal limit of the context window."
     )
     stage_comment_call: str = "{index}. `{name}({argument})`"
+    # The line after the list of calls (#3240): the calls and the empty answers of each tool.
+    stage_comment_tool_counts: str = "\n\nTool calls: {counts}"
+    stage_comment_tool_count: str = "{name}={calls} (empty={empty})"
     # The model review of the plan (#3153): a finding, its evidence, what goes back to the planner,
     # and the section of the comment.
     stage_finding: str = "- `{type}` at {where}: {problem}{quote}"

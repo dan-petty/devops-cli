@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from pydantic import BaseModel
@@ -36,12 +36,22 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import StageToolset
 from devops_cli.exceptions.roadmap import RoadmapStageError
-from devops_cli.roadmap.agent_run import RunTrace
+from devops_cli.roadmap import stage_toolbox
+from devops_cli.roadmap.agent_run import RunLimit, RunTrace, ToolCallRecord, ToolOutcome
 from devops_cli.roadmap.stage_change import StageProposal, StageSplit
 from devops_cli.roadmap.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.stage_tools import StageTools
+from devops_cli.telemetry.instruments import (
+    ROADMAP_TOOL_ANSWER_CHARS,
+    ROADMAP_TOOL_CALLS_PER_RUN,
+    ROADMAP_TOOL_CALLS_TOTAL,
+    ROADMAP_TOOL_LIMIT_HITS_TOTAL,
+)
 from tests.support.builders import make_stage_proposal
 from tests.support.scripted_model import Script, call
+
+if TYPE_CHECKING:
+    from tests.support.fakes.otlp import FakeCollector
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -417,3 +427,301 @@ def test_the_setting_chooses_the_toolset_when_the_caller_names_none(
     _plan(ToolboxClient(script.model(), _Inner(), source, sha))
 
     assert script.tools_offered[0] == _TOOLS
+
+
+# ── The outcome, the size and the limit of each tool call (#3240) ─────────────
+
+
+def _blank_git_log(self: StageTools, path: str = "") -> str:
+    """List the newest commits that changed a path."""
+    return "  \n"
+
+
+_blank_git_log.__name__ = "git_log"
+
+
+def test_a_call_records_its_outcome_and_the_length_of_its_answer(
+    checkout: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(StageTools, "git_log", _blank_git_log)
+    script = Script(_read(), call("git_log"), call("read_file"), _PLAN)
+    client = _client(checkout, script)
+
+    _plan(client)
+
+    (trace,) = client.traces
+    assert [(c.name, c.outcome, c.chars) for c in trace.tool_calls] == [
+        ("read_file", ToolOutcome.OK, len(script.tool_returns()[0])),
+        ("git_log", ToolOutcome.EMPTY, len("  \n")),
+        ("read_file", ToolOutcome.ERROR, 0),
+    ]
+
+
+_SMALL_BUDGET = 12
+_SMALL_LAST_WITH_TOOLS = _SMALL_BUDGET - CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS + 1
+
+
+@pytest.fixture
+def small_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A budget of 12 tool calls, so a run that spends it makes few model requests."""
+    monkeypatch.setattr(stage_toolbox, "CONST_ROADMAP_STAGE_TOOL_MAX_CALLS", _SMALL_BUDGET)
+
+
+@pytest.mark.usefixtures("small_budget")
+def test_a_call_to_a_tool_that_the_run_removed_is_an_error(checkout: tuple[Path, str]) -> None:
+    client = _client(checkout, Script(*([_read()] * (_SMALL_LAST_WITH_TOOLS + 1)), _PLAN))
+
+    _plan(client)
+
+    outcomes = [record.outcome for record in client.traces[0].tool_calls]
+    assert (outcomes[:-1] == [ToolOutcome.OK] * _SMALL_LAST_WITH_TOOLS, outcomes[-1]) == (
+        True,
+        ToolOutcome.ERROR,
+    )
+
+
+def test_the_size_of_an_answer_is_the_length_after_the_cut(checkout: tuple[Path, str]) -> None:
+    source, sha = _big_file_checkout(checkout)
+    script = Script(_read("src/big.py"), _PLAN)
+    client = ToolboxClient(script.model(), _Inner(), source, sha)
+
+    _plan(client)
+
+    (record,) = client.traces[0].tool_calls
+    file_size = len((source / "src" / "big.py").read_text(encoding="utf-8"))
+    assert (record.chars == len(script.tool_returns()[0]), 0 < record.chars < file_size) == (
+        True,
+        True,
+    )
+
+
+@pytest.mark.usefixtures("small_budget")
+def test_a_run_that_spends_its_call_budget_names_the_calls_limit(
+    checkout: tuple[Path, str],
+) -> None:
+    client = _client(checkout, Script(_read(), without_tools=_PLAN))
+
+    _plan(client)
+
+    assert client.traces[0].limit is RunLimit.CALLS
+
+
+def test_a_run_that_spends_its_requests_names_the_requests_limit(
+    checkout: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(stage_toolbox, "CONST_ROADMAP_STAGE_MAX_REQUESTS", 4)
+    client = _client(checkout, Script(_read(), without_tools=_PLAN))
+
+    _plan(client)
+
+    assert client.traces[0].limit is RunLimit.REQUESTS
+
+
+def test_a_run_that_fills_the_window_names_the_window_limit(checkout: tuple[Path, str]) -> None:
+    source, sha = _big_file_checkout(checkout)
+    script = Script(_read("src/big.py"), without_tools=_PLAN)
+    client = ToolboxClient(script.model(), _Inner(), source, sha, window=12000)
+
+    _plan(client)
+
+    assert client.traces[0].limit is RunLimit.WINDOW
+
+
+def test_a_run_that_ends_on_no_limit_names_none(checkout: tuple[Path, str]) -> None:
+    client = _client(checkout, Script(_read(), _PLAN))
+
+    _plan(client)
+
+    assert client.traces[0].limit is None
+
+
+def _too_many_calls() -> ModelResponse:
+    """One reply with one more parallel call than the small budget has."""
+    return ModelResponse(
+        parts=[ToolCallPart("read_file", {"path": "src/sample.py"})] * (_SMALL_BUDGET + 1)
+    )
+
+
+@pytest.mark.usefixtures("small_budget")
+def test_one_reply_over_the_call_limit_names_the_calls_limit_and_marks_each_call_an_error(
+    checkout: tuple[Path, str],
+) -> None:
+    client = _client(checkout, Script(_too_many_calls()))
+
+    with pytest.raises(RoadmapStageError, match="tool_calls_limit"):
+        _plan(client)
+
+    (trace,) = client.traces
+    assert (trace.limit, {c.outcome for c in trace.tool_calls}, len(trace.tool_calls)) == (
+        RunLimit.CALLS,
+        {ToolOutcome.ERROR},
+        _SMALL_BUDGET + 1,
+    )
+
+
+def test_the_combined_trace_keeps_the_last_limit() -> None:
+    window, calls = RunTrace(limit=RunLimit.WINDOW), RunTrace(limit=RunLimit.CALLS)
+
+    assert (
+        RunTrace.combined([window, calls]).limit,
+        RunTrace.combined([calls, RunTrace()]).limit,
+        RunTrace.combined([]).limit,
+    ) == (RunLimit.CALLS, RunLimit.CALLS, None)
+
+
+def test_the_tool_counts_give_the_calls_and_the_empty_answers_of_each_tool_by_name() -> None:
+    def record(name: str, outcome: ToolOutcome) -> ToolCallRecord:
+        return ToolCallRecord(name, "{}", outcome, 0)
+
+    trace = RunTrace(
+        tool_calls=[
+            record("read_file", ToolOutcome.OK),
+            record("list_files", ToolOutcome.EMPTY),
+            record("read_file", ToolOutcome.ERROR),
+        ]
+    )
+
+    assert trace.tool_counts() == {"list_files": (1, 1), "read_file": (2, 0)}
+
+
+# ── The metrics of each plan run (#3240) ──────────────────────────────────────
+
+_OUTCOMES = {"ok", "empty", "error"}
+_LIMITS = {"calls", "requests", "window"}
+
+
+def test_a_run_counts_one_call_of_each_outcome_with_bounded_labels(
+    checkout: tuple[Path, str], monkeypatch: pytest.MonkeyPatch, otlp: FakeCollector
+) -> None:
+    monkeypatch.setattr(StageTools, "git_log", _blank_git_log)
+    client = _client(checkout, Script(_read(), call("git_log"), call("read_file"), _PLAN))
+
+    _plan(client)
+
+    points = otlp.points(ROADMAP_TOOL_CALLS_TOTAL.name)
+    assert {(a["tool"], a["outcome"]): value for a, value in points if value} == {
+        ("read_file", "ok"): 1.0,
+        ("read_file", "error"): 1.0,
+        ("git_log", "empty"): 1.0,
+    }
+    assert [
+        a
+        for a, _ in points
+        if set(a) != {"tool", "row", "toolset", "outcome"}
+        or (a["row"], a["toolset"]) != ("stage", "base")
+        or a["tool"] not in _TOOLS
+        or a["outcome"] not in _OUTCOMES
+    ] == []
+
+
+def test_a_run_that_calls_no_tool_adds_zero_for_each_tool_of_its_toolset(
+    checkout: tuple[Path, str], otlp: FakeCollector
+) -> None:
+    _plan(_client(checkout, Script(_PLAN)))
+
+    points = otlp.points(ROADMAP_TOOL_CALLS_TOTAL.name)
+    assert (
+        sorted(a["tool"] for a, _ in points),
+        {value for _, value in points},
+        {a["outcome"] for a, _ in points},
+    ) == (sorted(_TOOLS), {0.0}, {"ok"})
+
+
+def test_the_extended_toolset_adds_zero_for_its_twelve_tools(
+    checkout: tuple[Path, str], otlp: FakeCollector
+) -> None:
+    _plan(_client(checkout, Script(_PLAN), toolset="extended"))
+
+    points = otlp.points(ROADMAP_TOOL_CALLS_TOTAL.name)
+    assert (sorted(a["tool"] for a, _ in points), {a["toolset"] for a, _ in points}) == (
+        sorted(_EXTENDED_TOOLS),
+        {"extended"},
+    )
+
+
+def test_the_answer_histogram_observes_the_cut_length_and_not_the_file_length(
+    checkout: tuple[Path, str], otlp: FakeCollector
+) -> None:
+    source, sha = _big_file_checkout(checkout)
+    script = Script(_read("src/big.py"), _PLAN)
+
+    _plan(ToolboxClient(script.model(), _Inner(), source, sha, toolset="base"))
+
+    file_size = len((source / "src" / "big.py").read_text(encoding="utf-8"))
+    ((attributes, observed),) = otlp.points(ROADMAP_TOOL_ANSWER_CHARS.name)
+    assert (attributes, observed == len(script.tool_returns()[0]), observed < file_size) == (
+        {"tool": "read_file", "row": "stage", "toolset": "base"},
+        True,
+        True,
+    )
+
+
+def test_a_call_with_no_answer_adds_no_observation_to_the_answer_histogram(
+    checkout: tuple[Path, str], otlp: FakeCollector
+) -> None:
+    _plan(_client(checkout, Script(call("read_file"), _PLAN)))
+
+    assert otlp.points(ROADMAP_TOOL_ANSWER_CHARS.name) == []
+
+
+@pytest.mark.usefixtures("small_budget")
+def test_a_run_that_spends_its_call_budget_observes_its_calls_and_counts_the_calls_limit(
+    checkout: tuple[Path, str], otlp: FakeCollector
+) -> None:
+    _plan(_client(checkout, Script(_read(), without_tools=_PLAN)))
+
+    assert (
+        otlp.points(ROADMAP_TOOL_CALLS_PER_RUN.name),
+        otlp.points(ROADMAP_TOOL_LIMIT_HITS_TOTAL.name),
+    ) == (
+        [({"row": "stage", "toolset": "base"}, float(_SMALL_LAST_WITH_TOOLS))],
+        [({"row": "stage", "toolset": "base", "limit": "calls"}, 1.0)],
+    )
+
+
+@pytest.mark.usefixtures("small_budget")
+def test_a_run_that_fails_on_the_call_limit_counts_one_hit_and_one_run(
+    checkout: tuple[Path, str], otlp: FakeCollector
+) -> None:
+    with pytest.raises(RoadmapStageError, match="tool_calls_limit"):
+        _plan(_client(checkout, Script(_too_many_calls())))
+
+    assert [a["limit"] for a, _ in otlp.points(ROADMAP_TOOL_LIMIT_HITS_TOTAL.name)] == ["calls"]
+    assert len(otlp.points(ROADMAP_TOOL_CALLS_PER_RUN.name)) == 1
+
+
+def test_a_run_that_ends_on_no_limit_counts_no_hit(
+    checkout: tuple[Path, str], otlp: FakeCollector
+) -> None:
+    _plan(_client(checkout, Script(_read(), _PLAN)))
+
+    assert (
+        otlp.points(ROADMAP_TOOL_LIMIT_HITS_TOTAL.name),
+        [value for _, value in otlp.points(ROADMAP_TOOL_CALLS_PER_RUN.name)],
+    ) == ([], [1.0])
+
+
+def test_a_run_that_fails_on_a_model_call_counts_its_calls_and_observes_no_run(
+    checkout: tuple[Path, str], otlp: FakeCollector
+) -> None:
+    with pytest.raises(AIClientError, match="model call failed"):
+        _plan(_client(checkout, Script(_read(), ModelHTTPError(500, "m"))))
+
+    points = otlp.points(ROADMAP_TOOL_CALLS_TOTAL.name)
+    assert (
+        otlp.points(ROADMAP_TOOL_CALLS_PER_RUN.name),
+        {(a["tool"], a["outcome"]): value for a, value in points if value},
+        len(points),
+    ) == ([], {("read_file", "ok"): 1.0}, len(_TOOLS))
+
+
+def test_the_limit_label_has_a_closed_set_of_values(
+    checkout: tuple[Path, str], otlp: FakeCollector
+) -> None:
+    source, sha = _big_file_checkout(checkout)
+    script = Script(_read("src/big.py"), without_tools=_PLAN)
+
+    _plan(ToolboxClient(script.model(), _Inner(), source, sha, window=12000, toolset="base"))
+
+    limits = {a["limit"] for a, _ in otlp.points(ROADMAP_TOOL_LIMIT_HITS_TOTAL.name)}
+    assert (limits <= _LIMITS, limits) == (True, {"window"})
