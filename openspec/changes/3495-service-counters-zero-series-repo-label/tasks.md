@@ -15,11 +15,11 @@ Reads: `src/devops_cli/roadmap/implement_submit.py`, `src/devops_cli/telemetry/m
 
 Reads: `src/devops_cli/roadmap/run.py`, `src/devops_cli/server/service.py`, `tests/roadmap/test_roadmap_run.py`. Changes: `tests/telemetry/test_service_counter_series.py`, `src/devops_cli/roadmap/run.py`, `src/devops_cli/server/service.py`, `src/devops_cli/server/counter_series.py`.
 
-- [ ] 2.1 Add a test to `tests/telemetry/test_service_counter_series.py` that asserts that the job counter holds the labels `repo`, `lane`, `row` and `result`, and that the row `metrics` of the status lane exists at 0 for `result` `success`
+- [x] 2.1 Add a test to `tests/telemetry/test_service_counter_series.py` that asserts that the job counter holds the labels `repo`, `lane`, `row` and `result`, and that the row `metrics` of the status lane exists at 0 for `result` `success`. Add a test to `tests/roadmap/test_roadmap_run.py` that runs a lane with one row that fails, and asserts that each row counts its own job under its result
   - Verification: `uv run devops ci test tests/telemetry/test_service_counter_series.py` fails on the base
-- [ ] 2.2 Count each row of a lane in the roadmap run with its result, and remove the per-batch count of the worker in `src/devops_cli/server/service.py`. Count each scoped update with the name of its job
+- [x] 2.2 Count each row of a lane in the roadmap run with its result, and remove the per-batch count of the worker in `src/devops_cli/server/service.py`. Count each scoped update with the name of its job
   - Verification: `uv run devops ci test tests/telemetry/test_service_counter_series.py tests/roadmap/test_roadmap_run.py` passes
-- [ ] 2.3 Prime the job counter for each repository, lane, row and result, and the job seconds counter for each repository and lane, in `src/devops_cli/server/counter_series.py`
+- [x] 2.3 Prime the job counter for each repository, lane, row and result, and the job seconds counter for each repository and lane, in `src/devops_cli/server/counter_series.py`
   - Verification: `uv run devops ci test tests/telemetry/test_service_counter_series.py` passes
 
 ## 3. The webhook counter starts at zero

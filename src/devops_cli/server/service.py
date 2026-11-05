@@ -34,7 +34,6 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_IDENTITY_REFUSED,
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
-    CONST_SERVICE_METRIC_JOBS,
     CONST_SERVICE_METRIC_QUEUE_DEPTH,
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_PROBE_PATHS,
@@ -601,9 +600,6 @@ class RepoWorker:
                 span.set_attribute("service.result", result)
                 duration = time.perf_counter() - start_time
                 GLOBAL_METRICS.increment_counter(
-                    CONST_SERVICE_METRIC_JOBS, labels={**self._labels, "result": result}
-                )
-                GLOBAL_METRICS.increment_counter(
                     CONST_SERVICE_METRIC_JOB_SECONDS, value=duration, labels=self._labels
                 )
                 self.pause.round_ended()
@@ -661,9 +657,6 @@ class RepoWorker:
             finally:
                 span.set_attribute("service.result", result)
                 duration = time.perf_counter() - start_time
-                GLOBAL_METRICS.increment_counter(
-                    CONST_SERVICE_METRIC_JOBS, labels={**self._labels, "result": result}
-                )
                 GLOBAL_METRICS.increment_counter(
                     CONST_SERVICE_METRIC_JOB_SECONDS, value=duration, labels=self._labels
                 )

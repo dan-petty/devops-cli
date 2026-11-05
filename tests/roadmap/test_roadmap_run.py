@@ -49,6 +49,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_LANE_STATUS,
     CONST_SERVICE_LANE_TRIAGE,
     CONST_SERVICE_METRIC_JOB_SUSPENDED,
+    CONST_SERVICE_METRIC_JOBS,
     CONST_SERVICE_METRIC_QUEUE_DEPTH,
     CONST_URL_CLOUDFLARE_STATUS_SUMMARY,
     CONST_URL_GITHUB_STATUS_SUMMARY,
@@ -1972,11 +1973,15 @@ def _service_github(events: list[dict[str, Any]]) -> GitHubFake:
     return github
 
 
-def _serve_over(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gh: Callable[..., Any]) -> None:
+def _serve_over(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gh: Callable[..., Any], *, stamped: bool = True
+) -> None:
     """`service_job` opens its stores over `gh`, logged in as `roadmap-bot`, with every job of
-    the default table run a minute ago, so a poll runs only what changes since then make due."""
+    the default table run a minute ago, so a poll runs only what changes since then make due.
+    Unstamped, no job has run yet, so each row with a first run due is due on the first poll."""
     minute_ago = datetime.now(UTC) - timedelta(minutes=1)
-    _stamp(tmp_path, **dict.fromkeys(DEFAULT_JOB_NAMES, minute_ago))
+    if stamped:
+        _stamp(tmp_path, **dict.fromkeys(DEFAULT_JOB_NAMES, minute_ago))
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     monkeypatch.setattr("devops_cli.roadmap.run._get_session_login", lambda: "roadmap-bot")
     monkeypatch.setattr(
@@ -2921,3 +2926,29 @@ def test_the_release_comments_adapter_comments_a_release_and_keeps_its_ledger(
 
     assert github.comments[101][0].startswith("<!-- devops roadmap release v1.0.0 released -->")
     assert (tmp_path / "release_comments.json").is_file()
+
+
+def test_each_row_of_a_lane_counts_its_own_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A row that ends counts one job of the job counter under its own row and result, so a lane
+    with one row that fails counts that row as an error and the other row as a success (#3495)."""
+    GLOBAL_METRICS.reset()
+    github = _service_github(_labeled(2, "alice"))
+    _serve_over(tmp_path, monkeypatch, github, stamped=False)
+
+    def fails(**_: object) -> JobOutcome:
+        raise RuntimeError("the implement job failed")
+
+    table = build_stub_table({"metrics": lambda **_: JobOutcome(), "implement": fails})
+    with pytest.raises(RoadmapRunError) as raised:
+        service_jobs(tmp_path)[CONST_SERVICE_LANE_STATUS](POLL, table=table)
+    assert list(raised.value.failed_jobs) == ["implement"]
+
+    def count(row: str, result: str) -> float:
+        return GLOBAL_METRICS.get_counter(
+            CONST_SERVICE_METRIC_JOBS,
+            labels={"repo": REPO, "lane": CONST_SERVICE_LANE_STATUS, "row": row, "result": result},
+        )
+
+    assert (count("metrics", "success"), count("implement", "error")) == (1, 1)
