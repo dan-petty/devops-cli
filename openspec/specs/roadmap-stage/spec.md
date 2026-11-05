@@ -176,7 +176,7 @@ The job SHALL run the validation in a scratch directory that also holds the base
 - **THEN** the validation reports the refusal and the model gets it as the problem to correct
 
 ### Requirement: A failure stops one item and never hides the others
-A model call that fails SHALL skip its item. The job SHALL stage the other items, and then fail and name each skipped item. Rejected credentials SHALL stop the run. A tool error of the validation, such as a timeout, SHALL skip its item in the same way. A push that GitHub refuses SHALL stop its item with the reason, and SHALL leave no remote branch without an open pull request. An item whose title or body looks like a secret SHALL be left out before the model reads it.
+A model call that fails SHALL skip its item. The job SHALL stage the other items and record each skipped item in its job record. The command SHALL exit 1 and name each skipped item. Rejected credentials SHALL stop the run. A validation error, such as a timeout, SHALL skip its item the same way. A push that GitHub refuses SHALL stop its item with the reason and leave no remote branch without an open pull request. An item whose text looks like a secret SHALL be left out before the model reads it.
 
 #### Scenario: One model call fails
 - **WHEN** the model call fails for the first of two items
@@ -192,18 +192,18 @@ A model call that fails SHALL skip its item. The job SHALL stage the other items
 
 #### Scenario: The push is refused
 - **WHEN** GitHub refuses the push of a branch
-- **THEN** the job stops that item with the reason, opens no pull request and records no key
+- **THEN** the job stops that item with the reason, opens no pull request and records no staged key
 
 #### Scenario: A secret in the body
 - **WHEN** the body of an item holds a text that looks like a secret
 - **THEN** the plan leaves the item out, and the model reads none of its text
 
 ### Requirement: A failed write stops one item
-A write that fails, also the comment on an item stopped on the budget, SHALL stop its item with the reason and SHALL NOT stop the other writes. The job SHALL fail after the other writes and name each item that failed. The labels of the draft pull request are the one exception: a label that GitHub refuses stops no item (requirement "The draft pull request gets the labels of its title").
+A write that fails, also the comment on an item stopped on the budget, SHALL stop its item with the reason and SHALL NOT stop the other writes. The job SHALL record each item that failed in its job record, and the command SHALL fail after the other writes and name each item that failed. The labels of the draft pull request are the one exception: a label that GitHub refuses stops no item (requirement "The draft pull request gets the labels of its title").
 
 #### Scenario: The comment of a stopped item fails
 - **WHEN** two items stop on the budget and the comment on the first fails
-- **THEN** the second item still gets its comment and its record, the first item gets no record, and the error names the first item
+- **THEN** the second item still gets its comment and its record, the first item gets no stop record but gets a failure record, and the error names the first item
 
 ### Requirement: A closed item loses its staged branch when only the App wrote to it
 In each run the job SHALL look at the staged branch of each closed item whose record holds `stage.branch`. When every commit of the branch past `origin/<default branch>` has the identity of the session as its author, read from the name of each commit, the job SHALL close the draft pull request and delete the branch. When any other commit exists, the job SHALL keep both and say so in the plan.
@@ -224,7 +224,7 @@ In each run the job SHALL look at the staged branch of each closed item whose re
 - **THEN** it exits 0, the GitHub fake and the model fake record no request, and the output lists the reads, the git commands and the writes
 
 ### Requirement: The Service runs the stage job on the model lane
-The model lane of the Service SHALL hold the row `stage` after the row `refine`. The row SHALL be due by its interval of 60 minutes, on its first run, and in a round where `refine` set an item Ready. The row SHALL run the stage job in the model clone of the lane, write what its plan holds, and fail the round for the items that failed. `devops roadmap run --dry-run` SHALL list the row when it is due.
+The model lane of the Service SHALL hold the row `stage` after the row `refine`. The row SHALL be due by its interval of 60 minutes, on its first run, and in a round where `refine` set an item Ready. The row SHALL run the stage job in the model clone of the lane and write what its plan holds. The row SHALL fail the round only when the round tried items and staged, stopped or returned none, and for a failure that no item explains. `devops roadmap run --dry-run` SHALL list the row when it is due.
 
 #### Scenario: The first run
 - **WHEN** a repository has no record of a `stage` round
@@ -1710,3 +1710,44 @@ When the count of open Planned items is at `roadmap.stage.planned_limit` or over
 #### Scenario: The command at the limit
 - **WHEN** 1 item is Planned, the setting is 1, and `devops roadmap stage --plan` runs with Ready items
 - **THEN** the plan holds no branch, makes no model call, and lists each Ready item as left out with the reason of the limit
+
+### Requirement: A failed item is recorded in its job record
+When the plan or a write of an item fails, the job SHALL record the time (`stage.failed_at`) and the class of the error (`stage.failed_error`) in the job record of the item. A run that stages the item or stops it on the budget SHALL clear both keys.
+
+#### Scenario: A failure is recorded
+- **WHEN** the model call fails for an item with the error class `AIClientError`
+- **THEN** the job record of the item holds the time of the round and `AIClientError`
+
+#### Scenario: The item is staged
+- **WHEN** a run stages an item whose job record holds a failure
+- **THEN** the job record of the item holds neither key afterwards
+
+### Requirement: A failed item waits for the retry delay
+The job SHALL leave an item out of the selection until `roadmap.stage.retry_hours` hours (at least 1, default 6) have passed since `stage.failed_at`, and SHALL take the other items in the same round. `--item` SHALL take the item it names. A failure time that is no time SHALL hold the item for no time.
+
+#### Scenario: The delay has not passed
+- **WHEN** the item failed 5 hours and 59 minutes ago and the delay is 6 hours
+- **THEN** the job leaves the item out and takes the next item
+
+#### Scenario: The delay has passed
+- **WHEN** the item failed 6 hours ago and the delay is 6 hours
+- **THEN** the job takes the item again
+
+#### Scenario: A person names the item
+- **WHEN** the item failed 1 minute ago and a run names it with `--item`
+- **THEN** the job takes the item
+
+### Requirement: The row fails only when no item was handled
+The stage row SHALL fail a round with the items that failed only when the round tried at least one item and staged, stopped on the budget or returned none of them. A round in which one item failed and another was handled SHALL succeed. A round that tried no item SHALL succeed. An error that belongs to no item, such as a failed read of the repository, SHALL fail the round.
+
+#### Scenario: One item fails and another stages
+- **WHEN** three rounds each fail the plan of one item and stage another item
+- **THEN** no round fails and the row is not suspended
+
+#### Scenario: Every item fails
+- **WHEN** three rounds each try one item and plan none
+- **THEN** each round fails and names the item, and the row is suspended
+
+#### Scenario: A failure outside any item
+- **WHEN** three rounds each fail with an error that belongs to no item
+- **THEN** each round fails and the row is suspended

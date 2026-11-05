@@ -166,6 +166,33 @@ class ReviewMessages:
         "The cached registry rules {ruleset} are {hours} hours old, and the scan uses them. "
         "Run `devops review rules fetch --ruleset {ruleset}` to refresh them."
     )
+    # The databases of osv-scanner and Trivy, which a review binds read-only (#2131). Each reason
+    # names the command first, because a reason is cut at `CONST_MAX_ERROR_DETAIL_LENGTH`.
+    osv_database_missing: str = (
+        "Run `devops review fetch-databases` in the tree, then review again. The osv-scanner "
+        "database is missing, and a review fetches none."
+    )
+    osv_database_old: str = (
+        "Run `devops review fetch-databases` in the tree to refresh the osv-scanner database. "
+        "The database of {ecosystems} is older than {hours} hours, and the scan used it."
+    )
+    trivy_database_missing: str = (
+        "Run `devops review fetch-databases`, then review again. The Trivy vulnerability database "
+        "is missing or old, and a review fetches none."
+    )
+    databases_fetch_dry_run_heading: str = (
+        "Dry run: no process was started. fetch-databases would run these commands, in order:"
+    )
+    databases_fetch_osv_done: str = (
+        "Fetched the osv-scanner database of {ecosystems} into [bold]{path}[/bold]."
+    )
+    databases_fetch_osv_no_ecosystem: str = (
+        "No osv-scanner database fetched: the lockfiles of {path} name no ecosystem that has one."
+    )
+    databases_fetch_trivy_done: str = (
+        "Fetched the Trivy database and checks into [bold]{path}[/bold]."
+    )
+    databases_fetch_failed: str = "{tool} did not fetch its database (exit code {code}): {detail}"
     files_not_scanned: str = "Files not scanned: {count}. The Coverage section lists them."
     filed_findings_search_target: str = "issues that carry a review finding marker"
     filed_findings_search_repeat: str = "per page of 100 issues, while the search has more results"
@@ -1926,6 +1953,10 @@ class ServeMessages:
         "The roadmap job {job} of {repo} failed {rounds} rounds in a row (causes: {causes}), so "
         "it does not run again until its input changes."
     )
+    # Logged once, at the info level, when the stop of the Service ends a round (#3493).
+    round_stopped: str = (
+        "The Service is stopping, so the round for {repo} ended before it was done."
+    )
     # Ephemeral chat replies for Mattermost /roadmap slash command (#1395). Each string is one line.
     chat_roadmap_status_round: str = "{repo} [{lane}]: {state}, {pending} pending triggers, last round: {start} to {end} UTC ({result})"
     chat_roadmap_status_no_round: str = (
@@ -2214,6 +2245,37 @@ class RoadmapMessages:
     alternatives_current_line: str = "- #{number} {title}: checked on {date}, the text is unchanged"
     alternatives_skipped_heading: str = "## Skipped"
     alternatives_skipped_line: str = "- #{number} {title}: skipped, {reason}"
+    # `devops roadmap retitle` (#3486).
+    retitle_title: str = "# Retitle for {repo}"
+    retitle_none: str = "No open item has a title summary over {limit} characters."
+    retitle_changes_heading: str = "Titles to change:"
+    retitle_change_line: str = "- #{number}: `{old}` becomes `{new}`"
+    retitle_skips_heading: str = "Items left as they are:"
+    retitle_skip_line: str = "- #{number} {title}: {reason}"
+    retitle_left: str = "{count} more item(s) have a long title. Run again to examine them."
+    retitle_applied: str = "Changed {count} title(s)."
+    retitle_reason_person_edit: str = (
+        "A person changed the title after the last job comment. The job keeps it."
+    )
+    retitle_reason_no_pull: str = "The job record of this Planned item names no plan pull request."
+    retitle_reason_pull_title: str = (
+        "The title of plan pull request #{pull} gives no valid summary: {problems}"
+    )
+    retitle_reason_model_failed: str = (
+        "The model gave no summary that passes the title check: {problems}"
+    )
+    retitle_reason_changed: str = "The title changed after the run read it."
+    retitle_source_plan: str = "the title of plan pull request #{pull}"
+    retitle_source_model: str = "the background model"
+    retitle_comment_changed: str = (
+        "{marker}\nThe job shortened the title of this item. The summary had {length} characters, "
+        "and the limit is {limit}. The type and the scope stay.\n\n"
+        "- Before: `{old}`\n- After: `{new}`\n- Source of the summary: {source}"
+    )
+    retitle_comment_skipped: str = (
+        "{marker}\nThe summary of the title has {length} characters, and the limit is {limit}. "
+        "The job did not shorten it. {reason}\n\nA person edits the title."
+    )
     alternatives_applied: str = "Checked {count} item(s) for open alternatives."
     alternatives_failed: str = (
         "the check failed for each of the {count} item(s) it tried, and no check was written: "
@@ -2867,7 +2929,7 @@ class RoadmapMessages:
     stage_left_title_slug: str = "The summary of the title has no word for the branch name."
     stage_left_title_long: str = (
         "The summary of the title has {length} characters, and the limit is {limit}. The "
-        "delivery title would differ from the issue title."
+        "delivery title would differ from the issue title. `devops roadmap retitle` shortens it."
     )
     stage_left_recorded_split: str = (
         "An earlier run stopped on a task group over the budget: {detail}. A person decides, or "
@@ -2877,6 +2939,10 @@ class RoadmapMessages:
         "The count of Planned items is {count}, and the setting roadmap.stage.planned_limit is "
         "{limit}. The job plans no new item until a delivery lowers the count. An item with the "
         "priority {priority} passes the limit."
+    )
+    stage_left_failed_lately: str = (
+        "The last plan or write of the item failed ({error}). The job takes the item again after "
+        "{until} UTC."
     )
     stage_left_secret: str = (
         "The title or the body looks like a secret, so the model does not read it."
@@ -3504,6 +3570,9 @@ class RoadmapMessages:
                 "someone changed the field it writes since the run read it"
             ),
             "closures": "the closes and reopens on {subject}'s timeline",
+            "renames": "the title changes on {subject}'s timeline",
+            "pull_title": "the title of the plan pull request of {subject}",
+            "set_title": "set the title of {subject}",
             "advisory": "the advisory {subject} cites",
             "workflow_run": "the workflow run {subject} cites",
             "commit": "the commit {subject} cites",
@@ -3547,6 +3616,9 @@ class RoadmapMessages:
                 "recorded its newest comment"
             ),
             "deferred": "the proposal defers a part of the item",
+            "planned": "the item is Planned",
+            "unplanned": "the item is not Planned",
+            "retitled": "a person did not change the title since the last job comment",
         }
     )
     plan_repeat: dict[str, str] = field(
@@ -3557,6 +3629,7 @@ class RoadmapMessages:
             "block_path": "for each path the block of a waiting item cites, once a run",
             "evidence": "for each piece of evidence the model cites",
             "alternatives_item": "for each item the run checks, at most --limit",
+            "retitle_item": "for each item with a long title, at most --limit",
             "search": "for each search the model asks for, at most {limit} for an item",
             "fact": "for each fact read the model asks for, at most {limit} for an item",
             "stage_item": "for each item the run stages, up to the limit",

@@ -66,6 +66,8 @@ After the checks, a model of the task `ai.tasks.verification` reviews the plan w
 
 An item whose model call fails is skipped and reported. The job still stages the other items, and the command then exits 1.
 
+The Service records a failed item in its job record: the time (`stage.failed_at`) and the class of the error (`stage.failed_error`). The job leaves the item out for `roadmap.stage.retry_hours` hours (default 6), and takes the other items in the same round. `devops roadmap explain` reports the item and the time when the job takes it again. `--item` takes the item at once. A run that stages or stops the item clears the record. The row `stage` fails a round only when the round tried items and staged, stopped or returned none, or when a failure belongs to no item, such as an outage. Three such rounds in a row on the same input suspend the row. The ledger of failed rounds keeps the class of each error across a restart of the Service, and the log line of a suspension names them. A round that the stop of the Service ends counts as `stopped`, not as an error.
+
 Each run also removes the draft and the branch of a closed item, when only the identity of the session wrote to them.
 
 ## Modes

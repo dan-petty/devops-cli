@@ -108,6 +108,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
+    DEFAULT_ROADMAP_STAGE_RETRY_HOURS,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
     DEFAULT_ROADMAP_STAGE_TOOLSET,
     DEFAULT_RUNS_DATA_DIR,
@@ -136,6 +137,7 @@ from devops_cli.config.env import (
     setting_variables,
 )
 from devops_cli.config.os_keyring import store_keyring_secret
+from devops_cli.config.yaml_errors import load_yaml
 from devops_cli.core.dns_names import OptionalConfiguredDomain
 from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
@@ -882,6 +884,11 @@ class RoadmapStageConfig(BaseModel):
         default=DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
         ge=1000,
     )
+    retry_hours: int = Field(
+        description="Hours after a failed plan or write of an item before the stage job takes the item again",
+        default=DEFAULT_ROADMAP_STAGE_RETRY_HOURS,
+        ge=1,
+    )
     toolset: Annotated[StageToolset, Variable()] = Field(
         description="The tools of a plan run of the stage job: `base` is the nine read-only tools that read the staged commit, and `extended` adds `references`, `read_issue` and `find_issues`. The last two read issues and pull requests of the repository on GitHub, with the token of the Service and no other permission",
         default=DEFAULT_ROADMAP_STAGE_TOOLSET,
@@ -1349,48 +1356,19 @@ def _stamps_are_settled(stamps: tuple[_FileStamp, _FileStamp]) -> bool:
     return all(mtime_ns < cutoff_ns for _, mtime_ns, _ in stamps)
 
 
-# The errors of `yaml.safe_load` and of the UTF-8 decode, from the constructors of PyYAML's
-# SafeConstructor: `UnicodeDecodeError` is a `ValueError`, and `KeyError` and `IndexError` are
-# `LookupError`s. `tests/config/test_config_file_that_is_not_yaml.py` holds a file for each.
-_YAML_LOAD_ERRORS: tuple[type[Exception], ...] = (
-    yaml.YAMLError,
-    ValueError,
-    LookupError,
-    AttributeError,
-    RecursionError,
-)
-
-
 def _read_config_file(path: Path) -> Any:
     """The YAML document of the config file `path`, or `{}` for an empty file.
 
     A file that is not valid YAML raises ConfigurationError that names the file, the type of the
-    error, and its line and column when the error has a mark. The error of PyYAML quotes the line
-    where the parser stopped, and the `buffer` of its mark holds the full text of the file, which
-    can hold a credential. The safe loader also raises `ValueError`, `KeyError`, `IndexError` or
-    `AttributeError` with the value in the message for a tagged value that it cannot build, such
-    as `!!int <text>`, and `RecursionError` for a document that nests too deep. The decode of a
-    file that is not UTF-8 raises `UnicodeDecodeError`, whose `object` holds the bytes of the
-    file. Each of these errors gives the same message, which holds no text of the file, and the
-    error is raised after the `except` block: it has no cause and no context that holds the
-    first error (#1468). An `OSError` names only the file and is not a YAML problem, so it goes
+    error, and its line and column when the error has a mark, and quotes no text of the file
+    (`load_yaml`, #1468). An `OSError` names only the file and is not a YAML problem, so it goes
     up as it is.
     """
-    try:
-        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except _YAML_LOAD_ERRORS as exc:
-        error_type, location = type(exc).__name__, _yaml_error_location(exc)
-    raise ConfigurationError(
-        ERRORS.config.not_yaml.format(path=path, error_type=error_type, location=location)
+    return load_yaml(
+        lambda: yaml.safe_load(path.read_text(encoding="utf-8")) or {},
+        name=str(path),
+        action=ERRORS.config.not_yaml_load,
     )
-
-
-def _yaml_error_location(exc: Exception) -> str:
-    """` at line <n>, column <n>` where PyYAML stopped, counted from 1, or "" with no mark."""
-    mark = exc.problem_mark if isinstance(exc, yaml.MarkedYAMLError) else None
-    if mark is None:
-        return ""
-    return ERRORS.config.not_yaml_location.format(line=mark.line + 1, column=mark.column + 1)
 
 
 def config_layer_paths() -> tuple[Path, Path | None]:
@@ -1735,7 +1713,7 @@ def remove_config_key(
     # that holds the value of a credential, and which the redaction drops (#3218).
     shown = write_history.redact_credentials(
         previous or b"",
-        write_history.credential_paths(previous, (), _SECRET_FIELDS),
+        write_history.credential_paths(previous, (), _SECRET_FIELDS, name=str(dest_path)),
         name=str(dest_path),
     ).decode("utf-8")
     shown_content = round_trip.edit(shown, {path: round_trip.ABSENT}, name=str(dest_path))
@@ -1749,7 +1727,9 @@ def remove_config_key(
     )
     backup = None
     if not dry_run:
-        credentials = write_history.credential_paths(previous, path, _SECRET_FIELDS)
+        credentials = write_history.credential_paths(
+            previous, path, _SECRET_FIELDS, name=str(dest_path)
+        )
         backup = _write_content(dest_path, previous, content.encode("utf-8"), credentials)
         reset_settings_cache()
     return ConfigKeyRemoval(

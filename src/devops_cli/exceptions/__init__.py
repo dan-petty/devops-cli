@@ -52,6 +52,7 @@ from devops_cli.exceptions.roadmap import (
     RoadmapRunError,
     RoadmapStageError,
     ServiceStoppingError,
+    ended_by_stop,
 )
 from devops_cli.exceptions.sandbox import (
     SandboxError,
@@ -171,4 +172,5 @@ __all__ = [
     "VaultLeaseError",
     "VaultOperationError",
     "VaultUnreachableError",
+    "ended_by_stop",
 ]

@@ -105,6 +105,7 @@ These are all the keys of the job record, by the job that writes them:
 | Stage | `stage.groups`, `stage.needs_split`, `stage.file_cap` | The task groups with their size, the group over the budget, and the cap of that measure |
 | Stage | `stage.ready` | The plan pull request that the Service has seen leave the draft state |
 | Stage | `stage.needs_fix` | The plan pull request that the Service told about the label `plan/needs-fix` |
+| Stage | `stage.failed_at`, `stage.failed_error` | When the last plan or write of the Item failed and the class of its error. The job leaves the Item out for `roadmap.stage.retry_hours` hours; a staged Item or an Item stopped on the budget clears both |
 | Implement | `implement.group`, `implement.sha`, `implement.branch`, `implement.pr` | The last group that passed, the last commit, the branch and the pull request |
 | Implement | `implement.stopped`, `implement.failure`, `implement.spend`, `implement.trace` | The step that stopped the Item, the class of its failure, the spend of its steps, and the trace of its last run |
 | Implement | `implement.check`, `implement.check_log` | The check that failed in the stop, and the masked end of its log (at most 2000 characters). A retry and a clear rule of the Service remove both with the stop |

@@ -717,7 +717,7 @@ def test_the_line_that_suspends_a_row_names_the_cause_of_each_round(
     assert "(causes: GitHubOperationError, RoadmapRefineError, GitHubOperationError)" in line
 
 
-def test_a_round_that_an_earlier_process_counted_has_the_cause_unknown(tmp_path: Path) -> None:
+def test_a_round_that_an_earlier_process_counted_keeps_its_cause(tmp_path: Path) -> None:
     record = tmp_path / CONST_SERVICE_FAILURES_FILENAME
     before = FailureLedger(record=record)
     for _ in range(2):
@@ -726,7 +726,7 @@ def test_a_round_that_an_earlier_process_counted_has_the_cause_unknown(tmp_path:
     after = FailureLedger(record=record)
     after.failed(REPO_A, "intake", "a", "RoadmapRefineError")
 
-    assert after.causes(REPO_A, "intake") == ("unknown", "unknown", "RoadmapRefineError")
+    assert after.causes(REPO_A, "intake") == (_CAUSE, _CAUSE, "RoadmapRefineError")
 
 
 def test_a_failure_on_new_input_starts_the_causes_again_and_a_success_clears_them() -> None:
@@ -740,12 +740,13 @@ def test_a_failure_on_new_input_starts_the_causes_again_and_a_success_clears_the
     assert (new_input, ledger.causes(REPO_A, "intake")) == (("RoadmapRefineError",), ())
 
 
-_RUNNING_VERSION_RECORD = TypeAdapter(list[tuple[str, str, int, str]])
-"""The type with which the version that runs now reads `service-failures.json`: a record of
-another shape would stop that version from starting after a rollback."""
+_KEPT_RECORD = TypeAdapter(list[tuple[str, str, int, str, list[str]]])
+"""The type of the entries that the ledger writes: the causes are the fifth field (#3493)."""
 
 
-def test_the_failure_file_keeps_the_format_that_the_running_version_reads(tmp_path: Path) -> None:
+def test_the_failure_file_of_an_earlier_version_loads_and_the_ledger_writes_causes(
+    tmp_path: Path,
+) -> None:
     record = tmp_path / CONST_SERVICE_FAILURES_FILENAME
     record.write_text(json.dumps([[REPO_A, "refine", 3, "abc"]]), encoding="utf-8")
 
@@ -754,9 +755,9 @@ def test_the_failure_file_keeps_the_format_that_the_running_version_reads(tmp_pa
     assert _gauge(CONST_SERVICE_METRIC_JOB_SUSPENDED, {"repo": REPO_A, "row": "refine"}) == 1
 
     kept.failed(REPO_B, "implement", "x", "ServiceStoppingError")
-    assert _RUNNING_VERSION_RECORD.validate_json(record.read_bytes()) == [
-        (REPO_A, "refine", 3, "abc"),
-        (REPO_B, "implement", 1, "x"),
+    assert _KEPT_RECORD.validate_json(record.read_bytes()) == [
+        (REPO_A, "refine", 3, "abc", []),
+        (REPO_B, "implement", 1, "x", ["ServiceStoppingError"]),
     ]
 
 

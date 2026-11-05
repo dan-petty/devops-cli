@@ -4357,6 +4357,26 @@ devops ai review export-feedback [OPTIONS]
 | `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+#### `devops ai review fetch-databases`
+
+**Fetch the osv-scanner and Trivy databases that a review binds read-only. The sandbox of a review has no network, so this is the one step that fetches them. Run it again when a review reports a coverage gap that names it.**
+
+```bash
+devops ai review fetch-databases [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `path` | No | The tree whose lockfiles name the osv-scanner ecosystems to fetch. Trivy needs no tree. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 #### `devops ai review corpus`
 
 ```bash
@@ -6178,6 +6198,26 @@ devops review export-feedback [OPTIONS]
 | `--status`, `-s` | `string` | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops review fetch-databases`
+
+**Fetch the osv-scanner and Trivy databases that a review binds read-only. The sandbox of a review has no network, so this is the one step that fetches them. Run it again when a review reports a coverage gap that names it.**
+
+```bash
+devops review fetch-databases [OPTIONS] <path>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<path>` | `path` | No | The tree whose lockfiles name the osv-scanner ecosystems to fetch. Trivy needs no tree. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops review corpus`
 
 ```bash
@@ -6563,6 +6603,24 @@ devops roadmap alternatives [OPTIONS]
 | `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, with placeholders. |
 | `--plan` | `boolean` | - | Run the checks and print them, and write nothing. This is the default. |
 | `--confirm` | `boolean` | - | Write each check to GitHub: its comment, its body block and its job record. |
+
+### `devops roadmap retitle`
+
+**Shorten the title summary of open items that is over 60 characters. The job keeps the type and the scope. A Planned item takes the summary of its plan pull request title and needs no model call; another item gets one model call. The job leaves a title that a person changed after the last job comment. Without --confirm, it prints the new titles and writes nothing.**
+
+```bash
+devops roadmap retitle [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--item` | `integer` | - | Specific issue number to examine instead of selecting. Retitle examines it when it is open and its title summary is over the limit. |
+| `--limit` | `integer` | - | Maximum number of items to examine in this run (default: 25). The lowest numbers go first. |
+| `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, with placeholders. |
+| `--confirm` | `boolean` | - | Write each new title to GitHub, and a comment on the item. |
 
 ### `devops roadmap stage`
 

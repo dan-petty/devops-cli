@@ -176,6 +176,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "setting",
         "open Planned items at which the stage job plans no new item; already a setting",
     ),
+    "DEFAULT_ROADMAP_STAGE_RETRY_HOURS": (
+        "other",
+        "the wait before a failed stage item is tried again",
+    ),
     # ── Alternatives ──────────────────────────────────────────────────────────────────────
     "CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES": ("raised", "was 3; web searches of one item"),
     "CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS": (
@@ -195,6 +199,7 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "other",
         "the policy that says a tool is maintained",
     ),
+    "DEFAULT_ROADMAP_RETITLE_LIMIT": ("setting", "items that one retitle run examines"),
     "DEFAULT_ROADMAP_ALTERNATIVES_LIMIT": ("kept", "items of one round"),
     "DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT": (
         "setting",

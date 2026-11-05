@@ -373,6 +373,22 @@ def test_a_planned_item_whose_title_has_no_type_is_left_out(
     assert "Conventional Commit type" in _reasons(plan)[number]
 
 
+def test_a_planned_item_with_a_long_title_summary_is_left_out_before_any_work(
+    store: InMemoryRoadmapStore, repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    summary = "Shorten the title of an item that a job leaves out because it is too long"
+    number = seed_staged(store, record=False, title=f"fix(roadmap): {summary}")
+    merge_plan(repo, number)
+
+    plan = _plan(store, repo)
+
+    assert plan.selected == ()
+    assert _reasons(plan) == {
+        number: MESSAGES.roadmap.stage_left_title_long.format(length=len(summary), limit=60)
+    }
+    assert github_api.requested == []
+
+
 def test_a_planned_item_whose_folder_gives_no_branch_name_is_left_out(
     store: InMemoryRoadmapStore, repo: StageRepo, github_api: GitHubApiFake
 ) -> None:

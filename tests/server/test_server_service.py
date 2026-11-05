@@ -71,6 +71,7 @@ from devops_cli.telemetry.tracer import (
     reset_tracer,
 )
 from tests.support.fakes.otlp import metric_points
+from tests.support.service_stop import stop_error
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 LANE = CONST_SERVICE_LANE_DEFAULT
@@ -1155,6 +1156,54 @@ def test_repo_worker_logs_configuration_errors_without_traceback(
     assert "exception" in formatted_4
     assert "intake" in formatted_4["exception"]
     assert "metrics" in formatted_4["exception"]
+
+
+@pytest.mark.parametrize("scoped", [True, False], ids=["scoped update", "round"])
+def test_a_round_that_the_stop_of_the_service_ends_counts_as_stopped_and_logs_no_error(
+    caplog: pytest.LogCaptureFixture, scoped: bool
+) -> None:
+    """A scoped update or a round that ends on a request the stopping Service refused is no
+    error: its result is `stopped`, and the Service logs no error line (#3493). The round wraps
+    the stop in the group of the failed jobs, as `run_due_jobs` does."""
+    repo = f"example-org/stop-{'scoped' if scoped else 'round'}"
+    labels = {"repo": repo, "lane": "status"}
+    stop = stop_error()
+    failed = RoadmapRunError("Roadmap jobs failed: stage", failed_jobs=("stage",))
+    failed.__cause__ = ExceptionGroup("jobs", [stop])
+
+    def scoped_update() -> None:
+        raise stop
+
+    def job(batch: TriggerBatch) -> None:
+        raise failed
+
+    def counted(result: str) -> float:
+        return GLOBAL_METRICS.get_counter_value(
+            CONST_SERVICE_METRIC_JOBS, labels={**labels, "result": result}
+        )
+
+    before = (counted("stopped"), counted("error"))
+    worker = RepoWorker(repo=repo, lane="status", job_func=job, clock=lambda: datetime.now(UTC))
+    worker.start()
+    with caplog.at_level(logging.INFO, logger="devops_cli.server.service"):
+        if scoped:
+            worker.enqueue_scoped(scoped_update)
+        else:
+            worker.enqueue("poll", "", "")
+        assert worker.wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+    worker.stop()
+    assert worker.join(THREAD_HANDOFF_BOUND_SECONDS)
+
+    last = worker.last_round
+    assert last is not None
+    assert (counted("stopped") - before[0], counted("error") - before[1], last.result) == (
+        1.0,
+        0.0,
+        "stopped",
+    )
+    assert [r.levelno for r in caplog.records if r.name == "devops_cli.server.service"] == [
+        logging.INFO
+    ]
 
 
 # ── A GraphQL budget refusal holds every repository's rounds (#1400) ──────────

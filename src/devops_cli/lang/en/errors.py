@@ -80,7 +80,10 @@ class ConfigErrorMessages:
         "litellm_params or the Ollama tag."
     )
     key_not_in_file: str = "The config file {path} does not hold the key '{key}'. Nothing changed."
-    not_yaml: str = "Cannot load the settings: {path} is not valid YAML ({error_type}){location}."
+    not_yaml: str = "{action}: {path} is not valid YAML ({error_type}){location}."
+    not_yaml_load: str = "Cannot load the settings"
+    not_yaml_read: str = "Cannot read the config file"
+    not_yaml_save: str = "Cannot save the settings"
     not_yaml_location: str = " at line {line}, column {column}"
     not_mapping: str = "Cannot load the settings: {path} does not hold a mapping of keys to values."
 
