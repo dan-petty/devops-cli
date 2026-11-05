@@ -22,6 +22,12 @@ The default filter is `status=ready`. The job takes the Ready items of any type,
 
 The job leaves out an item that is not Ready, and some other items: for example an item with the label `needs-split`, an item that depends on an open issue, and an item that an agent or a person claimed. [roadmap-stage](../../openspec/specs/roadmap-stage/spec.md) holds the full list, in the requirement "The job leaves out the items it must not stage". The plan says why for each item that it leaves out. `--why` also lists the open items that the filter does not name.
 
+## The limit on Planned items
+
+Plans merge faster than the Service delivers them, and a plan that waits long meets a changed default branch. The setting `roadmap.stage.planned_limit` (variable `DEVOPS_CLI_ROADMAP_STAGE_PLANNED_LIMIT`) is the count of open Planned items at which the job plans no new item. The default is 20. The Service delivers about two items a day, so 20 items wait about ten days.
+
+At the limit, the job leaves out each item with the reason that names the setting and the count. An item with the priority `P0-Critical` passes the limit, and so does the item that `--item` names. The limit counts Planned items only. Open staging drafts do not count. A round can take up to `roadmap.stage.limit` items while the count is below the limit, so the count can pass the limit by less than that number. `devops roadmap explain` names the limit for an item that it holds, and `devops roadmap inbox` states when it holds. The limit does not apply to the filing of issues.
+
 ## The budget of a task group
 
 A task group over the step budget goes back to the model once. A group that is still over the budget stops the item. `--step-tokens` replaces the setting `roadmap.stage.step_tokens` for one run.

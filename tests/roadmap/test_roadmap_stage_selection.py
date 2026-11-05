@@ -7,7 +7,10 @@ from collections.abc import Callable
 import pytest
 
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
-from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_FILTER
+from devops_cli.config.defaults import (
+    DEFAULT_ROADMAP_STAGE_FILTER,
+    DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
+)
 from devops_cli.exceptions import ValidationError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -59,6 +62,7 @@ def _select(
     planned: PlannedChanges = NO_PLANS,
     item: int | None = None,
     limit: int = 3,
+    planned_limit: int = DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
     probe: int | None = None,
 ) -> StageSelection:
     return select_stageable(
@@ -68,6 +72,7 @@ def _select(
         planned=planned,
         item_number=item,
         limit=limit,
+        planned_limit=planned_limit,
         probe=probe,
     )
 
@@ -550,3 +555,87 @@ def test_a_named_issue_that_is_closed_has_the_shared_reason(store: InMemoryRoadm
 
 def test_a_named_issue_that_is_no_item_has_the_shared_reason(store: InMemoryRoadmapStore) -> None:
     assert _reasons(_select(store, item=99)) == {99: MESSAGES.roadmap.item_left_not_item}
+
+
+def _seed_planned(store: InMemoryRoadmapStore, count: int) -> None:
+    for number in range(count):
+        _seed(store, f"fix(roadmap): planned item {number}", status="Planned")
+
+
+def test_at_the_planned_limit_the_job_takes_no_item_and_gives_the_limit_as_the_reason(
+    store: InMemoryRoadmapStore,
+) -> None:
+    _seed_planned(store, 2)
+    ready = _seed(store)
+
+    selection = _select(store, *DEFAULT_ROADMAP_STAGE_FILTER, planned_limit=2)
+
+    assert selection.selected == ()
+    assert _reasons(selection) == {
+        ready: MESSAGES.roadmap.stage_left_planned_limit.format(
+            count=2, limit=2, priority="P0-Critical"
+        )
+    }
+    assert "roadmap.stage.planned_limit" in _reasons(selection)[ready]
+
+
+def test_over_the_planned_limit_the_job_takes_no_item(store: InMemoryRoadmapStore) -> None:
+    _seed_planned(store, 3)
+    _seed(store)
+
+    assert _select(store, *DEFAULT_ROADMAP_STAGE_FILTER, planned_limit=2).selected == ()
+
+
+def test_under_the_planned_limit_the_job_takes_items_as_before(
+    store: InMemoryRoadmapStore,
+) -> None:
+    _seed_planned(store, 1)
+    first = _seed(store)
+    second = _seed(store, "docs(k8s): fix a path", labels=("type/docs",))
+
+    selection = _select(store, *DEFAULT_ROADMAP_STAGE_FILTER, planned_limit=2)
+
+    assert _numbers(selection) == [first, second]
+    assert selection.left_out == ()
+
+
+def test_an_item_of_the_highest_priority_gets_a_plan_at_the_planned_limit(
+    store: InMemoryRoadmapStore,
+) -> None:
+    _seed_planned(store, 2)
+    critical = _seed(store, "fix(roadmap): the job drops a label", priority="P0-Critical")
+    high = _seed(store, "fix(roadmap): the job drops a comment", priority="P1-High")
+
+    selection = _select(store, *DEFAULT_ROADMAP_STAGE_FILTER, planned_limit=2)
+
+    assert _numbers(selection) == [critical]
+    assert set(_reasons(selection)) == {high}
+
+
+def test_the_planned_count_holds_only_open_planned_items(store: InMemoryRoadmapStore) -> None:
+    _seed_planned(store, 1)
+    _seed(store, "fix(roadmap): closed one", status="Planned", state=GitHubState.CLOSED)
+    _seed(store, "fix(roadmap): staged one", status="Staged")
+    ready = _seed(store)
+
+    selection = _select(store, *DEFAULT_ROADMAP_STAGE_FILTER, planned_limit=2)
+
+    assert _numbers(selection) == [ready]
+
+
+def test_a_named_item_passes_the_planned_limit(store: InMemoryRoadmapStore) -> None:
+    _seed_planned(store, 2)
+    ready = _seed(store)
+
+    assert _numbers(_select(store, item=ready, planned_limit=2)) == [ready]
+
+
+def test_an_item_that_fails_another_rule_keeps_that_reason_at_the_planned_limit(
+    store: InMemoryRoadmapStore,
+) -> None:
+    _seed_planned(store, 2)
+    claimed = _seed(store, labels=(*BUG, "owner/human"))
+
+    reason = _reasons(_select(store, *DEFAULT_ROADMAP_STAGE_FILTER, planned_limit=2))[claimed]
+
+    assert reason == "It is claimed by human."

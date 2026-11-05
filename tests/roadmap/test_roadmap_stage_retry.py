@@ -58,6 +58,7 @@ def _taken(store: InMemoryRoadmapStore, *, item: int | None = None) -> tuple[lis
         planned=NO_PLANS,
         item_number=item,
         limit=5,
+        planned_limit=20,
         now=NOW,
     )
     return (

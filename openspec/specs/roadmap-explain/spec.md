@@ -88,6 +88,21 @@ How `devops roadmap explain` tells a person or an agent, for one roadmap issue, 
 - **WHEN** `explain 7 --trace --dry-run` runs with processes and sockets refused
 - **THEN** the output lists the read of issue 7 and no read of a branch or a change folder
 
+### Requirement: The command names the limit on Planned items
+For the stage job, `devops roadmap explain <issue>` SHALL print `no` for an item that the limit `roadmap.stage.planned_limit` holds, and the reason SHALL name the setting and the count of open Planned items. When no `--limit` or other option names it, the limit SHALL be the setting that the Service uses.
+
+#### Scenario: An item that the limit holds
+- **WHEN** 2 items are Planned, the setting is 2, and a Ready item passes every other rule
+- **THEN** the stage job is `no`, and the reason names `roadmap.stage.planned_limit` and the count 2
+
+#### Scenario: An item under the limit
+- **WHEN** 2 items are Planned, the setting is 3, and a Ready item passes every other rule
+- **THEN** the stage job is `yes`
+
+#### Scenario: The limit from the settings
+- **WHEN** the variable `DEVOPS_CLI_ROADMAP_STAGE_PLANNED_LIMIT` holds 1, 1 item is Planned, and a Ready item passes every other rule
+- **THEN** the stage job is `no` with the reason of the limit
+
 ### Requirement: The command reports an item that the stage job holds for a retry
 For the stage job, `devops roadmap explain <issue>` SHALL read `stage.failed_at` and `stage.failed_error` in the job record of the item on GitHub. When the failure is younger than `roadmap.stage.retry_hours` hours, the stage job SHALL be `no`, and the reason SHALL name the error class and the time after which the job takes the item again.
 

@@ -88,6 +88,7 @@ def _stage_verdict(
     item: Item,
     filters: StageFilter,
     limit: int,
+    planned_limit: int,
     reads: _Reads,
 ) -> JobVerdict:
     if (why := filters.mismatch(item)) is not None:
@@ -98,6 +99,7 @@ def _stage_verdict(
         source=source,
         filters=filters,
         limit=limit,
+        planned_limit=planned_limit,
         probe=item.number,
         heads=reads.heads,
         planned=reads.planned,
@@ -140,10 +142,12 @@ def explain_item(
     implement_filters: StageFilter,
     stage_limit: int | None = None,
     implement_limit: int | None = None,
+    planned_limit: int | None = None,
 ) -> Explanation:
     """Why each job takes issue `number` or leaves it out, with no model call and no write.
     `source` is the clone of the repository. A limit left as None is the limit that the Service
-    uses for the job: `roadmap.stage.limit` for stage, one item for implement."""
+    uses for the job: `roadmap.stage.limit` for stage, one item for implement. A `planned_limit`
+    left as None is `roadmap.stage.planned_limit`."""
     item = store.item(number)
     if item is None or item.state is not GitHubState.OPEN:
         texts = MESSAGES.roadmap
@@ -152,6 +156,7 @@ def explain_item(
         )
         return Explanation(repo, number, item.title if item else "", refusal, refusal)
     checkout = Path(source)
+    stage_settings = load_settings().roadmap.stage
     reads = _Reads(
         read_remote_heads(checkout), read_planned_changes(checkout, operation=_GIT_OPERATION)
     )
@@ -165,7 +170,8 @@ def explain_item(
             source=checkout,
             item=item,
             filters=stage_filters,
-            limit=stage_limit or load_settings().roadmap.stage.limit,
+            limit=stage_limit or stage_settings.limit,
+            planned_limit=planned_limit or stage_settings.planned_limit,
             reads=reads,
         ),
         _implement_verdict(

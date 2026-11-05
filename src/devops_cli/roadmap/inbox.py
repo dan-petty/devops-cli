@@ -8,11 +8,12 @@ are enough.
 
 **The jobs' lines**, in the order of the gates (docs/ROADMAP_WORKFLOW.md): ready plan pull
 requests (G1), ready implementation pull requests (G2), the release pull request (G3), items in
-`status/blocked` with their cause, old claims, and labels that the repository lacks. A pull
-request is a job's when the job record of an open item names it: `implement.pr` makes it an
-implementation, `stage.pr` a plan, and `implement.pr` wins because a staged branch keeps one pull
-request through both jobs. A draft of a job waits for its checks, so it is not listed, and a pull
-request that a runner Job holds is not listed: the Job pushes to it. The release pull request is
+`status/blocked` with their cause, old claims, labels that the repository lacks, and the Planned
+queue when it is at the limit of the stage job (#3487). A pull request is a job's when the job
+record of an open item names it: `implement.pr` makes it an implementation, `stage.pr` a plan, and
+`implement.pr` wins because a staged branch keeps one pull request through both jobs. A draft of a
+job waits for its checks, so it is not listed, and a pull request that a runner Job holds is not
+listed: the Job pushes to it. The release pull request is
 the open one whose head branch starts with the prefix of release-please.
 
 **The people's lines** are every other open pull request, so a person's own pull requests are
@@ -42,6 +43,7 @@ from devops_cli.git.branch_form import issue_of_branch
 from devops_cli.github.labels import diff_labels
 from devops_cli.lang import MESSAGES
 from devops_cli.output import format_duration
+from devops_cli.roadmap.planned import planned_count
 from devops_cli.roadmap.pull_labels import declared_specs
 from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.store import (
@@ -63,6 +65,7 @@ class InboxKind(StrEnum):
     BLOCKED = "blocked"
     CLAIM = "claim"
     LABELS = "labels"
+    QUEUE = "queue"
     PERSON = "person"
 
 
@@ -223,17 +226,30 @@ def _label_lines(store: RoadmapStore, repo: str, now: datetime) -> list[InboxLin
     return [InboxLine(InboxKind.LABELS, None, age, subject, clear)]
 
 
+def _queue_lines(items: Iterable[Item], repo: str, planned_limit: int) -> list[InboxLine]:
+    """One line when the count of Planned items is at the limit of the stage job (#3487). It has
+    no number and no age: it is a state of the queue, and a delivery clears it."""
+    count = planned_count(items)
+    if count < planned_limit:
+        return []
+    texts = MESSAGES.roadmap
+    subject = texts.inbox_subjects["queue"].format(count=count, limit=planned_limit)
+    clear = texts.inbox_clears["queue"].format(repo=repo)
+    return [InboxLine(InboxKind.QUEUE, None, None, subject, clear)]
+
+
 def _order(line: InboxLine) -> tuple[int, bool, float]:
     """Kind order, then the oldest first, a line with no age last."""
     seconds = line.age.total_seconds() if line.age is not None else 0.0
     return (list(InboxKind).index(line.kind), line.age is None, -seconds)
 
 
-def read_inbox(store: RoadmapStore, *, repo: str, now: datetime) -> Inbox:
+def read_inbox(store: RoadmapStore, *, repo: str, now: datetime, planned_limit: int) -> Inbox:
     """What waits for a person in `repo` at `now`. It reads the open items, the open pull
     requests, the labels and the labels file, and the newest commit of that file when the labels
-    differ, and writes nothing. A read that fails raises its error, and the labels file of a
-    repository that has none fails the read."""
+    differ, and writes nothing. A line states when the count of Planned items is at
+    `planned_limit`, the limit of the stage job. A read that fails raises its error, and the
+    labels file of a repository that has none fails the read."""
     items = store.open_items()
     pulls = store.open_pulls()
     lines = [
@@ -241,6 +257,7 @@ def read_inbox(store: RoadmapStore, *, repo: str, now: datetime) -> Inbox:
         *_blocked_lines(items, repo, now),
         *_claim_lines(items, pulls, repo, now),
         *_label_lines(store, repo, now),
+        *_queue_lines(items, repo, planned_limit),
     ]
     ordered = sorted(lines, key=_order)
     return Inbox(
