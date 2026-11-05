@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.57.1](https://github.com/dan-petty/devops-cli/compare/v0.57.0...v0.57.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* **config:** a config read quotes no text of a bad YAML file ([#3552](https://github.com/dan-petty/devops-cli/issues/3552)) ([a99d1a6](https://github.com/dan-petty/devops-cli/commit/a99d1a64cb82ff243b8bc0af31a953d437d46448))
+
 ## [0.57.0](https://github.com/dan-petty/devops-cli/compare/v0.56.5...v0.57.0) (2026-11-04)
 
 
