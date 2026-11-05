@@ -15,7 +15,6 @@ import yaml
 
 from devops_cli.config.env import env_var_for_option
 from devops_cli.tools_lock import load_tools_lock
-from tests.k8s_manifests import kustomize
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -212,17 +211,6 @@ def test_a_version_run_has_a_deadline_and_its_workflow_and_pods_are_garbage_coll
     ) == (300, {"secondsAfterCompletion": 3600}, {"strategy": "OnWorkflowSuccess"})
 
 
-def test_the_workflow_directory_and_its_values_reference_no_secret() -> None:
-    """No object `kubectl kustomize` renders from the directory, and nothing in the chart's
-    values, names a Secret field, so Secret `devops-cli` is never mounted or read here."""
-    rendered = [d for d in yaml.safe_load_all(kustomize(ARGO_DIR).stdout) if d]
-    assert (
-        [path for document in rendered for path in _secret_fields(document)],
-        [document["kind"] for document in rendered if document["kind"] == "Secret"],
-        list(_secret_fields(_values())),
-    ) == ([], [], [])
-
-
 def test_a_field_that_names_a_secret_is_found_at_any_depth() -> None:
     """Pin the walker on documents that do reference Secrets, so an empty result means none."""
     pod = {
@@ -294,16 +282,6 @@ def test_the_perimeter_admits_the_metrics_scrape_and_reaches_dns_and_the_api_ser
             ],
         },
     )
-
-
-def test_the_kustomization_renders_the_template_and_the_perimeter_and_nothing_else() -> None:
-    rendered = [d for d in yaml.safe_load_all(kustomize(ARGO_DIR).stdout) if d]
-    assert sorted(
-        (d["kind"], d["metadata"]["namespace"], d["metadata"]["name"]) for d in rendered
-    ) == [
-        ("NetworkPolicy", NAMESPACE, "argo-workflows-default-perimeter"),
-        ("WorkflowTemplate", NAMESPACE, "devops-cli-version"),
-    ]
 
 
 def test_the_kustomization_lists_every_manifest_and_stays_out_of_the_root() -> None:

@@ -14,6 +14,7 @@ from devops_cli.roadmap.stage import CALLS_PER_ITEM_MAX
 from devops_cli.roadmap.stage_eval_cases import GateName, StageCase
 from devops_cli.roadmap.stage_eval_gates import DefectStatus, ReplayReport
 from devops_cli.roadmap.stage_eval_score import DefectScore, StageScore, pending_reference
+from devops_cli.roadmap.stage_eval_usage import RunUsage
 
 
 def _percent(value: float | None) -> str:
@@ -97,8 +98,9 @@ def _score_row(row: DefectScore) -> str:
     )
 
 
-def render_score(score: StageScore, *, gateway: str) -> str:
-    """The score as text: a row for each type of defect, the total, and how the cases ended."""
+def render_score(score: StageScore, *, gateway: str, usage: RunUsage | None = None) -> str:
+    """The score as text: a row for each type of defect, the total, how the cases ended, and with
+    `usage`, the tokens and the spend of the run."""
     texts = MESSAGES.roadmap
     lines = [
         texts.stage_eval_score_title.format(cases=score.cases, model=score.model, gateway=gateway),
@@ -116,11 +118,25 @@ def render_score(score: StageScore, *, gateway: str) -> str:
             ended=", ".join(f"{outcome} {count}" for outcome, count in score.ended.items())
         ),
     ]
+    if usage is not None:
+        spend = usage.spend_usd(score.model)
+        lines += [
+            texts.stage_eval_usage_tokens.format(
+                input=usage.input_tokens, output=usage.output_tokens
+            ),
+            texts.stage_eval_usage_spend.format(spend=spend)
+            if spend is not None
+            else texts.stage_eval_usage_unpriced,
+        ]
     return "\n".join(lines) + "\n"
 
 
-def score_json(score: StageScore, *, gateway: str, taken: str) -> str:
-    """The score as JSON, for the file under `.data/` and for `--json`."""
+def score_json(
+    score: StageScore, *, gateway: str, taken: str, usage: RunUsage | None = None
+) -> str:
+    """The score as JSON, for the file under `.data/` and for `--json`. With `usage` it holds the
+    tokens and the spend in USD of the run; `spend_usd` is null when the model
+    has no price."""
     data: dict[str, Any] = {
         "model": score.model,
         "gateway": gateway,
@@ -132,6 +148,12 @@ def score_json(score: StageScore, *, gateway: str, taken: str) -> str:
         "ended": {str(outcome): count for outcome, count in score.ended.items()},
         "rows": [asdict(row) | {"rate": row.rate} for row in score.rows],
     }
+    if usage is not None:
+        data["usage"] = {
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "spend_usd": usage.spend_usd(score.model),
+        }
     return json.dumps(data, indent=2, default=str) + "\n"
 
 

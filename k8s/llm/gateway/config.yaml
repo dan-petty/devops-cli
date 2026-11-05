@@ -1,6 +1,8 @@
 # LiteLLM Proxy / AI Gateway routing configuration. kustomization.yaml generates ConfigMap
 # llm-gateway-config-<hash> from this file, so a change here rolls the gateway Deployment (#1929).
 # Gateway routes target standardized <llm_provider>-<vram_gib>-[slow,standard,fast] services.
+# The tiers ollama-48gib-fast and ollama-64gib-standard load qwen3.8:27b and no other model, so
+# no deployment of this file sends another model, an embedding model included, to either (#3567).
 # Every ollama_chat deployment sets max_input_tokens in its own top-level model_info, equal to the
 # OLLAMA_CONTEXT_LENGTH of its tier (devops ai gateway render keeps them equal). LiteLLM reads the
 # window only there: a model_info under litellm_params is ignored. A deployment that sets no
@@ -19,31 +21,30 @@ model_list:
       model: ollama_chat/qwen3.8:27b
       api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
     model_info:
-      max_input_tokens: 160000
+      max_input_tokens: 262144
 
   - model_name: devops-coder
     litellm_params:
-      model: ollama_chat/qwen3-coder:30b
+      model: ollama_chat/qwen3.8:27b
       api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
     model_info:
       max_input_tokens: 262144
 
   - model_name: devops-reasoning
     litellm_params:
-      model: ollama_chat/qwen3-coder:30b
+      model: ollama_chat/qwen3.8:27b
       api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
     model_info:
       max_input_tokens: 262144
 
-  # Every serving tier holds the embedding model. The router tries the lowest order first,
-  # shuffled among its deployments, and the next order only when they all fail (#1987, #2027).
-  # Order 1 is each instance of a tier at or below the embedding_only threshold, in the rendered
-  # region: an idle one embeds a batch of 32 chunks of the largest size in 2 s, and it has no chat
-  # model to wait for or to evict (#3501). The chat tiers are the fallback. The 48gib-fast and
-  # 64gib-standard tiers embed beside their chat model. The 16gib-fast tier comes last: its chat
-  # model leaves no VRAM for the embedder, so each embedding evicts it.
+  # The router tries the lowest order first, shuffled among its deployments, and the next order
+  # only when they all fail (#1987, #2027). Order 1 is each instance of a tier at or below the
+  # embedding_only threshold, in the rendered region: an idle one embeds a batch of 32 chunks of
+  # the largest size in 2 s, and it has no chat model to wait for or to evict (#3501). The 16gib-fast
+  # tier is the fallback, at order 2: its chat model leaves no VRAM for the embedder, so each
+  # embedding evicts it. The 48gib-fast and 64gib-standard tiers hold no embedding model (#3567).
   # num_ctx is CONST_RAG_MAX_CHUNK_TOKENS, so the largest RAG chunk fits. Without it, Ollama
-  # loads the embedder with 32,768 tokens: 5.2 GB, not 2.9 GB, on the 64gib-standard tier.
+  # loads the embedder with 32,768 tokens, which is more than twice the memory.
   # mode: embedding makes health checks embed rather than generate.
   # BEGIN rendered by devops ai gateway render from gpu-thresholds.yaml
   - model_name: qwen3-embedding:0.6b
@@ -66,33 +67,17 @@ model_list:
   - model_name: qwen3-embedding:0.6b
     litellm_params:
       model: ollama/qwen3-embedding:0.6b
-      api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
-      num_ctx: 8192
-      order: 2
-    model_info:
-      mode: embedding
-  - model_name: qwen3-embedding:0.6b
-    litellm_params:
-      model: ollama/qwen3-embedding:0.6b
-      api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
-      num_ctx: 8192
-      order: 2
-    model_info:
-      mode: embedding
-  - model_name: qwen3-embedding:0.6b
-    litellm_params:
-      model: ollama/qwen3-embedding:0.6b
       api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
       num_ctx: 8192
-      order: 3
+      order: 2
     model_info:
       mode: embedding
 
   # Background group: batch, cluster services and --watch jobs reach it through devops-background
   # (k8s/README.md), and devops-review falls back to it. It runs on the 64gib-standard tier, the
   # slowest chat tier, since a tier at or below the embedding_only threshold serves no chat model.
-  # Its window is the 160000 of the tier. A longer prompt skips this group, and the plain fallback
-  # below sends it on to qwen3.8:27b, whose largest window is 262144. Ollama does not cut it.
+  # Its window is the 262144 of the tier, the same as that of the qwen3.8:27b group, so a prompt
+  # that this group refuses is refused there too.
   - model_name: devops-background
     litellm_params:
       model: ollama_chat/qwen3.8:27b
@@ -102,7 +87,7 @@ model_list:
       timeout: 1100
       num_retries: 0
     model_info:
-      max_input_tokens: 160000
+      max_input_tokens: 262144
 
   # devops-triage: fast triage and roadmap intake on the 64 GiB standard tier.
   - model_name: devops-triage
@@ -110,27 +95,27 @@ model_list:
       model: ollama_chat/qwen3.8:27b
       api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
     model_info:
-      max_input_tokens: 160000
+      max_input_tokens: 262144
 
   # devops-review: one model name spread over the interactive Ollama tiers. The least-busy
   # router sends each request to the deployment with the fewest requests in flight:
-  # - qwen3-coder:30b on ollama-48gib-fast (2x RTX 3090) and ollama-64gib-standard (Tesla V100).
+  # - qwen3.8:27b on ollama-48gib-fast (2x RTX 3090) and ollama-64gib-standard (2x Tesla V100).
   # - gpt-oss:20b on ollama-16gib-fast.
   # devops-background is left out; it is devops-review's fallback.
   - model_name: devops-review
     litellm_params:
-      model: ollama_chat/qwen3-coder:30b
+      model: ollama_chat/qwen3.8:27b
       api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
       num_retries: 0
     model_info:
       max_input_tokens: 262144
   - model_name: devops-review
     litellm_params:
-      model: ollama_chat/qwen3-coder:30b
+      model: ollama_chat/qwen3.8:27b
       api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
       num_retries: 0
     model_info:
-      max_input_tokens: 160000
+      max_input_tokens: 262144
   - model_name: devops-review
     litellm_params:
       model: ollama_chat/gpt-oss:20b
@@ -140,24 +125,10 @@ model_list:
       max_input_tokens: 131072
       supports_reasoning: true
 
-  # One group per devops-review model, copying its deployments exactly, windows included, so a
-  # review can be pinned to one model and routed as the pool routes it. No fallback: it would
-  # send a request somewhere the pool would not.
-  - model_name: qwen3-coder:30b
-    litellm_params:
-      model: ollama_chat/qwen3-coder:30b
-      api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
-      num_retries: 0
-    model_info:
-      max_input_tokens: 262144
-  - model_name: qwen3-coder:30b
-    litellm_params:
-      model: ollama_chat/qwen3-coder:30b
-      api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
-      num_retries: 0
-    model_info:
-      max_input_tokens: 160000
-
+  # A review can be pinned to one model of the pool and routed as the pool routes it. gpt-oss:20b
+  # copies its devops-review deployment exactly, and has no fallback: it would send a request
+  # somewhere the pool would not. qwen3.8:27b below copies the backends and windows of its
+  # devops-review deployments, and is the fallback of devops-triage and devops-background.
   - model_name: gpt-oss:20b
     litellm_params:
       model: ollama_chat/gpt-oss:20b
@@ -167,19 +138,6 @@ model_list:
       max_input_tokens: 131072
       supports_reasoning: true
 
-  - model_name: gemma4:31b
-    litellm_params:
-      model: ollama_chat/gemma4:31b
-      api_base: http://ollama-48gib-fast.llm.svc.cluster.local:11434
-    model_info:
-      max_input_tokens: 262144
-  - model_name: gemma4:31b
-    litellm_params:
-      model: ollama_chat/gemma4:31b
-      api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
-    model_info:
-      max_input_tokens: 160000
-
   - model_name: qwen3.8:27b
     litellm_params:
       model: ollama_chat/qwen3.8:27b
@@ -191,14 +149,7 @@ model_list:
       model: ollama_chat/qwen3.8:27b
       api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
     model_info:
-      max_input_tokens: 160000
-
-  - model_name: deepseek-r1:70b
-    litellm_params:
-      model: ollama_chat/deepseek-r1:70b
-      api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
-    model_info:
-      max_input_tokens: 160000
+      max_input_tokens: 262144
 
   # Hosted models (#3113). A prompt sent to these groups leaves the cluster for the provider, and
   # the provider bills each token. No pool and no fallback names them, so a request reaches a
@@ -311,18 +262,19 @@ router_settings:
   # Check prompt size against the max_input_tokens of each deployment before calling a backend,
   # so a prompt never reaches a deployment whose window it exceeds. A prompt longer than every
   # window of a group tries the plain fallbacks below, and fails with a ContextWindowExceededError
-  # only when no group of the chain holds it. No context_window_fallbacks: devops-chat,
-  # devops-coder and devops-reasoning run on ollama-48gib-fast, whose window of 262144 is the
-  # largest, so a prompt that one of them refuses does not fit the others.
+  # only when no group of the chain holds it. No context_window_fallbacks: the tiers
+  # ollama-48gib-fast and ollama-64gib-standard have the window of 262144, the largest, so a
+  # prompt that one group of them refuses does not fit the others.
   enable_pre_call_checks: true
-  # Backend unavailable: prefer the larger model before the small model.
+  # Backend unavailable: devops-coder and devops-reasoning name the only model of ollama-48gib-fast,
+  # so their fallback is devops-chat, which also holds ollama-64gib-standard (#3567).
   fallbacks:
-    - devops-reasoning: [devops-coder]
-    - devops-coder: [devops-reasoning, devops-chat]
+    - devops-reasoning: [devops-chat]
+    - devops-coder: [devops-chat]
     # Once devops-review's retries fail, timeouts included. The keepalive keeps the client's
     # streamed call open, so the client reads the devops-background reply. The pre-call check
-    # keeps a prompt longer than the 160000 window of that group off it. Such a prompt moves on
-    # to qwen3.8:27b, by the devops-background rule below.
+    # keeps a prompt longer than the window of that group off it, and all windows of the large
+    # tiers are 262144.
     # No devops-chat rule: fallbacks chain, so devops-coder and devops-reasoning failures
     # would reach devops-background through devops-chat.
     - devops-review: [devops-background]

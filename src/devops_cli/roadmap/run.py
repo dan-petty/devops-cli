@@ -569,7 +569,7 @@ def _run_stage_adapter(
         repo=repo,
         source=source,
         filters=parse_filters(()),
-        model=ToolboxModel(get_task_model("analysis")),
+        model=ToolboxModel(get_task_model("stage")),
         verifier=get_llm_client(task="verification"),
     )
     applied = apply_stage(store, plan, source=source)

@@ -103,7 +103,8 @@ curl http://localhost:11434/api/embeddings -d '{
        - name: OLLAMA_NUM_PARALLEL
          value: "1"
      ```
-   - A chat tier that the gateway sends embeddings to (`ollama-16gib`, `ollama-48gib` and `ollama-64gib`) keeps two models loaded (`OLLAMA_MAX_LOADED_MODELS: "2"`). Ollama loads the second model only when both fit in VRAM, and otherwise unloads the idle one, so `qwen3-embedding:0.6b` stays beside the chat model where it fits. The gateway sends `num_ctx: 8192` with each embedding, so the embedder needs 2.2 to 2.9 GB, not the 3.1 to 5.2 GB of its 32,768-token default.
+   - `ollama-48gib` and `ollama-64gib` load `qwen3.8:27b` and no other model (#3567). They set `OLLAMA_CONTEXT_LENGTH` to 262144 (the native limit, from `ollama show`), `OLLAMA_MAX_LOADED_MODELS: "1"` and `OLLAMA_KEEP_ALIVE: "-1"`, and the gateway sends them no other model and no embedding. With q8_0 KV cache the model takes 27 GB at that length, 100% on the GPUs of `ollama-48gib`. A client that names another model straight to the tier makes Ollama unload `qwen3.8:27b` and load that model.
+   - The chat tier that the gateway sends embeddings to (`ollama-16gib`) keeps two models loaded (`OLLAMA_MAX_LOADED_MODELS: "2"`). Ollama loads the second model only when both fit in VRAM, and otherwise unloads the idle one, so `qwen3-embedding:0.6b` stays beside the chat model where it fits. The gateway sends `num_ctx: 8192` with each embedding, so the embedder needs 2.2 to 2.9 GB, not the 3.1 to 5.2 GB of its 32,768-token default.
    - `ollama-24gib-embed-gpu0` and `-gpu1` serve the embedding model alone, one instance on each GPU of a Pascal node, and keep it loaded for good (`OLLAMA_KEEP_ALIVE: "-1"`). `k8s/llm/profiles/gpu-thresholds.yaml` sets which tiers do this (#3501).
    - Measured on Ollama 0.40.12 on two Quadro P6000, with source code in chunks of about 300 tokens, in batches of 32 (#3501, #3518):
      - Time is proportional to tokens: about 5 ms for each input and 0.16 ms for each token, or about 6,000 tokens a second. A batch of 1 and a batch of 64 have the same time for each input, so batch size does not change throughput on this GPU.
@@ -116,13 +117,13 @@ curl http://localhost:11434/api/embeddings -d '{
    - The gateway sends no `keep_alive`, and a call without `keep_alive` keeps the keep-alive of the loaded model:
      - A call through the gateway keeps the lease that `devops ai prewarm` set (one hour by default). Ollama starts that lease again when the call ends.
      - A model that a gateway call loads gets the default keep-alive of its tier: `OLLAMA_KEEP_ALIVE`, or 5 minutes when the tier does not set it.
-     - A request that sends `keep_alive` replaces the lease. Thus a prewarm with `keep_alive: 1h` replaces the forever lease of `ollama-24gib-embed-gpu0` with one hour. This comes from `useLoadedRunner` in the source, and nobody tested it on a live tier.
+     - A request that sends `keep_alive` replaces the lease. Thus a prewarm with `keep_alive: 1h` replaces the forever lease of `ollama-24gib-embed-gpu0`, `ollama-48gib` or `ollama-64gib` with one hour. The next call through the gateway loads the model again with the forever lease of the tier. This comes from `useLoadedRunner` in the source, and nobody tested it on a live tier.
      - Source: in Ollama 0.40.12 `server/sched.go`, `useLoadedRunner` changes the lease only when a request sends `keep_alive`. `load` uses `OLLAMA_KEEP_ALIVE` only when a request that loads a model sends none.
      - Test: on 2026-10-24, on an idle tier, a prewarm with `keep_alive: 1h` set the expiry one hour later. Then `/api/chat` (blocking and streamed) and `/api/embed` without `keep_alive` kept the one-hour expiry.
    - **Prompt Cache RAM Limits in llama-server**:
      - Ollama runs `llama-server` as a child process. By default, `llama-server` reserves up to 8,192 MiB in host RAM for prompt caching across idle slots.
      - To bound host RAM consumption on nodes with high context windows, set environment variable `LLAMA_ARG_CACHE_RAM`.
-     - The `ollama-64gib` tier sets `LLAMA_ARG_CACHE_RAM: "4096"` and `limits.memory: 12Gi` to prevent host memory exhaustion on 16 GiB nodes (#2382).
+     - The `ollama-64gib` tier sets `LLAMA_ARG_CACHE_RAM: "4096"` and `limits.memory: 12Gi` to prevent host memory exhaustion on 16 GiB nodes (#2382). Node `gemini` now has 62.5 GiB, and the bounds stay.
 2. **Model Quantization & Sizing**: Use `q4_K_M` or `q8_0` quantized models to maximize inference throughput while staying within workstation VRAM / RAM limits.
 3. **Constrain Review Token Generation**: Set `max_tokens: 2048` and `reasoning_effort: low` for code reviews to prevent long generation delays during multi-file reviews.
 4. **Context Window Sizing**: Set `num_ctx` appropriately (e.g. `8192` or `16384`) in Ollama modelfiles when reviewing large multi-file diffs.

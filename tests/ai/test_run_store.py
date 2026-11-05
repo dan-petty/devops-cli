@@ -396,7 +396,7 @@ def test_a_review_setup_names_the_analysis_model_and_sampling(
         provider="gateway", model="devops-coder", temperature=0.3, top_p=0.8
     )
     monkeypatch.setattr("devops_cli.config.settings.load_settings", lambda: settings)
-    pool = [{"backend": "backend-a", "model": "ollama_chat/qwen3-coder:30b", "weight": 1}]
+    pool = [{"backend": "backend-a", "model": "ollama_chat/qwen3.8:27b", "weight": 1}]
     monkeypatch.setattr(run_store, "gateway_pool", lambda task: pool)
 
     setup = run_store.review_setup()
@@ -436,7 +436,7 @@ def test_a_review_setup_names_the_analysis_model_and_sampling(
 
 def test_unpinned_groups_are_those_serving_more_than_one_model() -> None:
     """Verify a group is unpinned only when its known pool serves two or more models (#413)."""
-    one, other = {"model": "ollama_chat/qwen3-coder:30b"}, {"model": "ollama_chat/gpt-oss:20b"}
+    one, other = {"model": "ollama_chat/qwen3.8:27b"}, {"model": "ollama_chat/gpt-oss:20b"}
     setup = {"pools": {"mixed": [one, other], "pinned": [one, one], "unknown": None}}
 
     assert (run_store.unpinned_groups(setup), run_store.unpinned_groups({})) == ({"mixed": 2}, {})

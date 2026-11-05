@@ -115,7 +115,7 @@ def test_the_ollama_provider_dials_at_the_configured_level(flag: bool) -> None:
     ai_config = AIConfig(allow_private_network=flag)
     provider = create_ollama_provider(base_url="http://example.com:11434", ai_config=ai_config)
     model = create_ollama_model(
-        "qwen3-coder:30b", base_url="http://example.com:11434", ai_config=ai_config
+        "qwen3.8:27b", base_url="http://example.com:11434", ai_config=ai_config
     )
 
     expected = EgressLevel.PRIVATE if flag else EgressLevel.LOOPBACK
@@ -142,7 +142,7 @@ def test_the_ollama_model_keeps_the_pydantic_ai_timeouts(monkeypatch: pytest.Mon
 
     recorder = record_connects(monkeypatch, [http_response(200, '{"object": "list", "data": []}')])
     model = create_ollama_model(
-        "qwen3-coder:30b", base_url="http://example.com:11434", ai_config=AIConfig()
+        "qwen3.8:27b", base_url="http://example.com:11434", ai_config=AIConfig()
     )
 
     asyncio.run(model.client.with_options(max_retries=0).models.list())

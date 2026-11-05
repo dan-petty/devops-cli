@@ -73,9 +73,9 @@ def test_gpu_profile_model_allocation_boundaries() -> None:
     ) == (
         ("qwen2.5-coder:7b", "Q4_K_M", 1),
         ("qwen2.5-coder:14b", "Q8_0", 1),
-        ("qwen3-coder:30b", "Q4_K_M", 1),
-        ("qwen3-coder:30b", "Q4_K_M", 2),
-        ("deepseek-r1:70b", "Q4_K_M", 2),
+        ("qwen3.8:27b", "Q4_K_M", 1),
+        ("qwen3.8:27b", "Q4_K_M", 2),
+        ("qwen3.8:27b", "Q4_K_M", 2),
         ("deepseek-r1:70b", "Q8_0", 4),
     )
 
@@ -165,7 +165,7 @@ def test_rendered_gateway_config_matches_ollama_profiles() -> None:
         tokens_match_services,
     ) == (
         "",
-        26,
+        19,
         [],
         True,
     )
@@ -233,7 +233,7 @@ def test_cli_gpu_matrix_table_output() -> None:
         result.exit_code,
         "Homelab GPU Inference Matrix" in result.output,
         "qwen2.5-coder:7b" in result.output,
-        "qwen3-coder:30b" in result.output,
+        "qwen3.8:27b" in result.output,
         "deepseek-r1:70b" in result.output,
     ) == (
         0,
@@ -268,7 +268,7 @@ def test_cli_gpu_matrix_json_filter() -> None:
         2,
         24,
         "ollama",
-        "deepseek-r1:70b",
+        "qwen3.8:27b",
         2,
     )
 

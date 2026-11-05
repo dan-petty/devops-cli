@@ -3288,6 +3288,9 @@ CONST_ROADMAP_IMPLEMENT_DEADLINE_LOG_LINES: Final[int] = 20
 CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS: Final[str] = "roadmap.devops-cli/progress"
 CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT: Final[str] = "roadmap.devops-cli/progress-at"
 CONST_ROADMAP_IMPLEMENT_ANNOTATION_STALLED: Final[str] = "roadmap.devops-cli/stalled"
+# The start of the subject of a work-in-progress commit (#3054): a step makes one when a task of
+# its group is ticked and its verification passes. A finished step folds the commits into its own.
+CONST_ROADMAP_IMPLEMENT_WIP_PREFIX: Final[str] = "wip:"
 # The number of the group of a fix step: a change numbers its groups from 1.
 CONST_ROADMAP_IMPLEMENT_FIX_GROUP: Final[int] = 0
 # The headings, in lower case, of the two sections of an issue that a step gives the model: the

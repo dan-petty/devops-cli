@@ -218,7 +218,7 @@ CONST_ROOT_TESTS_CEILING = 0
 CONST_NON_MIRROR_TEST_CEILING = 0
 
 _TEST_RESERVED_DIRECTORIES = frozenset(
-    {"fixtures", "golden", "__snapshots__", "__pycache__", "support", "invariants"}
+    {"fixtures", "golden", "__snapshots__", "__pycache__", "support", "invariants", "gate"}
 )
 
 

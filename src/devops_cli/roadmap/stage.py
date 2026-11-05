@@ -26,7 +26,7 @@ items, highest priority first. `--item` takes the one item it names when that it
 Ready.
 
 **Plan.** For each item the job plans a `StageProposal` with an agent that reads the repository
-before it answers (`ai.for_task("analysis")`, prompt `roadmap_stage_change.md`, and the read-only
+before it answers (`ai.for_task("stage")`, prompt `roadmap_stage_change.md`, and the read-only
 tools of `stage_tools`, with the prompt `roadmap_stage_tools.md`, #3037). A plan run has a budget
 of tool calls and requests (`stage_toolbox`), and its tools end when its messages fill the context
 window; a run that passes the budget fails the item. Without a
@@ -86,6 +86,7 @@ from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import BIN_OPENSPEC
 from devops_cli.config.constants import (
+    CONST_ROADMAP_CRITICAL_PRIORITY,
     CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_PRIORITY_VALUES,
@@ -121,11 +122,11 @@ from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_summary, commit_type
 from devops_cli.roadmap.digest_clears import has_digest_clear
-from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
+from devops_cli.roadmap.planned import PlannedChanges, planned_count, read_planned_changes
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
 from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels, remove_pull_labels
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
-from devops_cli.roadmap.refine_investigation import analysis_window
+from devops_cli.roadmap.refine_investigation import task_window
 from devops_cli.roadmap.stage_change import (
     MeasuredGroup,
     StageProposal,
@@ -334,6 +335,19 @@ def named_items(store: RoadmapStore, filters: StageFilter) -> list[Item]:
     return [item for item in _open_items(store) if filters.matches(item)]
 
 
+@dataclass(frozen=True)
+class PlannedQueue:
+    """The Planned items that wait for a delivery (#3487): how many there are, and the count at
+    which the job plans no new item."""
+
+    count: int
+    limit: int
+
+    @property
+    def full(self) -> bool:
+        return self.count >= self.limit
+
+
 def unmatched_items(store: RoadmapStore, filters: StageFilter) -> tuple[LeftOut, ...]:
     """The open items that `filters` does not name, each with the family it misses (`--why`)."""
     return tuple(
@@ -363,12 +377,14 @@ class _Judge:
         store: RoadmapStore,
         holder_of: Callable[[int, str], str | None],
         planned: PlannedChanges,
+        queue: PlannedQueue,
         now: datetime,
         retry: timedelta,
     ) -> None:
         self._store = store
         self._holder_of = holder_of
         self._planned = planned
+        self._queue = queue
         self._now = now
         self._retry = retry
 
@@ -388,7 +404,7 @@ class _Judge:
             self._secret,
         ]
         if not named:
-            checks += [self._recorded_split, self._failed_lately]
+            checks += [self._recorded_split, self._failed_lately, self._queue_full]
         return next((why for check in checks if (why := check(item)) is not None), None)
 
     def _not_ready(self, item: Item) -> str | None:
@@ -455,6 +471,17 @@ class _Judge:
     def _secret(self, item: Item) -> str | None:
         looks_secret = any(redact_text(text) != text for text in (item.title, item.body))
         return MESSAGES.roadmap.stage_left_secret if looks_secret else None
+
+    def _queue_full(self, item: Item) -> str | None:
+        """The queue of Planned items is at its limit (#3487): the job plans no new item, except one
+        of the highest priority. `--item` overrules it, as it overrules a recorded split."""
+        if not self._queue.full or item.priority == CONST_ROADMAP_CRITICAL_PRIORITY:
+            return None
+        return MESSAGES.roadmap.stage_left_planned_limit.format(
+            count=self._queue.count,
+            limit=self._queue.limit,
+            priority=CONST_ROADMAP_CRITICAL_PRIORITY,
+        )
 
     def _failed_lately(self, item: Item) -> str | None:
         """The last plan or write of the item failed less than the retry delay ago (#3493). The
@@ -531,6 +558,7 @@ def select_stageable(
     holder_of: Callable[[int, str], str | None],
     planned: PlannedChanges,
     limit: int,
+    planned_limit: int,
     item_number: int | None = None,
     probe: int | None = None,
     now: datetime | None = None,
@@ -539,11 +567,21 @@ def select_stageable(
 
     `holder_of` tells who holds an issue and its new `branch` (`worktree_add.issue_holder`), or None. `planned` holds
     the change folders of the default branch (#2714). With `item_number` the filter and the limit
-    do not apply. `probe` is the issue that `walk_named` judges also after the limit. An item that
-    failed less than `roadmap.stage.retry_hours` hours before `now` waits (#3493).
+    do not apply. `probe` is the issue that `walk_named` judges also after the limit. With
+    `planned_limit` Planned items or more, the job takes only an item of the highest priority
+    (#3487). An item that failed less than `roadmap.stage.retry_hours` hours before `now` waits
+    (#3493).
     """
+    opened = _open_items(store)
     retry = timedelta(hours=load_settings().roadmap.stage.retry_hours)
-    judge = _Judge(store, holder_of, planned, now or datetime.now(UTC), retry)
+    judge = _Judge(
+        store,
+        holder_of,
+        planned,
+        PlannedQueue(planned_count(opened), planned_limit),
+        now or datetime.now(UTC),
+        retry,
+    )
     if item_number is not None:
         return _named_item(judge, store, item_number)
 
@@ -551,7 +589,8 @@ def select_stageable(
         why = judge.reason(item, named=False)
         return _target_of(item) if why is None else why
 
-    walked = walk_named(named_items(store, filters), verdict, limit, probe=probe)
+    named = [item for item in opened if filters.matches(item)]
+    walked = walk_named(named, verdict, limit, probe=probe)
     return StageSelection(walked.taken, walked.left_out, walked.beyond)
 
 
@@ -1111,6 +1150,7 @@ def read_stage_selection(
     source: Path,
     filters: StageFilter,
     limit: int,
+    planned_limit: int,
     item_number: int | None = None,
     probe: int | None = None,
     heads: str | None = None,
@@ -1131,6 +1171,7 @@ def read_stage_selection(
         planned=planned,
         item_number=item_number,
         limit=limit,
+        planned_limit=planned_limit,
         probe=probe,
         now=now,
     )
@@ -1154,7 +1195,8 @@ def plan_stage(
     """Plans the stage of up to `limit` items without a write to git or to GitHub.
 
     `source` is the clone of the repository, at the default branch. `limit` and `step_tokens`
-    override `roadmap.stage.limit` and `roadmap.stage.step_tokens`. A client as `model` replaces
+    override `roadmap.stage.limit` and `roadmap.stage.step_tokens`. At `roadmap.stage.planned_limit`
+    Planned items the plan holds only items of the highest priority (#3487). A client as `model` replaces
     the client of the `analysis` task and plans with the one call and no tool. A `ToolboxModel`
     plans with the read-only tools (#3037), and the client of the `analysis` task answers the call
     that splits the groups. A `verifier`, the client of the `verification` task, makes the model
@@ -1171,6 +1213,7 @@ def plan_stage(
         source=checkout,
         filters=filters,
         limit=limit or settings.roadmap.stage.limit,
+        planned_limit=settings.roadmap.stage.planned_limit,
         item_number=item_number,
         now=now,
     )
@@ -1192,7 +1235,7 @@ def plan_stage(
     toolbox = model if isinstance(model, ToolboxModel) else None
     client: StageClient
     if isinstance(model, ToolboxModel) or model is None:
-        client = get_llm_client(task="analysis", settings=settings)
+        client = get_llm_client(task="stage", settings=settings)
     else:
         client = model
     with openspec_tool() as tool:
@@ -1227,12 +1270,12 @@ def _planner_of(
     repo: str | None = None,
 ) -> _Planner:
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
-    context window of the `analysis` task once. With a `toolbox` model, a plan run calls the
+    context window of the `stage` task once. With a `toolbox` model, a plan run calls the
     read-only tools on the checkout, and `client` answers the other calls. The toolset
     `roadmap.stage.toolset` chooses the tools; with `repo`, `read_issue` and `find_issues` of the
     toolset `extended` read that repository on GitHub with the client of the session (#3238). A
     `verifier` makes the model review of each plan (#3153)."""
-    window = analysis_window()
+    window = task_window("stage")
     runner = (
         None
         if toolbox is None
@@ -1758,6 +1801,7 @@ __all__ = [
     "KeptBranch",
     "LeftOut",
     "OverBudget",
+    "PlannedQueue",
     "Removal",
     "StageApplied",
     "StageFailure",
@@ -1769,7 +1813,6 @@ __all__ = [
     "StageTarget",
     "StagedChange",
     "Walk",
-    "analysis_window",
     "apply_stage",
     "dry_run_stage",
     "emit_stage_results",
@@ -1784,6 +1827,7 @@ __all__ = [
     "render_stage_plan",
     "select_stageable",
     "stage_results",
+    "task_window",
     "unmatched_items",
     "walk_named",
     "write_each",

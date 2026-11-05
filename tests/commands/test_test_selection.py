@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import shutil
 from pathlib import Path
 from typing import NoReturn
 
@@ -28,7 +27,6 @@ from devops_cli.core.coverage_index import CoverageIndex, save_index
 from devops_cli.core.test_selection import (
     SuiteImports,
     forces_full_run,
-    is_test_module,
     module_path_for_source,
     select_tests_for_sources,
 )
@@ -1122,52 +1120,6 @@ def test_cli_test_unindexed_source_falls_back_per_source(
 # 5. Checks that run in the full gate only
 # ─────────────────────────────────────────────────────────────────────────────
 
-# The ban on reading `__file__` and importing a test module, which parses every test file.
-_TEST_MODULE_BAN = Path("tests/invariants/test_test_module_independence.py")
-
-
-def test_no_narrowed_selection_over_a_changed_source_or_helper_runs_the_test_module_ban(
-    tmp_path: Path,
-) -> None:
-    """The ban on reading `__file__` and importing a test module parses every test file, so it
-    runs only in the full gate (#1312). In a repository whose `src/` is this one's and whose
-    `tests/` holds the ban's module beside every other module of this suite but its test
-    modules, no selection short of the whole suite reaches it: not one over every source
-    module, by name or import; not one over every helper module that does not reach the whole
-    suite, the union of their own selections; and not one over each conftest, which may narrow
-    to its own directory. So a narrowed `devops ci test` or `devops test run --changed` runs it
-    only when given its module or when it runs the whole suite."""
-    (tmp_path / "src").symlink_to(REPO_ROOT / "src", target_is_directory=True)
-    shared = [
-        path.relative_to(REPO_ROOT)
-        for path in sorted(TESTS_ROOT.rglob("*.py"))
-        if not is_test_module(path)
-    ]
-    for relative in (_TEST_MODULE_BAN, *shared):
-        (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(REPO_ROOT / relative, tmp_path / relative)
-    imports = SuiteImports(tmp_path)
-    conftests = [path for path in shared if path.name == CONST_CONFTEST_FILENAME]
-    helpers = [path for path in shared if path not in conftests and path.name != "__init__.py"]
-    selections = {
-        "every source module": [
-            path.relative_to(REPO_ROOT) for path in sorted((REPO_ROOT / "src").rglob("*.py"))
-        ],
-        "every helper module short of the whole suite": [
-            path for path in helpers if not imports.reaches_every_test(path)
-        ],
-        **{str(path): [path] for path in conftests},
-    }
-    reaching_the_ban = {
-        changed: targets
-        for changed, paths in selections.items()
-        if (targets := select_tests_for_sources(paths, tmp_path).pytest_targets())
-        != [CONST_TESTS_ROOT_DIR]
-        and any(_TEST_MODULE_BAN.is_relative_to(target) for target in targets)
-    }
-    assert reaching_the_ban == {}
-
-
 # The names by which a conftest or a plugin keeps files out of collection.
 _COLLECTION_FILTERS = frozenset({"collect_ignore", "collect_ignore_glob", "pytest_ignore_collect"})
 
@@ -1197,8 +1149,8 @@ def _collection_filters() -> list[str]:
     ]
 
 
-def test_the_full_gate_collects_the_test_module_ban(pytestconfig: pytest.Config) -> None:
-    """`uv run devops ci`, whose test step CI runs, collects the ban's module (#1312): its
+def test_the_full_gate_collects_every_test_module(pytestconfig: pytest.Config) -> None:
+    """`uv run devops ci`, whose test step CI runs, collects every test module (#1312): its
     test step hands pytest exactly these options and `pyproject.toml` exactly these `addopts`,
     none of which names a path, ignores, deselects or selects by keyword or marker; pytest
     collects `test_*.py` and `*_test.py` under `tests`; and no conftest or support plugin keeps

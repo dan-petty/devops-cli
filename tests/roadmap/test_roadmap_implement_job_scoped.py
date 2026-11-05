@@ -165,8 +165,8 @@ def test_the_tests_get_the_test_modules_that_cover_the_changed_sources(
 ) -> None:
     job_world.run(two_groups())
 
-    # One run is the verification command of group 1, the other the scoped check.
-    assert _count(job_world, TESTS) == 2
+    # One run is the tick of the task, one the exit check of group 1, one the scoped check.
+    assert _count(job_world, TESTS) == 3
     assert not any("src/" in text for text in _commands(job_world) if "ci test" in text)
 
 
@@ -426,7 +426,8 @@ def test_an_error_in_the_scoped_checks_pushes_nothing(job_world: JobWorld) -> No
 
 
 def test_a_tests_check_that_runs_out_of_time_is_a_failed_check(job_world: JobWorld) -> None:
-    _times_out_from(job_world, TESTS, 2, 2)
+    # The runs are the tick, the exit check of group 1 and the scoped check (#3054).
+    _times_out_from(job_world, TESTS, 3, 3)
 
     applied = job_world.run(two_groups(*_fix(1)))
 
@@ -492,7 +493,7 @@ def test_a_change_that_no_test_covers_runs_no_test_and_the_comment_says_so(
 
     (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
     assert applied.ready == (1,)
-    assert _commands(job_world).count("uv run devops ci test tests/test_shout.py") == 1
+    assert _commands(job_world).count("uv run devops ci test tests/test_shout.py") == 2
     assert (
         "- scoped check tests: not run, because no test covers the changed files"
         in (comment["body"])

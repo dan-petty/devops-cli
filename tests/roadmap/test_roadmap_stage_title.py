@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.planned import PlannedChanges
@@ -52,6 +53,7 @@ def _stage(store: InMemoryRoadmapStore):
         holder_of=lambda _issue, _branch: None,
         planned=PlannedChanges("main", {}, {}),
         limit=3,
+        planned_limit=DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
     )
 
 

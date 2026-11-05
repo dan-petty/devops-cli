@@ -65,8 +65,8 @@ def _lines(inbox: Inbox, kind: InboxKind) -> list[InboxLine]:
     return [line for line in (*inbox.jobs, *inbox.people) if line.kind is kind]
 
 
-def _read(store: InMemoryRoadmapStore) -> Inbox:
-    return read_inbox(store, repo=REPO, now=NOW)
+def _read(store: InMemoryRoadmapStore, *, planned_limit: int = 20) -> Inbox:
+    return read_inbox(store, repo=REPO, now=NOW, planned_limit=planned_limit)
 
 
 def test_every_category_is_listed_once_in_the_order_of_the_gates(
@@ -388,3 +388,26 @@ def test_the_report_names_the_refine_section() -> None:
     )
 
     assert "New items that wait on a person in refine\n  #7  2d" in render_inbox(inbox, repo=REPO)
+
+
+def test_the_inbox_states_the_planned_limit_when_it_holds(store: InMemoryRoadmapStore) -> None:
+    _item(store, fields={ItemField.STATUS: "Planned"})
+    _item(store, fields={ItemField.STATUS: "Planned"})
+    _item(store, fields={ItemField.STATUS: "Planned"}, state=GitHubState.CLOSED)
+
+    inbox = _read(store, planned_limit=2)
+    text = render_inbox(inbox, repo=REPO)
+
+    assert [(line.kind, line.number, line.age) for line in inbox.jobs] == [
+        (InboxKind.QUEUE, None, None)
+    ]
+    assert "The count of Planned items is 2" in text
+    assert "roadmap.stage.planned_limit is 2" in text
+    assert "devops roadmap implement --repo example/roadmap" in text
+
+
+def test_the_inbox_says_nothing_of_the_planned_limit_under_it(store: InMemoryRoadmapStore) -> None:
+    _item(store, fields={ItemField.STATUS: "Planned"})
+    _item(store, fields={ItemField.STATUS: "Ready"})
+
+    assert _lines(_read(store, planned_limit=2), InboxKind.QUEUE) == []

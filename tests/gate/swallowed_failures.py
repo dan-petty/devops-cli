@@ -1,7 +1,9 @@
-"""Ratchet invariant: swallowed failures (BLE001, S110, S112, unread check=False) may not grow (#1347).
+"""Ratchet: swallowed failures (BLE001, S110, S112, unread check=False) may not grow (#1347).
 
-Files under src/ may not exceed their recorded ceiling counts. When a file's count falls,
-the test fails until the ceiling is lowered with `--lower` to lock in the gain.
+Files under src/ may not exceed their recorded ceiling counts. When the count of a file falls,
+the check fails until `--lower` lowers the ceiling to lock in the gain. The check is the
+`swallowed-failures` row of `devops ci` (#2164): it runs Ruff over `src` once, and no pytest
+worker runs it. #1336 turns each ratchet into a ban.
 """
 
 from __future__ import annotations
@@ -11,34 +13,21 @@ import json
 import shutil
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from itertools import takewhile
 from pathlib import Path
-from typing import Final
-
-if __spec__ is None:
-    # Run as a script, which has no `__spec__` and cannot import `tests`: name the command that
-    # runs the module, its dotted name read from its path up through each package (#1312).
-    _script = Path(sys.argv[0]).resolve()
-    _packages = takewhile(lambda directory: (directory / "__init__.py").is_file(), _script.parents)
-    _module = ".".join([*reversed([package.name for package in _packages]), _script.stem])
-    sys.exit(f"Usage: uv run python -m {_module} --lower")
-
-import pytest
+from typing import Any, Final
 
 from tests.support.paths import FIXTURES, REPO_ROOT
-from tests.support.trees import parse_python_file
-
-pytestmark = pytest.mark.live("ruff", "python")
 
 CONST_SWALLOWED_FAILURES_RUFF_RULES: Final[tuple[str, ...]] = ("BLE001", "S110", "S112")
 CONST_SWALLOWED_FAILURES_CHECK_ATTRS: Final[tuple[str, ...]] = ("returncode", "stdout", "stderr")
 
 CONST_CEILINGS_FIXTURE: Final[Path] = FIXTURES / "swallowed_failures_ceilings.json"
-# The module's dotted name is the same under pytest and under `python -m`, so the command follows
-# the module wherever it moves; run as a script, the module names this command and exits (#1312).
-CONST_LOWER_COMMAND: Final[str] = f"uv run python -m {__spec__.name} --lower"
+CONST_LOWER_COMMAND: Final[str] = (
+    'uv run python -c "import sys; from tests.gate.swallowed_failures import main; '
+    "sys.exit(main(['--lower']))\""
+)
 
 
 @dataclass(frozen=True)
@@ -72,7 +61,13 @@ def collect_ruff_violations(target: Path, repo_root: Path) -> list[SwallowedFail
     )
     if not proc.stdout.strip():
         return []
-    items = json.loads(proc.stdout)
+    return sites_from_ruff_items(json.loads(proc.stdout), repo_root)
+
+
+def sites_from_ruff_items(
+    items: Iterable[Mapping[str, Any]], repo_root: Path
+) -> list[SwallowedFailureSite]:
+    """Turn the findings of `ruff check --output-format=json` into sites."""
     sites: list[SwallowedFailureSite] = []
     for item in items:
         file_path = Path(item["filename"]).resolve()
@@ -242,7 +237,7 @@ def collect_ast_unread_check_false(
             if not f.name.endswith(".py"):
                 continue
             try:
-                tree = parse_python_file(f)
+                tree = ast.parse(f.read_text(encoding="utf-8"), filename=str(f))
             except SyntaxError, UnicodeDecodeError:
                 continue
             file_tree_pairs.append((f, tree))
@@ -357,173 +352,28 @@ def lower_ceilings(fixture_path: Path, repo_root: Path) -> dict[str, int]:
 # ── Invariant Test ─────────────────────────────────────────────────────────────
 
 
-def test_swallowed_failures_stay_under_or_equal_to_ceiling(
-    parsed_source_trees: dict[Path, ast.Module],
-) -> None:
-    """Ensure swallowed failure sites under src/ do not exceed their ceiling or stay under it."""
-    src_dir = REPO_ROOT / "src"
-    measured = collect_all_swallowed_failures(src_dir, REPO_ROOT, trees=parsed_source_trees)
-    ceilings = load_ceilings(CONST_CEILINGS_FIXTURE)
-    over, under = evaluate_ratchet(measured, ceilings)
-
-    assert not over, format_over_ceiling_error(over)
-    assert not under, format_under_ceiling_error(under)
+def problems(repo_root: Path = REPO_ROOT, fixture: Path = CONST_CEILINGS_FIXTURE) -> list[str]:
+    """Name the files over their ceiling and the files under it, for the sources in `src`."""
+    measured = collect_all_swallowed_failures(repo_root / "src", repo_root)
+    over, under = evaluate_ratchet(measured, load_ceilings(fixture))
+    return [
+        *([format_over_ceiling_error(over)] if over else []),
+        *([format_under_ceiling_error(under)] if under else []),
+    ]
 
 
-# ── Acceptance Tests ──────────────────────────────────────────────────────────
-
-
-def test_ratchet_flags_new_blind_except(tmp_path: Path) -> None:
-    """A new blind except (BLE001) is detected and reported with path, line, and rule."""
-    source_file = tmp_path / "dummy.py"
-    source_file.write_text(
-        "def bad():\n    try:\n        pass\n    except Exception:\n        x = 1\n",
-        encoding="utf-8",
-    )
-    violations = collect_ruff_violations(source_file, tmp_path)
-    assert len(violations) == 1
-    site = violations[0]
-    assert (site.rule, site.line) == ("BLE001", 4)
-
-
-def test_ratchet_flags_new_except_pass(tmp_path: Path) -> None:
-    """A new try-except-pass (S110) is detected and reported with path, line, and rule."""
-    source_file = tmp_path / "dummy.py"
-    source_file.write_text(
-        "def bad():\n    try:\n        x = 1\n    except:\n        pass\n",
-        encoding="utf-8",
-    )
-    violations = collect_ruff_violations(source_file, tmp_path)
-    s110_violations = [v for v in violations if v.rule == "S110"]
-    assert len(s110_violations) == 1
-    assert (s110_violations[0].rule, s110_violations[0].line) == ("S110", 4)
-
-
-def test_ratchet_flags_new_except_continue(tmp_path: Path) -> None:
-    """A new try-except-continue (S112) is detected and reported with path, line, and rule."""
-    source_file = tmp_path / "dummy.py"
-    source_file.write_text(
-        "def bad():\n    for i in range(10):\n        try:\n            x = 1\n        except:\n            continue\n",
-        encoding="utf-8",
-    )
-    violations = collect_ruff_violations(source_file, tmp_path)
-    s112_violations = [v for v in violations if v.rule == "S112"]
-    assert len(s112_violations) == 1
-    assert (s112_violations[0].rule, s112_violations[0].line) == ("S112", 5)
-
-
-def test_ratchet_flags_unread_check_false(tmp_path: Path) -> None:
-    """A call with check=False whose result is never read is flagged by the AST check."""
-    source_file = tmp_path / "dummy.py"
-    source_file.write_text(
-        "import subprocess\ndef bad():\n    subprocess.run(['echo'], check=False)\n",
-        encoding="utf-8",
-    )
-    violations = collect_ast_unread_check_false(source_file, tmp_path)
-    assert len(violations) == 1
-    site = violations[0]
-    assert (site.rule, site.line) == ("check=False", 3)
-
-
-def test_read_check_false_is_not_flagged(tmp_path: Path) -> None:
-    """Calls with check=False whose result is read or returned are not flagged."""
-    source_file = tmp_path / "good.py"
-    source_file.write_text(
-        "import subprocess\n"
-        "def read_code():\n"
-        "    res = subprocess.run(['echo'], check=False)\n"
-        "    return res.returncode\n\n"
-        "def read_out():\n"
-        "    res = subprocess.run(['echo'], check=False)\n"
-        "    if res.stdout:\n"
-        "        pass\n\n"
-        "def read_err():\n"
-        "    res = subprocess.run(['echo'], check=False)\n"
-        "    print(res.stderr)\n\n"
-        "def returned():\n"
-        "    return subprocess.run(['echo'], check=False)\n",
-        encoding="utf-8",
-    )
-    violations = collect_ast_unread_check_false(source_file, tmp_path)
-    assert len(violations) == 0
-
-
-def test_run_as_a_script_it_names_the_module_command_and_exits_1() -> None:
-    """Python gives a script no `__spec__`, and from `tests/` it cannot import `tests.support`:
-    run so, the module prints the `-m` command that runs it and exits 1, with no traceback
-    (#1312)."""
-    script = REPO_ROOT.joinpath(*__spec__.name.split(".")).with_suffix(".py")
-    proc = subprocess.run(
-        [sys.executable, str(script), "--lower"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=120,
-    )
-    assert (proc.returncode, proc.stdout, proc.stderr.strip()) == (
-        1,
-        "",
-        f"Usage: {CONST_LOWER_COMMAND}",
-    )
-
-
-def test_ratchet_fails_when_file_under_ceiling_and_prints_lower_command(tmp_path: Path) -> None:
-    """When a file has fewer violations than its ceiling, the ratchet fails with the command."""
-    sample_file = tmp_path / "sample.py"
-    sample_file.write_text("x = 1\n", encoding="utf-8")
-    fixture = tmp_path / "ceilings.json"
-    ceilings = {"sample.py": 2}
-    fixture.write_text(json.dumps(ceilings), encoding="utf-8")
-
-    measured = collect_all_swallowed_failures(sample_file, tmp_path)
-    over, under = evaluate_ratchet(measured, ceilings)
-
-    assert (bool(over), bool(under)) == (False, True)
-    err_msg = format_under_ceiling_error(under)
-    lower = CONST_LOWER_COMMAND
-    assert (lower in err_msg, "sample.py: count fell from 2 to 0" in err_msg) == (True, True)
-
-
-def test_lower_ceilings_command_updates_fixture_and_removes_zeros(tmp_path: Path) -> None:
-    """lower_ceilings lowers counts, deletes entries that reach 0, and refuses on increases."""
-    src = tmp_path / "src"
-    src.mkdir()
-    f1 = src / "f1.py"
-    f1.write_text("x = 1\n", encoding="utf-8")  # count 0
-    f2 = src / "f2.py"
-    f2.write_text(
-        "def f():\n    try:\n        pass\n    except Exception:\n        x = 1\n",
-        encoding="utf-8",
-    )  # count 1
-
-    fixture = tmp_path / "ceilings.json"
-    initial_ceilings = {"src/f1.py": 2, "src/f2.py": 3}
-    save_ceilings(fixture, initial_ceilings)
-
-    updated = lower_ceilings(fixture, tmp_path)
-    assert (updated.get("src/f1.py"), updated.get("src/f2.py")) == (None, 1)
-
-    # Now simulate a count increase on f2 and verify it raises ValueError
-    f2.write_text(
-        "def f():\n"
-        "    try:\n        pass\n    except Exception:\n        x = 1\n"
-        "    try:\n        pass\n    except Exception:\n        y = 2\n",
-        encoding="utf-8",
-    )
-    with pytest.raises(ValueError, match="Cannot lower ceilings"):
-        lower_ceilings(fixture, tmp_path)
-
-
-if __name__ == "__main__":
-    repo = Path.cwd()
-    if "--lower" in sys.argv:
+def main(argv: list[str] | None = None) -> int:
+    """Check the ratchet, or with `--lower` lower the ceilings to the counts of the sources."""
+    args = sys.argv[1:] if argv is None else argv
+    if "--lower" in args:
         try:
-            lowered = lower_ceilings(CONST_CEILINGS_FIXTURE, repo)
-            print(f"Successfully updated ceilings fixture ({len(lowered)} files remaining).")
+            lowered = lower_ceilings(CONST_CEILINGS_FIXTURE, REPO_ROOT)
         except ValueError as exc:
             print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(1)
-    else:
-        print(f"Usage: {CONST_LOWER_COMMAND}")
-        sys.exit(1)
+            return 1
+        print(f"Successfully updated ceilings fixture ({len(lowered)} files remaining).")
+        return 0
+    found = problems()
+    for line in found:
+        print(line, file=sys.stderr)
+    return 1 if found else 0

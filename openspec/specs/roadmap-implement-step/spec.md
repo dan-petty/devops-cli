@@ -13,7 +13,7 @@ What `devops roadmap implement` reads, runs, checks, commits and reports when it
 - **THEN** the step reports done, the checkout holds one new commit titled `The first group (#7)`, that commit holds the three files, and the tasks of group 1 are ticked in the commit
 
 ### Requirement: A failed exit check stops the step and resets the checkout
-The exit checks SHALL run in this order: the agent made no commit, no test that existed at the start is lost, each verification command passes, the static checks pass, the hooks of the repository pass, and every task of the group is ticked. The step SHALL stop at the first check that fails, name it as the reason, make no commit, and reset the checkout. A failed static check, a failed hook, and a task left unticked after the first five checks, first get the extra turns of their own requirements.
+The exit checks SHALL run in this order: the agent made no commit, no test from the start is lost, each verification command passes, the static checks pass, the hooks pass, and every task is ticked. The step SHALL stop at the first check that fails, name it as the reason, make no step commit, and reset the checkout to its last `wip:` commit, or to its start. A failed static check or hook, and an unticked task, first get the extra turns of their own requirements.
 
 #### Scenario: A verification command fails
 - **WHEN** the model ends its run with the files written and the tasks ticked, and the verification command exits 1
@@ -21,7 +21,7 @@ The exit checks SHALL run in this order: the agent made no commit, no test that 
 
 #### Scenario: A static check fails
 - **WHEN** the verification command exits 0 and `ruff check` exits 1 on the changed file, in the first turn and in every extra turn
-- **THEN** the step reports stopped with the reason that `ruff check` failed, makes no commit and resets the checkout
+- **THEN** the step reports stopped with the reason that `ruff check` failed, makes no step commit and resets the checkout to its last `wip:` commit
 
 #### Scenario: A task stays unticked
 - **WHEN** the model ends its run and leaves a task of the group unticked, the verification command and the static checks exit 0, and every extra turn leaves the task unticked
@@ -60,11 +60,11 @@ The exit checks SHALL run in this order: the agent made no commit, no test that 
 - **THEN** the step reports stopped with the reason that names the file and the missing tests, no verification command runs, and the checkout is reset
 
 ### Requirement: A step makes the only commit
-The first exit check SHALL be that `HEAD` is still the commit where the step started.
+The first exit check SHALL be that `HEAD` is still the commit where the step started, or the last `wip:` commit of the step.
 
 #### Scenario: A commit by the agent
 - **WHEN** the agent commits its work with `git`, and ticks the tasks
-- **THEN** the step reports stopped with the reason that `HEAD` moved, makes no commit, and the checkout is back at the commit where the step started
+- **THEN** the step reports stopped with the reason that `HEAD` moved, makes no commit, and the checkout is back at its last `wip:` commit, or at the commit where the step started when it made none
 
 ### Requirement: The verification commands of a group are the code spans of its Verification lines
 The verification commands of a group SHALL be the code spans of the `Verification:` lines of its tasks, each one once, in the order of the file. The step SHALL run each one in the checkout as a list of words, never through a shell. It SHALL refuse to run one whose first word is not a program of the verification list (the shell allowlist, `openspec` and `devops`) and is not the `!` of a negative search in the fixed shape.
@@ -1089,3 +1089,36 @@ The step SHALL pass each text of an event through `bounded_text` and `mask_priva
 #### Scenario: A secret-named argument
 - **WHEN** two calls differ only in the value of the argument `api_key`
 - **THEN** their events hold the same digest and neither value
+
+### Requirement: A step keeps a ticked task whose verification passes
+When the agent ticks a task of the group, the step SHALL run the verification commands of that task, as the text of the `tasks.md` before the run gives them. When they pass, or the task has none, the step SHALL commit the checkout as `wip: <done> of <total> tasks of group <n>, <title> (#<issue>)` and tell its caller through `on_wip`. A task that fails its verification SHALL NOT be kept, and a fix step SHALL keep nothing.
+
+#### Scenario: Two tasks, one ticked
+- **WHEN** the model writes the test, ticks the first task, writes the code of the second task, and ends without a tick for it
+- **THEN** the step reports stopped, the checkout holds one `wip:` commit with the test and the first task ticked, the code of the second task is gone, and `on_wip` was called once with 1 of 2
+
+#### Scenario: A task that fails its verification
+- **WHEN** the model ticks the first task and its verification command exits 1
+- **THEN** the step makes no `wip:` commit and calls no `on_wip`
+
+#### Scenario: A lint error after the last tick
+- **WHEN** the model ticks every task, each verification passes, and `ruff check` fails at the exit
+- **THEN** the step reports stopped, and the checkout holds one `wip:` commit with the work and the ticks
+
+### Requirement: A work-in-progress commit holds the tasks file of the job
+The `wip:` commit SHALL hold the `tasks.md` as it was before the run with the ticks that the step verified, and no stray file of the group. The step SHALL make no `wip:` commit that would lose a test that existed at the start. The agent SHALL find its own `tasks.md` in the checkout after the commit.
+
+#### Scenario: A test that the work would lose
+- **WHEN** the model replaces a test file with a file that holds fewer of its tests, and ticks a task
+- **THEN** the step runs no verification command at the tick and makes no `wip:` commit
+
+#### Scenario: A stray file
+- **WHEN** the model writes a file outside `src/`, `tests/`, `docs/` and `openspec/` and ticks a task
+- **THEN** the `wip:` commit does not hold that file
+
+### Requirement: A step that ends done folds its work in progress into its commit
+A step that starts on a branch with `wip:` commits and ends done SHALL make one commit, titled `<group title> (#N)`, that holds all the work since the last commit that is no `wip:` commit. The branch SHALL then hold no `wip:` commit of that step. The exit checks SHALL judge all the work since that commit.
+
+#### Scenario: A second step finishes the group
+- **WHEN** a step stopped after a `wip:` commit, and a second step ticks the remaining task
+- **THEN** the second step reports done, the message of its first request shows the kept task ticked, and the branch holds one new commit past the start, which does not start with `wip:`

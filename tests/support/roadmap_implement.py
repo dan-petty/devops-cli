@@ -195,9 +195,15 @@ def app_slug(config: Callable[..., Path]) -> None:
 
 
 @pytest.fixture
-def staged_repo(stage_repo: StageRepo, app_slug: None) -> StageRepo:
+def staged_tasks() -> str:
+    """The `tasks.md` of the staged branch. A test module overrides it for a change of its own."""
+    return TASKS
+
+
+@pytest.fixture
+def staged_repo(stage_repo: StageRepo, app_slug: None, staged_tasks: str) -> StageRepo:
     """`stage_repo` with the staged branch pushed."""
-    push_staged_branch(stage_repo)
+    push_staged_branch(stage_repo, tasks=staged_tasks)
     return stage_repo
 
 

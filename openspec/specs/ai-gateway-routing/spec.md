@@ -65,14 +65,18 @@ Each model that the `DEFAULT_MODELS` of the Open WebUI values names SHALL be a m
 
 #### Scenario: A model that the gateway does not serve
 - **WHEN** the check reads `qwen2.5-coder:7b`, `devops-flagship` or an Ollama model name that is no group
-- **THEN** it names each of them, and it passes `devops-chat` and `qwen3-coder:30b`
+- **THEN** it names each of them, and it passes `devops-chat` and `qwen3.8:27b`
 
 ### Requirement: Each default model of the CLI is a model that the default Ollama tier and the gateway serve
-The default of `ai.model`, each model of `devops ai bundle-models`, and the model that a task benchmark runs when it gets no candidate SHALL be a model that a deployment of the gateway config sends to a serving tier that the default Ollama Service selects. Each SHALL also be a model group of the gateway config with a deployment on a serving tier.
+The default of `ai.model`, each chat model of `devops ai bundle-models`, and the model that a task benchmark runs when it gets no candidate SHALL be a model that a deployment of the gateway config sends to a serving tier that the default Ollama Service selects. Each SHALL also be a model group of the gateway config with a deployment on a serving tier.
 
 #### Scenario: The defaults with no configuration
 - **WHEN** the CLI runs with no `ai.model` set, `devops ai bundle-models` runs, and a task benchmark gets no candidate
 - **THEN** each names a model that the gateway config sends to a serving tier of the default Ollama Service, and a gateway group with a deployment on a serving tier
+
+#### Scenario: The embedding model
+- **WHEN** `devops ai bundle-models` lists the default embedding model
+- **THEN** a deployment of the gateway config sends it to a serving tier that the default embedding Service selects, and not to the tier of the default Ollama Service
 
 #### Scenario: The benchmark with no candidate
 - **WHEN** a task benchmark gets an empty list of candidates
@@ -83,7 +87,7 @@ The virtual model of each hardware profile and of each Service alias that `devop
 
 #### Scenario: The GPU matrix
 - **WHEN** `devops k8s gpu-matrix` reads its profiles and Service aliases
-- **THEN** each virtual model is a gateway group with a deployment on a serving tier, and a 70B profile names `deepseek-r1:70b`
+- **THEN** each virtual model is a gateway group with a deployment on a serving tier, and a 70B profile names `devops-reasoning`
 
 ### Requirement: The gateway routes embeddings with simple-shuffle across order 1 tiers
 The gateway configuration SHALL configure a routing group for the `qwen3-embedding:0.6b` model with `routing_strategy: simple-shuffle`, spreading sequential and parallel batches across all order 1 serving tiers.
@@ -240,7 +244,7 @@ No pool, context-window fallback or routing group of the gateway config SHALL na
 
 #### Scenario: A tier newer than both thresholds
 - **WHEN** a tier that accepts `pascal` is rendered with the thresholds `maxwell` and `kepler`
-- **THEN** its DaemonSet equals its template, and its embedding deployment has order 3
+- **THEN** its DaemonSet equals its template, and it has no embedding deployment
 
 #### Scenario: An unknown architecture
 - **WHEN** a threshold names an architecture that the label does not have
@@ -274,7 +278,7 @@ A tier at or below `per_gpu` SHALL render one DaemonSet, one Service and one gat
 
 #### Scenario: Each threshold acts alone
 - **WHEN** only `per_gpu` includes a tier
-- **THEN** each instance keeps the chat settings of the template, and each embedding deployment has order 3
+- **THEN** each instance keeps the chat settings of the template, and none has an embedding deployment
 
 ### Requirement: A threshold with no tier to follow it is refused
 The render SHALL fail for a threshold newer than the newest architecture of the tier templates.
@@ -297,3 +301,25 @@ The regions between the `rendered` lines of the profiles, the services and the g
 #### Scenario: A lower threshold
 - **WHEN** an output of a higher threshold is rendered with a lower one
 - **THEN** the output equals a render of the lower threshold from empty regions
+
+### Requirement: The 48 GiB and 64 GiB tiers load one model for good
+The DaemonSets `ollama-48gib` and `ollama-64gib` SHALL set `OLLAMA_CONTEXT_LENGTH` to 262144, the native context length of `qwen3.8:27b`, `OLLAMA_NUM_PARALLEL` to 1, `OLLAMA_MAX_LOADED_MODELS` to 1 and `OLLAMA_KEEP_ALIVE` to `-1`.
+
+#### Scenario: The settings of the two tiers
+- **WHEN** the profiles are read
+- **THEN** both tiers set the four values above
+
+### Requirement: The gateway sends the 48 GiB and 64 GiB tiers one model
+Every gateway deployment that calls a Service which selects `ollama-48gib` or `ollama-64gib` SHALL name `ollama_chat/qwen3.8:27b`. No embedding deployment SHALL call either tier. A tier rendered from a template above the `embedding_only` threshold SHALL get no embedding deployment, and the 48 GiB template SHALL keep one model loaded.
+
+#### Scenario: A second model on a tier
+- **WHEN** a gateway deployment sends `qwen3-coder:30b`, `gemma4:31b` or an embedding model to `ollama-48gib-fast` or `ollama-64gib-standard`
+- **THEN** the check that reads the gateway config fails
+
+#### Scenario: A chat tier from a template
+- **WHEN** a tier template is rendered above the `embedding_only` threshold
+- **THEN** the render writes no embedding deployment for it
+
+#### Scenario: Embeddings keep their tiers
+- **WHEN** the gateway config is loaded
+- **THEN** `qwen3-embedding:0.6b` has deployments on `ollama-24gib-embed-gpu0` and `-gpu1` at order 1 and on `ollama-16gib-fast` at order 2, and on no other tier

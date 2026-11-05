@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from devops_cli.config import settings
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
@@ -71,6 +72,7 @@ def _explain(
     implement: tuple[str, ...] = (),
     stage_limit: int = 3,
     implement_limit: int = 1,
+    planned_limit: int | None = None,
 ) -> Explanation:
     return explain_item(
         world.store,
@@ -81,6 +83,7 @@ def _explain(
         implement_filters=parse_implement_filters(implement),
         stage_limit=stage_limit,
         implement_limit=implement_limit,
+        planned_limit=planned_limit,
     )
 
 
@@ -183,6 +186,40 @@ def test_an_item_behind_a_full_limit_names_the_limit(job_world: JobWorld) -> Non
     assert (taken.stage, behind.stage) == (
         JobVerdict(True),
         JobVerdict(False, TEXTS.item_left_limit.format(limit=1)),
+    )
+
+
+def test_the_planned_limit_names_the_setting_and_the_count_for_the_stage_job(
+    job_world: JobWorld,
+) -> None:
+    _seed(job_world, status="Planned", title="fix(roadmap): a first plan waits")
+    _seed(job_world, status="Planned", title="fix(roadmap): a second plan waits")
+    number = _seed(job_world)
+
+    held = _explain(job_world, number, planned_limit=2)
+    free = _explain(job_world, number, planned_limit=3)
+
+    assert held.stage == JobVerdict(
+        False,
+        TEXTS.stage_left_planned_limit.format(count=2, limit=2, priority="P0-Critical"),
+    )
+    assert "roadmap.stage.planned_limit" in held.stage.reason
+    assert "The count of Planned items is 2" in held.stage.reason
+    assert free.stage == JobVerdict(True)
+
+
+def test_the_planned_limit_is_the_setting_when_the_option_is_absent(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_PLANNED_LIMIT", "1")
+    settings.reset_settings_cache()
+    _seed(job_world, status="Planned", title="fix(roadmap): a first plan waits")
+    number = _seed(job_world)
+
+    explained = _explain(job_world, number)
+
+    assert explained.stage.reason == TEXTS.stage_left_planned_limit.format(
+        count=1, limit=1, priority="P0-Critical"
     )
 
 

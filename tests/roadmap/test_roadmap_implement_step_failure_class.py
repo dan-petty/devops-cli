@@ -102,6 +102,7 @@ def test_an_agent_that_moves_head_stops_the_step_with_head_moved(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     def agent_commits() -> None:
+        (checkout / "src" / "other.py").write_text("OTHER = 3\n", encoding="utf-8")
         git(checkout, "add", "-A")
         git(checkout, "commit", "-q", "-m", "own commit")
 

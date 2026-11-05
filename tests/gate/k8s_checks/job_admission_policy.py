@@ -1,11 +1,4 @@
-"""The admission policy that pins the Jobs of the roadmap Service (#2696).
-
-The policy lives in `k8s/devops/roadmap-service/`. Each test reads what `kubectl kustomize
-k8s/devops` renders, so it reads the objects that Argo CD applies. The CEL of the policy runs in
-the CEL runtime of the `cel-expr-python` package, against the Job that `build_job` makes from the
-rendered CronJob `devops-cli-runner` and against the same Job changed in one way. The policy uses
-only standard CEL, so this runtime and the API server give the same answers.
-"""
+"""The admission policy of the Jobs of the runner service (#2164)."""
 
 from __future__ import annotations
 
@@ -19,18 +12,31 @@ from cel_expr_python import cel
 
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, build_job
-from tests.k8s_manifests import applied_documents
+from tests.gate.k8s_render import applied_documents
 from tests.support.paths import REPO_ROOT
 
 DEVOPS_DIR = REPO_ROOT / "k8s" / "devops"
+
+
 POLICY_NAME = "roadmap-service-jobs"
+
+
 RUNNER_IMAGE = "ghcr.io/dan-petty/devops-cli/runner"
+
+
 DIGEST = "sha256:" + "0" * 64
+
+
 # The environment value and the label that the Service sets on the Job it makes.
 SERVICE_ENV = {"DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY": "example/project"}
+
+
 SERVICE_LABELS = {"implement-repo": "0123456789ab"}
 
+
 _CEL = cel.NewEnv(variables={"object": cel.Type.DYN, "request": cel.Type.DYN})
+
+
 Mutation = Callable[[dict[str, Any]], None]
 
 
@@ -161,7 +167,7 @@ def _host_path_for_tmp(job: dict[str, Any]) -> None:
     tmp["hostPath"] = {"path": "/"}
 
 
-def test_the_job_from_the_runner_template_passes_in_every_image_form() -> None:
+def check_the_job_from_the_runner_template_passes_in_every_image_form() -> None:
     forms = (
         RUNNER_IMAGE,
         f"{RUNNER_IMAGE}:latest",
@@ -213,20 +219,20 @@ def test_the_job_from_the_runner_template_passes_in_every_image_form() -> None:
         pytest.param(_drop_spec_field("activeDeadlineSeconds"), "deadline", id="no-deadline"),
     ],
 )
-def test_a_job_that_breaks_one_rule_is_refused_by_that_rule(mutate: Mutation, rule: str) -> None:
+def check_a_job_that_breaks_one_rule_is_refused_by_that_rule(mutate: Mutation, rule: str) -> None:
     refused = _refusals(_changed(mutate))
 
     assert len(refused) == 1
     assert rule in refused[0]
 
 
-def test_a_job_that_names_the_default_values_passes() -> None:
+def check_a_job_that_names_the_default_values_passes() -> None:
     explicit = _changed(_set_spec(completions=1, parallelism=1, manualSelector=False))
 
     assert _refusals(explicit) == []
 
 
-def test_a_job_that_runs_longer_than_the_cap_is_refused() -> None:
+def check_a_job_that_runs_longer_than_the_cap_is_refused() -> None:
     longer = _changed(
         _set_spec(activeDeadlineSeconds=CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS + 1)
     )
@@ -246,13 +252,13 @@ def test_a_job_that_runs_longer_than_the_cap_is_refused() -> None:
         "system:serviceaccount:other:roadmap-service",
     ],
 )
-def test_a_job_of_another_identity_is_not_refused(user: str) -> None:
+def check_a_job_of_another_identity_is_not_refused(user: str) -> None:
     broken = _changed(_set_image("example.com/other/image"))
 
     assert (len(_refusals(broken)), _refusals(broken, user)) == (1, [])
 
 
-def test_the_policy_covers_the_create_and_update_of_jobs_in_namespace_devops_and_fails_closed() -> (
+def check_the_policy_covers_the_create_and_update_of_jobs_in_namespace_devops_and_fails_closed() -> (
     None
 ):
     policy = _object("ValidatingAdmissionPolicy", POLICY_NAME)["spec"]
@@ -280,7 +286,7 @@ def test_the_policy_covers_the_create_and_update_of_jobs_in_namespace_devops_and
     )
 
 
-def test_the_match_condition_names_the_user_of_the_role_binding() -> None:
+def check_the_match_condition_names_the_user_of_the_role_binding() -> None:
     spec = _object("ValidatingAdmissionPolicy", POLICY_NAME)["spec"]
 
     assert [condition["expression"] for condition in spec["matchConditions"]] == [
@@ -288,7 +294,7 @@ def test_the_match_condition_names_the_user_of_the_role_binding() -> None:
     ]
 
 
-def test_the_expressions_use_only_standard_cel() -> None:
+def check_the_expressions_use_only_standard_cel() -> None:
     """The runtime here compiles standard CEL and nothing of the Kubernetes extensions, so an
     expression that it compiles gives the same answer in the API server."""
     spec = _object("ValidatingAdmissionPolicy", POLICY_NAME)["spec"]

@@ -63,7 +63,7 @@ DEFAULT_AI_MODEL = "qwen3.8:27b"
 DEFAULT_AI_FALLBACK_PROVIDER = "ollama"
 # A model that the gateway config sends to the tier of the default Ollama Service, the model of
 # the devops-coder route. tests/test_k8s_llm_gateway.py binds it to k8s/llm/gateway/config.yaml.
-DEFAULT_AI_FALLBACK_MODEL = "qwen3-coder:30b"
+DEFAULT_AI_FALLBACK_MODEL = "qwen3.8:27b"
 # The hosted model that local chat tokens are priced against: the owner's choice (#2194). The AI
 # spend dashboard holds genai-prices' price of this model, and of the embedding reference below,
 # and tests/test_k8s_monitoring_dashboards.py fails when the two differ.
@@ -82,8 +82,10 @@ DEFAULT_THINKING_TAGS: Final[tuple[str, str]] = ("<think>", "</think>")
 DEFAULT_AI_TEMPERATURE: float = 0.1
 DEFAULT_AI_TOP_P: float = 0.95
 DEFAULT_AI_CONTEXT_WINDOW: int = 32768
-# The gateway group that serves one step of `devops roadmap implement` (#2664): qwen3-coder on a
-# tier whose context length is 128000 tokens. A step builds its inputs to fit this window.
+# The gateway group that serves one step of `devops roadmap implement` (#2664): qwen3.8:27b on a
+# tier whose context length is 262144 tokens. A step builds its inputs to fit 128000 of them, the
+# budget that a step was measured with; the tier holds more, and a longer window is a separate
+# measurement.
 DEFAULT_AI_IMPLEMENT_MODEL: str = "devops-coder"
 DEFAULT_AI_IMPLEMENT_CONTEXT_WINDOW: int = 128000
 DEFAULT_OLLAMA_MAX_PARALLEL: int = 2
@@ -104,6 +106,14 @@ DEFAULT_PORTKEY_GATEWAY_URL: str = "http://localhost:8787/v1"
 DEFAULT_OLLAMA_CLUSTER_SERVICE: str = "ollama-fast"
 DEFAULT_OLLAMA_CLUSTER_URL: str = (
     f"http://{DEFAULT_OLLAMA_CLUSTER_SERVICE}.llm.svc.cluster.local:11434"
+)
+# The Service of an Ollama instance that serves embedding models. The default Service above names
+# a tier that loads one chat model and no embedding model (#3567). The Service name comes from
+# the GPU thresholds (k8s/llm/profiles/gpu-thresholds.yaml); a test fails when it names no
+# serving tier.
+DEFAULT_OLLAMA_EMBEDDING_CLUSTER_SERVICE: str = "ollama-24gib-embed-gpu0"
+DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL: str = (
+    f"http://{DEFAULT_OLLAMA_EMBEDDING_CLUSTER_SERVICE}.llm.svc.cluster.local:11434"
 )
 DEFAULT_AI_GATEWAY_ENABLED: bool = False
 DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS: float = 5.0
@@ -736,6 +746,10 @@ DEFAULT_PYPI_PACKAGE_URL: str = "https://pypi.org/pypi/{name}/json"
 DEFAULT_PYPI_TIMEOUT_SECONDS: float = 10.0
 # The most items one stage run takes (#2654).
 DEFAULT_ROADMAP_STAGE_LIMIT: int = 3
+# The most Planned items before the stage job plans no new item (#3487). The Service delivers about
+# two items a day, so 20 items wait about ten days: a plan that waits longer meets a changed
+# default branch, and `messages.py` and `stage_change.py` appear in most plans.
+DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT: int = 20
 # The most extra turns of an implement step (#3043): each fixes a failed check or asks for ticks.
 DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS: int = 3
 # The most stops of one failure class, and of one item, that a new runner image clears (#3481).

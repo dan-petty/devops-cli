@@ -173,6 +173,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "CONST_ROADMAP_STAGE_VERIFY_MAX_FILES": ("kept", "same reason as the body cap"),
     "DEFAULT_ROADMAP_STAGE_STEP_TOKENS": ("window", "was 40,000; half of the implement window"),
     "DEFAULT_ROADMAP_STAGE_LIMIT": ("setting", "items of one stage round; already a setting"),
+    "DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT": (
+        "setting",
+        "open Planned items at which the stage job plans no new item; already a setting",
+    ),
     "DEFAULT_ROADMAP_STAGE_RETRY_HOURS": (
         "other",
         "the wait before a failed stage item is tried again",

@@ -54,15 +54,18 @@ data:
         slug: devops-cli-service
     # The stage job of the Service (k8s/README.md, Roadmap service): it stages the Ready items
     # that this filter names, at most `limit` in a round, in task groups that each fit
-    # `step_tokens`. A repository's ConfigMap changes the filter; an entry is `family=value` over
-    # status, priority, type, value or effort. The `toolset` names the tools of a plan run:
-    # `extended` adds `references`, `read_issue` and `find_issues`, which read GitHub with the
-    # token of the Service; `base` has the nine tools that read the staged commit only.
+    # `step_tokens`. At `planned_limit` open Planned items it plans no new item, except for an
+    # item of the highest priority. A repository's ConfigMap changes the filter; an entry is
+    # `family=value` over status, priority, type, value or effort. The `toolset` names the tools
+    # of a plan run: `extended` adds `references`, `read_issue` and `find_issues`, which read
+    # GitHub with the token of the Service; `base` has the nine tools that read the staged
+    # commit only.
     roadmap:
       stage:
         filter:
           - status=ready
         limit: 3
+        planned_limit: 20
         step_tokens: 64000
         toolset: extended
       # The alternatives row takes `first_pass_limit` items in a round while an item has no
