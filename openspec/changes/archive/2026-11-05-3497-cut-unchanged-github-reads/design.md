@@ -10,7 +10,7 @@ The counter keeps its name and its total. It gains a `status` label. The issue a
 
 `acquire` no longer counts a request. It runs before the request is sent, so it cannot know the status. `SessionGitHubAPI._request` counts each attempt after its answer, with the status `answer[0]`. A 304 therefore counts with status `304`.
 
-The session reads the token of a GitHub App after the attempt is paced. An attempt that raises before an answer counts with status `none`, a refused token included. The count is made in a `finally` block, and the error still propagates. `run_gh` counts each paced attempt with status `none`, because gh does not report the HTTP status.
+The session reads the token of a GitHub App after the attempt is paced. An attempt that raises before an answer counts with status `none`, a refused token included. The count is made in a `finally` block, and the error still propagates. A lost GET that the session sends again (#3506) counts each attempt, because the ledger paces each attempt. `run_gh` counts each paced attempt with status `none`, because gh does not report the HTTP status.
 
 ### The labels are read in the thread that paces the request
 

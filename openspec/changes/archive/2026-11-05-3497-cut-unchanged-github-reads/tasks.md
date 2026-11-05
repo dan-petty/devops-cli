@@ -8,6 +8,8 @@
   Verification: `uv run devops ci test tests/github/test_github_api_metrics.py`
 - [x] 1.3 Write the failing test for a paced attempt whose token is refused. It counts with status `none`. Then read the token inside that count.
   Verification: `uv run devops ci test tests/github/test_github_app_identity.py`
+- [x] 1.4 Write the test for a lost GET that the session sends again. Each attempt counts with its status.
+  Verification: `uv run devops ci test tests/github/test_github_api_metrics.py`
 
 ## 2. The pace lines log at DEBUG (behavior)
 
@@ -20,12 +22,13 @@
 
 - [x] 3.1 Regenerate the telemetry reference with `uv run devops docs generate --sync-readme`.
   Verification: `uv run devops ci docs`
+- [x] 3.2 Name the `status` label in the Service guide, `k8s/README.md`.
+  Verification: `grep -n 'under its `method`, its `status`' k8s/README.md`
 
 ## Workflow follow-up
 
-- Issue #3497 stays open for the slices that this change does not do.
-- Refine slice: an unchanged item reads no comment.
-- Cache slice: a last page under `per_page` is kept.
-- Scoped intake slice: a page cap for scoped reads.
-- stage_ready slice: a backoff after a failed check.
-- Idle slice: a longer poll interval for a repository with no open work.
+- This change closes #3497. The other criteria of #3497 moved to these issues:
+- #3667: an unchanged refine item reads no comments, and the live sum query.
+- #3670: scoped intake reads a bounded page count.
+- #3671: stage_ready backs off after a failed check.
+- #3672: an idle repository polls less often.
