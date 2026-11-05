@@ -1,0 +1,35 @@
+{
+ "issue": 3411,
+ "pull": 3411,
+ "title": "feat(roadmap): refuse a what_changes item that names no group path",
+ "change": "3411-refuse-a-what-changes-item-that",
+ "merge_commit": "0000000000000000000000000000000000000000",
+ "base_commit": "0000000000000000000000000000000000000000",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 5,
+  "fidelity": 4,
+  "task_quality": 4,
+  "rule_compliance": 4,
+  "accuracy": 2
+ },
+ "state": "open",
+ "summary": "The plan of the change of #3411 names `src/devops_cli/lang/en/messages.py` in a What Changes item, and its one group lists the file in neither `changes` nor `creates`. The Impact section that the stage job renders from the groups leaves the message file out, so a reader cannot see that it changes and the implement step has no group that edits it.",
+ "notes": [
+  "The plan is the one of this change before the check of #3411 exists: the group adds the check to `src/devops_cli/roadmap/stage_change.py` and no group lists the message file that its second What Changes item names.",
+  "The change was never merged as this plan, so `pull`, `merge_commit` and `base_commit` hold the issue number and two placeholders: the case reads no commit, and the facts hold the files of its tree."
+ ],
+ "defects": [
+  {
+   "type": "missing_path",
+   "severity": "major",
+   "where": "proposal.md, What Changes",
+   "problem": "The What Changes item names `src/devops_cli/lang/en/messages.py`, and no group lists that path in `changes` or `creates`. The Impact section renders from the groups, so it leaves the message file out: a reader cannot see that the file changes, and the implement step has no group that edits it.",
+   "evidence": "The one group of the plan lists `src/devops_cli/roadmap/stage_change.py` and `tests/roadmap/test_roadmap_stage_content.py` in `changes`, and its `creates` is empty. The second What Changes item names the message file in a code span, and no group lists that file.",
+   "gate": "paths",
+   "paths": [
+    "src/devops_cli/lang/en/messages.py"
+   ]
+  }
+ ]
+}

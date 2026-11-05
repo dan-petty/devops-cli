@@ -25,12 +25,13 @@ from tests.support.paths import REPO_ROOT
 
 # The 37 pull requests of the evaluation of 2026-11-01: 35 merged and 2 open then. Pull request
 # 3167 is a plan of the stage job that was closed with `x` in every text (#3200). Pull request
-# 3174 is the plan with one group titled `placeholder` (#3264).
+# 3174 is the plan with one group titled `placeholder` (#3264). The case of #3411 is the plan of
+# that change before its own check exists: a What Changes item names a path that no group lists.
 EVALUATED_PULLS = frozenset(
     {2975, 2976, 2977, 2978, 2979, 2980, 2981, 2982, 2983, 2984, 2985, 2986, 2987, 2988, 2989}
     | {2990, 2991, 2992, 2993, 2994, 2995, 2996, 2997, 2998, 2999, 3001, 3002}
     | {2719, 2761, 2766, 2857, 2858, 2859, 2870, 2958, 2971, 2972}
-    | {3167, 3174, 3378}
+    | {3167, 3174, 3378, 3411}
 )
 SHA_LENGTH = 40
 
@@ -44,8 +45,8 @@ def test_the_set_holds_the_40_plans_and_three_good_ones(cases: list[StageCase]) 
     reviewed = {case.pull for case in cases if case.verdict is not Verdict.GOOD}
     good = [case for case in cases if case.verdict is Verdict.GOOD]
 
-    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 43, 3)
-    assert len(EVALUATED_PULLS) == 40
+    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 44, 3)
+    assert len(EVALUATED_PULLS) == 41
 
 
 def test_a_good_case_is_the_twin_of_a_reviewed_case_and_has_no_defect(
