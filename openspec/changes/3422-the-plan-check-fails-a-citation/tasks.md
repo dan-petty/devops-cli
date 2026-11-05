@@ -13,9 +13,9 @@ Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage_p
 
 Reads: `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/refine.py`, `src/devops_cli/roadmap/stage_eval_gates.py`. Changes: `src/devops_cli/roadmap/stage.py`.
 
-- [ ] 2.1 In `src/devops_cli/roadmap/stage.py`, where `_Planner` calls `check_proposal` in `_settle`, pass a `read_text` callable built from `self._source` and `self._sha` that returns the text of a cited file at the staged commit with the `git show <sha>:<path>` read (the form `refine.py` uses in `_read_git_file`), or `None` when the file is absent at that commit, so the check reads the staged commit and not the working tree
+- [x] 2.1 In `src/devops_cli/roadmap/stage.py`, where `_Planner` calls `check_proposal` in `_settle`, pass a `read_text` callable built from `self._source` and `self._sha` that returns the text of a cited file at the staged commit with the `git show <sha>:<path>` read (the form `refine.py` uses in `_read_git_file`), or `None` when the file is absent at that commit, so the check reads the staged commit and not the working tree
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` passes
-- [ ] 2.2 Confirm the replay of the golden set in `src/devops_cli/roadmap/stage_eval_gates.py` and the plan-check command in `src/devops_cli/roadmap/plan_check.py` call `check_proposal` with no reader, so the default `read_text` judges no citation and the recorded plans keep passing
+- [x] 2.2 Confirm the replay of the golden set in `src/devops_cli/roadmap/stage_eval_gates.py` and the plan-check command in `src/devops_cli/roadmap/plan_check.py` call `check_proposal` with no reader, so the default `read_text` judges no citation and the recorded plans keep passing
   - Verification: `uv run devops roadmap eval stage --replay` passes
 
 ## 3. Ask the planner for a symbol citation
