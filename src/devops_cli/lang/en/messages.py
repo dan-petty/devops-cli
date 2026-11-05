@@ -3571,7 +3571,6 @@ class RoadmapMessages:
     inbox_counts: str = "Counts by class: {counts}."
     inbox_count: str = "{kind} {count}"
     inbox_old: str = "(over {days} days)"
-    inbox_kind_unknown: str = "{kind} is no class of the inbox. The classes are: {kinds}."
     inbox_no_number: str = "-"
     inbox_no_age: str = "-"
     inbox_subjects: dict[str, str] = field(
