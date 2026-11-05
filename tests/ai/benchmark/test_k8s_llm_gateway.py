@@ -2042,6 +2042,19 @@ def _hosted_violations(config: dict[str, Any], deployment: dict[str, Any]) -> li
     return problems
 
 
+def test_every_local_deployment_names_its_backend_so_the_ledger_counts_it_as_local() -> None:
+    """A gateway reply names a deployment model and no backend only for a deployment with no
+    `api_base`, and the spend ledger counts such a call as hosted (#3656). So each deployment of
+    the in-cluster groups sets `api_base`, and each hosted group sets none."""
+    config = _full_gateway_config()
+
+    no_backend = {
+        m["model_name"] for m in config["model_list"] if not m["litellm_params"].get("api_base")
+    }
+
+    assert no_backend == set(HOSTED_GROUPS)
+
+
 def test_the_hosted_groups_call_providers_with_optional_keys_and_join_no_pool() -> None:
     """The hosted groups follow their rules (#3113)."""
     deployment = _load_kind(GATEWAY_DIR / "deployment.yaml", "Deployment")
