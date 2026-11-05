@@ -33,8 +33,8 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
 from http import HTTPStatus
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING, Any, Protocol, assert_never, cast
 
 from platformdirs import user_cache_dir
 from pydantic import BaseModel, ConfigDict
@@ -60,6 +60,7 @@ from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Trunc
 from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.ci.fail_to_pass import is_test_file
 from devops_cli.ci.typecheck import typecheck_argv, typecheck_files
 from devops_cli.config.commands import (
     BIN_GIT,
@@ -110,6 +111,12 @@ from devops_cli.roadmap.failure import (
     FailureClass,
     FailureEvidence,
     classify_failure,
+)
+from devops_cli.roadmap.implement_base_replay import (
+    BaseReplay,
+    BaseStatus,
+    VerifiedCommand,
+    replay_group_tests,
 )
 from devops_cli.roadmap.implement_hooks import commit_stage
 from devops_cli.roadmap.implement_limits import ItemSpend, StepBudget, limit_hooks
@@ -384,7 +391,8 @@ class StepOutcome(BaseModel):
     `tier` is the last tier that the step ran on, `tiers` names every tier it attempted, and
     `tier_spend` holds the requests and tokens of each tier (#3060). `failure_class` is the class
     of a stopped step, when the step knows its cause (#3476). `planned_requests` are the requests
-    a dry run lists."""
+    a dry run lists. `fail_to_pass` is the replay of a behavior group's tests on its base commit,
+    and `verified` holds the verify commands of a group of kind `other`, of a done step (#3042)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -409,6 +417,8 @@ class StepOutcome(BaseModel):
     failure_class: FailureClass | None = None
     dry_run: bool = False
     planned_requests: tuple[str, ...] = ()
+    fail_to_pass: BaseReplay | None = None
+    verified: tuple[VerifiedCommand, ...] = ()
 
 
 # ── The agent ─────────────────────────────────────────────────────────────────────────────
@@ -959,10 +969,12 @@ def _command_failure(
     *,
     negative: bool = False,
     trace: ImplementTrace | None = None,
+    verified: list[VerifiedCommand] | None = None,
 ) -> str | None:
     """Run `argv` in the checkout. None when it exits 0, else why the step stops. A `negative`
     search passes on exit 1 (git found no match), and a match (exit 0) is why it stops. With a
-    `trace`, the run is a `check` event: its exit status, or none for a timeout (#3032)."""
+    `trace`, the run is a `check` event: its exit status, or none for a timeout (#3032). With
+    `verified`, the run is added to it with its masked, bounded output (#3042)."""
     limit = load_settings().roadmap.implement.command_timeout_seconds
     try:
         done = run_subprocess(list(argv), cwd=source, quiet=True, timeout=limit)
@@ -972,6 +984,10 @@ def _command_failure(
         return MESSAGES.roadmap.implement_stop_command_timeout.format(command=named, seconds=limit)
     if trace is not None:
         trace.check(named, done.returncode)
+    if verified is not None:
+        verified.append(
+            VerifiedCommand(command=named, status=done.returncode, output=mask_secrets(_tail(done)))
+        )
     if done.returncode == (1 if negative else 0):
         return None
     if negative and done.returncode == 0:
@@ -984,7 +1000,10 @@ def _command_failure(
 
 
 def commands_failure(
-    source: Path, commands: Iterable[str], trace: ImplementTrace | None = None
+    source: Path,
+    commands: Iterable[str],
+    trace: ImplementTrace | None = None,
+    verified: list[VerifiedCommand] | None = None,
 ) -> str | None:
     """Run each of `commands` in the checkout, in order: None when all exit 0, else why the first
     that did not stops the run. A command whose program is not on the allowlist does not run. A
@@ -998,7 +1017,9 @@ def commands_failure(
             return MESSAGES.roadmap.implement_stop_command_refused.format(
                 command=named, reason=found
             )
-        failure = _command_failure(source, found.argv, named, negative=found.negative, trace=trace)
+        failure = _command_failure(
+            source, found.argv, named, negative=found.negative, trace=trace, verified=verified
+        )
         if failure is not None:
             return failure
     return None
@@ -1148,6 +1169,58 @@ class _Failure:
     klass: FailureClass | None = None
 
 
+def _fail_to_pass_failure(
+    source: Path,
+    inputs: StepInputs,
+    keeper: WipKeeper,
+    changed: Sequence[str],
+    log: ToolCallLog,
+) -> _Failure | None:
+    """Why the step stops when the tests of a behavior group do not fail on the base commit of the
+    group, else None (#3042). The step replays the test files that it changed on that commit, and
+    keeps the result for the trace and the PR comment. A behavior group that changed no test file
+    stops with no repair round. A replay that passes, or that cannot be collected, on base gets one
+    repair round that may change only the test files."""
+    if not inputs.group.is_behavior:
+        return None
+    files = [path for path in changed if is_test_file(PurePosixPath(path))]
+    if not files:
+        return _Failure(MESSAGES.roadmap.implement_stop_no_test_file)
+    replay = replay_group_tests(source, keeper.base, files)
+    log.fail_to_pass = replay
+    if log.trace is not None:
+        log.trace.check(
+            MESSAGES.roadmap.implement_base_check.format(files=", ".join(files)),
+            replay.exit_status,
+        )
+    return _replay_failure(replay)
+
+
+def _replay_failure(replay: BaseReplay) -> _Failure | None:
+    """Why the step stops for a replay of a behavior group on its base commit, else None."""
+    texts = MESSAGES.roadmap
+    files = ", ".join(replay.files)
+    match replay.status:
+        case BaseStatus.FAILS:
+            return None
+        case BaseStatus.PASSES:
+            return _Failure(
+                texts.implement_stop_base_passes.format(files=files), frozenset(replay.files)
+            )
+        case BaseStatus.ERRORS:
+            return _Failure(
+                texts.implement_stop_base_errors.format(files=files), frozenset(replay.files)
+            )
+        case BaseStatus.NOT_RUN:
+            return _Failure(
+                texts.implement_stop_base_not_run.format(
+                    files=files, status=replay.exit_status, output=replay.output
+                )
+            )
+        case _:
+            assert_never(replay.status)
+
+
 def _exit_failure(
     source: Path, inputs: StepInputs, keeper: WipKeeper, log: ToolCallLog
 ) -> _Failure | None:
@@ -1157,6 +1230,8 @@ def _exit_failure(
     back first, whatever the run did to it. The ticks are judged last, by
     `_unticked_failure`, as a step with a task unticked gets a turn for them first. The stray files
     of the agent are deleted before the checkout is staged (#3092)."""
+    log.fail_to_pass = None
+    log.verified.clear()
     head = _head(source)
     if head != keeper.expected_head:
         return _Failure(
@@ -1180,10 +1255,13 @@ def _exit_failure(
     if lost:
         return _Failure(lost, klass=FailureClass.TESTS_LOST)
     early = _format_failure(source, changed, log.trace) or commands_failure(
-        source, inputs.group.verification_commands, log.trace
+        source, inputs.group.verification_commands, log.trace, log.verified
     )
     if early:
         return _Failure(early)
+    proof = _fail_to_pass_failure(source, inputs, keeper, changed, log)
+    if proof is not None:
+        return proof
     static = _static_failure(source, changed, log.trace)
     if static:
         return _Failure(static, frozenset(changed))
@@ -1521,6 +1599,8 @@ def _attempt(
             agent = build_agent(
                 tier_model, source, inputs.instructions, window, Path(home), log, limits
             )
+            log.fail_to_pass = None
+            log.verified.clear()
             run = _turn(agent, tier_model, log, inputs.message)
             failure = (
                 _Failure(run.reason, klass=run.failure_class)
@@ -1571,6 +1651,7 @@ def _attempt(
         tier=tried[-1] if tried else "",
         tiers=tuple(tried),
         tier_spend=spent,
+        fail_to_pass=log.fail_to_pass,
     )
     if not reason and (unticked := _unticked_failure(inputs)):
         reason, klass = unticked, FailureClass.NOT_TICKED
@@ -1584,7 +1665,13 @@ def _attempt(
         return outcome.model_copy(
             update={"reason": reason, "diff": diff, "diff_cut": cut, "failure_class": klass}
         )
-    return outcome.model_copy(update={"status": StepStatus.DONE, "commit": commit})
+    return outcome.model_copy(
+        update={
+            "status": StepStatus.DONE,
+            "commit": commit,
+            "verified": tuple(log.verified),
+        }
+    )
 
 
 def _unkeepable(source: Path, base: str) -> str | None:

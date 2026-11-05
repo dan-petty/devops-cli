@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/ci/fail_to_pass.py`, `src/devops_cli/roadmap/step_files.py`. Changes: `src/devops_cli/roadmap/implement_base_replay.py` (new), `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/step_files.py`, `src/devops_cli/roadmap/plan_read.py`, `src/devops_cli/ci/fail_to_pass.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_implement_step_fail_to_pass.py` (new).
 
-- [ ] 1.1 Write `tests/roadmap/test_roadmap_implement_step_fail_to_pass.py` with cases for a test that passes on base, a collection error on base, a test that fails on base and passes after, and a behavior group that changes no test file
+- [x] 1.1 Write `tests/roadmap/test_roadmap_implement_step_fail_to_pass.py` with cases for a test that passes on base, a collection error on base, a test that fails on base and passes after, and a behavior group that changes no test file
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_fail_to_pass.py` fails on the base
-- [ ] 1.2 Write `src/devops_cli/roadmap/implement_base_replay.py`, make `is_test_file` public in `src/devops_cli/ci/fail_to_pass.py`, add `is_behavior` to the task group of `src/devops_cli/roadmap/step_files.py`, and check the tests of a behavior group on base in `_exit_failure` of `src/devops_cli/roadmap/implement_step.py`
+- [x] 1.2 Write `src/devops_cli/roadmap/implement_base_replay.py`, make `is_test_file` public in `src/devops_cli/ci/fail_to_pass.py`, add `is_behavior` to the task group of `src/devops_cli/roadmap/step_files.py`, and check the tests of a behavior group on base in `_exit_failure` of `src/devops_cli/roadmap/implement_step.py`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_fail_to_pass.py` passes
 
 ## 2. Record the replay in the trace and the PR comment

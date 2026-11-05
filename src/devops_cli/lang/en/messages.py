@@ -2512,6 +2512,21 @@ class RoadmapMessages:
         "The agent made a symbolic link: {paths}. The step does not format a link."
     )
     implement_stop_no_change: str = "The agent changed no file."
+    implement_stop_no_test_file: str = "A behavior group changed no test file. Write the failing test first, in a file under tests/."
+    implement_stop_base_passes: str = (
+        "No test of the group fails on the base commit. The tests of {files} pass there, "
+        "so they prove nothing. Write a test that fails on the base commit first."
+    )
+    implement_stop_base_errors: str = (
+        "The tests of {files} cannot be collected on the base commit, so no test fails there. "
+        "Import the new code inside the test function, so that the test fails on an assertion."
+    )
+    implement_stop_base_not_run: str = "The tests of {files} could not run on the base commit. Pytest exited with status {status}.\n{output}"
+    implement_base_check: str = "pytest on base: {files}"
+    implement_base_fails: str = "fails on the base commit"
+    implement_base_passes: str = "passes on the base commit"
+    implement_base_errors: str = "cannot be collected on the base commit"
+    implement_base_not_run: str = "did not run on the base commit"
     implement_stop_tests_lost: str = (
         "The agent removed tests that existed at the start of the step. "
         "A step may add tests. It may not remove or rename one.\n{files}"
@@ -2906,6 +2921,13 @@ class RoadmapMessages:
     implement_stop_split_invalid: str = "The split reply has problems: {problems}"
     implement_pull_comment_scoped: str = "- scoped check {name}: {result}, {seconds:.0f} s"
     implement_pull_comment_scoped_note: str = "- scoped check tests: {note}"
+    implement_pull_fail_to_pass: str = (
+        "- fail-to-pass of group {group}: {status}. Tests that fail on the base commit: {failed}."
+    )
+    implement_pull_fail_to_pass_none: str = "none"
+    implement_pull_verified: str = (
+        "- verify of group {group}: `{command}` exits {status}.\n\n{fence}\n{output}\n{fence}"
+    )
     implement_pull_comment_skipped: str = (
         "- step {step}: skipped, because the default branch does not declare it in {file}"
     )
