@@ -24,9 +24,9 @@ Reads: `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli/roadmap/adr.py`
 
 Reads: `src/devops_cli/roadmap/request_plan.py`, `tests/roadmap/test_roadmap_dry_runs.py`. Changes: `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_dry_runs.py`.
 
-- [ ] 3.1 Add to `tests/roadmap/test_roadmap_dry_runs.py` a test that `dry_run_alternatives` lists the `gh` command of the read of `docs/adr` and of the read of one ADR file, each with its condition and repeat text
+- [x] 3.1 Add to `tests/roadmap/test_roadmap_dry_runs.py` a test that `dry_run_alternatives` lists the `gh` command of the read of `docs/adr` and of the read of one ADR file, each with its condition and repeat text
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_dry_runs.py` fails on the base
-- [ ] 3.2 In `alternatives_requests`, add the read of the directory `CONST_ROADMAP_ADR_DIRECTORY` and, repeated for each file of it, the read of one ADR file, both under the condition that the run checks an item that is no skip class and once for the run. Add the condition `adr_read` and the repeat `adr_file` to `plan_conditions` and `plan_repeat` in `src/devops_cli/lang/en/messages.py`
+- [x] 3.2 In `alternatives_requests`, add the read of the directory `CONST_ROADMAP_ADR_DIRECTORY` and, repeated for each file of it, the read of one ADR file, both under the condition that the run checks an item that is no skip class and once for the run. Add the condition `adr_read` and the repeat `adr_file` to `plan_conditions` and `plan_repeat` in `src/devops_cli/lang/en/messages.py`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_dry_runs.py` passes
 
 ## 4. Give the verdicts rejected and in-use

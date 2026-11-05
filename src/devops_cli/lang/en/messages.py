@@ -3810,6 +3810,9 @@ class RoadmapMessages:
             "query": "<search query>",
             "repository": "<owner/name>",
             "package": "<package>",
+            # No angle brackets: the contents request percent-encodes them, and the name has the
+            # form of an ADR file name.
+            "adr_file": "NNNN-name.md",
             "item": "<item>",
             "blocker": "<blocking item>",
             "path": "<cited path>",
@@ -3873,6 +3876,7 @@ class RoadmapMessages:
             "posted": "the change posts a comment",
             "job_drafts": "the pull request is an open draft of a job",
             "check_on": "the repository is public and a Firecrawl key is set",
+            "adr_read": "the run checks an item that is no skip class",
             "issues_unread": "the run has not read every issue yet",
             "labels_differ": "the labels of the repository differ from .github/labels.yml",
             "still_waiting": "no comment follows refine's last comment on the waiting item",
@@ -3909,6 +3913,7 @@ class RoadmapMessages:
             ),
             "evidence": "for each piece of evidence the model cites",
             "alternatives_item": "for each item the run checks, at most --limit",
+            "adr_file": "for each file of the directory, once a run",
             "retitle_item": "for each item with a long title, at most --limit",
             "search": "for each search the model asks for, at most {limit} for an item",
             "fact": "for each fact read the model asks for, at most {limit} for an item",

@@ -22,6 +22,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 
 from devops_cli.config.constants import (
+    CONST_ROADMAP_ADR_DIRECTORY,
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
     CONST_ROADMAP_LABELS_PATH,
@@ -443,9 +444,11 @@ def alternatives_requests(
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap alternatives` reads, in order, and the writes `--confirm` makes after
     them (#2650). The run reads the repository's visibility and every issue, and stops when the
-    repository is private or no Firecrawl key is set. For each item it checks it reads the
-    item's comments, runs the model, and makes the searches and fact reads the model asks for;
-    `--item` names the item, and `limit` caps the items of a round, which `--limit` sets."""
+    repository is private or no Firecrawl key is set. Once for the run, when it checks an item that
+    is no skip class, it reads the directory of the ADRs and each file of it (#3505). For each
+    item it checks it reads the item's comments, runs the model, and makes the searches and fact
+    reads the model asks for; `--item` names the item, and `limit` caps the items of a round, which
+    `--limit` sets."""
     del limit
     store = StoreRequests(repo)
     texts = MESSAGES.roadmap
@@ -485,9 +488,20 @@ def alternatives_requests(
         method=methods["model"],
         target=texts.plan_targets["model_run"].format(subject=subject),
     )
+    adrs = within(
+        [
+            *store.file(CONST_ROADMAP_ADR_DIRECTORY, None),
+            *within(
+                store.file(f"{CONST_ROADMAP_ADR_DIRECTORY}/{_p('adr_file')}", None),
+                repeat=rep["adr_file"],
+            ),
+        ],
+        cond["adr_read"],
+    )
     reads = [
         *visibility,
         *store.every_issue(),
+        *adrs,
         *within([*store.comments_on(subject), model, search, *facts], cond["check_on"], each_item),
     ]
     writes = within(
