@@ -777,6 +777,9 @@ DEFAULT_ROADMAP_IMPLEMENT_LADDER_TIERS: Final[tuple[str, ...]] = (DEFAULT_AI_IMP
 # whose checks are not there yet (#2665).
 DEFAULT_ROADMAP_IMPLEMENT_LIMIT: int = 1
 DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS: int = 30
+# The effort values of the implement job's passes, in order (#3385): the job takes an item of the
+# first effort, and an item of the next effort only when no item of the first is selectable.
+DEFAULT_ROADMAP_IMPLEMENT_EFFORT: Final[tuple[str, ...]] = ("low", "medium")
 # How often the implement row is due on its own, besides its first run (#2667). A round only reads
 # the Jobs and the plan; the Job itself runs for up to two hours.
 DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES: int = 7

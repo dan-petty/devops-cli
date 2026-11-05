@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/config/defaults.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/errors.py`, `tests/roadmap/test_roadmap_stage_settings.py`. Changes: `src/devops_cli/config/defaults.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/lang/en/errors.py`, `tests/roadmap/test_roadmap_stage_settings.py`.
 
-- [ ] 1.1 Add to `tests/roadmap/test_roadmap_stage_settings.py` a test that the setting `roadmap.implement.effort` defaults to `low` and then `medium`, and a parametrized test that a config file holding an unknown value `huge`, or a value held twice, is refused with a validation error that names the value
+- [x] 1.1 Add to `tests/roadmap/test_roadmap_stage_settings.py` a test that the setting `roadmap.implement.effort` defaults to `low` and then `medium`, and a parametrized test that a config file holding an unknown value `huge`, or a value held twice, is refused with a validation error that names the value
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_settings.py` fails on the base
-- [ ] 1.2 Declare `DEFAULT_ROADMAP_IMPLEMENT_EFFORT` in `src/devops_cli/config/defaults.py` as `("low", "medium")`, add the field `effort` to `RoadmapImplementConfig` in `src/devops_cli/config/settings.py` with a validator that refuses a value that is no effort value of `CONST_ROADMAP_SIZE_OPTIONS` and a repeated value, and add the refusal text to `src/devops_cli/lang/en/errors.py`
+- [x] 1.2 Declare `DEFAULT_ROADMAP_IMPLEMENT_EFFORT` in `src/devops_cli/config/defaults.py` as `("low", "medium")`, add the field `effort` to `RoadmapImplementConfig` in `src/devops_cli/config/settings.py` with a validator that refuses a value that is no effort value of `CONST_ROADMAP_SIZE_OPTIONS` and a repeated value, and add the refusal text to `src/devops_cli/lang/en/errors.py`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_settings.py` passes
 
 ## 2. Select the items of each effort pass in order

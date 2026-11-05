@@ -156,6 +156,24 @@ def test_a_planned_limit_under_one_is_refused(config_file: Path) -> None:
         settings.load_settings()
 
 
+def test_the_implement_effort_defaults_to_low_then_medium(config_file: Path) -> None:
+    assert settings.load_settings().roadmap.implement.effort == ["low", "medium"]
+
+
+@pytest.mark.parametrize("values", [("low", "huge"), ("low", "low")])
+def test_an_implement_effort_value_that_is_no_effort_or_held_twice_is_refused_naming_it(
+    config_file: Path, values: tuple[str, str]
+) -> None:
+    entries = "".join(f"      - {value}\n" for value in values)
+    config_file.write_text(
+        f"roadmap:\n  implement:\n    effort:\n{entries}",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError, match=values[1]):
+        settings.load_settings()
+
+
 # ── The command ─────────────────────────────────────────────────────────────────────────────
 
 

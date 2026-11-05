@@ -80,6 +80,13 @@ class ConfigErrorMessages:
         "litellm_params or the Ollama tag."
     )
     key_not_in_file: str = "The config file {path} does not hold the key '{key}'. Nothing changed."
+    implement_effort_unknown: str = (
+        "The setting roadmap.implement.effort holds '{value}'. That is no effort value. "
+        "Use low, medium or high."
+    )
+    implement_effort_repeated: str = (
+        "The setting roadmap.implement.effort holds '{value}' twice. Give each effort once."
+    )
     not_yaml: str = "{action}: {path} is not valid YAML ({error_type}){location}."
     not_yaml_load: str = "Cannot load the settings"
     not_yaml_read: str = "Cannot read the config file"
