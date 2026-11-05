@@ -3583,7 +3583,7 @@ class RoadmapMessages:
             "refine": "{title}: refine waits on a person",
             "refine_returned": "{title}: the stage job returned it twice on the same body",
             "split": "{title}: refine proposed a split, not applied",
-            "alternatives": "{title}: a covering tool was put to a person: {tool}",
+            "alternatives": "{title}: refine put a covering tool to a person: {tool}",
             "claim": "{title} (claimed by {owner})",
             "draft_old": "{title} (draft, no update for more than {days} days)",
             "draft_failed": "{title} (draft, a check failed)",
@@ -3610,8 +3610,8 @@ class RoadmapMessages:
                 "Fix the failed check, then run `devops pr monitor {number} --repo {repo}`."
             ),
             "split": (
-                "Split it as refine proposed in a comment on #{number}, or edit its body so "
-                "that it fits one pull request."
+                "Split it as refine proposed in a comment on #{number}, or edit its body to fit "
+                "one pull request."
             ),
             "alternatives": (
                 "Answer in a comment on #{number}. Refine reads the answer in its next round."

@@ -486,8 +486,8 @@ def test_an_unapplied_split_has_one_line_with_its_step(store: InMemoryRoadmapSto
         (split, "big: refine proposed a split, not applied")
     ]
     assert lines[0].clear == (
-        f"Split it as refine proposed in a comment on #{split}, or edit its body so that it fits "
-        "one pull request."
+        f"Split it as refine proposed in a comment on #{split}, or edit its body to fit one "
+        "pull request."
     )
 
 
@@ -506,7 +506,7 @@ def test_an_alternatives_question_has_one_line_naming_the_tool(
     lines = _lines(_read(store), InboxKind.ALTERNATIVES)
 
     assert [(line.number, line.subject) for line in lines] == [
-        (asked, f"asked tool: a covering tool was put to a person: {tool}")
+        (asked, f"asked tool: refine put a covering tool to a person: {tool}")
     ]
     assert lines[0].clear == (
         f"Answer in a comment on #{asked}. Refine reads the answer in its next round."
