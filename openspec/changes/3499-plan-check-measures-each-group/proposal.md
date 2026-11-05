@@ -6,7 +6,7 @@ The stage comment gives a token figure for each task group of a plan (#3499). Th
 
 ## What Changes
 
-- `plan-check` measures each task group of the plan with `measure_groups`, the function of the stage job, on the tracked files of the pull request head. It reports a `group-over-budget` problem for a group above `roadmap.stage.step_tokens`, and a `group-no-files` problem for a group that packs no file.
+- `plan-check` measures each task group of the plan with `measure_groups`, the function of the stage job, on the tracked files of the pull request head. It reports a `group-over-budget` problem for a group above `roadmap.stage.step_tokens`, and a `group-no-files` problem for a group that changes a file that exists and packs no file. A group that only creates files packs none by nature, and the command accepts it.
 - One function, `shared_texts` in `src/devops_cli/roadmap/stage_change.py`, builds the text that all groups share: the item and the files of the change folder. The stage job and `plan-check` both call it, so their figures stay equal.
 - `MeasuredGroup` gains `files`, the number of files that the step packs for the group, so the stage job and `plan-check` count them in one place.
 - `checkout_at` moves from `src/devops_cli/roadmap/stage_eval_run.py` to `src/devops_cli/roadmap/clone_git.py`, so `plan-check` can read the head commit as a checkout without a dependency on the eval.
@@ -28,7 +28,7 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/roadmap/plan_check.py`, `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/clone_git.py`, `src/devops_cli/roadmap/stage_eval_run.py`, `src/devops_cli/roadmap/stage_verify_eval.py`, `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`
-- Documents: `docs/roadmap/plan-check.md`, `docs/ROADMAP_WORKFLOW.md`, `docs/commands/roadmap.md`, `docs/CLI_REFERENCE.md`
+- Documents: `docs/roadmap/plan-check.md`, `docs/ROADMAP_WORKFLOW.md`, `docs/commands/roadmap.md`, `docs/CLI_REFERENCE.md`, `README.md`
 - Tests: `tests/roadmap/test_roadmap_plan_check.py`, `tests/roadmap/test_roadmap_stage_eval_run.py`, `tests/roadmap/test_roadmap_implement_step_trace.py`, `tests/roadmap/test_roadmap_implement_job_trace.py`
 
 ## Feasibility

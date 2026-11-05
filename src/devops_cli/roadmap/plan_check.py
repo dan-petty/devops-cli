@@ -13,13 +13,14 @@ a message; a person reads one line for each and an agent reads the JSON array.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Protocol
 
 from devops_cli.config.constants import CONST_OPENSPEC_CHANGES_DIR, CONST_OPENSPEC_SPECS_DIR
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
+from devops_cli.config.settings import load_settings
 from devops_cli.dry_run import PlannedRequest
 from devops_cli.exceptions.git import GitOperationError
 from devops_cli.github.check_verdict import (
@@ -30,7 +31,7 @@ from devops_cli.github.check_verdict import (
 from devops_cli.github.client import IssueView, PullRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
-from devops_cli.roadmap.clone_git import git
+from devops_cli.roadmap.clone_git import checkout_at, git
 from devops_cli.roadmap.plan_read import (
     PlanReadError,
     change_root,
@@ -46,6 +47,8 @@ from devops_cli.roadmap.stage_change import (
     StageProposal,
     check_proposal,
     closing_keyword_in,
+    measure_groups,
+    shared_texts,
 )
 from devops_cli.roadmap.stage_paths import StagedTree
 from devops_cli.roadmap.stage_validate import validate_change
@@ -349,6 +352,46 @@ def _gate_problems(
     ]
 
 
+def _size_problems(
+    proposal: StageProposal,
+    root: str,
+    head: str,
+    source: Path,
+    issue: IssueView,
+    paths: Sequence[str],
+) -> list[PlanProblem]:
+    """The groups of the plan that the stage measure faults (#3499). `measure_groups`, the function
+    of the stage job, measures each group on the tracked files of `head`, with the item and the
+    files `paths` of the change folder as the shared text. The files are read from the checkout,
+    not from `git show`, which strips the end of a text, so the figure is the figure of the stage
+    job. A group above the budget `roadmap.stage.step_tokens` is a problem. A group that changes
+    a file that exists, and packs no file, is a problem too: the step starts with none of the
+    files that it changes. A group that only creates files packs none by nature, so it is no
+    problem. The plan holds no estimate of the lines of a created file, so a created file counts
+    one line."""
+    texts = MESSAGES.roadmap
+    budget = load_settings().roadmap.stage.step_tokens
+    with checkout_at(source, head, operation=GIT_OPERATION) as tree:
+        files = {
+            path: (tree / path).read_text(encoding="utf-8", errors="replace") for path in paths
+        }
+        shared = shared_texts(issue.title, issue.body or "", files)
+        measured = measure_groups(tree, proposal.groups, shared=shared)
+    path = f"{root}/tasks.md"
+    problems: list[PlanProblem] = []
+    for number, item in enumerate(measured, start=1):
+        title = item.group.title
+        if item.tokens > budget:
+            message = texts.plan_check_group_over_budget.format(
+                number=number, title=title, tokens=item.tokens, budget=budget
+            )
+            problems.append(PlanProblem(path, "group-over-budget", message))
+        if item.files == 0 and not set(item.group.changes) <= set(item.group.creates):
+            message = texts.plan_check_group_no_files.format(number=number, title=title)
+            problems.append(PlanProblem(path, "group-no-files", message))
+    return problems
+
+
 def _validate_problems(
     tool: OpenSpecTool, source: Path, change: str, files: Mapping[str, str]
 ) -> list[PlanProblem]:
@@ -417,23 +460,12 @@ def plan_check(
             )
         )
 
-    problems.extend(
-        _gate_problems(
-            proposal,
-            root,
-            head,
-            source,
-            base_rev,
-            _issue_body(reads, repo, issue),
-        )
-    )
+    planned = reads.get_issue(repo, issue)
+    problems.extend(_gate_problems(proposal, root, head, source, base_rev, planned.body or ""))
+    problems.extend(_size_problems(proposal, root, head, source, planned, changed))
     problems.extend(_validate_problems(tool, source, root.rsplit("/", 1)[-1], change_files))
     problems.extend(_moved_problems(proposal, source, plan_rev, base_rev))
     return PlanCheckResult(tuple(problems))
-
-
-def _issue_body(client: PlanReads, repo: str, issue: int) -> str:
-    return client.get_issue(repo, issue).body or ""
 
 
 def plan_check_requests(repo: str, number: int) -> tuple[PlannedRequest, ...]:

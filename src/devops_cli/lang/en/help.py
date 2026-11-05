@@ -1470,9 +1470,9 @@ class RoadmapCommandHelp:
         "values a read gives."
     )
     plan_check: str = (
-        "Check a plan pull request: the stage gates without a model, the title, the body, the "
-        "`Semantic PR title` check and a base spec that moved since the plan. Details: "
-        "docs/roadmap/plan-check.md."
+        "Check a plan pull request: the stage gates without a model, the token size of each task "
+        "group, the title, the body, the `Semantic PR title` check and a base spec that moved "
+        "since the plan. Details: docs/roadmap/plan-check.md."
     )
     plan_check_arg: str = "The number of the plan pull request to check."
     plan_check_json: str = (

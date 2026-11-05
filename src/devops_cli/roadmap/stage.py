@@ -150,6 +150,7 @@ from devops_cli.roadmap.stage_change import (
     pull_request_body,
     render_change,
     safe_text,
+    shared_texts,
     staging_title,
     write_change_files,
 )
@@ -1083,7 +1084,7 @@ class _Planner:
     ) -> tuple[dict[str, str], list[MeasuredGroup]]:
         files = render_change(target.change, proposal, self._known, created=self._today)
         item = target.item
-        shared = [f"{item.title}\n{item.body}", *files.values()]
+        shared = shared_texts(item.title, item.body, files)
         measured = measure_groups(self._source, proposal.groups, shared=shared)
         return files, measured
 

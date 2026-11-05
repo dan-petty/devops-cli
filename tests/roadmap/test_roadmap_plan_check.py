@@ -12,21 +12,26 @@ from typing import cast
 
 import pytest
 
+from devops_cli.config import settings
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.github.client import CommitRef, IssueView, PullRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.plan_check import PlanCheckResult, plan_check
 from devops_cli.roadmap.stage_change import (
+    StageGroup,
     StageProposal,
+    measure_groups,
     render_change,
+    shared_texts,
 )
 from tests.support.builders import make_stage_proposal
-from tests.support.roadmap_stage import VALID_REPORT, StageRepo
+from tests.support.roadmap_stage import VALID_REPORT, StageRepo, heavy_group
 
 ISSUE = 1
 PULL = 7
 CHANGE = f"{ISSUE}-keep-the-last-comment"
+ISSUE_TITLE = "An issue"
 CREATED = datetime(2026, 11, 4, tzinfo=UTC).date()
 TITLE = "docs(openspec): plan #1 Stop the job dropping a comment"
 BODY = "Plans #1\n\nThe job keeps every comment it reads.\n\nChange: `openspec/changes/1-keep-the-last-comment/`"
@@ -56,7 +61,7 @@ class _Reads:
         del repo
         return IssueView(
             number=number,
-            title="An issue",
+            title=ISSUE_TITLE,
             state="open",
             body=self.bodies.get(number),
         )
@@ -284,7 +289,9 @@ def test_a_plan_that_the_model_refuses_is_reported_as_a_read_problem(
     assert [(p.path, p.rule) for p in result.problems] == [("tasks.md", "read")]
 
 
-def test_a_group_of_the_kind_other_reads_back(stage_repo: StageRepo) -> None:
+def test_a_group_of_the_kind_other_that_only_creates_a_file_has_no_problem(
+    stage_repo: StageRepo,
+) -> None:
     proposal = make_stage_proposal(
         skip_specs=True,
         specs=[],
@@ -355,3 +362,100 @@ def test_an_openspec_problem_is_reported(stage_repo: StageRepo) -> None:
     result = _run(stage_repo, _facts(stage_repo, sha=sha), tool=_Tool(report))
 
     assert [(p.path, p.rule) for p in result.problems] == [(CHANGE, "openspec")]
+
+
+# ── The size of each group (#3499) ────────────────────────────────────────────
+
+TASKS = f"openspec/changes/{CHANGE}/tasks.md"
+MIN_BUDGET = 1000
+
+
+def _budget(monkeypatch: pytest.MonkeyPatch, tokens: int) -> None:
+    """Set the step budget of the stage job, as the Service sets it with its variable."""
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_STEP_TOKENS", str(tokens))
+    settings.reset_settings_cache()
+
+
+def _counted(group: StageGroup | None = None) -> StageProposal:
+    """The sample plan with one line estimated for the file that it creates. The plan holds no
+    estimate, and the reader gives each created path one line, so the figure of the stage job for
+    such a plan is the figure that the command can reproduce."""
+    held = group or make_stage_proposal().groups[0]
+    return make_stage_proposal(
+        groups=[held.model_copy(update={"creates_lines": {"tests/test_sample.py": 1}})]
+    )
+
+
+def _stage_figure(repo: StageRepo, proposal: StageProposal, files: Mapping[str, str]) -> int:
+    """The tokens that the stage job counts for the only group of `proposal`: it measures the
+    group on its clone, with the item and the files of the change folder as the shared text."""
+    (measured,) = measure_groups(
+        repo.clone, proposal.groups, shared=shared_texts(ISSUE_TITLE, "", files)
+    )
+    return measured.tokens
+
+
+def test_the_figure_of_a_group_is_the_figure_of_the_stage_job(
+    stage_repo: StageRepo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    proposal = _counted(heavy_group(stage_repo, files=1))
+    files = _change(proposal)
+    figure = _stage_figure(stage_repo, proposal, files)
+    sha = _push(stage_repo, files)
+    assert figure - 1 >= MIN_BUDGET
+    _budget(monkeypatch, figure - 1)
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha))
+
+    (problem,) = result.problems
+    assert (problem.path, problem.rule) == (TASKS, "group-over-budget")
+    assert problem.message == MESSAGES.roadmap.plan_check_group_over_budget.format(
+        number=1, title=proposal.groups[0].title, tokens=figure, budget=figure - 1
+    )
+
+
+def test_a_group_at_the_budget_is_not_reported(
+    stage_repo: StageRepo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    proposal = _counted(heavy_group(stage_repo, files=1))
+    files = _change(proposal)
+    figure = _stage_figure(stage_repo, proposal, files)
+    sha = _push(stage_repo, files)
+    _budget(monkeypatch, figure)
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha))
+
+    assert result.problems == ()
+
+
+def test_a_group_with_large_files_is_reported_over_the_budget(
+    stage_repo: StageRepo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    proposal = _counted(heavy_group(stage_repo, files=2))
+    sha = _push(stage_repo, _change(proposal))
+    _budget(monkeypatch, MIN_BUDGET)
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha))
+
+    (problem,) = result.problems
+    assert problem.rule == "group-over-budget"
+    assert f"{MIN_BUDGET} tokens" in problem.message
+
+
+def test_a_group_that_packs_no_file_is_reported(stage_repo: StageRepo) -> None:
+    group = make_stage_proposal().groups[0]
+    unnamed = group.model_copy(
+        update={
+            "test": "Write the test of the last comment",
+            "implementation": "Keep the last comment",
+        }
+    )
+    sha = _push(stage_repo, _change(make_stage_proposal(groups=[unnamed])))
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha))
+
+    (problem,) = result.problems
+    assert (problem.path, problem.rule) == (TASKS, "group-no-files")
+    assert problem.message == MESSAGES.roadmap.plan_check_group_no_files.format(
+        number=1, title=group.title
+    )

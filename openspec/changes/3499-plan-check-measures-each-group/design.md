@@ -9,6 +9,7 @@
 - **Add `files` to `MeasuredGroup`.**: The measure already finds the files that the step packs. A second call of `named_files` in `plan_check.py` would repeat that work and could differ from it.
 - **Read the budget with `load_settings().roadmap.stage.step_tokens`, and add no option.**: The issue names this setting. A person who needs another budget sets `DEVOPS_CLI_ROADMAP_STAGE_STEP_TOKENS`.
 - **Report each finding as a problem with the rules `group-over-budget` and `group-no-files`, on the path `tasks.md` of the change folder.**: A problem has a path, a rule and a message, and the output and the exit code already follow from that.
+- **Report `group-no-files` only for a group that changes a file that exists.**: A group whose `changes` are all in `creates` has no file to pack, and the plan is right. The sample plan of `tests/roadmap/test_roadmap_plan_check.py` has such a group, and a valid plan prints no problem.
 - **Keep the one-line estimate of a created file.**: `tasks.md` holds no estimate, and the plan reader gives each created path one line. The figure of `plan-check` is then a lower bound for a group that creates files, and equal to the stage figure for any other group.
 - **Record the size of the first request in `implement.spend`, under `steps`, from the `usage` of the first reply of the step.**: The reply reports the input tokens of the request that it answers, so the first reply gives the size of the first request. `implement.spend` is written apart from `implement.trace`, so the trace limit does not touch it.
 - **Take the first request of the first turn of the first tier only.**: A later turn or tier continues a conversation, and its first request is not the first request of the step.
@@ -17,6 +18,7 @@
 
 - **Measure on the working tree of the checkout that runs `plan-check`.**: The working tree is at any commit and can hold edits, so two runs on one pull request can give two figures. The test of equality with the stage job would then depend on the state of the checkout.
 - **Check out only the named files and the routed documents.**: `rules_sections` reads the routes from `AGENTS.md` and the documents that they name. A second list of paths to extract can differ from what the step reads, and the full checkout of this repository takes about 1 second.
+- **Report every group that packs no file.**: The run over the change folders of `origin/main` found 8 such groups, and 2 of them only create files. A plan with such a group is valid, and the report would give it a false problem.
 - **Add the estimate of created lines to `tasks.md`.**: This changes the `Changes:` line that the renderer, the reader, the path gates and the implement step all read, and plans on the default branch hold the old form. The issue does not name it. The limit is stated in the documents instead.
 - **Add a `--step-tokens` option to `plan-check`.**: The issue asks for the setting of the stage job, and the variable already overrides it.
 - **Put the first request in a `model` event of the trace only.**: `encode` drops the oldest events first, so a long run loses the first event. The record #2636 held 77 events and dropped 154.
