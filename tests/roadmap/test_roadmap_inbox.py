@@ -411,3 +411,51 @@ def test_the_inbox_says_nothing_of_the_planned_limit_under_it(store: InMemoryRoa
     _item(store, fields={ItemField.STATUS: "Ready"})
 
     assert _lines(_read(store, planned_limit=2), InboxKind.QUEUE) == []
+
+
+def test_an_unapplied_split_has_one_line_with_its_step(store: InMemoryRoadmapStore) -> None:
+    split = _item(
+        store,
+        "big",
+        fields={ItemField.STATUS: "New"},
+        marks={RefineRecordKey.NEXT_STEP: "split"},
+        updated_at=_ago(days=2),
+    )
+
+    lines = _lines(_read(store), InboxKind.SPLIT)
+
+    assert [(line.number, line.subject) for line in lines] == [
+        (split, "big: refine proposed a split, not applied")
+    ]
+    assert lines[0].clear == (
+        f"Split it as refine proposed in a comment on #{split}, or edit its body so that it fits "
+        "one pull request."
+    )
+
+
+def test_an_alternatives_question_has_one_line_naming_the_tool(
+    store: InMemoryRoadmapStore,
+) -> None:
+    tool = "https://example.com/covering-tool"
+    asked = _item(
+        store,
+        "asked tool",
+        fields={ItemField.STATUS: "New"},
+        marks={RefineRecordKey.ALTERNATIVES_ASKED: tool},
+        updated_at=_ago(days=4),
+    )
+
+    lines = _lines(_read(store), InboxKind.ALTERNATIVES)
+
+    assert [(line.number, line.subject) for line in lines] == [
+        (asked, f"asked tool: a covering tool was put to a person: {tool}")
+    ]
+    assert lines[0].clear == (
+        f"Answer in a comment on #{asked}. Refine reads the answer in its next round."
+    )
+
+
+def test_the_split_and_alternatives_classes_follow_the_refine_class() -> None:
+    kinds = list(InboxKind)
+    refine = kinds.index(InboxKind.REFINE)
+    assert kinds[refine + 1 : refine + 3] == [InboxKind.SPLIT, InboxKind.ALTERNATIVES]

@@ -11,8 +11,8 @@ Kind: behavior. Reads: `src/devops_cli/commands/roadmap.py` (lines 73, 87 to 93,
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/inbox.py` (lines 63 to 75, 184 to 215), `src/devops_cli/roadmap/refine.py` (lines 263 to 277, 1196), `src/devops_cli/roadmap/store.py` (lines 134 to 160). Changes: `src/devops_cli/roadmap/inbox.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_inbox.py`.
 
-- [ ] 2.1 Write the failing tests first. In `tests/roadmap/test_roadmap_inbox.py`, add `test_an_unapplied_split_has_one_line_with_its_step` and `test_an_alternatives_question_has_one_line_naming_the_tool`, and extend the order test with the new classes. Verification: `uv run devops ci test tests/roadmap/test_roadmap_inbox.py` fails on the base, because the inbox has no line for either wait.
-- [ ] 2.2 In `src/devops_cli/roadmap/inbox.py`, add `InboxKind.SPLIT` and `InboxKind.ALTERNATIVES` after `REFINE`, with `_split_lines` and `_alternatives_lines` that `read_inbox` adds. Add the headings, subjects and clearing steps to `src/devops_cli/lang/en/messages.py`. Verification: `uv run devops ci test tests/roadmap/test_roadmap_inbox.py` passes.
+- [x] 2.1 Write the failing tests first. In `tests/roadmap/test_roadmap_inbox.py`, add `test_an_unapplied_split_has_one_line_with_its_step` and `test_an_alternatives_question_has_one_line_naming_the_tool`, and extend the order test with the new classes. Verification: `uv run devops ci test tests/roadmap/test_roadmap_inbox.py` fails on the base, because the inbox has no line for either wait.
+- [x] 2.2 In `src/devops_cli/roadmap/inbox.py`, add `InboxKind.SPLIT` and `InboxKind.ALTERNATIVES` after `REFINE`, with `_split_lines` and `_alternatives_lines` that `read_inbox` adds. Add the headings, subjects and clearing steps to `src/devops_cli/lang/en/messages.py`. Verification: `uv run devops ci test tests/roadmap/test_roadmap_inbox.py` passes.
 
 ## 3. List a draft of a job that is old or whose checks failed
 

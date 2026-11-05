@@ -3556,6 +3556,8 @@ class RoadmapMessages:
             "release": "The release pull request (G3)",
             "blocked": "Items in status/blocked",
             "refine": "New items that wait on a person in refine",
+            "split": "New items with a split that no person has applied",
+            "alternatives": "New items with a covering tool that refine put to a person",
             "claim": "Claims with no activity for {days} days",
             "labels": "Repository state that a person owns",
             "queue": "The stage job waits for deliveries",
@@ -3575,6 +3577,8 @@ class RoadmapMessages:
             "no_cause": "{title}: no cause is recorded",
             "refine": "{title}: refine waits on a person",
             "refine_returned": "{title}: the stage job returned it twice on the same body",
+            "split": "{title}: refine proposed a split, not applied",
+            "alternatives": "{title}: a covering tool was put to a person: {tool}",
             "claim": "{title} (claimed by {owner})",
             "labels": "{count} label(s) of {path} are missing or changed on GitHub: {names}",
             "more_labels": "{names}, and {more} more",
@@ -3593,6 +3597,13 @@ class RoadmapMessages:
             "person_draft": (
                 "Wait for the checks with `devops pr monitor {number} --repo {repo}`, "
                 "then run `devops pr ready {number} --repo {repo}`."
+            ),
+            "split": (
+                "Split it as refine proposed in a comment on #{number}, or edit its body so "
+                "that it fits one pull request."
+            ),
+            "alternatives": (
+                "Answer in a comment on #{number}. Refine reads the answer in its next round."
             ),
             "stopped": "Fix the cause, then comment `{retry}` on #{number}.",
             "blocked": (

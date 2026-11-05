@@ -68,6 +68,8 @@ class InboxKind(StrEnum):
     RELEASE = "release"
     BLOCKED = "blocked"
     REFINE = "refine"
+    SPLIT = "split"
+    ALTERNATIVES = "alternatives"
     CLAIM = "claim"
     LABELS = "labels"
     QUEUE = "queue"
@@ -215,6 +217,47 @@ def _refine_lines(items: Iterable[Item], repo: str, now: datetime) -> list[Inbox
     return lines
 
 
+def _open_new(item: Item) -> bool:
+    return item.state is GitHubState.OPEN and item.status == CONST_ROADMAP_STATUS_NEW
+
+
+def _split_lines(items: Iterable[Item], now: datetime) -> list[InboxLine]:
+    """One line for each open New item whose refine next step is a split, which no person has
+    applied yet (#3494)."""
+    texts = MESSAGES.roadmap
+    return [
+        InboxLine(
+            InboxKind.SPLIT,
+            item.number,
+            _age(now, item.updated_at),
+            texts.inbox_subjects["split"].format(title=item.title),
+            texts.inbox_clears["split"].format(number=item.number),
+        )
+        for item in items
+        if _open_new(item)
+        and item.job_record.get(RefineRecordKey.NEXT_STEP) == NextStep.SPLIT.value
+    ]
+
+
+def _alternatives_lines(items: Iterable[Item], now: datetime) -> list[InboxLine]:
+    """One line for each open New item whose refine round put a covering tool to a person
+    (#3494). The line names the tool that the round recorded."""
+    texts = MESSAGES.roadmap
+    lines: list[InboxLine] = []
+    for item in items:
+        tool = item.job_record.get(RefineRecordKey.ALTERNATIVES_ASKED)
+        if not _open_new(item) or not tool:
+            continue
+        subject = texts.inbox_subjects["alternatives"].format(title=item.title, tool=tool)
+        clear = texts.inbox_clears["alternatives"].format(number=item.number)
+        lines.append(
+            InboxLine(
+                InboxKind.ALTERNATIVES, item.number, _age(now, item.updated_at), subject, clear
+            )
+        )
+    return lines
+
+
 def _activity(item: Item, pulls: Sequence[OpenPull]) -> datetime | None:
     """The newest update of the issue of `item` and of each open pull request on a branch that
     names the issue."""
@@ -295,6 +338,8 @@ def read_inbox(store: RoadmapStore, *, repo: str, now: datetime, planned_limit: 
         *_pull_lines(pulls, _named_pulls(items), repo, now),
         *_blocked_lines(items, repo, now),
         *_refine_lines(items, repo, now),
+        *_split_lines(items, now),
+        *_alternatives_lines(items, now),
         *_claim_lines(items, pulls, repo, now),
         *_label_lines(store, repo, now),
         *_queue_lines(items, repo, planned_limit),
