@@ -806,6 +806,26 @@ def test_a_plan_with_a_source_change_keeps_the_tuicr_bullet() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("documentation", "task"),
+    [
+        ("SECURITY.md", "Edit `SECURITY.md`"),
+        ("`docs/ROADMAP_WORKFLOW.md`", "Edit `docs/ROADMAP_WORKFLOW.md`"),
+        (
+            "`docs/TESTING.md` and `docs/SDLC.md`",
+            "Edit `docs/TESTING.md` and `docs/SDLC.md`",
+        ),
+        ("Document the fix in `docs/TESTING.md`", "Document the fix in `docs/TESTING.md`"),
+    ],
+)
+def test_a_documentation_text_that_starts_with_a_path_gets_the_edit_verb(
+    documentation: str, task: str
+) -> None:
+    tasks = _tasks_of(_group(documentation=documentation))
+
+    assert f"- [ ] 1.3 {task}\n  - Verification: `uv run devops ci docs` passes" in tasks
+
+
 def test_a_rendered_group_has_no_double_stop_and_no_task_that_starts_with_a_comma() -> None:
     group = _group(
         test="Write the test.",

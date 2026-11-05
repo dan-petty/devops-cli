@@ -3437,6 +3437,8 @@ class RoadmapMessages:
     # The step that regenerates the documents. A group that changes a command, an option or a
     # message ends its documents task with it. The plan reader splits the task at this text.
     stage_task_regenerate: str = ", and run `{command}`"
+    # A documentation text that starts with a path gets the verb Edit, and the path in a code span.
+    stage_document_path: str = "Edit `{path}`{rest}"
     stage_kind_no_test: str = (
         "The group '{title}' has the kind behavior, and it has no test. "
         "Give it the failing test to write first."

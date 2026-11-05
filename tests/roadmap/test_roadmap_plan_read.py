@@ -80,6 +80,25 @@ def test_the_reader_reads_a_process_group_and_a_documented_group() -> None:
     assert read.groups == [_same_group(group) for group in original.groups]
 
 
+def test_a_documents_task_without_the_regeneration_step_reads_back_with_its_verb() -> None:
+    original = make_stage_proposal(
+        groups=[
+            {
+                "title": "Name the disclosure contact",
+                "kind": "other",
+                "changes": ["SECURITY.md"],
+                "implementation": "Name the disclosure contact in `SECURITY.md`",
+                "documentation": "SECURITY.md",
+                "verify": "uv run devops ci docs",
+            }
+        ]
+    )
+
+    read = read_change(_files(original, known=set()))
+
+    assert [group.documentation for group in read.groups] == ["Edit `SECURITY.md`"]
+
+
 def test_the_reader_reads_each_kind_of_criterion() -> None:
     original = make_stage_proposal(
         criteria=[
