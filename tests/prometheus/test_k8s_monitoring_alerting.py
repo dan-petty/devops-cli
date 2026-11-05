@@ -927,12 +927,7 @@ ROADMAP_SERVICE_ACTIVITY_RULES = [
     ),
     (
         "RoadmapServiceSelfDeliveriesHigh",
-        "sum( "
-        + _window_count(
-            'devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="self"}',
-            "1h",
-        )
-        + " ) > 150",
+        'sum(increase(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="self"}[1h])) > 150',
         "0m",
         "warning",
     ),
@@ -1007,7 +1002,7 @@ def test_the_webhook_rule_warns_on_more_than_20_rejected_deliveries_in_15_minute
     ] == [
         (
             "RoadmapServiceWebhooksRejected",
-            "sum( " + _window_count(rejected, "15m") + " ) > 20",
+            f"sum(increase({rejected}[15m])) > 20",
             "0m",
             "warning",
         )
@@ -1261,7 +1256,11 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
         yaml.safe_dump({"groups": [g for g in groups if g["name"] == group]}),
         encoding="utf-8",
     )
-    tested = {case["alertname"] for test in unit_tests["tests"] for case in test["alert_rule_test"]}
+    tested = {
+        case["alertname"]
+        for test in unit_tests["tests"]
+        for case in test.get("alert_rule_test", [])
+    }
     copy = tmp_path / rule_tests.name
     copy.write_text(rule_tests.read_text(encoding="utf-8"), encoding="utf-8")
     result = _promtool("test", "rules", copy)

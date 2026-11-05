@@ -667,14 +667,14 @@ serverFiles:
       # names the job after OTEL_SERVICE_NAME. Each selector names the job, so the same series of
       # a workstation (job="devops-cli"), or of the server's kubernetes-pods job, which scraped the
       # pod before #1130, never counts.
-      # kube-state-metrics gives the restarts and the replicas. On both paths a series starts at
-      # its first count, with no zero sample before it, and increase() does not count that first
-      # value. The OTLP series also get a sample only when the Service sends a new observation, and
-      # the collector starts a stream again from zero after an hour with none (max_stale).
-      # So each count of the last hour reads a series with no sample in the hour before as new,
-      # and gives its last value, which is all of its count. Every other series gives its
-      # increase(). Neither part reads one sample near the start of the hour, so a sparse series
-      # from before the hour adds none of its earlier count (#2505).
+      # kube-state-metrics gives the restarts and the replicas. The Service starts its /metrics
+      # counters at zero (#3495), so their series need no zero sample here. The OTLP series get a
+      # sample only when the Service sends a new observation, and the collector starts a stream
+      # again from zero after an hour with none (max_stale). So each count of the last hour reads
+      # a series with no sample in the hour before as new, and gives its last value, which is all
+      # of its count. Each other series gives its increase(). Neither part reads one sample near
+      # the start of the hour, so a sparse series from before the hour adds none of its earlier
+      # count (#2505).
       - name: roadmap-service
         rules:
           # A refusal stops every round, also after a restart, until a person removes the halt
@@ -778,21 +778,13 @@ serverFiles:
       # The route counts each delivery that it refuses under outcome="rejected": unsigned, signed
       # with no secret of a managed repository, too large, not JSON, or without its event name or
       # delivery ID. A forged delivery counts under the event that it names, or under "other", so a
-      # flood can start a new label set. A new label set has no zero sample, so the count of the 15
-      # minutes reads a series with no sample in the 15 minutes before as new, and gives its last
-      # value (#2505). Each other series gives its increase(). The Service serves this counter only
-      # on its /metrics, not through OTLP, and the scrape reads it each minute. So a label set that
-      # counted before has a sample in each minute while its pod runs, and only a new label set, or
-      # the label set of a new pod, has no sample in the 15 minutes before.
+      # flood can start a new label set. The Service starts each label set at zero (#3495), so
+      # increase() counts each delivery of a label set from its start, and the rule needs no
+      # workaround term. The Service serves this counter only on its /metrics, not through OTLP.
       - name: roadmap-service-webhooks
         rules:
           - alert: RoadmapServiceWebhooksRejected
-            expr: >-
-              sum(
-              (last_over_time(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="rejected"}[15m])
-              unless last_over_time(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="rejected"}[15m] offset 15m))
-              or increase(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="rejected"}[15m])
-              ) > 20
+            expr: sum(increase(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="rejected"}[15m])) > 20
             for: 0m
             labels:
               severity: warning
@@ -827,12 +819,7 @@ serverFiles:
           # can come back as one delivery, so many of them can be another bot or workflow that
           # answers each write of the Service.
           - alert: RoadmapServiceSelfDeliveriesHigh
-            expr: >-
-              sum(
-              (last_over_time(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="self"}[1h])
-              unless last_over_time(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="self"}[1h] offset 1h))
-              or increase(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="self"}[1h])
-              ) > 150
+            expr: sum(increase(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="self"}[1h])) > 150
             for: 0m
             labels:
               severity: warning

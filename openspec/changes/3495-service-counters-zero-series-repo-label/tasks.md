@@ -35,11 +35,11 @@ Reads: `src/devops_cli/server/routes/webhooks.py`, `src/devops_cli/server/counte
 
 Reads: `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`, `tests/fixtures/prometheus_rules/roadmap_service_webhooks_tests.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `k8s/monitoring/prometheus-values.yaml`. Changes: `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`, `tests/fixtures/prometheus_rules/roadmap_service_webhooks_tests.yaml`, `k8s/monitoring/prometheus-values.yaml`.
 
-- [ ] 4.1 Add a promtool case `pod_change_gives_true_total` to `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`. Its series of the failure counter start at 0 in each pod, and the case asserts the sum of `increase()` over a pod change
+- [x] 4.1 Add a promtool case `pod_change_gives_true_total` to `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`. Its series of the failure counter start at 0 in each pod, and the case asserts the sum of `increase()` over a pod change
   - Verification: `promtool test rules tests/fixtures/prometheus_rules/roadmap_service_tests.yaml` passes
-- [ ] 4.2 Add a promtool case to `tests/fixtures/prometheus_rules/roadmap_service_webhooks_tests.yaml` that fires `RoadmapServiceWebhooksRejected` on a rejected series that starts at 0
+- [x] 4.2 Add a promtool case to `tests/fixtures/prometheus_rules/roadmap_service_webhooks_tests.yaml` that fires `RoadmapServiceWebhooksRejected` on a rejected series that starts at 0
   - Verification: `promtool test rules tests/fixtures/prometheus_rules/roadmap_service_webhooks_tests.yaml` passes
-- [ ] 4.3 Remove the #2505 workaround terms of `RoadmapServiceWebhooksRejected` and `RoadmapServiceSelfDeliveriesHigh` from `k8s/monitoring/prometheus-values.yaml`, and replace the stale comment at lines 670-673 with the scrape behavior. Keep the OTLP terms
+- [x] 4.3 Remove the #2505 workaround terms of `RoadmapServiceWebhooksRejected` and `RoadmapServiceSelfDeliveriesHigh` from `k8s/monitoring/prometheus-values.yaml`, and replace the stale comment at lines 670-673 with the scrape behavior. Keep the OTLP terms
   - Verification: `uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` passes and `promtool test rules tests/fixtures/prometheus_rules/roadmap_service_webhooks_tests.yaml` passes
 
 ## 5. The documents state the scrape behavior and the labels
