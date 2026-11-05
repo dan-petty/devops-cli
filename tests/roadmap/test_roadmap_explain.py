@@ -142,6 +142,19 @@ def test_a_medium_effort_item_waits_for_the_low_effort_item_that_the_run_takes(
     )
 
 
+def test_the_fallback_does_not_apply_to_a_medium_effort_item_when_no_pass_takes_an_item(
+    job_world: JobWorld,
+) -> None:
+    job_world.store.add_label(job_world.number, "owner/agent")
+    medium = _seed(job_world, labels=("type/bug", "effort/medium"))
+
+    explained = _explain(job_world, medium)
+
+    assert explained.implement_effort == TEXTS.explain_effort_line.format(
+        efforts="low,medium", state=TEXTS.explain_effort_not_applies
+    )
+
+
 def test_the_effort_line_says_the_set_does_not_apply_when_the_filter_names_effort(
     job_world: JobWorld,
 ) -> None:

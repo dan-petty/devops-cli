@@ -127,13 +127,14 @@ def _implement_effort_line(
     plan: ImplementPlan | None, item: Item, efforts: Sequence[str], filters: StageFilter
 ) -> str:
     """The line that names the effort set of the implement job and whether the fallback pass
-    applies to the item (#3385). The fallback applies when the item has a later effort of the set
-    and the run has no earlier effort in use: the fallback pass judges the item."""
+    applies to the item (#3385). The fallback applies when the pass in use takes the effort of the
+    item and that pass is a later value of the set. When no pass takes an item, no pass is in use,
+    so the fallback does not apply."""
     texts = MESSAGES.roadmap
     if "effort" in filters.families:
         return texts.explain_effort_explicit
     own = next((value for value in efforts if f"effort/{value}" in item.labels), "")
-    applies = plan is not None and bool(own) and own != efforts[0] and plan.effort in ("", own)
+    applies = plan is not None and bool(own) and own != efforts[0] and plan.effort == own
     return texts.explain_effort_line.format(
         efforts=",".join(efforts),
         state=texts.explain_effort_applies if applies else texts.explain_effort_not_applies,
