@@ -96,6 +96,22 @@ def test_a_closed_item_loses_a_branch_that_only_the_app_wrote_to(
     assert _record(store) == {}
 
 
+def test_a_closed_item_loses_a_branch_whose_other_commit_is_a_clean_merge_by_a_person(
+    stage_repo: StageRepo, closed_pull: GitHubApiFake
+) -> None:
+    stage_repo.push_branch(BRANCH, author=STAGE_NAME)
+    stage_repo.push_merge(BRANCH, author="Person")
+    store = _staged_item()
+
+    plan = _plan(store, stage_repo)
+    applied = apply_stage(store, plan, source=stage_repo.clone)
+
+    assert [(r.number, r.branch, r.pull) for r in plan.removals] == [(1, BRANCH, 7)]
+    assert applied.removed == (1,)
+    assert _branches(stage_repo) == ["main"]
+    assert closed_pull.requested == [CLOSE]
+
+
 def test_a_closed_item_keeps_a_branch_that_holds_a_commit_of_another_author(
     stage_repo: StageRepo, closed_pull: GitHubApiFake
 ) -> None:

@@ -8,8 +8,9 @@ GitHub request: a pull request of this repository always has a pushed head branc
 list of the pull requests that close an issue also names the open release pull request.
 
 A pushed branch is not a hold when the App wrote every commit of it past `origin/main`: the author
-of each commit, read with `git log --format=%an`, is the bot login of `service.github_app.slug`.
-The run then adds the worktree on that branch.
+of each commit, read with `git log`, is the bot login of `service.github_app.slug`. A clean merge
+by a person is not a commit that the App lacks (#3392), as `branch_authors.py` decides. The run then
+adds the worktree on that branch.
 
 A local branch of the name that the run is about to create, with no worktree, is a stray branch
 (#2724). The run deletes it when `origin` holds every commit of it, and refuses to go on, with the
@@ -40,6 +41,7 @@ from devops_cli.core.repo import get_repo_origin_name, resolve_data_path
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitOperationError
+from devops_cli.git.branch_authors import LOG_FORMAT, person_authors
 from devops_cli.git.branch_form import BranchParts, branch_name, issue_of_branch, parse_branch
 from devops_cli.git.worktree_inventory import (
     CONST_REFS_HEADS_PREFIX,
@@ -183,7 +185,7 @@ def _commands(repo_root: Path, branch: str, directory: Path) -> list[list[str]]:
     return [
         [*git, "ls-remote", "--heads", CONST_GIT_REMOTE_ORIGIN],
         [*git, "fetch", CONST_GIT_REMOTE_ORIGIN, CONST_GIT_MAIN_BRANCH],
-        [*git, "log", "--format=%an", f"{_main_ref()}..{CONST_GIT_REMOTE_ORIGIN}/{branch}"],
+        [*git, "log", LOG_FORMAT, f"{_main_ref()}..{CONST_GIT_REMOTE_ORIGIN}/{branch}"],
         [*git, "worktree", "add", "--no-track", "-b", branch, str(directory), _main_ref()],
     ]
 
@@ -322,7 +324,8 @@ def _take_over(
     reclaim: ReclaimResult,
     remote_heads: str,
 ) -> WorktreeAddReport:
-    """Add the worktree on the pushed branch when the App wrote every commit past main.
+    """Add the worktree on the pushed branch when the App wrote every commit past main, apart from
+    a clean merge by a person.
 
     The fetch names the branch, so `origin/<branch>` exists whatever the fetch refspec of the
     clone. The worktree tracks the pushed branch, so a plain `git push` goes to it.
@@ -338,7 +341,8 @@ def _take_over(
             f"+{CONST_REFS_HEADS_PREFIX}{branch}:refs/remotes/{remote_branch}",
         ]
     )
-    authors = _run([*git, "log", "--format=%an", f"{_main_ref()}..{remote_branch}"]).splitlines()
+    log = _run([*git, "log", LOG_FORMAT, f"{_main_ref()}..{remote_branch}"])
+    authors = person_authors(_git(repo_root), log)
     _check_authors(issue, branch, authors)
     _clear_stray_branch(repo_root, branch, remote_heads)
     _run([*git, "worktree", "add", "--track", "-b", branch, str(directory), remote_branch])
@@ -396,13 +400,13 @@ def add_worktree(
 
     With no branch of `origin` for the issue, the worktree is on the new branch
     `<type>/<issue>-<slug>` at the fetched `origin/main`, and `type_` and `slug` are required.
-    With a pushed branch, the App must have written every commit of it past main: the run takes
-    the branch over (`took over`), takes `type_` and `slug` from it, and refuses a value that
-    differs. The run refuses an issue that a local worktree holds before it reads `origin`, and
-    one that a branch of `origin` holds before it adds the worktree, so a refused run leaves no
-    worktree and no local branch. A dry run reads the local worktrees only and lists the four
-    commands. `reclaim` is the result of `reclaim_merged_worktrees`, which the caller ran first;
-    it goes into the report.
+    With a pushed branch, the App must have written every commit of it past main, apart from a
+    clean merge by a person (#3392). The run takes the branch over (`took over`), takes `type_` and
+    `slug` from it, and refuses a value that differs. The run refuses an issue that a local
+    worktree holds before it reads `origin`, and one that a branch of `origin` holds before it adds
+    the worktree, so a refused run leaves no worktree and no local branch. A dry run reads the
+    local worktrees only and lists the four commands. `reclaim` is the result of
+    `reclaim_merged_worktrees`, which the caller ran first; it goes into the report.
     """
     reclaim = reclaim or ReclaimResult()
     directory = worktree_directory(issue, repo_root)

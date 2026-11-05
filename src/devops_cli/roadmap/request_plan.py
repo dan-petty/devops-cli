@@ -30,6 +30,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_FIRECRAWL_SEARCH_URL, DEFAULT_PYPI_PACKAGE_URL
 from devops_cli.dry_run.requests import PlannedRequest, both, render_request_plan
+from devops_cli.git.branch_authors import LOG_FORMAT
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import github_store as gh
 from devops_cli.roadmap.store import CloseReason
@@ -716,7 +717,7 @@ def implement_requests(
             "authors",
             clone,
             "log",
-            "--format=%an",
+            LOG_FORMAT,
             f"origin/main..origin/{branch}",
             when=cond["staged"],
         ),

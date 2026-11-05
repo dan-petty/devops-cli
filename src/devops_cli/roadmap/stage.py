@@ -1104,7 +1104,7 @@ def _pull_of(item: Item) -> int | None:
 
 def _foreign_commits(source: Path, branch: str) -> int:
     """How many commits `origin/<branch>` holds past the default branch whose author is not the
-    identity the clone commits as."""
+    identity the clone commits as. A clean merge by a person is not counted (#3392)."""
     own = _git(source, "config", "user.name")
     authors = branch_authors(source, branch, operation=_GIT_OPERATION)
     return sum(1 for author in authors if author != own)
@@ -1114,7 +1114,8 @@ def _reconcile(
     store: RoadmapStore, source: Path, remote_heads: str
 ) -> tuple[tuple[Removal, ...], tuple[KeptBranch, ...]]:
     """Judge the staged branch of each closed item whose record holds one: removed when the
-    branch is gone or every commit past the default branch is the clone identity's, else kept."""
+    branch is gone or every commit past the default branch is the clone identity's or a clean
+    merge by a person, else kept."""
     pushed = set(remote_branches(remote_heads))
     removals: list[Removal] = []
     kept: list[KeptBranch] = []

@@ -25,10 +25,10 @@ round reported: that Job plans its own item), an agent or a person claimed it (#
 neither Staged nor Planned, a step stopped it
 and no person cleared the stop,
 its author is not the owner, a member or a collaborator, its branch is gone from `origin` or holds
-a commit by anyone but the App, a worktree holds the issue, its pull request is not an open
-draft, or, for a Planned item, a branch of `origin` holds the issue, its change is archived, it
-has no branch name, its change has no `tasks.md` on the default branch, or every task of its
-change is ticked. A run takes at most `--limit` items,
+a commit by anyone but the App (a clean merge by a person does not count, #3392), a worktree holds
+the issue, its pull request is not an open draft, or, for a Planned item, a branch of `origin`
+holds the issue, its change is archived, it has no branch name, its change has no `tasks.md` on
+the default branch, or every task of its change is ticked. A run takes at most `--limit` items,
 the highest priority first. `--item` takes the one item it names and does not apply the filter or
 the limit.
 

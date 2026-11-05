@@ -272,6 +272,46 @@ def test_a_branch_with_a_commit_by_another_author_is_left_out_and_names_the_auth
     }
 
 
+def test_a_clean_merge_of_the_default_branch_by_a_person_leaves_the_branch_taken(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    push_staged_branch(stage_repo)
+    stage_repo.push_merge(BRANCH, author="Casey Person")
+    number = seed_staged(store)
+
+    plan = _plan(store, stage_repo)
+
+    assert (_reasons(plan), [target.item.number for target in plan.selected]) == ({}, [number])
+
+
+def test_a_person_merge_that_changes_a_file_leaves_the_branch_out_and_names_the_author(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    push_staged_branch(stage_repo)
+    stage_repo.push_merge(BRANCH, author="Casey Person", by_hand="hand-edit.txt")
+    number = seed_staged(store)
+
+    plan = _plan(store, stage_repo)
+
+    assert _reasons(plan) == {
+        number: "Its branch has a commit by Casey Person, not by devops-roadmap[bot]."
+    }
+
+
+def test_a_person_merge_that_resolves_a_conflict_leaves_the_branch_out_and_names_the_author(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    push_staged_branch(stage_repo)
+    stage_repo.push_conflict_merge(BRANCH, author="Casey Person")
+    number = seed_staged(store)
+
+    plan = _plan(store, stage_repo)
+
+    assert _reasons(plan) == {
+        number: "Its branch has a commit by Casey Person, not by devops-roadmap[bot]."
+    }
+
+
 @pytest.mark.parametrize(
     "status",
     [
