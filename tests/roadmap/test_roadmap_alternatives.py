@@ -19,10 +19,12 @@ from pydantic_ai.messages import ModelMessage, RetryPromptPart, ToolReturnPart, 
 from typer.testing import CliRunner
 
 from devops_cli.ai.client.models import AICredentialsError
+from devops_cli.ai.context_budget import count_tokens
 from devops_cli.commands.roadmap import app as roadmap_app
 from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+    CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS,
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
@@ -110,7 +112,7 @@ def _item(
     store: InMemoryRoadmapStore,
     title: str = "Scan a directory",
     *,
-    body: str = "The job needs a scanner for a directory.",
+    body: str = "The job needs to read every file of a directory.",
     status: str = "New",
     association: str = "COLLABORATOR",
 ) -> int:
@@ -724,7 +726,7 @@ def test_a_pypi_package_that_does_not_exist_or_fails_to_read_is_answered_as_text
 def test_the_request_holds_the_item_the_replies_and_the_budget(
     store: InMemoryRoadmapStore, web_key: None
 ) -> None:
-    body = "The job needs a scanner."
+    body = "The job needs to read a directory."
     block = (
         f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nOld verdict.\n"
         f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
@@ -791,6 +793,106 @@ def test_the_request_holds_no_comment_of_an_account_that_the_jobs_do_not_trust(
     ]
 
 
+# ── The ADRs ──────────────────────────────────────────────────────────────────
+
+
+def _adr(store: InMemoryRoadmapStore, number: int, title: str, options: str) -> None:
+    """Commit the ADR `number` with `title` and the `options` of its `Considered Options`."""
+    store.seed_file(
+        f"docs/adr/{number:04d}-decision.md",
+        f"# {title}\n\nThe text.\n\n## Considered Options\n\n{options}\n\n## Consequences\n\n- None.\n",
+    )
+
+
+def test_the_request_holds_the_titles_and_options_of_the_adrs_newest_first(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    _adr(store, 7, "First decision", "- **Alpha**: chosen.")
+    _adr(store, 8, "Second decision", "- **Beta**: rejected.")
+    store.seed_file("docs/adr/README.md", "# Decisions\n")
+    _item(store)
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+
+    _plan(store, script)
+
+    assert _prompt_of(script.seen[0])["decisions"] == "\n\n".join(
+        [
+            "ADR 0008: Second decision\n## Considered Options\n\n- **Beta**: rejected.",
+            "ADR 0007: First decision\n## Considered Options\n\n- **Alpha**: chosen.",
+        ]
+    )
+
+
+def test_the_decisions_are_cut_to_the_cap_and_the_oldest_adr_goes_first(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    long_options = "\n".join(f"- **Tool {n}**: rejected, for a reason." for n in range(3000))
+    _adr(store, 8, "Older decision", long_options)
+    _adr(store, 9, "Newest decision", long_options)
+    _item(store)
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+
+    _plan(store, script)
+
+    decisions = _prompt_of(script.seen[0])["decisions"]
+    assert (
+        count_tokens(decisions) <= CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS,
+        decisions.startswith("ADR 0009: Newest decision\n"),
+        "ADR 0008" in decisions,
+        "[truncated" in decisions,
+    ) == (True, True, False, True)
+
+
+def test_a_repository_with_no_adr_directory_sends_no_decisions(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    store.seed_file("README.md", "# Project\n")
+    _item(store)
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+
+    _plan(store, script)
+
+    assert "decisions" not in _prompt_of(script.seen[0])
+
+
+def test_a_run_reads_the_adrs_once_and_only_for_an_item_that_is_no_skip_class(
+    store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    listed: list[str] = []
+    read_directory = store.repository_files
+
+    def spy(directory: str, *, ref: str | None = None) -> list[str]:
+        listed.append(directory)
+        return read_directory(directory, ref=ref)
+
+    monkeypatch.setattr(store, "repository_files", spy)
+    _item(store, "docs(roadmap): explain the check")
+    _plan(store, Script(AlternativesReply(verdict=Verdict.NONE)))
+    skip_only = list(listed)
+    _item(store, "First change")
+    _item(store, "Second change")
+
+    _plan(store, _searching(AlternativesReply(verdict=Verdict.NONE)))
+
+    assert (skip_only, listed) == ([], ["docs/adr"])
+
+
+def test_a_failed_read_of_the_adrs_stops_the_run_before_any_model_call(
+    store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(directory: str, *, ref: str | None = None) -> list[str]:
+        raise GitHubOperationError("GitHub answered 502.", operation="roadmap.read")
+
+    monkeypatch.setattr(store, "repository_files", broken)
+    _item(store)
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+
+    with pytest.raises(GitHubOperationError, match="502"):
+        _plan(store, script)
+
+    assert script.seen == []
+
+
 # ── Writes ────────────────────────────────────────────────────────────────────
 
 
@@ -798,7 +900,7 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
     store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb
 ) -> None:
     _firecrawl(stub_web, SEARCH_URL)
-    number = _item(store, body="The job needs a scanner.")
+    number = _item(store, body="The job needs to read a directory.")
     before = store.item(number)
     assert before is not None
     script = _search_then_read_then(_covers())
@@ -851,7 +953,7 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
         ],
         "\n".join(
             [
-                "The job needs a scanner.",
+                "The job needs to read a directory.",
                 "",
                 CONST_ROADMAP_ALTERNATIVES_START_MARKER,
                 f"Alternatives check of {NOW.date()}: covers.",
@@ -861,7 +963,7 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
             ]
         ),
         {
-            "alternatives.body_hash": body_hash_of("The job needs a scanner."),
+            "alternatives.body_hash": body_hash_of("The job needs to read a directory."),
             "alternatives.checked_at": NOW.isoformat(),
             "alternatives.failed_at": None,
             "alternatives.failed_error": None,
@@ -1028,7 +1130,7 @@ def test_a_covering_tool_is_written_through_the_github_store_over_its_process_ed
         7,
         "Scan a directory",
         labels=("priority/p2-medium", "status/new"),
-        body="The job needs a scanner.",
+        body="The job needs to read a directory.",
     )
     _firecrawl(stub_web, SEARCH_URL)
     roadmap = GitHubRoadmapStore(REPO, runner=github, session=RunnerSession(github))

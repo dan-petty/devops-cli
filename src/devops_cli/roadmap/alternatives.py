@@ -60,6 +60,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
     CONST_ROADMAP_ALTERNATIVES_LICENSE_CLASSIFIER,
     CONST_ROADMAP_ALTERNATIVES_MAINTAINED_DAYS,
+    CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS,
     CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS,
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_LICENSE_CHARS,
@@ -83,6 +84,7 @@ from devops_cli.exceptions.roadmap import RoadmapAlternativesError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.adr import Adr, read_adrs
 from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.refine import (
@@ -532,10 +534,12 @@ def select_items(
     return Selection(ordered[:cap], current)
 
 
-def _request(item: Item, comments: Sequence[IssueComment]) -> str:
+def _request(item: Item, comments: Sequence[IssueComment], adrs: Sequence[Adr]) -> str:
     """The JSON document the model reads: the item without the job's block, the replies since the
-    job's last comment (every comment when it left none), and the budget. `comments` holds the
-    comments of trusted authors only, so text of an outside account does not reach the model."""
+    job's last comment (every comment when it left none), the number, title and options of each
+    ADR (#3505), and the budget. `comments` holds the comments of trusted authors only, so text of
+    an outside account does not reach the model. The `decisions` key is left out when the
+    repository has no ADR; the text is cut at its end, so the oldest ADRs go first."""
     outside, _ = extract_section_and_outside(
         item.body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
     )
@@ -551,6 +555,7 @@ def _request(item: Item, comments: Sequence[IssueComment]) -> str:
             truncate_to_token_limit(reply.body, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
             for reply in replies
         ],
+        **({"decisions": _decisions_text(adrs)} if adrs else {}),
         "search_budget": {
             "searches": CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
             "results_per_search": CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS,
@@ -558,6 +563,13 @@ def _request(item: Item, comments: Sequence[IssueComment]) -> str:
         },
     }
     return json.dumps(document, ensure_ascii=False, indent=1)
+
+
+def _decisions_text(adrs: Sequence[Adr]) -> str:
+    """The entries of `adrs` in a blank-line-separated text, cut to the token cap."""
+    return truncate_to_token_limit(
+        "\n\n".join(adr.entry for adr in adrs), max_tokens=CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS
+    )
 
 
 def skip_class_of(item: Item) -> str | None:
@@ -792,7 +804,7 @@ def _stopped_reason(stopped: InvestigationStopped) -> str:
 
 
 def _check_one(
-    store: RoadmapStore, item: Item, *, key: str, model: Any, now: datetime
+    store: RoadmapStore, item: Item, *, key: str, model: Any, adrs: Sequence[Adr], now: datetime
 ) -> Check | CheckFailure:
     """One item's check: the skip check of a skip class, else its agent run and its validated
     reply. Raises `AICredentialsError` when the model refuses the key."""
@@ -800,7 +812,7 @@ def _check_one(
     if skip_class is not None:
         return _skip_check(item, skip_class, now)
     tools = AlternativesTools(store=store, firecrawl_key=key)
-    request = _request(item, trusted_replies(store.comments_on(item.number)))
+    request = _request(item, trusted_replies(store.comments_on(item.number)), adrs)
     texts = MESSAGES.roadmap
     try:
         reply = investigate(
@@ -865,10 +877,12 @@ def plan_alternatives(
     if not selection.selected:
         return AlternativesPlan(repo=repo, current=selection.current)
     model = investigator or get_task_model("analysis")
+    # The ADRs are the same for each item, and a skip-class item makes no model call (#3505).
+    adrs = read_adrs(store) if any(skip_class_of(it) is None for it in selection.selected) else ()
     checks: list[Check] = []
     failures: list[CheckFailure] = []
     for item in selection.selected:
-        outcome = _check_one(store, item, key=web.key, model=model, now=moment)
+        outcome = _check_one(store, item, key=web.key, model=model, adrs=adrs, now=moment)
         if isinstance(outcome, CheckFailure):
             failures.append(outcome)
         else:
