@@ -205,9 +205,9 @@ GITHUB_REQUESTS_TOTAL = Instrument(
     "status, repo and row. The resource is the rate limit resource the request spends, such as "
     "core, graphql or search. The method is the HTTP method; a GraphQL request is a POST, and a gh "
     "command other than gh api is a POST when it writes and a GET when it reads. The status is the "
-    "HTTP status of the answer, such as 200 or 304, and none for a gh command or an attempt that "
-    "got no answer. The repo is the "
-    "repository of the roadmap Service worker that sent the request, one of service.repos, and "
+    "HTTP status of the answer, such as 200 or 304. It is none for a gh command or for an attempt "
+    "that got no answer. The repo is the repository of the roadmap Service worker that sent the "
+    "request, one of service.repos, and "
     "the row is the job row that sent it, such as metrics, intake, refine or alternatives; each is "
     "other outside a worker or a row. A gh command and a request of the GitHub session both count",
 )

@@ -209,8 +209,8 @@ def test_a_session_request_counts_the_scope_of_the_thread_that_sent_it(
 def test_a_304_answer_counts_once_with_status_304(
     github_api: GitHubApiFake, otlp: FakeCollector
 ) -> None:
-    """A conditional GET that GitHub answers 304 is one paced request, counted with status 304
-    beside the 200 of the request that stored its answer."""
+    """A conditional GET that GitHub answers 304 is one paced request with status 304. The first
+    GET of that URL is one request with status 200."""
     etag = {"etag": '"v1"'}
     github_api.route(
         "GET",

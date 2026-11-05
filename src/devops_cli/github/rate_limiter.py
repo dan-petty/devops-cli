@@ -1069,8 +1069,7 @@ class GitHubRateLimiter:
         """Institute mandatory pause of the request delay calculated for that subcommand.
 
         Synchronizes global tracking across processes and serializes requests. The caller counts
-        each request it lets go with `count_request`, once the status of its answer is known
-        (#3497).
+        each request it lets go with `count_request` (#3497).
         """
         gate = _request_gate
         if gate is not None:
@@ -1701,9 +1700,9 @@ def gh_request_method(clean_args: Sequence[str], *, is_mutation: bool) -> str:
 
 
 def count_request(resource: str, method: str, status: int | None, labels: dict[str, str]) -> None:
-    """Count one paced attempt in `devops_cli_github_requests_total`, with the HTTP status of its
-    answer. An attempt that got no answer, as a gh command never does, counts with status `none`
-    (#3497). `labels` are the repository and job row of the request scope of the sender."""
+    """Count one paced attempt in `devops_cli_github_requests_total` with the HTTP status of its
+    answer. An attempt with no answer, and a gh command, count with status `none` (#3497).
+    `labels` hold the repository and job row of the sender's request scope."""
     status_label = "none" if status is None else str(status)
     emit(
         GITHUB_REQUESTS_TOTAL,

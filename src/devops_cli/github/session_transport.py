@@ -168,9 +168,9 @@ def _gh_api_command(url: str) -> list[str]:
 
 def pace_request(method: str, url: str, identity: str) -> tuple[str, dict[str, str] | None]:
     """Wait for the request's turn on the ledger of the identity `identity` names, as `run_gh`
-    waits for `gh api <path>`, a write as a write. Return the rate-limit resource it spends, and
-    for a paced request the labels of its request scope, which the sender reads here, in its own
-    thread, for the count that `SessionGitHubAPI._request` makes (#3497)."""
+    waits for `gh api <path>`. A write waits as a write. Return the rate-limit resource that the
+    request spends, and for a paced request the labels of its request scope, read in this thread
+    (#3497)."""
     command = _gh_api_command(url)
     resource = gh_request_resource(command)
     if not gh_request_is_paced(command):
@@ -287,10 +287,10 @@ class SessionGitHubAPI(GitHubAPI):
     async def _request(
         self, method: str, url: str, headers: Mapping[str, str], body: bytes = b""
     ) -> tuple[int, Mapping[str, str], bytes]:
-        """Send one attempt once the ledger allows it, with the current token, count it with the
-        status of its answer (none when it gets no answer, a refused token included), and charge
-        what its answer reports. A GET whose connection is lost is paced, counted and sent again,
-        after the ledger's wait, while `_resend_after_lost` allows it.
+        """Send one attempt once the ledger allows it, with the current token. Count the attempt
+        with the status of its answer, or `none` when it gets no answer, a refused token included.
+        Charge what the answer reports. A GET whose connection is lost is paced, counted and sent
+        again, after the ledger's wait, while `_resend_after_lost` allows it.
 
         The pacing wait may run until the quota resets, so a close does not wait it out. A GitHub
         App's token is minted again here, when it nears its expiry, after the attempt is paced.

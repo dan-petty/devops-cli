@@ -375,9 +375,8 @@ def test_a_key_that_is_no_rsa_key_fails_before_any_request(
 def test_an_app_request_whose_token_is_refused_counts_once_with_status_none(
     app_identity: GitHubApiFake, otlp: FakeCollector
 ) -> None:
-    """The request waits its turn on the ledger before its token is minted, so a refused mint
-    still counts the paced request, with status none, and the refusal reaches the caller
-    (#3497)."""
+    """The request waits its turn on the ledger before its token is minted. A refused mint still
+    counts the paced request with status none, and the refusal reaches the caller (#3497)."""
     app_identity.route("POST", MINT, github_json({"message": "Bad credentials"}, status=401))
 
     with pytest.raises(GitHubUnauthenticatedError) as raised:
