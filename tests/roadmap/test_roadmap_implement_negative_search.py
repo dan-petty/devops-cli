@@ -130,7 +130,6 @@ def _path(word: str) -> str:
         ("! git grep --no-index -n name src/", f"the option `--no-index` is not allowed {OPTIONS}"),
         ("! git grep -f patterns.txt src/", f"the option `-f` is not allowed {OPTIONS}"),
         ("! git grep --ext-grep name src/", f"the option `--ext-grep` is not allowed {OPTIONS}"),
-        ("! git grep -e name src/", f"the option `-e` is not allowed {OPTIONS}"),
         ("! git grep -nP name src/", f"the option `-nP` is not allowed {OPTIONS}"),
         ("! git grep -n -- name src/", f"the option `--` is not allowed {OPTIONS}"),
         ("! git grep -n", "it gives no text to search"),
@@ -272,3 +271,62 @@ def test_a_negative_search_in_a_verification_line_is_a_command_of_the_group_and_
 
     assert group.verification_commands == (GONE,)
     assert commands_failure(checkout, group.verification_commands) is None
+
+
+TWO_ABSENT = "! git grep -n -e absent_name -e other_absent -- src/ tests/"
+HELLO_OR_ABSENT = "! git grep -n -e hello -e absent_name -- src/ tests/"
+E_NO_LITERAL = "the option `-e` has no literal after it"
+
+
+def _e_forms(word: str) -> str:
+    return (
+        f"the word `{word}` comes after an `-e` literal, and the search takes one literal with no "
+        "`-e`, or one or more `-e` literals and then `--`"
+    )
+
+
+def test_a_search_for_two_names_passes_when_neither_name_occurs(
+    checkout: Path, programs: ProcessFake
+) -> None:
+    assert commands_failure(checkout, [TWO_ABSENT]) is None
+    assert programs_run(programs, "git") == [
+        "git grep -n -e absent_name -e other_absent -- src/ tests/"
+    ]
+
+
+def test_a_search_for_two_names_stops_with_the_matching_lines(
+    checkout: Path, programs: ProcessFake
+) -> None:
+    assert commands_failure(checkout, [HELLO_OR_ABSENT]) == (
+        f"{HELLO_OR_ABSENT} found a match, so the name is not gone.\n"
+        "src/sample.py:4:def hello(name: str) -> str:\n"
+        'src/sample.py:6:    return f"hello {name}"'
+    )
+
+
+@pytest.mark.parametrize(
+    ("command", "reason"),
+    [
+        ("! git grep -n -e 'a|b' -- src/", _literal("a|b")),
+        ("! git grep -n -e 'a;b' -- src/", _literal("a;b")),
+        ("! git grep -n -e '$(id)' -- src/", _literal("$(id)")),
+        ("! git grep -n -e -E -- src/", _literal("-E")),
+        ("! git grep -n -e -P -- src/", _literal("-P")),
+        ("! git grep -n -e -- src/", E_NO_LITERAL),
+        ("! git grep -n -e name -e -- src/", E_NO_LITERAL),
+        ("! git grep -e", E_NO_LITERAL),
+        ("! git grep -e name", "it gives no path"),
+        ("! git grep -e name literal -- src/", _e_forms("literal")),
+        ("! git grep -e name src/", _e_forms("src/")),
+        ("! git grep -n -e name -n -- src/", _e_forms("-n")),
+        ("! git grep -E -e name -- src/", f"the option `-E` is not allowed {OPTIONS}"),
+        ("! git grep -n -- -e name src/", f"the option `--` is not allowed {OPTIONS}"),
+    ],
+)
+def test_an_e_search_outside_the_form_is_refused_and_starts_no_process(
+    checkout: Path, programs: ProcessFake, command: str, reason: str
+) -> None:
+    assert commands_failure(checkout, [command]) == (
+        f"The verification command {command} is refused: {reason}."
+    )
+    assert programs_run(programs, "git") == []
