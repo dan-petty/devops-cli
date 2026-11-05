@@ -18,6 +18,10 @@ The resource of a process sets the Prometheus labels `job` and `instance`, and a
 - **WHEN** a module calls `emit(COMMAND_TOTAL, 1.0, {"job": "stage"})`
 - **THEN** the instrument check names that call, and it passes `emit(COMMAND_TOTAL, 1.0, {"row": "stage"})`
 
+#### Scenario: A module sends the attribute job in a name or with a double star
+- **WHEN** a module sets `labels = {"job": "stage"}` and calls `emit(COMMAND_TOTAL, 1.0, labels)` and `emit(COMMAND_TOTAL, 1.0, {**labels, "x": 1})`
+- **THEN** the instrument check names both calls
+
 ### Requirement: The devops-cli dashboard shows the tool calls of the planner
 `k8s/monitoring/dashboards/devops-cli.json` SHALL have the row "Planner Tools" with the panel "Planner Tool Calls and Answer Size". The panel SHALL chart the calls of each tool by outcome from `devops_cli_roadmap_tool_calls_total`, and the mean answer size of each tool from `devops_cli_roadmap_tool_answer_chars`. Each query SHALL select `job="roadmap-service"` and `row="stage"`.
 

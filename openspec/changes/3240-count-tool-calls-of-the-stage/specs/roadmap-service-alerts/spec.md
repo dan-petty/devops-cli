@@ -34,6 +34,10 @@ The rule group `roadmap-service-tools` in `k8s/monitoring/prometheus-values.yaml
 - **WHEN** `promtool test rules` evaluates the series of a tool and of its runs with `row` `implement`, and the tool has no call
 - **THEN** the alert fires with `row` `implement`
 
+#### Scenario: No run series exists
+- **WHEN** `promtool test rules` evaluates a counter that stays at 0 for one tool, and no series of calls per run exists
+- **THEN** the alert stays quiet
+
 #### Scenario: A tool of another toolset
 - **WHEN** `promtool test rules` evaluates a counter at 0 for a tool of the toolset `extended`, and runs of the toolset `base` only
 - **THEN** the alert stays quiet for that tool
