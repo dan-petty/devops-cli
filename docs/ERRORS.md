@@ -75,6 +75,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `LLMInferenceError` | `LLM_INFERENCE_ERROR` | `10` | Ai | Base exception for LLM provider invocation failures. |
 | `LibraryIngestionError` | `LIBRARY_INGESTION_ERROR` | `1` | Ai | Base exception for package introspection and library ingestion errors. |
 | `LibraryNotFoundError` | `LIBRARY_NOT_FOUND_ERROR` | `1` | Ai | Raised when target package could not be loaded or found in the environment. |
+| `LimitReached` | `LIMIT_REACHED` | `15` | Ai | A step spent one of its budgets of tokens or time, so it makes no more model requests |
 | `LogfireConfigurationError` | `LOGFIRE_CONFIG_ERROR` | `1` | Telemetry | Raised when Logfire configuration fails or credentials cannot be retrieved. |
 | `MemoryProfilerError` | `PROFILER_ERROR` | `1` | Devops_cli.telemetry.memory_profiler | Domain exception raised when memory profiling target resolution or execution fails. |
 | `ModelBundleError` | `MODEL_BUNDLE_ERROR` | `1` | Ai | Raised when an AI model bundle cannot be located, resolved, or loaded. |

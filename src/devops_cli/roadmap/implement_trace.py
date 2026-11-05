@@ -2,7 +2,7 @@
 
 A Job that stops discards its checkout, and its log holds one line for each tool call. The trace
 is the structured account that stays in the job record: one event for each model call, tool call,
-exit check and retry, in order. `devops roadmap explain <issue> --trace` prints it, and the
+exit check, retry and attempt, in order. `devops roadmap explain <issue> --trace` prints it, and the
 comments of the job sum it up as a table.
 
 An event holds no argument and no output. A tool call shows as the digest of its masked argument,
@@ -50,12 +50,13 @@ _DIGEST_CHARS = 12
 
 
 class TraceEventKind(StrEnum):
-    """The four kinds of event of a trace."""
+    """The five kinds of event of a trace."""
 
     MODEL = "model"
     TOOL = "tool"
     CHECK = "check"
     RETRY = "retry"
+    ATTEMPT = "attempt"
 
 
 class TraceDecodeError(ValueError):
@@ -146,6 +147,28 @@ class ImplementTrace:
         self._add(
             TraceEventKind.RETRY, reason=_line(reason, CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS)
         )
+
+    def attempt(
+        self,
+        number: int,
+        tier: str,
+        failure_class: str,
+        evidence: str,
+        *,
+        repair: bool,
+    ) -> None:
+        """One attempt of a step (#3053): the first run or a repair round. A passed attempt has
+        no class and no evidence. `repair` says whether a repair round follows."""
+        fields: dict[str, Any] = {
+            "number": number,
+            "tier": _line(tier, 80),
+            "outcome": "failed" if failure_class else "passed",
+            "next": "repair" if repair else "stop",
+        }
+        if failure_class:
+            fields["class"] = _line(failure_class, 32)
+            fields["evidence"] = _line(evidence, CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS)
+        self._add(TraceEventKind.ATTEMPT, **fields)
 
     def encode(self) -> str:
         """The trace as JSON, `{"events": [...], "dropped": n}`, not longer than

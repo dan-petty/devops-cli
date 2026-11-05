@@ -34,6 +34,7 @@ from tests.support.implement_step import (
     is_clean_at_wip,
     make_checkout,
     programs_run,
+    rounds_spent,
     the_whole_group,
     write_call,
 )
@@ -184,7 +185,8 @@ def test_a_lint_error_after_the_format_run_still_stops_the_step(
 
     assert (outcome.status, outcome.reason, is_clean_at_wip(checkout, head)) == (
         StepStatus.STOPPED,
-        f"uv run ruff check -- {CHANGED_FILES} exited with status 1.\nF401 unused import",
+        f"uv run ruff check -- {CHANGED_FILES} exited with status 1.\nF401 unused import"
+        + rounds_spent(3),
         True,
     )
 
@@ -203,7 +205,7 @@ def test_a_type_error_after_the_format_run_still_stops_the_step(
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
         f"uv run mypy --python-version 3.14 --strict -- {SOURCE_FILES} exited with status 1.\n"
-        "error: bad type",
+        "error: bad type" + rounds_spent(3),
     )
 
 

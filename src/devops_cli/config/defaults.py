@@ -752,6 +752,18 @@ DEFAULT_ROADMAP_STAGE_LIMIT: int = 3
 DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT: int = 20
 # The most extra turns of an implement step (#3043): each fixes a failed check or asks for ticks.
 DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS: int = 3
+# The budgets of an implement step and of a run of an item (#3053). The tokens are the input tokens
+# that the replies report, summed over all requests of a step: each request sends the whole
+# conversation, so the sum is large. Done steps used up to 5.9 million (#2570), and stopped steps
+# ran on to 10.5 million (#2554). The step budget is above the first and below the second. The
+# largest item that finished its steps used 16.6 million (#2570). The step may take 90 minutes:
+# one verification command may take 30 (`DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS`). The
+# time of the item is below the ceiling of the Job, so the stop of the budget comes before the
+# deadline of the Job ends the run without a comment.
+DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET: int = 8_000_000
+DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET: int = 20_000_000
+DEFAULT_ROADMAP_IMPLEMENT_STEP_TIME_LIMIT_SECONDS: int = 5400
+DEFAULT_ROADMAP_IMPLEMENT_ITEM_TIME_LIMIT_SECONDS: int = 12600
 # The most stops of one failure class, and of one item, that a new runner image clears (#3481).
 DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_CLASS: int = 1
 DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_ITEM: int = 3

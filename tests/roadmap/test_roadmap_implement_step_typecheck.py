@@ -28,6 +28,7 @@ from tests.support.implement_step import (
     git,
     is_clean_at_wip,
     programs_run,
+    rounds_spent,
     tool_reads,
     write_call,
 )
@@ -111,7 +112,7 @@ def test_a_new_type_error_in_a_source_file_still_stops_the_step(
 
     assert (outcome.status, outcome.reason, outcome.commit, len(script.seen)) == (
         StepStatus.STOPPED,
-        f"{GATE} -- src/sample.py exited with status 1.\n{BAD_TYPE}",
+        f"{GATE} -- src/sample.py exited with status 1.\n{BAD_TYPE}" + rounds_spent(1),
         "",
         3,
     )

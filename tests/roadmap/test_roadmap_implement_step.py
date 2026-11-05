@@ -40,6 +40,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.roadmap import implement_step
+from devops_cli.roadmap.implement_limits import StepBudget
 from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_ALLOWED_PROGRAMS,
     IMPLEMENT_SHELL_PROGRAMS,
@@ -73,6 +74,7 @@ from tests.support.implement_step import (
     is_clean_at,
     make_checkout,
     programs_run,
+    rounds_spent,
     the_whole_group,
     write_call,
 )
@@ -372,7 +374,8 @@ def test_a_failed_static_check_stops_the_step_and_resets_the_checkout(
     # Every task passed its verification, so the checkout goes back to the `wip:` commit (#3054).
     assert (outcome.status, outcome.reason, _is_clean_at_wip(checkout, head)) == (
         StepStatus.STOPPED,
-        "uv run ruff check -- src/sample.py tests/test_sample.py exited with status 1.\nE501 too long",
+        "uv run ruff check -- src/sample.py tests/test_sample.py exited with status 1.\nE501 too long"
+        + rounds_spent(3),
         True,
     )
 
@@ -396,7 +399,8 @@ def test_a_task_left_unticked_after_the_extra_turn_stops_the_step(
         is_clean_at(checkout, head),
     ) == (
         StepStatus.STOPPED,
-        "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` for `src/sample.py`",
+        "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` for `src/sample.py`"
+        + rounds_spent(1),
         "No ticks.",
         3,
         True,
@@ -437,7 +441,7 @@ def test_a_task_that_the_agent_removes_leaves_the_group_unticked_and_stops_the_s
     assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
         "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` "
-        "for `src/sample.py`",
+        "for `src/sample.py`" + rounds_spent(3),
         True,
     )
 
@@ -609,7 +613,13 @@ def test_the_agent_of_a_step_runs_its_shell_in_that_environment(
     tmp_path: Path, checkout: Path
 ) -> None:
     agent = build_agent(
-        ModelScript(say("x")).model(), checkout, "go", WINDOW, tmp_path / "home", ToolCallLog()
+        ModelScript(say("x")).model(),
+        checkout,
+        "go",
+        WINDOW,
+        tmp_path / "home",
+        ToolCallLog(),
+        StepBudget(),
     )
 
     leaves: list[Any] = []
@@ -671,7 +681,7 @@ def test_a_tasks_file_that_the_agent_removes_is_written_back_and_its_tasks_stay_
     ) == (
         StepStatus.STOPPED,
         "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` "
-        "for `src/sample.py`",
+        "for `src/sample.py`" + rounds_spent(3),
         True,
         True,
     )
@@ -692,7 +702,7 @@ def test_a_tasks_file_with_bytes_that_are_not_text_is_written_back_and_its_tasks
     assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
         "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` "
-        "for `src/sample.py`",
+        "for `src/sample.py`" + rounds_spent(3),
         True,
     )
 
@@ -1041,7 +1051,7 @@ def test_a_failed_static_check_gets_one_extra_turn_for_it_and_none_for_the_ticks
     outcome = _step(store, checkout, script)
 
     assert (outcome.status, len(script.seen)) == (StepStatus.STOPPED, 3)
-    assert outcome.reason.endswith("exited with status 1.\nerror: bad type")
+    assert outcome.reason.endswith("exited with status 1.\nerror: bad type" + rounds_spent(1))
 
 
 def test_the_extra_turn_counts_against_the_request_limit_of_the_first_turn(

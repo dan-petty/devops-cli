@@ -1,0 +1,15 @@
+# Design
+
+## Decisions
+
+- **The limits are a `Hooks` capability, not `UsageLimits`.** The hook reads the typed spend and raises `LimitReached`, which holds the setting and its value. `UsageLimits` raises an error whose only content is a message, so the stop could name the setting only by a match on library text. Rejected: a match on the message of pydantic-ai, because a change of its wording would silently remove the name from the stop.
+- **The check runs before each model request.** The reply that crosses a limit is complete and its tokens count. At most one request goes over the limit. Rejected: a check after each reply. The hook for a reply already raises for the output cap, and a second reason at that point would hide the first.
+- **The step keeps its own count of input tokens.** The count adds the input tokens of each reply, across turns, tiers and sends again of a request. The conversation of a new tier starts with a usage of zero, so the usage of the run is no count of the step.
+- **The item count is the input tokens of the earlier steps plus the count of this step.** `_ItemRun` already holds the outcomes of the steps. A new Job after a stop starts a new count, because the record keeps no spend of the old Job. Rejected: a count in the job record. The next change (#3098) decides what a continued item carries over.
+- **The defaults come from the measured spend.** See Feasibility in the proposal. The step budget is above the largest done step, and the item budget above the largest item that finished its steps.
+- **The time limit of the item is below the ceiling of the Job.** The Job is ended by its deadline (14,400 s) without a comment. A limit below it gives a stop that names itself. A validator holds the order.
+- **Seconds, not a duration string.** The other time settings of `roadmap.implement` end in `_seconds`.
+- **A new class `limit_reached`, not `output_cap` or `timeout`.** `timeout` has the action `retry`, and a retry of a spent budget would spend it again. `output_cap` names one cause. The action of the new class is `raise_limit`, the action that tells a person which limit to raise.
+- **No new rule for the fatal classes.** A repair round is for a failed static check or hook and for a missing tick. A group that changes no file (`plan_defect`) and a premise that is false carry no repair paths, so they get no round already. A list of fatal classes in the step would have no path that reaches it. The test of the single attempt holds the behavior. The owner decision of 2026-11-02 holds: the bounded amendment of the job is outside the step.
+- **One `attempt` event for each attempt.** The first run and each repair round give one event, with the outcome, the class and the evidence. The `retry` event stays as it is for a repair round and for a send again.
+- **The stop of the rounds is a second line in the reason.** The reason of the last failure stays the first line, so the class of the failure does not change. The second line names `roadmap.implement.repair_rounds` and its value.

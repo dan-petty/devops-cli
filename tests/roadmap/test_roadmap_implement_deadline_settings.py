@@ -65,7 +65,7 @@ def test_a_config_file_and_a_variable_set_the_stall_the_extension_and_the_ceilin
 ) -> None:
     config_file.write_text(
         "roadmap:\n  implement:\n    deadline_stall_seconds: 3000\n"
-        "    deadline_extension_seconds: 4000\n",
+        "    deadline_extension_seconds: 4000\n    item_time_limit_seconds: 9000\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS", "10000")
