@@ -544,6 +544,30 @@ def _message_file_problems(proposal: StageProposal) -> list[str]:
     return [MESSAGES.roadmap.stage_problem_message_file.format(path=_MESSAGES_FILE)]
 
 
+def _lists_path(listed: Collection[str], path: str) -> bool:
+    """Whether `listed` holds `path`, a path under it or a folder above it: a group that writes a
+    folder covers every file under it, and a What Changes item may name the folder of the files
+    that a group writes."""
+    return any(
+        named == path or named.startswith(f"{path}/") or path.startswith(f"{named}/")
+        for named in listed
+    )
+
+
+def _what_changes_problems(proposal: StageProposal, tree: StagedTree) -> list[str]:
+    """One problem for each repository path in a code span of a What Changes item that no group
+    lists in `changes` or `creates` (#3411). The check reads the tree to tell a path from a word,
+    so it makes no git call. A path under the living spec folder is left alone: `openspec archive`
+    writes it, and no group may write there."""
+    listed = {path for group in proposal.groups for path in (*group.changes, *group.creates)}
+    return [
+        MESSAGES.roadmap.stage_problem_what_changes_path.format(path=path)
+        for item in proposal.what_changes
+        for path in tree.code_span_paths(item)
+        if not _lists_path(listed, path) and not path.startswith(_LIVING_SPEC_DIRECTORY)
+    ]
+
+
 def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> list[str]:
     """What is wrong with the text of `proposal` that no schema says (#3200): a text that is too
     short or a placeholder word (`is_placeholder` of the pull request form), a `feasibility` that
@@ -580,7 +604,8 @@ def check_proposal(
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
     `openspec/specs/`, `requirements` the requirement names of each base spec by capability, and
-    `tree` the files that exist when the change is written. `issue_body` is the whole body of the
+    `tree` the files that exist when the change is written. The tree also tells a repository path
+    from a word, for the code spans of `what_changes` (#3411). `issue_body` is the whole body of the
     issue: each acceptance criterion in it needs an entry in `criteria` (#3019), and a body with
     none needs no entry. `probes` holds the lines of the premise probe that the model read: when it
     is not empty, `feasibility` quotes one (#3200). `overlaps` lists the open pull requests that
@@ -591,6 +616,7 @@ def check_proposal(
     problems.extend(content_problems(proposal, probes))
     problems.extend(form_problems(proposal.groups))
     problems.extend(path_problems(proposal.groups, tree))
+    problems.extend(_what_changes_problems(proposal, tree))
     problems.extend(move_prefix_problems(proposal.groups, tree))
     problems.extend(move_verify_problems(proposal.groups, tree))
     problems.extend(search_problems(proposal.groups, search_evidence))

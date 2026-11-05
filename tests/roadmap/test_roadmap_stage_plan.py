@@ -1590,7 +1590,10 @@ def _tree(*paths: str) -> StagedTree:
 
 def _changing(*paths: str) -> StageProposal:
     """The sample proposal, with one group that changes only `paths`."""
-    return make_stage_proposal(groups=[_changed("Change the paths", *paths)])
+    return make_stage_proposal(
+        groups=[_changed("Change the paths", *paths)],
+        what_changes=[f"`{path}` changes." for path in paths],
+    )
 
 
 @pytest.mark.parametrize("path", NO_SPEC_PATHS)
@@ -1602,7 +1605,8 @@ def test_a_spec_delta_on_a_change_of_tests_workflows_documents_or_plans_is_refus
 
 def test_a_spec_delta_on_every_path_of_every_group_that_needs_none_is_refused() -> None:
     proposal = make_stage_proposal(
-        groups=[_changed("First", NO_SPEC_PATHS[0]), _changed("Second", NO_SPEC_PATHS[2])]
+        groups=[_changed("First", NO_SPEC_PATHS[0]), _changed("Second", NO_SPEC_PATHS[2])],
+        what_changes=[f"`{path}` changes." for path in (NO_SPEC_PATHS[0], NO_SPEC_PATHS[2])],
     )
 
     assert check_proposal(proposal, [], _tree(*NO_SPEC_PATHS)) == [NO_SPEC_PROBLEM]
@@ -1646,7 +1650,10 @@ def _move_plan(verify: str) -> StageProposal:
             "verify": verify,
         }
     )
-    return make_stage_proposal(groups=[group])
+    return make_stage_proposal(
+        groups=[group],
+        what_changes=[f"`{path}` changes." for path in (STAGE_OLD, STAGE_PACKAGE)],
+    )
 
 
 def _search_problems(proposal: StageProposal, evidence: Any) -> list[str]:

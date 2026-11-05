@@ -3266,6 +3266,10 @@ class RoadmapMessages:
         "A task text names `MESSAGES.roadmap`, and no group lists `{path}` in `changes`. Add the "
         "message to that file, and list the file in the group that adds it."
     )
+    stage_problem_what_changes_path: str = (
+        "A What Changes item names `{path}`, and no group lists it in `changes` or `creates`. List "
+        "the path in the group that changes or creates it, or remove it from What Changes."
+    )
     stage_problem_skip_with_specs: str = "skip_specs is true, and the reply still gives specs."
     stage_problem_no_specs: str = "skip_specs is false, and the reply gives no spec delta."
     stage_problem_specs_not_needed: str = (

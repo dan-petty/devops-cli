@@ -272,6 +272,7 @@ def test_a_group_of_the_kind_other_reads_back(stage_repo: StageRepo) -> None:
     proposal = make_stage_proposal(
         skip_specs=True,
         specs=[],
+        what_changes=["`docs/roadmap/plan-check.md` gains the page about the check."],
         groups=[
             {
                 "title": "Write the page",
