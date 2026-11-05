@@ -260,6 +260,8 @@ def test_the_stage_prompt_gives_the_options_and_the_signs_that_the_step_reads() 
         True,
         True,
     )
+    assert "`-e`" in prompt
+    assert "then `--` before the relative paths" in prompt
 
 
 def test_a_negative_search_in_a_verification_line_is_a_command_of_the_group_and_the_step_runs_it(
