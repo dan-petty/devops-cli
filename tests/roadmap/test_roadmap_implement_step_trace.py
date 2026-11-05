@@ -95,6 +95,20 @@ def test_two_model_replies_give_two_model_events_with_their_tokens(
     assert {e.step for e in models} == {"group 1"}
 
 
+def test_the_outcome_holds_the_input_tokens_of_the_first_model_request(
+    store: InMemoryRoadmapStore, checkout: Path
+) -> None:
+    trace = ImplementTrace(step="group 1")
+    script = ModelScript(tool_call("read_file", path="src/sample.py"), say("Done."))
+
+    outcome = _step(store, checkout, script, trace)
+
+    first, second = _of(trace, TraceEventKind.MODEL)
+    assert outcome.first_request_tokens == first.fields["tokens_in"] > 0
+    assert outcome.first_request_tokens < outcome.input_tokens
+    assert second.fields["tokens_in"] > 0
+
+
 def test_a_refused_command_and_a_retried_edit_are_tool_events(
     store: InMemoryRoadmapStore, checkout: Path
 ) -> None:

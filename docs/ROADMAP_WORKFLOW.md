@@ -115,7 +115,7 @@ These are all the keys of the job record, by the job that writes them:
 | Stage | `stage.needs_fix` | The plan pull request that the Service told about the label `plan/needs-fix` |
 | Stage | `stage.failed_at`, `stage.failed_error` | When the last plan or write of the Item failed and the class of its error. The job leaves the Item out for `roadmap.stage.retry_hours` hours; a staged Item or an Item stopped on the budget clears both |
 | Implement | `implement.group`, `implement.sha`, `implement.branch`, `implement.pr` | The last group that passed, the last commit, the branch and the pull request |
-| Implement | `implement.stopped`, `implement.failure`, `implement.spend`, `implement.trace` | The step that stopped the Item, the class of its failure, the spend of its steps, and the trace of its last run |
+| Implement | `implement.stopped`, `implement.failure`, `implement.spend`, `implement.trace` | The step that stopped the Item, the class of its failure, the spend of its steps with the input tokens of the first request of each step (`steps`, kept apart from the trace, which drops its oldest events), and the trace of its last run |
 | Implement | `implement.check`, `implement.check_log` | The check that failed in the stop, and the masked end of its log (at most 2000 characters). A retry and a clear rule of the Service remove both with the stop |
 | Implement | `implement.wip` | The work in progress that a step kept: its group, the tasks done, the tasks of the group and the last commit as JSON. The job removes it when the group passes |
 | Implement | `implement.job`, `implement.job_state`, `implement.job_digest` | The runner Job that the Service made, its state after a round reported it, and the digest of the runner image that the Job ran |

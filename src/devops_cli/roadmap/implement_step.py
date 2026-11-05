@@ -390,8 +390,9 @@ class StepOutcome(BaseModel):
     the step deleted (#3092). `repair_rounds` counts the extra turns that the step used (#3043).
     `tier` is the last tier that the step ran on, `tiers` names every tier it attempted, and
     `tier_spend` holds the requests and tokens of each tier (#3060). `failure_class` is the class
-    of a stopped step, when the step knows its cause (#3476). `planned_requests` are the requests
-    a dry run lists. `fail_to_pass` is the replay of a behavior group's tests on its base commit,
+    of a stopped step, when the step knows its cause (#3476). `first_request_tokens` is the input
+    tokens of the first model request of the step, which is the size of that request (#3499), and
+    0 when no request got a reply. `planned_requests` are the requests a dry run lists. `fail_to_pass` is the replay of a behavior group's tests on its base commit,
     and `verified` holds the verify commands of a group of kind `other`, of a done step (#3042)."""
 
     model_config = ConfigDict(frozen=True)
@@ -415,6 +416,7 @@ class StepOutcome(BaseModel):
     tiers: tuple[str, ...] = ()
     tier_spend: dict[str, TierSpend] = {}
     failure_class: FailureClass | None = None
+    first_request_tokens: int = 0
     dry_run: bool = False
     planned_requests: tuple[str, ...] = ()
     fail_to_pass: BaseReplay | None = None
@@ -571,7 +573,9 @@ class _Run:
     the request can fix the error that ended it (#2794). `provider_error` says that a failed model
     call ended it, which moves the step to the next tier (#3060). `failure_class` is the class of
     `reason`: the output cap, or what the classifier reads in the text of the error (#3476). The
-    tier decision and the stop of the step read this one class."""
+    tier decision and the stop of the step read this one class. `first_request_tokens` is the input
+    tokens of the first request that got a reply, which is the size of that request (#3499), and 0
+    when no request got one."""
 
     reason: str
     last_message: str
@@ -583,16 +587,19 @@ class _Run:
     resend: Conversation | None = None
     provider_error: bool = False
     failure_class: FailureClass | None = None
+    first_request_tokens: int = 0
 
     def then(self, later: _Run) -> _Run:
         """This turn followed by `later`, which continued its conversation: the end and the last
-        text of `later`, and the spend of both."""
+        text of `later`, and the spend of both. The first request stays that of this turn, unless
+        this turn got no reply."""
         return _Run(
             reason=later.reason,
             last_message=later.last_message or self.last_message,
             requests=self.requests + later.requests,
             input_tokens=self.input_tokens + later.input_tokens,
             output_tokens=self.output_tokens + later.output_tokens,
+            first_request_tokens=self.first_request_tokens or later.first_request_tokens,
             tool_calls=self.tool_calls + later.tool_calls,
             conversation=later.conversation,
             resend=later.resend,
@@ -776,6 +783,7 @@ def _run_turn(
         requests=len(replies),
         input_tokens=sum(reply.usage.input_tokens for reply in replies),
         output_tokens=sum(reply.usage.output_tokens for reply in replies),
+        first_request_tokens=replies[0].usage.input_tokens if replies else 0,
         tool_calls=_tool_calls(replies),
         conversation=kept,
         resend=resend,
@@ -1623,6 +1631,7 @@ def _attempt(
     number = 1
     rounds_spent = False
     tool_calls = 0
+    first_request = 0
     total = TierSpend()
     spent: dict[str, TierSpend] = {}
     tried: list[str] = []
@@ -1639,6 +1648,7 @@ def _attempt(
             log.fail_to_pass = None
             log.verified.clear()
             run = _turn(agent, tier_model, log, inputs.message)
+            first_request = first_request or run.first_request_tokens
             failure = (
                 _Failure(run.reason, klass=run.failure_class)
                 if run.reason
@@ -1683,6 +1693,7 @@ def _attempt(
         tool_calls=tool_calls,
         input_tokens=total.input_tokens,
         output_tokens=total.output_tokens,
+        first_request_tokens=first_request,
         removed=tuple(log.removed),
         repair_rounds=rounds,
         tier=tried[-1] if tried else "",

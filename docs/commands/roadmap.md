@@ -166,7 +166,7 @@ devops roadmap implement [OPTIONS]
 
 ## `devops roadmap plan-check`
 
-**Check a plan pull request: the stage gates without a model, the title, the body, the `Semantic PR title` check and a base spec that moved since the plan. Details: docs/roadmap/plan-check.md.**
+**Check a plan pull request: the stage gates without a model, the token size of each task group, the title, the body, the `Semantic PR title` check and a base spec that moved since the plan. Details: docs/roadmap/plan-check.md.**
 
 ```bash
 devops roadmap plan-check [OPTIONS] <pull_request>

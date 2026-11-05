@@ -951,22 +951,34 @@ def safe_text(text: str) -> str:
 
 @dataclass(frozen=True)
 class MeasuredGroup:
-    """A task group and the tokens of the inputs of its step."""
+    """A task group, the tokens of the inputs of its step, and the number of files that the step
+    packs for it (#3499)."""
 
     group: StageGroup
     tokens: int
+    files: int
 
 
-def _read_tokens(root: Path, text: str) -> int:
-    """The tokens of what the step of the group `text` reads under `root`: the files that its
-    tasks name, each packed as the step packs it (`step_files`), and the rules of the checkout
-    that the step adds (`step_rules`). The step ignores a file that only the `Reads:` line lists,
-    and a name that holds no file is a file the step creates."""
-    return sum(
-        sum(count_tokens(packed_file(path)) for path in named_files(root, group))
-        + sum(count_tokens(section) for section in rules_sections(root, group))
-        for group in parse_task_groups(text)
-    )
+def _reads(root: Path, text: str) -> tuple[int, int]:
+    """The tokens and the count of what the step of the group `text` reads under `root`: the files
+    that its tasks name, each packed as the step packs it (`step_files`), and the rules of the
+    checkout that the step adds (`step_rules`). The count is the count of files, and the tokens
+    include the rules. The step ignores a file that only the `Reads:` line lists, and a name that
+    holds no file is a file the step creates."""
+    tokens = files = 0
+    for group in parse_task_groups(text):
+        paths = named_files(root, group)
+        files += len(paths)
+        tokens += sum(count_tokens(packed_file(path)) for path in paths)
+        tokens += sum(count_tokens(section) for section in rules_sections(root, group))
+    return tokens, files
+
+
+def shared_texts(title: str, body: str, files: Mapping[str, str]) -> list[str]:
+    """The text that all groups of a change share in their measure: the item, and the files of the
+    change folder by path. The stage job and `plan-check` both build it here, so their figures for
+    one plan stay equal (#3499)."""
+    return [f"{title}\n{body}", *files.values()]
 
 
 def measure_groups(
@@ -977,19 +989,21 @@ def measure_groups(
 ) -> list[MeasuredGroup]:
     """The measure of each group: the tokens of `shared` (the item and the files of the change
     folder), of the group's own text, of the files and the rules that its step reads under `root`,
-    and of the estimated lines of each file that it creates."""
+    and of the estimated lines of each file that it creates. It also counts the files that the
+    step packs."""
     shared_tokens = sum(count_tokens(text) for text in shared)
-    texts = [group_text(index, group) for index, group in enumerate(groups, start=1)]
-    return [
-        MeasuredGroup(
-            group,
+    measured: list[MeasuredGroup] = []
+    for index, group in enumerate(groups, start=1):
+        text = group_text(index, group)
+        read_tokens, files = _reads(root, text)
+        tokens = (
             shared_tokens
             + count_tokens(text)
-            + _read_tokens(root, text)
-            + sum(group.creates_lines.values()) * CREATED_LINE_TOKENS,
+            + read_tokens
+            + sum(group.creates_lines.values()) * CREATED_LINE_TOKENS
         )
-        for group, text in zip(groups, texts, strict=True)
-    ]
+        measured.append(MeasuredGroup(group, tokens, files))
+    return measured
 
 
 def write_change_files(root: Path, files: Mapping[str, str]) -> None:

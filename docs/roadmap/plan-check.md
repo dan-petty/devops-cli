@@ -13,7 +13,13 @@ the issue in the `Plans #<issue>` line of the body. A pull request with no such 
 more than one, is a problem.
 
 The GitHub client gives the title, the body, the base and the check runs. The command reads the
-issue that the body plans, for its acceptance criteria. It builds no model client.
+issue that the body plans, for its acceptance criteria and for the text of the item that the size
+measure counts. The command takes the body of the issue with no record block of the jobs, as the
+stage job reads it. It builds no model client.
+
+To measure the groups, the command makes a detached worktree of the head commit in a temporary
+folder and removes it when the measure ends. The files that the tasks name are the files of the head
+commit, whatever the working tree of the checkout holds.
 
 ## What it checks
 
@@ -22,6 +28,15 @@ issue that the body plans, for its acceptance criteria. It builds no model clien
 - The read: the reader reports each change file that it cannot read, each task group that the
   model refuses and each `Verification:` command that the implement step cannot run, as a `read`
   problem. It never ends in a traceback.
+- The size of each task group (#3499): the command measures each group with `measure_groups`, the
+  function of the stage job, on the tracked files of the head commit. The item and the files of the
+  change folder are the shared text, as in the stage job. It reports a `group-over-budget` problem
+  for a group above the setting `roadmap.stage.step_tokens`, and a `group-no-files` problem for a
+  group that changes a file that exists and packs no file, because no code span in its tasks names
+  one. A group that only creates files packs none by nature, and the command accepts it. The plan
+  holds no estimate of the lines of a created file, so the command counts one line for each. For a
+  group that creates files, its figure is lower than the stage figure by 32 tokens for each
+  estimated line above the first. For any other group, the two figures are equal.
 - The title: `docs(openspec): plan #<issue> <summary>`, with at most `SUMMARY_MAX_CHARS`
   characters after the colon.
 - The body: at most `BODY_MAX_CHARS` characters, one `Plans #<issue>` line, and no closing keyword

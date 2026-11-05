@@ -3569,6 +3569,15 @@ class RoadmapMessages:
     plan_check_moved_missing: str = (
         "The base spec of `{capability}` no longer holds the requirement `{requirement}`."
     )
+    plan_check_group_over_budget: str = (
+        "Group {number}, `{title}`, measures {tokens} tokens. A step takes at most {budget} "
+        "tokens (`roadmap.stage.step_tokens`). Split the group."
+    )
+    plan_check_group_no_files: str = (
+        "Group {number}, `{title}`, packs no file. No code span in its tasks names a file of the "
+        "head commit, so the step starts with none of the files that it changes. Name each file "
+        "that the group changes in a code span of a task."
+    )
     plan_check_changed: str = "The plan check could not read the pull request {number}: {reason}"
     plan_check_removed: str = "The pull request {number} has no title in GitHub."
     plan_check_failed: str = "The plan check found {count} problem(s)."

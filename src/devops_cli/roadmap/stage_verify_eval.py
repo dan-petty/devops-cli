@@ -22,12 +22,13 @@ from typing import Any, Final
 from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.dry_run import PlannedRequest
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.clone_git import checkout_at
 from devops_cli.roadmap.stage import StageClient
 from devops_cli.roadmap.stage_eval_cases import Defect, DefectType, Severity, StageCase, Verdict
-from devops_cli.roadmap.stage_eval_run import checkout_at
 from devops_cli.roadmap.stage_verify import Finding, VerificationInput, returning, verify
 
 _DATASET_NAME: Final[str] = "stage_verification"
+_OPERATION: Final[str] = "roadmap.eval.stage-verify"
 # The severities from the most serious, and the ones that the serious recall counts.
 _BY_SEVERITY: Final[tuple[Severity, ...]] = (
     Severity.BLOCKER,
@@ -166,7 +167,7 @@ def evaluate_cases(
             raise rejected[0]
         case = by_name[name]
         try:
-            with checkout_at(repository, case.base_commit) as source:
+            with checkout_at(repository, case.base_commit, operation=_OPERATION) as source:
                 given = VerificationInput.of(
                     number=case.issue,
                     title=case.title,
