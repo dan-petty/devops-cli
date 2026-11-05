@@ -111,13 +111,70 @@ def test_mask_secrets_expanded_patterns() -> None:
             "custom://***@myhost/path",
             id="custom-scheme-password-without-user",
         ),
-        pytest.param("custom://myuser@myhost/path", "custom://myuser@myhost/path", id="user-only"),
+        pytest.param("custom://myuser@myhost/path", "custom://***@myhost/path", id="user-only"),
+        pytest.param(
+            "https://tok_0123456789abcdef@example.com:11434/api/embed",
+            "https://***@example.com:11434/api/embed",
+            id="token-as-user",
+        ),
+        pytest.param(
+            "http://example.com:11434/api/embed",
+            "http://example.com:11434/api/embed",
+            id="no-userinfo",
+        ),
+        pytest.param(
+            "http://:@example.com/", "http://:@example.com/", id="empty-user-and-password"
+        ),
     ],
 )
-def test_a_uri_password_is_masked_and_a_user_alone_is_kept(uri: str, masked: str) -> None:
-    """Only a password is masked; with no user, the whole userinfo becomes `***` and no empty
-    user is left before it."""
+def test_a_uri_password_and_a_user_alone_are_masked(uri: str, masked: str) -> None:
+    """A user beside a password stays and the password becomes `***`. A user alone is masked
+    whole, as a user with no password can be a token: the userinfo becomes `***`, as it does
+    for a password with no user, and no empty user is left before it."""
     assert mask_uri_credentials(uri) == masked
+
+
+@pytest.mark.parametrize(
+    ("text", "masked"),
+    [
+        pytest.param(
+            "error calling http://tok_0123456789abcdef@example.com:11434/api/embed failed",
+            "error calling http://<masked-user>@example.com:11434/api/embed failed",
+            id="token-as-user",
+        ),
+        pytest.param(
+            "ssh://git@example.com/org/repo.git",
+            "ssh://<masked-user>@example.com/org/repo.git",
+            id="harmless-user-is-masked-too",
+        ),
+        pytest.param(
+            '{"url": "HTTPS://tok123@example.com/x?a=b#c"}',
+            '{"url": "HTTPS://<masked-user>@example.com/x?a=b#c"}',
+            id="inside-json-with-query-and-fragment",
+        ),
+        pytest.param(
+            "https://example.com/login?next=https://tok123@example.com/x",
+            "https://example.com/login?next=https://<masked-user>@example.com/x",
+            id="url-inside-a-query",
+        ),
+        pytest.param(
+            "http://user:pw12345@example.com/x",
+            "http://<masked-user>:<masked-password>@example.com/x",
+            id="user-and-password",
+        ),
+        pytest.param(
+            "http://example.com:11434/p?email=a@example.com",
+            "http://example.com:11434/p?email=a@example.com",
+            id="at-sign-after-the-authority",
+        ),
+        pytest.param("http://@example.com/x", "http://@example.com/x", id="empty-user"),
+    ],
+)
+@pytest.mark.parametrize("syntax", ["data", "code"])
+def test_redact_text_masks_a_url_user_with_no_password(text: str, masked: str, syntax: str) -> None:
+    """The user name of a URL is masked when the URL has no password, in data and code syntax.
+    The scheme, the host, the port, the path, the query and the fragment stay."""
+    assert redact_text(text, syntax=syntax) == masked
 
 
 def test_devops_cli_error_masks_message_and_details() -> None:

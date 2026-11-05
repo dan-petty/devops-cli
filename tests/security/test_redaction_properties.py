@@ -50,3 +50,25 @@ def test_a_uri_keeps_everything_but_its_password(
     assert mask_uri_credentials(f"{scheme}://{user}:{password}@{host}{rest}") == (
         f"{scheme}://{user}:***@{host}{rest}"
     )
+
+
+@given(
+    scheme=st.sampled_from(["https", "http", "postgresql", "redis", "ssh"]),
+    user=st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size=12),
+    host=st.sampled_from(
+        ["example.com", "db.example.com:5432", "192.0.2.10", "[2001:db8::1]:8080"]
+    ),
+    rest=st.sampled_from(["", "/", "/x", "/db?sslmode=require", "/x#top"]),
+    syntax=syntaxes,
+)
+def test_a_url_user_with_no_password_is_masked_and_the_rest_stays(
+    scheme: str, user: str, host: str, rest: str, syntax: str
+) -> None:
+    """The user name never survives, as it can be a token. The scheme, host, path, query and
+    fragment stay."""
+    url = f"{scheme}://{user}@{host}{rest}"
+
+    masked_text = mask_secrets(f"see {url} now", syntax=syntax)
+
+    assert masked_text == f"see {scheme}://<masked-user>@{host}{rest} now"
+    assert mask_uri_credentials(url) == f"{scheme}://***@{host}{rest}"

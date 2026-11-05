@@ -1,4 +1,25 @@
-"""Universal secret masking, credential redaction, and token sanitization engine."""
+"""Universal secret masking, credential redaction, and token sanitization engine.
+
+The userinfo of a URL is masked, whatever the scheme (#2662). A URL parser finds it, never a
+pattern: `urllib.parse.urlsplit` in free text (`redact_text`) and `httpx2.URL` in a single URL
+(`mask_uri_credentials`).
+
+- A user name and a password: `redact_text` shows `<masked-user>:<masked-password>`.
+  `mask_uri_credentials` keeps the user name and shows `user:***`.
+- A password with no user name: `redact_text` shows `<masked-user>:<masked-password>`, and
+  `mask_uri_credentials` shows `***`.
+- A user name with no password: the user name is masked, as `<masked-user>` in `redact_text` and as
+  `***` in `mask_uri_credentials`. A service can take a token as the user name, with an empty
+  password (httpx2 sends such a URL as Basic authentication). A token and a harmless name such as
+  `git` in `ssh://git@host/` look the same to a parser, so the rule masks both. pip masks a user
+  name with no password in the same way.
+- A URL with no userinfo stays as written in `redact_text`. An `@` after the authority, as in a
+  query, is not userinfo. `mask_uri_credentials` fails closed for a text that has an `@` and no
+  userinfo, and returns `<masked-url>` (#1109).
+
+A user name with a `/`, `?` or `#` that is not percent-encoded is not valid userinfo. The parser
+reads it as part of the host or the path, so the rule cannot mask it.
+"""
 
 from __future__ import annotations
 
@@ -64,13 +85,20 @@ def _mask_url_candidate(match: re.Match[str]) -> str:
     except Exception:
         return "<masked-url>" if has_at else candidate
 
+    # The userinfo starts right after "://" and the parser gives its parts as written.
+    userinfo_start = candidate.find("://") + 3
     if parts.password is not None:
-        scheme_end = candidate.find("://") + 3
         userinfo_len = len(parts.username or "") + 1 + len(parts.password)
         return (
-            f"{candidate[:scheme_end]}"
+            f"{candidate[:userinfo_start]}"
             f"<masked-user>:<masked-password>"
-            f"{candidate[scheme_end + userinfo_len :]}"
+            f"{candidate[userinfo_start + userinfo_len :]}"
+        )
+    if parts.username:
+        return (
+            f"{candidate[:userinfo_start]}"
+            f"<masked-user>"
+            f"{candidate[userinfo_start + len(parts.username) :]}"
         )
 
     if has_at:
@@ -388,7 +416,12 @@ def mask_private_hosts(text: str) -> str:
 
 
 def redact_text(text: str, syntax: Literal["code", "data"] | str = "data") -> str:
-    """Sanitize and redact known credential and secret patterns in the input text."""
+    """Sanitize and redact known credential and secret patterns in the input text.
+
+    A URL in the text has its userinfo masked, whatever the scheme: `<masked-user>:<masked-password>`
+    for a user and a password, and `<masked-user>` for a user with no password. See the module
+    docstring for the rule.
+    """
     if not text:
         return ""
     patterns = _SECRET_PATTERNS_CODE if _is_code_syntax(syntax) else _SECRET_PATTERNS_DATA
@@ -442,7 +475,12 @@ def mask_secret_named_values(data: Any) -> Any:
 
 
 def mask_uri_credentials(uri: str) -> str:
-    """Mask password or credentials in URL/URI strings while preserving scheme and host."""
+    """Mask the credentials in the userinfo of a URL/URI, and keep everything else.
+
+    A user beside a password stays and the password becomes `***`. A password with no user, and
+    a user with no password, become `***` whole: a service can take a token as the user name, and
+    the parser cannot tell a token from a harmless name such as `git`. See the module docstring.
+    """
     if not uri:
         return ""
     try:
@@ -451,9 +489,9 @@ def mask_uri_credentials(uri: str) -> str:
         return "<masked-url>"
     if "@" in uri and not u.userinfo:
         return "<masked-url>"
-    if u.password:
-        if u.username:
-            return str(u.copy_with(username=u.username, password=_URL_MASK))
+    if u.username and u.password:
+        return str(u.copy_with(username=u.username, password=_URL_MASK))
+    if u.username or u.password:
         return str(u.copy_with(username=_URL_MASK, password=None))
     return uri
 
