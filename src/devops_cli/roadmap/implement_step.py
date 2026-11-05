@@ -1185,7 +1185,7 @@ def _fail_to_pass_failure(
     """Why the step stops when the tests of a behavior group do not fail on the base commit of the
     group, else None (#3042). The step replays the test files that it changed on that commit, and
     keeps the result for the trace and the PR comment. A behavior group that changed no test file
-    stops with no repair round. A replay that passes, or that cannot be collected, on base gets one
+    stops with no repair round. A replay that passes, or that stops with an error, on base gets one
     repair round that may change only the test files."""
     if not inputs.group.is_behavior:
         return None

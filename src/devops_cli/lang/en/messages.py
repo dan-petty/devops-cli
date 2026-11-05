@@ -2518,14 +2518,15 @@ class RoadmapMessages:
         "so they prove nothing. Write a test that fails on the base commit first."
     )
     implement_stop_base_errors: str = (
-        "The tests of {files} cannot be collected on the base commit, so no test fails there. "
-        "Import the new code inside the test function, so that the test fails on an assertion."
+        "The tests of {files} stop with an error on the base commit, before any assertion runs, "
+        "so no test fails there. Import the new code inside the test function, so that the test "
+        "fails on an assertion."
     )
     implement_stop_base_not_run: str = "The tests of {files} could not run on the base commit. Pytest exited with status {status}.\n{output}"
     implement_base_check: str = "pytest on base: {files}"
     implement_base_fails: str = "fails on the base commit"
     implement_base_passes: str = "passes on the base commit"
-    implement_base_errors: str = "cannot be collected on the base commit"
+    implement_base_errors: str = "stops with an error on the base commit"
     implement_base_not_run: str = "did not run on the base commit"
     implement_stop_tests_lost: str = (
         "The agent removed tests that existed at the start of the step. "

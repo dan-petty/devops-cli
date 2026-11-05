@@ -2,7 +2,7 @@
 
 The step replays the test files of a behavior group on its base commit, with the head's tests
 overlaid, and accepts the group only when one of its tests fails in its call phase there. A test
-that passes on the base, or that cannot be collected there, is refused, and one repair round may
+that passes on the base, or that stops with an error there, is refused, and one repair round may
 change only the test files. A group of kind `other` keeps the output of its verify commands.
 
 Git runs for real on a checkout in `tmp_path`, and every other program is answered by
@@ -61,8 +61,9 @@ PASSES_REASON = (
     "so they prove nothing. Write a test that fails on the base commit first."
 )
 COLLECTION_REASON = (
-    "The tests of tests/test_sample.py cannot be collected on the base commit, so no test fails "
-    "there. Import the new code inside the test function, so that the test fails on an assertion."
+    "The tests of tests/test_sample.py stop with an error on the base commit, before any assertion "
+    "runs, so no test fails there. Import the new code inside the test function, so that the test "
+    "fails on an assertion."
 )
 NO_TEST_REASON = (
     "A behavior group changed no test file. Write the failing test first, in a file under tests/."

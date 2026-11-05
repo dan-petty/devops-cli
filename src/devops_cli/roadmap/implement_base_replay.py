@@ -3,7 +3,7 @@
 A behavior group's test files must fail on the base commit of the group, before the change. The
 replay runs them on that base, with the tests of the head overlaid (`devops_cli.ci.fail_to_pass`),
 and `judge_replay` reads the outcome of each test. A test that fails in its call phase proves the
-group. A test that passes, or that cannot be collected, does not. A replay that could not run proves
+group. A test that passes, or that stops with an error before its assertion, does not. A replay that could not run proves
 nothing. A group of kind `other` keeps the output of its verify commands as a `VerifiedCommand`.
 """
 
