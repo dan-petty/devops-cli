@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/roadmap/stage_paths.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_paths.py`. Changes: `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/stage_paths.py`, `tests/roadmap/test_roadmap_stage_paths.py`.
 
-- [ ] 1.1 In `tests/roadmap/test_roadmap_stage_paths.py`, assert that the problem of a group that names a missing path holds `creates`, ` (new)` and `Changes:`, that it ends with the `stage_path_same_name` hint, and that a path a later group creates keeps its own message
+- [x] 1.1 In `tests/roadmap/test_roadmap_stage_paths.py`, assert that the problem of a group that names a missing path holds `creates`, ` (new)` and `Changes:`, that it ends with the `stage_path_same_name` hint, and that a path a later group creates keeps its own message
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_paths.py` fails on the base
-- [ ] 1.2 Rewrite `MESSAGES.roadmap.stage_problem_path` in `src/devops_cli/lang/en/messages.py` to name the `creates` list of a reply and the ` (new)` mark of the `Changes:` line, and keep the placeholders `{group}`, `{path}`, `{place}` and `{hint}`. State in the docstring of `src/devops_cli/roadmap/stage_paths.py` that `path_problems` judges both the stage reply and the change folder. Leave the later-creator message as it is
+- [x] 1.2 Rewrite `MESSAGES.roadmap.stage_problem_path` in `src/devops_cli/lang/en/messages.py` to name the `creates` list of a reply and the ` (new)` mark of the `Changes:` line, and keep the placeholders `{group}`, `{path}`, `{place}` and `{hint}`. State in the docstring of `src/devops_cli/roadmap/stage_paths.py` that `path_problems` judges both the stage reply and the change folder. Leave the later-creator message as it is
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_paths.py` passes
 
 ## 2. Assert the message through the plan check
