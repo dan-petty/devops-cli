@@ -27,7 +27,7 @@ Reads: `src/devops_cli/k8s/image_pins.py`, `src/devops_cli/commands/k8s/image_pi
 - [ ] 3.2 In `src/devops_cli/k8s/image_pins.py`, give `resolve_image` and `resolve_image_pins` a client and a timeout. `resolve_image` calls `tag_digest` and records `RegistryReadError`, `SSRFBlockedError` and `httpx2.HTTPError` in `PinResolution.error`. Delete `inspect_command`, the process call, the `planned` field of `PinResolution`, and the imports and constants that this leaves unused. In `src/devops_cli/commands/k8s/image_pins.py`, open `new_http_client(level=EgressLevel.PUBLIC)` with `DEFAULT_HTTP_TIMEOUT_SECONDS` only outside a dry run, remove the "planned" text from `_result_text`, and change the dry-run message in `src/devops_cli/lang/en/messages.py` to name the HEAD request. Write the docstring of the module and the help text of the command as they read now: a HEAD request that Docker Hub does not count
   - Verification: `uv run devops ci test tests/k8s/test_image_pins.py tests/docker/test_registry_tag_digest.py tests/argo/test_image_pins.py` passes
 - [ ] 3.3 Delete the four files of the imagetools fake, its recording, its record and its contract suite
-  - Verification: `! git grep -n -E "ImagetoolsFake|inspect_command|imagetools_recording|imagetools_runs" -- src tests` prints nothing, and `uv run devops ci test tests/k8s tests/docker tests/argo` passes
+  - Verification: `! git grep -n -e "ImagetoolsFake" -e "inspect_command" -e "imagetools_recording" -e "imagetools_runs" -- src tests` prints nothing, and `uv run devops ci test tests/k8s tests/docker tests/argo` passes
 
 ## 4. Fix the documents that name the old resolver
 
