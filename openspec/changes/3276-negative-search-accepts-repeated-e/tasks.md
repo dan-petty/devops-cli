@@ -40,7 +40,7 @@ Reads: `openspec/changes/2610-devops-k8s-image-pins-resolves-with/tasks.md`. Cha
 
 Reads: `docs/TESTING.md`. Changes: `docs/TESTING.md`.
 
-- [ ] 5.1 In the negative-search paragraph of `docs/TESTING.md`, state the form: one plain literal, or one or more `-e` literals with `--` before the paths. A pipe, `;`, `&&`, a redirect, `-E`, `-P` and any other option stay refused
+- [x] 5.1 In the negative-search paragraph of `docs/TESTING.md`, state the form: one plain literal, or one or more `-e` literals with `--` before the paths. A pipe, `;`, `&&`, a redirect, `-E`, `-P` and any other option stay refused
   - Verification: `uv run devops ci docs` passes
 
 ## Workflow follow-up
