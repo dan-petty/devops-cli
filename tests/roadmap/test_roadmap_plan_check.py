@@ -25,6 +25,7 @@ from devops_cli.roadmap.stage_change import (
     render_change,
     shared_texts,
 )
+from devops_cli.roadmap.store import encode_job_record, with_record
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import VALID_REPORT, StageRepo, heavy_group
 
@@ -80,14 +81,16 @@ def _checks(
     return CheckVerdictSummary(items=[item])
 
 
-def _facts(repo: StageRepo, *, sha: str, title: str = TITLE, body: str = BODY) -> _Reads:
+def _facts(
+    repo: StageRepo, *, sha: str, title: str = TITLE, body: str = BODY, issue_body: str = ""
+) -> _Reads:
     base = repo.git("rev-parse", "main")
     pull = PullRequest(
         title=title,
         head=CommitRef(sha=sha, ref="plan", repository="example/roadmap"),
         base=CommitRef(sha=base, ref="main", repository="example/roadmap"),
     )
-    return _Reads(pull=pull, bodies={PULL: body, ISSUE: ""})
+    return _Reads(pull=pull, bodies={PULL: body, ISSUE: issue_body})
 
 
 def _push(repo: StageRepo, files: Mapping[str, str], *, branch: str = "plan") -> str:
@@ -386,13 +389,23 @@ def _counted(group: StageGroup | None = None) -> StageProposal:
     )
 
 
-def _stage_figure(repo: StageRepo, proposal: StageProposal, files: Mapping[str, str]) -> int:
+def _stage_figure(
+    repo: StageRepo, proposal: StageProposal, files: Mapping[str, str], body: str = ""
+) -> int:
     """The tokens that the stage job counts for the only group of `proposal`: it measures the
-    group on its clone, with the item and the files of the change folder as the shared text."""
+    group on its clone, with the item and the files of the change folder as the shared text. The
+    body of the item holds no record block, as the store reads it."""
     (measured,) = measure_groups(
-        repo.clone, proposal.groups, shared=shared_texts(ISSUE_TITLE, "", files)
+        repo.clone, proposal.groups, shared=shared_texts(ISSUE_TITLE, body, files)
     )
     return measured.tokens
+
+
+def _recorded(body: str) -> str:
+    """The body of an issue as GitHub holds it: the text, then the record block that the jobs
+    write. The block holds many tokens, as the block of an issue that the jobs ran holds."""
+    record = encode_job_record({"trace": "step " * 600}, {})
+    return with_record(body, record)
 
 
 def test_the_figure_of_a_group_is_the_figure_of_the_stage_job(
@@ -412,6 +425,39 @@ def test_the_figure_of_a_group_is_the_figure_of_the_stage_job(
     assert problem.message == MESSAGES.roadmap.plan_check_group_over_budget.format(
         number=1, title=proposal.groups[0].title, tokens=figure, budget=figure - 1
     )
+
+
+def test_the_record_block_of_the_issue_is_not_in_the_figure(
+    stage_repo: StageRepo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = "The job keeps every comment it reads."
+    proposal = _counted(heavy_group(stage_repo, files=1))
+    files = _change(proposal)
+    figure = _stage_figure(stage_repo, proposal, files, text)
+    sha = _push(stage_repo, files)
+    _budget(monkeypatch, figure - 1)
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha, issue_body=_recorded(text)))
+
+    (problem,) = result.problems
+    assert problem.message == MESSAGES.roadmap.plan_check_group_over_budget.format(
+        number=1, title=proposal.groups[0].title, tokens=figure, budget=figure - 1
+    )
+
+
+def test_a_group_at_the_budget_is_not_reported_when_the_issue_has_a_record_block(
+    stage_repo: StageRepo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = "The job keeps every comment it reads."
+    proposal = _counted(heavy_group(stage_repo, files=1))
+    files = _change(proposal)
+    figure = _stage_figure(stage_repo, proposal, files, text)
+    sha = _push(stage_repo, files)
+    _budget(monkeypatch, figure)
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha, issue_body=_recorded(text)))
+
+    assert result.problems == ()
 
 
 def test_a_group_at_the_budget_is_not_reported(

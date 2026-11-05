@@ -1,11 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Plan-check measures each task group
-`devops roadmap plan-check` SHALL measure each task group of the plan with `measure_groups`, the function of the stage job, on the tracked files of the pull request head. The plan holds no estimate of the lines of a created file, so the measure SHALL count one estimated line for each created file.
+`devops roadmap plan-check` SHALL measure each task group of the plan with `measure_groups`, the function of the stage job, on the tracked files of the pull request head, with the body of the issue as the store reads it for the stage job, with no record block. The plan holds no estimate of the lines of a created file, so the measure SHALL count one estimated line for each created file.
 
 #### Scenario: The figure equals the figure of the stage job
 - **WHEN** a plan has a group that estimates one line for each file that it creates, and the budget is one token below the figure that `measure_groups` gives the stage job for that group
 - **THEN** the `group-over-budget` problem holds that figure.
+
+#### Scenario: The record block of the issue is not in the figure
+- **WHEN** the body of the issue ends with the record block of the jobs, and the budget is one token below the figure that the stage job gives for the same text with no block
+- **THEN** the `group-over-budget` problem holds the figure of the stage job, and a budget equal to that figure gives no problem.
 
 ### Requirement: Plan-check reports a group over the budget
 The command SHALL read the budget from the setting `roadmap.stage.step_tokens`, and SHALL report a `group-over-budget` problem for each group whose figure is above it.

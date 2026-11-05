@@ -14,7 +14,8 @@ more than one, is a problem.
 
 The GitHub client gives the title, the body, the base and the check runs. The command reads the
 issue that the body plans, for its acceptance criteria and for the text of the item that the size
-measure counts. It builds no model client.
+measure counts. The command takes the body of the issue with no record block of the jobs, as the
+stage job reads it. It builds no model client.
 
 To measure the groups, the command makes a detached worktree of the head commit in a temporary
 folder and removes it when the measure ends. The files that the tasks name are the files of the head

@@ -52,6 +52,7 @@ from devops_cli.roadmap.stage_change import (
 )
 from devops_cli.roadmap.stage_paths import StagedTree
 from devops_cli.roadmap.stage_validate import validate_change
+from devops_cli.roadmap.store import split_record
 
 GIT_OPERATION: Final[str] = "roadmap.plan-check"
 SEMANTIC_TITLE_CHECK: Final[str] = "Semantic PR title"
@@ -357,12 +358,14 @@ def _size_problems(
     root: str,
     head: str,
     source: Path,
-    issue: IssueView,
+    title: str,
+    body: str,
     paths: Sequence[str],
 ) -> list[PlanProblem]:
     """The groups of the plan that the stage measure faults (#3499). `measure_groups`, the function
     of the stage job, measures each group on the tracked files of `head`, with the item and the
-    files `paths` of the change folder as the shared text. The files are read from the checkout,
+    files `paths` of the change folder as the shared text. `body` is the body of the issue with no
+    record block, as the store reads it for the stage job. The files are read from the checkout,
     not from `git show`, which strips the end of a text, so the figure is the figure of the stage
     job. A group above the budget `roadmap.stage.step_tokens` is a problem. A group that changes
     a file that exists, and packs no file, is a problem too: the step starts with none of the
@@ -375,7 +378,7 @@ def _size_problems(
         files = {
             path: (tree / path).read_text(encoding="utf-8", errors="replace") for path in paths
         }
-        shared = shared_texts(issue.title, issue.body or "", files)
+        shared = shared_texts(title, body, files)
         measured = measure_groups(tree, proposal.groups, shared=shared)
     path = f"{root}/tasks.md"
     problems: list[PlanProblem] = []
@@ -461,8 +464,9 @@ def plan_check(
         )
 
     planned = reads.get_issue(repo, issue)
-    problems.extend(_gate_problems(proposal, root, head, source, base_rev, planned.body or ""))
-    problems.extend(_size_problems(proposal, root, head, source, planned, changed))
+    body, _ = split_record(planned.body or "", issue=f"#{issue}")
+    problems.extend(_gate_problems(proposal, root, head, source, base_rev, body))
+    problems.extend(_size_problems(proposal, root, head, source, planned.title, body, changed))
     problems.extend(_validate_problems(tool, source, root.rsplit("/", 1)[-1], change_files))
     problems.extend(_moved_problems(proposal, source, plan_rev, base_rev))
     return PlanCheckResult(tuple(problems))
