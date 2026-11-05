@@ -46,9 +46,9 @@ Reads: `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`, `tests/fixt
 
 Reads: `docs/TELEMETRY.md`, `k8s/README.md`. Changes: `docs/TELEMETRY.md`, `k8s/README.md`, `tests/prometheus/test_k8s_monitoring_alerting.py`.
 
-- [ ] 5.1 Add a test to `tests/prometheus/test_k8s_monitoring_alerting.py` that asserts that the action text of `RoadmapServiceGitHubRequestsHigh` in `k8s/README.md` does not say to lower the budget
+- [x] 5.1 Add a test to `tests/prometheus/test_k8s_monitoring_alerting.py` that asserts that the action text of `RoadmapServiceGitHubRequestsHigh` in `k8s/README.md` does not say to lower the budget
   - Verification: `uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` fails on the base
-- [ ] 5.2 Rewrite the action text of `RoadmapServiceGitHubRequestsHigh` in `k8s/README.md` without the word to lower the budget, rewrite `docs/TELEMETRY.md` lines 19-32 to state the scrape behavior and the labels, state the class count of 19 in `k8s/README.md`, and run `uv run devops docs generate --sync-readme`
+- [x] 5.2 Rewrite the action text of `RoadmapServiceGitHubRequestsHigh` in `k8s/README.md` without the word to lower the budget, rewrite `docs/TELEMETRY.md` lines 19-32 to state the scrape behavior and the labels, state the class count of 19 in `k8s/README.md`, and run `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` passes and `uv run devops ci docs` passes
 
 ## Workflow follow-up

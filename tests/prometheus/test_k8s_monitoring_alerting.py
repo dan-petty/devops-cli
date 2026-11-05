@@ -1268,3 +1268,16 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
         sorted(rule["alert"] for rule in _group(group)),
         0,
     ), result.stdout + result.stderr
+
+
+def test_github_requests_high_action_does_not_lower_budget() -> None:
+    """The action of `RoadmapServiceGitHubRequestsHigh` names no lower budget. The alert follows
+    the budget, so a lower budget makes the alert fire sooner (#3495)."""
+    readme = (K8S / "README.md").read_text(encoding="utf-8")
+    row = next(
+        line
+        for line in readme.splitlines()
+        if line.startswith("| `RoadmapServiceGitHubRequestsHigh` |")
+    )
+
+    assert "lower the budget" not in row.lower()
