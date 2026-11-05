@@ -13,12 +13,12 @@ Reads: `src/devops_cli/roadmap/store.py`, `src/devops_cli/roadmap/github_store.p
 
 ## 2. Give the model the decisions of the ADRs
 
-Reads: `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli/roadmap/adr.py`, `tests/roadmap/test_roadmap_alternatives.py`. Changes: `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli/config/constants.py`, `tests/roadmap/test_roadmap_alternatives.py`.
+Reads: `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli/roadmap/adr.py`, `tests/roadmap/test_roadmap_alternatives.py`, `tests/roadmap/test_roadmap_limit_classes.py`. Changes: `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli/config/constants.py`, `tests/roadmap/test_roadmap_alternatives.py`, `tests/roadmap/test_roadmap_limit_classes.py`.
 
-- [x] 2.1 Add tests to `tests/roadmap/test_roadmap_alternatives.py` for the requirements "The check reads the ADRs of the repository" and "The request holds the decisions of the ADRs": two ADRs give `decisions` with the newest first; options longer than a lowered cap give a cut text that starts with the newest ADR; a repository with no `docs/adr/` gives no `decisions` key; a run of skip-class items reads no ADR file; a failed read of the directory stops the run and writes no check. Change the default body of `_item` and the bodies that name `scanner` so that they name no tool, since a body that names the tool now gives the verdict `in-use`
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_alternatives.py` fails on the base
+- [x] 2.1 Add tests to `tests/roadmap/test_roadmap_alternatives.py` for the requirements "The check reads the ADRs of the repository" and "The request holds the decisions of the ADRs": two ADRs give `decisions` with the newest first; options longer than a lowered cap give a cut text that starts with the newest ADR; a repository with no `docs/adr/` gives no `decisions` key; a run of skip-class items reads no ADR file; a failed read of the directory stops the run and writes no check. Add the new cap to the table of `tests/roadmap/test_roadmap_limit_classes.py` as a share of the planner window, and a test that the body cap and the ADR cap fit half of it. Change the default body of `_item` and the bodies that name `scanner` so that they name no tool, since a body that names the tool now gives the verdict `in-use`
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_alternatives.py tests/roadmap/test_roadmap_limit_classes.py` fails on the base
 - [x] 2.2 Add `CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS` (8192) to `src/devops_cli/config/constants.py`. In `src/devops_cli/roadmap/alternatives.py`, make `plan_alternatives` call `read_adrs` once when a selected item is no skip class, pass the ADRs through `_check_one` to `_request`, and add `decisions` to the request: the entries `ADR <number as four digits>: <title>` and the options, joined by a blank line, cut with `truncate_to_token_limit`, and no key for no ADR
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_alternatives.py` passes
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_alternatives.py tests/roadmap/test_roadmap_limit_classes.py` passes
 
 ## 3. List the ADR reads in the dry run
 

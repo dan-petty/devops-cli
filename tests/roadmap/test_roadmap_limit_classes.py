@@ -200,6 +200,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "raised",
         "was 4096; a quarter of the planner window",
     ),
+    "CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS": (
+        "window",
+        "an eighth of the planner window; the options of the ADRs",
+    ),
     "CONST_ROADMAP_ALTERNATIVES_MAX_LICENSE_CHARS": (
         "kept",
         "a rule that tells a license name from a license text",
@@ -501,6 +505,17 @@ def test_a_reply_at_the_output_cap_ends_before_the_deadline_of_the_call() -> Non
 
 def test_the_body_of_an_item_in_the_alternatives_check_is_a_share_of_the_planner_window() -> None:
     assert constants.CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS <= PLANNER_WINDOW // 4
+
+
+def test_the_body_and_the_adrs_of_an_item_in_the_alternatives_check_fit_half_the_planner_window() -> (
+    None
+):
+    assert constants.CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS <= PLANNER_WINDOW // 8
+    assert (
+        constants.CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS
+        + constants.CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS
+        <= PLANNER_WINDOW // 2
+    )
 
 
 def test_the_first_plan_request_and_its_reserve_fit_below_the_limit_of_the_tools() -> None:
