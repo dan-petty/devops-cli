@@ -15,7 +15,7 @@ Kind: behavior. Reads: `src/devops_cli/security/sanitizer.py`, `tests/security/t
 
 Kind: documentation. Reads: none. Changes: `openspec/changes/`, `openspec/specs/`.
 
-- [ ] 2.1 Archive the change
+- [x] 2.1 Archive the change
   - Verification: `uv run devops openspec archive 2662-mask-url-user-name-without-password`
 
 ## Workflow follow-up
