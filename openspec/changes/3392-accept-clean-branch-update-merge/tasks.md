@@ -20,11 +20,13 @@ Kind: behavior. Reads: `src/devops_cli/git/branch_authors.py`, `src/devops_cli/g
 
 ## 3. Documents
 
-Kind: documents. Changes: `src/devops_cli/roadmap/implement.py`, `src/devops_cli/git/worktree_add.py`, `CONTRIBUTING.md`.
+Kind: documents. Changes: `src/devops_cli/roadmap/implement.py`, `src/devops_cli/git/worktree_add.py`, `src/devops_cli/roadmap/stage.py`, `CONTRIBUTING.md`.
 
-- [ ] 3.1 Change the docstring of the implement job (line 28) and the docstrings of `worktree_add.py` (the module and the takeover functions) so that they say a clean merge by a person is not an author.
+- [x] 3.1 Change the docstring of the implement job (line 28) and the docstrings of `worktree_add.py` (the module and the takeover functions) so that they say a clean merge by a person is not an author.
   - Verification: `uv run devops ci --check --only lint,format`
-- [ ] 3.2 Change the paragraph on starting work in `CONTRIBUTING.md` so that it says a clean merge by a person does not hold a branch, and that a merge which changes a file or resolves a conflict still holds it. Run `uv run devops docs generate --sync-readme`.
+- [x] 3.2 Change the docstrings of `_foreign_commits` and `_reconcile` in `src/devops_cli/roadmap/stage.py` so that they say a clean merge by a person is not a commit of another author.
+  - Verification: `uv run devops ci --check --only lint,format`
+- [x] 3.3 Change the paragraph on starting work in `CONTRIBUTING.md` so that it says a clean merge by a person does not hold a branch, and that a merge which changes a file or resolves a conflict still holds it. Run `uv run devops docs generate --sync-readme`.
   - Verification: `uv run devops ci docs`
 
 ## 4. Archive

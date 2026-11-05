@@ -8,8 +8,9 @@ GitHub request: a pull request of this repository always has a pushed head branc
 list of the pull requests that close an issue also names the open release pull request.
 
 A pushed branch is not a hold when the App wrote every commit of it past `origin/main`: the author
-of each commit, read with `git log --format=%an`, is the bot login of `service.github_app.slug`.
-The run then adds the worktree on that branch.
+of each commit, read with `git log`, is the bot login of `service.github_app.slug`. A clean merge
+by a person is not a commit that the App lacks (#3392), as `branch_authors.py` decides. The run then
+adds the worktree on that branch.
 
 A local branch of the name that the run is about to create, with no worktree, is a stray branch
 (#2724). The run deletes it when `origin` holds every commit of it, and refuses to go on, with the
@@ -323,7 +324,8 @@ def _take_over(
     reclaim: ReclaimResult,
     remote_heads: str,
 ) -> WorktreeAddReport:
-    """Add the worktree on the pushed branch when the App wrote every commit past main.
+    """Add the worktree on the pushed branch when the App wrote every commit past main, apart from
+    a clean merge by a person.
 
     The fetch names the branch, so `origin/<branch>` exists whatever the fetch refspec of the
     clone. The worktree tracks the pushed branch, so a plain `git push` goes to it.
@@ -398,8 +400,8 @@ def add_worktree(
 
     With no branch of `origin` for the issue, the worktree is on the new branch
     `<type>/<issue>-<slug>` at the fetched `origin/main`, and `type_` and `slug` are required.
-    With a pushed branch, the App must have written every commit of it past main: the run takes
-    the branch over (`took over`), takes `type_` and `slug` from it, and refuses a value that
+    With a pushed branch, the App must have written every commit of it past main, apart from a
+    clean merge by a person (#3392): the run takes the branch over (`took over`), takes `type_` and `slug` from it, and refuses a value that
     differs. The run refuses an issue that a local worktree holds before it reads `origin`, and
     one that a branch of `origin` holds before it adds the worktree, so a refused run leaves no
     worktree and no local branch. A dry run reads the local worktrees only and lists the four
