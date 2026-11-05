@@ -340,7 +340,7 @@ def test_the_options_of_a_negative_search_are_these_letters() -> None:
 def test_each_option_of_a_negative_search_is_read(letter: str) -> None:
     found = read_negative_search(["!", "git", "grep", f"-{letter}", "name", "src/"])
 
-    assert found == NegativeSearch((f"-{letter}",), "name", ("src/",))
+    assert found == NegativeSearch((f"-{letter}",), ("name",), ("src/",))
 
 
 def test_a_negative_search_is_read_into_its_options_literal_and_paths() -> None:
@@ -348,9 +348,29 @@ def test_a_negative_search_is_read_into_its_options_literal_and_paths() -> None:
         ["!", "git", "grep", "-nI", "-w", "old name", "--", "src/", "tests/*.py"]
     )
 
-    assert found == NegativeSearch(("-nI", "-w"), "old name", ("src/", "tests/*.py"))
+    assert found == NegativeSearch(("-nI", "-w"), ("old name",), ("src/", "tests/*.py"))
     assert isinstance(found, NegativeSearch)
     assert found.argv == ["git", "grep", "-nI", "-w", "old name", "--", "src/", "tests/*.py"]
+
+
+def test_a_negative_search_with_e_options_is_read_into_one_literal_for_each() -> None:
+    found = read_negative_search(
+        ["!", "git", "grep", "-n", "-e", "old", "-e", "new name", "--", "src/"]
+    )
+
+    assert found == NegativeSearch(("-n",), ("old", "new name"), ("src/",), by_e=True)
+    assert isinstance(found, NegativeSearch)
+    assert found.argv == [
+        "git",
+        "grep",
+        "-n",
+        "-e",
+        "old",
+        "-e",
+        "new name",
+        "--",
+        "src/",
+    ]
 
 
 def test_the_paths_of_the_run_follow_a_mark_also_when_the_command_has_none() -> None:
