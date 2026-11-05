@@ -823,9 +823,19 @@ def criteria_section(criteria: Sequence[StageCriterion]) -> str:
 _criteria_section = criteria_section
 
 
+def _follow_up_section(groups: Sequence[StageGroup]) -> str:
+    """The `## Workflow follow-up` section with the tuicr bullet, for a plan that changes a path
+    under `src/`, the only plan that has code for tuicr to review. A plan with no such path has no
+    section."""
+    if not any(path.startswith(_SOURCE_DIRECTORY) for g in groups for path in g.changes):
+        return ""
+    return f"## Workflow follow-up\n\n- {MESSAGES.roadmap.stage_pending_review}\n"
+
+
 def _tasks_file(groups: Sequence[StageGroup], criteria: Sequence[StageCriterion] = ()) -> str:
     sections = "\n".join(group_text(i, g) for i, g in enumerate(groups, start=1))
-    return f"# Tasks\n\n{sections}\n{_criteria_section(criteria)}## Workflow follow-up\n\n- {MESSAGES.roadmap.stage_pending_review}\n"
+    body = f"# Tasks\n\n{sections}\n{_criteria_section(criteria)}{_follow_up_section(groups)}"
+    return body.rstrip("\n") + "\n"
 
 
 def render_change(

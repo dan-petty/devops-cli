@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/roadmap/stage_change.py`, `tests/roadmap/test_roadmap_stage_plan.py`. Changes: `src/devops_cli/roadmap/stage_change.py`, `tests/roadmap/test_roadmap_stage_plan.py`.
 
-- [ ] 1.1 Add a failing test to `tests/roadmap/test_roadmap_stage_plan.py`: a plan whose groups change only `SECURITY.md` renders no tuicr bullet and no `## Workflow follow-up` heading, and a plan with a group that changes `src/devops_cli/roadmap/stage_change.py` keeps the bullet
+- [x] 1.1 Add a failing test to `tests/roadmap/test_roadmap_stage_plan.py`: a plan whose groups change only `SECURITY.md` renders no tuicr bullet and no `## Workflow follow-up` heading, and a plan with a group that changes `src/devops_cli/roadmap/stage_change.py` keeps the bullet
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` fails on the base
-- [ ] 1.2 In `_tasks_file` of `src/devops_cli/roadmap/stage_change.py`, write the tuicr bullet and the `## Workflow follow-up` heading only when a group changes a path under `src/`
+- [x] 1.2 In `_tasks_file` of `src/devops_cli/roadmap/stage_change.py`, write the tuicr bullet and the `## Workflow follow-up` heading only when a group changes a path under `src/`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` passes
 
 ## 2. The docs step follows a command or a message change

@@ -776,6 +776,36 @@ def test_a_group_with_no_reads_is_valid_and_its_line_says_none() -> None:
     )
 
 
+_DOCUMENTS_ONLY: dict[str, Any] = {
+    "title": "Name the disclosure contact",
+    "kind": "other",
+    "reads": [],
+    "changes": ["SECURITY.md"],
+    "creates": [],
+    "creates_lines": {},
+    "test": None,
+    "implementation": "Name the disclosure contact in `SECURITY.md`",
+    "documentation": None,
+    "verify": "uv run devops ci docs",
+}
+
+
+def test_a_documents_only_plan_renders_no_workflow_follow_up() -> None:
+    tasks = _tasks_of(_DOCUMENTS_ONLY)
+
+    assert "tuicr" not in tasks
+    assert "## Workflow follow-up" not in tasks
+
+
+def test_a_plan_with_a_source_change_keeps_the_tuicr_bullet() -> None:
+    tasks = _tasks_of(_group())
+
+    assert tasks.endswith(
+        "## Workflow follow-up\n\n"
+        "- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).\n"
+    )
+
+
 def test_a_rendered_group_has_no_double_stop_and_no_task_that_starts_with_a_comma() -> None:
     group = _group(
         test="Write the test.",
