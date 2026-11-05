@@ -795,6 +795,45 @@ def test_changes_since_with_an_empty_actor_leaves_out_nothing(
     assert [(change.actor, change.label) for change in changes] == [("", "type/bug")]
 
 
+def test_both_adapters_read_the_label_changes_of_one_issue_alike(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    """The in-memory store and the GitHub store return the same labeled and unlabeled changes of
+    one issue, oldest first, and no change of another issue (#2919). The GitHub fake answers the
+    events that the in-memory store recorded, as GitHub would list them."""
+    number = store.seed_issue("readied", fields={**PLACED, ItemField.STATUS: "New"})
+    other = store.seed_issue("another item", fields={**PLACED, ItemField.STATUS: "New"})
+    for issue, status in ((number, "Ready"), (other, "Ready")):
+        item = store.item(issue)
+        assert item is not None
+        store.set_field(item, ItemField.STATUS, status)
+    clock.now += timedelta(hours=1)
+    item = store.item(number)
+    assert item is not None
+    store.set_field(item, ItemField.STATUS, "Planned")
+    events = [
+        {
+            "event": change.kind.value,
+            "created_at": change.at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "actor": {"login": change.actor},
+            "label": {"name": change.label},
+            "issue": {"number": change.number},
+        }
+        for change in store.changes_since(datetime(2026, 1, 1, tzinfo=UTC))
+    ]
+    github = GitHubFake(REPO, events=events)
+    github_store = GitHubRoadmapStore(REPO, runner=github, session=RunnerSession(github))
+
+    def read(roadmap: RoadmapStore) -> list[tuple[ChangeKind, int, str | None, datetime]]:
+        return [(c.kind, c.number, c.label, c.at) for c in roadmap.label_changes(number)]
+
+    assert read(github_store) == read(store)
+    assert {c.number for c in store.label_changes(number)} == {number}
+    assert [c.label for c in store.label_changes(number) if c.kind is ChangeKind.LABELED][-1] == (
+        "status/planned"
+    )
+
+
 def test_a_persons_value_differs_from_the_job_record(store: InMemoryRoadmapStore) -> None:
     """A person's write sets the label and records nothing, so the record keeps the job's."""
     number = store.seed_issue("prioritize me", fields={ItemField.PRIORITY: "P3-Low"})

@@ -1025,6 +1025,60 @@ def test_changes_since_with_an_empty_actor_leaves_out_nothing() -> None:
     ]
 
 
+ISSUE_950_EVENTS = f"/repos/{REPO}/issues/950/events?per_page=100"
+
+
+def issue_event(event: str, moment: str, **fields: Any) -> dict[str, Any]:
+    """An event of an issue's own listing: it has no `issue` key, as GitHub omits it there."""
+    return {"event": event, "created_at": moment, "actor": {"login": "dan-petty"}, **fields}
+
+
+def test_label_changes_keeps_the_label_events_of_an_issue_oldest_first_across_pages(
+    github_api: GitHubApiFake,
+) -> None:
+    """An issue's events are read from its own listing, following GitHub's links. The labeled
+    and unlabeled events are kept in the order GitHub lists them, and the others are left out
+    (#2919)."""
+    second = f"{ISSUE_950_EVENTS}&page=2"
+    first_page = [
+        issue_event("labeled", "2026-10-02T12:00:00Z", label={"name": "status/ready"}),
+        issue_event("commented", "2026-10-02T12:01:00Z"),
+        issue_event("unlabeled", "2026-10-02T12:02:00Z", label={"name": "status/new"}),
+    ]
+    second_page = [
+        issue_event("labeled", "2026-10-02T13:00:00Z", label={"name": "owner/agent"}),
+    ]
+    github_api.route("GET", ISSUE_950_EVENTS, github_json(first_page, headers=next_page(second)))
+    github_api.route("GET", second, github_json(second_page))
+    store, _ = over_github()
+    changes = store.label_changes(950)
+    assert (
+        [(c.kind, c.number, c.actor, c.label, c.at.isoformat()) for c in changes],
+        [url for url in github_api.requested if "/events" in url],
+    ) == (
+        [
+            (ChangeKind.LABELED, 950, "dan-petty", "status/ready", "2026-10-02T12:00:00+00:00"),
+            (ChangeKind.UNLABELED, 950, "dan-petty", "status/new", "2026-10-02T12:02:00+00:00"),
+            (ChangeKind.LABELED, 950, "dan-petty", "owner/agent", "2026-10-02T13:00:00+00:00"),
+        ],
+        [f"GET {API}{ISSUE_950_EVENTS}", f"GET {API}{second}"],
+    )
+
+
+def test_label_changes_raises_when_a_later_page_of_the_events_fails(
+    github_api: GitHubApiFake,
+) -> None:
+    """A failed page of an issue's events raises rather than taking the listing as whole (#2919)."""
+    second = f"{ISSUE_950_EVENTS}&page=2"
+    first_page = [issue_event("labeled", "2026-10-02T12:00:00Z", label={"name": "status/ready"})]
+    github_api.route("GET", ISSUE_950_EVENTS, github_json(first_page, headers=next_page(second)))
+    github_api.route("GET", second, github_json({"message": "server error"}, status=500))
+    store, _ = over_github()
+    with pytest.raises(GitHubOperationError) as raised:
+        store.label_changes(950)
+    assert "issues/950/events" in str(raised.value)
+
+
 def test_changes_since_raises_when_the_events_outrun_the_page_cap(
     github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:

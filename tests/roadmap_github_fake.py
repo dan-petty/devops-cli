@@ -362,6 +362,17 @@ class GitHubFake:
             return self._issues(method, query, fields | {"labels": json.dumps(labels)}, page)
         return self._issue_route(method, int(parts[1]), parts[2:], fields, page, stdin)
 
+    def _issue_events(self, number: int, page: int) -> list[dict[str, Any]]:
+        """The events of issue `number` on its own listing, a page of 100 as the store asks for:
+        the seeded events of that issue, without their `issue` key, as GitHub lists them there
+        (#2919)."""
+        own = [
+            {key: value for key, value in event.items() if key != "issue"}
+            for event in self.events
+            if (event.get("issue") or {}).get("number") == number
+        ]
+        return own[(page - 1) * 100 : page * 100]
+
     def _catalog(self, kind: str, query: dict[str, str], page: int) -> list[dict[str, Any]]:
         """A page of the pull request listing, the open ones by default, of the labels, or of the
         releases, newest first."""
@@ -404,6 +415,8 @@ class GitHubFake:
         page: int,
         stdin: str | None,
     ) -> Any:
+        if rest == ["events"]:
+            return self._issue_events(number, page)
         if number not in self.issues:
             return (1, "gh: Not Found (HTTP 404)")
         issue = self.issues[number]

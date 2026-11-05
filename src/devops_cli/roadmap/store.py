@@ -777,6 +777,11 @@ class RoadmapStore(Protocol):
         """The issue changes made at or after `since`, oldest first, without those
         `except_actor` made."""
 
+    def label_changes(self, number: int) -> list[Change]:
+        """The labeled and unlabeled changes of issue `number`, oldest first. The time a label was
+        set is the time of its last labeled change that no unlabeled change of that label
+        followed (#2919)."""
+
     def set_field(
         self,
         item: Item,

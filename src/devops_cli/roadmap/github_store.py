@@ -255,6 +255,29 @@ class _EventPayload(BaseModel):
         )
 
 
+class _IssueEventPayload(BaseModel):
+    """An event of one issue's own listing (#2919). GitHub leaves the `issue` key out of that
+    listing, so the number comes from the path the event was listed on, not from the event."""
+
+    event: str
+    created_at: datetime
+    actor: str | None = Field(default=None, validation_alias=AliasPath("actor", "login"))
+    label: str | None = Field(default=None, validation_alias=AliasPath("label", "name"))
+
+    def change(self, number: int) -> Change | None:
+        """The label change this event reports on issue `number`, or None for any other event."""
+        kind = CONST_GH_ISSUE_EVENT_CHANGE_KINDS.get(self.event)
+        if kind not in (ChangeKind.LABELED.value, ChangeKind.UNLABELED.value):
+            return None
+        return Change(
+            kind=ChangeKind(kind),
+            number=number,
+            actor=self.actor,
+            at=self.created_at,
+            label=self.label,
+        )
+
+
 class _IsPrivatePayload(BaseModel):
     is_private: bool = Field(validation_alias=AliasPath("data", "repository", "isPrivate"))
 
@@ -334,6 +357,7 @@ _ISSUE = TypeAdapter(_IssuePayload)
 _PULL = TypeAdapter(_PullPayload)
 _LABEL = TypeAdapter(_LabelPayload)
 _EVENT = TypeAdapter(_EventPayload)
+_ISSUE_EVENT = TypeAdapter(_IssueEventPayload)
 _IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
 _REPOSITORY_PAYLOAD = TypeAdapter(_RepositoryPayload)
 _RELEASE = TypeAdapter(_ReleasePayload)
@@ -465,6 +489,11 @@ def issue_close(reason: CloseReason) -> str:
 def repository_issue_events_endpoint(repo: str) -> str:
     """The REST listing of every issue event of `repo`, newest first."""
     return f"repos/{repo}/issues/events"
+
+
+def issue_events_endpoint(repo: str, number: int) -> str:
+    """The REST listing of the events of issue `number` of `repo`, oldest first (#2919)."""
+    return f"repos/{repo}/issues/{number}/events"
 
 
 def comments_endpoint(repo: str, number: Number) -> str:
@@ -670,6 +699,14 @@ class GitHubRoadmapStore(RoadmapStore):
             and change.at >= cutoff
             and (skipped is None or change.actor != skipped)
         ]
+
+    def label_changes(self, number: int) -> list[Change]:
+        """The labeled and unlabeled events of issue `number` from its own listing, oldest first:
+        GitHub lists an issue's events in that order, so the order is kept (#2919)."""
+        events = self._listing(
+            issue_events_endpoint(self._repo, number), _ISSUE_EVENT, f"#{number} events"
+        )
+        return [change for event in events if (change := event.change(number)) is not None]
 
     def set_field(
         self,
@@ -1089,6 +1126,7 @@ __all__ = [
     "issue_args",
     "issue_edit",
     "issue_edit_args",
+    "issue_events_endpoint",
     "issues_endpoint",
     "label_args",
     "listing_path",
