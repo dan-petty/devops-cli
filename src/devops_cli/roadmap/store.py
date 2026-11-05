@@ -141,7 +141,8 @@ class RefineRecordKey(StrEnum):
     alternatives check found and refine put to a person (#2652), and the numbers of the issues
     that refine filed for the deferred parts of the item, comma separated (#2423), and the body
     hash of a round that looked again at an item after the stage job returned it: a second
-    return on the same body waits on a person (#3483)."""
+    return on the same body waits on a person (#3483), and the verdict of the review of an item
+    that a bot opened (`JudgeVerdict`, #3502)."""
 
     BODY_HASH = "refine.body_hash"
     SECTION_HASH = "refine.section_hash"
@@ -154,6 +155,15 @@ class RefineRecordKey(StrEnum):
     ALTERNATIVES_ASKED = "refine.alternatives_asked"
     DEFERRED = "refine.deferred"
     RETURNED_BODY_HASH = "refine.returned_body_hash"
+    JUDGE = "refine.judge"
+
+
+class JudgeVerdict(StrEnum):
+    """What the review of refine's proposal for an item that a bot opened found (#3502):
+    `APPROVED` it found no open defect, and `REFUSED` it found one."""
+
+    APPROVED = "approved"
+    REFUSED = "refused"
 
 
 class Verdict(StrEnum):
@@ -281,8 +291,9 @@ class Item(BaseModel):
     store set for each field; a field missing from it was never set by a job. `body` is the
     issue's body, with no record block, as the read the Item came from gave it, so a job can
     judge an Item by its text without a read of each issue. `author_association` is the
-    author's relation to the repository, as on `IssueRecord`: a refine round refines only an
-    Item that the owner, a member or a collaborator opened (#2478). `sub_issues` is how many
+    author's relation to the repository, and `author_login` the author's login, as on
+    `IssueRecord`: the jobs take only an Item that the owner, a member or a collaborator opened,
+    or that the bot of the Service App or of the workflows opened (#2478, #3502). `sub_issues` is how many
     sub-issues the issue has, as on `IssueRecord`: an Item with some is a tracker. `updated_at` is
     when the issue last changed, as on `IssueRecord`.
     """
@@ -298,6 +309,7 @@ class Item(BaseModel):
     labels: tuple[str, ...] = ()
     milestone: str | None = None
     author_association: str | None = None
+    author_login: str | None = None
     sub_issues: int = 0
     updated_at: datetime | None = None
     status: str | None = None
@@ -330,7 +342,8 @@ class IssueRecord(BaseModel):
 
     `body` holds no record block: `job_record` is what the block held. `milestone` is the title
     of the issue's milestone. `author_association` is GitHub's word for the author's relation
-    to the repository, such as `OWNER`, `COLLABORATOR` or `NONE`. `updated_at` is when the issue
+    to the repository, such as `OWNER`, `COLLABORATOR` or `NONE`, and `author_login` is the
+    author's login, such as `devops-cli-service[bot]`. `updated_at` is when the issue
     last changed: any write to it, a comment included, moves it. `sub_issues` is how many
     sub-issues GitHub records for the issue, open or closed. `parent` is the number of the issue
     of the same repository that has the issue as a sub-issue.
@@ -349,6 +362,7 @@ class IssueRecord(BaseModel):
     milestone: str | None = None
     pull_request: bool = False
     author_association: str | None = None
+    author_login: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     closed_at: datetime | None = None
@@ -360,13 +374,14 @@ class IssueRecord(BaseModel):
 class IssueComment(BaseModel):
     """One comment on an issue: its body, when it was made, and the commenter's relation to the
     repository as GitHub gives it (`OWNER`, `MEMBER`, `COLLABORATOR`, `NONE` and others), None
-    when the store does not know it."""
+    when the store does not know it, and the commenter's login."""
 
     model_config = ConfigDict(frozen=True)
 
     body: str
     created_at: datetime
     author_association: str | None = None
+    author_login: str | None = None
 
 
 class Closure(BaseModel):

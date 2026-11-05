@@ -362,9 +362,11 @@ def refine_requests(
     open item a blocked item waits on is read for its state (#1758). A round without `--item`
     reads the newest commit of each path the block of a waiting item cites, when no reply ends
     the wait first (#2005). A round records on each item that the cap on refine's comments
-    leaves alone the time of its newest comment, once for each such comment (#2475). When a
-    proposal defers a part, the plan holds the intake requests of one new candidate and the
-    record of its number (#2423). Refine reads no repository file, so `ref` changes no request."""
+    leaves alone the time of its newest comment, once for each such comment (#2475). A round reads
+    the comments of each item that an account that the jobs do not trust opened, and writes one
+    comment on it when none holds the marker of the notice (#3502). When a proposal defers a
+    part, the plan holds the intake requests of one new candidate and the record of its number
+    (#2423). Refine reads no repository file, so `ref` changes no request."""
     from devops_cli.roadmap.intake_requests import planned_requests
 
     del ref
@@ -408,6 +410,11 @@ def refine_requests(
                 ],
                 repeat=each_candidate,
             ),
+            *within(
+                store.comments_on(target_item),
+                cond["outside_author"],
+                repeat=rep["outside_item"],
+            ),
             *blockers,
             *_wait_reads(store),
         ]
@@ -422,6 +429,7 @@ def refine_requests(
                 repeat=each_candidate,
             ),
             *within(store.set_marks(target_item), cond["capped"], repeat=each_candidate),
+            *within(store.comment(target_item), cond["outside_notice"], repeat=rep["outside_item"]),
         ]
 
     return tuple(reads), tuple(writes)

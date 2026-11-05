@@ -160,6 +160,7 @@ class _IssuePayload(BaseModel):
     milestone: str | None = Field(default=None, validation_alias=AliasPath("milestone", "title"))
     pull_request: dict[str, Any] | None = None
     author_association: str | None = None
+    author_login: str | None = Field(default=None, validation_alias=AliasPath("user", "login"))
     created_at: datetime | None = None
     updated_at: datetime | None = None
     closed_at: datetime | None = None
@@ -199,6 +200,7 @@ class _IssuePayload(BaseModel):
             milestone=self.milestone,
             pull_request=self.pull_request is not None,
             author_association=self.author_association,
+            author_login=self.author_login,
             created_at=self.created_at,
             updated_at=self.updated_at,
             closed_at=self.closed_at,
@@ -293,12 +295,14 @@ class _CommentPayload(BaseModel):
     body: str = ""
     created_at: datetime
     author_association: str | None = None
+    author_login: str | None = Field(default=None, validation_alias=AliasPath("user", "login"))
 
     def comment(self) -> IssueComment:
         return IssueComment(
             body=self.body,
             created_at=self.created_at,
             author_association=self.author_association,
+            author_login=self.author_login,
         )
 
 

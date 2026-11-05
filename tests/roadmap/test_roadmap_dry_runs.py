@@ -213,6 +213,29 @@ def test_a_refine_round_plans_the_record_of_a_comment_the_cap_stops_and_an_item_
     ) == ([f"api repos/{REPO}/issues/<item>", "issue patch"], [])
 
 
+def test_a_refine_round_plans_the_read_and_the_notice_for_an_item_of_an_untrusted_author() -> None:
+    """A round reads the comments of each item that an account that the jobs do not trust opened,
+    and writes one comment on it when none tells its author yet. `--item` refines its item whoever
+    opened it, so its plan holds neither (#3502)."""
+    from devops_cli.roadmap.request_plan import refine_requests
+
+    reads, writes = refine_requests(REPO, None)
+    single_reads, single_writes = refine_requests(REPO, None, item=7)
+    texts = MESSAGES.roadmap
+    read, notice = texts.plan_conditions["outside_author"], texts.plan_conditions["outside_notice"]
+    repeat = texts.plan_repeat["outside_item"]
+    paged = f"{repeat}; {texts.plan_repeat_page}"
+    assert (
+        [(r.argv[1:], r.repeat) for r in reads if r.condition == read],
+        [(_shape(r), r.repeat) for r in writes if r.condition == notice],
+        [r for r in [*single_reads, *single_writes] if r.condition in {read, notice}],
+    ) == (
+        [((f"{API}{listing_path(comments_endpoint(REPO, '<item>'))}",), paged)],
+        [("api -X POST", repeat)],
+        [],
+    )
+
+
 def test_a_refine_plan_lists_the_intake_requests_of_a_deferred_part() -> None:
     """A round and a refine of one item each list the requests of one new intake candidate, and
     the record of its number, when the proposal defers a part (#2423)."""

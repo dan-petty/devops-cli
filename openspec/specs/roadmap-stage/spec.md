@@ -28,10 +28,10 @@ Whatever the filter says, the job SHALL stage an item only when its Status is Re
 - **THEN** the plan holds only the Ready bug, and it leaves out the other two and names their Status
 
 ### Requirement: The job leaves out the items it must not stage
-The job SHALL leave out an item that is not Ready, has the label `needs-split`, has an untrusted author, or depends on an open issue. It SHALL leave out a held item: `origin` or a worktree of the clone has a branch `<type>/<issue>-<slug>` for it. It SHALL leave out an item whose plan is on `origin/<default branch>` or whose change is archived there, matched by the issue number only. The plan SHALL name each item it leaves out and say why.
+The job SHALL leave out an item that is not Ready, has the label `needs-split`, fails the check of `roadmap-author-trust`, or depends on an open issue. It SHALL leave out a held item: `origin` or a worktree of the clone has a branch `<type>/<issue>-<slug>` for it. It SHALL leave out an item whose plan is on `origin/<default branch>` or whose change is archived there, matched by the issue number only. The plan SHALL name each item it leaves out and say why.
 
 #### Scenario: Items that are left out
-- **WHEN** the filter names a Blocked item, an item with `needs-split`, an item opened by an account with no write access, an item that depends on an open issue, and an item with a pushed branch
+- **WHEN** the filter names a Blocked item, an item with `needs-split`, an item opened by an account with no write access that the jobs do not trust, an item of a bot that no review approved, an item that depends on an open issue, and an item with a pushed branch
 - **THEN** the plan stages none of them and gives one reason for each
 
 #### Scenario: The plan is on the default branch and the branch is gone

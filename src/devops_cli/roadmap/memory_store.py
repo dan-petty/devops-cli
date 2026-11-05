@@ -172,6 +172,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         milestone: str | None = None,
         pull_request: bool = False,
         author_association: str | None = DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION,
+        author_login: str | None = None,
         sub_issues: int = 0,
         parent: int | None = None,
         updated_at: datetime | None = None,
@@ -181,7 +182,8 @@ class InMemoryRoadmapStore(RoadmapStore):
         `fields` adds the label of each field's value to `labels`, as a person sets them, with
         no job record; a Priority makes the issue an Item. `milestone` is the title of a seeded
         milestone. Seeding records no change. `author_association` is the author's relation to
-        the repository, the owner's unless given, since GitHub gives one for every issue.
+        the repository, the owner's unless given, since GitHub gives one for every issue, and
+        `author_login` is the author's login.
         `sub_issues` is how many sub-issues GitHub records for it, and `parent` is the issue
         that has it as a sub-issue. The issue is created now by the store's clock, and closed
         now when seeded closed, and last changed at `updated_at` when that is given. `body` is
@@ -205,6 +207,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             milestone=milestone,
             pull_request=pull_request,
             author_association=author_association,
+            author_login=author_login,
             created_at=now,
             updated_at=as_utc(updated_at) if updated_at is not None else now,
             closed_at=now if state is GitHubState.CLOSED else None,
@@ -427,20 +430,32 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Comment `body` on issue `number`."""
         issue = self._require_issue(number, "roadmap.issue.comment")
         self._update_issue(issue)
-        made = IssueComment(body=body, created_at=as_utc(self._roadmap.clock()))
+        made = IssueComment(
+            body=body,
+            created_at=as_utc(self._roadmap.clock()),
+            author_association=DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION,
+            author_login=self._actor,
+        )
         self._roadmap.comments.setdefault(number, []).append(made)
         self._log("comment", number, value=body)
 
     def seed_comment(
-        self, number: int, body: str, *, author_association: str | None = None
+        self,
+        number: int,
+        body: str,
+        *,
+        author_association: str | None = DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION,
+        author_login: str | None = None,
     ) -> None:
-        """Add a comment as another commenter made it, with their relation to the repository,
-        as GitHub gives it. Seeding records no change and no write."""
+        """Add a comment as another commenter made it, with their relation to the repository and
+        their login, as GitHub gives them: the owner's relation unless given, since GitHub gives
+        one for every comment. Seeding records no change and no write."""
         self._require_issue(number, "roadmap.issue.seed_comment")
         made = IssueComment(
             body=body,
             created_at=as_utc(self._roadmap.clock()),
             author_association=author_association,
+            author_login=author_login,
         )
         self._roadmap.comments.setdefault(number, []).append(made)
 

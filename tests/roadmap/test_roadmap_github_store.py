@@ -1220,6 +1220,29 @@ def test_comments_on_reads_every_comment_of_the_issue_oldest_first_with_its_time
     )
 
 
+def test_a_comment_carries_its_authors_login_and_association() -> None:
+    """The model of refine reads the replies of trusted authors only (#3502): a comment gives
+    the login that GitHub holds in its `user` and the association that it states."""
+    store, _ = recorded_store(
+        {
+            "issues/844/comments": [
+                {
+                    "body": "A reply",
+                    "created_at": "2026-10-02T03:26:48Z",
+                    "author_association": "CONTRIBUTOR",
+                    "user": {"login": "devops-cli-service[bot]"},
+                },
+                {"body": "An old reply", "created_at": "2026-10-02T03:27:48Z"},
+            ]
+        }
+    )
+
+    assert [(c.author_login, c.author_association) for c in store.comments_on(844)] == [
+        ("devops-cli-service[bot]", "CONTRIBUTOR"),
+        (None, None),
+    ]
+
+
 def test_path_changed_at_reads_the_newest_commit_of_a_path_once_for_the_stores_life() -> None:
     """The newest commit on the default branch that changed a path, one commit a page, as the
     commits API lists them newest first; a path no commit changed has no time, and each path is

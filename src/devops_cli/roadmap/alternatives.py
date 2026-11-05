@@ -71,7 +71,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
-    CONST_ROADMAP_TRUSTED_AUTHORS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_PYPI_PACKAGE_URL,
@@ -84,10 +83,9 @@ from devops_cli.exceptions.roadmap import RoadmapAlternativesError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.refine import (
-    extract_section_and_outside,
-    hash_text,
     replies_after_marker,
     sanitize_text,
     web_search_of,
@@ -108,6 +106,7 @@ from devops_cli.roadmap.store import (
     is_name_segment,
     is_repository_name,
 )
+from devops_cli.roadmap.trust import is_approved, is_trusted, trusted_replies
 from devops_cli.telemetry.instruments import ROADMAP_ALTERNATIVES_TOTAL, emit
 
 logger = logging.getLogger(__name__)
@@ -486,7 +485,8 @@ def _is_eligible(item: Item) -> bool:
     return (
         item.state is GitHubState.OPEN
         and item.status in {CONST_ROADMAP_STATUS_NEW, CONST_ROADMAP_STATUS_READY}
-        and item.author_association in CONST_ROADMAP_TRUSTED_AUTHORS
+        and is_trusted(item)
+        and is_approved(item)
     )
 
 
@@ -534,7 +534,8 @@ def select_items(
 
 def _request(item: Item, comments: Sequence[IssueComment]) -> str:
     """The JSON document the model reads: the item without the job's block, the replies since the
-    job's last comment (every comment when it left none), and the budget."""
+    job's last comment (every comment when it left none), and the budget. `comments` holds the
+    comments of trusted authors only, so text of an outside account does not reach the model."""
     outside, _ = extract_section_and_outside(
         item.body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
     )
@@ -799,7 +800,7 @@ def _check_one(
     if skip_class is not None:
         return _skip_check(item, skip_class, now)
     tools = AlternativesTools(store=store, firecrawl_key=key)
-    request = _request(item, store.comments_on(item.number))
+    request = _request(item, trusted_replies(store.comments_on(item.number)))
     texts = MESSAGES.roadmap
     try:
         reply = investigate(

@@ -3044,6 +3044,9 @@ CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS: Final[int] = 24
 # Every comment refine posts carries this marker, so a later round tells a person's reply from
 # refine's own comments: a comment after refine's last one is a reply (#1758).
 CONST_ROADMAP_REFINE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap refine: next step -->"
+# The comment that tells the author of an item why a round leaves it alone carries this marker,
+# so a later round writes no second one (#3502).
+CONST_ROADMAP_REFINE_OUTSIDE_MARKER: Final[str] = "<!-- devops roadmap refine: outside author -->"
 # What a proposal's `suspected_block` holds when it names no block, lower-cased.
 CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS: Final[frozenset[str]] = frozenset({"", "none", "null"})
 # The newest replies that reach the model, each cut to this many tokens (#1758).
@@ -3430,6 +3433,7 @@ CONST_ROADMAP_RETITLE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap retitle 
 CONST_ROADMAP_JOB_COMMENT_MARKERS: Final[tuple[str, ...]] = (
     CONST_ROADMAP_RETITLE_COMMENT_MARKER,
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
+    CONST_ROADMAP_REFINE_OUTSIDE_MARKER,
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
     CONST_ROADMAP_INTAKE_REASON_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
@@ -3489,6 +3493,10 @@ CONST_ROADMAP_SIZE_OPTIONS: Final[tuple[str, ...]] = ("High", "Medium", "Low")
 CONST_ROADMAP_TRUSTED_AUTHORS: Final[frozenset[str]] = frozenset(
     {"OWNER", "MEMBER", "COLLABORATOR"}
 )
+# The login of the bot that the workflows of a repository act as. The jobs take an item that it
+# opened, as they take an item of the Service App's bot (`service.github_app.bot_login`), when a
+# review approves the item (#3502).
+CONST_ROADMAP_ACTIONS_BOT_LOGIN: Final[str] = "github-actions[bot]"
 # What each kind of P0 evidence looks like: a GHSA ID, an Actions run id, a commit SHA.
 CONST_ROADMAP_EVIDENCE_PATTERNS: Final[dict[str, re.Pattern[str]]] = {
     "advisory": re.compile(r"GHSA(-[23456789cfghjmpqrvwx]{4}){3}"),
