@@ -1478,12 +1478,24 @@ def _attempt(
     return outcome.model_copy(update={"status": StepStatus.DONE, "commit": commit})
 
 
+def _unkeepable(source: Path, base: str) -> str | None:
+    """Why the staged work must not become a `wip:` commit (#3054), else None: it loses a test
+    that existed at `base`, or it holds a symbolic link, which the step refuses at its exit."""
+    lost = _tests_failure(source, base)
+    if lost:
+        return lost
+    names = _git_output(source, "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z")
+    return _link_failure(source, [name for name in names.split("\0") if name])
+
+
 def _keeper(
     source: Path,
     inputs: StepInputs,
     item: int,
     log: ToolCallLog,
     on_wip: Callable[[WipCommit], None] | None,
+    *,
+    keep: bool,
 ) -> WipKeeper:
     """The keeper of the step (#3054). A group step lets it commit, before each model request, the
     tasks that the agent ticked and whose verification passes. A fix step ticks no task, so its
@@ -1497,10 +1509,10 @@ def _keeper(
         git=lambda *args: _git_output(source, *args),
         verify=lambda commands: commands_failure(source, commands, log.trace),
         strays=lambda: _strays(source, inputs),
-        blocked=lambda: _tests_failure(source, keeper.base),
+        blocked=lambda: _unkeepable(source, keeper.base),
         on_commit=on_wip,
     )
-    if inputs.fix is None:
+    if inputs.fix is None and keep:
         log.before_request = keeper.check
     return keeper
 
@@ -1521,6 +1533,7 @@ def run_step(
     tier_health: Callable[[Sequence[str]], Mapping[str, bool]] | None = None,
     trace: ImplementTrace | None = None,
     on_wip: Callable[[WipCommit], None] | None = None,
+    keep: bool = True,
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
@@ -1529,7 +1542,8 @@ def run_step(
     checkout to its last `wip:` commit, or to the commit it started at when it made none, also
     when the agent made commits or the run raises. A `wip:` commit holds the tasks that the agent
     ticked and whose verification passed, and `on_wip` tells the caller of each one (#3054). A step
-    that ends done folds its `wip:` commits into its own commit. It reads the item once and
+    that ends done folds its `wip:` commits into its own commit. With `keep` false, the step
+    makes none: the evaluation judges the whole attempt. It reads the item once and
     writes nothing to GitHub. A failed model call ends
     the step as stopped, with the diff of the work. Raises `RoadmapImplementError` for a step it
     refuses to start, and `AICredentialsError` when the model refuses the key. With `fix`, the
@@ -1551,7 +1565,7 @@ def run_step(
         raise RoadmapImplementError(MESSAGES.roadmap.implement_no_model)
     _require_clean(source)
     log = ToolCallLog(source, trace=trace)
-    keeper = _keeper(source, inputs, item, log, on_wip)
+    keeper = _keeper(source, inputs, item, log, on_wip, keep=keep)
     done = False
     try:
         outcome = _attempt(

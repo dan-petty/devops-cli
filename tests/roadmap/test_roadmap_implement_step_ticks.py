@@ -434,7 +434,8 @@ def test_a_directory_in_place_of_the_tasks_file_ends_the_step_with_a_stop_and_th
     assert (result[0], tasks.is_file(), (later_open / TASKS_PATH).read_text(encoding="utf-8")) == (
         StepStatus.STOPPED,
         True,
-        LATER_OPEN,
+        # The tick of the agent kept both tasks of group 1 in a `wip:` commit (#3054).
+        LATER_OPEN.replace("- [ ] Add", "- [x] Add"),
     )
 
 
