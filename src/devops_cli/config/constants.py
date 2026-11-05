@@ -4037,17 +4037,6 @@ CONST_PR_CLOSING_ISSUE_LABELS_PAGE: Final[int] = 100
 # The `gh pr list --author` value `devops pr update --all` lists with: the account gh runs as,
 # so a pull request that a bot or another person owns is never updated.
 CONST_PR_UPDATE_AUTHOR: Final[str] = "@me"
-# The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697, #1151, #1979).
-CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (
-    "docs/TESTING.md",
-    "ARCHITECTURE.md",
-    "SECURITY.md",
-    "CONTRIBUTING.md",
-    "src/devops_cli/ai/tasks/*.md",
-    "src/devops_cli/ai/knowledge_base/",
-    ".devops/review.toml",
-    "src/devops_cli/review/rules/",
-)
 # Conventional commit title pattern identifying a bug fix pull request (#697).
 CONST_DEFECT_TITLE_PATTERN: Final[str] = r"^fix(?:\([^()]*\))?!?:\s*"
 
