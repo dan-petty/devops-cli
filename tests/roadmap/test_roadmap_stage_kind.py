@@ -222,8 +222,43 @@ def test_a_group_with_documentation_renders_the_documentation_task_after_its_wor
 
     assert len([line for line in lines if line.startswith("- [ ] ")]) == number
     assert lines[-2:] == [
-        f"- [ ] 1.{number} Document the change in `docs/TESTING.md`, and run "
+        f"- [ ] 1.{number} Document the change in `docs/TESTING.md`",
+        "  - Verification: `uv run devops ci docs` passes",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("group", "number"), [(BEHAVIOR, 3), (OTHER, 2)], ids=["behavior", "other"]
+)
+def test_a_group_that_changes_a_command_renders_the_regeneration_step_in_its_documentation_task(
+    group: dict[str, Any], number: int
+) -> None:
+    command = {
+        **group,
+        "changes": [*group["changes"], "src/devops_cli/commands/pr.py"],
+        "documentation": "Document the flag in `docs/CLI_REFERENCE.md`",
+    }
+
+    lines = _task_lines(command)
+
+    assert lines[-2:] == [
+        f"- [ ] 1.{number} Document the flag in `docs/CLI_REFERENCE.md`, and run "
         "`uv run devops docs generate --sync-readme`",
+        "  - Verification: `uv run devops ci docs` passes",
+    ]
+
+
+def test_a_group_that_changes_only_a_document_renders_no_regeneration_step() -> None:
+    document_only = {
+        **OTHER,
+        "changes": ["SECURITY.md"],
+        "documentation": "Document the disclosure contact in `SECURITY.md`",
+    }
+
+    lines = _task_lines(document_only)
+
+    assert lines[-2:] == [
+        "- [ ] 1.2 Document the disclosure contact in `SECURITY.md`",
         "  - Verification: `uv run devops ci docs` passes",
     ]
 

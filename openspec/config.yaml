@@ -34,9 +34,9 @@ rules:
     - >-
       Delete obsolete code and its tests in the group that replaces them.
     - >-
-      A group that changes a document, a command, an option or a message regenerates the documentation with `devops docs generate --sync-readme`. No group edits CHANGELOG.md: the pull request title is the changelog line.
+      A group that changes a command, an option or a message under `src/devops_cli/commands/` or `src/devops_cli/lang/` regenerates the documentation with `devops docs generate --sync-readme`. A group that changes only a document does not. No group edits CHANGELOG.md: the pull request title is the changelog line.
     - >-
-      Work the item will not do is a plain bullet, with no checkbox, naming its follow-up issue under "## Workflow follow-up". A check only a person can run is a plain bullet starting "Pending a person:". A change that alters code may end with the plain bullet "Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD)."
+      Work the item will not do is a plain bullet, with no checkbox, naming its follow-up issue under "## Workflow follow-up". A check only a person can run is a plain bullet starting "Pending a person:". A change that alters a path under `src/` ends with the plain bullet "Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD)." A change with no path under `src/` has no such bullet.
 
 operations:
   apply:

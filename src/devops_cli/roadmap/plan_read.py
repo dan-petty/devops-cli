@@ -65,9 +65,9 @@ _NEW_MARK: Final[str] = MESSAGES.roadmap.stage_group_new
 _PROCESS_MARK: Final[str] = MESSAGES.roadmap.stage_task_process.format(work="", process="").split(
     "{"
 )[0]
-_DOCUMENTS_MARK: Final[str] = MESSAGES.roadmap.stage_task_documents.format(
-    work="", command=REGENERATE_DOCUMENTS
-).splitlines()[0]
+_DOCUMENTS_MARK: Final[str] = MESSAGES.roadmap.stage_task_regenerate.format(
+    command=REGENERATE_DOCUMENTS
+)
 _CRITERIA_TITLE: Final[str] = MESSAGES.roadmap.stage_criteria_title
 _PENDING_PREFIX: Final[str] = "Pending person: "
 

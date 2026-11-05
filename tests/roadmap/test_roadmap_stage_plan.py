@@ -776,6 +776,56 @@ def test_a_group_with_no_reads_is_valid_and_its_line_says_none() -> None:
     )
 
 
+_DOCUMENTS_ONLY: dict[str, Any] = {
+    "title": "Name the disclosure contact",
+    "kind": "other",
+    "reads": [],
+    "changes": ["SECURITY.md"],
+    "creates": [],
+    "creates_lines": {},
+    "test": None,
+    "implementation": "Name the disclosure contact in `SECURITY.md`",
+    "documentation": None,
+    "verify": "uv run devops ci docs",
+}
+
+
+def test_a_documents_only_plan_renders_no_workflow_follow_up() -> None:
+    tasks = _tasks_of(_DOCUMENTS_ONLY)
+
+    assert "tuicr" not in tasks
+    assert "## Workflow follow-up" not in tasks
+
+
+def test_a_plan_with_a_source_change_keeps_the_tuicr_bullet() -> None:
+    tasks = _tasks_of(_group())
+
+    assert tasks.endswith(
+        "## Workflow follow-up\n\n"
+        "- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("documentation", "task"),
+    [
+        ("SECURITY.md", "Edit `SECURITY.md`"),
+        ("`docs/ROADMAP_WORKFLOW.md`", "Edit `docs/ROADMAP_WORKFLOW.md`"),
+        (
+            "`docs/TESTING.md` and `docs/SDLC.md`",
+            "Edit `docs/TESTING.md` and `docs/SDLC.md`",
+        ),
+        ("Document the fix in `docs/TESTING.md`", "Document the fix in `docs/TESTING.md`"),
+    ],
+)
+def test_a_documentation_text_that_starts_with_a_path_gets_the_edit_verb(
+    documentation: str, task: str
+) -> None:
+    tasks = _tasks_of(_group(documentation=documentation))
+
+    assert f"- [ ] 1.3 {task}\n  - Verification: `uv run devops ci docs` passes" in tasks
+
+
 def test_a_rendered_group_has_no_double_stop_and_no_task_that_starts_with_a_comma() -> None:
     group = _group(
         test="Write the test.",
@@ -790,8 +840,7 @@ def test_a_rendered_group_has_no_double_stop_and_no_task_that_starts_with_a_comm
     assert [line for line in tasks.splitlines() if line.startswith("- [ ] 1.")] == [
         "- [ ] 1.1 Write the test",
         "- [ ] 1.2 Keep the last comment",
-        "- [ ] 1.3 Document the fix in `docs/TESTING.md`, and run "
-        "`uv run devops docs generate --sync-readme`",
+        "- [ ] 1.3 Document the fix in `docs/TESTING.md`",
     ]
 
 

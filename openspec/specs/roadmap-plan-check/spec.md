@@ -154,3 +154,10 @@ The command SHALL report a `read` problem for a plan whose task group the model 
 #### Scenario: A group with no changed file or a changed file in the change folder
 - **WHEN** plan-check reads a plan with such a group
 - **THEN** the output holds one problem with the path `tasks.md` and the rule `read`, the exit code is 1, and the output holds no traceback.
+
+### Requirement: The plan reader keeps the document work of a group
+The plan reader SHALL return the document work of a group from a documentation task that the renderer writes, with the verb that the renderer gives it.
+
+#### Scenario: The document mark matches the new template
+- **WHEN** the plan reader builds a proposal from a change folder whose group renders a documentation task that changes only `SECURITY.md`
+- **THEN** the document work of the group is present in the built proposal and reads `Edit `SECURITY.md``.

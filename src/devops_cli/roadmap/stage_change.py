@@ -103,6 +103,12 @@ _NO_SPEC_PREFIXES_TEXT: Final[str] = (
 )
 _TESTS_DIRECTORY: Final[str] = "tests/"
 _SOURCE_DIRECTORY: Final[str] = "src/"
+# A group that changes a path under one of these ends its documents task with the step that
+# regenerates the documents (#3226).
+_REGENERATE_PREFIXES: Final[tuple[str, ...]] = ("src/devops_cli/commands/", "src/devops_cli/lang/")
+# A word names a path when it ends in a dot and letters, as a root document such as SECURITY.md
+# does (#3226).
+_PATH_SUFFIX: Final[re.Pattern[str]] = re.compile(r"\.[A-Za-z]+$")
 _DOCUMENT_SUFFIX: Final[str] = ".md"
 _CHANGES_DIRECTORY: Final[str] = "openspec/changes"
 # Only `openspec archive` writes a living spec, from the spec delta of the change folder, so no
@@ -765,7 +771,7 @@ def _paths(paths: Sequence[str], created: Collection[str] = ()) -> str:
 def _task_texts(group: StageGroup) -> list[str]:
     """The tasks of `group` in order, with no number. A `behavior` group starts with its failing
     test. An `other` group has no test: its work comes first, with the check that proves it. A
-    group that changes a document ends with the task that regenerates the documents."""
+    group that changes a document ends with its documents task."""
     texts = MESSAGES.roadmap
     if group.kind is GroupKind.BEHAVIOR:
         tasks = [
@@ -777,12 +783,39 @@ def _task_texts(group: StageGroup) -> list[str]:
     else:
         tasks = [texts.stage_task_pass.format(work=group.implementation, verify=group.verify)]
     if group.documentation is not None:
-        tasks.append(
-            texts.stage_task_documents.format(
-                work=group.documentation, command=REGENERATE_DOCUMENTS
-            )
-        )
+        tasks.append(_documents_task(group.documentation, group.changes))
     return tasks
+
+
+def _is_document_path(word: str) -> bool:
+    """Whether `word` names a path: it holds a slash, or it ends in a dot and letters, as the
+    name of a root document does. A version such as `v1.2` is no path."""
+    return "/" in word or _PATH_SUFFIX.search(word) is not None
+
+
+def _document_work(documentation: str) -> str:
+    """The work of a documents task. A text that starts with a path gets the verb `Edit` and the
+    path in a code span, so the task starts with a verb (#3226). Any other text is kept as it is,
+    so a text that starts with a verb has no second verb."""
+    word, space, rest = documentation.partition(" ")
+    path = word.rstrip(".,;:")
+    name = path.strip("`")
+    if not _is_document_path(name):
+        return documentation
+    return MESSAGES.roadmap.stage_document_path.format(
+        path=name, rest=f"{word[len(path) :]}{space}{rest}"
+    )
+
+
+def _documents_task(documentation: str, changes: Sequence[str]) -> str:
+    """The documents task of a group. It ends with the step that regenerates the documents only
+    when the group changes a command, an option or a message, because only those change the
+    generated text (#3226)."""
+    texts = MESSAGES.roadmap
+    work = _document_work(documentation)
+    if any(path.startswith(_REGENERATE_PREFIXES) for path in changes):
+        work += texts.stage_task_regenerate.format(command=REGENERATE_DOCUMENTS)
+    return texts.stage_task_documents.format(work=work)
 
 
 def group_text(index: int, group: StageGroup) -> str:
@@ -823,9 +856,19 @@ def criteria_section(criteria: Sequence[StageCriterion]) -> str:
 _criteria_section = criteria_section
 
 
+def _follow_up_section(groups: Sequence[StageGroup]) -> str:
+    """The `## Workflow follow-up` section with the tuicr bullet, for a plan that changes a path
+    under `src/`, the only plan that has code for tuicr to review. A plan with no such path has no
+    section."""
+    if not any(path.startswith(_SOURCE_DIRECTORY) for g in groups for path in g.changes):
+        return ""
+    return f"## Workflow follow-up\n\n- {MESSAGES.roadmap.stage_pending_review}\n"
+
+
 def _tasks_file(groups: Sequence[StageGroup], criteria: Sequence[StageCriterion] = ()) -> str:
     sections = "\n".join(group_text(i, g) for i, g in enumerate(groups, start=1))
-    return f"# Tasks\n\n{sections}\n{_criteria_section(criteria)}## Workflow follow-up\n\n- {MESSAGES.roadmap.stage_pending_review}\n"
+    body = f"# Tasks\n\n{sections}\n{_criteria_section(criteria)}{_follow_up_section(groups)}"
+    return body.rstrip("\n") + "\n"
 
 
 def render_change(
