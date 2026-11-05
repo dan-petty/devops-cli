@@ -52,7 +52,7 @@ from devops_cli.roadmap.claim import (
     plan_claim,
     render_claim_plan,
 )
-from devops_cli.roadmap.inbox import InboxKind
+from devops_cli.roadmap.inbox_kind import InboxKind
 from devops_cli.roadmap.intake import (
     Filer,
     NewCandidate,

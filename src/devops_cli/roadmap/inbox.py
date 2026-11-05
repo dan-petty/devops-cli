@@ -32,7 +32,6 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from enum import StrEnum
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_RETRY_COMMENT,
@@ -47,6 +46,7 @@ from devops_cli.git.branch_form import issue_of_branch
 from devops_cli.github.labels import diff_labels
 from devops_cli.lang import MESSAGES
 from devops_cli.output import format_duration
+from devops_cli.roadmap.inbox_kind import InboxKind
 from devops_cli.roadmap.planned import planned_count
 from devops_cli.roadmap.pull_labels import declared_specs
 from devops_cli.roadmap.refine import NextStep
@@ -60,23 +60,6 @@ from devops_cli.roadmap.store import (
     RoadmapStore,
     StageRecordKey,
 )
-
-
-class InboxKind(StrEnum):
-    """What a line of the inbox is. The members are in the order the inbox lists them."""
-
-    PLAN = "plan"
-    IMPLEMENT = "implement"
-    RELEASE = "release"
-    BLOCKED = "blocked"
-    REFINE = "refine"
-    SPLIT = "split"
-    ALTERNATIVES = "alternatives"
-    DRAFT = "draft"
-    CLAIM = "claim"
-    LABELS = "labels"
-    QUEUE = "queue"
-    PERSON = "person"
 
 
 @dataclass(frozen=True)
