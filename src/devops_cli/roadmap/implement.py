@@ -17,7 +17,8 @@ also when its plan is on the default branch.
 
 **Selection.** `--filter family=value` is repeatable over the label families `status`,
 `priority`, `type`, `value` and `effort`: the values of one family are alternatives, and the
-families all apply. With no filter the job takes the Ready and Planned items of low effort. The
+families all apply. With no filter the job takes the Ready and Planned items, one effort pass at a
+time: low effort first, then medium effort when no low-effort item is selectable (#3385). The
 Service sets `status/planned` once the plan is on the default branch (`status_sync.py`, #2920). An
 item that the filter names, and that the job leaves out, is in the plan with its reason: its Status
 is neither Ready nor Planned (an item In Progress stays while its record names a runner Job that no
