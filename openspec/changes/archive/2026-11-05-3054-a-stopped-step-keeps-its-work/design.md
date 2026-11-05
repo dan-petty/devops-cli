@@ -1,0 +1,17 @@
+# Design
+
+## Decisions
+
+- **Unit of progress: a ticked task whose verification passes.** The agent ticks a task when it thinks the work is done. The job runs the verification commands of that task, from the text of `tasks.md` before the run, and keeps the task only when they pass. A task with no verification command counts as green on its tick. Rejected: a commit after each edit. An edit is not a claim of progress, and the commits would hold work that nothing checked.
+- **Commits on the item branch with the prefix `wip:`, not a separate `wip/` ref.** The next Job continues from the branch tip, and the squash merge removes the commits. A separate ref needs create, update and delete, and a merge or cherry-pick on resume. Rejected for that cost.
+- **The exit checks judge everything since the last commit that is no `wip:` commit.** Before the checks run, the keeper puts the `wip:` commits back into the index (`git reset --soft`). The checks (changed files, lost tests, hooks) then see the same diff as in a step with no `wip:` commit. A stop moves `HEAD` back to the last `wip:` commit and resets the working tree to it.
+- **A done step folds the `wip:` commits into its own commit.** The history of a finished group stays one commit with the title `<group> (#N)`. The branch on `origin` held the `wip:` commits, so the final push is a push with a lease that replaces them; `_push_with_lease` does that already.
+- **`tasks.md` in a `wip:` commit is the file as the job owns it.** The keeper writes the text before the run with the verified ticks, commits, and gives the agent its own text back. The file tools of the agent see no change.
+- **The keeper commits no stray file.** The files that `stray_files` names are left out of the commit. The step deletes them at its exit, as before.
+- **Verification runs at the tick and again at the exit.** The exit check runs the commands of the whole group after all the work, and a later edit can break an earlier task. The cost is one more run of each verification command per task. Rejected: skip the exit run for a kept task. It would hide a regression.
+- **The job record holds `implement.wip` as JSON.** It is for a person and for the next change (#3098). The next attempt reads the branch and the ticks of `tasks.md`, which are the durable state, so the record is never the source of truth.
+- **A failed push of a `wip:` commit does not stop the step.** The line goes to the Job log. The push of the stop or of the end tries again, and a failure there is in the stop comment as before.
+- **The keeper runs before each model request, not after each tool call.** The tool calls of one reply run in parallel, so a hook after a call could see the tick before the sibling writes. Before the next request all calls have returned. A hook on the request is also a point where the agent is paused. Rejected: a hook per tool call, because of that race.
+- **The keeper does not run in an extra turn.** An extra turn may change only some files, and a `wip:` commit holds the whole checkout.
+- **A `wip:` commit that would lose a test is not made.** The keeper stages the checkout and asks the same check as the exit (`_tests_failure`) before it runs any verification command.
+- **The push waits for the commit of the last tick.** The exit checks of the step follow at once. A claim of the item (#2910) that comes while the last group runs must find nothing pushed, so the push of the stop or of the end is the first. Rejected: push every commit. The window it would protect is the few minutes of the exit checks.

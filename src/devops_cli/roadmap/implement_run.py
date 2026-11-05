@@ -25,6 +25,12 @@ pushes with `-u`, opens the draft, and records `implement.branch` and `implement
 the first commit pushes nothing. A stop after it publishes what passed, so a retry finds the branch
 and the draft and takes them over as a Staged item.
 
+**Work in progress** (#3054). A step commits each ticked task whose verification passes as a `wip:`
+commit. The job pushes it at once (`_keep`) when a task is left, and records `implement.wip`, so a
+pod that dies loses only the work after the last tick. A stop discards only that work. The next run takes the branch
+with its `wip:` commits, shows the kept ticks to the agent, and its step folds them into its own
+commit.
+
 **A stop.** A step that stops, a conflict, a failed command or a check that fails twice stops the
 item: the job pushes the commits that passed, comments the step, the reason and the last message
 of the agent, sets Status Blocked, and records `implement.stopped`. The comment starts with the
@@ -139,6 +145,7 @@ from devops_cli.roadmap.implement_trace import (
     last_failing_command,
     summary_table,
 )
+from devops_cli.roadmap.implement_wip import WipCommit, kept_commits
 from devops_cli.roadmap.pull_form import title_problems
 from devops_cli.roadmap.pull_labels import (
     add_pull_labels,
@@ -444,6 +451,8 @@ class _ItemRun:
     pull: int | None = field(init=False)
     last_comment_mark: _Mark = field(default=_NOTHING_YET, init=False)
     returned: bool = False
+    # The last `wip:` commit of the group that runs (#3054), or None.
+    wip: WipCommit | None = None
 
     def __post_init__(self) -> None:
         self.pull = self.target.pull
@@ -509,6 +518,9 @@ class _ItemRun:
             "spend": ImplementRecordKey.SPEND,
         }
         written: dict[Any, str | None] = {keys[name]: value for name, value in marks.items()}
+        if "group" in marks:
+            written[ImplementRecordKey.WIP] = None
+            self.wip = None
         written[ImplementRecordKey.TRACE] = self.trace.encode()
         self.store.set_marks(self._fresh(), written)
 
@@ -633,6 +645,7 @@ class _ItemRun:
             {
                 ImplementRecordKey.GROUP: None,
                 ImplementRecordKey.SHA: None,
+                ImplementRecordKey.WIP: None,
                 ImplementRecordKey.BRANCH: None,
                 ImplementRecordKey.PR: None,
             },
@@ -865,12 +878,15 @@ class _ItemRun:
                     hooks=self._hooks_config(),
                     model_for_tier=self.model_for_tier,
                     trace=self.trace,
+                    on_wip=self._keep,
                 )
             except OverWindowError as err:
                 self._handle_over_window(group, err, change, tasks_text, tasks_file, tasks)
                 continue
             self.outcomes.append(outcome)
             if outcome.status is StepStatus.STOPPED:
+                # The step kept its `wip:` commits (#3054), so the file differs from the text above.
+                tasks_text = tasks_file.read_text(encoding="utf-8")
                 request = parse_request(outcome.last_message)
                 if request is not None:
                     returned = self._handle_request_stop(
@@ -881,6 +897,32 @@ class _ItemRun:
                     continue
                 raise _stopped_by(self.step, outcome)
             self._record(group=str(group.number), sha=outcome.commit)
+
+    def _keep(self, commit: WipCommit) -> None:
+        """Take note of a `wip:` commit of the step (#3054). When tasks are left, push it and
+        record it at once, so that a pod that dies keeps the work: the next Job takes the branch
+        from `origin`. A commit that ticks the last task waits for the push of the end or of the
+        stop, because the exit checks of the step follow at once. A push that fails does not stop
+        the step. The line goes to the log, and the next push tries again."""
+        self.wip = commit
+        if commit.done >= commit.total:
+            return
+        if failed := self._push_passed():
+            print_muted(failed.strip(), to_stderr=True, safe=True)
+        self.store.set_marks(self._fresh(), {ImplementRecordKey.WIP: _wip_record(commit)})
+
+    def _kept_note(self) -> str:
+        """The part of the stop comment that says what the job kept and where: the branch, the
+        count of `wip:` commits on it and the last one. Empty when there is none (#3054)."""
+        kept = kept_commits(self._git, f"origin/{self.default}")
+        if not kept:
+            return ""
+        return MESSAGES.roadmap.implement_stop_kept.format(
+            count=len(kept),
+            commits="commit" if len(kept) == 1 else "commits",
+            branch=self.branch,
+            sha=kept[0],
+        )
 
     def _runs(self, step: ProjectStep) -> bool:
         """Whether the job runs `step`: the default branch declares it. A step that it does not
@@ -1294,6 +1336,8 @@ class _ItemRun:
         """Push what passed, tell the item why, set it Blocked, and record the step."""
         texts = MESSAGES.roadmap
         note = self._push_passed() if stop.push else ""
+        if stop.push and not note:
+            note = self._kept_note()
         if self.pull is not None and self.amendments:
             self._comment(self.pull, self.last_comment_mark)
         last = safe_text(mask_secrets(stop.last_message))[
@@ -1363,6 +1407,8 @@ class _ItemRun:
         }
         if self.pull is not None:
             marks[ImplementRecordKey.PR] = str(self.pull)
+        if self.wip is not None:
+            marks[ImplementRecordKey.WIP] = _wip_record(self.wip)
         self.store.set_field(
             self._fresh(),
             ItemField.STATUS,
@@ -1385,6 +1431,13 @@ class _ItemRun:
         except _StopError as exc:
             return texts.implement_stop_push_failed.format(output=mask_secrets(exc.reason))
         return ""
+
+
+def _wip_record(commit: WipCommit) -> str:
+    """The value of `implement.wip` for a `wip:` commit (#3054)."""
+    return json.dumps(
+        {"group": commit.group, "done": commit.done, "of": commit.total, "sha": commit.sha}
+    )
 
 
 def _error_stop(step: str, exc: Exception, *, push: bool = True) -> _StopError:

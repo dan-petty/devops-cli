@@ -278,6 +278,8 @@ def run_case(loaded: LoadedCase, *, repo: Path, model: Any, window: int) -> Resu
                 source=clone,
                 model=model,
                 window=window,
+                # The evaluation judges the whole attempt, so a stopped step keeps no part of it.
+                keep=False,
             )
         except RoadmapImplementError as refusal:
             reason = str(refusal)

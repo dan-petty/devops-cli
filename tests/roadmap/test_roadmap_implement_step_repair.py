@@ -37,7 +37,7 @@ from tests.support.implement_step import (
     WINDOW,
     command_text,
     git,
-    is_clean_at,
+    is_clean_at_wip,
     programs_run,
     the_whole_group,
     tool_reads,
@@ -147,7 +147,7 @@ def test_a_step_that_still_fails_after_the_extra_turn_stops_and_the_model_gets_n
         3,
         3,
     )
-    assert is_clean_at(checkout, head)
+    assert is_clean_at_wip(checkout, head)
 
 
 def test_a_failed_type_check_gets_the_extra_turn_with_its_text(
@@ -190,7 +190,7 @@ def test_an_extra_turn_that_changes_a_file_the_step_did_not_change_stops_the_ste
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.reason, outcome.commit, is_clean_at(checkout, head)) == (
+    assert (outcome.status, outcome.reason, outcome.commit, is_clean_at_wip(checkout, head)) == (
         StepStatus.STOPPED,
         "The extra turn for the static check changed files that the step had not changed: "
         "src/other.py.",
@@ -391,7 +391,7 @@ def test_an_extra_turn_that_commits_stops_the_step_and_the_checkout_returns_to_i
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.reason, outcome.commit, is_clean_at(checkout, head)) == (
+    assert (outcome.status, outcome.reason, outcome.commit, is_clean_at_wip(checkout, head)) == (
         StepStatus.STOPPED,
         f"The agent moved HEAD from {head} to {moved[0]}. A step makes the only commit.",
         "",

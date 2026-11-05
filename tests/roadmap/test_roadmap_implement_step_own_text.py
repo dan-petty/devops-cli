@@ -160,7 +160,8 @@ def test_a_command_that_the_model_rewrites_to_pass_does_not_run_and_the_original
     assert (result, is_clean_at(checkout, head), programs_run(programs, "uv")) == (
         (StepStatus.STOPPED, f"{CHECK} exited with status 1.\nno test"),
         True,
-        ["uv run ruff format -- src/sample.py tests/test_sample.py", CHECK],
+        # Two runs at the ticks of the two tasks, which fail, and then the exit checks (#3054).
+        [CHECK, CHECK, "uv run ruff format -- src/sample.py tests/test_sample.py", CHECK],
     )
 
 
