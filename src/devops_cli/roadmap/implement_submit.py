@@ -109,7 +109,8 @@ _DEADLINE_EXIT_STATUS = 143
 class SubmitResult:
     """What a round did: the Jobs it reported, whether a running Job held it, the Job it created,
     and the item it left because an agent or a person claimed it after the plan (#2910), and the
-    items whose Status it could not set, and the items whose stop it cleared (#2912)."""
+    items whose Status it could not set, and the items whose stop it cleared (#2912). `effort` and
+    `fallback` name the effort pass that selected the item (#3385)."""
 
     reported: tuple[str, ...] = ()
     waiting: bool = False
@@ -117,6 +118,8 @@ class SubmitResult:
     left: int | None = None
     status_failed: tuple[StageFailure, ...] = ()
     cleared: tuple[int, ...] = ()
+    effort: str = ""
+    fallback: bool = False
 
 
 def _record(item: Item, key: ImplementRecordKey) -> str | None:
@@ -365,6 +368,8 @@ def run_implement_round(
         left=number if created is None else None,
         status_failed=failed,
         cleared=stops.cleared,
+        effort=plan.effort,
+        fallback=plan.fallback,
     )
 
 

@@ -603,6 +603,10 @@ def _run_implement_adapter(
     )
     if result.left is not None:
         logger.info(MESSAGES.roadmap.implement_round_left.format(number=result.left))
+    if result.created is not None and result.effort:
+        logger.info(MESSAGES.roadmap.implement_round_effort.format(effort=result.effort))
+        if result.fallback:
+            logger.info(MESSAGES.roadmap.implement_round_fallback)
     raise_for_failed(result.status_failed, summary=MESSAGES.roadmap.status_sync_failed)
     return JobOutcome()
 

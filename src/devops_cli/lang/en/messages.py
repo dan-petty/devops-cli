@@ -2735,6 +2735,8 @@ class RoadmapMessages:
     implement_job_applied: str = "Took {ready} item(s) to a ready pull request, stopped {stopped}."
     implement_job_yielded: str = "Left {yielded} item(s) to the owner that claimed them."
     implement_round_left: str = "Left #{number}: an agent or a person claimed it since the plan."
+    implement_round_effort: str = "The round selected an item in effort pass {effort}."
+    implement_round_fallback: str = "The round uses the fallback pass."
     implement_boundary_group: str = "the start of group {group}"
     implement_boundary_end: str = "the end of the last group"
     implement_boundary_stop: str = "the stop of {step}"
