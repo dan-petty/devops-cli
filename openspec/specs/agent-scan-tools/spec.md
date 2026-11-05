@@ -65,11 +65,15 @@ After the status, the reply of a scan that ran SHALL give the line `Findings (<c
 - **THEN** the command exits 0, and the JSON output is a dictionary with `status` `"ran"`, `reason` `""`, and `findings` `[]`
 
 ### Requirement: The MCP Semgrep tool uses the default ruleset unless the caller names one
-The MCP tool `scan_sast` SHALL scan with `DEFAULT_SEMGREP_CONFIG` when the caller names no config, and with the config that the caller names otherwise.
+The MCP tool `scan_sast` SHALL scan with `DEFAULT_SEMGREP_CONFIG` when the caller names no config. It SHALL scan with the registry id that the caller names, as it is. It SHALL scan with the path that the caller names, resolved under the work tree of the server process, and it SHALL refuse a path outside that tree.
 
 #### Scenario: The default ruleset and a named ruleset
 - **WHEN** the cached `p/default` exists, and an MCP client calls `scan_sast` once with no config and once with the config `./rules`
-- **THEN** the first Semgrep run names the cached file of `p/default` as its config, and the second run names `./rules`
+- **THEN** the first Semgrep run names the cached file of `p/default` as its config, and the second run names the absolute path of `rules` under the work tree
+
+#### Scenario: A named ruleset outside the work tree
+- **WHEN** an MCP client calls `scan_sast` with the config `../../etc/passwd`
+- **THEN** the tool raises a validation error that names `config`, and no Semgrep run starts
 
 ### Requirement: The Popeye tool runs the Popeye adapter over the namespace
 The agent tool `scan_popeye` SHALL run the Popeye adapter of `devops_cli.security` over the namespace that the agent names, or over every namespace when the agent names none. Popeye SHALL start in a new empty directory, in the sandbox with the network profile `kube-api`. The tool SHALL keep no command line of its own, and SHALL reply as the other agent scan tools reply.
