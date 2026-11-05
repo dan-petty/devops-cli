@@ -52,5 +52,5 @@ Internal code that the change deletes: the one-literal field of `NegativeSearch`
 
 ## Workflow follow-up
 
-- Follow-up issue (to be filed): a test over every active plan that fails on each `Verification:` command that the step refuses. #3187 needs its plan rewritten, and #2441 and #2610 group 2 hold prose spans that the step refuses.
-- Follow-up issue (to be filed): the step reads every code span of a `Verification:` line as a command (`src/devops_cli/roadmap/step_files.py`).
+- #3579 tracks the test over every active plan (acceptance criterion 3 of #3276). This change does not add that test. After this change, 15 refused Verification commands remain in three active plans, and #3579 holds the list.
+- #3596 tracks the step that reads every code span of a Verification line as a command (`src/devops_cli/roadmap/step_files.py`).

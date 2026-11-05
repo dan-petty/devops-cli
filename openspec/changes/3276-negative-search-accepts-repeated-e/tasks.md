@@ -45,4 +45,6 @@ Reads: `docs/TESTING.md`. Changes: `docs/TESTING.md`.
 
 ## Workflow follow-up
 
+- #3579 tracks the test over every active plan (acceptance criterion 3 of #3276). This change does not add that test.
+- #3596 tracks the step that reads every code span of a Verification line as a command.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
