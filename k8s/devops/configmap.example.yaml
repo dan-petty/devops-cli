@@ -27,6 +27,13 @@ data:
         analysis:
           model: deepseek-v4.1-flash-1017
           context_window: 65536
+        # The implement job runs every step on the same group (#3573). Its prompts, which hold
+        # the code of the repository, leave the cluster to OpenRouter (SECURITY.md rule 13). The
+        # window is the smallest that an fp8 provider of the group offers (256,000 tokens); the
+        # gateway group allows 1,048,576.
+        implement:
+          model: deepseek-v4.1-flash-1017
+          context_window: 256000
         verification:
           model: claude-sonnet-5-5
         chat:
@@ -73,3 +80,11 @@ data:
       alternatives:
         limit: 5
         first_pass_limit: 20
+      # One tier for every step class of the implement job (#3573): a step has no weaker or
+      # stronger tier to move to, so a failure that selects `change_tier` ends the step.
+      implement:
+        ladder:
+          plan: [deepseek-v4.1-flash-1017]
+          edit: [deepseek-v4.1-flash-1017]
+          repair: [deepseek-v4.1-flash-1017]
+          review: [deepseek-v4.1-flash-1017]
