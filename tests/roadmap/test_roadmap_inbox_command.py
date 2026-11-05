@@ -122,6 +122,19 @@ def test_without_repo_and_no_service_repos_the_inbox_fails_naming_the_setting(
     assert roadmap_store_repos == []
 
 
+def test_a_service_repo_that_is_not_owner_name_fails_before_any_read(
+    cli: Callable[..., Any],
+    config: Callable[..., Any],
+    roadmap_store_repos: list[str],
+) -> None:
+    config(service={"repos": ["no-owner"]})
+
+    result = cli("roadmap", "inbox")
+
+    assert (result.exit_code, "service.repos" in result.output) == (1, True)
+    assert roadmap_store_repos == []
+
+
 def test_the_kind_option_keeps_the_lines_of_one_class(
     cli: Callable[..., Any], roadmap_store: InMemoryRoadmapStore
 ) -> None:
