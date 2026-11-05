@@ -35,6 +35,7 @@ from http import HTTPStatus
 from typing import Any, Final
 from urllib.request import parse_http_list
 
+import httpx2
 from gidgethub import GitHubBroken, HTTPException, RateLimitExceeded, RedirectionException
 
 from devops_cli.config.constants import (
@@ -266,16 +267,25 @@ def classify_http_error(
 
 
 def refused_retry(
-    refusal: GitHubRateLimitError, error: HTTPException, *, method: str, path: str
+    refusal: GitHubRateLimitError,
+    error: HTTPException | httpx2.TransportError,
+    *,
+    method: str,
+    path: str,
 ) -> GitHubRateLimitError:
-    """The ledger's refusal to wait as long as GitHub asked before a retry, carrying the request's
-    path and the status that asked for the wait."""
+    """The ledger's refusal to wait as long as GitHub asked before a retry. It carries the request's
+    path and what failed the request. That is the HTTP status, or the class of a lost connection,
+    which has no status (#3506)."""
     request = FailedRequest(method, path)
+    if isinstance(error, HTTPException):
+        cause, failed = f"HTTP {int(error.status_code)}", request.details(error)
+    else:
+        cause, failed = type(error).__name__, request.details()
     return GitHubRateLimitError(
-        f"{refusal.message} ({request}, HTTP {int(error.status_code)})",
+        f"{refusal.message} ({request}, {cause})",
         subcommand=str(refusal.details.get("subcommand", DEFAULT_GH_RESOURCE)),
         operation=_OPERATION,
-        details={**refusal.details, "operation": _OPERATION, **request.details(error)},
+        details={**refusal.details, "operation": _OPERATION, **failed},
     )
 
 
