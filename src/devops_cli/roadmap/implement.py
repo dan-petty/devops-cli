@@ -133,10 +133,11 @@ def effort_passes(
     filters: StageFilter, efforts: Sequence[str]
 ) -> tuple[tuple[str, StageFilter], ...]:
     """The passes of the job, in order, each with its effort. Each value of the set makes one pass
-    with the other families of `filters`. A filter that names an effort makes one pass, with no
-    effort, as it is given (#3385)."""
+    with the other families of `filters`. A filter that names an effort makes one pass, as it is
+    given, and the pass is named by the values that the filter names (#3385)."""
     if "effort" in filters.families:
-        return (("", filters),)
+        named = sorted(label.removeprefix("effort/") for label in filters.families["effort"])
+        return ((",".join(named), filters),)
     return tuple(
         (value, StageFilter({**filters.families, "effort": frozenset({f"effort/{value}"})}))
         for value in efforts
@@ -446,6 +447,7 @@ def plan_implement(
         return ImplementPlan(repo, selected, left_out)
     efforts = implement_efforts()
     walked, in_use = _walk_passes(store, effort_passes(filters, efforts), judge, limit, probe)
+    explicit = "effort" in filters.families
     return ImplementPlan(
         repo,
         walked.taken,
@@ -453,7 +455,7 @@ def plan_implement(
         unmatched=unmatched_items(store, effort_filter(filters, efforts)) if why else (),
         beyond=walked.beyond,
         effort=in_use,
-        fallback=bool(in_use) and in_use != efforts[0],
+        fallback=bool(in_use) and not explicit and in_use != efforts[0],
     )
 
 

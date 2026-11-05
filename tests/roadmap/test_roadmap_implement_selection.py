@@ -568,3 +568,15 @@ def test_a_run_that_takes_a_low_effort_item_names_the_first_pass(
 
     assert (plan.effort, plan.fallback, "Effort pass: low." in report) == ("low", False, True)
     assert "fallback pass" not in report
+
+
+def test_a_run_of_an_explicit_effort_filter_names_its_pass_and_no_fallback(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    seed_staged(store, labels=("type/bug", "effort/high"))
+
+    plan = _plan(store, staged_repo, "effort=high")
+    report = render_implement_plan(plan)
+
+    assert (plan.effort, plan.fallback, "Effort pass: high." in report) == ("high", False, True)
+    assert "fallback pass" not in report
