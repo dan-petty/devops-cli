@@ -2094,6 +2094,7 @@ class RoadmapMessages:
     # The report of `devops roadmap explain` (#2911).
     explain_title: str = "# {repo} #{number}: {title}"
     explain_title_untitled: str = "# {repo} #{number}"
+    explain_job_refine: str = "Refine"
     explain_job_stage: str = "Stage"
     explain_job_implement: str = "Implement"
     explain_line_yes: str = "{job} job: yes."
@@ -2186,7 +2187,31 @@ class RoadmapMessages:
         "A person set the item back to New after refine set it to Ready. A reply that tells "
         "why makes refine look at it again."
     )
+    # The wait of an item that the stage job returned to New twice on the same body (#3483).
+    refine_stage_returned_twice: str = (
+        "The stage job returned the item to New twice on the same body. A reply or a body edit "
+        "makes refine look at it again."
+    )
     refine_held_status: str = "Status {status}: refine changes only open New and Ready items."
+    # `devops roadmap explain`: why a round leaves an item alone (#3483).
+    refine_left_ready: str = (
+        "The item is Ready. A round takes a Ready item only when no round refined it, or when it "
+        "holds a covering tool that no round asked about."
+    )
+    refine_left_person_hint: str = (
+        "A reply, a body edit, a closed issue that the last refine comment names, or a changed "
+        "file that it names makes refine look at it again."
+    )
+    refine_left_waits: dict[str, str] = field(
+        default_factory=lambda: {
+            "person": "The item waits on a person. {details}",
+            "split": "The item waits for a person to split it. {details}",
+            "blocked": "The item waits for {details} to close.",
+            "edit": "The item waits for a body edit. {details}",
+            "ready": "The item waits. {details}",
+            "none": "{details}",
+        }
+    )
     refine_held_closed: str = "The issue is closed: refine changes only open items."
     # Why a refine round leaves an item that an account without write access opened (#2478).
     refine_outside_author: str = (
@@ -3496,6 +3521,7 @@ class RoadmapMessages:
             "implement": "Ready implementation pull requests of the jobs (G2)",
             "release": "The release pull request (G3)",
             "blocked": "Items in status/blocked",
+            "refine": "New items that wait on a person in refine",
             "claim": "Claims with no activity for {days} days",
             "labels": "Repository state that a person owns",
             "queue": "The stage job waits for deliveries",
@@ -3513,6 +3539,8 @@ class RoadmapMessages:
             "stopped": "{title}: stopped at {step}",
             "blocked_by": "{title}: waits for {blockers}",
             "no_cause": "{title}: no cause is recorded",
+            "refine": "{title}: refine waits on a person",
+            "refine_returned": "{title}: the stage job returned it twice on the same body",
             "claim": "{title} (claimed by {owner})",
             "labels": "{count} label(s) of {path} are missing or changed on GitHub: {names}",
             "more_labels": "{names}, and {more} more",
@@ -3536,6 +3564,10 @@ class RoadmapMessages:
             "blocked": (
                 "Fix the cause, then set the status by hand: `devops gh issues edit {number} "
                 "--repo {repo} --add-label status/ready --remove-label status/blocked`."
+            ),
+            "refine": (
+                "Reply in a comment on #{number} or edit its body. "
+                "`devops roadmap explain {number} --repo {repo}` says what refine waits for."
             ),
             "claim": "devops roadmap release {number} --repo {repo} --confirm",
             "labels": "devops gh labels sync --repo {repo}",
@@ -3568,6 +3600,7 @@ class RoadmapMessages:
             "item": "<item>",
             "blocker": "<blocking item>",
             "path": "<cited path>",
+            "named_issue": "<named issue>",
             "branch": "<branch>",
             "new_branch": "<new branch>",
             "change": "<change>",
@@ -3628,6 +3661,8 @@ class RoadmapMessages:
             "issues_unread": "the run has not read every issue yet",
             "labels_differ": "the labels of the repository differ from .github/labels.yml",
             "still_waiting": "no comment follows refine's last comment on the waiting item",
+            "person_waiting": "the item waits on a person, and no comment follows refine's last one",
+            "named_closed": "the issue that the wait text names is closed and changed since the wait",
             "capped": (
                 "the cap on refine's comments leaves the item alone, and no earlier round "
                 "recorded its newest comment"
@@ -3643,7 +3678,13 @@ class RoadmapMessages:
             "milestone": "for each open milestone, by due date and then by number",
             "item": "for each item the run judges or changes",
             "blocker": "for each open item a blocked item waits on",
-            "block_path": "for each path the block of a waiting item cites, once a run",
+            "block_path": (
+                "for each path the block of a waiting item cites or the text of its wait names, "
+                "once a run"
+            ),
+            "named_issue": (
+                "for each issue the text of a wait on a person names, at most {limit} for an item"
+            ),
             "evidence": "for each piece of evidence the model cites",
             "alternatives_item": "for each item the run checks, at most --limit",
             "retitle_item": "for each item with a long title, at most --limit",

@@ -1,9 +1,10 @@
-"""`devops roadmap explain`: why the stage job and the implement job take an item or leave it out
-(#2911).
+"""`devops roadmap explain`: why the refine job, the stage job and the implement job take an item
+or leave it out (#2911, #3483).
 
 The command holds no rule of its own. The issue is judged by the selection of each job, through
-the same functions the jobs call (`read_stage_selection` and `plan_implement`), with the issue as
-`probe` so that the walk judges it also after the limit. The reason of the first rule that fails
+the same functions the jobs call (`refine_left_out`, `read_stage_selection` and `plan_implement`).
+The walks of the stage job and the implement job take the issue as `probe`, so that they judge it
+also after the limit. Refine has no limit to probe: its reason is the wait of the item. The reason of the first rule that fails
 is the text that the "Left out" list of the plan prints. The order is the order of the code: the
 issue is an open item, then the filter, then the rules of the job, then the limit of a run.
 
@@ -35,6 +36,7 @@ from devops_cli.roadmap.implement_trace import (
     decode,
 )
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
+from devops_cli.roadmap.refine import refine_left_out
 from devops_cli.roadmap.stage import LeftOut, StageFilter, read_stage_selection
 from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, Item, RoadmapStore
 
@@ -56,6 +58,7 @@ class Explanation:
     repo: str
     number: int
     title: str
+    refine: JobVerdict
     stage: JobVerdict
     implement: JobVerdict
 
@@ -78,6 +81,13 @@ class _Reads(NamedTuple):
 
     heads: str
     planned: PlannedChanges
+
+
+def _refine_verdict(store: RoadmapStore, item: Item) -> JobVerdict:
+    """Whether a round of the refine job takes the item, and, when it does not, why: the rule of
+    `refine_left_out`, which the round uses (#3483)."""
+    why = refine_left_out(store, item)
+    return JobVerdict(True) if why is None else JobVerdict(False, why)
 
 
 def _stage_verdict(
@@ -154,7 +164,7 @@ def explain_item(
         refusal = JobVerdict(
             False, texts.item_left_not_item if item is None else texts.item_left_closed
         )
-        return Explanation(repo, number, item.title if item else "", refusal, refusal)
+        return Explanation(repo, number, item.title if item else "", refusal, refusal, refusal)
     checkout = Path(source)
     stage_settings = load_settings().roadmap.stage
     reads = _Reads(
@@ -164,6 +174,7 @@ def explain_item(
         repo,
         number,
         item.title,
+        _refine_verdict(store, item),
         _stage_verdict(
             store,
             repo=repo,
@@ -198,6 +209,7 @@ def render_explanation(explained: Explanation) -> str:
     )
     lines = [title, ""]
     for job, verdict in (
+        (texts.explain_job_refine, explained.refine),
         (texts.explain_job_stage, explained.stage),
         (texts.explain_job_implement, explained.implement),
     ):

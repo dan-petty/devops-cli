@@ -25,6 +25,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
     CONST_ROADMAP_LABELS_PATH,
+    CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS,
     CONST_URL_GITHUB_API_BASE,
 )
 from devops_cli.config.defaults import DEFAULT_FIRECRAWL_SEARCH_URL, DEFAULT_PYPI_PACKAGE_URL
@@ -325,6 +326,20 @@ def milestones_edit_requests(
 # ── The jobs ──────────────────────────────────────────────────────────────────
 
 
+def _wait_reads(store: StoreRequests) -> Requests:
+    """The reads that end the wait of an item that no reply follows (#2005, #3483): the newest
+    commit of each path that its block cites or its wait text names, and, for a wait on a person,
+    each issue that the wait text names and the timeline of each that is closed."""
+    cond, rep = MESSAGES.roadmap.plan_conditions, MESSAGES.roadmap.plan_repeat
+    named = _p("named_issue")
+    each = rep["named_issue"].format(limit=CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS)
+    return [
+        *within(store.path_change(_p("path")), cond["still_waiting"], repeat=rep["block_path"]),
+        *within(store.issue(named), cond["person_waiting"], repeat=each),
+        *within(store.closures(named), cond["named_closed"], repeat=each),
+    ]
+
+
 def refine_requests(
     repo: str,
     ref: str | None,
@@ -384,11 +399,7 @@ def refine_requests(
                 repeat=each_candidate,
             ),
             *blockers,
-            *within(
-                store.path_change(_p("path")),
-                cond["still_waiting"],
-                repeat=rep["block_path"],
-            ),
+            *_wait_reads(store),
         ]
         writes = [
             *within(
@@ -793,10 +804,10 @@ def explain_requests(
     if trace:
         return tuple(StoreRequests(repo).issue(f"#{item}")), ()
     reads, _ = implement_requests(repo, item=item)
-    blockers = within(
-        StoreRequests(repo).issue(_p("blocker")), repeat=MESSAGES.roadmap.plan_repeat["blocker"]
-    )
-    return (*reads, *blockers), ()
+    store = StoreRequests(repo)
+    blockers = within(store.issue(_p("blocker")), repeat=MESSAGES.roadmap.plan_repeat["blocker"])
+    refine = [*store.comments_on(f"#{item}"), *_wait_reads(store)]
+    return (*reads, *blockers, *refine), ()
 
 
 def inbox_requests(

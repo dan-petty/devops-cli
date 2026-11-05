@@ -310,6 +310,86 @@ def test_an_empty_inbox_says_that_nothing_waits(store: InMemoryRoadmapStore) -> 
     )
 
 
+# ── Items that wait on a person in refine (#3483) ─────────────────────────────────────────
+
+
+def test_each_new_item_that_refine_leaves_to_a_person_has_one_line_with_the_step_that_clears_it(
+    store: InMemoryRoadmapStore,
+) -> None:
+    asked = _item(
+        store,
+        "asked",
+        fields={ItemField.STATUS: "New"},
+        marks={RefineRecordKey.NEXT_STEP: "person"},
+        updated_at=_ago(days=3),
+    )
+    returned = _item(
+        store,
+        "returned",
+        fields={ItemField.STATUS: "New"},
+        marks={
+            RefineRecordKey.NEXT_STEP: "ready",
+            RefineRecordKey.BODY_HASH: "h1",
+            RefineRecordKey.RETURNED_BODY_HASH: "h1",
+        },
+        updated_at=_ago(days=1),
+    )
+
+    lines = _lines(_read(store), InboxKind.REFINE)
+
+    assert [(line.number, line.subject) for line in lines] == [
+        (asked, "asked: refine waits on a person"),
+        (returned, "returned: the stage job returned it twice on the same body"),
+    ]
+    assert lines[0].clear == (
+        f"Reply in a comment on #{asked} or edit its body. "
+        f"`devops roadmap explain {asked} --repo {REPO}` says what refine waits for."
+    )
+
+
+@pytest.mark.parametrize(
+    ("fields", "marks", "state"),
+    [
+        ({ItemField.STATUS: "New"}, {RefineRecordKey.NEXT_STEP: "ready"}, GitHubState.OPEN),
+        ({ItemField.STATUS: "New"}, {RefineRecordKey.NEXT_STEP: "blocked"}, GitHubState.OPEN),
+        (
+            {ItemField.STATUS: "New"},
+            {
+                RefineRecordKey.NEXT_STEP: "ready",
+                RefineRecordKey.BODY_HASH: "h2",
+                RefineRecordKey.RETURNED_BODY_HASH: "h1",
+            },
+            GitHubState.OPEN,
+        ),
+        ({ItemField.STATUS: "Ready"}, {RefineRecordKey.NEXT_STEP: "person"}, GitHubState.OPEN),
+        ({ItemField.STATUS: "New"}, {RefineRecordKey.NEXT_STEP: "person"}, GitHubState.CLOSED),
+    ],
+    ids=["ready", "blocked", "returned-other-body", "status-ready", "closed"],
+)
+def test_an_item_that_waits_on_nothing_in_refine_has_no_refine_line(
+    store: InMemoryRoadmapStore,
+    fields: Mapping[ItemField, str],
+    marks: Mapping[Any, str | None],
+    state: GitHubState,
+) -> None:
+    _item(store, fields=fields, marks=marks, state=state)
+
+    assert _lines(_read(store), InboxKind.REFINE) == []
+
+
+def test_the_report_names_the_refine_section() -> None:
+    inbox = Inbox(
+        jobs=(
+            InboxLine(
+                InboxKind.REFINE, 7, timedelta(days=2), "work: refine waits on a person", "Reply."
+            ),
+        ),
+        people=(),
+    )
+
+    assert "New items that wait on a person in refine\n  #7  2d" in render_inbox(inbox, repo=REPO)
+
+
 def test_the_inbox_states_the_planned_limit_when_it_holds(store: InMemoryRoadmapStore) -> None:
     _item(store, fields={ItemField.STATUS: "Planned"})
     _item(store, fields={ItemField.STATUS: "Planned"})
