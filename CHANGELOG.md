@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.59.0](https://github.com/dan-petty/devops-cli/compare/v0.58.0...v0.59.0) (2026-11-05)
+
+
+### Features
+
+* **k8s:** implement with deepseek-v4.1-flash-1017 ([#3581](https://github.com/dan-petty/devops-cli/issues/3581)) ([f3143af](https://github.com/dan-petty/devops-cli/commit/f3143afbe58afb29c44dfe65553a81afa2b09e26))
+* **k8s:** serve qwen3.8:27b alone on the 48 and 64 GiB tiers ([#3572](https://github.com/dan-petty/devops-cli/issues/3572)) ([4fb8254](https://github.com/dan-petty/devops-cli/commit/4fb825428124801281e3aba36f07d8ca22ffb8de))
+* **roadmap:** a step stops at its budgets and records attempts ([#3580](https://github.com/dan-petty/devops-cli/issues/3580)) ([3afe6df](https://github.com/dan-petty/devops-cli/commit/3afe6df1ac19ead69a9b8c15d59f0055631d691f))
+* **roadmap:** one pass re-checks each merged plan against main ([#3559](https://github.com/dan-petty/devops-cli/issues/3559)) ([0a62030](https://github.com/dan-petty/devops-cli/commit/0a62030cbe004effd5bb0572cc12595d52e20d54)), closes [#3492](https://github.com/dan-petty/devops-cli/issues/3492)
+
+
+### Bug Fixes
+
+* **roadmap:** refine looks again when a wait ends ([#3555](https://github.com/dan-petty/devops-cli/issues/3555)) ([ce689f4](https://github.com/dan-petty/devops-cli/commit/ce689f43cfe136fa71c3c4c48db02bfd8f5b2577)), closes [#3483](https://github.com/dan-petty/devops-cli/issues/3483)
+
 ## [0.58.0](https://github.com/dan-petty/devops-cli/compare/v0.57.2...v0.58.0) (2026-11-05)
 
 
