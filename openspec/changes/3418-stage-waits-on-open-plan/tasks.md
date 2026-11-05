@@ -69,9 +69,9 @@ Reads: `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/lang/en/message
 
 Reads: `src/devops_cli/roadmap/planned.py`, `tests/roadmap/test_roadmap_stage_planned.py`, `openspec/changes/3418-stage-waits-on-open-plan/specs/roadmap-stage/spec.md`. Changes: `tests/roadmap/test_roadmap_stage_planned.py`, `openspec/changes/3418-stage-waits-on-open-plan/specs/roadmap-stage/spec.md`.
 
-- [ ] 8.1 In `tests/roadmap/test_roadmap_stage_planned.py`, add `test_archived_plan_naming_a_path_is_no_dependency`. It merges the plan of an open item into an archived change that marks a path `(new)`, and asserts that `open_plan_creates` holds no entry for that path.
+- [x] 8.1 In `tests/roadmap/test_roadmap_stage_planned.py`, add `test_archived_plan_naming_a_path_is_no_dependency`. It merges the plan of an open item into an archived change that marks a path `(new)`, and asserts that `open_plan_creates` holds no entry for that path.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_planned.py`
-- [ ] 8.2 In the spec delta, add the scenario `An archived change names the path` to the requirement `A closed plan is no dependency`.
+- [x] 8.2 In the spec delta, add the scenario `An archived change names the path` to the requirement `A closed plan is no dependency`.
   - Verification: `uv run devops openspec check`
 
 ## 9. Document the return of the stage job

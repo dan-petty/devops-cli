@@ -253,3 +253,24 @@ def test_closed_plan_naming_a_path_is_no_dependency(
     creators = open_plan_creates(store, stage_repo.clone, planned, operation="stage")
 
     assert creators == {OPEN_PATH: open_item}
+
+
+ARCHIVED_PATH = "src/devops_cli/roadmap/archived_module.py"
+
+
+def test_archived_plan_naming_a_path_is_no_dependency(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo
+) -> None:
+    """The plan of an archived change creates nothing for the stage job, even when its item is
+    still open (#3418)."""
+    open_item = store.seed_issue(
+        "fix(roadmap): the open item",
+        labels=("type/bug",),
+        fields={ItemField.STATUS: "Planned", ItemField.PRIORITY: "P1-High"},
+    )
+    merge_plan(stage_repo, open_item, tasks=_plan_creating(ARCHIVED_PATH), archived=True)
+
+    planned = read_planned_changes(stage_repo.clone, operation="stage")
+    creators = open_plan_creates(store, stage_repo.clone, planned, operation="stage")
+
+    assert creators == {}
