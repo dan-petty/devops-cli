@@ -1,0 +1,91 @@
+# promtool rule unit tests of the alert group roadmap-service-items in
+# k8s/monitoring/prometheus-values.yaml (#2919). The alert fires when the oldest item of a blocked
+# state, or of a ready state with a plan, is older than one day. It names the item, read from the
+# series of its number with the same labels. It stays quiet for a ready item with no plan, for an
+# item under a day, and for a series of another job (a workstation as job="devops-cli").
+#
+# tests/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files` names,
+# beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each
+# series at time 0, with one sample each `interval`. The metrics row sends each round, so a series
+# has a sample each round, and the rule reads its last value in the last 30 minutes.
+rule_files:
+  - roadmap-service-items.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: A blocked item over a day fires and names its item number
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_roadmap_item_age_seconds{job="roadmap-service", repo="example/app", state="blocked", plan="false"}'
+        values: '90000x60'
+      - series: 'devops_cli_roadmap_oldest_item_number{job="roadmap-service", repo="example/app", state="blocked", plan="false"}'
+        values: '2919x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: RoadmapServiceItemStuck
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              state: blocked
+              plan: "false"
+            exp_annotations:
+              summary: "Item #2919 of example/app has been in state blocked for 1d 1h 0m 0s"
+              description: "An item of the roadmap has stayed in one state for more than 24 hours: a blocked item, or a ready item with a plan that waits for a person. Run devops roadmap inbox to see the item (k8s/README.md, Roadmap service)."
+
+  - name: A ready item with a plan over a day fires and names its item number
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_roadmap_item_age_seconds{job="roadmap-service", repo="example/app", state="ready", plan="true"}'
+        values: '90000x60'
+      - series: 'devops_cli_roadmap_oldest_item_number{job="roadmap-service", repo="example/app", state="ready", plan="true"}'
+        values: '2754x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: RoadmapServiceItemStuck
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              state: ready
+              plan: "true"
+            exp_annotations:
+              summary: "Item #2754 of example/app has been in state ready for 1d 1h 0m 0s"
+              description: "An item of the roadmap has stayed in one state for more than 24 hours: a blocked item, or a ready item with a plan that waits for a person. Run devops roadmap inbox to see the item (k8s/README.md, Roadmap service)."
+
+  - name: A ready item with no plan stays quiet, even when it is older than a day
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_roadmap_item_age_seconds{job="roadmap-service", repo="example/app", state="ready", plan="false"}'
+        values: '900000x60'
+      - series: 'devops_cli_roadmap_oldest_item_number{job="roadmap-service", repo="example/app", state="ready", plan="false"}'
+        values: '2713x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: RoadmapServiceItemStuck
+        exp_alerts: []
+
+  - name: A blocked item under a day stays quiet
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_roadmap_item_age_seconds{job="roadmap-service", repo="example/app", state="blocked", plan="true"}'
+        values: '80000x60'
+      - series: 'devops_cli_roadmap_oldest_item_number{job="roadmap-service", repo="example/app", state="blocked", plan="true"}'
+        values: '3050x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: RoadmapServiceItemStuck
+        exp_alerts: []
+
+  - name: A series of another job stays quiet, even over a day
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_roadmap_item_age_seconds{job="devops-cli", repo="example/app", state="blocked", plan="false"}'
+        values: '90000x60'
+      - series: 'devops_cli_roadmap_oldest_item_number{job="devops-cli", repo="example/app", state="blocked", plan="false"}'
+        values: '2919x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: RoadmapServiceItemStuck
+        exp_alerts: []
