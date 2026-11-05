@@ -37,7 +37,9 @@ Before these checks, the command deletes each new file that git does not ignore,
 
 The command writes the tasks file back to its text before the run and keeps only the ticks of the group, so no edit of that file stops the step. It then runs the pre-commit stage of the hooks of the repository on the staged changes.
 
-**Repair.** An agent whose `ruff`, `mypy` or hook fails, or that forgets a tick, gets more turns. The setting `roadmap.implement.repair_rounds` bounds them. The turns may change only the files that the agent changed.
+**Repair.** An agent whose `ruff`, `mypy` or hook fails, or that forgets a tick, gets more turns. The setting `roadmap.implement.repair_rounds` bounds them. The turns may change only the files that the agent changed. A step that used all its rounds says so in its reason. A group that changed no file gets no round.
+
+**Budgets.** A step stops before a model request when it has spent `roadmap.implement.step_token_budget`, `item_token_budget`, `step_time_limit_seconds` or `item_time_limit_seconds`. The stop has the class `limit_reached`, and its reason names the setting and its value. The trace holds one `attempt` event for each attempt.
 
 **Result.** When every check passes, the command commits the checkout as `<type>(<scope>): <group title> (#<item>)`. The type and the scope are those of the item title, and the title falls back to `chore` when the item title has no Conventional Commit type. Otherwise it resets the checkout to the commit where the step started. It reports the step as stopped, with the reason and the masked diff of the work it discarded, and exits 1.
 
