@@ -4,7 +4,7 @@
 
 ## Which repositories it reads
 
-Without `--repo`, the inbox reads each repository of the setting `service.repos`, in its order, and lists the lines of each. With `--repo`, it reads that repository only. When `service.repos` is empty and `--repo` is not given, the command fails and names the setting.
+Without `--repo`, the inbox reads each repository of the setting `service.repos`, in its order, and lists the lines of each. With `--repo`, it reads that repository only. When `service.repos` is empty and `--repo` is not given, the command fails and names the setting. An entry that is not `owner/name` makes the command fail before it reads any repository, and the error names the entry.
 
 ## What the inbox lists
 

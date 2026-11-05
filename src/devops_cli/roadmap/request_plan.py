@@ -865,8 +865,9 @@ def inbox_requests(
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap inbox` reads, in order (#2915). It reads the open issues, the open
     pull requests, the labels of the repository and `.github/labels.yml` on the default branch,
-    and the newest commit that changed that file only when the labels differ. It reads the
-    listing of every issue never, makes no write and calls no model."""
+    and the newest commit that changed that file only when the labels differ. It reads the check
+    runs of the head commit of each open draft of a job, one read for each draft (#3494). It
+    reads the listing of every issue never, makes no write and calls no model."""
     store = StoreRequests(repo)
     differ = MESSAGES.roadmap.plan_conditions["labels_differ"]
     reads = [

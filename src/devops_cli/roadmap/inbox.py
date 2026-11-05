@@ -9,13 +9,15 @@ are enough.
 **The jobs' lines**, in the order of the gates (docs/ROADMAP_WORKFLOW.md): ready plan pull
 requests (G1), ready implementation pull requests (G2), the release pull request (G3), items in
 `status/blocked` with their cause, New items that wait on a person in refine (one line for each,
-from the job record alone, #3483), old claims, labels that the repository lacks, and the Planned
-queue when it is at the limit of the stage job (#3487). A pull request is a job's when the job
-record of an open item names it: `implement.pr` makes it an implementation, `stage.pr` a plan, and
-`implement.pr` wins because a staged branch keeps one pull request through both jobs. A draft of a job is listed when it is older than `roadmap.inbox.draft_days`, or when a
-check run of its head commit failed. A pull request that a runner Job holds is not listed: the Job
-pushes to it. The release pull request is
-the open one whose head branch starts with the prefix of release-please.
+from the job record alone, #3483), New items with an unapplied split, New items with an
+alternatives question (#3494), drafts of jobs, old claims, labels that the repository lacks, and
+the Planned queue when it is at the limit of the stage job (#3487). A pull request is a job's when
+the job record of an open item names it: `implement.pr` makes it an implementation, `stage.pr` a
+plan, and `implement.pr` wins because a staged branch keeps one pull request through both jobs. A
+draft of a job is listed when it is older than `roadmap.inbox.draft_days`, or when a check run of
+its head commit failed. A pull request that a runner Job holds is not listed: the Job pushes to it.
+The release pull request is the open one whose head branch starts with the prefix of
+release-please.
 
 **The people's lines** are every other open pull request, so a person's own pull requests are
 apart from the jobs'. A draft is marked as a draft.
