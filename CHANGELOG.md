@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.62.7](https://github.com/dan-petty/devops-cli/compare/v0.62.6...v0.62.7) (2026-11-05)
+
+
+### Bug Fixes
+
+* **ai:** a hosted gateway call is priced, not counted local ([#3663](https://github.com/dan-petty/devops-cli/issues/3663)) ([acdc8a9](https://github.com/dan-petty/devops-cli/commit/acdc8a9bf6872b35b55badc402d0cec149546c3a))
+* **roadmap:** plan-check measures each task group ([#3669](https://github.com/dan-petty/devops-cli/issues/3669)) ([3791bd9](https://github.com/dan-petty/devops-cli/commit/3791bd96919516cec43ce2836e206a19593f6409))
+* **roadmap:** the jobs trust the items of the two bots ([#3664](https://github.com/dan-petty/devops-cli/issues/3664)) ([41a362d](https://github.com/dan-petty/devops-cli/commit/41a362d55dd8cce6e80584b75ae87bab05728ccf))
+
 ## [0.62.6](https://github.com/dan-petty/devops-cli/compare/v0.62.5...v0.62.6) (2026-11-05)
 
 
