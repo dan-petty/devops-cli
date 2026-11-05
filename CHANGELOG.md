@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.62.3](https://github.com/dan-petty/devops-cli/compare/v0.62.2...v0.62.3) (2026-11-05)
+
+
+### Bug Fixes
+
+* **roadmap:** guardrail for the implement job plan check ([#3626](https://github.com/dan-petty/devops-cli/issues/3626)) ([7af9a00](https://github.com/dan-petty/devops-cli/commit/7af9a00c1cf61ce20d550b2f4d61ee57a1c899b7))
+
 ## [0.62.2](https://github.com/dan-petty/devops-cli/compare/v0.62.1...v0.62.2) (2026-11-05)
 
 
