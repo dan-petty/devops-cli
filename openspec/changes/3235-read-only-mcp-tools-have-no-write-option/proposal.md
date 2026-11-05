@@ -6,7 +6,7 @@ Issue #3235 reports that `CONST_MCP_EXPOSURE_TABLE` marks `pr_check_readiness` a
 
 The check that the issue asks for finds three more tools of the same kind. `roadmap_refine` has `--confirm`, which writes the proposed designs to GitHub. `scan_injection` has `--sarif`, which writes the findings to a file. `tf_plan` has `--out`, which writes the plan to a file. All three are marked read-only.
 
-A review of the first version finds two more. `roadmap_run` has `--confirm`, which runs the same refine and intake jobs. `ci` has `--fix`, which is on by default and rewrites files. Both are marked read-only.
+A read of the other options finds two more. `roadmap_run` has `--confirm`, which runs the same refine and intake jobs. `ci` has `--fix`, which is on by default and rewrites files. Both are marked read-only.
 
 ## What Changes
 

@@ -17,7 +17,7 @@
 
 ## Rejected alternatives
 
-- **Keep `tf_plan` not read-only and publish `out`.**: The first version did so. The tool then publishes a path that the command writes, and nothing confines it. SECURITY.md rule 11 and the requirement "Write path confinement" of `mcp-tool-path-confinement` forbid that.
+- **Keep `tf_plan` not read-only and publish `out`.**: The tool then publishes a path that the command writes, and nothing confines it. SECURITY.md rule 11 and the requirement "Write path confinement" of `mcp-tool-path-confinement` forbid that.
 - **Mark only `pr check-readiness` and add no general check.**: The scan finds more tools of the same kind. Acceptance criterion 1 of the issue says that no tool with a write option is read-only.
 - **Remove `auto_resolve` from the published schema of `pr_check_readiness`.**: `_PATH_PARAM_RESTRICTIONS` takes an `allowed` list only. The entry must list the seven other options, and it drops each option that the command adds later. The option is also useful for a model that has the write right.
 - **Scan option names, not descriptions.**: `--confirm`, `--out`, `--fix` and `--sarif` have names with no write verb. The check would miss four of the tools.
