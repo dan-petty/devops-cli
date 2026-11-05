@@ -38,6 +38,10 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_AI_TASK_METADATA_OLLAMA_URLS` | `ai.tasks.metadata.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
 | `DEVOPS_CLI_AI_TASK_METADATA_PROVIDER` | `ai.tasks.metadata.provider` | No | AI provider of this task, in place of `ai.provider` |
 | `DEVOPS_CLI_AI_TASK_METADATA_REASONING_EFFORT` | `ai.tasks.metadata.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
+| `DEVOPS_CLI_AI_TASK_STAGE_MODEL` | `ai.tasks.stage.model` | No | AI model of this task, in place of `ai.model` |
+| `DEVOPS_CLI_AI_TASK_STAGE_OLLAMA_URLS` | `ai.tasks.stage.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
+| `DEVOPS_CLI_AI_TASK_STAGE_PROVIDER` | `ai.tasks.stage.provider` | No | AI provider of this task, in place of `ai.provider` |
+| `DEVOPS_CLI_AI_TASK_STAGE_REASONING_EFFORT` | `ai.tasks.stage.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
 | `DEVOPS_CLI_ANTHROPIC_API_KEY` | `anthropic.api_key` | 🔒 Yes | Anthropic API key that `devops k8s push-secrets` writes to the LLM gateway Secret (stored in OS keyring) |
 | `DEVOPS_CLI_ARGOCD_GITHUB_APP_ID` | `argocd.github_app_id` | No | ID of the GitHub App that Argo CD's GitHub notifier acts as |
 | `DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID` | `argocd.github_app_installation_id` | No | ID of the installation of Argo CD's notifier App on the managed repositories |

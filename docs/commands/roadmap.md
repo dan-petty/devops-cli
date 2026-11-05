@@ -346,7 +346,7 @@ devops roadmap eval stage [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--case` | `string` | - | Run only this case, by folder name or issue number. Repeat the option for more cases. |
-| `--model` | `string` | - | Model for the analysis task. Without it, the configured model. |
+| `--model` | `string` | - | Model for the stage task. Without it, the configured model of the task. |
 | `--limit` | `integer` | - | Run at most this many cases, the first ones of the set. |
 | `--json` | `boolean` | - | Print the report as JSON in place of the table. |
 | `--dry-run` | `boolean` | - | Make no request: list the cases and the model calls that a run makes. |

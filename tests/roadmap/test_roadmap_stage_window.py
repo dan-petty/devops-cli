@@ -113,7 +113,7 @@ def test_a_first_request_with_the_context_and_the_body_at_their_caps_offers_the_
     stage_repo: StageRepo,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(stage, "analysis_window", lambda: WINDOW)
+    monkeypatch.setattr(stage, "task_window", lambda task: WINDOW)
     stage_repo.track(
         {"docs/adr/0001-a-decision.md": _words(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)}
     )
@@ -138,7 +138,7 @@ def test_a_first_request_of_code_with_the_context_and_the_body_at_their_caps_off
 ) -> None:
     """The reserve of the spec holds for plain text. Quotes and newlines grow in the JSON of the
     request, so for code the reserve is smaller, and the request must still stay under the limit."""
-    monkeypatch.setattr(stage, "analysis_window", lambda: WINDOW)
+    monkeypatch.setattr(stage, "task_window", lambda task: WINDOW)
     stage_repo.track(
         {"docs/adr/0001-a-decision.md": _code(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)}
     )
@@ -227,7 +227,7 @@ def test_the_caps_of_the_context_and_the_body_do_not_grow_with_the_window(
     monkeypatch: pytest.MonkeyPatch,
     window: int,
 ) -> None:
-    monkeypatch.setattr(stage, "analysis_window", lambda: window)
+    monkeypatch.setattr(stage, "task_window", lambda task: window)
     stage_repo.track(
         {"docs/adr/0001-a-decision.md": _words(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)}
     )
@@ -248,7 +248,7 @@ def test_a_small_window_cuts_the_caps_to_a_share_of_itself(
     stage_repo: StageRepo,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(stage, "analysis_window", lambda: 8192)
+    monkeypatch.setattr(stage, "task_window", lambda task: 8192)
     stage_repo.track(
         {"docs/adr/0001-a-decision.md": _words(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)}
     )

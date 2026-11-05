@@ -122,7 +122,7 @@ def test_a_round_stages_the_items_the_settings_name_and_counts_each_once(
     assert _counted(otlp) == [("staged", 1.0)]
 
 
-def test_a_round_plans_with_the_model_of_the_analysis_task_as_a_toolbox_model(
+def test_a_round_plans_with_the_model_of_the_stage_task_as_a_toolbox_model(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
@@ -145,7 +145,7 @@ def test_a_round_plans_with_the_model_of_the_analysis_task_as_a_toolbox_model(
 
     assert (outcome, tasks, script.tools_offered[0][:2], model_fake.call_count) == (
         JobOutcome(),
-        ["analysis"],
+        ["stage"],
         ["list_files", "read_file"],
         1,
     )

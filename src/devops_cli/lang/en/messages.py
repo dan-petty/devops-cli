@@ -3113,9 +3113,9 @@ class RoadmapMessages:
             "default_plans": "the change folders of the default branch",
             "tracked_files": "the tracked files of the clone, to check the paths of each plan",
             "open_pulls": "the open pull requests and their files, to find an overlap",
-            "model_change": "the analysis model plans the change of the item",
-            "model_split": "the analysis model splits the task groups over the budget",
-            "model_correction": "the analysis model corrects a change that fails its checks",
+            "model_change": "the stage model plans the change of the item",
+            "model_split": "the stage model splits the task groups over the budget",
+            "model_correction": "the stage model corrects a change that fails its checks",
             "validate": "validate the change with OpenSpec in a scratch directory",
             "fetch_branch": "the staged branch of a closed item",
             "worktree": "the worktree of the item's branch at the fetched default branch",
@@ -3801,7 +3801,7 @@ class RoadmapMessages:
     stage_eval_replay_failed: str = "Result: FAILED. {count} problem(s):"
     stage_eval_pending_gate: str = "{reference}"
     stage_eval_score_title: str = (
-        "# Stage golden set: {cases} case(s), the analysis model {model} at {gateway}"
+        "# Stage golden set: {cases} case(s), the stage model {model} at {gateway}"
     )
     stage_eval_score_header: str = "Defect type               Gate     Cases  Avoided  Caught  Rate"
     stage_eval_score_row: str = (
@@ -3812,8 +3812,11 @@ class RoadmapMessages:
         "gate catches ({rate})."
     )
     stage_eval_score_ended: str = "Cases by end: {ended}."
+    stage_eval_usage_tokens: str = "Tokens: {input} in, {output} out."
+    stage_eval_usage_spend: str = "Spend: {spend:.4f} USD at the hosted price of the model."
+    stage_eval_usage_unpriced: str = "Spend: no price for the model."
     stage_eval_dry_run: str = (
-        "Dry run: no request was made. A run plans {cases} case(s) with the analysis model at "
+        "Dry run: no request was made. A run plans {cases} case(s) with the stage model at "
         "{gateway}, {mode}, one case at a time:"
     )
     stage_eval_mode_toolbox: str = "with the read-only toolbox"

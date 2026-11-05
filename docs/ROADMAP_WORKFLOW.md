@@ -272,6 +272,38 @@ uv run devops roadmap eval stage --replay
 - **The replay** calls no model and reads no git. It runs the recorded plans through the gates and lists, for each gate, the known defects it catches. The `paths` gate is `check_proposal`, the check that the job runs on a reply: the path rule, the rules of the spec delta (#3013) with the capabilities of the case, and the form of the `verify` commands and of the new test files (#3015). It is one gate, as the job runs it, so it judges the defects of the types `missing_path`, `spec_delta_wrong` and `verify_form`; a defect that it refuses for another reason than a missing path holds the text of the problem as its `message`. The `criteria` gate (#3019) checks that the `criteria` list of the reply maps each acceptance criterion of the issue to a group or to `pending-person`. An acceptance criterion is a top-level item of the list under the heading `Acceptance criteria` in the text that a person wrote, before the refine block; an issue with no such list has none. The check reads the whole issue body, and a refused reply names the exact text to copy. A recorded plan has no `criteria` list, so the replay does not judge it, and its dropped-criterion defects have the gate `none`; the run of the model judges the gate on the first reply. It exits 1 when a gate stops refusing a known-bad plan, or refuses a good plan. The test suite runs it on the whole set. A defect for a gate that does not exist yet is marked `pending`: the replay lists it and fails nothing. No defect has this mark now. When a gate lands, its pull request sets the gate in the case files, and the replay checks it from then on. A recorded plan cannot show some defects of a type that a gate catches: the facts of a case hold a thinned tree and no text of the base specs, and the replay reads no code and no git. Such a defect has the gate `none` and a `reason` in `case.json`. This holds for the code that a plan ignores (`ignores_existing_code`: #3012 gives that code to the model as input and checks nothing on the reply) and for the order of the work (`task_order`: #3017 refuses only a path that a later group creates). The report prints, for each type of defect, the defects that a gate caught and missed, and the defects that no gate judges, and then the share of all the known defects that a gate judges. A change of a gate states these counts before and after.
 - **The rule.** A pull request that changes the stage prompt (`roadmap_stage_change.md`) or a check of the stage job (`check_proposal` and the gates it calls) states the score of the same model before and after the change. Use one model for both runs, and say which. To measure the toolbox, run the same model with and without `--no-toolbox` on the whole set, and state both scores.
 
+### What an acceptable stage score is
+
+A plan is acceptable when a person merges it without rework. The golden set measures this before a plan reaches a person. A model, a prompt or a cap is acceptable for the stage job when the golden set shows all of these:
+
+- **Recall.** After the gates and the verification pass, the job finds at least 90% of the known defects of the severities `blocker` and `major`. `devops roadmap eval verify` prints this recall.
+- **Good plans.** The verification pass makes no finding on the 3 good plans.
+- **Live plans.** At least 80% of the plan pull requests that the job opens in a period are merged without a hold. A person reads the pull requests and records the share.
+
+A cheaper model or a lower cap must keep the score of the baseline on the same eval. The score of the current model is no bar, because that model fails the live plans that a person reviewed on 2026-11-02.
+
+### The model of the stage planner
+
+The setting `ai.tasks.stage.model` sets the model of the stage planner, of the call that splits the groups, and of `devops roadmap eval stage`. The variable is `DEVOPS_CLI_AI_TASK_STAGE_MODEL`. A field of `ai.tasks.stage` that is not set takes the value of `ai.tasks.analysis`. So the planner moves to another model without a move of refine, intake and alternatives, and the planner reads the `context_window` of its own task. Only a person changes this setting in the deployed config.
+
+### Find the cheapest model that is acceptable
+
+Measure first. Park each cost change, such as a budget (#3066), the model ladder (#3060) and a lower cap, until the baseline passes: a cap set before the baseline hides the cause of a failure.
+
+1. **The baseline.** Run the eval with a cloud model that is likely to pass, for example `claude-sonnet-5-5`. Run it with the toolbox and without it, and run the verification eval with the same model. Each report holds the tokens and the spend in USD of its run, and the file is under `roadmap_eval/stage/` or `roadmap_eval/verify/` in the data directory.
+
+   ```text
+   uv run devops roadmap eval stage --model claude-sonnet-5-5
+   uv run devops roadmap eval stage --model claude-sonnet-5-5 --no-toolbox
+   uv run devops roadmap eval verify --model claude-sonnet-5-5 --source <repository>
+   ```
+
+2. **The gap.** Run the same commands with the current model. The difference of the two scores is the gap, as a number.
+3. **The cheaper models.** Only when the baseline passes, try a cheaper model or a lower cap, one change at a time, with the same eval. Keep a change only when the score holds. Record the score and the spend in the pull request.
+4. **The live setting.** A person sets `ai.tasks.stage.model` in the deployed config to the cheapest model that passes.
+
+A run makes at least one model call for each of the 40 cases. With the toolbox it makes more, because each tool call is one more request that holds the whole earlier text. Read the spend of a first run from its report before a second run.
+
 ### Measure the verification pass
 
 After the gates, the stage job asks a model of the task `ai.tasks.verification` to review the plan with the issue and the start of each file that the plan cites (#3153). The same golden set measures it:
