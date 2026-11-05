@@ -1,9 +1,11 @@
-# The template of the Ollama tier for two GPUs of an old architecture, as a chat tier that runs one
-# instance on all of its GPUs (#3501). Kustomize does not read this file. `devops ai gateway render
-# --apply` applies k8s/llm/profiles/gpu-thresholds.yaml to it and writes the result into
-# ../ollama-profiles.yaml. The annotations say how many instances the tier runs at or below the
-# per_gpu threshold, and which model its gateway deployments embed with. It keeps qwen3-embedding:0.6b and one generation model loaded for good,
-# since each evicted the other on every switch (#1064).
+# The template of the Ollama tier for two GPUs of an old architecture (#3501). Kustomize does not
+# read this file. `devops ai gateway render --apply` applies k8s/llm/profiles/gpu-thresholds.yaml to
+# it and writes the result into ../ollama-profiles.yaml. The annotations say how many instances the
+# tier runs at or below the per_gpu threshold, and which model it serves at or below the
+# embedding_only threshold. As a chat tier it loads one model for good, as the tiers ollama-48gib
+# and ollama-64gib do (#3567), and the gateway sends it no embedding batch. Its context length is
+# the native limit of qwen3.8:27b. No one has measured that length on these GPUs: the VRAM total
+# equals that of ollama-48gib, where 262144 takes 27 GB (see ollama-profiles.yaml).
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -99,9 +101,9 @@ spec:
             - name: OLLAMA_MODELS
               value: /home/ollama/.ollama/models
             - name: OLLAMA_CONTEXT_LENGTH
-              value: "128000"
+              value: "262144"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_NUM_PARALLEL
               value: "1"
             - name: OLLAMA_KEEP_ALIVE

@@ -163,7 +163,7 @@ def _status(*routes: GatewayRoute, healthy: bool = True) -> GatewayStatus:
 def _route(name: str, *, healthy: bool = True) -> GatewayRoute:
     return GatewayRoute(
         virtual_model=name,
-        target_model="qwen3-coder:30b",
+        target_model="qwen3.8:27b",
         backend_type="ollama",
         backend_url="https://gateway.example.com",
         healthy=healthy,
@@ -202,9 +202,9 @@ def test_tier_health_counts_a_name_that_the_gateway_does_not_route_as_healthy(
         router, "probe_gateway", lambda **_: _status(_route("devops-coder"), healthy=True)
     )
 
-    assert router.tier_health(["devops-coder", "ollama:qwen3-coder:30b", "claude-haiku-5-5"]) == {
+    assert router.tier_health(["devops-coder", "ollama:qwen3.8:27b", "claude-haiku-5-5"]) == {
         "devops-coder": True,
-        "ollama:qwen3-coder:30b": True,
+        "ollama:qwen3.8:27b": True,
         "claude-haiku-5-5": True,
     }
 

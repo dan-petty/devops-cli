@@ -38,7 +38,7 @@ def _model_prefix_and_target(model_str: str, ai_cfg: AIConfig) -> tuple[str, str
     name is a route of `ai.gateway_provider`'s gateway, sent whole as `LLMClient` sends it,
     even one whose text before its first colon names a provider (`mistral:7b` is an Ollama
     tag). Otherwise a name prefixed with a provider's name keeps that prefix, and any other
-    name, as `devops-review` or `qwen3-coder:30b`, takes the prefix `ai.provider` maps to.
+    name, as `devops-review` or `qwen3.8:27b`, takes the prefix `ai.provider` maps to.
     """
     from devops_cli.ai.providers import is_pydantic_ai_provider
 

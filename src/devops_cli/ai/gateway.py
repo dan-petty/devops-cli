@@ -30,6 +30,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
     DEFAULT_OLLAMA_CLUSTER_URL,
+    DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL,
 )
 from devops_cli.config.settings import AIConfig, load_settings
 from devops_cli.exceptions import ConfigurationError, DevOpsCLIError, ValidationError
@@ -47,8 +48,8 @@ from devops_cli.telemetry.instruments import (
 logger = logging.getLogger(__name__)
 
 # The route of each virtual model: the model that the gateway config (k8s/llm/gateway/config.yaml)
-# sends to the tier of the default Ollama Service. The wheel and the service image hold only
-# src/devops_cli, so the CLI cannot read that config. tests/test_k8s_llm_gateway.py fails when a
+# sends to the tier of the default Ollama Service, or to an embedding tier for an embedding model.
+# The wheel and the service image hold only src/devops_cli, so the CLI cannot read that config. tests/test_k8s_llm_gateway.py fails when a
 # route, or the route that a failover records, names a model that the config does not send to the
 # route's tier (#1969).
 DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
@@ -60,13 +61,13 @@ DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
     },
     {
         "virtual_model": "devops-coder",
-        "target_model": "qwen3-coder:30b",
+        "target_model": "qwen3.8:27b",
         "backend_type": "ollama",
         "backend_url": DEFAULT_OLLAMA_CLUSTER_URL,
     },
     {
         "virtual_model": "devops-reasoning",
-        "target_model": "qwen3-coder:30b",
+        "target_model": "qwen3.8:27b",
         "backend_type": "ollama",
         "backend_url": DEFAULT_OLLAMA_CLUSTER_URL,
     },
@@ -74,7 +75,7 @@ DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
         "virtual_model": "devops-embedding",
         "target_model": "qwen3-embedding:0.6b",
         "backend_type": "ollama",
-        "backend_url": DEFAULT_OLLAMA_CLUSTER_URL,
+        "backend_url": DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL,
     },
 )
 
