@@ -46,7 +46,7 @@ The two GitHub tools only read. They use the client and the App token of the Ser
 
 ## The window of the plan run
 
-The plan run reads the context window of the task `analysis`. The Service sets `context_window` 65,536 for `analysis` in the key `ai.tasks.analysis` of [k8s/devops/configmap.example.yaml](../../k8s/devops/configmap.example.yaml). The model of the task, `deepseek-v4.1-flash-1017`, has `max_input_tokens` 1,048,576 in [k8s/llm/gateway/config.yaml](../../k8s/llm/gateway/config.yaml). The job uses the setting and not the larger value of the model.
+The plan run reads the context window of the task `stage`. The task `stage` takes the fields that it does not set from the task `analysis` (the setting `ai.tasks.stage`, variable `DEVOPS_CLI_AI_TASK_STAGE_MODEL`), so the window and the model are those of `analysis` until a person sets the task `stage`. The Service sets `context_window` 65,536 for `analysis` in the key `ai.tasks.analysis` of [k8s/devops/configmap.example.yaml](../../k8s/devops/configmap.example.yaml). The model of the task, `deepseek-v4.1-flash-1017`, has `max_input_tokens` 1,048,576 in [k8s/llm/gateway/config.yaml](../../k8s/llm/gateway/config.yaml). The job uses the setting and not the larger value of the model.
 
 The run hook offers no tool when the messages and one quarter of the window reach the window. For 65,536 tokens, the limit is 49,152 tokens. A request over the limit gets no tool, and the model writes a plan about code that it did not read. So the first request has fixed caps, and the caps do not grow with the window:
 

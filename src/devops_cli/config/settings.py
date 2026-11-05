@@ -595,6 +595,10 @@ class AIImplementTaskOverride(AITaskOverride):
 _TASK_VARIABLES: tuple[str, ...] = ("provider", "model", "reasoning_effort", "ollama_urls")
 
 
+# A task whose unset fields take the value of another task, not of the top level of `ai`.
+_TASK_PARENTS: dict[str, str] = {"stage": "analysis"}
+
+
 class AITasksConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid", frozen=False, validate_assignment=True, hide_input_in_errors=True
@@ -617,6 +621,10 @@ class AITasksConfig(BaseModel):
     triage: AITaskOverride = Field(
         default_factory=AITaskOverride,
         description="The task of roadmap intake",
+    )
+    stage: Annotated[AITaskOverride, Variable(fields=_TASK_VARIABLES)] = Field(
+        default_factory=AITaskOverride,
+        description="The task of the stage job and of `devops roadmap eval stage`: the planner of a change. A field that it leaves unset takes the value of the task `analysis`",
     )
 
 
@@ -748,7 +756,14 @@ class AIConfig(BaseModel):
         return cleaned
 
     def for_task(self, task: str) -> AIConfig:
-        """Return a copy with task-specific overrides from ai.tasks.<task> applied."""
+        """Return a copy with task-specific overrides from ai.tasks.<task> applied. A task in
+        `_TASK_PARENTS` applies the overrides of its parent first, so a field that it leaves
+        unset takes the value of the parent task."""
+        if task in _TASK_PARENTS:
+            return self.for_task(_TASK_PARENTS[task])._with_task(task)
+        return self._with_task(task)
+
+    def _with_task(self, task: str) -> AIConfig:
         override: AITaskOverride = getattr(self.tasks, task, AITaskOverride())
         updates = {
             k: v

@@ -26,7 +26,7 @@ items, highest priority first. `--item` takes the one item it names when that it
 Ready.
 
 **Plan.** For each item the job plans a `StageProposal` with an agent that reads the repository
-before it answers (`ai.for_task("analysis")`, prompt `roadmap_stage_change.md`, and the read-only
+before it answers (`ai.for_task("stage")`, prompt `roadmap_stage_change.md`, and the read-only
 tools of `stage_tools`, with the prompt `roadmap_stage_tools.md`, #3037). A plan run has a budget
 of tool calls and requests (`stage_toolbox`), and its tools end when its messages fill the context
 window; a run that passes the budget fails the item. Without a
@@ -126,7 +126,7 @@ from devops_cli.roadmap.planned import PlannedChanges, planned_count, read_plann
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
 from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels, remove_pull_labels
 from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
-from devops_cli.roadmap.refine_investigation import analysis_window
+from devops_cli.roadmap.refine_investigation import task_window
 from devops_cli.roadmap.stage_change import (
     MeasuredGroup,
     StageProposal,
@@ -1235,7 +1235,7 @@ def plan_stage(
     toolbox = model if isinstance(model, ToolboxModel) else None
     client: StageClient
     if isinstance(model, ToolboxModel) or model is None:
-        client = get_llm_client(task="analysis", settings=settings)
+        client = get_llm_client(task="stage", settings=settings)
     else:
         client = model
     with openspec_tool() as tool:
@@ -1270,12 +1270,12 @@ def _planner_of(
     repo: str | None = None,
 ) -> _Planner:
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
-    context window of the `analysis` task once. With a `toolbox` model, a plan run calls the
+    context window of the `stage` task once. With a `toolbox` model, a plan run calls the
     read-only tools on the checkout, and `client` answers the other calls. The toolset
     `roadmap.stage.toolset` chooses the tools; with `repo`, `read_issue` and `find_issues` of the
     toolset `extended` read that repository on GitHub with the client of the session (#3238). A
     `verifier` makes the model review of each plan (#3153)."""
-    window = analysis_window()
+    window = task_window("stage")
     runner = (
         None
         if toolbox is None
@@ -1813,7 +1813,6 @@ __all__ = [
     "StageTarget",
     "StagedChange",
     "Walk",
-    "analysis_window",
     "apply_stage",
     "dry_run_stage",
     "emit_stage_results",
@@ -1828,6 +1827,7 @@ __all__ = [
     "render_stage_plan",
     "select_stageable",
     "stage_results",
+    "task_window",
     "unmatched_items",
     "walk_named",
     "write_each",

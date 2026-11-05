@@ -34,11 +34,11 @@ from devops_cli.exceptions import RoadmapStageError, ToolExecutionError
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.clone_git import git
+from devops_cli.roadmap.refine_investigation import task_window
 from devops_cli.roadmap.stage import (
     OverBudget,
     StageClient,
     StagedChange,
-    analysis_window,
     openspec_tool,
     plan_item,
 )
@@ -182,7 +182,7 @@ def run_case(
                 client,
                 source,
                 case.base_commit,
-                window=analysis_window(),
+                window=task_window("stage"),
                 openspec=openspec,
             )
         )

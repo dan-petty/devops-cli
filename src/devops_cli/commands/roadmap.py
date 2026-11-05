@@ -410,7 +410,7 @@ def stage_cmd(
             item_number=item,
             limit=limit,
             step_tokens=step_tokens,
-            model=ToolboxModel(get_task_model("analysis")),
+            model=ToolboxModel(get_task_model("stage")),
             verifier=get_llm_client(task="verification"),
             why=why,
         )

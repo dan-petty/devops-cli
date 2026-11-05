@@ -1,7 +1,7 @@
 """`devops roadmap eval stage`: the golden set of the stage job (#3028).
 
 The command runs the real stage code on each case of `tests/fixtures/roadmap_eval/stage/` with the
-model of the `analysis` task, or with `--model`, and prints a score for each type of defect. The
+model of the `stage` task, or with `--model`, and prints a score for each type of defect. The
 model plans with the read-only toolbox of the job; `--no-toolbox` plans with one call and no tool,
 so two runs of one model compare (#3037). It
 stores the score as JSON under the data directory. `--replay` makes no model call: it runs the
@@ -49,6 +49,7 @@ def _run(
     toolbox: bool,
 ) -> None:
     from devops_cli.ai.client import get_llm_client
+    from devops_cli.ai.spend.ledger import observe_llm_calls
     from devops_cli.config.settings import load_settings
     from devops_cli.roadmap.implement_eval_run import eval_model
     from devops_cli.roadmap.intake_model import gateway_address
@@ -60,10 +61,11 @@ def _run(
     )
     from devops_cli.roadmap.stage_eval_run import Outcome, run_cases
     from devops_cli.roadmap.stage_eval_score import score_runs
+    from devops_cli.roadmap.stage_eval_usage import RunUsage
 
     cases = select_cases(load_cases(cases_dir), names, limit)
     settings = load_settings()
-    gateway = gateway_address(settings.ai)
+    gateway = gateway_address(settings.ai.for_task("stage"))
     if dry_run:
         render_request_plan(
             MESSAGES.roadmap.stage_eval_dry_run.format(
@@ -76,17 +78,21 @@ def _run(
             planned_calls(cases, gateway, toolbox=toolbox),
         )
         return
-    client = get_llm_client(task="analysis", settings=settings, model=model)
-    name = model or settings.ai.for_task("analysis").model
-    planner = eval_model(model, task="analysis")[0] if toolbox else None
-    runs = run_cases(cases, client, source or find_repo_root(), toolbox=planner)
+    client = get_llm_client(task="stage", settings=settings, model=model)
+    name = model or settings.ai.for_task("stage").model
+    planner = eval_model(model, task="stage")[0] if toolbox else None
+    usage = RunUsage()
+    with observe_llm_calls(usage.add):
+        runs = run_cases(cases, client, source or find_repo_root(), toolbox=planner)
     score = score_runs(name, cases, runs)
     now = datetime.now(UTC)
-    report = score_json(score, gateway=gateway, taken=now.isoformat(timespec="seconds"))
+    report = score_json(
+        score, gateway=gateway, taken=now.isoformat(timespec="seconds"), usage=usage
+    )
     target = resolve_store_path(f"{_STORE}/{now:%Y%m%dT%H%M%SZ}.json")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(report, encoding="utf-8")
-    write_stdout(report if as_json else render_score(score, gateway=gateway))
+    write_stdout(report if as_json else render_score(score, gateway=gateway, usage=usage))
     print_info(MESSAGES.roadmap.stage_eval_stored.format(path=target))
     failed = sum(run.outcome is Outcome.FAILED for run in runs)
     if failed:

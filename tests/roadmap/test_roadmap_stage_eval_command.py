@@ -161,7 +161,7 @@ def test_a_live_run_prints_the_score_and_stores_the_report(
     result = _eval(cli, "--cases", str(folder), "--source", str(stage_repo.clone), "--model", "m-1")
 
     assert result.exit_code == 0, result.output
-    assert "the analysis model m-1" in result.output
+    assert "the stage model m-1" in result.output
     assert "Defect type" in result.output
     assert "Score: the model avoided" in result.output
     assert "Cases by end: staged 1" in result.output
@@ -212,7 +212,7 @@ def test_a_live_run_plans_with_the_toolbox_unless_told_not_to(
 
     assert result.exit_code == 0, result.output
     assert (asked, script.tools_offered[0][:2], model_fake.call_count) == (
-        ["analysis"],
+        ["stage"],
         ["list_files", "read_file"],
         0,
     )
@@ -295,3 +295,70 @@ def test_a_live_run_with_a_failed_case_exits_1(
 
     assert result.exit_code == 1
     assert "1 case(s) could not run" in result.output
+
+
+def _stored_report(result: Any) -> dict[str, Any]:
+    stored = result.output.split("Stored the report in ")[1].split(".json")[0] + ".json"
+    report: dict[str, Any] = json.loads(Path(stored.strip()).read_text(encoding="utf-8"))
+    return report
+
+
+def test_the_report_of_a_toolbox_run_holds_the_tokens_and_the_spend_of_the_run(
+    cli: Cli,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec_fake: OpenSpecFake,
+    cases: list[StageCase],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from genai_prices import Usage, calc_price
+
+    openspec_fake.script_sequence(validate_args(CHANGE), (0, VALID_REPORT))
+    script = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
+    folder = _live_set(tmp_path, stage_repo, cases)
+    monkeypatch.setattr(factory, "get_task_model", lambda name, *, settings=None: script.model())
+
+    result = _eval(
+        cli,
+        "--cases",
+        str(folder),
+        "--source",
+        str(stage_repo.clone),
+        "--model",
+        "claude-sonnet-5-5",
+    )
+
+    usage = _stored_report(result)["usage"]
+    assert result.exit_code == 0, result.output
+    assert usage["input_tokens"] > 0
+    assert usage["output_tokens"] > 0
+    price = calc_price(
+        Usage(input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"]),
+        "claude-sonnet-5-5",
+    )
+    assert usage["spend_usd"] == pytest.approx(float(price.total_price))
+    assert f"Tokens: {usage['input_tokens']} in, {usage['output_tokens']} out" in result.output
+
+
+def test_the_report_names_no_spend_for_a_model_that_has_no_price(
+    cli: Cli,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec_fake: OpenSpecFake,
+    cases: list[StageCase],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    openspec_fake.script_sequence(validate_args(CHANGE), (0, VALID_REPORT))
+    script = Script(make_stage_proposal())
+    folder = _live_set(tmp_path, stage_repo, cases)
+    monkeypatch.setattr(factory, "get_task_model", lambda name, *, settings=None: script.model())
+
+    result = _eval(
+        cli, "--cases", str(folder), "--source", str(stage_repo.clone), "--model", "no-such-model-1"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _stored_report(result)["usage"]["spend_usd"] is None
+    assert "Spend: no price for the model." in result.output

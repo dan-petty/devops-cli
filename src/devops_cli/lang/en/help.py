@@ -1262,7 +1262,9 @@ class RoadmapCommandHelp:
     eval_stage_case: str = (
         "Run only this case, by folder name or issue number. Repeat the option for more cases."
     )
-    eval_stage_model: str = "Model for the analysis task. Without it, the configured model."
+    eval_stage_model: str = (
+        "Model for the stage task. Without it, the configured model of the task."
+    )
     eval_stage_limit: str = "Run at most this many cases, the first ones of the set."
     eval_stage_json: str = "Print the report as JSON in place of the table."
     eval_stage_dry_run: str = (
