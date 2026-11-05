@@ -22,16 +22,16 @@ Reads: `src/devops_cli/roadmap/implement_trace.py`, `src/devops_cli/roadmap/impl
 
 Reads: `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/implement_run.py`. Changes: `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_implement_step_fail_to_pass.py`.
 
-- [ ] 3.1 Write a case in `tests/roadmap/test_roadmap_implement_step_fail_to_pass.py` for a group of kind `other` whose verify command prints a line, and check that the step outcome holds the line
+- [x] 3.1 Write a case in `tests/roadmap/test_roadmap_implement_step_fail_to_pass.py` for a group of kind `other` whose verify command prints a line, and check that the step outcome holds the line
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_fail_to_pass.py` fails on the base
-- [ ] 3.2 Record the masked, bounded output of each verify command of a group of kind `other` in the step outcome, and print it in the PR comment
+- [x] 3.2 Record the masked, bounded output of each verify command of a group of kind `other` in the step outcome, and print it in the PR comment
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_fail_to_pass.py` passes
 
 ## 4. Document the check
 
 Reads: `docs/roadmap/implement.md`. Changes: `docs/roadmap/implement.md`.
 
-- [ ] 4.1 Add the fail-to-pass check of a behavior group to the exit checks of a step in `docs/roadmap/implement.md`, and state the PR comment line
+- [x] 4.1 Add the fail-to-pass check of a behavior group to the exit checks of a step in `docs/roadmap/implement.md`, and state the PR comment line
   - Verification: `uv run devops ci docs` passes
 
 ## Workflow follow-up
