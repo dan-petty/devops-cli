@@ -1,5 +1,5 @@
 ## Purpose
-Which authors the roadmap jobs trust: a person with write access and two bots with an exact login, the approval that an item of a bot needs from the review of refine, the retry right that no bot has, and the replies that the model of refine reads.
+Which authors the roadmap jobs trust: a person with write access and two bots with an exact login, the approval that an item of a bot needs from the review of refine, the retry right that no bot has, and the replies that the models of refine and of the alternatives job read. The trust check of a job is the author rule and, for an item of a bot, the approval.
 
 ## ADDED Requirements
 

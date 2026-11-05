@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The check takes the items that need one, in order
-`devops roadmap alternatives` SHALL take an open Item whose Status is New or Ready and whose author the jobs trust (`roadmap-author-trust`). A trusted author is a person with write access, the Service App's bot or `github-actions[bot]`. For an item of a bot, the job SHALL take the item only when the approval of refine's review holds. The job SHALL take no other item. It SHALL take the items with no check first, lowest number first, then the items whose last check is older than `roadmap.alternatives.recheck_days` (default 30) or whose body changed since the check, the oldest check first. `--limit` (default 5) SHALL cap the run.
+`devops roadmap alternatives` SHALL take an open Item whose Status is New or Ready and that passes the check of `roadmap-author-trust`, and SHALL take no other item. It SHALL take the items with no check first, lowest number first, then the items whose last check is older than `roadmap.alternatives.recheck_days` (default 30) or whose body changed since the check, the oldest check first. `--limit` (default 5) SHALL cap the run.
 
 #### Scenario: Unchecked items come before stale items
 - **WHEN** item 4 was checked 40 days ago, items 7 and 9 have no check, item 6 was checked 2 days ago with an unchanged body, and the run has `--limit 3`

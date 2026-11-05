@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A round leaves an item from an account without write access to a person
-Without `--item`, `devops roadmap refine` SHALL take only an item whose `author_association` is OWNER, MEMBER or COLLABORATOR, or whose author login is equal to `service.github_app.bot_login` or to `github-actions[bot]`. Any other item, and an item with no association and no such login, SHALL wait on a person with a detail line that names its author, its association and `--item` with its number. It SHALL take no place under `--limit`, and the round SHALL make no model call for it. With `--item`, refine SHALL refine the open New or Ready item that it names, whoever opened it.
+Without `--item`, `devops roadmap refine` SHALL take only an item whose author the jobs trust (`roadmap-author-trust`). Any other item SHALL wait on a person with a detail line that names its author, its association and `--item` with its number. It SHALL take no place under `--limit`, and the round SHALL make no model call for it. With `--item`, refine SHALL refine the open New or Ready item that it names, whoever opened it.
 
 #### Scenario: A round with an item from an account with no association to the repository
 - **WHEN** the backlog holds a New P2 item that an account with the association NONE opened and a New P3 item that the owner opened, and refine runs with `--limit 1`
