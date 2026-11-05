@@ -65,6 +65,7 @@ class World(Protocol):
         state: GitHubState = GitHubState.OPEN,
         pull_request: bool = False,
         author_association: str = "COLLABORATOR",
+        author_login: str | None = None,
         updated_at: datetime | None = None,
     ) -> int: ...
 
@@ -107,6 +108,7 @@ class MemoryWorld:
         state: GitHubState = GitHubState.OPEN,
         pull_request: bool = False,
         author_association: str = "COLLABORATOR",
+        author_login: str | None = None,
         updated_at: datetime | None = None,
     ) -> int:
         return self._roadmap.seed_issue(
@@ -116,6 +118,7 @@ class MemoryWorld:
             state=state,
             pull_request=pull_request,
             author_association=author_association,
+            author_login=author_login,
             updated_at=updated_at,
         )
 
@@ -174,6 +177,7 @@ class GitHubWorld:
         state: GitHubState = GitHubState.OPEN,
         pull_request: bool = False,
         author_association: str = "COLLABORATOR",
+        author_login: str | None = None,
         updated_at: datetime | None = None,
     ) -> int:
         number = len(self.github.issues) + 1
@@ -185,6 +189,7 @@ class GitHubWorld:
             state=state.value,
             pull_request=pull_request,
             author_association=author_association,
+            author_login=author_login,
             updated_at=updated_at,
         )
         return number
@@ -306,6 +311,26 @@ def test_an_item_carries_its_authors_association_with_the_repository(world: Worl
         [(item.number, item.author_association) for item in world.store.backlog()],
         read(world, outside).author_association,
     ) == ([(owners, "OWNER"), (outside, "NONE")], "NONE")
+
+
+def test_an_item_carries_its_authors_login(world: World) -> None:
+    """The jobs trust a bot only by its exact login, which GitHub gives in `user.login`
+    (#3502): the listing of Items and the read of one Item give the login that the issue holds,
+    and an issue that has none gives None."""
+    app = world.seed(
+        "by the app",
+        labels=("priority/p2-medium",),
+        author_association="CONTRIBUTOR",
+        author_login="devops-cli-service[bot]",
+    )
+    anonymous = world.seed("with no login", labels=("priority/p2-medium",))
+    assert (
+        [(item.number, item.author_login) for item in world.store.backlog()],
+        read(world, app).author_login,
+    ) == (
+        [(app, "devops-cli-service[bot]"), (anonymous, None)],
+        "devops-cli-service[bot]",
+    )
 
 
 def test_a_job_sets_a_field_by_replacing_the_familys_labels(world: World) -> None:
@@ -961,7 +986,12 @@ def test_a_comment_is_kept_on_its_issue_with_the_time_it_was_made(
     with pytest.raises(GitHubOperationError, match="not an issue"):
         store.comment(store.seed_issue("a pull request", pull_request=True), "no")
     assert store.comments_on(number) == [
-        IssueComment(body="Moved to the backlog.", created_at=clock.now)
+        IssueComment(
+            body="Moved to the backlog.",
+            created_at=clock.now,
+            author_association="OWNER",
+            author_login="devops-cli",
+        )
     ]
 
 

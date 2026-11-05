@@ -82,7 +82,7 @@ def test_the_comment_of_a_trusted_commenter_keeps_its_relation_to_the_repository
 
     assert [(c.body, c.author_association) for c in store.comments_on(number)] == [
         ("implement: retry", "OWNER"),
-        ("from the job", None),
+        ("from the job", "OWNER"),
     ]
 
 

@@ -4,9 +4,9 @@
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/store.py`. Changes: `src/devops_cli/roadmap/store.py`, `src/devops_cli/roadmap/github_store.py`, `src/devops_cli/roadmap/memory_store.py`, `tests/roadmap/test_roadmap_store_contract.py`, `tests/roadmap/test_roadmap_github_store.py`, `tests/roadmap_github_fake.py`.
 
-- [ ] 1.1 Write `test_an_item_carries_its_authors_login` and `test_a_comment_carries_its_authors_login_and_association`, and give the fake GitHub and the contract world an `author_login`.
+- [x] 1.1 Write `test_an_item_carries_its_authors_login` and `test_a_comment_carries_its_authors_login_and_association`, and give the fake GitHub and the contract world an `author_login`.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_store_contract.py tests/roadmap/test_roadmap_github_store.py`
-- [ ] 1.2 Add `author_login` to `Item`, `IssueRecord` and `IssueComment`, read `user.login` in the GitHub store, and let the in-memory store seed it.
+- [x] 1.2 Add `author_login` to `Item`, `IssueRecord` and `IssueComment`, read `user.login` in the GitHub store, and let the in-memory store seed it.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_store_contract.py tests/roadmap/test_roadmap_github_store.py tests/roadmap/test_roadmap_intake.py`
 
 ## 2. The trust rule and the four readers
