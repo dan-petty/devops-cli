@@ -3433,9 +3433,10 @@ class RoadmapMessages:
     stage_task_test: str = "{test}\n  - Verification: `{verify}` fails on the base"
     stage_task_pass: str = "{work}\n  - Verification: `{verify}` passes"
     stage_task_process: str = "{work}, and run this check by hand: {process}"
-    stage_task_documents: str = (
-        "{work}, and run `{command}`\n  - Verification: `uv run devops ci docs` passes"
-    )
+    stage_task_documents: str = "{work}\n  - Verification: `uv run devops ci docs` passes"
+    # The step that regenerates the documents. A group that changes a command, an option or a
+    # message ends its documents task with it. The plan reader splits the task at this text.
+    stage_task_regenerate: str = ", and run `{command}`"
     stage_kind_no_test: str = (
         "The group '{title}' has the kind behavior, and it has no test. "
         "Give it the failing test to write first."

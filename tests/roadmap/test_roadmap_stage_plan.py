@@ -820,8 +820,7 @@ def test_a_rendered_group_has_no_double_stop_and_no_task_that_starts_with_a_comm
     assert [line for line in tasks.splitlines() if line.startswith("- [ ] 1.")] == [
         "- [ ] 1.1 Write the test",
         "- [ ] 1.2 Keep the last comment",
-        "- [ ] 1.3 Document the fix in `docs/TESTING.md`, and run "
-        "`uv run devops docs generate --sync-readme`",
+        "- [ ] 1.3 Document the fix in `docs/TESTING.md`",
     ]
 
 

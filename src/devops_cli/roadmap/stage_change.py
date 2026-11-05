@@ -103,6 +103,9 @@ _NO_SPEC_PREFIXES_TEXT: Final[str] = (
 )
 _TESTS_DIRECTORY: Final[str] = "tests/"
 _SOURCE_DIRECTORY: Final[str] = "src/"
+# A group that changes a path under one of these ends its documents task with the step that
+# regenerates the documents (#3226).
+_REGENERATE_PREFIXES: Final[tuple[str, ...]] = ("src/devops_cli/commands/", "src/devops_cli/lang/")
 _DOCUMENT_SUFFIX: Final[str] = ".md"
 _CHANGES_DIRECTORY: Final[str] = "openspec/changes"
 # Only `openspec archive` writes a living spec, from the spec delta of the change folder, so no
@@ -765,7 +768,7 @@ def _paths(paths: Sequence[str], created: Collection[str] = ()) -> str:
 def _task_texts(group: StageGroup) -> list[str]:
     """The tasks of `group` in order, with no number. A `behavior` group starts with its failing
     test. An `other` group has no test: its work comes first, with the check that proves it. A
-    group that changes a document ends with the task that regenerates the documents."""
+    group that changes a document ends with its documents task."""
     texts = MESSAGES.roadmap
     if group.kind is GroupKind.BEHAVIOR:
         tasks = [
@@ -777,12 +780,19 @@ def _task_texts(group: StageGroup) -> list[str]:
     else:
         tasks = [texts.stage_task_pass.format(work=group.implementation, verify=group.verify)]
     if group.documentation is not None:
-        tasks.append(
-            texts.stage_task_documents.format(
-                work=group.documentation, command=REGENERATE_DOCUMENTS
-            )
-        )
+        tasks.append(_documents_task(group.documentation, group.changes))
     return tasks
+
+
+def _documents_task(documentation: str, changes: Sequence[str]) -> str:
+    """The documents task of a group. It ends with the step that regenerates the documents only
+    when the group changes a command, an option or a message, because only those change the
+    generated text (#3226)."""
+    texts = MESSAGES.roadmap
+    work = documentation
+    if any(path.startswith(_REGENERATE_PREFIXES) for path in changes):
+        work += texts.stage_task_regenerate.format(command=REGENERATE_DOCUMENTS)
+    return texts.stage_task_documents.format(work=work)
 
 
 def group_text(index: int, group: StageGroup) -> str:
