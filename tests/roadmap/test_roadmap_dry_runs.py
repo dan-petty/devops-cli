@@ -454,6 +454,23 @@ def test_the_stage_plan_reads_the_change_folders_of_the_default_branch_with_one_
     ]
 
 
+def test_the_stage_plan_moves_the_clone_to_the_staged_commit_and_starts_each_branch_there() -> None:
+    from devops_cli.roadmap.request_plan import stage_requests
+
+    reads, writes = stage_requests(REPO)
+
+    read_lines = [" ".join(request.argv) for request in reads]
+    write_lines = [" ".join(request.argv) for request in writes]
+    move = "git -C <model-clone> merge --ff-only -q <staged commit>"
+    assert read_lines.index(move) < next(
+        index for index, line in enumerate(read_lines) if "ls-files" in line
+    )
+    assert any(
+        line.endswith("worktree add --no-track -b <branch> <worktree> <staged commit>")
+        for line in write_lines
+    )
+
+
 def test_the_stage_plan_reads_the_tracked_files_of_the_clone_once_for_the_round() -> None:
     from devops_cli.roadmap.request_plan import stage_requests
 

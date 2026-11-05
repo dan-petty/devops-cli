@@ -236,3 +236,26 @@ def no_findings(fake: ModelFake) -> None:
             return False
 
     fake.route(is_verification, Verification())
+
+
+def advance_origin(repo: StageRepo, root: Path, files: Mapping[str, str]) -> None:
+    """Commit `files` to `main` of `origin` from a second clone under `root`, as another clone
+    does. The stage clone keeps its older commit of `main` until the job fetches (#3301)."""
+    other = root / "elsewhere"
+    run_git(root, "clone", "-q", str(repo.origin), str(other))
+    for name, text in files.items():
+        (other / name).parent.mkdir(parents=True, exist_ok=True)
+        (other / name).write_text(text, encoding="utf-8")
+    run_git(other, "add", "-A")
+    run_git(
+        other,
+        "-c",
+        "user.name=Person",
+        "-c",
+        "user.email=person@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "advance main",
+    )
+    run_git(other, "push", "-q", "origin", "main")

@@ -29,6 +29,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
 )
+from devops_cli.exceptions.git import GitOperationError
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.worktree_add import issue_holder, read_remote_heads
 from devops_cli.github.rate_limiter import get_github_rate_limiter
@@ -60,6 +61,7 @@ from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    advance_origin,
     heavy_group,
     run_git,
     seed_stageable,
@@ -211,6 +213,105 @@ def test_the_model_input_holds_the_probe_of_each_cited_path_and_identifier(
         "`gone_function` has no definition at the staging commit. "
         "No commit in the history added or removed its text.",
     ]
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_path_that_origin_main_adds_after_the_clone_head_is_present(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    open_pulls_api: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    seed_stageable(store, body="Add the role in `src/devops_cli/new_role.py`.")
+    model_fake.answer(make_stage_proposal())
+    advance_origin(stage_repo, tmp_path, {"src/devops_cli/new_role.py": "ROLE = 1\n"})
+
+    _plan(store, stage_repo)
+
+    assert _requests(model_fake)[0]["probes"] == (
+        "The path `src/devops_cli/new_role.py` is a file of the staging commit."
+    )
+
+
+@pytest.mark.usefixtures("openspec")
+def test_the_stage_job_moves_the_clone_to_the_staged_commit(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    open_pulls_api: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    seed_stageable(store)
+    model_fake.answer(make_stage_proposal())
+    advance_origin(stage_repo, tmp_path, {"src/devops_cli/new_role.py": "ROLE = 1\n"})
+
+    plan = _plan(store, stage_repo)
+
+    assert stage_repo.git("rev-parse", "HEAD") == stage_repo.origin_git("rev-parse", "main")
+    assert plan.sha == stage_repo.origin_git("rev-parse", "main")
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_clone_that_cannot_fast_forward_fails_the_run_and_asks_the_model_nothing(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    open_pulls_api: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    seed_stageable(store)
+    model_fake.answer(make_stage_proposal())
+    stage_repo.git("commit", "--allow-empty", "-q", "-m", "local work")
+    advance_origin(stage_repo, tmp_path, {"src/devops_cli/new_role.py": "ROLE = 1\n"})
+
+    with pytest.raises(GitOperationError) as raised:
+        _plan(store, stage_repo)
+
+    assert raised.value.error_code == "GIT_OPERATION_ERROR"
+    assert model_fake.calls == []
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_clone_ahead_of_origin_fails_the_run_and_asks_the_model_nothing(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    open_pulls_api: GitHubApiFake,
+) -> None:
+    seed_stageable(store)
+    model_fake.answer(make_stage_proposal())
+    stage_repo.git("commit", "--allow-empty", "-q", "-m", "local work")
+
+    with pytest.raises(GitOperationError) as raised:
+        _plan(store, stage_repo)
+
+    assert raised.value.error_code == "GIT_OPERATION_ERROR"
+    assert model_fake.calls == []
+
+
+@pytest.mark.usefixtures("openspec")
+def test_the_path_gate_reads_the_commit_the_plan_branches_from(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    open_pulls_api: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(update={"reads": ["src/devops_cli/new_role.py", "src/devops_cli/sample.py"]})
+    )
+    seed_stageable(store)
+    model_fake.answer(make_stage_proposal(groups=[group]))
+    advance_origin(stage_repo, tmp_path, {"src/devops_cli/new_role.py": "ROLE = 1\n"})
+
+    plan = _plan(store, stage_repo)
+
+    (change,) = plan.ready
+    assert change.title.startswith("docs(openspec): plan #1")
+    assert len(_requests(model_fake)) == 1
 
 
 @pytest.mark.usefixtures("openspec")

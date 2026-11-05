@@ -39,6 +39,7 @@ from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    advance_origin,
     heavy_group,
     seed_stageable,
     validate_args,
@@ -47,6 +48,8 @@ from tests.support.scripted_model import Script, call
 from tests.support.service_stop import stop_error
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.model import ModelFake
     from tests.support.fakes.openspec import OpenSpecFake
@@ -706,3 +709,35 @@ def test_a_failed_item_counts_under_the_result_failed_and_the_report_has_no_retu
     assert stage_results(plan, applied) == {1: StageResult.FAILED}
     assert "Returned" not in render_stage_plan(plan)
     assert not hasattr(StageResult, "RETURNED")
+
+
+def test_a_staged_branch_starts_at_the_staged_commit_when_origin_moves_on(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    opened: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    model_fake.answer(make_stage_proposal())
+    plan = plan_stage(store, repo=STAGE_REPO, source=stage_repo.clone, filters=parse_filters(()))
+    advance_origin(stage_repo, tmp_path, {"later.txt": "later\n"})
+
+    apply_stage(store, plan, source=stage_repo.clone)
+
+    assert stage_repo.origin_git("rev-parse", f"{BRANCH}^") == plan.sha
+
+
+def test_the_report_names_the_staged_commit_that_the_probe_read(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    opened: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    model_fake.answer(make_stage_proposal())
+    advance_origin(stage_repo, tmp_path, {"later.txt": "later\n"})
+
+    plan = plan_stage(store, repo=STAGE_REPO, source=stage_repo.clone, filters=parse_filters(()))
+
+    assert plan.sha == stage_repo.origin_git("rev-parse", "main")
+    assert plan.sha in render_stage_plan(plan)
