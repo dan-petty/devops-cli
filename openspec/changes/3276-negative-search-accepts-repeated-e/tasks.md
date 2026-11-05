@@ -24,9 +24,9 @@ Reads: `src/devops_cli/roadmap/stage_form.py`, `src/devops_cli/roadmap/stage_mov
 
 Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/test_roadmap_implement_negative_search.py`. Changes: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/test_roadmap_implement_negative_search.py`.
 
-- [ ] 3.1 Extend `test_the_stage_prompt_gives_the_options_and_the_signs_that_the_step_reads` in `tests/roadmap/test_roadmap_implement_negative_search.py` to assert that the prompt names the form `-e` and the rule that `--` comes before the paths
+- [x] 3.1 Extend `test_the_stage_prompt_gives_the_options_and_the_signs_that_the_step_reads` in `tests/roadmap/test_roadmap_implement_negative_search.py` to assert that the prompt names the form `-e` and the rule that `--` comes before the paths
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_negative_search.py` fails on the base
-- [ ] 3.2 In `src/devops_cli/ai/tasks/roadmap_stage_change.md`, state the `-e` form in the sentence of the negative search: one literal, or one or more `-e` literals and then `--` before the paths
+- [x] 3.2 In `src/devops_cli/ai/tasks/roadmap_stage_change.md`, state the `-e` form in the sentence of the negative search: one literal, or one or more `-e` literals and then `--` before the paths
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_negative_search.py` passes
 
 ## 4. The plan of #2610 uses the allowed form
