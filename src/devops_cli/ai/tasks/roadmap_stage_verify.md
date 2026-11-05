@@ -23,6 +23,6 @@ Report only a defect that you can show. For each finding give:
 - `problem`: what is wrong, in one or two short sentences in the active voice.
 - `quote`: a short quote, copied exactly, from the issue, the plan or a file in `files`, that shows the defect. For a `missing_path`, quote the line of the plan that names the path. When no text shows the defect, leave `quote` empty. Never invent a quote.
 
-A `missing_path`, `false_premise` or `ignores_existing_code` finding with a quote that is in the input sends the plan back to its author once, so report these only when the quote proves them. Report a style preference, or a doubt that you cannot show, as no finding. A plan with no defect gets an empty list.
+A finding with a quote that is in the input can stop the plan, so report it only when the quote proves it. Report a style preference, or a doubt that you cannot show, as no finding. A plan with no defect gets an empty list.
 
 The reply has the key `findings` and no other key. Its value is a list of objects with the keys `type`, `where`, `problem` and `quote`.

@@ -40,6 +40,7 @@ from devops_cli.roadmap.agent_run import RunLimit, RunTrace, ToolCallRecord, Too
 from devops_cli.roadmap.stage_change import StageProposal, StageSplit
 from devops_cli.roadmap.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.stage_tools import StageTools
+from devops_cli.roadmap.stage_verify import Verification
 from devops_cli.roadmap.tool_metrics import end_run
 from devops_cli.telemetry.instruments import (
     ROADMAP_TOOL_ANSWER_CHARS,
@@ -540,6 +541,20 @@ def test_a_run_that_calls_no_tool_adds_zero_for_each_tool_of_its_toolset(
         {value for _, value in points},
         {a["outcome"] for a, _ in points},
     ) == (sorted(_TOOLS), {0.0}, {"ok"})
+
+
+def test_a_verification_run_counts_its_calls_in_its_own_row(
+    checkout: tuple[Path, str], otlp: FakeCollector
+) -> None:
+    script = Script(_read(), Verification(findings=[]))
+
+    _client(checkout, script).chat_structured("System.", "{}", Verification, max_retries=1)
+
+    points = otlp.points(ROADMAP_TOOL_CALLS_TOTAL.name)
+    assert ({a["row"] for a, _ in points}, sum(value for _, value in points)) == (
+        {"stage_verify"},
+        1.0,
+    )
 
 
 def test_the_extended_toolset_adds_zero_for_its_twelve_tools(

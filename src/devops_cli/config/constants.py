@@ -3141,6 +3141,12 @@ CONST_ROADMAP_STAGE_PROBE_DEFINITION_LINES: Final[int] = 3
 CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS: Final[int] = 6000
 CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS: Final[int] = 1500
 CONST_ROADMAP_STAGE_VERIFY_MAX_FILES: Final[int] = 30
+# The repair rounds of a plan that the verification pass returns (#3039): the planner revises the
+# plan at most this many times, so a plan costs at most three verification runs.
+CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS: Final[int] = 2
+# The recall floor of the verification pass (#3039, #3207): the share of the blocker and major
+# defects of the golden set that the pass must find. `docs/ROADMAP_WORKFLOW.md` states the same floor.
+CONST_ROADMAP_VERIFY_RECALL_FLOOR: Final[float] = 0.9
 # `devops roadmap alternatives` (#2650): the block the job keeps in an issue body, the marker of
 # its comment (a comment after the job's last one is a reply), the most searches and fact reads of
 # one item's check, and how long a tool may go without a push or an upload and stay maintained.

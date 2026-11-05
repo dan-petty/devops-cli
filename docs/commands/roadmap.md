@@ -412,7 +412,7 @@ devops roadmap eval intake [OPTIONS]
 
 ### `devops roadmap eval verify`
 
-**Score the model verification pass of the stage job on the golden set. For each case the pass reads the issue, the recorded plan and the start of each file that the plan cites, read from the staging commit, and returns findings of the nine defect types. The command prints the recall of the labeled defects (all, and the blocker and major ones), the recall for each type, and the findings on the good plans. It matches each finding to one labeled defect of the same type. It stores the report as JSON under the data directory. It calls the model of the verification task through the gateway, one call per case. A change of the model or of the prompt states this score.**
+**Score the model verification pass of the stage job on the golden set. For each case the pass gets the issue, the recorded plan and the start of each file that the plan cites, reads the staging commit with the read tools of the planner, and returns findings of the nine defect types. The command prints the recall of the labeled defects (all, and the blocker and major ones), whether the recall of the blocker and major defects reaches the floor, the recall for each type, and the findings on the good plans. It matches each finding to one labeled defect of the same type. It stores the report as JSON under the data directory. It calls the model of the verification task through the gateway, one agent run per case, with one request for each model reply. A change of the model or of the prompt states this score.**
 
 ```bash
 devops roadmap eval verify [OPTIONS]
