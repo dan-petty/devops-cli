@@ -94,3 +94,18 @@ The run report of the job SHALL name the effort pass that the run uses. When the
 #### Scenario: A run takes a medium-effort item
 - **WHEN** the plan selects a medium-effort item because no low-effort item is selectable
 - **THEN** the rendered plan states the effort pass `medium` and states that it is the fallback pass
+
+#### Scenario: An explicit effort filter names its pass
+- **WHEN** the job runs with `--filter effort=high` and the plan selects a high-effort item
+- **THEN** the rendered plan states the effort pass `high` and states no fallback pass
+
+#### Scenario: A round logs the pass of the item it selects
+- **WHEN** the Service round creates a Job for a medium-effort item because no low-effort item is selectable
+- **THEN** the round log names the effort pass `medium` and states that it is the fallback pass
+
+### Requirement: The example ConfigMap holds the effort setting
+The example ConfigMap SHALL hold `roadmap.implement.effort` with its default value.
+
+#### Scenario: A test reads the example ConfigMap
+- **WHEN** a test reads `k8s/devops/configmap.example.yaml`
+- **THEN** the value of `roadmap.implement.effort` is `low` and then `medium`

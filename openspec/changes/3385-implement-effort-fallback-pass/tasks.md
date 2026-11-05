@@ -24,7 +24,7 @@ Reads: `src/devops_cli/roadmap/implement.py`, `src/devops_cli/roadmap/stage.py`,
 
 Reads: `src/devops_cli/roadmap/implement.py`, `src/devops_cli/roadmap/explain.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_explain.py`, `tests/roadmap/test_roadmap_implement_selection.py`. Changes: `src/devops_cli/roadmap/implement.py`, `src/devops_cli/roadmap/explain.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_explain.py`, `tests/roadmap/test_roadmap_implement_selection.py`.
 
-- [x] 3.1 Add to `tests/roadmap/test_roadmap_implement_selection.py` a test that the rendered plan of a run that takes a medium-effort item names the effort pass `medium` and the fallback, and add to `tests/roadmap/test_roadmap_explain.py` a test that `explain` on a Ready medium-effort item names the set `low,medium` and says that the fallback pass applies, and a test that it names the low-effort item that the run takes first when such an item is selectable
+- [x] 3.1 Add to `tests/roadmap/test_roadmap_implement_selection.py` a test that the rendered plan of a run that takes a medium-effort item names the effort pass `medium` and the fallback, and add to `tests/roadmap/test_roadmap_explain.py` a test that `explain` on a Ready medium-effort item names the set `low,medium` and says that the fallback pass applies, and a test that it names the effort `low` that the run takes first when such an effort is selectable
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_selection.py tests/roadmap/test_roadmap_explain.py` fails on the base
 - [x] 3.2 Add to `src/devops_cli/lang/en/messages.py` the texts of the effort pass, the fallback note, the later pass reason and the explain line, render the pass in `render_implement_plan`, and render the effort line of the implement job in `render_explanation` from the plan of `_implement_verdict`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_explain.py tests/roadmap/test_roadmap_implement_selection.py` passes
@@ -44,6 +44,17 @@ Reads: `docs/roadmap/implement.md`, `src/devops_cli/config/settings.py`. Changes
   - Verification: `uv run devops ci docs` passes
 - [x] 5.2 Run `uv run devops docs generate --sync-readme` so that the generated documents name the setting `roadmap.implement.effort`
   - Verification: `uv run devops docs generate --sync-readme && uv run devops ci docs` passes
+
+## 6. Name the effort pass of an explicit filter and of the Service round
+
+Reads: `src/devops_cli/roadmap/implement.py`, `src/devops_cli/roadmap/implement_submit.py`, `src/devops_cli/roadmap/run.py`, `tests/roadmap/test_roadmap_implement_selection.py`, `tests/roadmap/test_roadmap_implement_submit.py`. Changes: `src/devops_cli/roadmap/implement.py`, `src/devops_cli/roadmap/implement_submit.py`, `src/devops_cli/roadmap/run.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_implement_selection.py`, `tests/roadmap/test_roadmap_implement_submit.py`.
+
+- [x] 6.1 Add to `tests/roadmap/test_roadmap_implement_selection.py` a test that a run with `effort=high` names the effort pass `high` and no fallback, and name an explicit pass by the values of its filter in `effort_passes` and `plan_implement`
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_selection.py` fails on the base, then passes
+- [x] 6.2 Add to `tests/roadmap/test_roadmap_implement_submit.py` a test that a round which creates a Job for a medium-effort item logs the effort pass and the fallback pass, add the fields `effort` and `fallback` to `SubmitResult`, and log them in `_run_implement_adapter`
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_submit.py` fails on the base, then passes
+- [x] 6.3 Add to `tests/roadmap/test_roadmap_stage_settings.py` a test that the example ConfigMap holds `roadmap.implement.effort` equal to `low` and `medium`, as the design of the change asks
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_settings.py` fails on the base, then passes
 
 ## Workflow follow-up
 
