@@ -49,9 +49,9 @@ Reads: `k8s/monitoring/prometheus-values.yaml`, `tests/prometheus/test_k8s_monit
 
 Reads: `k8s/monitoring/dashboards/project-metrics.json`, `tests/telemetry/test_telemetry_instruments.py`, `tests/prometheus/test_k8s_monitoring_dashboards.py`. Changes: `k8s/monitoring/dashboards/project-metrics.json`, `tests/telemetry/test_telemetry_instruments.py`.
 
-- [ ] 6.1 In `tests/telemetry/test_telemetry_instruments.py`, add a test that `project-metrics.json` holds the panel "Oldest Item Age by State" with the two queries of the spec and the unit `s`, that its grid position is `x` 0, `y` 34, `w` 12 and `h` 8, and that no panel overlaps another. The test fails on the base.
+- [x] 6.1 In `tests/telemetry/test_telemetry_instruments.py`, add a test that `project-metrics.json` holds the panel "Oldest Item Age by State" with the two queries of the spec and the unit `s`, that its grid position is `x` 0, `y` 34, `w` 12 and `h` 8, and that no panel overlaps another. The test fails on the base.
   - Verification: `uv run devops ci test tests/telemetry/test_telemetry_instruments.py`
-- [ ] 6.2 In `k8s/monitoring/dashboards/project-metrics.json`, add the panel with a new id and a description that says it shows the latest value of each series in the time range, and add 8 to `gridPos.y` of every panel at or below `y` 34. The tests pass after the change.
+- [x] 6.2 In `k8s/monitoring/dashboards/project-metrics.json`, add the panel with a new id and a description that says it shows the latest value of each series in the time range, and add 8 to `gridPos.y` of every panel at or below `y` 34. The tests pass after the change.
   - Verification: `uv run devops ci test tests/telemetry/test_telemetry_instruments.py tests/prometheus/test_k8s_monitoring_dashboards.py`
 
 ## 7. Regenerate the documents

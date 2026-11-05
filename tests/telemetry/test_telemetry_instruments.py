@@ -1163,3 +1163,49 @@ def test_two_job_runs_add_up_in_the_increase_query_the_dashboards_use() -> None:
         "job-2": [(job_2_start, 0.0), (job_2_end, job_2_requests)],
     }
     assert evaluate_promql_increase(series_with_created) == job_1_requests + job_2_requests
+
+
+def _overlapping_panels(panels: list[dict[str, Any]]) -> list[tuple[Any, Any]]:
+    """Each pair of panels whose grid positions share a cell."""
+    boxes = [(panel.get("title", panel.get("id")), panel["gridPos"]) for panel in panels]
+
+    def shares_a_cell(first: dict[str, int], second: dict[str, int]) -> bool:
+        return (
+            first["x"] < second["x"] + second["w"]
+            and second["x"] < first["x"] + first["w"]
+            and first["y"] < second["y"] + second["h"]
+            and second["y"] < first["y"] + first["h"]
+        )
+
+    return [
+        (name, other_name)
+        for index, (name, box) in enumerate(boxes)
+        for other_name, other_box in boxes[index + 1 :]
+        if shares_a_cell(box, other_box)
+    ]
+
+
+def test_the_oldest_item_age_panel_charts_each_state_and_the_claim_in_the_items_row() -> None:
+    """The panel "Oldest Item Age by State" (#2919) charts the age of the oldest item of each state
+    and the age of the oldest claim, in seconds, at `x` 0 and `y` 34, beside the items panels. No
+    panel of the dashboard overlaps another."""
+    dashboard = DASHBOARDS / "project-metrics.json"
+    matches = [
+        panel for panel in _panels(dashboard) if panel.get("title") == "Oldest Item Age by State"
+    ]
+    assert len(matches) == 1
+    (panel,) = matches
+    assert (
+        [target["expr"] for target in panel["targets"]],
+        panel["fieldConfig"]["defaults"]["unit"],
+        panel["gridPos"],
+        _overlapping_panels(json.loads(dashboard.read_text(encoding="utf-8"))["panels"]),
+    ) == (
+        [
+            "max by (state) (last_over_time(devops_cli_roadmap_item_age_seconds[$__range]))",
+            "max(last_over_time(devops_cli_roadmap_claim_age_seconds[$__range]))",
+        ],
+        "s",
+        {"x": 0, "y": 34, "w": 12, "h": 8},
+        [],
+    )
