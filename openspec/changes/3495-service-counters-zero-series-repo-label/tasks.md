@@ -24,11 +24,11 @@ Reads: `src/devops_cli/roadmap/run.py`, `src/devops_cli/server/service.py`, `tes
 
 ## 3. The webhook counter starts at zero
 
-Reads: `src/devops_cli/server/routes/webhooks.py`, `src/devops_cli/server/counter_series.py`. Changes: `src/devops_cli/server/counter_series.py`, `tests/telemetry/test_service_counter_series.py`.
+Reads: `src/devops_cli/server/routes/webhooks.py`, `src/devops_cli/server/counter_series.py`. Changes: `src/devops_cli/server/routes/webhooks.py`, `tests/telemetry/test_service_counter_series.py`, `tests/server/test_server_service.py`.
 
-- [ ] 3.1 Add a test to `tests/telemetry/test_service_counter_series.py` that asserts that the webhook counter exists at 0 for each provider, each declared event with `other`, and each outcome
+- [x] 3.1 Add a test to `tests/telemetry/test_service_counter_series.py` that asserts that the webhook counter exists at 0 for each provider, each declared event with `other`, and each outcome
   - Verification: `uv run devops ci test tests/telemetry/test_service_counter_series.py` fails on the base
-- [ ] 3.2 Prime the webhook counter in `src/devops_cli/server/counter_series.py` from the declared providers and their events
+- [x] 3.2 Prime the webhook counter in `src/devops_cli/server/counter_series.py` from the declared providers and their events
   - Verification: `uv run devops ci test tests/telemetry/test_service_counter_series.py` passes
 
 ## 4. The promtool cases hold the rules and the zero series

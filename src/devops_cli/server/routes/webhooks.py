@@ -571,6 +571,39 @@ async def _read_and_route(
     return _route(delivery, provider, payload, service_manager, consumers)
 
 
+def _declared_events(
+    provider: WebhookProvider, consumers: Sequence[WebhookConsumer]
+) -> frozenset[str]:
+    """The events that `provider` declares: its ping event and the events of the consumers that
+    take its events."""
+    taking = [consumer for consumer in consumers if consumer.provider is provider.name]
+    ping_events = {provider.ping_event} if provider.ping_event is not None else set()
+    return frozenset(ping_events).union(*(c.events for c in taking))
+
+
+_DELIVERY_OUTCOMES: Final[tuple[str, ...]] = (
+    CONST_SERVICE_OUTCOME_ACCEPTED,
+    CONST_SERVICE_OUTCOME_IGNORED,
+    CONST_SERVICE_OUTCOME_REJECTED,
+    CONST_SERVICE_OUTCOME_NO_SUBSCRIBER,
+    CONST_SERVICE_OUTCOME_SELF,
+)
+"""The outcomes that a delivery of a provider counts, each under its declared event (#3495)."""
+
+
+def _delivery_label_sets(
+    provider: WebhookProvider, consumers: Sequence[WebhookConsumer]
+) -> list[dict[str, str]]:
+    """Each label set that a delivery of `provider` counts: each declared event and `other`, with
+    each outcome. The Service creates each of them at zero when its routes are built (#3495)."""
+    events = _declared_events(provider, consumers) | {CONST_SERVICE_EVENT_OTHER}
+    return [
+        {"provider": str(provider.name), "event": event, "outcome": outcome}
+        for event in sorted(events)
+        for outcome in _DELIVERY_OUTCOMES
+    ]
+
+
 def _receiver(
     provider: WebhookProvider,
     service_manager: ServiceManager,
@@ -578,8 +611,7 @@ def _receiver(
 ) -> Callable[[Request], Awaitable[Response]]:
     """The route handler of one provider, over the consumers that take its events."""
     taking = [consumer for consumer in consumers if consumer.provider is provider.name]
-    ping_events = {provider.ping_event} if provider.ping_event is not None else set()
-    declared_events = frozenset(ping_events).union(*(c.events for c in taking))
+    declared_events = _declared_events(provider, consumers)
 
     async def receive(request: Request) -> Response:
         event = request.headers.get(provider.event_header, "") if provider.event_header else ""
@@ -622,6 +654,9 @@ def create_webhook_router(
     active = (roadmap_consumer(service_manager),) if consumers is None else tuple(consumers)
     router = APIRouter(tags=["webhooks"])
     for provider in WEBHOOK_PROVIDERS.values():
+        GLOBAL_METRICS.prime_counter(
+            CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES, _delivery_label_sets(provider, active)
+        )
         router.add_api_route(
             provider.path,
             _receiver(provider, service_manager, active),

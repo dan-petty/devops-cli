@@ -10,11 +10,20 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from devops_cli.config.constants import (
+    CONST_ROADMAP_WEBHOOK_EVENTS,
+    CONST_SERVICE_EVENT_OTHER,
     CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
     CONST_SERVICE_METRIC_JOBS,
+    CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
+    CONST_SERVICE_OUTCOME_ACCEPTED,
+    CONST_SERVICE_OUTCOME_IGNORED,
+    CONST_SERVICE_OUTCOME_NO_SUBSCRIBER,
+    CONST_SERVICE_OUTCOME_REJECTED,
+    CONST_SERVICE_OUTCOME_SELF,
 )
 from devops_cli.config.settings import GitHubAppConfig, ServiceConfig
 from devops_cli.roadmap.failure import FailureClass
+from devops_cli.server.routes.webhooks import create_webhook_router
 from devops_cli.server.service import ServiceManager
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
@@ -83,3 +92,23 @@ def test_jobs_total_carries_row_label() -> None:
     assert {"repo": "example/app", "lane": "status", "row": "metrics", "result": "success"} in (
         label_sets
     )
+
+
+def test_webhook_counter_exists_at_zero_for_each_declared_event_and_outcome() -> None:
+    create_webhook_router(_manager(REPOS))
+
+    series = _series(CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES)
+    outcomes = (
+        CONST_SERVICE_OUTCOME_ACCEPTED,
+        CONST_SERVICE_OUTCOME_IGNORED,
+        CONST_SERVICE_OUTCOME_REJECTED,
+        CONST_SERVICE_OUTCOME_NO_SUBSCRIBER,
+        CONST_SERVICE_OUTCOME_SELF,
+    )
+    expected = {
+        frozenset({("provider", "github"), ("event", event), ("outcome", outcome)})
+        for event in (*CONST_ROADMAP_WEBHOOK_EVENTS, CONST_SERVICE_EVENT_OTHER)
+        for outcome in outcomes
+    }
+
+    assert {key: series.get(key) for key in expected} == dict.fromkeys(expected, 0.0)
