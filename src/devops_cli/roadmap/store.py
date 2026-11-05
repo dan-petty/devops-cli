@@ -454,9 +454,15 @@ def family_prefix(field: ItemField) -> str:
     return f"{field.value.lower()}/"
 
 
+def label_slug(value: str) -> str:
+    """The part of a label that names `value`: `p1-high` for P1-High, in lower case with a hyphen
+    for each space."""
+    return value.lower().replace(" ", "-")
+
+
 def field_label(field: ItemField, value: str) -> str:
     """The label that holds `value` of `field`: `priority/p1-high` for P1-High."""
-    return family_prefix(field) + value.lower().replace(" ", "-")
+    return family_prefix(field) + label_slug(value)
 
 
 def _held_values(labels: Iterable[str], field: ItemField) -> list[str]:

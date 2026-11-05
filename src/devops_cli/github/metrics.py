@@ -46,6 +46,7 @@ from devops_cli.roadmap.store import (
     RoadmapStore,
     StageRecordKey,
     field_label,
+    label_slug,
 )
 from devops_cli.telemetry.instruments import (
     PROJECT_CI_RUNS,
@@ -508,8 +509,8 @@ def _labeled_since(changes: Iterable[Change]) -> _LabelTimes:
 
 def _label_times(store: RoadmapStore, repo: str, items: list[Item]) -> dict[int, _LabelTimes]:
     """The label times of each Item of `items`. The store is read for an Item whose status or owner
-    value differs from the one the cache holds, and the cache then keeps this round's Items only,
-    so a closed Item leaves it (#2919)."""
+    value differs from the one the cache holds. The cache then keeps this round's Items of `repo`
+    only, so a closed Item leaves it and the Items of another repository stay (#2919)."""
     fresh: dict[tuple[str, int], tuple[tuple[str | None, str | None], _LabelTimes]] = {}
     for item in items:
         key = (repo, item.number)
@@ -520,14 +521,10 @@ def _label_times(store: RoadmapStore, repo: str, items: list[Item]) -> dict[int,
         else:
             times = _labeled_since(store.label_changes(item.number))
         fresh[key] = (values, times)
-    _item_label_times.clear()
+    for key in [key for key in _item_label_times if key[0] == repo]:
+        del _item_label_times[key]
     _item_label_times.update(fresh)
     return {item.number: fresh[(repo, item.number)][1] for item in items}
-
-
-def _state_label(status: str) -> str:
-    """The `state` label of a status: its value in lower case, with a hyphen for a space."""
-    return status.lower().replace(" ", "-")
 
 
 def _age_seconds(now: datetime.datetime, since: datetime.datetime) -> float:
@@ -552,7 +549,7 @@ def _pair_age(
     now: datetime.datetime,
 ) -> ItemAgeMetric:
     """The age point of one pair: its oldest Item, or 0 and 0 when no Item is in it."""
-    state = _state_label(status)
+    state = label_slug(status)
     if found is None:
         return ItemAgeMetric(state=state, plan=plan)
     since, number = found
@@ -588,14 +585,14 @@ def get_item_age_metrics(
                 item, field_label(ItemField.STATUS, item.status), times[item.number]
             )
             if since is not None:
-                pair = (_state_label(item.status), plan)
+                pair = (label_slug(item.status), plan)
                 oldest[pair] = min(oldest.get(pair, (since, item.number)), (since, item.number))
         if item.owner is not None:
             since = _labeled_at(item, field_label(ItemField.OWNER, item.owner), times[item.number])
             if since is not None:
                 claims.append(since)
     item_ages = [
-        _pair_age(status, plan, oldest.get((_state_label(status), plan)), now)
+        _pair_age(status, plan, oldest.get((label_slug(status), plan)), now)
         for status in CONST_ROADMAP_STATUS_VALUES
         for plan in (True, False)
     ]

@@ -1297,6 +1297,28 @@ def test_a_round_reads_an_items_label_events_only_when_its_status_or_owner_chang
     assert (first_round, no_change, reads) == (sorted([changed, steady]), [], [changed])
 
 
+def test_a_round_of_one_repository_keeps_the_label_times_of_another(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A process that serves two repositories reads an Item's label events once. A round of the
+    second repository leaves the first repository's times, so the next round of the first reads
+    none of its Items again (#2919)."""
+    clock = AgesClock()
+    store = InMemoryRoadmapStore(clock=clock)
+    number = _seeded_item(store)
+    _write_field(store, number, ItemField.STATUS, "Ready")
+    other = InMemoryRoadmapStore(clock=clock)
+    other_number = _seeded_item(other)
+    _write_field(other, other_number, ItemField.STATUS, "Ready")
+    get_item_age_metrics(store, REPO, clock)
+    get_item_age_metrics(other, "example/other-repo", clock)
+    reads = _count_label_reads(store, monkeypatch)
+
+    get_item_age_metrics(store, REPO, clock)
+
+    assert reads == []
+
+
 def test_a_failed_label_read_keeps_the_item_counts_and_sends_no_age(
     tmp_path: Path,
     git_fake: GitFake,
