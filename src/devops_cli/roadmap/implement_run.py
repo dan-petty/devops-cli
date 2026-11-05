@@ -360,6 +360,11 @@ def _step_label(group: int) -> str:
     return MESSAGES.roadmap.implement_step_group.format(group=group)
 
 
+def _outcome_label(outcome: StepOutcome) -> str:
+    """The label of the step that left `outcome`: its group, or the fix of a failed check."""
+    return _step_label(outcome.group) if outcome.group else MESSAGES.roadmap.implement_step_fix
+
+
 @contextmanager
 def _worktree(source: Path, target: ImplementTarget) -> Iterator[Path]:
     """The worktree on the staged branch, taken over from `origin`, or for a Planned item on the new
@@ -504,7 +509,9 @@ class _ItemRun:
         )
 
     def _spend(self) -> str:
-        """The spend of every step, itemized under the tier that served it (#3060)."""
+        """The spend of every step, itemized under the tier that served it (#3060), and the input
+        tokens of the first request of each step (#3499). The trace drops its oldest events when it
+        is long, so the size of a first request is kept here."""
         tiers: dict[str, dict[str, int]] = {}
         for outcome in self.outcomes:
             for tier, spend in outcome.tier_spend.items():
@@ -519,6 +526,10 @@ class _ItemRun:
                 "requests": sum(o.requests for o in self.outcomes),
                 "input_tokens": sum(o.input_tokens for o in self.outcomes),
                 "output_tokens": sum(o.output_tokens for o in self.outcomes),
+                "steps": [
+                    {"step": _outcome_label(o), "first_request_tokens": o.first_request_tokens}
+                    for o in self.outcomes
+                ],
                 "tiers": tiers,
             }
         )
@@ -1213,7 +1224,7 @@ class _ItemRun:
     def _row(self, outcome: StepOutcome) -> SummaryRow:
         """The row of the table for a step: its attempts are the first turn and the repair
         rounds, and its last failing command is in the trace."""
-        step = _step_label(outcome.group) if outcome.group else MESSAGES.roadmap.implement_step_fix
+        step = _outcome_label(outcome)
         return SummaryRow(
             step=step,
             status=outcome.status.value,
