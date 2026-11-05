@@ -17,7 +17,7 @@ Reads: `src/devops_cli/roadmap/stage_form.py`, `src/devops_cli/roadmap/stage_mov
 
 - [x] 2.1 Write the failing tests `test_each_e_literal_has_its_own_hit_check` in `tests/roadmap/test_roadmap_stage_form.py` and `test_a_move_group_checks_each_e_literal` in `tests/roadmap/test_roadmap_stage_plan.py`. The first gives a group with two `-e` literals, where one has a staged hit and one has none, and expects one problem that names the literal with no hit. The second gives a move group whose second `-e` literal names a module of the moved prefix, and expects one problem
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_form.py tests/roadmap/test_roadmap_stage_plan.py` fails on the base, because `negative_search_parts` returns the one literal of the first `-e` only
-- [x] 2.2 In `src/devops_cli/roadmap/stage_form.py`, `record_search_evidence` and `search_problems` check each literal of `NegativeSearch.literals`. In `src/devops_cli/roadmap/stage_move.py`, `_literal` returns the literals, and `move_verify_problems` checks each one
+- [x] 2.2 In `src/devops_cli/roadmap/stage_form.py`, `record_search_evidence` and `search_problems` check each literal of `NegativeSearch.literals`. In `src/devops_cli/roadmap/stage_move.py`, `_literals` returns the literals, and `move_verify_problems` checks each one
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_form.py tests/roadmap/test_roadmap_stage_plan.py` passes
 
 ## 3. The stage prompt names the -e form
