@@ -39,12 +39,12 @@ def test_the_report_gives_a_yes_for_the_staged_item(cli: Cli, job_world: JobWorl
     assert job_world.pull.ready_calls == []
 
 
-def test_the_report_names_the_failing_rule_of_an_item_of_medium_effort(
+def test_the_report_names_the_failing_rule_of_an_item_of_high_effort(
     cli: Cli, job_world: JobWorld
 ) -> None:
     number = job_world.store.seed_issue(
         "fix(roadmap): another job drops a label",
-        labels=("type/bug", "effort/medium"),
+        labels=("type/bug", "effort/high"),
         fields={ItemField.STATUS: "Planned", ItemField.PRIORITY: "P1-High"},
         author_association="OWNER",
     )
@@ -53,7 +53,7 @@ def test_the_report_names_the_failing_rule_of_an_item_of_medium_effort(
 
     assert result.exit_code == 0, result.output
     assert (
-        "Implement job: no. The filter takes effort low. The item has effort medium."
+        "Implement job: no. The filter takes effort low or medium. The item has effort high."
         in " ".join(result.output.split())
     )
 
