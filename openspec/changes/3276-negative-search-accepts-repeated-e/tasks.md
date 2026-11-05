@@ -33,7 +33,7 @@ Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/test_ro
 
 Reads: `openspec/changes/2610-devops-k8s-image-pins-resolves-with/tasks.md`. Changes: `openspec/changes/2610-devops-k8s-image-pins-resolves-with/tasks.md`.
 
-- [ ] 4.1 In task 3.3 of `openspec/changes/2610-devops-k8s-image-pins-resolves-with/tasks.md`, replace `-E "ImagetoolsFake|inspect_command|imagetools_recording|imagetools_runs"` with four `-e` literals: `ImagetoolsFake`, `inspect_command`, `imagetools_recording` and `imagetools_runs`. Keep the rest of the line
+- [x] 4.1 In task 3.3 of `openspec/changes/2610-devops-k8s-image-pins-resolves-with/tasks.md`, replace `-E "ImagetoolsFake|inspect_command|imagetools_recording|imagetools_runs"` with four `-e` literals: `ImagetoolsFake`, `inspect_command`, `imagetools_recording` and `imagetools_runs`. Keep the rest of the line
   - Verification: `uv run devops openspec check` passes
 
 ## 5. Document the negative-search form
