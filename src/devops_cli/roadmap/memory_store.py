@@ -109,6 +109,8 @@ class _Roadmap:
     repositories: dict[str, RepositoryFacts] = field(default_factory=dict)
     # The head branch and draft state of each pull request `seed_pull` made, by number.
     pulls: dict[int, tuple[str, bool]] = field(default_factory=dict)
+    heads: dict[int, str] = field(default_factory=dict)
+    failing: set[str] = field(default_factory=set)
     labels: list[RepositoryLabel] = field(default_factory=list)
 
 
@@ -219,11 +221,17 @@ class InMemoryRoadmapStore(RoadmapStore):
         draft: bool = False,
         state: GitHubState = GitHubState.OPEN,
         updated_at: datetime | None = None,
+        head_sha: str = "",
+        checks_failed: bool = False,
     ) -> int:
         """Open a pull request on the branch `head_ref`, a draft when `draft`, returning its
-        number. It is an issue that is a pull request, so it shares the numbers of the issues."""
+        number. It is an issue that is a pull request, so it shares the numbers of the issues.
+        Its head commit is `head_sha`, and `checks_failed` makes a check run of that commit fail."""
         number = self.seed_issue(title, state=state, pull_request=True, updated_at=updated_at)
         self._roadmap.pulls[number] = (head_ref, draft)
+        self._roadmap.heads[number] = head_sha
+        if checks_failed:
+            self._roadmap.failing.add(head_sha)
         return number
 
     def seed_label(self, name: str, color: str, description: str = "") -> None:
@@ -527,12 +535,17 @@ class InMemoryRoadmapStore(RoadmapStore):
                 title=issue.title,
                 url=issue.url,
                 head_ref=head_ref,
+                head_sha=self._roadmap.heads.get(issue.number, ""),
                 draft=draft,
                 updated_at=issue.updated_at or self._roadmap.clock(),
             )
             for issue, head_ref, draft in pulls
             if issue.state is GitHubState.OPEN
         ]
+
+    def failed_checks(self, head_sha: str) -> bool:
+        """Whether a check run of the commit `head_sha` failed, as the seeded pulls say."""
+        return head_sha in self._roadmap.failing
 
     def repository_labels(self) -> list[RepositoryLabel]:
         """The labels that `seed_label` made."""

@@ -12,9 +12,9 @@ requests (G1), ready implementation pull requests (G2), the release pull request
 from the job record alone, #3483), old claims, labels that the repository lacks, and the Planned
 queue when it is at the limit of the stage job (#3487). A pull request is a job's when the job
 record of an open item names it: `implement.pr` makes it an implementation, `stage.pr` a plan, and
-`implement.pr` wins because a staged branch keeps one pull request through both jobs. A draft of a
-job waits for its checks, so it is not listed, and a pull request that a runner Job holds is not
-listed: the Job pushes to it. The release pull request is
+`implement.pr` wins because a staged branch keeps one pull request through both jobs. A draft of a job is listed when it is older than `roadmap.inbox.draft_days`, or when a
+check run of its head commit failed. A pull request that a runner Job holds is not listed: the Job
+pushes to it. The release pull request is
 the open one whose head branch starts with the prefix of release-please.
 
 **The people's lines** are every other open pull request, so a person's own pull requests are
@@ -70,6 +70,7 @@ class InboxKind(StrEnum):
     REFINE = "refine"
     SPLIT = "split"
     ALTERNATIVES = "alternatives"
+    DRAFT = "draft"
     CLAIM = "claim"
     LABELS = "labels"
     QUEUE = "queue"
@@ -120,15 +121,37 @@ def _named_pulls(items: Iterable[Item]) -> dict[int, InboxKind | None]:
 
 
 def _pull_kind(pull: OpenPull, named: Mapping[int, InboxKind | None]) -> InboxKind | None:
-    """The kind of the line of `pull`, or None when no person must act on it now: a draft of a
-    job or the release, or a pull request that a runner Job holds."""
+    """The kind of the line of `pull`, or None when no line shows it: a draft of the release, or
+    a pull request that a runner Job holds. A draft of a job is `InboxKind.DRAFT` (#3494)."""
     if pull.head_ref.startswith(CONST_ROADMAP_RELEASE_BRANCH_PREFIX):
-        kind: InboxKind | None = InboxKind.RELEASE
-    elif pull.number in named:
-        kind = named[pull.number]
-    else:
+        return None if pull.draft else InboxKind.RELEASE
+    if pull.number not in named:
         return InboxKind.PERSON
-    return None if pull.draft else kind
+    kind = named[pull.number]
+    if kind is None:
+        return None
+    return InboxKind.DRAFT if pull.draft else kind
+
+
+def _failing_drafts(
+    store: RoadmapStore, pulls: Sequence[OpenPull], named: Mapping[int, InboxKind | None]
+) -> frozenset[int]:
+    """The numbers of the drafts of jobs whose head commit has a failed check run. Only the
+    drafts of jobs are read, one check-run read for each (#3494)."""
+    return frozenset(
+        pull.number
+        for pull in pulls
+        if _pull_kind(pull, named) is InboxKind.DRAFT and store.failed_checks(pull.head_sha)
+    )
+
+
+def _draft_line(pull: OpenPull, repo: str, now: datetime, *, failed: bool, days: int) -> InboxLine:
+    """The line of a draft of a job: its failed check when one failed, else its age (#3494)."""
+    texts = MESSAGES.roadmap
+    key = "draft_failed" if failed else "draft_old"
+    subject = texts.inbox_subjects[key].format(title=pull.title, days=days)
+    clear = texts.inbox_clears[key].format(number=pull.number, repo=repo)
+    return InboxLine(InboxKind.DRAFT, pull.number, _age(now, pull.updated_at), subject, clear)
 
 
 def _age(now: datetime, moment: datetime | None) -> timedelta | None:
@@ -146,13 +169,26 @@ def _pull_line(pull: OpenPull, kind: InboxKind, repo: str, now: datetime) -> Inb
 
 
 def _pull_lines(
-    pulls: Iterable[OpenPull], named: Mapping[int, InboxKind | None], repo: str, now: datetime
+    pulls: Iterable[OpenPull],
+    named: Mapping[int, InboxKind | None],
+    failing: frozenset[int],
+    repo: str,
+    now: datetime,
+    draft_days: int,
 ) -> list[InboxLine]:
+    """The lines of the pull requests. A draft of a job has a line when a check run of its head
+    commit failed, or when it is older than `draft_days` (#3494)."""
     lines: list[InboxLine] = []
     for pull in pulls:
         kind = _pull_kind(pull, named)
-        if kind is not None:
+        if kind is None:
+            continue
+        if kind is not InboxKind.DRAFT:
             lines.append(_pull_line(pull, kind, repo, now))
+        elif pull.number in failing or now - pull.updated_at > timedelta(days=draft_days):
+            lines.append(
+                _draft_line(pull, repo, now, failed=pull.number in failing, days=draft_days)
+            )
     return lines
 
 
@@ -326,7 +362,9 @@ def _order(line: InboxLine) -> tuple[int, bool, float]:
     return (list(InboxKind).index(line.kind), line.age is None, -seconds)
 
 
-def read_inbox(store: RoadmapStore, *, repo: str, now: datetime, planned_limit: int) -> Inbox:
+def read_inbox(
+    store: RoadmapStore, *, repo: str, now: datetime, planned_limit: int, draft_days: int
+) -> Inbox:
     """What waits for a person in `repo` at `now`. It reads the open items, the open pull
     requests, the labels and the labels file, and the newest commit of that file when the labels
     differ, and writes nothing. A line states when the count of Planned items is at
@@ -334,8 +372,9 @@ def read_inbox(store: RoadmapStore, *, repo: str, now: datetime, planned_limit: 
     labels file of a repository that has none fails the read."""
     items = store.open_items()
     pulls = store.open_pulls()
+    named = _named_pulls(items)
     lines = [
-        *_pull_lines(pulls, _named_pulls(items), repo, now),
+        *_pull_lines(pulls, named, _failing_drafts(store, pulls, named), repo, now, draft_days),
         *_blocked_lines(items, repo, now),
         *_refine_lines(items, repo, now),
         *_split_lines(items, now),

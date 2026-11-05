@@ -65,8 +65,8 @@ def _lines(inbox: Inbox, kind: InboxKind) -> list[InboxLine]:
     return [line for line in (*inbox.jobs, *inbox.people) if line.kind is kind]
 
 
-def _read(store: InMemoryRoadmapStore, *, planned_limit: int = 20) -> Inbox:
-    return read_inbox(store, repo=REPO, now=NOW, planned_limit=planned_limit)
+def _read(store: InMemoryRoadmapStore, *, planned_limit: int = 20, draft_days: int = 7) -> Inbox:
+    return read_inbox(store, repo=REPO, now=NOW, planned_limit=planned_limit, draft_days=draft_days)
 
 
 def test_every_category_is_listed_once_in_the_order_of_the_gates(
@@ -100,13 +100,50 @@ def test_every_category_is_listed_once_in_the_order_of_the_gates(
     assert inbox.people == ()
 
 
-def test_a_draft_of_a_job_is_not_listed_and_is_not_a_persons_pull_request(
+def test_a_job_draft_that_waits_for_checks_and_is_newer_has_no_line(
     store: InMemoryRoadmapStore,
 ) -> None:
-    draft = store.seed_pull("plan", head_ref="feat/1-plan", draft=True)
+    draft = store.seed_pull("plan", head_ref="feat/1-plan", draft=True, head_sha="a1")
     _item(store, marks={StageRecordKey.PR: str(draft)})
-    inbox = _read(store)
+    inbox = _read(store, draft_days=7)
     assert (inbox.jobs, inbox.people) == ((), ())
+
+
+def test_a_job_draft_older_than_the_setting_has_one_line(store: InMemoryRoadmapStore) -> None:
+    draft = store.seed_pull(
+        "plan", head_ref="feat/1-plan", draft=True, head_sha="a1", updated_at=_ago(days=8)
+    )
+    _item(store, marks={StageRecordKey.PR: str(draft)})
+
+    lines = _lines(_read(store, draft_days=7), InboxKind.DRAFT)
+
+    assert [(line.number, line.subject) for line in lines] == [
+        (draft, "plan (draft, no update for more than 7 days)")
+    ]
+    assert (
+        lines[0].clear == f"Finish the draft, then run `devops pr monitor {draft} --repo {REPO}`."
+    )
+
+
+def test_a_job_draft_with_a_failed_check_has_one_line(store: InMemoryRoadmapStore) -> None:
+    draft = store.seed_pull(
+        "plan",
+        head_ref="feat/1-plan",
+        draft=True,
+        head_sha="a1",
+        updated_at=_ago(days=1),
+        checks_failed=True,
+    )
+    _item(store, marks={StageRecordKey.PR: str(draft)})
+
+    lines = _lines(_read(store, draft_days=7), InboxKind.DRAFT)
+
+    assert [(line.number, line.subject) for line in lines] == [
+        (draft, "plan (draft, a check failed)")
+    ]
+    assert lines[0].clear == (
+        f"Fix the failed check, then run `devops pr monitor {draft} --repo {REPO}`."
+    )
 
 
 def test_one_pull_request_of_the_stage_and_the_implement_job_is_an_implementation(

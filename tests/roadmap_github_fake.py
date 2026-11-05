@@ -64,6 +64,7 @@ class GitHubFake:
         self.files = dict(files or {})
         self.events = list(events)
         self.commits = set(commits)
+        self.check_runs: dict[str, list[dict[str, str]]] = {}
         self.issues: dict[int, dict[str, Any]] = {}
         self.pulls: dict[int, dict[str, Any]] = {}
         self.label_catalog: list[dict[str, Any]] = []
@@ -123,6 +124,12 @@ class GitHubFake:
                 "html_url": f"https://github.com/{self.repo}/pull/{number}",
             }
 
+    def seed_check_run(self, sha: str, name: str, *, conclusion: str) -> None:
+        """A completed check run of the commit `sha` that ended with `conclusion`."""
+        self.check_runs.setdefault(sha, []).append(
+            {"name": name, "status": "completed", "conclusion": conclusion}
+        )
+
     def seed_pull(
         self,
         number: int,
@@ -132,6 +139,7 @@ class GitHubFake:
         draft: bool = False,
         state: str = "open",
         updated_at: datetime | None = None,
+        head_sha: str = "0" * 40,
     ) -> None:
         """Pull request `number` on branch `head_ref`: its issue, and its entry in the pull
         request listing."""
@@ -142,7 +150,7 @@ class GitHubFake:
             "html_url": f"https://github.com/{self.repo}/pull/{number}",
             "state": state,
             "draft": draft,
-            "head": {"ref": head_ref, "sha": "0" * 40},
+            "head": {"ref": head_ref, "sha": head_sha},
             "updated_at": self.issues[number]["updated_at"],
         }
 
@@ -329,6 +337,13 @@ class GitHubFake:
             page += 1
         return "".join(json.dumps(p) for p in pages)
 
+    def _commit_route(self, parts: list[str]) -> Any:
+        """The check runs of a commit, or the commit itself when the fake holds it."""
+        if parts[-1:] == ["check-runs"]:
+            runs = self.check_runs.get(parts[1], [])
+            return {"total_count": len(runs), "check_runs": runs}
+        return {"sha": parts[1]} if parts[1] in self.commits else (1, "HTTP 422")
+
     def _route(
         self,
         method: str,
@@ -343,7 +358,7 @@ class GitHubFake:
             name = unquote("/".join(parts[1:]))
             return self.files[name] if name in self.files else (1, "gh: Not Found (HTTP 404)")
         if parts[0] == "commits":
-            return {"sha": parts[1]} if parts[1] in self.commits else (1, "HTTP 422")
+            return self._commit_route(parts)
         if "/".join(parts) == "issues/events":
             size = int(query.get("per_page", "100"))
             return self.events[(page - 1) * size : page * size]

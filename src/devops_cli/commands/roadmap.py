@@ -918,6 +918,7 @@ def inbox_cmd(
                 repo=target,
                 now=datetime.now(UTC),
                 planned_limit=settings.roadmap.stage.planned_limit,
+                draft_days=settings.roadmap.inbox.draft_days,
             )
         write_stdout(render_inbox(inbox, repo=target) + "\n")
 

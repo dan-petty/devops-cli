@@ -3558,6 +3558,7 @@ class RoadmapMessages:
             "refine": "New items that wait on a person in refine",
             "split": "New items with a split that no person has applied",
             "alternatives": "New items with a covering tool that refine put to a person",
+            "draft": "Drafts of jobs that are old or have a failed check",
             "claim": "Claims with no activity for {days} days",
             "labels": "Repository state that a person owns",
             "queue": "The stage job waits for deliveries",
@@ -3580,6 +3581,8 @@ class RoadmapMessages:
             "split": "{title}: refine proposed a split, not applied",
             "alternatives": "{title}: a covering tool was put to a person: {tool}",
             "claim": "{title} (claimed by {owner})",
+            "draft_old": "{title} (draft, no update for more than {days} days)",
+            "draft_failed": "{title} (draft, a check failed)",
             "labels": "{count} label(s) of {path} are missing or changed on GitHub: {names}",
             "more_labels": "{names}, and {more} more",
             "queue": (
@@ -3597,6 +3600,10 @@ class RoadmapMessages:
             "person_draft": (
                 "Wait for the checks with `devops pr monitor {number} --repo {repo}`, "
                 "then run `devops pr ready {number} --repo {repo}`."
+            ),
+            "draft_old": ("Finish the draft, then run `devops pr monitor {number} --repo {repo}`."),
+            "draft_failed": (
+                "Fix the failed check, then run `devops pr monitor {number} --repo {repo}`."
             ),
             "split": (
                 "Split it as refine proposed in a comment on #{number}, or edit its body so "
@@ -3623,9 +3630,11 @@ class RoadmapMessages:
         }
     )
     plan_repeat_page: str = "per page, while GitHub links a next one"
+    plan_repeat_draft: str = "for each open draft of a job"
     plan_placeholders: dict[str, str] = field(
         default_factory=lambda: {
             "number": "<number>",
+            "head_sha": "<head commit of the draft>",
             "deferred_part": "<deferred part>",
             "milestone": "<milestone>",
             "labels": "<the labels, the field's family replaced>",
@@ -3657,6 +3666,7 @@ class RoadmapMessages:
         default_factory=lambda: {
             "file": "{path} at {ref}",
             "milestones": "every milestone",
+            "check_runs": "the check runs of the head commit of an open draft of a job",
             "issues": "the issues ({query})",
             "comments": "the comments on {subject}",
             "issue": "{subject}",
@@ -3702,6 +3712,7 @@ class RoadmapMessages:
     plan_conditions: dict[str, str] = field(
         default_factory=lambda: {
             "posted": "the change posts a comment",
+            "job_drafts": "the pull request is an open draft of a job",
             "check_on": "the repository is public and a Firecrawl key is set",
             "issues_unread": "the run has not read every issue yet",
             "labels_differ": "the labels of the repository differ from .github/labels.yml",
