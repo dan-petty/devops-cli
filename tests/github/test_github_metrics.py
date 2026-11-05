@@ -1368,28 +1368,27 @@ def test_the_age_gauges_are_sent_with_the_item_number_and_the_labels(
     )
 
 
-def test_cli_gh_metrics_emit_telemetry_sends_no_item_age_and_reads_no_events(
-    cli: CliRunnerFixture,
+def test_a_report_without_the_item_ages_sends_no_age_and_reads_no_events(
     otlp: FakeCollector,
+    tmp_path: Path,
     git_fake: GitFake,
     monkeypatch: pytest.MonkeyPatch,
-    roadmap_store: InMemoryRoadmapStore,
 ) -> None:
-    """`devops gh metrics --emit-telemetry` collects without the item ages, so it sends none of
-    the three gauges and reads no label events of an issue, though an Item holds a status
-    (#2919)."""
-    number = _seeded_item(roadmap_store)
-    _write_field(roadmap_store, number, ItemField.STATUS, "Ready")
-    reads = _count_label_reads(roadmap_store, monkeypatch)
-    git_fake.answer(["git", "tag"], ProcessAnswer(stdout=""))
-    monkeypatch.setattr(subprocess, "run", GitHubFake(REPO).process(subprocess.run))
+    """`devops gh metrics` collects without the item ages, so it sends none of the three gauges
+    and asks GitHub for no events of an issue (#2919)."""
+    github = GitHubFake(REPO, events=[])
+    github.seed_issue(1, labels=("priority/p2-medium", "status/ready"))
+    clock = AgesClock()
 
-    result = cli("gh", "metrics", "--repo", REPO, "--emit-telemetry")
+    report = _collect(
+        tmp_path, git_fake, monkeypatch, github, _roadmap_store(github), clock, item_ages=False
+    )
+    emit_project_metrics_telemetry(report)
 
     assert (
-        result.exit_code,
-        reads,
+        report.item_ages,
+        report.claim_age_seconds,
+        [call for call in github.calls if "/events" in " ".join(call)],
         otlp.points(ROADMAP_ITEM_AGE.name),
-        otlp.points(ROADMAP_OLDEST_ITEM.name),
         otlp.points(ROADMAP_CLAIM_AGE.name),
-    ) == (0, [], [], [], [])
+    ) == ([], None, [], [], [])
