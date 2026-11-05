@@ -20,7 +20,11 @@ from typing import Protocol
 
 import pytest
 
-from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
+from devops_cli.exceptions.git import (
+    GitHubFileNotFoundError,
+    GitHubOperationError,
+    GitHubUnreadError,
+)
 from devops_cli.exceptions.roadmap import RoadmapItemChangedError
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
@@ -1118,3 +1122,13 @@ def test_open_pulls_carry_the_head_sha_and_their_check_runs_read_by_sha(world: W
 
     assert heads == {failing: sha, passing: other}
     assert (world.store.failed_checks(sha), world.store.failed_checks(other)) == (True, False)
+
+
+def test_the_github_store_raises_when_a_draft_check_cannot_be_read() -> None:
+    """A check read that GitHub does not answer raises, so no draft shows as passing (#3494)."""
+    world = GitHubWorld()
+
+    with pytest.raises(GitHubUnreadError, match="head commit SHA is missing") as raised:
+        world.store.failed_checks("")
+
+    assert raised.value.error_code == GitHubUnreadError.error_code
