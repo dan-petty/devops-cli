@@ -31,9 +31,9 @@ Reads: `src/devops_cli/github/metrics.py`, `src/devops_cli/roadmap/store.py`, `s
 
 Reads: `src/devops_cli/roadmap/run.py`, `tests/roadmap/test_roadmap_run.py`. Changes: `src/devops_cli/roadmap/run.py`, `tests/roadmap/test_roadmap_run.py`.
 
-- [ ] 4.1 In `tests/roadmap/test_roadmap_run.py`, add a test that `_run_metrics_adapter` over `InMemoryRoadmapStore` with a Blocked item sends `devops_cli_roadmap_item_age_seconds` for `state` `blocked` with the labels `repo`, `state` and `plan`, and logs no warning. The test fails on the base.
+- [x] 4.1 In `tests/roadmap/test_roadmap_run.py`, add a test that `_run_metrics_adapter` over `InMemoryRoadmapStore` with a Blocked item sends `devops_cli_roadmap_item_age_seconds` for `state` `blocked` with the labels `repo`, `state` and `plan`, and logs no warning. The test fails on the base.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_run.py`
-- [ ] 4.2 In `_run_metrics_adapter` of `src/devops_cli/roadmap/run.py`, pass `item_ages=True` to `collect_project_metrics_report`. The test passes after the change.
+- [x] 4.2 In `_run_metrics_adapter` of `src/devops_cli/roadmap/run.py`, pass `item_ages=True` to `collect_project_metrics_report`. The test passes after the change.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_run.py`
 
 ## 5. Add the stuck-item alert and its promtool unit test

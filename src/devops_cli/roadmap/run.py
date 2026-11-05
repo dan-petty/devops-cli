@@ -667,8 +667,9 @@ def _run_metrics_adapter(
 ) -> JobOutcome:
     """Collect the project metrics, walking the version tags of the job's clone of `repo` and
     counting the Items of `store`, and the GitHub and Cloudflare status, into OTLP
-    (#1358). A failed collection or status read is logged and skipped; a missing clone fails the
-    job."""
+    (#1358). The Items also give the age of the oldest Item of each state, which only this row
+    asks for (#2919). A failed collection or status read is logged and skipped; a missing clone
+    fails the job."""
     from devops_cli.github.metrics import (
         collect_project_metrics_report,
         emit_project_metrics_telemetry,
@@ -682,7 +683,9 @@ def _run_metrics_adapter(
     clone = _job_clone("metrics", clone_path)
     try:
         target_repo = repo or None
-        report = collect_project_metrics_report(root=clone, repo=target_repo, store=store)
+        report = collect_project_metrics_report(
+            root=clone, repo=target_repo, store=store, item_ages=True
+        )
         emit_project_metrics_telemetry(report)
     except Exception as exc:
         logger.warning("Project metrics collection failed for %s: %s", repo, exc)
