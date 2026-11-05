@@ -180,7 +180,8 @@ def test_a_removal_from_a_file_that_is_not_yaml_names_the_file_and_quotes_no_lin
         remove_config_key("ai.api_key")
 
     assert (raised.value.message, raised.value.exit_code) == (
-        f"Cannot read {isolate_devops_cli_config}: it is not valid YAML (ScannerError).",
+        f"Cannot read the config file: {isolate_devops_cli_config} is not valid YAML "
+        "(ScannerError) at line 2, column 22.",
         1,
     )
 
@@ -318,7 +319,7 @@ def test_a_removal_of_a_credential_stops_when_a_copy_is_not_yaml_and_changes_not
         remove_config_key("ai.api_key")
 
     assert (raised.value.message, isolate_devops_cli_config.read_text(encoding="utf-8")) == (
-        f"Cannot read {broken}: it is not valid YAML (ScannerError).",
+        f"Cannot read the config file: {broken} is not valid YAML (ScannerError) at line 2, column 27.",
         _WITH_SECRET,
     )
     assert _SECRET not in raised.value.message
@@ -353,9 +354,15 @@ def test_a_removal_of_a_credential_drops_each_comment_that_holds_its_value(
 @pytest.mark.parametrize(
     ("copy", "message"),
     [
-        (b"ai:\n  api_key: \xff\xfe\n", "it is not valid YAML (UnicodeDecodeError)."),
-        (b"- ai.api_key\n- other\n", "it does not hold a YAML mapping."),
-        (f"ai.api_key={_SECRET}\n".encode(), "it does not hold a YAML mapping."),
+        (
+            b"ai:\n  api_key: \xff\xfe\n",
+            "Cannot read the config file: {broken} is not valid YAML (UnicodeDecodeError).",
+        ),
+        (b"- ai.api_key\n- other\n", "Cannot read {broken}: it does not hold a YAML mapping."),
+        (
+            f"ai.api_key={_SECRET}\n".encode(),
+            "Cannot read {broken}: it does not hold a YAML mapping.",
+        ),
     ],
     ids=["not-utf-8", "list", "text-line"],
 )
@@ -372,7 +379,7 @@ def test_a_removal_of_a_credential_stops_when_a_copy_is_not_a_yaml_mapping(
     with pytest.raises(ConfigurationError) as raised:
         remove_config_key("ai.api_key")
 
-    assert raised.value.message == f"Cannot read {broken}: {message}"
+    assert raised.value.message == message.format(broken=broken)
     assert isolate_devops_cli_config.read_text(encoding="utf-8") == _WITH_SECRET
     assert _names(isolate_devops_cli_config.parent) == ["config.yaml", broken.name]
 

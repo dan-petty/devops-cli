@@ -60,7 +60,7 @@ In `devops-cli`:
 
 ### Safe YAML Parsing
 
-The message of a PyYAML error quotes the line where the parser stopped, and the `buffer` of its `problem_mark` holds the full text of the document. The safe loader also raises `ValueError`, `KeyError`, `IndexError` or `AttributeError` for a tagged value that it cannot build, such as `!!int <text>`, and the message quotes the value. It raises `RecursionError` for a document that nests too deep. A file can hold a credential, so the error that you raise names the type of the error and its position, and quotes no text. Catch these error types by name: a blind `except Exception` is a swallowed failure that `tests/test_swallowed_failures_ratchet.py` refuses. Let an `OSError` go up, because it names only the file. Read the position in a helper function, so that no frame of the traceback holds the mark. Raise the error after the `except` block: then it has no cause and no context that holds the first error. `config/settings.py::_read_config_file` reads the config files this way.
+The message of a PyYAML error quotes the line where the parser stopped, and the `buffer` of its `problem_mark` holds the full text of the document. The safe loader also raises `ValueError`, `KeyError`, `IndexError` or `AttributeError` for a tagged value that it cannot build, such as `!!int <text>`, and the message quotes the value. It raises `RecursionError` for a document that nests too deep. ruamel.yaml raises `ValueError` and `KeyError` in the same way. A file can hold a credential, so the error that you raise names the type of the error and its position, and quotes no text. Do not catch these errors by hand: call `config/yaml_errors.py::load_yaml` with the parse. It catches the error types by name (a blind `except Exception` is a swallowed failure that `tests/test_swallowed_failures_ratchet.py` refuses), reads the position in a function so that no frame of the traceback holds the mark, and raises the ConfigurationError after the `except` block, so it has no cause and no context that holds the first error. An `OSError` goes up, because it names only the file. A parse with ruamel.yaml passes the `YAMLError` of ruamel.yaml in `errors`. `config/settings.py::_read_config_file`, `config/write_history.py` and `config/round_trip.py` read the config files this way.
 
 ```python
 from pathlib import Path
@@ -68,24 +68,15 @@ from typing import Any
 
 import yaml
 
-from devops_cli.exceptions import ConfigurationError
-
-
-# UnicodeDecodeError is a ValueError; KeyError and IndexError are LookupErrors.
-_YAML_LOAD_ERRORS = (yaml.YAMLError, ValueError, LookupError, AttributeError, RecursionError)
+from devops_cli.config.yaml_errors import load_yaml
 
 
 def load_yaml_file(path: Path) -> Any:
-    try:
-        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except _YAML_LOAD_ERRORS as exc:
-        error_type, where = type(exc).__name__, _error_location(exc)
-    raise ConfigurationError(f"{path} is not valid YAML ({error_type}){where}.")
-
-
-def _error_location(exc: Exception) -> str:
-    mark = exc.problem_mark if isinstance(exc, yaml.MarkedYAMLError) else None
-    return f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
+    return load_yaml(
+        lambda: yaml.safe_load(path.read_text(encoding="utf-8")) or {},
+        name=str(path),
+        action="Cannot load the settings",
+    )
 ```
 
 ### Rendering a Dynamic DevContainer Configuration
