@@ -195,3 +195,9 @@ def tool_reads(word: str, report: str) -> Callable[[ProcessCall], subprocess.Com
         )
 
     return answer
+
+
+def rounds_spent(rounds: int) -> str:
+    """The line that a stop adds to its reason when the step used all its `rounds` repair rounds
+    (#3053)."""
+    return f"\nThe step used all its repair rounds: `roadmap.implement.repair_rounds={rounds}`."

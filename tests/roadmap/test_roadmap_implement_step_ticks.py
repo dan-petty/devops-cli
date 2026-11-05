@@ -32,6 +32,7 @@ from tests.support.implement_step import (
     WINDOW,
     git,
     make_checkout,
+    rounds_spent,
     write_call,
 )
 from tests.support.model_script import ModelScript, say, tool_calls
@@ -469,7 +470,7 @@ def test_a_group_that_the_model_ticks_in_part_and_not_more_stops_with_the_first_
 
     assert _step(store, later_open, script) == (
         StepStatus.STOPPED,
-        "A task of the group is not ticked: [ ] Add `shout` to `src/sample.py`",
+        "A task of the group is not ticked: [ ] Add `shout` to `src/sample.py`" + rounds_spent(3),
     )
 
 
@@ -482,7 +483,7 @@ def test_a_model_that_adds_a_task_to_its_group_and_ticks_all_gets_no_tick(
     assert _step(store, later_open, script) == (
         StepStatus.STOPPED,
         "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` "
-        "for `src/sample.py`",
+        "for `src/sample.py`" + rounds_spent(3),
     )
 
 

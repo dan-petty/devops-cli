@@ -93,7 +93,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.process_hardening import end_leftover_processes
-from devops_cli.exceptions.ai_pydantic import OutputCapReached
+from devops_cli.exceptions.ai_pydantic import LimitReached, OutputCapReached
 from devops_cli.exceptions.roadmap import OverWindowError, RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
@@ -112,6 +112,7 @@ from devops_cli.roadmap.failure import (
     classify_failure,
 )
 from devops_cli.roadmap.implement_hooks import commit_stage
+from devops_cli.roadmap.implement_limits import ItemSpend, StepBudget, limit_hooks
 from devops_cli.roadmap.implement_output_cap import output_cap_hooks
 from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_SHELL_PROGRAMS,
@@ -511,14 +512,21 @@ def _tier_for_attempt(
 
 
 def build_agent(
-    model: Any, source: Path, instructions: str, window: int, home: Path, log: ToolCallLog
+    model: Any,
+    source: Path,
+    instructions: str,
+    window: int,
+    home: Path,
+    log: ToolCallLog,
+    budget: StepBudget,
 ) -> Agent[None, str]:
     """The agent of a step: `Coder` on a local workspace at `source`, whose shell runs with the
     scratch `home`, the hint that a refusal of the shell adds (#2773), and the hooks of `log` for its
     tool calls (#2758). It has no `delegate_task` tool, so the limits of a run cover the whole step,
     and it loads no instruction file of the checkout, so its context is the inputs of the step. Each
-    model call has an output cap, a share of `window`, and a deadline (#2869). The shell is no
-    security boundary: the runner of the step is the sandbox."""
+    model call has an output cap, a share of `window`, and a deadline (#2869). Before each request the
+    agent compares `budget` with its limits (#3053). The shell is no security boundary: the runner
+    of the step is the sandbox."""
     from pydantic_ai_harness.coder import Coder
 
     coder = Coder[None](instructions=instructions, repo_context=False, sub_agents=False)
@@ -540,6 +548,7 @@ def build_agent(
             ShellRefusal(log),
             log.hooks(),
             output_cap_hooks(output_cap(window)),
+            limit_hooks(budget),
         ],
     )
 
@@ -717,7 +726,7 @@ def _run_turn(
     cut: list[ModelResponse] = []
     error: AICredentialsError | None = None
     provider_error = False
-    capped = False
+    typed: FailureClass | None = None
     started = time.monotonic()
     with capture_run_messages() as messages:
         try:
@@ -732,7 +741,9 @@ def _run_turn(
             reason, last = _stop_reason(stopped, log), _last_text(messages)
             if isinstance(stopped, OutputCapReached):
                 cut.append(stopped.response)
-                capped = True
+                typed = FailureClass.OUTPUT_CAP
+            elif isinstance(stopped, LimitReached):
+                typed = FailureClass.LIMIT_REACHED
         except ModelAPIError as exc:
             refused = model_call_error(exc, "The step's")
             if isinstance(refused, AICredentialsError):
@@ -759,18 +770,19 @@ def _run_turn(
         conversation=kept,
         resend=resend,
         provider_error=provider_error,
-        failure_class=_run_class(reason, capped=capped),
+        failure_class=_run_class(reason, typed),
     )
 
 
-def _run_class(reason: str, *, capped: bool) -> FailureClass | None:
+def _run_class(reason: str, typed: FailureClass | None) -> FailureClass | None:
     """The class of the reason that ended a turn, or None when the turn ended well (#3476). The
-    output cap is typed by the error that the cap raised. Any other end is classified once, here,
-    so the decision to move the tier and the stop of the step read the same class."""
+    output cap and a spent budget are typed by the error that they raised (`typed`). Any other end
+    is classified once, here, so the decision to move the tier and the stop of the step read the
+    same class."""
     if not reason:
         return None
-    if capped:
-        return FailureClass.OUTPUT_CAP
+    if typed is not None:
+        return typed
     return classify_failure(FailureEvidence(text=reason))
 
 
@@ -1314,7 +1326,9 @@ def _extra_ask(
     hook gets the turn that fixes it, and the message lists the unticked tasks too, so no turn for
     the ticks follows. A step whose checks passed gets the turn for the ticks when a task is
     unticked. No other failure gets a turn. The message names the stray files that the step
-    deleted, and why (#3092). The caller counts the turns against `repair_rounds`."""
+    deleted, and why (#3092). A failure with no repair paths, as a group that changed no file
+    (`plan_defect`), gets no turn: no attempt can fix it (#3053). The caller counts the turns
+    against `repair_rounds`."""
     texts = MESSAGES.roadmap
     removed = texts.implement_removed_note.format(paths=log.removed_text()) if log.removed else ""
     unticked = bool(_unticked(inputs))
@@ -1393,6 +1407,79 @@ def _commit_group(
     return _commit(source, step_commit_title(inputs.item_title, inputs.group.title, item))
 
 
+@dataclass(frozen=True)
+class _Rounds:
+    """Where the repair rounds of a step stand (#3053): the last turn, its first failing exit
+    check, the rounds used, the number of the attempt that the turn made, and the rounds allowed.
+    `spent` says that the step wanted another round and had none."""
+
+    run: _Run
+    failure: _Failure | None
+    used: int
+    number: int
+    allowed: int
+    spent: bool = False
+
+
+def _repair_rounds(
+    agent: Agent[None, str],
+    model: Any,
+    log: ToolCallLog,
+    source: Path,
+    inputs: StepInputs,
+    keeper: WipKeeper,
+    start: _Rounds,
+    *,
+    tier: str,
+    trace: ImplementTrace | None,
+) -> _Rounds:
+    """Judge the attempt of `start`, and run an extra turn for its failure while a round is left
+    and the failure can be repaired. Each attempt is an event of the trace, with whether a round
+    follows (#3053). The state after the last attempt."""
+    run, failure, used, number = start.run, start.failure, start.used, start.number
+    while True:
+        ask = _extra_ask(source, inputs, failure, log)
+        repair = ask is not None and used < start.allowed
+        _trace_attempt(trace, number, tier, failure, inputs, repair=repair)
+        if ask is None or not repair:
+            return _Rounds(run, failure, used, number, start.allowed, spent=ask is not None)
+        if trace is not None:
+            trace.retry((failure.reason if failure else "") or _unticked_failure(inputs) or "")
+        run, failure = _extra_turn(agent, model, log, source, inputs, keeper, run, ask)
+        used += 1
+        number += 1
+
+
+def _failure_class(failure: _Failure | None, inputs: StepInputs) -> FailureClass | None:
+    """The class of the failure of an attempt, or None when the attempt passed (#3053). A failure
+    that knows its cause carries the class. Any other failure is classified from its text, as the
+    stop would classify it. A step whose checks passed and that left a task unticked is
+    `not_ticked`."""
+    if failure is not None:
+        return failure.klass or classify_failure(FailureEvidence(text=failure.reason))
+    return FailureClass.NOT_TICKED if _unticked(inputs) else None
+
+
+def _trace_attempt(
+    trace: ImplementTrace | None,
+    number: int,
+    tier: str,
+    failure: _Failure | None,
+    inputs: StepInputs,
+    *,
+    repair: bool,
+) -> None:
+    """Add the attempt `number` to the `trace`: its outcome, its class and its evidence, and
+    whether a repair round follows (#3053)."""
+    if trace is None:
+        return
+    klass = _failure_class(failure, inputs)
+    evidence = (
+        ((failure.reason if failure else "") or _unticked_failure(inputs) or "") if klass else ""
+    )
+    trace.attempt(number, tier, klass.value if klass else "", evidence, repair=repair)
+
+
 def _attempt(
     source: Path,
     model: Any,
@@ -1405,15 +1492,21 @@ def _attempt(
     tiers: Sequence[str],
     model_for_tier: Callable[[str], Any] | None,
     tier_health: Callable[[Sequence[str]], Mapping[str, bool]],
+    limits: StepBudget,
     trace: ImplementTrace | None = None,
 ) -> StepOutcome:
     """Run the agent one tier at a time, then judge the exit and commit. A failed check or a
     missing tick gets an extra turn while one of the `roadmap.implement.repair_rounds` rounds is
-    left. A run that ends on a provider error or on a class that selects `change_tier` moves to the
-    next healthy tier at once, spends no repair round, and discards the checkout of the failed
-    attempt, back to the last `wip:` commit of the keeper (#3060, #3054)."""
+    left. A failure that carries no repair paths gets none. A step that stops with a failure that
+    a round could have taken, and no round left, says so in its reason (#3053). A run that ends on a provider error or
+    on a class that selects `change_tier` moves to the next healthy tier at once, spends no repair
+    round, and discards the checkout of the failed attempt, back to the last `wip:` commit of the
+    keeper (#3060, #3054). Each attempt is an event of the `trace`, and the agent stops before a
+    request when `limits` is spent."""
     budget = load_settings().roadmap.implement.repair_rounds
     rounds = 0
+    number = 1
+    rounds_spent = False
     tool_calls = 0
     total = TierSpend()
     spent: dict[str, TierSpend] = {}
@@ -1425,20 +1518,33 @@ def _attempt(
             if tier:
                 tried.append(tier)
             tier_model = model_for_tier(tier) if model_for_tier is not None and tier else model
-            agent = build_agent(tier_model, source, inputs.instructions, window, Path(home), log)
+            agent = build_agent(
+                tier_model, source, inputs.instructions, window, Path(home), log, limits
+            )
             run = _turn(agent, tier_model, log, inputs.message)
             failure = (
                 _Failure(run.reason, klass=run.failure_class)
                 if run.reason
                 else _exit_failure(source, inputs, keeper, log)
             )
-            while rounds < budget and (ask := _extra_ask(source, inputs, failure, log)) is not None:
-                if trace is not None:
-                    trace.retry(
-                        (failure.reason if failure else "") or _unticked_failure(inputs) or ""
-                    )
-                run, failure = _extra_turn(agent, tier_model, log, source, inputs, keeper, run, ask)
-                rounds += 1
+            repaired = _repair_rounds(
+                agent,
+                tier_model,
+                log,
+                source,
+                inputs,
+                keeper,
+                _Rounds(run, failure, rounds, number, budget),
+                tier=tier,
+                trace=trace,
+            )
+            run, failure, rounds, number = (
+                repaired.run,
+                repaired.failure,
+                repaired.used,
+                repaired.number,
+            )
+            rounds_spent = repaired.spent
             total = total.plus(run)
             tool_calls += run.tool_calls
             if tier:
@@ -1447,6 +1553,7 @@ def _attempt(
                 break
             keeper.discard()
             attempt += 1
+            number += 1
     reason = failure.reason if failure else ""
     klass = failure.klass if failure else None
     outcome = StepOutcome(
@@ -1467,6 +1574,8 @@ def _attempt(
     )
     if not reason and (unticked := _unticked_failure(inputs)):
         reason, klass = unticked, FailureClass.NOT_TICKED
+    if reason and rounds_spent:
+        reason = f"{reason}\n{MESSAGES.roadmap.implement_stop_rounds.format(rounds=budget)}"
     commit = ""
     if not reason:
         commit, reason = _commit_group(source, inputs, item, keeper)
@@ -1534,6 +1643,7 @@ def run_step(
     trace: ImplementTrace | None = None,
     on_wip: Callable[[WipCommit], None] | None = None,
     keep: bool = True,
+    spend: ItemSpend | None = None,
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
@@ -1556,6 +1666,10 @@ def run_step(
     `roadmap.implement.ladder` does. `model_for_tier` builds the model of one tier; without it,
     every tier runs on `model`. `tier_health` reads the gateway's health of each tier before an
     attempt; without it, the gateway is read when `ai.provider` is `gateway`.
+
+    The step stops before a model request when it has spent a budget of `roadmap.implement`
+    (#3053): the input tokens or the seconds of the step, or those of the run of the item. `spend`
+    is what the run spent before this step; without it the item has spent nothing.
     """
     inputs = replace(
         build_step_inputs(store, item=item, group=group, source=source, window=window, fix=fix),
@@ -1579,6 +1693,7 @@ def run_step(
             tiers=_ladder_tiers(step_class, ladder),
             model_for_tier=model_for_tier,
             tier_health=tier_health or _gateway_tier_health,
+            limits=StepBudget(spend),
             trace=trace,
         )
         done = outcome.status is StepStatus.DONE
@@ -1601,6 +1716,7 @@ def run_fix_step(
     model_for_tier: Callable[[str], Any] | None = None,
     tier_health: Callable[[Sequence[str]], Mapping[str, bool]] | None = None,
     trace: ImplementTrace | None = None,
+    spend: ItemSpend | None = None,
 ) -> StepOutcome:
     """Run the fix of the failed check `fix` for item `item` in the checkout `source`: a step
     whose group is "Make check <name> pass". It commits with the type and the scope of the item,
@@ -1620,6 +1736,7 @@ def run_fix_step(
         model_for_tier=model_for_tier,
         tier_health=tier_health,
         trace=trace,
+        spend=spend,
     )
 
 

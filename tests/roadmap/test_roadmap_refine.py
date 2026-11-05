@@ -3582,3 +3582,309 @@ def test_a_check_that_no_longer_covers_clears_the_tool_refine_asked_about(
     _refine_round(store, git_repo)
 
     assert (asked, _asked(store, number)) == (_SCANNER, None)
+
+
+# ── A wait ends when its cause ends (#3483) ───────────────────────────────────────────────
+
+_STAGE_MARKER = constants.CONST_ROADMAP_STAGE_COMMENT_MARKER
+_REFINE_MARKER = constants.CONST_ROADMAP_REFINE_COMMENT_MARKER
+_STAGE_EVIDENCE = "The plan needs `hello_world` to return a name. It returns a fixed text."
+
+
+def _stage_returns(store: InMemoryRoadmapStore, number: int) -> None:
+    """The stage job returns the item to New with a comment: the comment first, then the Status."""
+    store.comment(
+        number,
+        f"{_STAGE_MARKER}\nThe stage job returned the item to New.\n\nEvidence:\n\n{_STAGE_EVIDENCE}",
+    )
+    store.set_field(_require_item(store, number), ItemField.STATUS, "New")
+
+
+def _stage_returned_item(store: InMemoryRoadmapStore, model_fake: ModelFake, git_repo: Path) -> int:
+    """A New item that refine set Ready and the stage job returned to New."""
+    store.seed_visibility(is_private=True)
+    number = _seed_item(store, "New", "P1-High")
+    model_fake.answer(_READY)
+    _refine_round(store, git_repo)
+    _stage_returns(store, number)
+    return number
+
+
+def _seed_person_wait(store: InMemoryRoadmapStore, text: str, *, paths: str | None = None) -> int:
+    """A New item whose last refine round left it waiting on a person, with `text` in the comment
+    of that round, as a round with the same body would leave it."""
+    number = _seed_item(store, "New", "P1-High")
+    record: dict[RefineRecordKey, str | None] = {
+        RefineRecordKey.BODY_HASH: hash_text(_require_item(store, number).body),
+        RefineRecordKey.NEXT_STEP: "person",
+        RefineRecordKey.BLOCK_PATHS: paths,
+    }
+    store.set_marks(_require_item(store, number), record)
+    store.seed_comment(number, f"{_REFINE_MARKER}\nA person answers these questions.\n\n- {text}")
+    return number
+
+
+def _waits(plan: RefinePlan) -> list[tuple[int, str, tuple[str, ...]]]:
+    return [(w.item.number, w.step.value, w.details) for w in plan.waiting_items]
+
+
+def test_an_item_the_stage_job_returned_is_refined_again_in_the_next_round(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """A stage return is the act of a job, not of a person: the next round refines the item
+    again, with no reply and no body edit."""
+    number = _stage_returned_item(store, model_fake, git_repo)
+    calls = model_fake.call_count
+
+    again = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        [r.item.number for r in again.refined_items],
+        again.waiting_items,
+        model_fake.call_count - calls,
+    ) == ([number], [], 1)
+
+
+def test_the_model_reads_the_evidence_of_the_stage_return_and_the_comment_has_no_marker(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    _stage_returned_item(store, model_fake, git_repo)
+
+    plan_refine(store, repo=REPO, source=git_repo)
+
+    request = json.loads(model_fake.calls[-1].prompt)
+    assert (
+        _STAGE_EVIDENCE in request["stage_return"],
+        _STAGE_MARKER in request["stage_return"],
+    ) == (
+        True,
+        False,
+    )
+    assert request["replies"] == []
+
+
+def test_an_item_with_no_stage_return_has_no_stage_evidence_in_the_request(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    store.seed_visibility(is_private=True)
+    _seed_item(store, "New", "P1-High")
+    model_fake.answer(_READY)
+
+    plan_refine(store, repo=REPO, source=git_repo)
+
+    assert json.loads(model_fake.calls[-1].prompt)["stage_return"] is None
+
+
+def test_a_second_stage_return_on_the_same_body_waits_on_a_person_with_the_reason(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """The first return gives one new look. A second return on the same body gives none: the
+    item waits on a person, and says why."""
+    number = _stage_returned_item(store, model_fake, git_repo)
+    _refine_round(store, git_repo)
+    _stage_returns(store, number)
+    calls = model_fake.call_count
+
+    waiting = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        _waits(waiting),
+        waiting.refined_items,
+        model_fake.call_count - calls,
+    ) == (
+        [
+            (
+                number,
+                "person",
+                (
+                    "The stage job returned the item to New twice on the same body. A reply or a "
+                    "body edit makes refine look at it again.",
+                ),
+            )
+        ],
+        [],
+        0,
+    )
+
+
+def test_a_body_edit_after_a_stage_return_gives_a_new_look_and_resets_the_second_return(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    number = _stage_returned_item(store, model_fake, git_repo)
+    _refine_round(store, git_repo)
+    recorded = _require_item(store, number).job_record
+    assert recorded[RefineRecordKey.RETURNED_BODY_HASH] == recorded[RefineRecordKey.BODY_HASH]
+    _stage_returns(store, number)
+    store.as_actor("alice").edit_body_by_hand(number, "A new body.")
+
+    _refine_round(store, git_repo)
+
+    assert RefineRecordKey.RETURNED_BODY_HASH not in _require_item(store, number).job_record or (
+        _require_item(store, number).job_record[RefineRecordKey.RETURNED_BODY_HASH] is None
+    )
+
+
+def test_an_item_a_person_sets_back_after_a_stage_return_that_refine_answered_waits_for_a_reason(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """The stage return is older than refine's last comment, so it is no cause of the wait: the
+    item that a person set back waits for the reason of that person."""
+    number = _stage_returned_item(store, model_fake, git_repo)
+    _refine_round(store, git_repo)
+    person = store.as_actor("alice")
+    person.set_field(_require_item(person, number), ItemField.STATUS, "New")
+    calls = model_fake.call_count
+
+    waiting = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        _waits(waiting),
+        model_fake.call_count - calls,
+    ) == (
+        [
+            (
+                number,
+                "person",
+                (
+                    "A person set the item back to New after refine set it to Ready. A reply "
+                    "that tells why makes refine look at it again.",
+                ),
+            )
+        ],
+        0,
+    )
+
+
+def test_a_person_wait_whose_question_names_an_issue_that_closed_after_it_gets_a_new_look(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    store.seed_visibility(is_private=True)
+    named = _seed_item(store, "In Progress", "P1-High")
+    number = _seed_person_wait(store, f"Does the work of #{named} cover this item?")
+    model_fake.answer(_READY)
+    waiting = plan_refine(store, repo=REPO, source=git_repo)
+    store.as_actor("alice").close_by_hand(named, CloseReason.COMPLETED)
+
+    again = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        [w.item.number for w in waiting.waiting_items if w.item.number == number],
+        [r.item.number for r in again.refined_items],
+    ) == ([number], [number])
+
+
+def test_a_person_wait_ends_when_an_issue_that_a_reply_the_round_read_names_closes(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """The questions of refine may name no issue, while the comment of a person that the round
+    read does: the wait text holds both."""
+    store.seed_visibility(is_private=True)
+    named = _seed_item(store, "In Progress", "P1-High")
+    number = _seed_item(store, "New", "P1-High")
+    store.set_marks(
+        _require_item(store, number),
+        {
+            RefineRecordKey.BODY_HASH: hash_text(_require_item(store, number).body),
+            RefineRecordKey.NEXT_STEP: "person",
+        },
+    )
+    store.as_actor("alice").comment(number, f"This waits for #{named}.")
+    store.seed_comment(number, f"{_REFINE_MARKER}\nA person answers these questions.")
+    model_fake.answer(_READY)
+    waiting = plan_refine(store, repo=REPO, source=git_repo)
+    store.as_actor("alice").close_by_hand(named, CloseReason.COMPLETED)
+
+    again = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        [w.item.number for w in waiting.waiting_items],
+        [r.item.number for r in again.refined_items],
+    ) == ([number], [number])
+
+
+@pytest.mark.parametrize("closes_after", [False, True], ids=["closed-before", "other-repository"])
+def test_a_person_wait_keeps_waiting_when_the_issue_it_names_is_no_new_cause(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, closes_after: bool
+) -> None:
+    """An issue that closed before the wait began is no cause that ended, and the number of an
+    issue of another repository names no issue of this one."""
+    store.seed_visibility(is_private=True)
+    named = _seed_item(store, "In Progress", "P1-High")
+    person = store.as_actor("alice")
+    if not closes_after:
+        person.close_by_hand(named, CloseReason.COMPLETED)
+    reference = f"other/repo#{named}" if closes_after else f"#{named}"
+    number = _seed_person_wait(store, f"Does the work of {reference} cover this item?")
+    if closes_after:
+        person.close_by_hand(named, CloseReason.COMPLETED)
+    calls = model_fake.call_count
+
+    plan = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        [w.item.number for w in plan.waiting_items],
+        plan.refined_items,
+        model_fake.call_count - calls,
+    ) == ([number], [], 0)
+
+
+def test_a_person_wait_whose_text_names_a_path_that_changed_gets_a_new_look_with_no_block_paths(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    store.seed_visibility(is_private=True)
+    number = _seed_person_wait(store, f"Should `{_CITED_PATH}:2` return a name?", paths=None)
+    model_fake.answer(_READY)
+    store.seed_commit("src/other.py", at=datetime.now(UTC) + timedelta(minutes=5))
+    unchanged = plan_refine(store, repo=REPO, source=git_repo)
+    store.seed_commit(_CITED_PATH, at=datetime.now(UTC) + timedelta(minutes=5))
+
+    again = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        [w.item.number for w in unchanged.waiting_items],
+        [r.item.number for r in again.refined_items],
+    ) == ([number], [number])
+
+
+def test_a_round_gives_no_more_new_looks_than_its_limit(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """Four items that the stage job returned, and a limit of two: the round refines two and
+    makes two model calls. The others wait for a later round."""
+    store.seed_visibility(is_private=True)
+    for _ in range(4):
+        _seed_item(store, "New", "P1-High")
+    model_fake.answer(_READY)
+    apply_refine(store, plan_refine(store, repo=REPO, source=git_repo, limit=10))
+    for item in store.open_items():
+        _stage_returns(store, item.number)
+    calls = model_fake.call_count
+
+    limited = plan_refine(store, repo=REPO, source=git_repo, limit=2)
+
+    assert (len(limited.refined_items), model_fake.call_count - calls) == (2, 2)
+
+
+def test_the_check_of_a_wait_text_reads_at_most_the_bound_of_issues_and_of_paths(
+    git_repo: Path, store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A wait text that names twelve issues and twelve paths costs the bound of reads for each."""
+    store.seed_visibility(is_private=True)
+    named = [_seed_item(store, "In Progress", "P1-High") for _ in range(12)]
+    paths = [f"src/gone_{index}.py" for index in range(12)]
+    text = " ".join([*(f"#{number}" for number in named), *(f"`{path}`" for path in paths)])
+    number = _seed_person_wait(store, text)
+    reads: Counter[str] = Counter()
+    original_item, original_path = store.item, store.path_changed_at
+    monkeypatch.setattr(store, "item", lambda n: reads.update(["item"]) or original_item(n))
+    monkeypatch.setattr(
+        store, "path_changed_at", lambda p: reads.update(["path"]) or original_path(p)
+    )
+
+    _, waiting = select_candidates(store, limit=3)
+
+    bound = constants.CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS
+    assert ([w.item.number for w in waiting if w.item.number == number], dict(reads)) == (
+        [number],
+        {"item": bound, "path": bound},
+    )

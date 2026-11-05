@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from devops_cli.config import settings
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
+from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
+    CONST_ROADMAP_REFINE_COMMENT_MARKER,
+    CONST_ROADMAP_STAGE_COMMENT_MARKER,
+)
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git import worktree_add
 from devops_cli.lang import MESSAGES
@@ -23,8 +27,15 @@ from devops_cli.roadmap.explain import (
 )
 from devops_cli.roadmap.implement import parse_implement_filters
 from devops_cli.roadmap.implement_trace import ImplementTrace
+from devops_cli.roadmap.refine import hash_text
 from devops_cli.roadmap.stage import parse_filters
-from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, ItemField, StageRecordKey
+from devops_cli.roadmap.store import (
+    GitHubState,
+    ImplementRecordKey,
+    ItemField,
+    RefineRecordKey,
+    StageRecordKey,
+)
 from tests.support.roadmap_implement import TITLE, JobWorld
 from tests.support.roadmap_stage import STAGE_REPO
 
@@ -262,6 +273,7 @@ def test_the_report_gives_yes_or_no_for_each_job_and_the_reason_of_a_no() -> Non
         STAGE_REPO,
         7,
         TITLE,
+        JobVerdict(False, "The item waits on a person. Reply."),
         JobVerdict(False, "It is claimed by human."),
         JobVerdict(True),
     )
@@ -269,9 +281,76 @@ def test_the_report_gives_yes_or_no_for_each_job_and_the_reason_of_a_no() -> Non
     assert render_explanation(explained).splitlines() == [
         f"# {STAGE_REPO} #7: {TITLE}",
         "",
+        "Refine job: no. The item waits on a person. Reply.",
         "Stage job: no. It is claimed by human.",
         "Implement job: yes.",
     ]
+
+
+# ── The cause of a refine wait (#3483) ───────────────────────────────────────────────────
+
+
+def _refine_wait(world: JobWorld, number: int, step: str, text: str) -> None:
+    """Record a refine round that left the item waiting on `step`, with `text` in its comment."""
+    held = world.store.item(number)
+    assert held is not None
+    world.store.set_marks(
+        held,
+        {RefineRecordKey.BODY_HASH: hash_text(held.body), RefineRecordKey.NEXT_STEP: step},
+    )
+    world.store.seed_comment(number, f"{CONST_ROADMAP_REFINE_COMMENT_MARKER}\n{text}")
+
+
+def test_an_item_that_waits_on_a_person_names_the_wait_and_what_ends_it(
+    job_world: JobWorld,
+) -> None:
+    number = _seed(job_world, status="New")
+    _refine_wait(job_world, number, "person", "- Which store holds the record?")
+
+    explained = _explain(job_world, number)
+
+    assert explained.refine == JobVerdict(
+        False,
+        "The item waits on a person. " + TEXTS.refine_left_person_hint,
+    )
+
+
+def test_an_item_that_the_stage_job_returned_twice_names_the_cause(job_world: JobWorld) -> None:
+    number = _seed(job_world, status="New")
+    held = job_world.store.item(number)
+    assert held is not None
+    hashed = hash_text(held.body)
+    job_world.store.set_marks(
+        held,
+        {
+            RefineRecordKey.BODY_HASH: hashed,
+            RefineRecordKey.NEXT_STEP: "ready",
+            RefineRecordKey.RETURNED_BODY_HASH: hashed,
+        },
+    )
+    job_world.store.seed_comment(number, f"{CONST_ROADMAP_REFINE_COMMENT_MARKER}\nReady.")
+    job_world.store.seed_comment(number, f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\nReturned.")
+
+    explained = _explain(job_world, number)
+
+    assert explained.refine == JobVerdict(
+        False, "The item waits on a person. " + TEXTS.refine_stage_returned_twice
+    )
+
+
+def test_a_new_item_with_no_round_is_taken_and_a_ready_item_is_not(job_world: JobWorld) -> None:
+    new = _seed(job_world, status="New")
+    ready = _seed(job_world, status="Ready")
+    refined = job_world.store.item(ready)
+    assert refined is not None
+    job_world.store.set_marks(
+        refined, {RefineRecordKey.SECTION_HASH: "section", RefineRecordKey.BODY_HASH: "body"}
+    )
+
+    assert (_explain(job_world, new).refine, _explain(job_world, ready).refine) == (
+        JobVerdict(True),
+        JobVerdict(False, TEXTS.refine_left_ready),
+    )
 
 
 # ── The trace of the last run (#3032) ─────────────────────────────────────────────────────

@@ -34,6 +34,7 @@ from tests.support.implement_step import (
     git,
     is_clean_at,
     programs_run,
+    rounds_spent,
     write_call,
 )
 from tests.support.model_script import ModelScript, say, tool_calls
@@ -235,7 +236,8 @@ def test_a_test_file_that_does_not_parse_after_the_run_is_judged_by_the_static_c
 
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
-        f"uv run ruff check -- src/sample.py {OLD_PATH} exited with status 1.\ndef test_a(:: bad",
+        f"uv run ruff check -- src/sample.py {OLD_PATH} exited with status 1.\ndef test_a(:: bad"
+        + rounds_spent(3),
     )
 
 

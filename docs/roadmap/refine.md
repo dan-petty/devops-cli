@@ -14,6 +14,12 @@ An item that refine cannot set to Ready gets one comment with its next step. The
 
 Refine looks at the item again after a reply, a body edit, or the close of those open items. It also looks again after a commit on the default branch that changes a file that the block cites. The report groups every item by its next step.
 
+An item that waits on a person has one more way out. The comment of refine names issues and files in its questions. Refine looks at the item again when an issue that the comment names closes after the comment, or when a file that it names changes on the default branch after the comment. A round reads at most 5 issues and 5 files from one comment.
+
+## Items that the stage job returns
+
+The stage job can return an item to New with evidence that the plan cannot hold. That is the act of a job, not of a person, so the next round refines the item again with no reply and no body edit. The model reads the evidence of the return in `stage_return`. A round that looks at the same body again records its hash in `refine.returned_body_hash`. When the stage job returns the item a second time on that body, refine does not look again. The item waits on a person, and the reason is `devops roadmap explain <number>` and a line in `devops roadmap inbox`. A reply or a body edit ends that wait. A person who sets an item back to New with no comment is the other case: the item waits for the reason of that person.
+
 ## What refine investigates
 
 When a fact or a decision has no verified source, or a key question of the body has no answer, refine investigates it. It uses tools that read the code. For a public repository with a Firecrawl key, it also searches the web. The plan says when web search is off.

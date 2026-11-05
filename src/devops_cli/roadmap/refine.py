@@ -126,8 +126,10 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS,
     CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC,
     CONST_ROADMAP_REFINE_MAX_SPECS,
+    CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS,
     CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS,
     CONST_ROADMAP_REFINE_START_MARKER,
+    CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
     CONST_ROADMAP_TRUSTED_AUTHORS,
@@ -158,6 +160,7 @@ from devops_cli.roadmap.refine_investigation import (
 )
 from devops_cli.roadmap.store import (
     AlternativesRecordKey,
+    ChangeKind,
     GitHubState,
     IssueComment,
     Item,
@@ -165,6 +168,7 @@ from devops_cli.roadmap.store import (
     JobRecord,
     RefineRecordKey,
     RoadmapStore,
+    StageRecordKey,
     Verdict,
 )
 from devops_cli.telemetry.instruments import ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL, emit
@@ -297,7 +301,9 @@ class RefinedItem:
     the check before a write compares, so a block written since the read is not lost.
     `alternatives_asked` is the URL of the covering tool that the round put to a person (#2652).
     `deferred` holds the parts that apply files as new issues before it sets the item Ready
-    (#2423)."""
+    (#2423). `after_stage_return` is set when the round looked again at the same body after the
+    stage job returned the item, which apply records, so a second return waits on a person
+    (#3483)."""
 
     item: Item
     proposal: RefinementProposal
@@ -317,6 +323,7 @@ class RefinedItem:
     skip_reason: str | None = None
     record_only: bool = False
     deferred: tuple[PlannedDeferral, ...] = ()
+    after_stage_return: bool = False
 
 
 @dataclass(frozen=True)
@@ -1591,14 +1598,104 @@ def _without_other_jobs_comments(comments: Sequence[IssueComment]) -> list[Issue
     return _comments_without(comments, others)
 
 
-def _cited_code_changed(store: RoadmapStore, item: Item, since: datetime) -> bool:
-    """Whether a commit on the default branch changed a path the item's block cites at or after
-    `since`, the time of refine's last comment on it (#2005)."""
-    for path in _recorded_block_paths(item):
+# An issue number in text: not part of a word, a path or the reference of another repository, which
+# GitHub writes `owner/repo#N`.
+_ISSUE_REF_RE = re.compile(r"(?<![\w/#])#(\d+)\b")
+
+
+def _changed_since(store: RoadmapStore, paths: Sequence[str], since: datetime) -> bool:
+    """Whether a commit on the default branch changed one of `paths` at or after `since`."""
+    for path in paths:
         changed = store.path_changed_at(path)
         if changed is not None and changed >= since:
             return True
     return False
+
+
+def _cited_code_changed(store: RoadmapStore, item: Item, since: datetime) -> bool:
+    """Whether a commit on the default branch changed a path the item's block cites at or after
+    `since`, the time of refine's last comment on it (#2005)."""
+    return _changed_since(store, _recorded_block_paths(item), since)
+
+
+def _text_paths(text: str) -> list[str]:
+    """The repository paths that `text` names, each once, without its line, the first
+    `CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS` of them."""
+    paths: list[str] = []
+    for match in _CITED_PATH_RE.finditer(text):
+        path = match.group(1)
+        if ".." not in path and not path.startswith("/") and path not in paths:
+            paths.append(path)
+    return paths[:CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS]
+
+
+def _text_issues(text: str, own: int) -> list[int]:
+    """The numbers of the issues that `text` names, each once and not `own`, the first
+    `CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS` of them."""
+    numbers: list[int] = []
+    for match in _ISSUE_REF_RE.finditer(text):
+        number = int(match.group(1))
+        if number != own and number not in numbers:
+            numbers.append(number)
+    return numbers[:CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS]
+
+
+def _closed_since(store: RoadmapStore, number: int, since: datetime) -> bool:
+    """Whether issue `number` closed at or after `since`. The timeline is read only for an issue
+    that is closed and changed since then."""
+    found = store.item(number)
+    if found is None or found.state is not GitHubState.CLOSED:
+        return False
+    if found.updated_at is not None and found.updated_at < since:
+        return False
+    return any(c.kind is ChangeKind.CLOSED and c.at >= since for c in store.closures(number))
+
+
+def _wait_text(comments: Sequence[IssueComment]) -> str:
+    """The text that a refine round read for the wait it left: refine's last comment, with the
+    comments of persons since refine's comment before it, which the round read as replies. The
+    comments of other jobs are left out."""
+    marked = [i for i, c in enumerate(comments) if CONST_ROADMAP_REFINE_COMMENT_MARKER in c.body]
+    start = marked[-2] + 1 if len(marked) > 1 else 0
+    read = _without_other_jobs_comments(comments[start : marked[-1] + 1])
+    return "\n".join(comment.body for comment in read)
+
+
+def _named_cause_ended(store: RoadmapStore, item: Item, text: str, since: datetime) -> bool:
+    """Whether an issue that `text`, the wait text of `item`, names closed, or a file that it
+    names changed, at or after `since`, the time of refine's last comment (#3483). The paths need
+    not be the ones the round recorded as the cause of a block."""
+    if _changed_since(store, _text_paths(text), since):
+        return True
+    return any(_closed_since(store, number, since) for number in _text_issues(text, item.number))
+
+
+def _stage_return(item: Item, comments: Sequence[IssueComment]) -> IssueComment | None:
+    """The newest comment of the stage job after refine's last comment on `item`, when the job
+    returned the item to New, or None. A stage comment on an item that holds a staged branch
+    tells of that branch, so it is no return (#3483)."""
+    if item.job_record.get(StageRecordKey.BRANCH):
+        return None
+    after = replies_after_marker(comments, CONST_ROADMAP_REFINE_COMMENT_MARKER) or []
+    returns = [c for c in after if CONST_ROADMAP_STAGE_COMMENT_MARKER in c.body]
+    return returns[-1] if returns else None
+
+
+def _returned_twice(item: Item) -> bool:
+    """Whether the stage job returned `item` again after a round that looked at the same body
+    again for an earlier return (#3483)."""
+    returned = item.job_record.get(RefineRecordKey.RETURNED_BODY_HASH)
+    return returned is not None and returned == item.job_record.get(RefineRecordKey.BODY_HASH)
+
+
+def _returned_wait(item: Item, comments: Sequence[IssueComment]) -> str | None:
+    """The reason that a New item, which refine set Ready, waits on a person, or None when refine
+    looks at it again (#3483): the stage job returned it for the first time on this body. A
+    second return on the body, and an item that a person set back, wait for a person's reply."""
+    texts = MESSAGES.roadmap
+    if _stage_return(item, comments) is None:
+        return texts.refine_set_back_by_person
+    return texts.refine_stage_returned_twice if _returned_twice(item) else None
 
 
 def _still_waiting(
@@ -1606,11 +1703,14 @@ def _still_waiting(
 ) -> WaitingItem | None:
     """The next step an item nothing changed since its last round still waits on, or None when
     the wait is over and refine looks at it again (#1758): the round recorded no step, a blocker
-    closed, a comment followed refine's last one, or a commit on the default branch changed a
-    path the block cites after that comment (#2005). Only a body edit ends an `EDIT` wait.
-    `comments_on` reads the item's comments."""
+    closed, a comment followed refine's last one, a commit on the default branch changed a
+    path the block cites after that comment (#2005), or, for a wait on a person, an issue or a
+    file that the text of the wait names closed or changed after it (#3483). An item the stage
+    job returned gets one new look, and the second return on the same body waits on a person.
+    Only a body edit ends an `EDIT` wait. `comments_on` reads the item's comments."""
     step = _recorded_step(item)
     details: tuple[str, ...] = ()
+    names_cause = step is NextStep.PERSON
     match step:
         case None:
             return None
@@ -1622,8 +1722,11 @@ def _still_waiting(
                 return None
             details = tuple(f"#{number}" for number in blockers)
         case NextStep.READY:
-            # A New item refine set Ready: a person set it back, and refine waits for the reason.
-            step, details = NextStep.PERSON, (MESSAGES.roadmap.refine_set_back_by_person,)
+            # A New item refine set Ready: the stage job or a person returned it.
+            returned = _returned_wait(item, comments_on(item.number))
+            if returned is None:
+                return None
+            step, details = NextStep.PERSON, (returned,)
     comments = comments_on(item.number)
     replies = replies_since_refine(comments)
     if replies is None or replies:
@@ -1631,6 +1734,8 @@ def _still_waiting(
     # No reply: the last comment that is not another job's is refine's own.
     last = _without_other_jobs_comments(comments)[-1]
     if _cited_code_changed(store, item, last.created_at):
+        return None
+    if names_cause and _named_cause_ended(store, item, _wait_text(comments), last.created_at):
         return None
     return WaitingItem(item, step, details)
 
@@ -1718,6 +1823,26 @@ class _Selection:
             self.waiting.append(capped)
             return
         self.selected.append(item)
+
+
+def refine_left_out(store: RoadmapStore, item: Item) -> str | None:
+    """Why a round of the Service leaves the open `item` alone, or None when it takes the item. It
+    judges the item with the rules of `select_candidates`, so `devops roadmap explain` and a round
+    cannot differ (#3483). The limit of a round is no rule of the item."""
+    texts = MESSAGES.roadmap
+    if not _refinable([item], unrefined_ready=True):
+        if item.status == CONST_ROADMAP_STATUS_READY:
+            return texts.refine_left_ready
+        return texts.refine_held_status.format(status=item.status)
+    selection = _Selection(store)
+    selection.consider(item)
+    if not selection.waiting:
+        return None
+    waits = selection.waiting[0]
+    shown = (", " if waits.step is NextStep.BLOCKED else " ").join(waits.details)
+    if waits.step is NextStep.PERSON and not shown:
+        shown = texts.refine_left_person_hint
+    return texts.refine_left_waits[waits.step.value].format(details=shown).strip()
 
 
 def _is_unrefined_ready(item: Item) -> bool:
@@ -1843,6 +1968,7 @@ def refine_one_item(
 
     # Step 2: Proposal generation
     comments = store.comments_on(item.number)
+    returned = _stage_return(item, comments)
     check = recorded_check(item, current_body)
     covers = covers_question(check, comments)
     request: dict[str, Any] = {
@@ -1850,6 +1976,7 @@ def refine_one_item(
         "title": item.title,
         "body": current_body,
         "replies": _replies_for_model(comments),
+        "stage_return": _stage_evidence(returned),
         "alternatives": _alternatives_request(check, comments, covers),
         "context": ctx,
         "body_questions": [
@@ -1952,6 +2079,7 @@ def refine_one_item(
         alternatives_asked=check.tool if check and check.verdict is Verdict.COVERS else None,
         read_hash=hash_text(outside),
         deferred=deferred,
+        after_stage_return=returned is not None and _is_unchanged(item, current_body),
     )
 
 
@@ -2064,6 +2192,15 @@ def _investigate(
         )
         return None
     return revised
+
+
+def _stage_evidence(returned: IssueComment | None) -> str | None:
+    """The text of the comment of the stage job that returned the item, without its marker and cut
+    to the token cap of a reply, or None when the job returned no item (#3483)."""
+    if returned is None:
+        return None
+    text = returned.body.replace(CONST_ROADMAP_STAGE_COMMENT_MARKER, "").strip()
+    return truncate_to_token_limit(text, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
 
 
 def _replies_for_model(comments: Sequence[IssueComment]) -> list[str]:
@@ -2365,6 +2502,7 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
             RefineRecordKey.BLOCKED_BY: ",".join(str(number) for number in r.blocked_by) or None,
             RefineRecordKey.BLOCK_PATHS: ",".join(r.block_paths) or None,
             RefineRecordKey.ALTERNATIVES_ASKED: r.alternatives_asked,
+            RefineRecordKey.RETURNED_BODY_HASH: r.body_hash if r.after_stage_return else None,
         }
         if deferred:
             marks[RefineRecordKey.DEFERRED] = _numbers_text(deferred)
@@ -2472,6 +2610,7 @@ __all__ = [
     "next_step_of",
     "plan_refine",
     "raise_for_failed_items",
+    "refine_left_out",
     "render_proposal_section",
     "render_refine_plan",
     "replies_after_marker",

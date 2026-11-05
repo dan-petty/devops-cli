@@ -39,6 +39,7 @@ from tests.support.implement_step import (
     git,
     is_clean_at_wip,
     programs_run,
+    rounds_spent,
     the_whole_group,
     tool_reads,
     write_call,
@@ -142,7 +143,7 @@ def test_a_step_that_still_fails_after_the_extra_turn_stops_and_the_model_gets_n
 
     assert (outcome.status, outcome.reason, outcome.commit, len(script.seen), outcome.requests) == (
         StepStatus.STOPPED,
-        f"{LINT} exited with status 1.\n{UNUSED}",
+        f"{LINT} exited with status 1.\n{UNUSED}" + rounds_spent(1),
         "",
         3,
         3,
@@ -249,7 +250,7 @@ def test_the_ticks_that_stay_missing_after_the_extra_turn_stop_the_step_with_no_
     assert (outcome.status, len(script.seen)) == (StepStatus.STOPPED, 4)
     assert outcome.reason == (
         "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` for "
-        "`src/sample.py`"
+        "`src/sample.py`" + rounds_spent(1)
     )
 
 

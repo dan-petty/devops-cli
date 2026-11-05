@@ -8,7 +8,8 @@ are enough.
 
 **The jobs' lines**, in the order of the gates (docs/ROADMAP_WORKFLOW.md): ready plan pull
 requests (G1), ready implementation pull requests (G2), the release pull request (G3), items in
-`status/blocked` with their cause, old claims, labels that the repository lacks, and the Planned
+`status/blocked` with their cause, New items that wait on a person in refine (one line for each,
+from the job record alone, #3483), old claims, labels that the repository lacks, and the Planned
 queue when it is at the limit of the stage job (#3487). A pull request is a job's when the job
 record of an open item names it: `implement.pr` makes it an implementation, `stage.pr` a plan, and
 `implement.pr` wins because a staged branch keeps one pull request through both jobs. A draft of a
@@ -38,6 +39,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_LABELS_PATH,
     CONST_ROADMAP_RELEASE_BRANCH_PREFIX,
     CONST_ROADMAP_STATUS_BLOCKED,
+    CONST_ROADMAP_STATUS_NEW,
 )
 from devops_cli.git.branch_form import issue_of_branch
 from devops_cli.github.labels import diff_labels
@@ -45,8 +47,10 @@ from devops_cli.lang import MESSAGES
 from devops_cli.output import format_duration
 from devops_cli.roadmap.planned import planned_count
 from devops_cli.roadmap.pull_labels import declared_specs
+from devops_cli.roadmap.refine import NextStep
 from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.store import (
+    GitHubState,
     ImplementRecordKey,
     Item,
     OpenPull,
@@ -63,6 +67,7 @@ class InboxKind(StrEnum):
     IMPLEMENT = "implement"
     RELEASE = "release"
     BLOCKED = "blocked"
+    REFINE = "refine"
     CLAIM = "claim"
     LABELS = "labels"
     QUEUE = "queue"
@@ -176,6 +181,40 @@ def _blocked_lines(items: Iterable[Item], repo: str, now: datetime) -> list[Inbo
     ]
 
 
+def refine_wait_on_person(item: Item) -> InboxKind | None:
+    """`InboxKind.REFINE` when the job record of the open New item `item` says that refine waits
+    on a person, else None: the last round left a question or a suspected block for a person, or
+    the stage job returned the item twice on the same body (#3483). The record is the whole
+    read, so a reply since the round shows only after the next round."""
+    if item.state is not GitHubState.OPEN or item.status != CONST_ROADMAP_STATUS_NEW:
+        return None
+    record = item.job_record
+    if record.get(RefineRecordKey.NEXT_STEP) == NextStep.PERSON.value:
+        return InboxKind.REFINE
+    returned = record.get(RefineRecordKey.RETURNED_BODY_HASH)
+    if returned is not None and returned == record.get(RefineRecordKey.BODY_HASH):
+        return InboxKind.REFINE
+    return None
+
+
+def _refine_lines(items: Iterable[Item], repo: str, now: datetime) -> list[InboxLine]:
+    """One line for each open New item that waits on a person in refine."""
+    texts = MESSAGES.roadmap
+    lines: list[InboxLine] = []
+    for item in items:
+        if refine_wait_on_person(item) is None:
+            continue
+        returned = item.job_record.get(RefineRecordKey.NEXT_STEP) != NextStep.PERSON.value
+        subject = texts.inbox_subjects["refine_returned" if returned else "refine"].format(
+            title=item.title
+        )
+        clear = texts.inbox_clears["refine"].format(number=item.number, repo=repo)
+        lines.append(
+            InboxLine(InboxKind.REFINE, item.number, _age(now, item.updated_at), subject, clear)
+        )
+    return lines
+
+
 def _activity(item: Item, pulls: Sequence[OpenPull]) -> datetime | None:
     """The newest update of the issue of `item` and of each open pull request on a branch that
     names the issue."""
@@ -255,6 +294,7 @@ def read_inbox(store: RoadmapStore, *, repo: str, now: datetime, planned_limit: 
     lines = [
         *_pull_lines(pulls, _named_pulls(items), repo, now),
         *_blocked_lines(items, repo, now),
+        *_refine_lines(items, repo, now),
         *_claim_lines(items, pulls, repo, now),
         *_label_lines(store, repo, now),
         *_queue_lines(items, repo, planned_limit),

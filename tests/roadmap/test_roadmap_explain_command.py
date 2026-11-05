@@ -35,6 +35,7 @@ def test_the_report_gives_a_yes_for_the_staged_item(cli: Cli, job_world: JobWorl
 
     assert result.exit_code == 0, result.output
     assert "Implement job: yes." in result.output
+    assert "Refine job:" in result.output
     assert job_world.pull.ready_calls == []
 
 

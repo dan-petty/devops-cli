@@ -6729,7 +6729,7 @@ devops roadmap plan-recheck [OPTIONS]
 
 ### `devops roadmap explain`
 
-**Say, for one issue, whether the stage job and the implement job take it. For each job the answer is yes, or no with the reason of the first rule that fails: the issue is closed or is no item, the filter, the rules of the job (the Status, the owner, the stop on record, the plan and the branch, and the setting roadmap.stage.planned_limit), and the limit of a run. The reasons are the texts of the 'Left out' list of stage --plan and implement --plan. The command reads GitHub and git, calls no model and writes nothing. It uses the filter and the limit that the Service uses for each job. A group over the step budget shows only when an earlier run recorded it.**
+**Say, for one issue, whether the refine job, the stage job and the implement job take it. For each job the answer is yes, or no with the reason of the first rule that fails: the issue is closed or is no item, the filter, the rules of the job (the Status, the owner, the stop on record, the plan and the branch, and the setting roadmap.stage.planned_limit), and the limit of a run. For refine the reason is the wait of the item, such as a question for a person. The reasons are the texts of the 'Left out' list of stage --plan and implement --plan. The command reads GitHub and git, calls no model and writes nothing. It uses the filter and the limit that the Service uses for each job. A group over the step budget shows only when an earlier run recorded it.**
 
 ```bash
 devops roadmap explain [OPTIONS] <item>

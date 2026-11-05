@@ -101,10 +101,14 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_CLASS,
     DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_ITEM,
+    DEFAULT_ROADMAP_IMPLEMENT_ITEM_TIME_LIMIT_SECONDS,
+    DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET,
     DEFAULT_ROADMAP_IMPLEMENT_LADDER_TIERS,
     DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_ROADMAP_IMPLEMENT_STEP_TIME_LIMIT_SECONDS,
+    DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET,
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
@@ -929,6 +933,26 @@ class RoadmapImplementConfig(BaseModel):
         default=DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
         ge=0,
     )
+    step_token_budget: Annotated[int, Variable()] = Field(
+        description="The most input tokens that the replies of one implementation step may report, summed over all its requests, its repair rounds and its tiers. Before each request the step compares its count with this budget. A step that has spent it stops with the class `limit_reached`, and the stop names this setting",
+        default=DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET,
+        ge=1,
+    )
+    item_token_budget: Annotated[int, Variable()] = Field(
+        description="The most input tokens that all the steps of one run of an item may use, the fix steps included. A step that starts after the budget is spent makes no request, and the item stops with the class `limit_reached`. A new run after a stop starts a new count",
+        default=DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET,
+        ge=1,
+    )
+    step_time_limit_seconds: Annotated[int, Variable()] = Field(
+        description="The most seconds that one implementation step may take, counted from its start. The step compares the time with this limit before each model request, so a command or a model call that is running ends by its own limit first (`command_timeout_seconds`, `request_timeout_seconds`). A step over the limit stops with the class `limit_reached`",
+        default=DEFAULT_ROADMAP_IMPLEMENT_STEP_TIME_LIMIT_SECONDS,
+        ge=1,
+    )
+    item_time_limit_seconds: Annotated[int, Variable()] = Field(
+        description="The most seconds that one run of an item may take for its steps, counted from the start of the run. It must not be above `deadline_ceiling_seconds`, so the stop names this setting before the deadline ends the Job without a comment",
+        default=DEFAULT_ROADMAP_IMPLEMENT_ITEM_TIME_LIMIT_SECONDS,
+        ge=1,
+    )
     digest_clears_per_class: Annotated[int, Variable()] = Field(
         description="The most stops of one failure class that a new runner image clears for one item. Only a class whose default action is `retry` clears by digest. A stop at the limit stays Blocked until a trusted `implement: retry` comment. 0 turns the clear by digest off",
         default=DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_CLASS,
@@ -1026,13 +1050,16 @@ class RoadmapImplementConfig(BaseModel):
 
     @model_validator(mode="after")
     def _deadline_settings_agree(self) -> RoadmapImplementConfig:
-        """The stall is not above the extension, and the extension is not above the ceiling."""
+        """The stall is not above the extension, the extension is not above the ceiling, and the item
+        time limit is not above the ceiling."""
         if self.deadline_stall_seconds > self.deadline_extension_seconds:
             raise ValueError("deadline_stall_seconds must not be above deadline_extension_seconds")
         if self.deadline_extension_seconds > self.deadline_ceiling_seconds:
             raise ValueError(
                 "deadline_extension_seconds must not be above deadline_ceiling_seconds"
             )
+        if self.item_time_limit_seconds > self.deadline_ceiling_seconds:
+            raise ValueError("item_time_limit_seconds must not be above deadline_ceiling_seconds")
         return self
 
 
