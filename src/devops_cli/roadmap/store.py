@@ -186,7 +186,9 @@ class StageRecordKey(StrEnum):
     file cap in tokens of the measure that made the stop: a stop under another cap is stale. The
     Service records `stage.ready`, the number of the draft pull request that it has seen leave the
     draft state (#2865), and `stage.needs_fix`, the number of the draft that it told about the
-    label `plan/needs-fix` (#3264)."""
+    label `plan/needs-fix` (#3264). When the last plan or write of the item failed, the record
+    holds the time of the failure and the class of its error (#3493), until a run stages the item
+    or stops it on the budget."""
 
     BRANCH = "stage.branch"
     PR = "stage.pr"
@@ -196,6 +198,8 @@ class StageRecordKey(StrEnum):
     FILE_CAP = "stage.file_cap"
     READY = "stage.ready"
     NEEDS_FIX = "stage.needs_fix"
+    FAILED_AT = "stage.failed_at"
+    FAILED_ERROR = "stage.failed_error"
 
 
 class ImplementRecordKey(StrEnum):
@@ -839,6 +843,20 @@ class RoadmapStore(Protocol):
 
     def unlabel_issue(self, number: int, label: str) -> None:
         """Remove `label` from issue or pull request `number`, keeping its other labels."""
+
+    # ── What the title repair reads and writes (#3486) ──
+
+    def set_title(self, number: int, title: str) -> None:
+        """Write `title` as the title of issue `number`, changing nothing else, raising if it is
+        not an issue of this repository."""
+
+    def pull_title(self, number: int) -> str | None:
+        """The title of pull request `number`, open, closed or merged, or None when `number` is no
+        pull request of this repository."""
+
+    def last_renamed_at(self, number: int) -> datetime | None:
+        """When someone last changed the title of issue `number`, from its timeline, or None when
+        the title never changed."""
 
     def evidence_holds(self, evidence: Evidence) -> bool:
         """Whether GitHub confirms the evidence: the advisory exists, the run of this repository

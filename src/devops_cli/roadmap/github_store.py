@@ -358,6 +358,14 @@ _CLOSURES_QUERY = _REPOSITORY.format(
         "... on ReopenedEvent { createdAt } } } }"
     ),
 )
+_RENAMES_QUERY = _REPOSITORY.format(
+    params=", $first: Int!, $number: Int!",
+    selection=(
+        "issue(number: $number) { timelineItems(first: $first, "
+        "itemTypes: [RENAMED_TITLE_EVENT]) { totalCount nodes { __typename "
+        "... on RenamedTitleEvent { createdAt } } } }"
+    ),
+)
 
 
 def _wire_value(value: str | date) -> str:
@@ -434,10 +442,14 @@ def issue_edit_args(repo: str, number: Number) -> list[str]:
     return ["api", "-X", "PATCH", f"repos/{repo}/issues/{number}", "--input", "-"]
 
 
-def issue_edit(*, labels: Sequence[str] | None = None, body: str | None = None) -> str:
-    """The stdin of an `issue_edit_args` write: the labels that replace the issue's, and its
-    whole body, each only when given."""
+def issue_edit(
+    *, labels: Sequence[str] | None = None, body: str | None = None, title: str | None = None
+) -> str:
+    """The stdin of an `issue_edit_args` write: the labels that replace the issue's, its whole
+    body and its title, each only when given."""
     fields: dict[str, Any] = {}
+    if title is not None:
+        fields["title"] = title
     if labels is not None:
         fields["labels"] = list(labels)
     if body is not None:
@@ -531,6 +543,13 @@ def is_private_args(repo: str) -> list[str]:
 def closures_args(repo: str, number: Number) -> list[str]:
     return repository_query_args(
         repo, _CLOSURES_QUERY, first=DEFAULT_GH_ISSUE_TIMELINE_LIMIT, number=number
+    )
+
+
+def renames_args(repo: str, number: Number) -> list[str]:
+    """The `gh` arguments that read the title changes on the timeline of issue `number`."""
+    return repository_query_args(
+        repo, _RENAMES_QUERY, first=DEFAULT_GH_ISSUE_TIMELINE_LIMIT, number=number
     )
 
 
@@ -781,6 +800,26 @@ class GitHubRoadmapStore(RoadmapStore):
         timeline = self._read(closures_args(self._repo, number), _TIMELINE, f"#{number} timeline")
         self._require_whole(len(timeline.nodes), timeline.total_count, f"#{number} closes")
         return [node.closure() for node in timeline.nodes]
+
+    def set_title(self, number: int, title: str) -> None:
+        """Write `title` as the title of issue `number` in one `PATCH`; the body, the labels and
+        the job record stay as they are."""
+        self._require_issue(number, "roadmap.issue.set_title")
+        self._send_edit(number, issue_edit(title=title))
+
+    def pull_title(self, number: int) -> str | None:
+        """The title of pull request `number` in any state: the issues endpoint reads a pull
+        request as an issue, and its `pull_request` key tells it from an issue."""
+        found = self._read_or_none(
+            issue_args(self._repo, number), _ISSUE, f"pull request #{number}"
+        )
+        return found.title if found is not None and found.pull_request is not None else None
+
+    def last_renamed_at(self, number: int) -> datetime | None:
+        """When the title of issue `number` last changed, from its timeline, or None."""
+        timeline = self._read(renames_args(self._repo, number), _TIMELINE, f"#{number} timeline")
+        self._require_whole(len(timeline.nodes), timeline.total_count, f"#{number} renames")
+        return max((node.created_at for node in timeline.nodes), default=None)
 
     def label_issue(self, number: int, label: str) -> None:
         """Add `label` to issue or pull request `number`; GitHub keeps its other labels."""

@@ -180,6 +180,45 @@ def test_config_audit_keys_skips_a_top_level_setting_and_finds_the_secret_of_a_s
     )
 
 
+@pytest.mark.parametrize(
+    ("section", "key"),
+    [
+        ({"grafana": {"token": "FAKE-2511-two-levels"}}, "grafana.token"),
+        (
+            {"service": {"github_app": {"private_key": "FAKE-2511-three-levels"}}},
+            "service.github_app.private_key",
+        ),
+    ],
+)
+def test_config_audit_keys_finds_a_plaintext_secret_at_its_full_dotted_key(
+    section: dict[str, Any], key: str, cli: Callable[..., Any], config: Callable[..., Path]
+) -> None:
+    """The audit examines each credential at its full dotted key, at any depth (#2511)."""
+    config_file = config(section)
+
+    result = cli("config", "audit-keys", "--json")
+
+    data = json.loads(result.stdout)
+    assert (result.exit_code, data["is_compliant"], data["plaintext_leaks"]) == (
+        1,
+        False,
+        [f"{config_file.resolve()}:{key}"],
+    )
+
+
+def test_config_audit_keys_passes_a_nested_credential_that_holds_no_value(
+    cli: Callable[..., Any], config: Callable[..., Path]
+) -> None:
+    """A credential key with no value at the third level is no leak, and a sibling key of the
+    same section is no credential (#2511)."""
+    config({"service": {"github_app": {"private_key": None, "app_id": 12345}}})
+
+    result = cli("config", "audit-keys", "--json")
+
+    data = json.loads(result.stdout)
+    assert (result.exit_code, data["is_compliant"], data["plaintext_leaks"]) == (0, True, [])
+
+
 def test_config_audit_keys_finds_no_secret_key_in_a_config_file_whose_document_is_a_list(
     tmp_path: Path,
 ) -> None:

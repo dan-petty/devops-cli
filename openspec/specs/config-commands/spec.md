@@ -326,7 +326,7 @@ A credential SHALL resolve from the OS keyring, then Vault, then its variable, t
 - **THEN** `scanned_config_files` holds the global config file and `.devcontainer/config.yaml`, `plaintext_leaks` holds `<global config file path>:ai.api_key`, `is_compliant` is false, and the command exits 1
 
 ### Requirement: A leak of devops config audit-keys names the full path of its file
-Each leak that `devops config audit-keys` reports SHALL name the full path of its file, as `<path>:<section>.<key>`, in the table output and in each serialized output.
+Each leak that `devops config audit-keys` reports SHALL name the full path of its file, as `<path>:<dotted key>`, in the table output and in each serialized output.
 
 #### Scenario: The table names the full path of the global config file that holds a secret
 - **WHEN** the global config file holds `ai.api_key` with a value, the directory walk finds `.devcontainer/config.yaml` with no secret, and `devops config audit-keys` runs
@@ -455,3 +455,29 @@ A temporary file written during a config write MUST have a mode no more open tha
 #### Scenario: Tmp file mode during redact copy
 - **WHEN** A temporary file is created during a redacted copy of a config file with mode 0600
 - **THEN** The temporary file has mode 0600 before it is replaced by os.replace
+
+### Requirement: devops config audit-keys finds a plaintext secret at its full dotted key
+`devops config audit-keys` SHALL examine each credential of the settings at its full dotted key, at any depth of a config file. A credential key that holds a value SHALL fail the audit.
+
+#### Scenario: A plaintext secret three levels deep
+- **WHEN** the active config file holds `service.github_app.private_key` with a value, and `devops config audit-keys --json` runs
+- **THEN** `plaintext_leaks` holds `<config file path>:service.github_app.private_key`, `is_compliant` is false, and the command exits 1
+
+#### Scenario: A credential key with no value
+- **WHEN** the active config file holds `service.github_app.private_key` with no value, and `devops config audit-keys --json` runs
+- **THEN** `plaintext_leaks` is empty, `is_compliant` is true, and the command exits 0
+
+### Requirement: A write or an edit of a config file quotes no text of a file that a YAML parser cannot load
+When devops-cli reads a config file without the settings load, and PyYAML or ruamel.yaml cannot load the file, the read SHALL fail with a configuration error. The message SHALL name the file and the type of the error, and the line and the column when the error gives them. The message, the exception chain of the error and the output of the command SHALL hold no text of the file.
+
+#### Scenario: A local tag that ruamel.yaml accepts and PyYAML does not
+- **WHEN** the active config file holds `ai:`, `  provider: ollama` and `  api_key: !vault FAKE-value-tag`, and `devops config unset ai.provider` runs
+- **THEN** the command exits 1 with the message `Cannot read the config file: <file> is not valid YAML (ConstructorError) at line 3, column 12.`, the error has no cause and no context, no output holds `FAKE-value-tag`, and the file stays as it was
+
+#### Scenario: A tagged value that a parser cannot build
+- **WHEN** the round trip finds or edits a key in a file that holds `api_key: !!int FAKE-value-int` or `api_key: !!bool FAKE-value-bool`
+- **THEN** it fails with a configuration error that names the file and the type of the error, `ValueError` or `KeyError`, the error has no cause and no context, and no text of the error holds the value in any case
+
+#### Scenario: The audit record of a write
+- **WHEN** the audit record of a write parses a file that holds `api_key: !vault FAKE-value-tag`
+- **THEN** it fails with a configuration error that holds no text of the file

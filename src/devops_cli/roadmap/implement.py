@@ -82,6 +82,7 @@ from devops_cli.roadmap.refine import inspect_checkout
 from devops_cli.roadmap.stage import (
     LeftOut,
     StageFilter,
+    long_title_reason,
     named_items,
     parse_filters,
     unmatched_items,
@@ -275,6 +276,8 @@ class _Judge:
         type_ = commit_type(item.title)
         if type_ is None:
             return texts.stage_left_title_type
+        if (too_long := long_title_reason(item.title)) is not None:
+            return too_long
         branch = branch_name(item.number, type_, folder.partition("-")[2])
         if parse_branch(branch) is None:
             return texts.implement_left_planned_branch.format(folder=folder, branch=branch)

@@ -6,6 +6,7 @@ import json
 import stat
 import time
 from dataclasses import replace
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
@@ -13,11 +14,10 @@ import pytest
 from devops_cli import exceptions
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_STEP_TOKENS
-from devops_cli.exceptions import GitHubOperationError
+from devops_cli.exceptions import GitHubOperationError, ended_by_stop
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap import stage
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.run import ended_by_stop
 from devops_cli.roadmap.stage import (
     StageApplied,
     StageFailure,
@@ -53,6 +53,7 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
+NOW = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
 CHANGE = "1-the-job-drops-a-comment"
 BRANCH = "fix/1-the-job-drops-a-comment"
 PULLS = f"/repos/{STAGE_REPO}/pulls"
@@ -390,7 +391,7 @@ def test_a_stop_of_the_service_ends_the_run_and_is_no_failed_item(
     assert "stop" in str(raised.value).lower() or str(raised.value) != ""
 
 
-def test_a_stop_of_the_service_after_a_write_that_failed_ends_the_run_with_that_failure(
+def test_a_stop_of_the_service_after_a_write_that_failed_records_that_failure_and_ends_with_the_stop(
     stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
     store = _CommentRefused(repo=STAGE_REPO)
@@ -398,25 +399,61 @@ def test_a_stop_of_the_service_after_a_write_that_failed_ends_the_run_with_that_
     store.stopped = seed_stageable(store, "fix(roadmap): the job drops a label")
     plan = _stuck_stage(stage_repo, model_fake, store)
 
-    with pytest.raises(exceptions.RoadmapStageError) as raised:
-        apply_stage(store, plan, source=stage_repo.clone)
+    with pytest.raises(exceptions.ServiceStoppingError) as raised:
+        apply_stage(store, plan, source=stage_repo.clone, now=NOW)
 
-    assert list(raised.value.failed_items) == [store.refused]
-    assert not ended_by_stop(raised.value)
+    refused = store.item(store.refused)
+    stopped = store.item(store.stopped)
+    assert refused is not None
+    assert stopped is not None
+    assert ended_by_stop(raised.value)
+    assert (
+        refused.job_record[StageRecordKey.FAILED_ERROR],
+        refused.job_record[StageRecordKey.FAILED_AT],
+        stopped.job_record.get(StageRecordKey.FAILED_AT),
+    ) == ("GitHubOperationError", NOW.isoformat(), None)
 
 
-def test_a_stop_of_the_service_keeps_the_failures_that_the_plan_found(
+def test_a_stop_of_the_service_records_the_failures_that_the_plan_found(
     stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
     store = _CommentRefused(repo=STAGE_REPO)
     store.stopped = seed_stageable(store)
+    failed = seed_stageable(store, "fix(roadmap): the job drops a label")
+    item = store.item(failed)
+    assert item is not None
     plan = _stuck_stage(stage_repo, model_fake, store)
-    planned = replace(plan, failed=(StageFailure(7, "fix(roadmap): a title", "AIClientError", ""),))
+    planned = replace(plan, failed=(StageFailure(failed, item.title, "AIClientError", "", item),))
 
-    with pytest.raises(exceptions.RoadmapStageError) as raised:
-        apply_stage(store, planned, source=stage_repo.clone)
+    with pytest.raises(exceptions.ServiceStoppingError) as raised:
+        apply_stage(store, planned, source=stage_repo.clone, now=NOW)
+    assert ended_by_stop(raised.value)
 
-    assert list(raised.value.failed_items) == [7]
+    held = store.item(failed)
+    assert held is not None
+    assert held.job_record[StageRecordKey.FAILED_ERROR] == "AIClientError"
+
+
+def test_staging_or_stopping_an_item_clears_its_failure_record(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    item = store.item(1)
+    assert item is not None
+    store.set_marks(
+        item,
+        {StageRecordKey.FAILED_AT: NOW.isoformat(), StageRecordKey.FAILED_ERROR: "AIClientError"},
+    )
+    model_fake.answer(make_stage_proposal())
+
+    applied = _stage(store, stage_repo)
+
+    staged = store.item(1)
+    assert staged is not None
+    assert applied.staged == (1,)
+    assert (
+        staged.job_record.get(StageRecordKey.FAILED_AT),
+        staged.job_record.get(StageRecordKey.FAILED_ERROR),
+    ) == (None, None)
 
 
 def _refuse_pushes_of(repo: StageRepo, fragment: str) -> None:

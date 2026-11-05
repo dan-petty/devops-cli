@@ -251,6 +251,8 @@ DEFAULT_TRIVY_SEVERITIES = "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
 DEFAULT_TRIVY_SCAN_TYPE = "fs"
 DEFAULT_VULNERABILITY_LOOKUP_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS: float = 300.0
+# A database of osv-scanner or Trivy is 2.6 MB to 220 MB, so a fetch gets longer than a scan (#2131).
+DEFAULT_TOOL_DATABASE_FETCH_TIMEOUT_SECONDS: float = 900.0
 # The most files one Semgrep run of a review names; each batch has its own timeout, so one that
 # runs out of time loses only its files (#1079). Offline with the cached p/default, one run of 300
 # files took 81 to 93 s and three batches of 100 took 88 to 94 s in all (#1144): 100 files take
@@ -719,6 +721,9 @@ DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION: str = "OWNER"
 DEFAULT_ROADMAP_REFINE_LIMIT: int = 3
 # The most candidates one Service round of intake decides, one model call each (#1360).
 DEFAULT_ROADMAP_INTAKE_LIMIT: int = 5
+# `devops roadmap retitle` (#3486): the most items one run examines. A run asks the model once for
+# each item that has no plan, so the cap bounds its spend.
+DEFAULT_ROADMAP_RETITLE_LIMIT: int = 25
 # `devops roadmap alternatives` (#2650): the most items one run checks, and the days after which a
 # check is old. The Service's row is due twice a day, about (#2652).
 DEFAULT_ROADMAP_ALTERNATIVES_LIMIT: int = 5
@@ -787,6 +792,9 @@ DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES: int = 11
 # of the implement task (128k), which leaves the other half for tool output and the model's turns
 # (#2654, #3206). A test holds that the step budget and the reserve of the turns fit the window.
 DEFAULT_ROADMAP_STAGE_STEP_TOKENS: Final[int] = DEFAULT_AI_IMPLEMENT_CONTEXT_WINDOW // 2
+# The hours after a failed plan or write of an item before the stage job takes the item again
+# (#3493). The item waits in its job record, and the other items go on in the same round.
+DEFAULT_ROADMAP_STAGE_RETRY_HOURS: Final[int] = 6
 # The tools of a plan run of the stage job (#3238): `base` is the nine tools that read the staged
 # commit, and `extended` adds `references`, `read_issue` and `find_issues`. The last two read
 # GitHub through the client of the Service.

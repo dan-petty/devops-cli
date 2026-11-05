@@ -3,17 +3,19 @@ each item once by its result, and fails for the items that failed (#2659)."""
 
 from __future__ import annotations
 
-from datetime import timedelta
+import json
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from devops_cli.exceptions import GitOperationError, RoadmapStageError
+from devops_cli.ai.client.models import AIClientError
+from devops_cli.exceptions import GitOperationError
 from devops_cli.roadmap import run
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.run import MODEL_LANE_ROWS, JobOutcome
+from devops_cli.roadmap.run import MODEL_LANE_ROWS, FailureLedger, JobOutcome, run_due_jobs
 from devops_cli.roadmap.stage_change import StageProposal, StageSplit
-from devops_cli.roadmap.store import ItemField
+from devops_cli.roadmap.store import ItemField, StageRecordKey
 from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
@@ -177,10 +179,14 @@ def test_a_round_counts_staged_needs_split_returned_failed_and_skipped_items_onc
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_STEP_TOKENS", "6000")
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_LIMIT", "5")
 
-    with pytest.raises(RoadmapStageError) as failed:
-        _round(store, stage_repo)
+    outcome = _round(store, stage_repo)
 
-    assert list(failed.value.failed_items) == [3]
+    failed = store.item(3)
+    assert failed is not None
+    assert (outcome, failed.job_record[StageRecordKey.FAILED_ERROR]) == (
+        JobOutcome(),
+        "RoadmapStageError",
+    )
     assert _pushed(stage_repo) == ["fix/1-the-job-drops-a-comment", "main"]
     assert _counted(otlp) == [
         ("failed", 1.0),
@@ -218,3 +224,138 @@ def test_a_round_sets_planned_for_an_item_whose_plan_is_on_the_default_branch(
 def test_a_round_without_a_clone_fails_naming_the_job(store: InMemoryRoadmapStore) -> None:
     with pytest.raises(GitOperationError, match="stage"):
         STAGE_ROW.runner(store=store, repo=STAGE_REPO, clone_path=None)
+
+
+# ── The ledger of the row (#3493) ─────────────────────────────────────────────
+
+POLL_KEY = ("poll", "", "")
+FIRST_ROUND = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
+LABELS = ("comment", "label", "tag", "note", "mark", "flag")
+
+
+def _seed_six(store: InMemoryRoadmapStore, openspec: OpenSpecFake) -> None:
+    """Six Ready items, #1 to #6, and the valid validation of each change."""
+    for word in LABELS:
+        number = seed_stageable(store, f"fix(roadmap): the job drops a {word}")
+        openspec.script_sequence(
+            validate_args(f"{number}-the-job-drops-a-{word}"), (0, VALID_REPORT)
+        )
+
+
+def _about(number: int) -> Any:
+    return lambda prompt: _item_number(prompt) == number
+
+
+def _item_number(prompt: str) -> int | None:
+    try:
+        return json.loads(prompt).get("number")
+    except ValueError:
+        return None
+
+
+def _rounds(
+    store: InMemoryRoadmapStore,
+    repo: StageRepo,
+    ledger: FailureLedger,
+    data_dir: Any,
+    count: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[str]:
+    """Run `count` rounds of the row as the Service does, in order; the outcome of each:
+    `ok` or the class of its error. The clone of the row is the repository's clone."""
+    outcomes: list[str] = []
+    monkeypatch.setattr(run, "ensure_checkout", lambda *_, **__: repo.clone)
+    for index in range(count):
+        try:
+            run_due_jobs(
+                STAGE_REPO,
+                store,
+                batch={POLL_KEY: 1},
+                table=(STAGE_ROW,),
+                data_dir=data_dir,
+                remote_url=str(repo.origin),
+                clone_dirname="model-clone",
+                now=FIRST_ROUND + timedelta(hours=index),
+                failures=ledger,
+            )
+            outcomes.append("ok")
+        except Exception as exc:
+            outcomes.append(type(exc).__name__)
+    return outcomes
+
+
+def test_three_rounds_that_fail_one_item_while_another_stages_do_not_suspend_the_row(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    openspec_fake: OpenSpecFake,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    github_api.route("POST", f"/repos/{STAGE_REPO}/pulls", OPENED)
+    _seed_six(store, openspec_fake)
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_LIMIT", "2")
+    no_findings(model_fake)
+    for number in (1, 3, 5):
+        model_fake.route_error(_about(number), AIClientError("the model is down"))
+    for number in (2, 4, 6):
+        model_fake.route(_about(number), make_stage_proposal())
+    ledger = FailureLedger()
+
+    outcomes = _rounds(store, stage_repo, ledger, tmp_path, 3, monkeypatch)
+
+    assert (
+        outcomes,
+        ledger.suspended(STAGE_REPO, "stage", "any"),
+        ledger.causes(STAGE_REPO, "stage"),
+    ) == (
+        ["ok"] * 3,
+        False,
+        (),
+    )
+    held = [store.item(number) for number in (1, 3, 5)]
+    assert [item.job_record[StageRecordKey.FAILED_ERROR] for item in held if item] == [
+        "AIClientError"
+    ] * 3
+
+
+def test_three_rounds_that_try_items_and_plan_none_suspend_the_row(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec_fake: OpenSpecFake,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    _seed_six(store, openspec_fake)
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_LIMIT", "1")
+    model_fake.answer(AIClientError("the model is down"))
+    ledger = FailureLedger()
+
+    outcomes = _rounds(store, stage_repo, ledger, tmp_path, 3, monkeypatch)
+
+    assert outcomes == ["RoadmapRunError"] * 3
+    assert ledger.causes(STAGE_REPO, "stage") == ("RoadmapStageError",) * 3
+    assert ledger.limit == 3
+
+
+def test_three_rounds_that_fail_outside_any_item_suspend_the_row(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    openspec_fake: OpenSpecFake,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    _seed_six(store, openspec_fake)
+
+    def outage(*_: Any, **__: Any) -> Any:
+        raise GitOperationError("origin is down", operation="fetch")
+
+    monkeypatch.setattr(run, "plan_stage", outage)
+    ledger = FailureLedger()
+
+    outcomes = _rounds(store, stage_repo, ledger, tmp_path, 3, monkeypatch)
+
+    assert outcomes == ["RoadmapRunError"] * 3
+    assert ledger.causes(STAGE_REPO, "stage") == ("GitOperationError",) * 3

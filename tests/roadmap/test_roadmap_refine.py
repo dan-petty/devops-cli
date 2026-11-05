@@ -57,7 +57,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.settings import reset_settings_cache
-from devops_cli.exceptions import RoadmapRefineError, RoadmapRunError
+from devops_cli.exceptions import RoadmapRefineError, RoadmapRunError, ended_by_stop
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
@@ -91,7 +91,6 @@ from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
     _run_refine_adapter,
     build_stub_table,
-    ended_by_stop,
     run_due_jobs,
 )
 from devops_cli.roadmap.store import (

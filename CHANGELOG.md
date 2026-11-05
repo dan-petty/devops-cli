@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.57.0](https://github.com/dan-petty/devops-cli/compare/v0.56.5...v0.57.0) (2026-11-04)
+
+
+### Features
+
+* **review:** one command fetches the osv and trivy databases ([#3543](https://github.com/dan-petty/devops-cli/issues/3543)) ([0d290b4](https://github.com/dan-petty/devops-cli/commit/0d290b4b2ff90f1df68bf350dac710f7e8568217))
+
+
+### Bug Fixes
+
+* **config:** find a plaintext secret at any depth in audit-keys ([#3546](https://github.com/dan-petty/devops-cli/issues/3546)) ([19b740e](https://github.com/dan-petty/devops-cli/commit/19b740e5e881e59b11e86ae44ac9b0387e526f3b))
+* **roadmap:** one failed item does not suspend the stage row ([#3539](https://github.com/dan-petty/devops-cli/issues/3539)) ([0af847c](https://github.com/dan-petty/devops-cli/commit/0af847c5f692659b70cae6bdb2cdd7185cf5bfa9))
+* **roadmap:** shorten a long item title before a job needs it ([#3541](https://github.com/dan-petty/devops-cli/issues/3541)) ([910312e](https://github.com/dan-petty/devops-cli/commit/910312e77e7c28ee3a96a8d713a35949bd92765b))
+
+## [0.56.5](https://github.com/dan-petty/devops-cli/compare/v0.56.4...v0.56.5) (2026-11-04)
+
+
+### Code Refactoring
+
+* **security:** ask ipaddress for single-address egress checks ([#3540](https://github.com/dan-petty/devops-cli/issues/3540)) ([4485be2](https://github.com/dan-petty/devops-cli/commit/4485be2368244194eb619cc16550bbcee63678b2))
+
 ## [0.56.4](https://github.com/dan-petty/devops-cli/compare/v0.56.3...v0.56.4) (2026-11-04)
 
 

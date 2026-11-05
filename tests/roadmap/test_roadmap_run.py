@@ -2210,6 +2210,40 @@ def test_a_ledger_record_with_an_implement_entry_loads_and_keeps_the_row_suspend
     ) == ([[REPO, "implement", FailureLedger().limit]], ["implement"] * 3, 1.0)
 
 
+def test_the_ledger_record_holds_the_causes_and_a_restart_loads_them(tmp_path: Path) -> None:
+    """The causes of the failed rounds survive a restart of the Service (#3493)."""
+    record = tmp_path / CONST_SERVICE_FAILURES_FILENAME
+    ledger = FailureLedger(record=record)
+    ledger.failed(REPO, "stage", "input", "AIClientError")
+    ledger.failed(REPO, "stage", "input", "RoadmapStageError")
+
+    reloaded = FailureLedger(record=record)
+
+    assert (
+        json.loads(record.read_text(encoding="utf-8")),
+        reloaded.causes(REPO, "stage"),
+    ) == (
+        [[REPO, "stage", 2, "input", ["AIClientError", "RoadmapStageError"]]],
+        ("AIClientError", "RoadmapStageError"),
+    )
+
+
+def test_a_ledger_record_in_the_old_format_loads_with_unknown_causes(tmp_path: Path) -> None:
+    """A record that an earlier version wrote has no causes: each failed round reads `unknown`
+    (#3493)."""
+    record = tmp_path / CONST_SERVICE_FAILURES_FILENAME
+    record.write_text(json.dumps([[REPO, "stage", 3, "input"]]), encoding="utf-8")
+
+    ledger = FailureLedger(record=record)
+
+    assert (ledger.suspended(REPO, "stage", "input"), ledger.causes(REPO, "stage")) == (
+        True,
+        ("unknown",) * 3,
+    )
+    ledger.failed(REPO, "stage", "other", "AIClientError")
+    assert FailureLedger(record=record).causes(REPO, "stage") == ("AIClientError",)
+
+
 def test_a_suspended_implement_row_runs_again_on_a_later_poll_round_when_the_fault_is_fixed(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:

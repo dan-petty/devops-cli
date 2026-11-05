@@ -17,7 +17,9 @@ It also leaves out an item that an agent or a person claimed with an `owner/*` l
 (the model reads the body), an item whose "Dependencies" section names an open issue, a held item
 (`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit that `origin` lacks), an item whose plan is already on the default branch or whose
 change is archived there (`planned.read_planned_changes`, one read of the tree for the round), an
-item whose title gives no branch name or whose summary is over `SUMMARY_MAX_CHARS` units (#3369), an item whose text looks like a secret, and an item whose
+item whose title gives no branch name or whose summary is over `SUMMARY_MAX_CHARS` units (#3369), an item whose text looks like a secret, an item whose last plan or write failed less than
+`roadmap.stage.retry_hours` hours ago (its record holds `stage.failed_at` and
+`stage.failed_error`, #3493), and an item whose
 record holds `stage.needs_split` made with the file cap of now (`stage.file_cap`): a stop under
 another measure does not count. A run takes at most `--limit`
 items, highest priority first. `--item` takes the one item it names when that item is open and
@@ -61,11 +63,12 @@ of the job judged them. `devops roadmap explain` gives the reason of one issue (
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from functools import partial
 from pathlib import Path
@@ -116,7 +119,7 @@ from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
 from devops_cli.roadmap.agent_run import RunTrace
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
-from devops_cli.roadmap.commit_title import commit_type
+from devops_cli.roadmap.commit_title import commit_summary, commit_type
 from devops_cli.roadmap.digest_clears import has_digest_clear
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
@@ -171,6 +174,8 @@ from devops_cli.roadmap.step_files import code_spans
 from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore, StageRecordKey
 from devops_cli.security.sanitizer import mask_secrets, redact_text
 from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL, emit
+
+logger = logging.getLogger(__name__)
 
 # ── The filter ────────────────────────────────────────────────────────────────
 
@@ -359,10 +364,14 @@ class _Judge:
         store: RoadmapStore,
         holder_of: Callable[[int, str], str | None],
         planned: PlannedChanges,
+        now: datetime,
+        retry: timedelta,
     ) -> None:
         self._store = store
         self._holder_of = holder_of
         self._planned = planned
+        self._now = now
+        self._retry = retry
 
     def reason(self, item: Item, *, named: bool) -> str | None:
         """Why the job leaves `item` out, or None when it may stage it. A person who names the
@@ -380,7 +389,7 @@ class _Judge:
             self._secret,
         ]
         if not named:
-            checks.append(self._recorded_split)
+            checks += [self._recorded_split, self._failed_lately]
         return next((why for check in checks if (why := check(item)) is not None), None)
 
     def _not_ready(self, item: Item) -> str | None:
@@ -417,9 +426,8 @@ class _Judge:
         texts = MESSAGES.roadmap
         if commit_type(item.title) is None:
             return texts.stage_left_title_type
-        length = summary_length(item.title.partition(":")[2].strip())
-        if length > SUMMARY_MAX_CHARS:
-            return texts.stage_left_title_long.format(length=length, limit=SUMMARY_MAX_CHARS)
+        if (too_long := long_title_reason(item.title)) is not None:
+            return too_long
         return None if _slug_of(item.title) else texts.stage_left_title_slug
 
     def _dependency(self, item: Item) -> str | None:
@@ -449,12 +457,42 @@ class _Judge:
         looks_secret = any(redact_text(text) != text for text in (item.title, item.body))
         return MESSAGES.roadmap.stage_left_secret if looks_secret else None
 
+    def _failed_lately(self, item: Item) -> str | None:
+        """The last plan or write of the item failed less than the retry delay ago (#3493). The
+        job takes the other items and takes this one again when the delay has passed. A record
+        whose time is no time holds the item for no time."""
+        recorded = item.job_record.get(StageRecordKey.FAILED_AT)
+        if not recorded:
+            return None
+        try:
+            failed_at = datetime.fromisoformat(recorded)
+        except ValueError:
+            logger.warning("The failure time recorded on #%d is not a time.", item.number)
+            return None
+        until = failed_at + self._retry
+        if until <= self._now:
+            return None
+        return MESSAGES.roadmap.stage_left_failed_lately.format(
+            error=item.job_record.get(StageRecordKey.FAILED_ERROR) or "unknown",
+            until=until.astimezone(UTC).strftime("%Y-%m-%d %H:%M"),
+        )
+
     def _recorded_split(self, item: Item) -> str | None:
         detail = item.job_record.get(StageRecordKey.NEEDS_SPLIT)
         cap = item.job_record.get(StageRecordKey.FILE_CAP)
         if not detail or cap != str(CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS):
             return None
         return MESSAGES.roadmap.stage_left_recorded_split.format(detail=detail, number=item.number)
+
+
+def long_title_reason(title: str) -> str | None:
+    """The reason a job leaves out an item whose `title` has a summary over `SUMMARY_MAX_CHARS`
+    (#3486), or None. The stage job and the implement job both judge a title with it, before they
+    make a model request; `devops roadmap retitle` shortens such a title."""
+    length = summary_length(commit_summary(title))
+    if length <= SUMMARY_MAX_CHARS:
+        return None
+    return MESSAGES.roadmap.stage_left_title_long.format(length=length, limit=SUMMARY_MAX_CHARS)
 
 
 def _target_of(item: Item) -> StageTarget:
@@ -496,14 +534,17 @@ def select_stageable(
     limit: int,
     item_number: int | None = None,
     probe: int | None = None,
+    now: datetime | None = None,
 ) -> StageSelection:
     """The items to stage, up to `limit`, and those the filter names that the job leaves out.
 
     `holder_of` tells who holds an issue and its new `branch` (`worktree_add.issue_holder`), or None. `planned` holds
     the change folders of the default branch (#2714). With `item_number` the filter and the limit
-    do not apply. `probe` is the issue that `walk_named` judges also after the limit.
+    do not apply. `probe` is the issue that `walk_named` judges also after the limit. An item that
+    failed less than `roadmap.stage.retry_hours` hours before `now` waits (#3493).
     """
-    judge = _Judge(store, holder_of, planned)
+    retry = timedelta(hours=load_settings().roadmap.stage.retry_hours)
+    judge = _Judge(store, holder_of, planned, now or datetime.now(UTC), retry)
     if item_number is not None:
         return _named_item(judge, store, item_number)
 
@@ -580,12 +621,15 @@ class PremiseFailed:
 
 @dataclass(frozen=True)
 class StageFailure:
-    """An item the job could not plan: the class of the error and why, never the model's text."""
+    """An item the job could not plan or write: the class of the error and why, never the model's
+    text. `item` is the item itself, when the job read it, so that the job records the failure in
+    the job record of the item (#3493)."""
 
     number: int
     title: str
     error: str
     reason: str = ""
+    item: Item | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -1015,7 +1059,9 @@ def _failure_of(
         reason = ""
     else:
         reason = mask_secrets(str(exc))
-    return StageFailure(target.item.number, target.item.title, type(exc).__name__, reason)
+    return StageFailure(
+        target.item.number, target.item.title, type(exc).__name__, reason, target.item
+    )
 
 
 def _plan_each(
@@ -1100,6 +1146,7 @@ def read_stage_selection(
     probe: int | None = None,
     heads: str | None = None,
     planned: PlannedChanges | None = None,
+    now: datetime | None = None,
 ) -> StageRead:
     """Select the items to stage in the clone `source`, with no model call and no write to git or
     to GitHub. `plan_stage` and `devops roadmap explain` read the selection through this one
@@ -1116,6 +1163,7 @@ def read_stage_selection(
         item_number=item_number,
         limit=limit,
         probe=probe,
+        now=now,
     )
     return StageRead(sha, heads, planned, selection)
 
@@ -1132,6 +1180,7 @@ def plan_stage(
     model: LLMClient | ToolboxModel | None = None,
     verifier: StageClient | None = None,
     why: bool = False,
+    now: datetime | None = None,
 ) -> StagePlan:
     """Plans the stage of up to `limit` items without a write to git or to GitHub.
 
@@ -1142,7 +1191,8 @@ def plan_stage(
     that splits the groups. A `verifier`, the client of the `verification` task, makes the model
     review each plan after the checks (#3153); without one, the job makes no review call, as the
     golden-set run of the planner does. With `why`, the plan also lists the open items that the
-    filter does not name (#2911).
+    filter does not name (#2911). An item that failed less than `roadmap.stage.retry_hours` hours
+    before `now` is left out, unless `item_number` names it (#3493).
     """
     checkout = Path(source)
     settings = load_settings()
@@ -1153,6 +1203,7 @@ def plan_stage(
         filters=filters,
         limit=limit or settings.roadmap.stage.limit,
         item_number=item_number,
+        now=now,
     )
     budget = step_tokens or settings.roadmap.stage.step_tokens
     removals, kept = _reconcile(store, checkout, heads)
@@ -1446,6 +1497,8 @@ def _stage_one(store: RoadmapStore, repo: str, source: Path, change: StagedChang
             StageRecordKey.GROUPS: _groups_recorded(change.groups),
             StageRecordKey.NEEDS_SPLIT: None,
             StageRecordKey.FILE_CAP: None,
+            StageRecordKey.FAILED_AT: None,
+            StageRecordKey.FAILED_ERROR: None,
         },
     )
     label_note = _label_pull(store, pull.number, change.title)
@@ -1490,6 +1543,8 @@ def _stop_on_budget(store: RoadmapStore, stopped: OverBudget) -> None:
             ),
             StageRecordKey.FILE_CAP: str(CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS),
             StageRecordKey.GROUPS: _groups_recorded(stopped.groups),
+            StageRecordKey.FAILED_AT: None,
+            StageRecordKey.FAILED_ERROR: None,
         },
     )
 
@@ -1506,7 +1561,7 @@ def _return_item(store: RoadmapStore, repo: str, returned: PremiseFailed) -> Non
 
 def _write_failure(item: Item, exc: DevOpsCLIError) -> StageFailure:
     """The failure of a write: the error's class and its message, credentials masked."""
-    return StageFailure(item.number, item.title, type(exc).__name__, mask_secrets(str(exc)))
+    return StageFailure(item.number, item.title, type(exc).__name__, mask_secrets(str(exc)), item)
 
 
 def _remove_staged(store: RoadmapStore, repo: str, source: Path, removal: Removal) -> None:
@@ -1544,12 +1599,31 @@ def write_each(
             done.append(item.number)
 
 
-def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> StageApplied:
+def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now: datetime) -> None:
+    """Record each failure in the job record of its item: the time and the class of the error
+    (#3493). The item waits for the retry delay, and the job goes on with the others. A write
+    that fails here is no failure of an item: it ends the run, and the round counts it."""
+    for failure in failures:
+        if failure.item is not None:
+            store.set_marks(
+                failure.item,
+                {
+                    StageRecordKey.FAILED_AT: now.isoformat(),
+                    StageRecordKey.FAILED_ERROR: failure.error,
+                },
+            )
+
+
+def apply_stage(
+    store: RoadmapStore, plan: StagePlan, *, source: Path | str, now: datetime | None = None
+) -> StageApplied:
     """Writes the plan: removes the staged branches of closed items, stages each ready change,
     and stops each item whose group is over the budget. A write that fails stops its item, and
-    the others go on; rejected GitHub credentials stop the run. The stop of the Service stops
-    the run too, but it is no failed item: when an item failed before it, the run fails with
-    that item (#2753)."""
+    the others go on; rejected GitHub credentials stop the run. Each item that failed, in the plan
+    or in a write, gets the time and the error class in its job record, and the job leaves it for
+    `roadmap.stage.retry_hours` hours (#3493). The stop of the Service stops the run too, but it
+    is no failed item: the failures before it are recorded, and the run ends with the stop
+    (#2753)."""
     checkout = Path(source)
     removed: list[int] = []
     staged: list[int] = []
@@ -1577,12 +1651,15 @@ def apply_stage(store: RoadmapStore, plan: StagePlan, *, source: Path | str) -> 
             returned,
         ),
     )
+    stopped_by: ServiceStoppingError | None = None
     try:
         for writes, done in phases:
             write_each(writes, done, failed)
-    except ServiceStoppingError:
-        raise_for_failed([*plan.failed, *failed])
-        raise
+    except ServiceStoppingError as stop:
+        stopped_by = stop
+    _record_failures(store, [*plan.failed, *failed], now or datetime.now(UTC))
+    if stopped_by is not None:
+        raise stopped_by
     return StageApplied(
         tuple(staged), tuple(stopped), tuple(failed), tuple(removed), tuple(returned)
     )
@@ -1726,6 +1803,16 @@ def raise_for_failed(failures: Sequence[StageFailure], *, summary: str | None = 
     )
 
 
+def raise_for_failed_round(plan: StagePlan, applied: StageApplied) -> None:
+    """Fail the row's round only when it tried items and handled none: no item was staged, stopped
+    on the budget or returned to New (#3493). An item that failed while another was handled is
+    recorded in its own job record and waits for `roadmap.stage.retry_hours` hours, so it does not
+    count against the repository. A round that tried no item does not fail."""
+    if applied.staged or applied.stopped or applied.returned:
+        return
+    raise_for_failed([*plan.failed, *applied.failed])
+
+
 __all__ = [
     "KeptBranch",
     "LeftOut",
@@ -1752,6 +1839,7 @@ __all__ = [
     "plan_stage",
     "priority_order",
     "raise_for_failed",
+    "raise_for_failed_round",
     "read_stage_selection",
     "render_stage_plan",
     "select_stageable",

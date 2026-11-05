@@ -1341,6 +1341,21 @@ class RoadmapCommandHelp:
     alternatives_dry_run: str = (
         "Make no request: print the requests a run makes, with placeholders."
     )
+    retitle: str = (
+        "Shorten the title summary of open items that is over 60 characters. The job keeps the type "
+        "and the scope. A Planned item takes the summary of its plan pull request title and needs no "
+        "model call; another item gets one model call. The job leaves a title that a person changed "
+        "after the last job comment. Without --confirm, it prints the new titles and writes nothing."
+    )
+    retitle_item: str = (
+        "Specific issue number to examine instead of selecting. Retitle examines it when it is "
+        "open and its title summary is over the limit."
+    )
+    retitle_limit: str = (
+        "Maximum number of items to examine in this run (default: 25). The lowest numbers go first."
+    )
+    retitle_confirm: str = "Write each new title to GitHub, and a comment on the item."
+    retitle_dry_run: str = "Make no request: print the requests a run makes, with placeholders."
     implement: str = (
         "Implement a Staged or Planned item in bounded steps: with --group, run one task group in a "
         "checkout; without it, run the job, which takes items, runs their steps, and marks the pull "
@@ -1620,6 +1635,14 @@ class ReviewCommandHelp:
     rules_check: str = "Verify `rules.lock` matches the tested rules and pinned Semgrep version without writing it."
     rules_fetch_ruleset: str = (
         "Registry id of the ruleset: `p/<pack>`, `r/<rule id>` or `s/<snippet>`."
+    )
+    fetch_databases_cmd: str = (
+        "Fetch the osv-scanner and Trivy databases that a review binds read-only. The sandbox "
+        "of a review has no network, so this is the one step that fetches them. Run it again "
+        "when a review reports a coverage gap that names it."
+    )
+    fetch_databases_path: str = (
+        "The tree whose lockfiles name the osv-scanner ecosystems to fetch. Trivy needs no tree."
     )
     export_feedback: str = "Export review findings to structured feedback files."
     intake_cmd: str = (
