@@ -720,9 +720,15 @@ The rule group `roadmap-service-items` watches how long an open roadmap item sta
 | :--- | :--- | :--- | :--- | :--- |
 | `RoadmapServiceItemStuck` | An item has stayed in `blocked`, or in `ready` with a plan, for more than 24 hours. The summary names the item number. | — | warning | Run `devops roadmap inbox` to see the items that wait for a person. Move the item on. Its age starts again when its status changes. |
 
+The rule group `roadmap-service-tools` watches the tools of the stage planner (#3240). Each plan run adds 0 to `devops_cli_roadmap_tool_calls_total` for every tool of its toolset, and each tool call adds 1 with its `outcome` (`ok`, `empty` or `error`). The row "Planner Tools" of the `devops-cli Telemetry` dashboard shows the calls and the mean size of the answers. The `RunTrace` comment of a staged item lists the calls and the empty answers of each tool.
+
+| Alert | Fires when | For | Severity | Do this |
+| :--- | :--- | :--- | :--- | :--- |
+| `RoadmapServiceToolUnused` | A tool of a toolset had no call in 7 days, its series is older than 7 days, and the Service made plan runs of the same row and toolset in the 7 days. A tool that no run called is not new: a series that is younger than 7 days stays quiet. A tool that leaves the toolset keeps its alert until its series leaves the 7 days. | — | warning | Read the row "Planner Tools" of the `devops-cli Telemetry` dashboard. Change the description of the tool in the task prompt so that the planner knows when to call it, or remove the tool from the toolset. |
+
 No alert leaves the cluster until the Secret `monitoring/alertmanager-mattermost` exists (Alerting, Receiver). Creating it is a step for the owner, who chose Mattermost as the route for the alerts (#1391, #1392). Until then, read the alerts in Grafana (Alerting, with the `Alertmanager` datasource) or on the Alerts page of Prometheus.
 
-`tests/test_k8s_monitoring_alerting.py` pins each rule and runs the pinned promtool (`devops install-tools --tool promtool`) on it. `promtool test rules` runs the unit tests of each group. The tests are in `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`, `roadmap_service_webhooks_tests.yaml`, `roadmap_service_activity_tests.yaml` and `roadmap_service_items_tests.yaml`. Each alert fires on a sample series with the labels and annotations that the tests pin. It stays quiet on a normal series and on the same series of another job. To run them by hand, write the group to the file that the tests' `rule_files` names. Then run `promtool test rules <tests-file>` in that directory.
+`tests/test_k8s_monitoring_alerting.py` pins each rule and runs the pinned promtool (`devops install-tools --tool promtool`) on it. `promtool test rules` runs the unit tests of each group. The tests are in `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`, `roadmap_service_webhooks_tests.yaml`, `roadmap_service_activity_tests.yaml`, `roadmap_service_items_tests.yaml` and `roadmap_service_tools_tests.yaml`. Each alert fires on a sample series with the labels and annotations that the tests pin. It stays quiet on a normal series and on the same series of another job. To run them by hand, write the group to the file that the tests' `rule_files` names. Then run `promtool test rules <tests-file>` in that directory.
 
 #### Go-live check
 

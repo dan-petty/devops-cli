@@ -864,6 +864,28 @@ serverFiles:
             annotations:
               summary: 'Item {{ with printf "max by (repo, state, plan) (last_over_time(devops_cli_roadmap_oldest_item_number{job=\"roadmap-service\", repo=%q, state=%q, plan=%q}[30m]))" $labels.repo $labels.state $labels.plan | query }}#{{ . | first | value | printf "%.0f" }} {{ end }}of {{ $labels.repo }} has been in state {{ $labels.state }} for {{ $value | humanizeDuration }}'
               description: "An item of the roadmap stayed in one state for more than 24 hours. Run devops roadmap inbox to see the item (k8s/README.md, Roadmap service)."
+      # The tools of the stage planner that no run called (#3240). Each plan run adds 0 to the call
+      # counter for every tool of its toolset, so a tool has a series before a run calls it, and
+      # the rule needs no list of tool names. The call count of 7 days sums the outcomes of a tool.
+      # A series that is younger than 7 days has no sample before the window, so it stays quiet: a
+      # new tool gets 7 days. The plan runs are the observations of the native histogram of the
+      # calls per run, of the same row and toolset. A tool that leaves the toolset keeps its alert
+      # until its series leaves the 7 days.
+      - name: roadmap-service-tools
+        rules:
+          - alert: RoadmapServiceToolUnused
+            expr: >-
+              sum by (row, tool, toolset) (increase(devops_cli_roadmap_tool_calls_total{job="roadmap-service"}[7d])) == 0
+              and on (row, tool, toolset)
+              count by (row, tool, toolset) (count_over_time(devops_cli_roadmap_tool_calls_total{job="roadmap-service"}[7d] offset 7d)) > 0
+              and on (row, toolset)
+              sum by (row, toolset) (histogram_count(increase(devops_cli_roadmap_tool_calls_per_run{job="roadmap-service"}[7d]))) > 0
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Tool {{ $labels.tool }} of the toolset {{ $labels.toolset }} had no call in 7 days"
+              description: "No plan run of the row {{ $labels.row }} called the tool {{ $labels.tool }} of the toolset {{ $labels.toolset }} in 7 days, and the Service made plan runs in that time. Read the Planner Tools row of the devops-cli Telemetry dashboard, and decide to change the tool description or to remove the tool (k8s/README.md, Roadmap service)."
       - name: mattermost
         rules:
           - alert: MattermostUnavailable
