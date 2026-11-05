@@ -90,11 +90,13 @@ from devops_cli.github.error_classifier import (
     unread_after_close,
 )
 from devops_cli.github.rate_limiter import (
+    count_request,
     gh_request_is_paced,
     gh_request_resource,
     identity_rate_limiter,
 )
 from devops_cli.github.request_classifier import GitHubRequest, is_write_request
+from devops_cli.github.request_scope import request_labels
 from devops_cli.http.client import ClientOptions, new_async_http_client, request_timeout
 from devops_cli.http.egress import EgressLevel
 
@@ -164,18 +166,18 @@ def _gh_api_command(url: str) -> list[str]:
     return [CONST_GH_API_SUBCOMMAND, httpx2.URL(url).path]
 
 
-def pace_request(method: str, url: str, identity: str) -> str:
+def pace_request(method: str, url: str, identity: str) -> tuple[str, dict[str, str] | None]:
     """Wait for the request's turn on the ledger of the identity `identity` names, as `run_gh`
-    waits for `gh api <path>`, a write as a write, counted under its method; return the
-    rate-limit resource it spends."""
+    waits for `gh api <path>`, a write as a write. Return the rate-limit resource it spends, and
+    for a paced request the labels of its request scope, which the sender reads here, in its own
+    thread, for the count that `SessionGitHubAPI._request` makes (#3497)."""
     command = _gh_api_command(url)
     resource = gh_request_resource(command)
-    if gh_request_is_paced(command):
-        is_mutation = is_write_request(GitHubRequest(method, command[1]))
-        identity_rate_limiter(identity).acquire(
-            subcommand=resource, is_mutation=is_mutation, method=method.upper()
-        )
-    return resource
+    if not gh_request_is_paced(command):
+        return resource, None
+    is_mutation = is_write_request(GitHubRequest(method, command[1]))
+    identity_rate_limiter(identity).acquire(subcommand=resource, is_mutation=is_mutation)
+    return resource, request_labels()
 
 
 def charge_response(headers: Mapping[str, str], resource: str, identity: str) -> None:
@@ -277,28 +279,33 @@ class SessionGitHubAPI(GitHubAPI):
         )
         self._identity = identity
 
-    def _pace(self, method: str, url: str) -> tuple[str, str]:
+    def _pace(self, method: str, url: str) -> tuple[str, dict[str, str] | None, str]:
         """Wait for the attempt's turn on the ledger, then read the token to send it with: a
-        GitHub App's token is minted again when it nears its expiry during the wait."""
-        return pace_request(method, url, self._identity.key), self._identity.token()
+        GitHub App's token is minted again when it nears its expiry during the wait. Return the
+        resource, the labels that count a paced attempt, and the token."""
+        resource, labels = pace_request(method, url, self._identity.key)
+        return resource, labels, self._identity.token()
 
     async def _request(
         self, method: str, url: str, headers: Mapping[str, str], body: bytes = b""
     ) -> tuple[int, Mapping[str, str], bytes]:
-        """Send one attempt once the ledger allows it, with the current token, and charge what
-        its answer reports. A GET whose connection is lost is paced and sent again, after the
-        ledger's wait, while `_resend_after_lost` allows it.
+        """Send one attempt once the ledger allows it, with the current token, count it with the
+        status of its answer (none when it gets no answer), and charge what its answer reports. A
+        GET whose connection is lost is paced, counted and sent again, after the ledger's wait,
+        while `_resend_after_lost` allows it.
 
         The pacing wait may run until the quota resets, so a close does not wait it out.
         """
         attempt = 1
         while True:
-            resource, token = await anyio.to_thread.run_sync(
+            resource, labels, token = await anyio.to_thread.run_sync(
                 self._pace, method, url, abandon_on_cancel=True
             )
             sent = {**headers, "authorization": f"token {token}"}
+            status: int | None = None
             try:
                 answer = await super()._request(method, url, sent, body)
+                status = answer[0]
             except _LOST_CONNECTION as error:
                 if not await self._resend_after_lost(
                     error, method=method, url=url, attempt=attempt
@@ -306,6 +313,9 @@ class SessionGitHubAPI(GitHubAPI):
                     raise
                 attempt += 1
                 continue
+            finally:
+                if labels is not None:
+                    count_request(resource, method.upper(), status, labels)
             self._last_body_empty = (answer[2] == b"") and bool(answer[1].get("content-type"))
             await anyio.to_thread.run_sync(charge_response, answer[1], resource, self._identity.key)
             return answer
