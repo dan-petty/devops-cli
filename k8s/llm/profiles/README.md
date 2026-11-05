@@ -90,8 +90,8 @@ model_list:
       num_retries: 0
   - model_name: devops-review
     litellm_params:
-      model: ollama_chat/gpt-oss:20b
-      api_base: http://ollama-16gib-fast.llm.svc.cluster.local:11434
+      model: ollama_chat/qwen3.8:27b
+      api_base: http://ollama-64gib-standard.llm.svc.cluster.local:11434
       num_retries: 0
 ```
 

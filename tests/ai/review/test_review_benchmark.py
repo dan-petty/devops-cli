@@ -85,12 +85,12 @@ def test_a_review_benchmark_can_review_without_static_scanners(
     )
 
 
-@pytest.mark.parametrize(("provider", "recorded"), [("gateway", 3), ("ollama", 8)])
+@pytest.mark.parametrize(("provider", "recorded"), [("gateway", 2), ("ollama", 8)])
 def test_a_review_benchmark_records_the_concurrency_its_reviews_ran_at(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: str, recorded: int
 ) -> None:
     """Verify a benchmark's setup records the file workers its reviews ran with. Through the
-    gateway, `--concurrency 8` runs at the gateway's 3 backend slots, so benchmarks at 4, 8 and
+    gateway, `--concurrency 8` runs at the gateway's 2 backend slots, so benchmarks at 4, 8 and
     16 record one setup; another provider runs and records the 8 asked for (#1354)."""
     from devops_cli.ai import run_store
 
