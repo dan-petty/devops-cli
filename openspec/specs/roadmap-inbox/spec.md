@@ -6,10 +6,10 @@ How `devops roadmap inbox` lists what waits for a person on the roadmap: the pul
 ## Requirements
 
 ### Requirement: The inbox lists the gates of the jobs in order
-`devops roadmap inbox` SHALL list, in this order: ready plan pull requests of the jobs, ready implementation pull requests of the jobs, the open release pull request, items in `status/blocked` with their cause, old claims, and labels that the repository lacks. A pull request is a job's when the job record of an open item names it in `implement.pr` or `stage.pr`; `implement.pr` wins. A draft pull request of a job SHALL NOT be listed.
+`devops roadmap inbox` SHALL list, in this order: ready plan pull requests of the jobs, ready implementation pull requests of the jobs, the open release pull request, items in `status/blocked` with their cause, New items that wait on a person in refine, old claims, and labels that the repository lacks. A pull request is a job's when the job record of an open item names it in `implement.pr` or `stage.pr`; `implement.pr` wins. A draft pull request of a job SHALL NOT be listed.
 
 #### Scenario: Each category
-- **WHEN** the repository holds a ready plan pull request, a ready implementation pull request, a release pull request, a blocked item, an old claim and a missing label
+- **WHEN** the repository holds a ready plan pull request, a ready implementation pull request, a release pull request, a blocked item, a New item that waits on a person in refine, an old claim and a missing label
 - **THEN** the output lists one line for each, in the order above
 
 #### Scenario: A draft of a job
@@ -74,3 +74,18 @@ The inbox SHALL read each of its three listings, the open issues, the open pull 
 #### Scenario: The requests of a run
 - **WHEN** the plan of the inbox is read
 - **THEN** it holds three listings that repeat for each page, one read of the labels file, and one read of the newest commit of that file that only differing labels make
+
+### Requirement: The inbox lists each New item that waits on a person in refine
+`devops roadmap inbox` SHALL list one line for each open New item whose `refine.next_step` is `person`, and for each one whose `refine.returned_body_hash` equals its `refine.body_hash`. The line SHALL show the number, the age, the cause and the step that clears it. The read SHALL use the job record of the open issues only.
+
+#### Scenario: A question for a person
+- **WHEN** an open New item records `refine.next_step` as `person`
+- **THEN** the output lists one line for it, in the section "New items that wait on a person in refine"
+
+#### Scenario: Two returns on the same body
+- **WHEN** an open New item records `refine.returned_body_hash` equal to `refine.body_hash`
+- **THEN** the output lists one line that says that the stage job returned it twice on the same body
+
+#### Scenario: An item that waits on nothing in refine
+- **WHEN** an item records `refine.next_step` as `ready` or `blocked`, is Ready, or is closed
+- **THEN** the output lists no refine line for it

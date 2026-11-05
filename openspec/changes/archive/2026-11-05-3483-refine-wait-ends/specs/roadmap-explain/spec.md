@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The command names the first rule that stops each job
-`devops roadmap explain <issue>` SHALL print, for the refine job, the stage job and the implement job, `yes` or `no`. For `no` it SHALL print the reason of the first rule that fails. The rules and their order SHALL be those of the job. The reasons SHALL be the texts of the "Left out" list of `stage --plan` and `implement --plan`, and, for refine, the wait of the item: what it waits for and what ends the wait. The rules are not an item or closed, the filter, and the rules of the job, then the limit of a run.
+`devops roadmap explain <issue>` SHALL print, for the refine job, the stage job and the implement job, `yes` or `no`. For `no` it SHALL print the reason of the first rule that fails. The rules and their order SHALL be those of the job. The reasons SHALL be the texts of the "Left out" list of `stage --plan` and `implement --plan`, and, for refine, the wait of the item. The rules are not an item or closed, the filter, the rules of the job, then the limit of a run.
 
 #### Scenario: An item of medium effort
 - **WHEN** a Planned item holds `effort/medium` and the implement filter asks for `effort/low`

@@ -6,7 +6,7 @@ How `devops roadmap explain` tells a person or an agent, for one roadmap issue, 
 ## Requirements
 
 ### Requirement: The command names the first rule that stops each job
-`devops roadmap explain <issue>` SHALL print, for the stage job and for the implement job, `yes` or `no`. For `no` it SHALL print the reason of the first rule that fails. The rules and their order SHALL be those of the job. The reasons SHALL be the texts of the "Left out" list of `stage --plan` and `implement --plan`. The rules are not an item or closed, the filter, and the rules of the job, then the limit of a run.
+`devops roadmap explain <issue>` SHALL print, for the refine job, the stage job and the implement job, `yes` or `no`. For `no` it SHALL print the reason of the first rule that fails. The rules and their order SHALL be those of the job. The reasons SHALL be the texts of the "Left out" list of `stage --plan` and `implement --plan`, and, for refine, the wait of the item. The rules are not an item or closed, the filter, the rules of the job, then the limit of a run.
 
 #### Scenario: An item of medium effort
 - **WHEN** a Planned item holds `effort/medium` and the implement filter asks for `effort/low`
@@ -30,7 +30,7 @@ How `devops roadmap explain` tells a person or an agent, for one roadmap issue, 
 
 #### Scenario: Not an item or closed
 - **WHEN** the issue is closed, has no priority label, or does not exist
-- **THEN** both jobs are `no` and the reason says that it is closed or that it is no item
+- **THEN** the three jobs are `no` and the reason says that it is closed or that it is no item
 
 #### Scenario: The limit of a run
 - **WHEN** an item passes every rule and the limit of a run is filled by items of higher priority
@@ -39,6 +39,18 @@ How `devops roadmap explain` tells a person or an agent, for one roadmap issue, 
 #### Scenario: An item the job takes
 - **WHEN** an item passes every rule within the limit
 - **THEN** the job is `yes`
+
+#### Scenario: An item that waits on a person in refine
+- **WHEN** a New item's last refine round left a question for a person and no reply, closed issue or changed file follows
+- **THEN** the refine job is `no` and the reason says that the item waits on a person and what makes refine look again
+
+#### Scenario: An item the stage job returned twice
+- **WHEN** a New item has `refine.returned_body_hash` equal to its `refine.body_hash` and a stage comment follows refine's last comment
+- **THEN** the refine job is `no` and the reason says that the stage job returned the item twice on the same body
+
+#### Scenario: A New item with no round
+- **WHEN** a New item has no refine record
+- **THEN** the refine job is `yes`
 
 ### Requirement: The command makes no model call and no write
 `explain` SHALL call no model, SHALL write nothing to GitHub or to git, and SHALL change no label, comment or record. It SHALL read the issues, the branches and the change folders that the plan of the job reads. With `--trace` it SHALL read the one issue.
