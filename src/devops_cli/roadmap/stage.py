@@ -70,7 +70,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
-from functools import partial
+from functools import cache, partial
 from pathlib import Path
 from typing import Any, Final, NamedTuple, Protocol
 
@@ -93,6 +93,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
+    CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
     CONST_ROADMAP_TRUSTED_AUTHORS,
 )
@@ -122,10 +123,15 @@ from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_summary, commit_type
 from devops_cli.roadmap.digest_clears import has_digest_clear
-from devops_cli.roadmap.planned import PlannedChanges, planned_count, read_planned_changes
+from devops_cli.roadmap.planned import (
+    PlannedChanges,
+    open_plan_creates,
+    planned_count,
+    read_planned_changes,
+)
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
 from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels, remove_pull_labels
-from devops_cli.roadmap.refine import body_dependencies, collect_context, inspect_checkout
+from devops_cli.roadmap.refine import NextStep, body_dependencies, collect_context, inspect_checkout
 from devops_cli.roadmap.refine_investigation import task_window
 from devops_cli.roadmap.stage_change import (
     MeasuredGroup,
@@ -154,7 +160,7 @@ from devops_cli.roadmap.stage_overlap import (
     session_pull_reads,
 )
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
-from devops_cli.roadmap.stage_probe import probe_premise
+from devops_cli.roadmap.stage_probe import blocked_by, probe_premise
 from devops_cli.roadmap.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage_split import ask_split
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
@@ -171,7 +177,14 @@ from devops_cli.roadmap.stage_verify import (
     verify,
 )
 from devops_cli.roadmap.step_files import code_spans
-from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore, StageRecordKey
+from devops_cli.roadmap.store import (
+    GitHubState,
+    Item,
+    ItemField,
+    RefineRecordKey,
+    RoadmapStore,
+    StageRecordKey,
+)
 from devops_cli.security.sanitizer import mask_secrets, redact_text
 from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL, emit
 
@@ -649,6 +662,17 @@ class OverBudget:
 
 
 @dataclass(frozen=True)
+class Blocked:
+    """An item whose premise cites a path that an open plan creates (#3418). The job returns it
+    to New with `blockers` in its record, and plans no change for it. `paths` are the cited paths
+    that those plans create."""
+
+    target: StageTarget
+    blockers: tuple[int, ...]
+    paths: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class StageFailure:
     """An item the job could not plan or write: the class of the error and why, never the model's
     text. `item` is the item itself, when the job read it, so that the job records the failure in
@@ -705,6 +729,7 @@ class StagePlan:
     write_requests: tuple[PlannedRequest, ...] = ()
     planned: PlannedChanges | None = None
     unmatched: tuple[LeftOut, ...] = ()
+    blocked: tuple[Blocked, ...] = ()
 
 
 def _stage_error(message: str, target: StageTarget) -> RoadmapStageError:
@@ -746,6 +771,7 @@ class _Planner:
         pull_reads: Callable[[], PullReads] | None = None,
         pull_repo: str = "",
         grep: Callable[[str], Sequence[str]] | None = None,
+        open_creates: Callable[[], Mapping[str, int]] | None = None,
     ) -> None:
         self._client = client
         self._toolbox = toolbox
@@ -770,13 +796,17 @@ class _Planner:
         self._split_asked = False
         # The lines of the premise probe of the item in hand, for the quote rule of `feasibility`.
         self._probe_lines: tuple[str, ...] = ()
+        # The read of the open plans that create a path (#3418), and the dependency that the
+        # probe of the item in hand found, which the run returns without a model call.
+        self._open_creates = open_creates
+        self._dependency: Blocked | None = None
         # The open pull requests that overlap the paths of the item in hand, and the files that
         # hold a cited metric (#3252). The gate reads the overlaps.
         self._overlaps: tuple[Overlap, ...] = ()
         self._pull_requests = 0
         self._metric_senders: dict[str, tuple[str, ...]] = {}
 
-    def plan(self, target: StageTarget) -> StagedChange | OverBudget:
+    def plan(self, target: StageTarget) -> StagedChange | OverBudget | Blocked:
         """The change of `target`, or the group that stops it. A reply the checks refuse goes back
         to the model once, with the problem. The model splits the groups at most once. With a
         verifier, the model review of the plan (#3153) follows the checks and may return the plan
@@ -786,6 +816,8 @@ class _Planner:
         if self._toolbox is not None:
             self._toolbox.traces.clear()
         request = self._request(target)
+        if self._dependency is not None:
+            return self._dependency
         outcome = self._gated(target, request)
         verifier = self._verifier
         if isinstance(outcome, StagedChange) and verifier is not None:
@@ -894,9 +926,20 @@ class _Planner:
         probe = probe_premise(self._source, self._sha, item.body)
         # The checks of the reply read the same lines as the model (#3200): `feasibility` quotes one.
         self._probe_lines = probe.lines
+        self._dependency = self._dependency_of(target, probe.missing)
         if probe.text:
             request["probes"] = probe.text
         return request
+
+    def _dependency_of(self, target: StageTarget, missing: Sequence[str]) -> Blocked | None:
+        """The open item whose plan creates a cited path that the staging commit lacks, or None
+        (#3418). The open plans are read once for the run, and only when a path is missing."""
+        if not missing or self._open_creates is None:
+            return None
+        creators = self._open_creates()
+        paths = tuple(path for path in missing if path in creators)
+        blockers = blocked_by(paths, creators)
+        return Blocked(target, blockers, paths) if blockers else None
 
     def _capabilities(self) -> list[Any]:
         """The capabilities for the request. A run with `read_spec` gets the names, and reads the
@@ -1077,10 +1120,11 @@ def _failure_of(
 
 def _plan_each(
     planner: _Planner, targets: Iterable[StageTarget]
-) -> tuple[list[StagedChange], list[OverBudget], list[StageFailure]]:
+) -> tuple[list[StagedChange], list[OverBudget], list[StageFailure], list[Blocked]]:
     ready: list[StagedChange] = []
     stopped: list[OverBudget] = []
     failed: list[StageFailure] = []
+    blocked: list[Blocked] = []
     for target in targets:
         try:
             outcome = planner.plan(target)
@@ -1091,9 +1135,11 @@ def _plan_each(
             continue
         if isinstance(outcome, OverBudget):
             stopped.append(outcome)
+        elif isinstance(outcome, Blocked):
+            blocked.append(outcome)
         else:
             ready.append(outcome)
-    return ready, stopped, failed
+    return ready, stopped, failed, blocked
 
 
 def _pull_of(item: Item) -> int | None:
@@ -1238,6 +1284,7 @@ def plan_stage(
         client = get_llm_client(task="stage", settings=settings)
     else:
         client = model
+    creators = cache(partial(open_plan_creates, store, checkout, planned, operation=_GIT_OPERATION))
     with openspec_tool() as tool:
         planner = _planner_of(
             client,
@@ -1248,13 +1295,15 @@ def plan_stage(
             toolbox=toolbox,
             verifier=verifier,
             repo=repo,
+            open_creates=creators,
         )
-        ready, stopped, failed = _plan_each(planner, selection.selected)
+        ready, stopped, failed, blocked = _plan_each(planner, selection.selected)
     return replace(
         plan,
         ready=tuple(ready),
         over_budget=tuple(stopped),
         failed=tuple(failed),
+        blocked=tuple(blocked),
     )
 
 
@@ -1268,6 +1317,7 @@ def _planner_of(
     toolbox: ToolboxModel | None = None,
     verifier: StageClient | None = None,
     repo: str | None = None,
+    open_creates: Callable[[], Mapping[str, int]] | None = None,
 ) -> _Planner:
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
     context window of the `stage` task once. With a `toolbox` model, a plan run calls the
@@ -1303,6 +1353,7 @@ def _planner_of(
         pull_reads=None if repo is None else session_pull_reads,
         pull_repo=repo or "",
         grep=partial(grep_at, checkout, sha, operation=_GIT_OPERATION),
+        open_creates=open_creates,
     )
 
 
@@ -1313,7 +1364,7 @@ def plan_item(
     checkout: Path,
     sha: str,
     step_tokens: int | None = None,
-) -> StagedChange | OverBudget:
+) -> StagedChange | OverBudget | Blocked:
     """Plans `item` as the job does, in the checkout at `sha`, and writes nothing (#3028).
 
     The golden set of the stage job runs this on each case. A reply the checks refuse goes back to
@@ -1351,6 +1402,7 @@ class StageApplied:
     stopped: tuple[int, ...] = ()
     failed: tuple[StageFailure, ...] = ()
     removed: tuple[int, ...] = ()
+    returned: tuple[int, ...] = ()
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -1599,6 +1651,26 @@ def write_each(
             done.append(item.number)
 
 
+def _return_blocked(store: RoadmapStore, blocked: Blocked) -> None:
+    """Return the item to New with its open blockers in `refine.blocked_by`, and say why in a
+    comment (#3418). Refine waits on that record until each blocker closes, and the stage
+    selection leaves the item out meanwhile."""
+    texts = MESSAGES.roadmap
+    item = blocked.target.item
+    issues = ", ".join(f"#{number}" for number in blocked.blockers)
+    paths = ", ".join(f"`{path}`" for path in blocked.paths)
+    store.comment(
+        item.number,
+        f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n\n"
+        f"{texts.stage_returned_blocked.format(issues=issues, paths=paths)}",
+    )
+    marks = {
+        RefineRecordKey.BLOCKED_BY: ",".join(str(number) for number in blocked.blockers),
+        RefineRecordKey.NEXT_STEP: NextStep.BLOCKED.value,
+    }
+    store.set_field(item, ItemField.STATUS, CONST_ROADMAP_STATUS_NEW, marks=marks)
+
+
 def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now: datetime) -> None:
     """Record each failure in the job record of its item: the time and the class of the error
     (#3493). The item waits for the retry delay, and the job goes on with the others. A write
@@ -1626,6 +1698,7 @@ def apply_stage(
     (#2753)."""
     checkout = Path(source)
     removed: list[int] = []
+    returned: list[int] = []
     staged: list[int] = []
     stopped: list[int] = []
     failed: list[StageFailure] = []
@@ -1636,6 +1709,10 @@ def apply_stage(
                 for r in plan.removals
             ],
             removed,
+        ),
+        (
+            [(b.target.item, partial(_return_blocked, store, b)) for b in plan.blocked],
+            returned,
         ),
         (
             [
@@ -1655,7 +1732,9 @@ def apply_stage(
     _record_failures(store, [*plan.failed, *failed], now or datetime.now(UTC))
     if stopped_by is not None:
         raise stopped_by
-    return StageApplied(tuple(staged), tuple(stopped), tuple(failed), tuple(removed))
+    return StageApplied(
+        tuple(staged), tuple(stopped), tuple(failed), tuple(removed), tuple(returned)
+    )
 
 
 class StageResult(StrEnum):
@@ -1674,6 +1753,7 @@ def stage_results(plan: StagePlan, applied: StageApplied) -> dict[int, StageResu
     results = dict.fromkeys((left.number for left in plan.left_out), StageResult.SKIPPED)
     results |= dict.fromkeys(applied.staged, StageResult.STAGED)
     results |= dict.fromkeys(applied.stopped, StageResult.NEEDS_SPLIT)
+    results |= dict.fromkeys(applied.returned, StageResult.SKIPPED)
     results |= dict.fromkeys(
         (failure.number for failure in (*plan.failed, *applied.failed)), StageResult.FAILED
     )
@@ -1760,10 +1840,19 @@ def render_stage_plan(plan: StagePlan) -> str:
             for x in plan.unmatched
         ],
     )
+    returned = [
+        texts.stage_returned_line.format(
+            number=b.target.item.number,
+            title=b.target.item.title,
+            issues=", ".join(f"#{number}" for number in b.blockers),
+        )
+        for b in plan.blocked
+    ]
+    lines += _section(texts.stage_heading_returned, returned)
     lines += _section(texts.stage_heading_failed, failed)
     lines += _section(texts.stage_heading_removals, removals)
     lines += _section(texts.stage_heading_kept, kept)
-    if not (ready or over or left or failed or removals or kept):
+    if not (ready or over or left or failed or removals or kept or returned):
         lines += ["", texts.stage_nothing]
     return "\n".join(lines)
 

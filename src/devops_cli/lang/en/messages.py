@@ -2968,6 +2968,17 @@ class RoadmapMessages:
         "opened."
     )
     stage_left_dependency: str = "The item depends on the open issue {issues}."
+    stage_left_blocked: str = (
+        "The item waits for the open issue {issues}, which a refine round or the stage job "
+        "recorded as its blocker."
+    )
+    stage_returned_blocked: str = (
+        "The premise of this item needs {paths}, and the staging commit lacks it. The plan of "
+        "{issues} creates it. The stage job returns this item to New and plans no change until "
+        "each of {issues} closes."
+    )
+    stage_heading_returned: str = "## Returned to New, with a dependency"
+    stage_returned_line: str = "- #{number} {title}: waits for {issues}."
     stage_left_title_type: str = (
         "The title has no Conventional Commit type, so the branch has no type."
     )
