@@ -31,7 +31,6 @@ from devops_cli.roadmap.stage import (
 )
 from devops_cli.roadmap.stage_change import StageSplit
 from devops_cli.roadmap.stage_toolbox import ToolboxModel
-from devops_cli.roadmap.stage_tools import StageTools
 from devops_cli.roadmap.store import ItemField, StageRecordKey
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import API, github_json
@@ -577,23 +576,19 @@ def test_the_comment_counts_the_calls_of_each_tool_in_one_line_in_alphabetical_o
 
 @pytest.mark.usefixtures("model_fake")
 def test_the_comment_counts_the_empty_answers_of_a_tool(
-    store: InMemoryRoadmapStore,
-    stage_repo: StageRepo,
-    opened: GitHubApiFake,
-    monkeypatch: pytest.MonkeyPatch,
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
 ) -> None:
-    def blank_git_log(self: StageTools, path: str = "") -> str:
-        """List the newest commits that changed a path."""
-        return "\n"
-
-    blank_git_log.__name__ = "git_log"
-    monkeypatch.setattr(StageTools, "git_log", blank_git_log)
-    script = Script(call("git_log"), call("git_log"), make_stage_proposal())
+    script = Script(
+        call("search_code", text="a text that no file holds"),
+        call("search_code", text="another text that no file holds"),
+        call("read_file", path="src/devops_cli/sample.py"),
+        make_stage_proposal(),
+    )
 
     _stage(store, stage_repo, toolbox=script)
 
     (comment,) = _comments(store)
-    assert "Tool calls: git_log=2 (empty=2)" in comment
+    assert "Tool calls: read_file=1 (empty=0), search_code=2 (empty=2)" in comment
 
 
 @pytest.mark.usefixtures("model_fake")

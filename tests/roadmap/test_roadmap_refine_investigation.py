@@ -44,7 +44,14 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RUN_ERROR_CHARS,
 )
 from devops_cli.roadmap import refine
-from devops_cli.roadmap.agent_run import RunTrace
+from devops_cli.roadmap.agent_run import (
+    RunLimit,
+    RunTrace,
+    ToolOutcome,
+    empty_answer,
+    error_answer,
+    ok_answer,
+)
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
@@ -344,14 +351,14 @@ def test_the_tools_read_only_the_pinned_commit(git_repo: Path) -> None:
         tools.read_file("../outside.py"),
         tools.read_file("/etc/hostname"),
     ) == (
-        "src/sample.py:1:def hello_world():",
-        "No match.",
-        "src/sample.py",
-        "src",
-        "2:     return 'hello'",
-        "The commit holds no file src/missing.py.",
-        "The path ../outside.py is outside the repository.",
-        "The path /etc/hostname is outside the repository.",
+        ok_answer("src/sample.py:1:def hello_world():"),
+        empty_answer("No match."),
+        ok_answer("src/sample.py"),
+        ok_answer("src"),
+        ok_answer("2:     return 'hello'"),
+        error_answer("The commit holds no file src/missing.py."),
+        error_answer("The path ../outside.py is outside the repository."),
+        error_answer("The path /etc/hostname is outside the repository."),
     )
 
 
@@ -569,11 +576,11 @@ def test_a_tool_answers_each_failure_as_text(git_repo: Path) -> None:
         tools.search_code("a\x00b"),
         tools.read_file("a\x00.txt"),
     ) == (
-        "The file logo.png is binary.",
-        "1: caf\ufffd au lait",
-        "notes.txt:1:caf\ufffd au lait",
-        "No match.",
-        "The commit holds no file a\x00.txt.",
+        error_answer("The file logo.png is binary."),
+        ok_answer("1: caf\ufffd au lait"),
+        ok_answer("notes.txt:1:caf\ufffd au lait"),
+        empty_answer("No match."),
+        error_answer("The commit holds no file a\x00.txt."),
     )
 
 
@@ -699,6 +706,43 @@ def test_the_alternatives_tools_run_in_the_same_agent_run() -> None:
         _SETTLED,
         ["HELLO"],
         ["shout"],
+    )
+
+
+class _BlankTools:
+    """A set of one tool that answers with text of white space only and sets no outcome."""
+
+    def blank(self) -> str:
+        """Answer with white space."""
+        return "  \n"
+
+    def tools(self) -> list[Tool[None]]:
+        return [Tool(self.blank, takes_ctx=False)]
+
+
+def test_an_answer_with_no_mark_and_no_text_is_empty_and_an_answer_with_text_is_ok() -> None:
+    """A tool that sets no outcome gives `ok`, or `empty` when the model read no character."""
+    trace = RunTrace()
+    script = Script(call("blank"), _SETTLED)
+    investigate(
+        script.model(), "Instructions.", "{}", _BlankTools(), RefinementProposal, trace=trace
+    )
+    shout = RunTrace()
+    investigate(
+        Script(call("shout", text="hi"), _SETTLED).model(),
+        "Instructions.",
+        "{}",
+        _ShoutingTools(),
+        RefinementProposal,
+        trace=shout,
+    )
+
+    assert (
+        [(c.outcome, c.chars) for c in trace.tool_calls],
+        [(c.outcome, c.chars) for c in shout.tool_calls],
+    ) == (
+        [(ToolOutcome.EMPTY, 3)],
+        [(ToolOutcome.OK, 2)],
     )
 
 
@@ -829,6 +873,83 @@ def test_a_stopped_run_keeps_its_trace(git_repo: Path) -> None:
     stopped = _run(git_repo, Script(_read(), _BROKEN), output_retries=1, trace=trace)
 
     assert (stopped.schema_broken, len(trace.tool_calls), trace.requests) == (True, 1, 3)
+
+
+# ── The limit that ends the tools of a run (#3240) ────────────────────────────────────────────
+
+
+def test_a_run_that_spends_its_call_budget_names_the_calls_limit_and_counts_a_late_call_as_an_error(
+    git_repo: Path,
+) -> None:
+    """Six calls leave room for three turns of calls, so the fourth request offers no tool. The model
+    calls a tool anyway, and the run takes that call as an error with no answer."""
+    trace = RunTrace()
+    read = _read("src/sample.py")
+
+    result = _run(
+        git_repo,
+        Script(read, read, read, read, _SETTLED),
+        limits=_limits(tool_calls=6),
+        trace=trace,
+    )
+
+    assert (result, trace.limit, [(c.outcome, c.chars is None) for c in trace.tool_calls]) == (
+        _SETTLED,
+        RunLimit.CALLS,
+        [(ToolOutcome.OK, False)] * 3 + [(ToolOutcome.ERROR, True)],
+    )
+
+
+def test_a_run_that_spends_its_requests_names_the_requests_limit(git_repo: Path) -> None:
+    trace = RunTrace()
+    script = Script(_read("src/sample.py"), without_tools=_SETTLED)
+
+    result = _run(
+        git_repo,
+        script,
+        limits=UsageLimits(request_limit=4, tool_calls_limit=30),
+        trace=trace,
+    )
+
+    assert (result, trace.limit, [len(offered) for offered in script.tools_offered]) == (
+        _SETTLED,
+        RunLimit.REQUESTS,
+        [3, 3, 3, 0],
+    )
+
+
+def test_a_run_that_fills_the_window_names_the_window_limit(git_repo: Path) -> None:
+    trace = RunTrace()
+    wordy = call("read_file", path="../" + "word " * 300)
+
+    result = _run(git_repo, Script(wordy, without_tools=_SETTLED), window=1000, trace=trace)
+
+    assert (result, trace.limit) == (_SETTLED, RunLimit.WINDOW)
+
+
+def test_a_reply_over_the_call_limit_names_the_calls_limit_and_leaves_each_call_with_no_answer(
+    git_repo: Path,
+) -> None:
+    """The hook flags the requests and the window before they can stop a run, so a hard stop by
+    the call limit with no earlier limit is one reply over the call budget."""
+    trace = RunTrace()
+    seven = ModelResponse(parts=[ToolCallPart(tool_name="read_file", args={"path": "../x"})] * 7)
+
+    stopped = _run(git_repo, Script(seven), limits=_limits(tool_calls=6), trace=trace)
+
+    assert (
+        stopped.reason,
+        trace.limit,
+        [(c.outcome, c.chars) for c in trace.tool_calls],
+    ) == ("UsageLimitExceeded", RunLimit.CALLS, [(ToolOutcome.ERROR, None)] * 7)
+
+
+def test_a_run_that_ends_on_no_limit_names_none(git_repo: Path) -> None:
+    trace = RunTrace()
+
+    result = _run(git_repo, Script(_read("src/sample.py"), _SETTLED), trace=trace)
+
+    assert (result, trace.limit) == (_SETTLED, None)
 
 
 def test_a_run_with_no_limits_keeps_the_limits_and_retries_of_refine(git_repo: Path) -> None:

@@ -39,7 +39,7 @@ def end_run(trace: RunTrace, *, row: str, toolset: str, finished: bool) -> None:
     for record in trace.tool_calls:
         labels = {"tool": record.name, "row": row, "toolset": toolset}
         emit(ROADMAP_TOOL_CALLS_TOTAL, 1, {**labels, "outcome": record.outcome.value})
-        if record.outcome is not ToolOutcome.ERROR:
+        if record.chars is not None:
             emit(ROADMAP_TOOL_ANSWER_CHARS, record.chars, labels)
     if not finished:
         return

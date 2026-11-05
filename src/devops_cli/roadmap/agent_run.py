@@ -21,6 +21,7 @@ from pydantic_ai.messages import (
     ModelResponse,
     RetryPromptPart,
     ToolCallPart,
+    ToolReturn,
     ToolReturnPart,
 )
 
@@ -138,12 +139,36 @@ def argument_json(call: ToolCallPart) -> str:
 
 class ToolOutcome(StrEnum):
     """How a tool call ended, as `devops_cli_roadmap_tool_calls_total` labels it (#3240): `ok` for
-    an answer with text, `empty` for an answer with no non-whitespace character, and `error` for a
-    call that got no answer."""
+    an answer with the result that the call asked for, `empty` for a call that ran and found
+    nothing, and `error` for a call that could not run or got no answer. A tool of the stage
+    planner marks each answer with `ok_answer`, `empty_answer` or `error_answer`. A tool that
+    marks none gives `ok`, or `empty` when its text has no non-whitespace character."""
 
     OK = "ok"
     EMPTY = "empty"
     ERROR = "error"
+
+
+def ok_answer(text: str) -> ToolReturn:
+    """The answer of a tool call that gave the result it was asked for: `text` is what the model
+    reads, and the run reads the outcome `ok` (#3240). A tool is annotated with a bare `ToolReturn`
+    because pydantic-ai builds the return schema of each tool when it makes the tool, and the
+    schema of a union that holds `ToolReturn` takes about 20 ms for each tool."""
+    return ToolReturn(text, metadata=ToolOutcome.OK)
+
+
+def empty_answer(text: str) -> ToolReturn:
+    """The answer of a tool call that ran and found nothing, such as a search with no match: `text`
+    is what the model reads, and the run reads the outcome `empty` (#3240)."""
+    return ToolReturn(text, metadata=ToolOutcome.EMPTY)
+
+
+def error_answer(text: str) -> ToolReturn:
+    """The answer of a tool call that could not run, such as a path outside the repository, a
+    missing file or a read that failed: `text` is what the model reads, and the run reads the
+    outcome `error`. A tool answers its failure so, and does not raise, so no call of the model
+    can stop the run (#3240)."""
+    return ToolReturn(text, metadata=ToolOutcome.ERROR)
 
 
 class RunLimit(StrEnum):
@@ -158,12 +183,12 @@ class RunLimit(StrEnum):
 @dataclass(frozen=True)
 class ToolCallRecord:
     """One tool call of a run: the tool, its argument as JSON, masked and cut, how the call ended,
-    and the characters of its answer, after the cut of the tool (0 for a call with no answer)."""
+    and the characters of its answer, after the cut of the tool (None for a call with no answer)."""
 
     name: str
     argument: str
     outcome: ToolOutcome = ToolOutcome.OK
-    chars: int = 0
+    chars: int | None = None
 
 
 @dataclass
@@ -267,12 +292,15 @@ def _answers(messages: Sequence[ModelMessage]) -> dict[str, ToolReturnPart | Ret
     }
 
 
-def _outcome_of(answer: ToolReturnPart | RetryPromptPart | None) -> tuple[ToolOutcome, int]:
-    """How a tool call ended, and the characters of its answer. The answer is the text that the
-    model read, after the cut of the tool. A call with no return of the tool is an error."""
+def _outcome_of(answer: ToolReturnPart | RetryPromptPart | None) -> tuple[ToolOutcome, int | None]:
+    """How a tool call ended, and the characters of its answer, or None for a call with no answer.
+    The answer is the text that the model read, after the cut of the tool. The tool sets its
+    outcome with `empty_answer` and `error_answer`. A call with no return of the tool is an error."""
     if not isinstance(answer, ToolReturnPart) or answer.outcome != "success":
-        return ToolOutcome.ERROR, 0
+        return ToolOutcome.ERROR, None
     text = answer.model_response_str()
+    if isinstance(answer.metadata, ToolOutcome):
+        return answer.metadata, len(text)
     return (ToolOutcome.OK if text.strip() else ToolOutcome.EMPTY), len(text)
 
 
@@ -307,7 +335,10 @@ __all__ = [
     "body_error_text",
     "bounded_text",
     "drain_events",
+    "empty_answer",
+    "error_answer",
     "model_call_error",
+    "ok_answer",
     "record_run_spend",
     "run_error_message",
 ]

@@ -2,7 +2,8 @@
 refine pinned, for an item whose proposal leaves a question with no verified source.
 
 The tools search, list and read that commit with git, and search the web through Firecrawl when the
-round allows it. Each tool answer is plain text, cut to `CONST_ROADMAP_REFINE_TOOL_MAX_CHARS`,
+round allows it. Each tool answer is plain text, cut to `CONST_ROADMAP_REFINE_TOOL_MAX_CHARS`. An
+answer that found nothing or could not run carries its outcome (`empty_answer`, `error_answer`),
 and each URL a web search returns joins `allowed_urls`, the URLs a source may cite.
 `UsageLimits` caps a run. The run's errors become refine's own classes, and its usage goes to
 the spend ledger as one record.
@@ -35,6 +36,7 @@ from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
     ModelResponse,
     ToolCallPart,
+    ToolReturn,
 )
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import UsageLimits
@@ -60,7 +62,10 @@ from devops_cli.roadmap.agent_run import (
     RunLimit,
     RunTrace,
     drain_events,
+    empty_answer,
+    error_answer,
     model_call_error,
+    ok_answer,
     record_run_spend,
     run_error_message,
 )
@@ -70,6 +75,8 @@ logger = logging.getLogger(__name__)
 # The exit code `_git` gives a command that ran out of time, as timeout(1) does.
 GIT_TIMED_OUT = 124
 _GIT_TIMEOUT_SECONDS = 15
+# The answer of a call whose git command ran out of time.
+TIMED_OUT_ANSWER = "The command ran out of time. Try a smaller path or a less common text."
 # `git grep` stops at this many matches in one file, one more than a tool answer keeps, so `cut`
 # still says that lines are left out. A file of millions of matching lines costs no more than this.
 GREP_MATCHES_PER_FILE = CONST_ROADMAP_REFINE_TOOL_MAX_LINES + 1
@@ -149,8 +156,9 @@ class InvestigationTools:
 
     A tool answers each failure as text, so no argument the model sends can stop the run: a
     path outside the repository, a binary file, output that is not UTF-8, or a command that runs
-    out of time. `search_web` is a tool only when `firecrawl_key` is set, and it runs at most
-    `CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES` searches.
+    out of time. A failure is an `error_answer` and a call that finds nothing is an
+    `empty_answer`, so the run can count each. `search_web` is a tool only when `firecrawl_key` is
+    set, and it runs at most `CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES` searches.
     """
 
     source: Path
@@ -176,7 +184,7 @@ class InvestigationTools:
             return GIT_TIMED_OUT, b""
         return proc.returncode, cast(bytes | None, proc.stdout) or b""
 
-    def search_code(self, text: str) -> str:
+    def search_code(self, text: str) -> ToolReturn:
         """Search the files of the repository for a text, in any case.
 
         Args:
@@ -198,12 +206,12 @@ class InvestigationTools:
             "--",
         )
         if code == GIT_TIMED_OUT:
-            return "The search ran out of time. Search for a less common text."
+            return error_answer("The search ran out of time. Search for a less common text.")
         decoded = out.decode("utf-8", errors="replace").splitlines()
         lines = [line.removeprefix(f"{self.sha}:") for line in decoded]
-        return cut(lines) if code == 0 and lines else "No match."
+        return ok_answer(cut(lines)) if code == 0 and lines else empty_answer("No match.")
 
-    def list_files(self, directory: str = "") -> str:
+    def list_files(self, directory: str = "") -> ToolReturn:
         """List the files and directories in one directory of the repository.
 
         Args:
@@ -211,29 +219,37 @@ class InvestigationTools:
         """
         path = repository_path(directory)
         if path is None:
-            return f"The path {directory} is outside the repository."
-        _, out = self._git("ls-tree", "--name-only", self.sha, *([f"{path}/"] if path else []))
+            return error_answer(f"The path {directory} is outside the repository.")
+        code, out = self._git("ls-tree", "--name-only", self.sha, *([f"{path}/"] if path else []))
+        if code == GIT_TIMED_OUT:
+            return error_answer(TIMED_OUT_ANSWER)
         names = out.decode("utf-8", errors="replace").splitlines()
-        return cut(names) or f"The commit holds no directory {path}."
+        if not names:
+            return error_answer(f"The commit holds no directory {path}.")
+        return ok_answer(cut(names))
 
-    def _text_blob(self, clean: str) -> tuple[str | None, str]:
-        """The text of the file `clean` at the commit and "", or None and the answer a tool gives
-        for a file that is missing, binary or larger than
-        `CONST_ROADMAP_INVESTIGATION_MAX_BLOB_BYTES`. The size is read first, so a huge file is
-        never held in memory."""
+    def _text_blob(self, clean: str) -> str | ToolReturn:
+        """The text of the file `clean` at the commit, or the `error_answer` of a tool for a file
+        that is missing, binary or larger than `CONST_ROADMAP_INVESTIGATION_MAX_BLOB_BYTES`, or
+        for a git command that ran out of time. The size is read first, so a huge file is never
+        held in memory."""
         size_code, size = self._git("cat-file", "-s", f"{self.sha}:{clean}")
+        if size_code == GIT_TIMED_OUT:
+            return error_answer(TIMED_OUT_ANSWER)
         if size_code != 0:
-            return None, f"The commit holds no file {clean}."
+            return error_answer(f"The commit holds no file {clean}.")
         if int(size.strip() or 0) > CONST_ROADMAP_INVESTIGATION_MAX_BLOB_BYTES:
-            return None, f"The file {clean} is too large to read."
+            return error_answer(f"The file {clean} is too large to read.")
         code, out = self._git("show", f"{self.sha}:{clean}")
+        if code == GIT_TIMED_OUT:
+            return error_answer(TIMED_OUT_ANSWER)
         if code != 0:
-            return None, f"The commit holds no file {clean}."
+            return error_answer(f"The commit holds no file {clean}.")
         if b"\0" in out:
-            return None, f"The file {clean} is binary."
-        return out.decode("utf-8", errors="replace"), ""
+            return error_answer(f"The file {clean} is binary.")
+        return out.decode("utf-8", errors="replace")
 
-    def read_file(self, path: str, start_line: int = 1, end_line: int = 0) -> str:
+    def read_file(self, path: str, start_line: int = 1, end_line: int = 0) -> ToolReturn:
         """Read a file of the repository. Each line starts with its number.
 
         Args:
@@ -243,10 +259,10 @@ class InvestigationTools:
         """
         clean = repository_path(path)
         if not clean:
-            return f"The path {path} is outside the repository."
-        blob, answer = self._text_blob(clean)
-        if blob is None:
-            return answer
+            return error_answer(f"The path {path} is outside the repository.")
+        blob = self._text_blob(clean)
+        if isinstance(blob, ToolReturn):
+            return blob
         first = max(1, start_line)
         # One line past the limit lets `cut` say that lines are left out.
         stop = first - 1 + CONST_ROADMAP_REFINE_TOOL_MAX_LINES + 1
@@ -258,7 +274,9 @@ class InvestigationTools:
             f"{number}: {line}"
             for number, line in enumerate(itertools.islice(lines, first - 1, stop), start=first)
         ]
-        return cut(numbered) or f"The file {clean} has no lines from line {first}."
+        if not numbered:
+            return empty_answer(f"The file {clean} has no lines from line {first}.")
+        return ok_answer(cut(numbered))
 
     def search_web(self, query: str) -> str:
         """Search the web. Cite a result by its URL.
@@ -280,7 +298,11 @@ class InvestigationTools:
 
     def tools(self) -> list[Tool[None]]:
         """The tools of the run: the git tools, and the web search when a key is set."""
-        methods: list[Callable[..., str]] = [self.search_code, self.list_files, self.read_file]
+        methods: list[Callable[..., str | ToolReturn]] = [
+            self.search_code,
+            self.list_files,
+            self.read_file,
+        ]
         if self.firecrawl_key:
             methods.append(self.search_web)
         return [Tool(method, takes_ctx=False) for method in methods]

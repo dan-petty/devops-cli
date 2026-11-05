@@ -13,11 +13,14 @@ import re
 from collections import defaultdict
 from typing import Final
 
+from pydantic_ai.messages import ToolReturn
+
 from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_TOOL_MAX_CHARS,
     CONST_ROADMAP_STAGE_REFERENCE_LINES_PER_FILE,
     CONST_ROADMAP_STAGE_REFERENCE_MAX_FILES,
 )
+from devops_cli.roadmap.agent_run import empty_answer, ok_answer
 
 # `path:line:text` of one match, the path as git prints it. The path ends at the first `:<digits>:`.
 _MATCH: Final[re.Pattern[str]] = re.compile(r"(?P<path>.+?):(?P<line>\d+):")
@@ -48,16 +51,16 @@ def _file_line(path: str, lines: list[int]) -> str:
     return f"{path}: {len(lines)} ({label} {', '.join(str(n) for n in shown)}{more})"
 
 
-def reference_answer(name: str, output: str, sha: str) -> str:
-    """The answer for `name` from the output of `git grep -n` on the commit `sha`, or the text that
-    says no line holds it."""
+def reference_answer(name: str, output: str, sha: str) -> ToolReturn:
+    """The answer for `name` from the output of `git grep -n` on the commit `sha`, or the `empty`
+    answer that says no line holds it."""
     found: dict[str, list[int]] = defaultdict(list)
     for raw in output.splitlines():
         match = _MATCH.match(raw.removeprefix(f"{sha}:"))
         if match is not None:
             found[match["path"]].append(int(match["line"]))
     if not found:
-        return f"No line of the commit holds {name!r}."
+        return empty_answer(f"No line of the commit holds {name!r}.")
     grouped: dict[str, list[str]] = {group: [] for group in _GROUPS}
     for path in sorted(found):
         grouped[_group_of(path)].append(path)
@@ -73,9 +76,9 @@ def reference_answer(name: str, output: str, sha: str) -> str:
             path = queue[-1]
             budget -= len(_file_line(path, found[path])) + 1
             if budget < 0:
-                return _answer(header, grouped, found, kept)
+                return ok_answer(_answer(header, grouped, found, kept))
             kept.add(queue.pop())
-    return _answer(header, grouped, found, kept)
+    return ok_answer(_answer(header, grouped, found, kept))
 
 
 def _answer(
