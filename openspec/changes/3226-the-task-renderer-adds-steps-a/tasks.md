@@ -42,7 +42,7 @@ Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/test_ro
 
 Reads: `openspec/config.yaml`. Changes: `openspec/config.yaml`.
 
-- [ ] 5.1 In `openspec/config.yaml`, state that a group regenerates the documentation only when it changes a path under `src/devops_cli/commands/` or `src/devops_cli/lang/`, and that a change that alters a path under `src/` ends with the tuicr bullet
+- [x] 5.1 In `openspec/config.yaml`, state that a group regenerates the documentation only when it changes a path under `src/devops_cli/commands/` or `src/devops_cli/lang/`, and that a change that alters a path under `src/` ends with the tuicr bullet
   - Verification: `uv run devops openspec check` passes
 
 ## Workflow follow-up
