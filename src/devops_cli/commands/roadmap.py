@@ -893,6 +893,7 @@ def explain_cmd(
 @dry_run_class("request-plan")
 def inbox_cmd(
     repo: RepoOption = None,
+    kind: Annotated[str | None, typer.Option("--kind", help=HELP.roadmap.inbox_kind)] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.inbox_dry_run)] = False,
 ) -> None:
     """List what waits for a person in each repository, each line with its age and the step
@@ -900,9 +901,15 @@ def inbox_cmd(
     from datetime import UTC, datetime
 
     from devops_cli.config.settings import load_settings
-    from devops_cli.roadmap.inbox import read_inbox, render_inbox
+    from devops_cli.roadmap.inbox import InboxKind, read_inbox, render_inbox
     from devops_cli.roadmap.request_plan import inbox_requests
 
+    classes = {member.value for member in InboxKind}
+    if kind is not None and kind not in classes:
+        raise typer.BadParameter(
+            MESSAGES.roadmap.inbox_kind_unknown.format(kind=kind, kinds=", ".join(sorted(classes)))
+        )
+    kinds = None if kind is None else frozenset({InboxKind(kind)})
     settings = load_settings()
     targets = _inbox_repos(repo, settings.service.repos)
     if dry_run or is_dry_run():
@@ -919,8 +926,9 @@ def inbox_cmd(
                 now=datetime.now(UTC),
                 planned_limit=settings.roadmap.stage.planned_limit,
                 draft_days=settings.roadmap.inbox.draft_days,
+                wait_days=settings.roadmap.inbox.wait_days,
             )
-        write_stdout(render_inbox(inbox, repo=target) + "\n")
+        write_stdout(render_inbox(inbox, repo=target, kinds=kinds) + "\n")
 
 
 def _inbox_repos(repo: str | None, configured: Sequence[str]) -> list[str]:

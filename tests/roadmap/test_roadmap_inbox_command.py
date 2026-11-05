@@ -10,7 +10,13 @@ import pytest
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
 from devops_cli.roadmap.github_store import listing_path, pulls_endpoint
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.store import ItemField, StageRecordKey, encode_job_record, with_record
+from devops_cli.roadmap.store import (
+    ItemField,
+    RefineRecordKey,
+    StageRecordKey,
+    encode_job_record,
+    with_record,
+)
 from tests.support.fakes.github import API
 
 REPO = "example/roadmap"
@@ -114,3 +120,25 @@ def test_without_repo_and_no_service_repos_the_inbox_fails_naming_the_setting(
 
     assert (result.exit_code, "service.repos" in result.output) == (1, True)
     assert roadmap_store_repos == []
+
+
+def test_the_kind_option_keeps_the_lines_of_one_class(
+    cli: Callable[..., Any], roadmap_store: InMemoryRoadmapStore
+) -> None:
+    _seed_labels(roadmap_store)
+    split = roadmap_store.seed_issue(
+        "big",
+        body=with_record("", encode_job_record({}, {RefineRecordKey.NEXT_STEP: "split"})),
+        fields={ItemField.STATUS: "New", ItemField.PRIORITY: "P2-Medium"},
+    )
+
+    result = cli("roadmap", "inbox", "--repo", REPO, "--kind", "split")
+
+    assert result.exit_code == 0, result.output
+    assert f"#{split}" in result.stdout
+    assert "Counts by class: split 1." in result.stdout
+
+
+def test_an_unknown_kind_is_a_usage_error(cli: Callable[..., Any]) -> None:
+    result = cli("roadmap", "inbox", "--repo", REPO, "--kind", "nope")
+    assert (result.exit_code, "nope is no class of the inbox" in result.output) == (2, True)

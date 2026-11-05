@@ -1572,6 +1572,10 @@ class RoadmapCommandHelp:
         "roadmap.stage.planned_limit. It reads GitHub, calls no model and writes nothing. "
         "Details: docs/roadmap/inbox.md."
     )
+    inbox_kind: str = (
+        "List only the lines of one class, such as refine, split, alternatives or draft. The "
+        "counts of every class stay complete."
+    )
     inbox_dry_run: str = (
         "Make no request: print the reads that a run makes, in order, with placeholders."
     )

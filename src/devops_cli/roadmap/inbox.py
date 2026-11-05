@@ -28,7 +28,7 @@ the issue (`<type>/<issue>-<slug>`). The inbox shows an old claim and never remo
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
 
@@ -88,6 +88,7 @@ class InboxLine:
     age: timedelta | None
     subject: str
     clear: str
+    old_days: int | None = None
 
 
 @dataclass(frozen=True)
@@ -356,6 +357,14 @@ def _queue_lines(items: Iterable[Item], repo: str, planned_limit: int) -> list[I
     return [InboxLine(InboxKind.QUEUE, None, None, subject, clear)]
 
 
+def _marked(line: InboxLine, wait_days: int) -> InboxLine:
+    """The line with its mark when its wait is over `wait_days` (#3494). A line with no age is
+    never marked."""
+    if line.age is None or line.age <= timedelta(days=wait_days):
+        return line
+    return replace(line, old_days=wait_days)
+
+
 def _order(line: InboxLine) -> tuple[int, bool, float]:
     """Kind order, then the oldest first, a line with no age last."""
     seconds = line.age.total_seconds() if line.age is not None else 0.0
@@ -363,7 +372,13 @@ def _order(line: InboxLine) -> tuple[int, bool, float]:
 
 
 def read_inbox(
-    store: RoadmapStore, *, repo: str, now: datetime, planned_limit: int, draft_days: int
+    store: RoadmapStore,
+    *,
+    repo: str,
+    now: datetime,
+    planned_limit: int,
+    draft_days: int,
+    wait_days: int,
 ) -> Inbox:
     """What waits for a person in `repo` at `now`. It reads the open items, the open pull
     requests, the labels and the labels file, and the newest commit of that file when the labels
@@ -383,7 +398,7 @@ def read_inbox(
         *_label_lines(store, repo, now),
         *_queue_lines(items, repo, planned_limit),
     ]
-    ordered = sorted(lines, key=_order)
+    ordered = sorted((_marked(line, wait_days) for line in lines), key=_order)
     return Inbox(
         jobs=tuple(line for line in ordered if line.kind is not InboxKind.PERSON),
         people=tuple(line for line in ordered if line.kind is InboxKind.PERSON),
@@ -394,7 +409,10 @@ def _render_line(line: InboxLine) -> str:
     texts = MESSAGES.roadmap
     number = texts.inbox_no_number if line.number is None else f"#{line.number}"
     age = texts.inbox_no_age if line.age is None else format_duration(line.age.total_seconds())
-    head = texts.inbox_line.format(number=number, age=age, subject=line.subject)
+    subject = line.subject
+    if line.old_days is not None:
+        subject = f"{subject} {texts.inbox_old.format(days=line.old_days)}"
+    head = texts.inbox_line.format(number=number, age=age, subject=subject)
     return f"{head}\n{texts.inbox_clear.format(clear=line.clear)}"
 
 
@@ -405,19 +423,35 @@ def _render_section(kind: InboxKind, lines: Sequence[InboxLine]) -> str:
     return "\n".join([heading, *(_render_line(line) for line in lines)])
 
 
-def render_inbox(inbox: Inbox, *, repo: str) -> str:
-    """The inbox as the report of the command: a section for each kind that has a line, the
-    jobs' sections first, then the people's, and the note on what the inbox leaves out."""
+def _counts(lines: Sequence[InboxLine]) -> str:
+    """The count of the lines of each class that has one, in the order of the classes (#3494)."""
     texts = MESSAGES.roadmap
-    lines = (*inbox.jobs, *inbox.people)
-    if not lines:
+    parts = [
+        texts.inbox_count.format(kind=kind.value, count=count)
+        for kind in InboxKind
+        if (count := sum(1 for line in lines if line.kind is kind))
+    ]
+    return texts.inbox_counts.format(counts=", ".join(parts))
+
+
+def render_inbox(inbox: Inbox, *, repo: str, kinds: frozenset[InboxKind] | None = None) -> str:
+    """The inbox as the report of the command: the title, the count of the lines of each class,
+    a section for each kind that has a line, the jobs' sections first, then the people's, and the
+    note on what the inbox leaves out. `kinds` keeps the lines of those classes only, and the
+    counts stay complete (#3494)."""
+    texts = MESSAGES.roadmap
+    every = (*inbox.jobs, *inbox.people)
+    if not every:
         return f"{texts.inbox_empty.format(repo=repo)}\n\n{texts.inbox_footer}"
+    lines = [line for line in every if kinds is None or line.kind in kinds]
     sections = [
         _render_section(kind, [line for line in lines if line.kind is kind])
         for kind in InboxKind
         if any(line.kind is kind for line in lines)
     ]
-    return "\n\n".join([texts.inbox_title.format(repo=repo), *sections, texts.inbox_footer])
+    return "\n\n".join(
+        [texts.inbox_title.format(repo=repo), _counts(every), *sections, texts.inbox_footer]
+    )
 
 
 __all__ = ["Inbox", "InboxKind", "InboxLine", "read_inbox", "render_inbox"]

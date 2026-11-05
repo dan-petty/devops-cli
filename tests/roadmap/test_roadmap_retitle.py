@@ -271,7 +271,12 @@ def test_the_inbox_lists_a_blocked_item_whose_title_summary_is_over_the_limit(
     number = _item(store, status="Blocked")
 
     inbox = read_inbox(
-        store, repo=REPO, now=datetime(2026, 11, 5, tzinfo=UTC), planned_limit=20, draft_days=7
+        store,
+        repo=REPO,
+        now=datetime(2026, 11, 5, tzinfo=UTC),
+        planned_limit=20,
+        draft_days=7,
+        wait_days=7,
     )
 
     assert [line.number for line in inbox.jobs if line.kind is InboxKind.BLOCKED] == [number]
