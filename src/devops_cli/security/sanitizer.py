@@ -13,8 +13,9 @@ pattern: `urllib.parse.urlsplit` in free text (`redact_text`) and `httpx2.URL` i
   password (httpx2 sends such a URL as Basic authentication). A token and a harmless name such as
   `git` in `ssh://git@host/` look the same to a parser, so the rule masks both. pip masks a user
   name with no password in the same way.
-- A URL with no userinfo stays as written. An `@` after the authority, as in a query, is not
-  userinfo.
+- A URL with no userinfo stays as written in `redact_text`. An `@` after the authority, as in a
+  query, is not userinfo. `mask_uri_credentials` fails closed for a text that has an `@` and no
+  userinfo, and returns `<masked-url>` (#1109).
 
 A user name with a `/`, `?` or `#` that is not percent-encoded is not valid userinfo. The parser
 reads it as part of the host or the path, so the rule cannot mask it.

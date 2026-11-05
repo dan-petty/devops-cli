@@ -43,7 +43,7 @@ The user name is masked in `redact_text` and in `mask_uri_credentials`, in every
 
 ### 4. An empty user name stays
 
-`http://@example.com/x` has an empty user name and no password. It holds no credential, so both functions return it as it was. The form `http://:@example.com/` also stays in `mask_uri_credentials`.
+`http://@example.com/x` has an empty user name and no password. It holds no credential, so `redact_text` returns it as it was. `mask_uri_credentials` keeps its fail-closed rule from #1109 and returns `<masked-url>` for a text that has an `@` and no userinfo, and this change does not touch that rule. The form `http://:@example.com/` has userinfo, so `mask_uri_credentials` returns it as it was.
 
 ## Risks / Trade-offs
 

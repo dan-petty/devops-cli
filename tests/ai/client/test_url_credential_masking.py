@@ -111,6 +111,21 @@ _DISPATCH: dict[str, Any] = {
             "http://***@example.com:8080/data",
         ),
         (
+            "http://@example.com/x",
+            "mask_uri",
+            "<masked-url>",
+        ),
+        (
+            "http://example.com:8080/p?email=a@example.com",
+            "mask_uri",
+            "<masked-url>",
+        ),
+        (
+            "http://@example.com/x",
+            "redact_text",
+            "http://@example.com/x",
+        ),
+        (
             "https://user:password@ss@example.com/x",
             "redact_text",
             "https://<masked-user>:<masked-password>@example.com/x",

@@ -19,16 +19,20 @@ The secret masking system SHALL mask the user name of a URL that has a user name
 - **WHEN** `mask_uri_credentials` processes `https://tok_0123456789abcdef@example.com:11434/api/embed`
 - **THEN** the result is `https://***@example.com:11434/api/embed`
 
-### Requirement: A URL with no user name stays as written
-The secret masking system SHALL leave a URL as written when it has no userinfo, when its user name is empty and it has no password, or when its only `@` is after the authority.
+### Requirement: A URL with no user name stays as written in a text
+`redact_text` and `mask_secrets` SHALL leave a URL as written when it has no userinfo, when its user name is empty and it has no password, or when its only `@` is after the authority. `mask_uri_credentials` SHALL fail closed for a text that has an `@` but no userinfo, and SHALL return `<masked-url>`.
 
-#### Scenario: An at sign in a query
-- **WHEN** secret masking processes `http://example.com:11434/p?email=a@example.com`
+#### Scenario: An at sign in a query in a text
+- **WHEN** `redact_text` processes `http://example.com:11434/p?email=a@example.com`
 - **THEN** the text comes back unchanged
 
-#### Scenario: An empty user name
-- **WHEN** secret masking processes `http://@example.com/x`
+#### Scenario: An empty user name in a text
+- **WHEN** `redact_text` processes `http://@example.com/x`
 - **THEN** the text comes back unchanged
+
+#### Scenario: An at sign and no userinfo in one URI
+- **WHEN** `mask_uri_credentials` processes `http://@example.com/x` or `http://example.com:11434/p?email=a@example.com`
+- **THEN** the result is `<masked-url>`
 
 ### Requirement: A URL with a user name and a password keeps its masking
 The secret masking system SHALL mask both the user name and the password of a URL that has both. `redact_text` SHALL show `<masked-user>:<masked-password>`. `mask_uri_credentials` SHALL keep the user name and show `user:***`. A password with no user name SHALL become `***` in `mask_uri_credentials`.
