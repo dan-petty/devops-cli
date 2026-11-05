@@ -874,7 +874,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: 'Item {{ with printf "max by (repo, state, plan) (last_over_time(devops_cli_roadmap_oldest_item_number{job=\"roadmap-service\", repo=%q, state=%q, plan=%q}[30m]))" $labels.repo $labels.state $labels.plan | query }}#{{ . | first | value | printf "%.0f" }} {{ end }}of {{ $labels.repo }} has been in state {{ $labels.state }} for {{ $value | humanizeDuration }}'
-              description: "An item of the roadmap has stayed in one state for more than 24 hours: a blocked item, or a ready item with a plan that waits for a person. Run devops roadmap inbox to see the item (k8s/README.md, Roadmap service)."
+              description: "An item of the roadmap stayed in one state for more than 24 hours. Run devops roadmap inbox to see the item (k8s/README.md, Roadmap service)."
       - name: mattermost
         rules:
           - alert: MattermostUnavailable

@@ -32,7 +32,7 @@ tests:
               plan: "false"
             exp_annotations:
               summary: "Item #2919 of example/app has been in state blocked for 1d 1h 0m 0s"
-              description: "An item of the roadmap has stayed in one state for more than 24 hours: a blocked item, or a ready item with a plan that waits for a person. Run devops roadmap inbox to see the item (k8s/README.md, Roadmap service)."
+              description: "An item of the roadmap stayed in one state for more than 24 hours. Run devops roadmap inbox to see the item (k8s/README.md, Roadmap service)."
 
   - name: A ready item with a plan over a day fires and names its item number
     interval: 1m
@@ -52,7 +52,7 @@ tests:
               plan: "true"
             exp_annotations:
               summary: "Item #2754 of example/app has been in state ready for 1d 1h 0m 0s"
-              description: "An item of the roadmap has stayed in one state for more than 24 hours: a blocked item, or a ready item with a plan that waits for a person. Run devops roadmap inbox to see the item (k8s/README.md, Roadmap service)."
+              description: "An item of the roadmap stayed in one state for more than 24 hours. Run devops roadmap inbox to see the item (k8s/README.md, Roadmap service)."
 
   - name: A ready item with no plan stays quiet, even when it is older than a day
     interval: 1m
@@ -106,4 +106,4 @@ tests:
               plan: "false"
             exp_annotations:
               summary: "Item of example/app has been in state blocked for 1d 1h 0m 0s"
-              description: "An item of the roadmap has stayed in one state for more than 24 hours: a blocked item, or a ready item with a plan that waits for a person. Run devops roadmap inbox to see the item (k8s/README.md, Roadmap service)."
+              description: "An item of the roadmap stayed in one state for more than 24 hours. Run devops roadmap inbox to see the item (k8s/README.md, Roadmap service)."
