@@ -265,6 +265,9 @@ CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
     CONST_MCP_EAGER_DOMAINS | CONST_MCP_LAZY_DOMAINS | {"github", "secrets", "benchmarks"}
 )
 # Command exposure table: (command_path, timeout_seconds, read_only, format_json)
+# A command that has an option to write is not read-only, because a role server and a client choose
+# tools by that flag. `tests/ai/mcp/test_mcp_read_only_write_options.py` finds such an option in
+# the published schema (#3235).
 CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool], ...]] = (
     (("ai", "ast", "graph"), 60.0, True, False),
     (("ai", "ast", "parse"), 60.0, True, True),
@@ -348,7 +351,8 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("k8s", "status"), 60.0, True, False),
     (("k8s", "teardown-stack"), 180.0, False, False),
     (("k8s", "validate"), 60.0, True, False),
-    (("pr", "check-readiness"), 60.0, True, False),
+    # `--auto-resolve` resolves review threads on GitHub (#3235).
+    (("pr", "check-readiness"), 60.0, False, False),
     (("pr", "checks"), 60.0, True, False),
     (("pr", "close"), 60.0, False, False),
     (("pr", "describe"), 60.0, True, False),
@@ -371,7 +375,8 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("review", "pr"), 300.0, False, False),
     (("review", "stats"), 60.0, True, False),
     (("roadmap", "intake"), 300.0, False, False),
-    (("roadmap", "refine"), 300.0, True, False),
+    # `--confirm` writes the proposed designs to GitHub (#3235).
+    (("roadmap", "refine"), 300.0, False, False),
     (("roadmap", "run"), 300.0, True, False),
     (("sandbox", "deploy"), 300.0, False, False),
     (("sandbox", "exec"), 300.0, False, False),
@@ -396,7 +401,8 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("tf", "cost", "breakdown"), 300.0, True, True),
     (("tf", "notify-plan"), 60.0, True, False),
     (("tf", "output"), 30.0, True, False),
-    (("tf", "plan"), 300.0, True, False),
+    # `--out` writes the plan to a file (#3235).
+    (("tf", "plan"), 300.0, False, False),
     (("tls", "inspect"), 30.0, True, False),
     (("valkey", "flush"), 30.0, False, False),
     (("valkey", "get"), 30.0, True, False),
