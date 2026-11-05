@@ -33,7 +33,7 @@ Kind: documents. Changes: `src/devops_cli/roadmap/implement.py`, `src/devops_cli
 
 Kind: documents.
 
-- [ ] 4.1 Archive the change with `uv run devops openspec archive 3392-accept-clean-branch-update-merge`.
+- [x] 4.1 Archive the change with `uv run devops openspec archive 3392-accept-clean-branch-update-merge`.
   - Verification: `uv run devops openspec check`
 
 ## Workflow follow-up

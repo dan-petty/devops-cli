@@ -1,7 +1,8 @@
 ## MODIFIED Requirements
 
 ### Requirement: A closed item loses its staged branch when only the App wrote to it
-In each run the job SHALL look at the staged branch of each closed item whose record holds `stage.branch`. When every commit of the branch past `origin/<default branch>` has the identity of the session as its author, or is a clean merge, the job SHALL close the draft pull request and delete the branch. A clean merge is a merge commit with two parents whose tree is the tree that `git merge-tree --write-tree` gives for those parents. When any other commit exists, the job SHALL keep both and say so in the plan.
+
+In each run the job SHALL look at the staged branch of each closed item whose record holds `stage.branch`. When every commit of the branch past `origin/<default branch>` has the identity of the session as its author or is a clean merge, the job SHALL close the draft pull request and delete the branch. A clean merge is a merge commit whose tree is the one that `git merge-tree --write-tree` gives for its two parents. When any other commit exists, the job SHALL keep both and say so in the plan.
 
 #### Scenario: Only the App wrote to the branch
 - **WHEN** the item is closed and its staged branch holds one commit by the session identity

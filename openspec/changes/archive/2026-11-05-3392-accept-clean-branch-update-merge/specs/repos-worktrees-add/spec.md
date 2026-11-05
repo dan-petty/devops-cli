@@ -1,7 +1,8 @@
 ## MODIFIED Requirements
 
 ### Requirement: A staged branch is taken over
-When `origin` has the branch `<type>/N-<slug>` for issue N, and every commit of it past `origin/main` has the author `<service.github_app.slug>[bot]` or is a clean merge, `add N` SHALL create the worktree `w-N` on that branch, with `origin/<branch>` as its upstream. A clean merge is a merge commit with two parents whose tree is the tree that `git merge-tree --write-tree` gives for those parents. The branch SHALL have at least one commit by the App. The output and the JSON report SHALL say that the command took over a staged branch, and SHALL give the number of commits by the App. The same rule SHALL take over the App's commits of a stopped implement run.
+
+When `origin` has the branch `<type>/N-<slug>` for issue N, and every commit of it past `origin/main` is by `<service.github_app.slug>[bot]` or is a clean merge, `add N` SHALL create the worktree `w-N` on that branch, with `origin/<branch>` as its upstream. A clean merge is a merge commit whose tree is the one that `git merge-tree --write-tree` gives for its two parents. The branch SHALL have at least one commit by the App. The same rule SHALL apply to a stopped implement run.
 
 #### Scenario: A branch with only the App's commits
 - **WHEN** `origin` has `feat/2657-staged` with two commits by `devops-roadmap[bot]` past `origin/main`, `service.github_app.slug` is `devops-roadmap`, and the user runs `add 2657`

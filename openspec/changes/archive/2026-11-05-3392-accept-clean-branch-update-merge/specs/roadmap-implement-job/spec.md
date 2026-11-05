@@ -1,7 +1,8 @@
 ## MODIFIED Requirements
 
 ### Requirement: The job leaves out an item and says why
-The job SHALL leave out, with a reason in the plan, an item that the filter names and that is neither Ready nor Planned, is neither Staged nor Planned, holds `implement.stopped`, has an untrusted author, has a commit past the default branch by anyone but the App, other than a clean merge, is held by a worktree, or whose pull request is not an open draft. A clean merge is a merge commit with two parents whose tree is the tree that `git merge-tree --write-tree` gives for those parents, so the merge changes no file by hand and resolves no conflict. It SHALL also leave out a Planned item with a branch or worktree that holds it, an archived change, no branch name, no `tasks.md`, or no unticked task.
+
+The job SHALL leave out, with a reason in the plan, an item that the filter names and that is neither Ready nor Planned, is neither Staged nor Planned, holds `implement.stopped`, has an untrusted author, has a commit past the default branch by anyone but the App other than a clean merge, is held by a worktree, or whose pull request is not an open draft. A clean merge is a merge commit whose tree is the one that `git merge-tree --write-tree` gives for its two parents.
 
 #### Scenario: An item that is not Staged
 - **WHEN** a Ready P1 bug of low effort has no `stage.pr` in its record and no change folder on `origin/main`
@@ -35,6 +36,24 @@ The job SHALL leave out, with a reason in the plan, an item that the filter name
 - **WHEN** the comment `implement: retry` comes from a user who is not the owner, a member or a collaborator
 - **THEN** the item stays left out
 
+#### Scenario: A closed Planned item
+- **WHEN** `--item N` names a closed issue whose change folder is on `origin/main`
+- **THEN** the plan leaves it out because it is closed
+
+#### Scenario: The item of a Job that runs
+- **WHEN** the Service set an item In Progress for the Job it made, and the Job plans the item with `--item`
+- **THEN** the plan selects the item
+
+#### Scenario: An item that is In Progress with no Job
+- **WHEN** an item is In Progress and its record names no Job
+- **THEN** the plan leaves it out with its Status
+
+## ADDED Requirements
+
+### Requirement: The job leaves out a Planned item that is held, archived or incomplete
+
+The job SHALL leave out, with a reason in the plan, a Planned item that a branch or worktree holds, that is archived, that has no branch name or no `tasks.md`, or whose every task is ticked.
+
 #### Scenario: A Planned item that another agent holds
 - **WHEN** the change folder of a Ready item is on `origin/main` and `origin` holds a branch `fix/<issue>-other` for it, which is not its recorded branch
 - **THEN** the plan leaves the item out with the reason of the held issue
@@ -50,15 +69,3 @@ The job SHALL leave out, with a reason in the plan, an item that the filter name
 #### Scenario: A Planned item with every task ticked
 - **WHEN** the `tasks.md` of the change folder on `origin/main` has no unticked task
 - **THEN** the plan leaves the item out and says that every task is ticked
-
-#### Scenario: A closed Planned item
-- **WHEN** `--item N` names a closed issue whose change folder is on `origin/main`
-- **THEN** the plan leaves it out because it is closed
-
-#### Scenario: The item of a Job that runs
-- **WHEN** the Service set an item In Progress for the Job it made, and the Job plans the item with `--item`
-- **THEN** the plan selects the item
-
-#### Scenario: An item that is In Progress with no Job
-- **WHEN** an item is In Progress and its record names no Job
-- **THEN** the plan leaves it out with its Status
