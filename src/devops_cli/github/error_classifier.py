@@ -273,9 +273,9 @@ def refused_retry(
     method: str,
     path: str,
 ) -> GitHubRateLimitError:
-    """The ledger's refusal to wait as long as GitHub asked before a retry, carrying the request's
-    path and what failed it: the HTTP status that asked for the wait, or the class of a lost
-    connection, which has no status (#3506)."""
+    """The ledger's refusal to wait as long as GitHub asked before a retry. It carries the request's
+    path and what failed the request. That is the HTTP status, or the class of a lost connection,
+    which has no status (#3506)."""
     request = FailedRequest(method, path)
     if isinstance(error, HTTPException):
         cause, failed = f"HTTP {int(error.status_code)}", request.details(error)

@@ -14,13 +14,14 @@ names. gidgethub's `handle_rate_limit_error` hook retries a rate limit, and a re
 with a 5xx, up to `DEFAULT_GH_MAX_RETRIES` times, waiting what the ledger's `retry_delay` gives;
 a rate limit's wait holds every request of the identity, from any thread, until it ends, also
 when the request is not sent again (#2474, #2523).
-A write that got a 5xx may have been applied, so it is not sent again. A GET whose connection is
-lost before its answer is read (`httpx2.RemoteProtocolError`, `httpx2.ReadError` or
-`httpx2.WriteError`) is sent again by `_request`, up to `DEFAULT_GH_MAX_RETRIES` times, after the
-ledger's wait from the read floor; a lost write is not sent again, since GitHub may have applied
-it. Each gidgethub attempt has its own budget of these resends, so one GET sends at most nine
-requests (#3506). A refused connect, a connect or read timeout and a refused origin are not
-retried. Every use of the ledger runs in a worker thread, since its
+A write that got a 5xx may have been applied, so it is not sent again. `_request` sends a GET
+again when its connection is lost before its answer is read. The lost connections are
+`httpx2.RemoteProtocolError`, `httpx2.ReadError` and `httpx2.WriteError`. The session waits the
+ledger's delay from the read floor, then sends the GET again, up to `DEFAULT_GH_MAX_RETRIES`
+times. A lost write is not sent again, because GitHub may have applied it. Each gidgethub attempt
+has its own budget of these resends, so one GET sends at most nine requests (#3506). The session
+does not retry a refused connect, a connect or read timeout, or a refused origin. Every use of the
+ledger runs in a worker thread, since its
 lock may be held through another thread's quota refresh. What still fails is raised as the error
 `github.error_classifier` names for it.
 
@@ -105,9 +106,9 @@ _API_ORIGIN: Final[httpx2.Origin] = httpx2.URL(CONST_URL_GITHUB_API_BASE).origin
 # (httpx2), and an answer that does not decode (ValueError, LookupError; see the classifier).
 _UNREAD: Final = (httpx2.HTTPError, ValueError, LookupError)
 
-# A connection that ended or failed once the request was on the wire, and a request that did not
-# go out whole: what a GET is sent again after (#3506). A refused connect, a timeout and a local
-# protocol error are not in it.
+# The connection errors after which a GET is sent again (#3506). A connection that ended or failed
+# after the request went out, or a request that did not go out whole, is in it. A refused connect,
+# a timeout and a local protocol error are not.
 _LOST_CONNECTION: Final = (httpx2.RemoteProtocolError, httpx2.ReadError, httpx2.WriteError)
 
 # A path's template delimiters, percent-encoded, so gidgethub's expansion keeps them as text.
@@ -237,10 +238,10 @@ def retry_wait(
 def lost_connection_wait(
     error: httpx2.TransportError, *, method: str, url: str, attempt: int, identity: str
 ) -> float | None:
-    """The wait before a GET whose connection was lost is sent again, recorded as a throttle on
-    the identity's ledger, or None when it is not sent again: any method but GET, since GitHub may
-    have applied a write it did not answer, and a loss after `DEFAULT_GH_MAX_RETRIES` resends. The
-    wait is the ledger's delay from the read floor, as a read's 5xx waits. Raises
+    """Return the wait before a lost GET is sent again, or None when it is not sent again. The
+    wait is recorded as a throttle on the identity's ledger. A write is not sent again, because
+    GitHub may have applied it. A GET is not sent again after `DEFAULT_GH_MAX_RETRIES` resends.
+    The wait is the ledger's delay from the read floor, as a read's 5xx waits. Raises
     GitHubRateLimitError, naming the request, for a wait past `max_rate_limit_wait`."""
     if method != "GET" or attempt > DEFAULT_GH_MAX_RETRIES:
         return None
@@ -312,8 +313,8 @@ class SessionGitHubAPI(GitHubAPI):
     async def _resend_after_lost(
         self, error: httpx2.TransportError, *, method: str, url: str, attempt: int
     ) -> bool:
-        """Wait the ledger's delay before a lost GET is sent again, and log the wait; False when
-        the request is not sent again, so its lost connection raises."""
+        """Wait the ledger's delay before a lost GET is sent again, and log the wait. Return False
+        when the request is not sent again, so its lost connection raises."""
         wait = await anyio.to_thread.run_sync(
             partial(
                 lost_connection_wait,
