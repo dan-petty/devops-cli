@@ -1,0 +1,22 @@
+# Design
+
+## Decisions
+
+- **Count a line added under `tests/` and under `openspec/specs/` as a guardrail, and name each as its own surface (`tests/` and `openspec/specs/`).**: `docs/SELF_IMPROVEMENT.md` says that a check that fails when the problem returns guards a defect. A regression test is that check, and a living requirement is the record of a check that a test holds. The report names the surface, so a person sees which guardrail the pull request added.
+- **Add the two surfaces to `CONST_HARDENING_SURFACES` and two prefix tests to `match_hardening_surface`.**: `audit_pr_hardening` seeds one count for each constant entry and reads the surface from `match_hardening_surface`. The two edits are the whole code change, and the JSON output of the command gets the two keys with no other edit.
+- **Keep `openspec/changes/` outside the surfaces.**: Every item pull request writes a change folder (`AGENTS.md` rule 1). The 8 pull requests of the family add between 2 and 176 lines there. If the folder counted, every defect pull request would pass and the audit would check nothing.
+- **Write the report to the job summary, and exit 0 for an unhardened pull request.**: The audit runs after the merge, so a failure cannot block it. The command already exits 0 for an unhardened pull request unless `--fail-on-missing` is set, so the step runs the command, appends its output to `$GITHUB_STEP_SUMMARY`, and keeps the exit status of the command. A real error, such as a pull request that GitHub cannot read, still fails the step.
+- **Keep `--fail-on-missing` in the command, and stop passing it in the workflow.**: A person or another job can still ask the command to fail. The issue asks only that the workflow stops passing the option, and the option is a documented flag of the command.
+- **Drop `issues: write` from the workflow.**: No step creates or edits an issue after the change. The workflow keeps `contents: read` and `pull-requests: read`, which `gh pr view` needs.
+- **Cite `docs/SELF_IMPROVEMENT.md` in a comment at the head of the workflow, and cite no `AGENTS.md`.**: The document owns self-hardening, and the routing table of `AGENTS.md` sends the reader to it. The comment also says why the job writes a summary and files no issue.
+- **Test the real case with a recorded file list.**: `tests/fixtures/github/pull_request_3467_view.json` holds the answer of `gh pr view 3467 --json number,title,labels,files,state,mergedAt`, which is what `devops pr hardening-report` reads. The audit takes a file list as input, so the test runs offline and needs no token.
+- **Change the old tests with the code.**: `test_audit_pr_hardening_missing_additions` held a `tests/` line as an example of an unhardened pull request. The example now holds a line under `openspec/changes/` and a line in a document that is no surface. The contract of the workflow asked for `--fail-on-missing` and for the issue step. It now asks for the summary, for no issue and for no write permission.
+
+## Rejected alternatives
+
+- **Count `openspec/changes/` as well.**: Each of the 8 pull requests of the family adds lines there, because each writes its change folder. Every defect pull request would count as hardened.
+- **Delete the audit.**: `AGENTS.md` rule 5 gives only the owner the right to lower a quality threshold, and the issue keeps the audit.
+- **Keep the issue step and fix its text.**: The filed issue still has no root cause and still uses an intake round. The runner has no model, so it cannot write a root cause.
+- **Fail the report step on an unhardened pull request.**: The merge has happened, so a failed post-merge run blocks nothing and shows a red run for a finished merge. The issue asks for no `--fail-on-missing`.
+- **Remove `--fail-on-missing` from the command.**: The issue does not ask for it, and the option has users outside the workflow.
+- **Read pull request 3467 from GitHub in the test.**: The test would need a token and a network, and tests reach no network.
