@@ -2974,7 +2974,7 @@ class RoadmapMessages:
     )
     stage_returned_blocked: str = (
         "The premise of this item needs {paths}, and the staging commit lacks it. The plan of "
-        "{issues} creates it. The stage job returns this item to New and plans no change until "
+        "{issues} creates it. The stage job returns this item to New. It plans no change until "
         "each of {issues} closes."
     )
     stage_heading_returned: str = "## Returned to New, with a dependency"
@@ -3370,8 +3370,8 @@ class RoadmapMessages:
         "no dependency."
     )
     stage_problem_creates: str = (
-        "The open issue #{number} plans to create `{path}`, and this plan creates it too. Remove "
-        "the path from this plan, or wait until #{number} closes."
+        "The open issue #{number} plans to create `{path}`. This plan creates it too. Remove the "
+        "path from this plan, or wait until #{number} closes."
     )
     stage_path_same_name: str = "These files have the same name: {names}."
     stage_path_no_same_name: str = "No file has this name."

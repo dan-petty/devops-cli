@@ -78,5 +78,5 @@ Reads: `src/devops_cli/roadmap/planned.py`, `tests/roadmap/test_roadmap_stage_pl
 
 Reads: `docs/ROADMAP_WORKFLOW.md`. Changes: `docs/ROADMAP_WORKFLOW.md`.
 
-- [ ] 9.1 Add a paragraph to `docs/ROADMAP_WORKFLOW.md` that tells how the stage job returns an item whose premise needs an open plan, and how the selection waits on `refine.blocked_by`. Write it in ASD-STE100, with at most six sentences in each paragraph
+- [x] 9.1 Add a paragraph to `docs/ROADMAP_WORKFLOW.md` that tells how the stage job returns an item whose premise needs an open plan, and how the selection waits on `refine.blocked_by`. Write it in ASD-STE100, with at most six sentences in each paragraph
   - Verification: `uv run devops ci docs`
