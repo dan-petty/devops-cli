@@ -13,9 +13,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/clone_git.py`, `src/devops_cli/ro
 
 Kind: behavior. Reads: `src/devops_cli/git/branch_authors.py`, `src/devops_cli/git/worktree_add.py`. Changes: `tests/core/test_repos_worktrees_add.py`, `src/devops_cli/git/worktree_add.py`, `src/devops_cli/roadmap/request_plan.py`.
 
-- [ ] 2.1 Write the failing tests in `tests/core/test_repos_worktrees_add.py`: a clean merge by a person is taken over, with the commit count of the App only; a merge by a person that changes a file is refused and names the author; a merge by a person that resolves a conflict is refused and names the author. Update the dry-run test to the new log format. The clean-merge test and the dry-run test fail on the base.
+- [x] 2.1 Write the failing tests in `tests/core/test_repos_worktrees_add.py`: a clean merge by a person is taken over, with the commit count of the App only; a merge by a person that changes a file is refused and names the author; a merge by a person that resolves a conflict is refused and names the author. Update the dry-run test to the new log format. The clean-merge test and the dry-run test fail on the base.
   - Verification: `uv run devops ci test tests/core/test_repos_worktrees_add.py` fails on the clean-merge test and on the dry-run test.
-- [ ] 2.2 Make `_commands` and the takeover in `src/devops_cli/git/worktree_add.py` read the log with the format of `branch_authors.py` and call `person_authors`. Make the implement dry-run plan in `src/devops_cli/roadmap/request_plan.py` list the same format.
+- [x] 2.2 Make `_commands` and the takeover in `src/devops_cli/git/worktree_add.py` read the log with the format of `branch_authors.py` and call `person_authors`. Make the implement dry-run plan in `src/devops_cli/roadmap/request_plan.py` list the same format.
   - Verification: `uv run devops ci test tests/core/test_repos_worktrees_add.py tests/roadmap/test_roadmap_dry_runs.py tests/roadmap/test_roadmap_implement_selection.py` passes.
 
 ## 3. Documents

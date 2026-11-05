@@ -130,6 +130,89 @@ def _push_branch(origin: Path, tmp_path: Path, branch: str, *authors: str) -> st
     return _git_out(work, "rev-parse", "HEAD").stdout.strip()
 
 
+def _clone_for_merge(origin: Path, tmp_path: Path, name: str) -> Path:
+    """A fresh clone of `origin` in `tmp_path`, on `main`."""
+    work = tmp_path / name
+    subprocess.run(["git", "clone", "-q", str(origin), str(work)], check=True)
+    return work
+
+
+def _as(work: Path, author: str, *args: str) -> None:
+    """Run `git <args>` in `work` with the identity of `author`, and fail on an error."""
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(work),
+            "-c",
+            f"user.name={author}",
+            "-c",
+            "user.email=author@example.com",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _advance_main(work: Path, name: str, text: str) -> None:
+    """Commit `name` with `text` to `main` of `origin` and push it, so `main` moves past a branch."""
+    subprocess.run(["git", "-C", str(work), "checkout", "-q", "main"], check=True)
+    (work / name).write_text(text, encoding="utf-8")
+    _as(work, "Other", "add", "-A")
+    _as(work, "Other", "commit", "-q", "-m", f"main: {name}")
+    subprocess.run(["git", "-C", str(work), "push", "-q", "origin", "main"], check=True)
+
+
+def _push_merge(
+    origin: Path, tmp_path: Path, branch: str, author: str, *, by_hand: str | None = None
+) -> str:
+    """Push to `branch` of `origin` a merge of `main` by `author`, as the Update branch button does,
+    and return the tip. `main` moves first, so the merge is not empty. `by_hand` names a file that
+    the merge commit also writes, so the merge changes a file by hand."""
+    work = _clone_for_merge(origin, tmp_path, f"merge-{branch.replace('/', '-')}")
+    _advance_main(work, "main-advance.txt", "advance\n")
+    subprocess.run(
+        ["git", "-C", str(work), "checkout", "-q", "-b", branch, f"origin/{branch}"], check=True
+    )
+    _as(work, author, "merge", "-q", "--no-ff", "--no-commit", "origin/main")
+    if by_hand is not None:
+        (work / by_hand).write_text(f"{by_hand}\n", encoding="utf-8")
+    _as(work, author, "add", "-A")
+    _as(work, author, "commit", "-q", "-m", "Update branch")
+    subprocess.run(["git", "-C", str(work), "push", "-q", "origin", branch], check=True)
+    return _git_out(work, "rev-parse", "HEAD").stdout.strip()
+
+
+def _push_conflict_merge(origin: Path, tmp_path: Path, branch: str, author: str) -> str:
+    """Push to `branch` of `origin` a merge of `main` by `author` that resolves a conflict, and
+    return the tip. The App commit on `branch` and a commit on `main` write `shared.txt` with other
+    text, so the merge conflicts, and `author` writes the resolved text."""
+    work = _clone_for_merge(origin, tmp_path, f"conflict-{branch.replace('/', '-')}")
+    subprocess.run(
+        ["git", "-C", str(work), "checkout", "-q", "-b", branch, f"origin/{branch}"], check=True
+    )
+    (work / "shared.txt").write_text("branch side\n", encoding="utf-8")
+    _as(work, BOT, "add", "-A")
+    _as(work, BOT, "commit", "-q", "-m", "work")
+    subprocess.run(["git", "-C", str(work), "push", "-q", "origin", branch], check=True)
+    _advance_main(work, "shared.txt", "main side\n")
+    subprocess.run(["git", "-C", str(work), "checkout", "-q", branch], check=True)
+    merge = subprocess.run(
+        ["git", "-C", str(work), "merge", "-q", "--no-ff", "--no-commit", "origin/main"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert merge.returncode == 1, merge.stdout
+    (work / "shared.txt").write_text("resolved\n", encoding="utf-8")
+    _as(work, author, "add", "-A")
+    _as(work, author, "commit", "-q", "-m", "Resolve the conflict")
+    subprocess.run(["git", "-C", str(work), "push", "-q", "origin", branch], check=True)
+    return _git_out(work, "rev-parse", "HEAD").stdout.strip()
+
+
 def test_add_creates_the_worktree_of_the_issue_at_the_fetched_tip(
     cli: Cli, repo: Path, origin: Path, git: Git, tmp_path: Path, standard_dir: Path
 ) -> None:
@@ -534,7 +617,7 @@ def test_a_dry_run_names_the_read_of_the_authors_and_the_staged_branch(
 ) -> None:
     said = _said(_add(cli, repo, extra=("--dry-run",)))
 
-    assert f"log --format=%an origin/main..origin/{STAGED}" in said
+    assert f"log --format=%an%x1f%P%x1f%T origin/main..origin/{STAGED}" in said
     assert "staged branch" in said
 
 
@@ -625,6 +708,53 @@ def test_a_branch_with_a_commit_by_a_person_is_refused_and_names_the_author(
     cli: Cli, repo: Path, origin: Path, tmp_path: Path, standard_dir: Path
 ) -> None:
     _push_branch(origin, tmp_path, STAGED, BOT, "Jane Doe")
+
+    result = _add(cli, repo)
+
+    assert result.exit_code == 1
+    assert f"origin/{STAGED}" in _said(result)
+    assert "Jane Doe" in _said(result)
+    assert not standard_dir.exists()
+    assert _branches(repo) == ["main"]
+
+
+@pytest.mark.usefixtures("app")
+def test_a_clean_merge_by_a_person_is_taken_over(
+    cli: Cli, repo: Path, origin: Path, tmp_path: Path, standard_dir: Path
+) -> None:
+    _push_branch(origin, tmp_path, STAGED, BOT)
+    tip = _push_merge(origin, tmp_path, STAGED, "Jane Doe")
+
+    result = _add(cli, repo, extra=("--json",))
+
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.output)
+    assert (report["status"], report["commits"]) == ("took over", 1)
+    assert _git_out(standard_dir, "rev-parse", "HEAD").stdout.strip() == tip
+
+
+@pytest.mark.usefixtures("app")
+def test_a_person_merge_that_changes_a_file_refuses_the_takeover(
+    cli: Cli, repo: Path, origin: Path, tmp_path: Path, standard_dir: Path
+) -> None:
+    _push_branch(origin, tmp_path, STAGED, BOT)
+    _push_merge(origin, tmp_path, STAGED, "Jane Doe", by_hand="hand-edit.txt")
+
+    result = _add(cli, repo)
+
+    assert result.exit_code == 1
+    assert f"origin/{STAGED}" in _said(result)
+    assert "Jane Doe" in _said(result)
+    assert not standard_dir.exists()
+    assert _branches(repo) == ["main"]
+
+
+@pytest.mark.usefixtures("app")
+def test_a_person_merge_that_resolves_a_conflict_refuses_the_takeover(
+    cli: Cli, repo: Path, origin: Path, tmp_path: Path, standard_dir: Path
+) -> None:
+    _push_branch(origin, tmp_path, STAGED, BOT)
+    _push_conflict_merge(origin, tmp_path, STAGED, "Jane Doe")
 
     result = _add(cli, repo)
 

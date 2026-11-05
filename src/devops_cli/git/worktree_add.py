@@ -40,6 +40,7 @@ from devops_cli.core.repo import get_repo_origin_name, resolve_data_path
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitOperationError
+from devops_cli.git.branch_authors import LOG_FORMAT, person_authors
 from devops_cli.git.branch_form import BranchParts, branch_name, issue_of_branch, parse_branch
 from devops_cli.git.worktree_inventory import (
     CONST_REFS_HEADS_PREFIX,
@@ -183,7 +184,7 @@ def _commands(repo_root: Path, branch: str, directory: Path) -> list[list[str]]:
     return [
         [*git, "ls-remote", "--heads", CONST_GIT_REMOTE_ORIGIN],
         [*git, "fetch", CONST_GIT_REMOTE_ORIGIN, CONST_GIT_MAIN_BRANCH],
-        [*git, "log", "--format=%an", f"{_main_ref()}..{CONST_GIT_REMOTE_ORIGIN}/{branch}"],
+        [*git, "log", LOG_FORMAT, f"{_main_ref()}..{CONST_GIT_REMOTE_ORIGIN}/{branch}"],
         [*git, "worktree", "add", "--no-track", "-b", branch, str(directory), _main_ref()],
     ]
 
@@ -338,7 +339,8 @@ def _take_over(
             f"+{CONST_REFS_HEADS_PREFIX}{branch}:refs/remotes/{remote_branch}",
         ]
     )
-    authors = _run([*git, "log", "--format=%an", f"{_main_ref()}..{remote_branch}"]).splitlines()
+    log = _run([*git, "log", LOG_FORMAT, f"{_main_ref()}..{remote_branch}"])
+    authors = person_authors(_git(repo_root), log)
     _check_authors(issue, branch, authors)
     _clear_stray_branch(repo_root, branch, remote_heads)
     _run([*git, "worktree", "add", "--track", "-b", branch, str(directory), remote_branch])
