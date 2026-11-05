@@ -1551,3 +1551,101 @@ def test_a_plan_whose_test_path_no_file_holds_is_left_out_and_names_the_path(
     assert plan.selected == ()
     (left,) = plan.left_out
     assert "tests/commands/test_shout.py" in left.reason
+
+
+# ── The reads of the plan check for a run (#3430) ─────────────────────────────────────────
+
+DEFAULT_REV = "origin/main"
+BASE_SPEC = f"{DEFAULT_REV}:openspec/specs/roadmap-refine/spec.md"
+
+
+def _git_calls(world: JobWorld, since: int) -> list[tuple[str, ...]]:
+    """The git commands that the process edge saw after call number `since`, without `git -C
+    <path>`."""
+    return [call.argv[3:] for call in world.programs.calls[since:] if call.argv[0] == "git"]
+
+
+def _listings(commands: list[tuple[str, ...]], rev: str) -> int:
+    """How many commands list the files of `rev` with `git ls-tree -r`."""
+    return sum(1 for command in commands if command[:2] == ("ls-tree", "-r") and command[-1] == rev)
+
+
+def _plan_two_planned_items(world: JobWorld) -> tuple[int, list[tuple[str, ...]]]:
+    """Add a second Planned item to the world, and plan a run over both. Return the number of
+    the second item and the git commands of the run."""
+    second = seed_staged(world.store, record=False)
+    merge_plan(world.repo, second, slug="the-second-plan")
+    since = len(world.programs.calls)
+    plan = world.plan(limit=2)
+    assert sorted(target.item.number for target in plan.selected) == [world.number, second]
+    return second, _git_calls(world, since)
+
+
+def test_a_run_over_two_planned_items_lists_the_default_tree_once(planned_world: JobWorld) -> None:
+    _, commands = _plan_two_planned_items(planned_world)
+
+    assert _listings(commands, DEFAULT_REV) == 1
+
+
+def test_a_run_over_two_planned_items_reads_each_base_spec_once(planned_world: JobWorld) -> None:
+    _, commands = _plan_two_planned_items(planned_world)
+
+    assert commands.count(("show", BASE_SPEC)) == 1
+
+
+def test_a_run_over_two_staged_items_lists_the_branch_of_each_item(job_world: JobWorld) -> None:
+    second = seed_staged(job_world.store)
+    push_staged_branch(job_world.repo, number=second)
+    since = len(job_world.programs.calls)
+
+    plan = job_world.plan(limit=2)
+
+    commands = _git_calls(job_world, since)
+    assert sorted(target.item.number for target in plan.selected) == [job_world.number, second]
+    assert [_listings(commands, f"origin/{branch_of(n)}") for n in (job_world.number, second)] == [
+        1,
+        1,
+    ]
+    assert _listings(commands, DEFAULT_REV) == 1
+
+
+def test_a_run_gives_each_item_the_target_or_reason_of_a_run_over_that_item_alone(
+    planned_world: JobWorld,
+) -> None:
+    """The run over three items (a Planned plan that passes, a Planned plan with a placeholder task,
+    and a Staged plan that passes) decides each item as a run that names the item does."""
+    bad = seed_staged(planned_world.store, record=False)
+    merge_plan(planned_world.repo, bad, tasks=PLACEHOLDER_TASKS, slug="the-bad-plan")
+    staged = seed_staged(planned_world.store)
+    push_staged_branch(planned_world.repo, number=staged)
+    numbers = [planned_world.number, bad, staged]
+
+    together = planned_world.plan(limit=len(numbers))
+    alone = [planned_world.plan(item=number) for number in numbers]
+
+    assert {t.item.number: t.branch for t in together.selected} == {
+        t.item.number: t.branch for plan in alone for t in plan.selected
+    }
+    assert {x.number: x.reason for x in together.left_out} == {
+        x.number: x.reason for plan in alone for x in plan.left_out
+    }
+    assert FIRST_PROBLEM in {x.number: x.reason for x in together.left_out}[bad]
+
+
+def test_a_default_tree_that_git_cannot_list_leaves_each_planned_item_out_and_ends_no_run(
+    planned_world: JobWorld,
+) -> None:
+    second = seed_staged(planned_world.store, record=False)
+    merge_plan(planned_world.repo, second, slug="the-second-plan")
+    planned_world.programs.answer(
+        lambda call: call.argv[3:5] == ("ls-tree", "-r") and call.argv[-1] == DEFAULT_REV,
+        ProcessAnswer(returncode=128, stderr="fatal: not a tree object"),
+    )
+
+    plan = planned_world.plan(limit=2)
+
+    assert plan.selected == ()
+    assert {x.number: "cannot be read from git" in x.reason for x in plan.left_out} == {
+        planned_world.number: True,
+        second: True,
+    }
