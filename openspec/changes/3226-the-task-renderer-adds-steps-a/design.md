@@ -2,20 +2,21 @@
 
 ## Decisions
 
-- **The renderer decides the tuicr bullet from the paths of the groups.**: openspec/config.yaml allows the bullet only for a change that alters code, and a plan for a documents-only change has no code diff to review.
-- **The renderer writes the Workflow follow-up section only when it holds a bullet.**: An empty heading is text that the plan does not need, and the bullet is the only content the section carries.
-- **The docs regeneration step follows the paths in the commands package and the lang package.**: Only a change of a command, an option or a message changes the generated documentation, so a documents-only group adds nothing to it.
-- **The renderer prepends the fixed verb Edit when the first word of the documentation text is a path.**: A root document such as SECURITY.md holds no slash, so a test on a slash alone leaves it without a verb.
-- **The renderer keeps a documentation text whose first word is a verb.**: A second verb gives Edit Document, which breaks the task grammar and the rule of AGENTS.md.
-- **The stage prompt states the documentation rule and the renderer keeps its own check.**: A prompt guides the model and cannot guarantee that a rendered task starts with a verb.
-- **The plan reader derives its document mark from the document-work template.**: The reader separates the document work from the rest of the task, and the template splits into the document work and the regeneration suffix.
-- **The plan carries no documentation task.**: The change edits an internal task template and a stage prompt, and no committed document describes them. The implement job runs the docs generation with its checks and commits any file that it changes.
+- **The renderer decides the tuicr bullet from the paths of the groups.** openspec/config.yaml allows the bullet for a change that alters code. A plan that changes no path under `src/` has no code to review in tuicr.
+- **The renderer writes the Workflow follow-up heading only when it holds a bullet.** An empty heading is text that the plan does not need.
+- **The regeneration step follows the paths under `src/devops_cli/commands/` and `src/devops_cli/lang/`.** A change to a command, an option or a message changes the generated documentation. A documents-only group changes none of it.
+- **The renderer prepends the fixed verb `Edit` when the first word of a documentation text is a path.** A path is a word that holds `/` or ends in a dot and letters. A root document such as `SECURITY.md` holds no slash, so a test on the slash alone would leave it with no verb. The renderer writes the path in a code span, as the planning rules require.
+- **The renderer keeps a documentation text whose first word is not a path.** A text that starts with a verb, such as `Document the fix in `docs/TESTING.md``, stays as written.
+- **The stage prompt states the documentation rule, and the renderer keeps its own rule.** A prompt guides the model. It cannot guarantee that a rendered task starts with a verb.
+- **The plan reader derives its document mark from the regeneration template.** The mark is the suffix `, and run `uv run devops docs generate --sync-readme``. A documents-only task has no mark, so the reader returns its whole text, and the verb stays in the work.
+- **The planning rules in openspec/config.yaml state the same two rules.** AGENTS.md rule 8 requires a document that a change makes wrong to change in the same pull request.
 
 ## Rejected alternatives
 
-- **Validate the model's documentation text for an English verb.**: The context shows that the model writes the field and that the prompt already asks for a document, so a natural-language check stays fragile and accepts a bad sentence, while the fixed Edit verb is deterministic.
-- **Prepend Edit to every documentation text.**: The text Document the fix in docs/TESTING.md at tests/roadmap/test_roadmap_stage_plan.py:726 would render as Edit Document, which breaks the task grammar.
-- **Test the first word for a slash only.**: SECURITY.md is a file of the staging commit and holds no slash, so the test would leave it without a verb.
-- **Rely on the prompt alone.**: openspec/config.yaml shows the prompt as guidance, and the rendered tasks.md is what the plan check and the task grammar read, so a prompt cannot hold the rule.
-- **Add the docs regeneration step to every group that names a document.**: A group that changes only SECURITY.md changes no command, an option or a message, so the step regenerates documentation that the change does not touch.
-- **Add the tuicr review bullet to every plan.**: openspec/config.yaml allows the bullet only for a change that alters code, and a plan for a documents-only change alters no code.
+- **Validate the documentation text of the model for an English verb.** A natural-language check is fragile and accepts a bad sentence. The fixed verb `Edit` is deterministic.
+- **Prepend `Edit` to every documentation text.** The text `Document the fix in `docs/TESTING.md`` at `tests/roadmap/test_roadmap_stage_plan.py` would render as `Edit Document`, which breaks the task grammar.
+- **Test the first word for a slash only.** `SECURITY.md` is a file of the repository and holds no slash. The test would leave it with no verb.
+- **Rely on the prompt alone.** A prompt cannot hold the rule, because the rendered `tasks.md` is what the plan check and the task grammar read.
+- **Add the regeneration step to every group that names a document.** A group that changes only `SECURITY.md` changes no command, option or message. The step would regenerate documentation that the change does not touch.
+- **Add the tuicr review bullet to every plan.** openspec/config.yaml allows the bullet only for a change that alters code, and a documents-only plan alters no code.
+- **Strip the verb in the plan reader.** The reader would have to guess which words are the verb. The task keeps the verb, so the reader returns the task as written.
