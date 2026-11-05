@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.grafana import app as grafana_app
+from devops_cli.config import constants
 from devops_cli.grafana import (
     dashboard,
     layout,
@@ -863,18 +865,112 @@ def test_each_prometheus_query_of_the_cli_dashboard_filters_by_job() -> None:
     assert (len(queries) > 0, unfiltered) == (True, [])
 
 
-def test_cli_dashboard_repeats_a_latency_panel_for_each_selected_sub_command() -> None:
-    """The sub-command row has one calls panel by `sub_command` and one latency panel that
-    repeats for each selected `sub_command`, titled with it and filtered to it (#2700)."""
+def _cli_dashboard_row(title: str) -> list[dict[str, Any]]:
+    """The panels of the row `title` of devops-cli.json, in the order of the file."""
     cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
-    panels = cli_dash["panels"]
-    start = next(
-        i for i, p in enumerate(panels) if p.get("type") == "row" and p["title"] == "Sub-commands"
-    )
+    panels: list[dict[str, Any]] = cli_dash["panels"]
+    start = next(i for i, p in enumerate(panels) if p.get("type") == "row" and p["title"] == title)
     end = next(
         (i for i in range(start + 1, len(panels)) if panels[i].get("type") == "row"), len(panels)
     )
-    row = panels[start + 1 : end]
+    return panels[start + 1 : end]
+
+
+def test_cli_dashboard_service_row_charts_the_state_of_the_service() -> None:
+    """The row "Roadmap Service" holds a panel for the rounds, the budget, the queues, the stops
+    and the inputs of the Service (#2479)."""
+    selector = '{job=~"$job"}'
+
+    assert {
+        p["title"]: [t["expr"] for t in p["targets"]] for p in _cli_dashboard_row("Roadmap Service")
+    } == {
+        "Service Rounds by Lane and Result": [
+            f"sum by (lane, result) (increase(devops_cli_service_jobs_total{selector}[1h]))"
+        ],
+        "Service Failed Rounds by Repository and Row": [
+            "sum by (repo, row) (increase(devops_cli_service_jobs_total"
+            '{job=~"$job",result="error"}[1h]))'
+        ],
+        "Service Round Seconds by Lane": [
+            f"sum by (lane) (increase(devops_cli_service_job_seconds_total{selector}[1h]))"
+        ],
+        "Service GitHub Budget": [
+            f"max(last_over_time(devops_cli_service_budget_spent_requests{selector}[5m]))",
+            f"max(last_over_time(devops_cli_service_budget_limit_requests{selector}[5m]))",
+        ],
+        "Service Budget Holds": [
+            f"sum(increase(devops_cli_service_budget_holds_total{selector}[1h])) or vector(0)"
+        ],
+        "Service Time Since Round Start": [
+            "time() - max by (repo, lane) "
+            f"(last_over_time(devops_cli_service_job_start_timestamp_seconds{selector}[5m]))"
+        ],
+        "Service Queue Depth by Lane": [
+            f"sum by (lane) (last_over_time(devops_cli_service_queue_depth{selector}[5m]))"
+        ],
+        "Service Suspended Rows": [
+            f"max by (repo, row) (last_over_time(devops_cli_service_job_suspended{selector}[5m]))"
+        ],
+        "Service Identity Refusals": [
+            "max by (identity) "
+            f"(last_over_time(devops_cli_service_identity_refused_total{selector}[5m]))"
+        ],
+        "Service Triggers by Source": [
+            f"sum by (source) (increase(devops_cli_service_triggers_total{selector}[1h]))"
+        ],
+        "Service Webhook Deliveries by Outcome": [
+            "sum by (outcome) "
+            f"(increase(devops_cli_service_webhook_deliveries_total{selector}[1h]))"
+        ],
+        "Service Implement Failures by Class": [
+            f"sum by (class) (increase(devops_cli_service_implement_failures_total{selector}[1h]))"
+        ],
+        "Service Chat Commands by Result": [
+            "sum by (command, result) "
+            f"(increase(devops_cli_service_chat_commands_total{selector}[1h]))"
+        ],
+    }
+
+
+def test_cli_dashboard_service_row_reads_each_series_of_the_service() -> None:
+    """Each metric name that the Service declares has a query in the row, so a new series of the
+    Service that the row does not chart fails here (#2479)."""
+    declared = {
+        value for name, value in vars(constants).items() if name.startswith("CONST_SERVICE_METRIC_")
+    }
+    queried = {
+        name
+        for panel in _cli_dashboard_row("Roadmap Service")
+        for target in panel["targets"]
+        for name in re.findall(r"devops_cli_service_[a-z0-9_]+", target["expr"])
+    }
+
+    assert queried == declared
+
+
+def test_cli_dashboard_panels_do_not_overlap() -> None:
+    """The panels fill a grid of 24 columns, and no two panels hold the same cell, so the row
+    "Roadmap Service" keeps its place below the row before it (#2479)."""
+    cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
+    cells: list[tuple[int, int]] = []
+    for panel in cli_dash["panels"]:
+        grid = panel["gridPos"]
+        cells.extend(
+            (grid["x"] + x, grid["y"] + y) for x in range(grid["w"]) for y in range(grid["h"])
+        )
+    ids = [panel["id"] for panel in cli_dash["panels"]]
+
+    assert (
+        len(cells) == len(set(cells)),
+        max(x for x, _ in cells) < 24,
+        len(ids) == len(set(ids)),
+    ) == (True, True, True)
+
+
+def test_cli_dashboard_repeats_a_latency_panel_for_each_selected_sub_command() -> None:
+    """The sub-command row has one calls panel by `sub_command` and one latency panel that
+    repeats for each selected `sub_command`, titled with it and filtered to it (#2700)."""
+    row = _cli_dashboard_row("Sub-commands")
     selector = (
         'devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command",'
         'sub_command=~"$sub_command"'

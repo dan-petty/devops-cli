@@ -28,6 +28,21 @@ from devops_cli.ai.review.runner import _record_review_metrics
 from devops_cli.ai.review_schema import Finding, ReviewResult
 from devops_cli.ai.spend.ledger import SpendLedger, track_request_spend
 from devops_cli.ai.spend.pricing import get_pricing_registry
+from devops_cli.config.constants import (
+    CONST_SERVICE_METRIC_BUDGET_HOLDS,
+    CONST_SERVICE_METRIC_BUDGET_LIMIT,
+    CONST_SERVICE_METRIC_BUDGET_SPENT,
+    CONST_SERVICE_METRIC_CHAT_COMMANDS,
+    CONST_SERVICE_METRIC_IDENTITY_REFUSED,
+    CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
+    CONST_SERVICE_METRIC_JOB_SECONDS,
+    CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
+    CONST_SERVICE_METRIC_JOB_SUSPENDED,
+    CONST_SERVICE_METRIC_JOBS,
+    CONST_SERVICE_METRIC_QUEUE_DEPTH,
+    CONST_SERVICE_METRIC_TRIGGERS,
+    CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
+)
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import instruments as instruments_module
@@ -50,7 +65,25 @@ from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
 SERIES_NAME = re.compile(r"devops_cli_[a-z0-9_]+")
-SENT_SERIES = {instrument.name for instrument in INSTRUMENTS}
+# The series of the Service, which Prometheus scrapes from its /metrics route (#2479). The label set
+# of the identity counter starts with the first refusal, so increase() loses that count. Its panel
+# reads the value, as its alert does, so the test takes it as a gauge.
+SERVICE_SERIES: dict[str, InstrumentKind] = {
+    CONST_SERVICE_METRIC_BUDGET_HOLDS: InstrumentKind.COUNTER,
+    CONST_SERVICE_METRIC_BUDGET_LIMIT: InstrumentKind.GAUGE,
+    CONST_SERVICE_METRIC_BUDGET_SPENT: InstrumentKind.GAUGE,
+    CONST_SERVICE_METRIC_CHAT_COMMANDS: InstrumentKind.COUNTER,
+    CONST_SERVICE_METRIC_IDENTITY_REFUSED: InstrumentKind.GAUGE,
+    CONST_SERVICE_METRIC_IMPLEMENT_FAILURES: InstrumentKind.COUNTER,
+    CONST_SERVICE_METRIC_JOB_SECONDS: InstrumentKind.COUNTER,
+    CONST_SERVICE_METRIC_JOB_START_TIMESTAMP: InstrumentKind.GAUGE,
+    CONST_SERVICE_METRIC_JOB_SUSPENDED: InstrumentKind.GAUGE,
+    CONST_SERVICE_METRIC_JOBS: InstrumentKind.COUNTER,
+    CONST_SERVICE_METRIC_QUEUE_DEPTH: InstrumentKind.GAUGE,
+    CONST_SERVICE_METRIC_TRIGGERS: InstrumentKind.COUNTER,
+    CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES: InstrumentKind.COUNTER,
+}
+SENT_SERIES = {instrument.name for instrument in INSTRUMENTS} | set(SERVICE_SERIES)
 # `by (labels) (rate(selector[window]))` or `increase(...)`: the labels one series is summed by.
 GROUPED_SERIES = re.compile(r"\bby\s*\(([^)]*)\)\s*\(\s*(?:rate|increase)\(\s*([^\s\[]+)\s*\[")
 # The matcher that each query of devops-cli.json starts its selector with (#2479).
@@ -133,8 +166,9 @@ GATEWAY_SERIES_NAME = re.compile(r"\blitellm_[a-z0-9_]+")
 
 @pytest.mark.parametrize("dashboard", _devops_cli_dashboards(), ids=lambda path: path.name)
 def test_every_dashboard_query_names_a_metric_devops_cli_sends(dashboard: Path) -> None:
-    """Verify each query reads a counter or histogram series devops-cli sends over OTLP, or, on
-    the AI spend dashboard, a series of the gateway."""
+    """Verify each query reads a counter or histogram series devops-cli sends over OTLP, a series
+    that the Service gives on its /metrics route, or, on the AI spend dashboard, a series of the
+    gateway."""
     queries = _queries(dashboard)
     reads_gateway = dashboard.name in _GATEWAY_SERIES_DASHBOARDS
 
@@ -158,7 +192,7 @@ _READ_THROUGH: dict[InstrumentKind, frozenset[str]] = {
 }
 _KIND_OF: dict[str, InstrumentKind] = {
     instrument.name: instrument.kind for instrument in INSTRUMENTS
-}
+} | SERVICE_SERIES
 
 
 def _reading_function(before: str) -> str:
@@ -746,11 +780,14 @@ def _skew(queries: str) -> str:
 def _missing_limits(panel: dict[str, Any]) -> list[str]:
     """The limits a panel's description should state and does not.
 
-    The limits are those of devops-cli's delta series. A panel that reads only the gateway's
-    series reads counters that Prometheus scrapes whole, so it has none of them (#1668).
+    The limits are those of devops-cli's delta series. A panel that reads only the series of the
+    gateway (#1668) or of the Service (#2479) reads counters that Prometheus scrapes whole, so it
+    has none of them.
     """
     queries = _panel_queries(panel)
-    counts_deltas = "increase(" in queries and SERIES_NAME.search(queries) is not None
+    counts_deltas = "increase(" in queries and bool(
+        set(SERIES_NAME.findall(queries)) - set(SERVICE_SERIES)
+    )
     required = ["approximate", "two samples", "#792", _skew(queries)] if counts_deltas else []
     if "devops_cli_findings_total" in queries:
         required.append("#791")
