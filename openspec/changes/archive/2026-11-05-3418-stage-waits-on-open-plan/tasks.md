@@ -33,7 +33,7 @@ Reads: `src/devops_cli/roadmap/planned.py`, `src/devops_cli/roadmap/plan_read.py
 
 - [x] 4.1 In `tests/roadmap/test_roadmap_stage_planned.py`, add `test_closed_plan_naming_a_path_is_no_dependency`. It merges the plan of a closed item that marks a path `(new)`, and asserts that the open-plan creates map holds no entry for that path, while the plan of an open item holds it. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_planned.py` fails on the base
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_planned.py` fails on the base
-- [x] 4.2 Add `open_creates(store, source, planned)` to `src/devops_cli/roadmap/planned.py`. It maps each path that an active change of an open item marks `(new)` to the number of that item, read with `created_paths` and `tasks_on_default`
+- [x] 4.2 Add `open_plan_creates(store, source, planned, *, operation)` to `src/devops_cli/roadmap/planned.py`. It maps each path that an active change of an open item marks `(new)` to the number of that item, read with `created_paths` and `tasks_on_default`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_planned.py` passes
 
 ## 5. Refuse a plan that creates a path an open plan creates
@@ -43,6 +43,10 @@ Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage.p
 - [x] 5.1 In `tests/roadmap/test_roadmap_stage_plan.py`, add `test_check_proposal_refuses_path_an_open_plan_creates`. It asserts that `check_proposal` with `plan_creates={path: 3308}` returns one problem that names the path and #3308 for a reply that creates the path, and none for a reply that does not. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` fails on the base
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` fails on the base
 - [x] 5.2 Add the keyword `plan_creates` to `check_proposal` and the problem sentence `stage_problem_creates` to the messages. In `_Planner._settle`, pass the open creates of the run. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` passes
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` passes
+- [x] 5.3 In `tests/roadmap/test_roadmap_stage_plan.py`, add `test_a_split_reply_that_creates_a_path_an_open_plan_creates_goes_back_to_the_model_once`. A split reply is a plan too. The test asserts that a split group that creates a path an open plan creates goes back to the model once, with a problem that names the path. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` fails before task 5.4 for this test
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` fails before task 5.4 for this test
+- [x] 5.4 Rename `_creates_problems` to `creates_problems` in `src/devops_cli/roadmap/stage_change.py`. In the split branch of `_Planner._settle` in `src/devops_cli/roadmap/stage.py`, check the groups of the split reply with `creates_problems`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` passes
 
 ## 6. Document the return of the stage job
