@@ -1,7 +1,3 @@
-## Purpose
-
-The label sets of the counters of the roadmap Service, which the Service creates at zero when it starts, the labels that these counters carry, and the alerts that read them.
-
 ## ADDED Requirements
 
 ### Requirement: The Service starts each label set of its counters at zero
