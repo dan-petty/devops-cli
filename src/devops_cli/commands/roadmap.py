@@ -41,6 +41,7 @@ from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 from devops_cli.dry_run import PlannedRequest, dry_run_class, is_dry_run
 from devops_cli.exceptions import DevOpsCLIError, RoadmapRunError
+from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success, write_stdout
 from devops_cli.roadmap import store as roadmap_store
@@ -51,6 +52,7 @@ from devops_cli.roadmap.claim import (
     plan_claim,
     render_claim_plan,
 )
+from devops_cli.roadmap.inbox_kind import InboxKind
 from devops_cli.roadmap.intake import (
     Filer,
     NewCandidate,
@@ -892,29 +894,54 @@ def explain_cmd(
 @dry_run_class("request-plan")
 def inbox_cmd(
     repo: RepoOption = None,
+    kind: Annotated[InboxKind | None, typer.Option("--kind", help=HELP.roadmap.inbox_kind)] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.inbox_dry_run)] = False,
 ) -> None:
-    """List what waits for a person, each line with its age and the step that clears it."""
+    """List what waits for a person in each repository, each line with its age and the step
+    that clears it. Without --repo, the repositories are those of service.repos."""
     from datetime import UTC, datetime
 
     from devops_cli.config.settings import load_settings
     from devops_cli.roadmap.inbox import read_inbox, render_inbox
     from devops_cli.roadmap.request_plan import inbox_requests
 
-    target = _target(repo)
+    kinds = None if kind is None else frozenset({kind})
+    settings = load_settings()
+    targets = _inbox_repos(repo, settings.service.repos)
     if dry_run or is_dry_run():
-        reads, writes = inbox_requests(target)
-        render_dry_run("inbox", target, reads, writes)
+        for target in targets:
+            reads, writes = inbox_requests(target)
+            render_dry_run("inbox", target, reads, writes)
         return
-    with _exit_on_failure("Could not read the inbox"):
-        _, store = _open_store(target)
-        inbox = read_inbox(
-            store,
-            repo=target,
-            now=datetime.now(UTC),
-            planned_limit=load_settings().roadmap.stage.planned_limit,
-        )
-    write_stdout(render_inbox(inbox, repo=target) + "\n")
+    for target in targets:
+        with _exit_on_failure("Could not read the inbox"):
+            _, store = _open_store(target)
+            inbox = read_inbox(
+                store,
+                repo=target,
+                now=datetime.now(UTC),
+                planned_limit=settings.roadmap.stage.planned_limit,
+                draft_days=settings.roadmap.inbox.draft_days,
+                wait_days=settings.roadmap.inbox.wait_days,
+            )
+        write_stdout(render_inbox(inbox, repo=target, kinds=kinds) + "\n")
+
+
+def _inbox_repos(repo: str | None, configured: Sequence[str]) -> list[str]:
+    """The repositories the inbox reads: `--repo` alone when it is given, else each entry of
+    `service.repos`. An empty list fails and names the setting, and so does an entry that is not
+    `owner/name`, before any store opens (#3494)."""
+    if repo is not None:
+        return [_target(repo)]
+    if not configured:
+        raise ConfigurationError(MESSAGES.roadmap.inbox_no_repos, key="service.repos")
+    for entry in configured:
+        owner, _, name = entry.partition("/")
+        if not owner or not name or "/" in name:
+            raise ConfigurationError(
+                MESSAGES.roadmap.inbox_bad_repo.format(entry=entry), key="service.repos"
+            )
+    return list(configured)
 
 
 @app.command("repair", help=HELP.roadmap.repair)

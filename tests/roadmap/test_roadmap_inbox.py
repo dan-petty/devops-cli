@@ -65,8 +65,10 @@ def _lines(inbox: Inbox, kind: InboxKind) -> list[InboxLine]:
     return [line for line in (*inbox.jobs, *inbox.people) if line.kind is kind]
 
 
-def _read(store: InMemoryRoadmapStore, *, planned_limit: int = 20) -> Inbox:
-    return read_inbox(store, repo=REPO, now=NOW, planned_limit=planned_limit)
+def _read(store: InMemoryRoadmapStore, *, planned_limit: int = 20, draft_days: int = 7) -> Inbox:
+    return read_inbox(
+        store, repo=REPO, now=NOW, planned_limit=planned_limit, draft_days=draft_days, wait_days=7
+    )
 
 
 def test_every_category_is_listed_once_in_the_order_of_the_gates(
@@ -84,6 +86,22 @@ def test_every_category_is_listed_once_in_the_order_of_the_gates(
     blocked = _item(
         store, fields={ItemField.STATUS: "Blocked"}, marks={ImplementRecordKey.STOPPED: "group 2"}
     )
+    split = _item(
+        store,
+        "big",
+        fields={ItemField.STATUS: "New"},
+        marks={RefineRecordKey.NEXT_STEP: "split"},
+    )
+    asked = _item(
+        store,
+        "asked",
+        fields={ItemField.STATUS: "New"},
+        marks={RefineRecordKey.ALTERNATIVES_ASKED: "https://example.com/tool"},
+    )
+    draft = store.seed_pull(
+        "draft", head_ref="feat/99-draft", draft=True, head_sha="a9", updated_at=_ago(days=8)
+    )
+    _item(store, marks={StageRecordKey.PR: str(draft)})
     claimed = _item(store, fields={ItemField.OWNER: "Agent"}, updated_at=_ago(days=9))
     store.seed_file(CONST_ROADMAP_LABELS_PATH, LABELS + "- name: scope/ci\n  color: 0E8A16\n")
 
@@ -94,19 +112,59 @@ def test_every_category_is_listed_once_in_the_order_of_the_gates(
         (InboxKind.IMPLEMENT, work),
         (InboxKind.RELEASE, release),
         (InboxKind.BLOCKED, blocked),
+        (InboxKind.SPLIT, split),
+        (InboxKind.ALTERNATIVES, asked),
+        (InboxKind.DRAFT, draft),
         (InboxKind.CLAIM, claimed),
         (InboxKind.LABELS, None),
     ]
     assert inbox.people == ()
 
 
-def test_a_draft_of_a_job_is_not_listed_and_is_not_a_persons_pull_request(
+def test_a_job_draft_that_waits_for_checks_and_is_newer_has_no_line(
     store: InMemoryRoadmapStore,
 ) -> None:
-    draft = store.seed_pull("plan", head_ref="feat/1-plan", draft=True)
+    draft = store.seed_pull("plan", head_ref="feat/1-plan", draft=True, head_sha="a1")
     _item(store, marks={StageRecordKey.PR: str(draft)})
-    inbox = _read(store)
+    inbox = _read(store, draft_days=7)
     assert (inbox.jobs, inbox.people) == ((), ())
+
+
+def test_a_job_draft_older_than_the_setting_has_one_line(store: InMemoryRoadmapStore) -> None:
+    draft = store.seed_pull(
+        "plan", head_ref="feat/1-plan", draft=True, head_sha="a1", updated_at=_ago(days=8)
+    )
+    _item(store, marks={StageRecordKey.PR: str(draft)})
+
+    lines = _lines(_read(store, draft_days=7), InboxKind.DRAFT)
+
+    assert [(line.number, line.subject) for line in lines] == [
+        (draft, "plan (draft, no update for more than 7 days)")
+    ]
+    assert (
+        lines[0].clear == f"Finish the draft, then run `devops pr monitor {draft} --repo {REPO}`."
+    )
+
+
+def test_a_job_draft_with_a_failed_check_has_one_line(store: InMemoryRoadmapStore) -> None:
+    draft = store.seed_pull(
+        "plan",
+        head_ref="feat/1-plan",
+        draft=True,
+        head_sha="a1",
+        updated_at=_ago(days=1),
+        checks_failed=True,
+    )
+    _item(store, marks={StageRecordKey.PR: str(draft)})
+
+    lines = _lines(_read(store, draft_days=7), InboxKind.DRAFT)
+
+    assert [(line.number, line.subject) for line in lines] == [
+        (draft, "plan (draft, a check failed)")
+    ]
+    assert lines[0].clear == (
+        f"Fix the failed check, then run `devops pr monitor {draft} --repo {REPO}`."
+    )
 
 
 def test_one_pull_request_of_the_stage_and_the_implement_job_is_an_implementation(
@@ -411,3 +469,99 @@ def test_the_inbox_says_nothing_of_the_planned_limit_under_it(store: InMemoryRoa
     _item(store, fields={ItemField.STATUS: "Ready"})
 
     assert _lines(_read(store, planned_limit=2), InboxKind.QUEUE) == []
+
+
+def test_an_unapplied_split_has_one_line_with_its_step(store: InMemoryRoadmapStore) -> None:
+    split = _item(
+        store,
+        "big",
+        fields={ItemField.STATUS: "New"},
+        marks={RefineRecordKey.NEXT_STEP: "split"},
+        updated_at=_ago(days=2),
+    )
+
+    lines = _lines(_read(store), InboxKind.SPLIT)
+
+    assert [(line.number, line.subject) for line in lines] == [
+        (split, "big: refine proposed a split, not applied")
+    ]
+    assert lines[0].clear == (
+        f"Split it as refine proposed in a comment on #{split}, or edit its body to fit one "
+        "pull request."
+    )
+
+
+def test_an_alternatives_question_has_one_line_naming_the_tool(
+    store: InMemoryRoadmapStore,
+) -> None:
+    tool = "https://example.com/covering-tool"
+    asked = _item(
+        store,
+        "asked tool",
+        fields={ItemField.STATUS: "New"},
+        marks={RefineRecordKey.ALTERNATIVES_ASKED: tool},
+        updated_at=_ago(days=4),
+    )
+
+    lines = _lines(_read(store), InboxKind.ALTERNATIVES)
+
+    assert [(line.number, line.subject) for line in lines] == [
+        (asked, f"asked tool: refine put a covering tool to a person: {tool}")
+    ]
+    assert lines[0].clear == (
+        f"Answer in a comment on #{asked}. Refine reads the answer in its next round."
+    )
+
+
+def test_the_split_and_alternatives_classes_follow_the_refine_class() -> None:
+    kinds = list(InboxKind)
+    refine = kinds.index(InboxKind.REFINE)
+    assert kinds[refine + 1 : refine + 3] == [InboxKind.SPLIT, InboxKind.ALTERNATIVES]
+
+
+def test_a_wait_older_than_the_setting_is_marked(store: InMemoryRoadmapStore) -> None:
+    old = _item(
+        store,
+        "old",
+        fields={ItemField.STATUS: "New"},
+        marks={RefineRecordKey.NEXT_STEP: "person"},
+        updated_at=_ago(days=10),
+    )
+    young = _item(
+        store,
+        "young",
+        fields={ItemField.STATUS: "New"},
+        marks={RefineRecordKey.NEXT_STEP: "person"},
+        updated_at=_ago(days=2),
+    )
+
+    inbox = read_inbox(store, repo=REPO, now=NOW, planned_limit=20, draft_days=7, wait_days=7)
+    rendered = render_inbox(inbox, repo=REPO).splitlines()
+
+    old_head = next(text for text in rendered if text.startswith(f"  #{old} "))
+    young_head = next(text for text in rendered if text.startswith(f"  #{young} "))
+    assert old_head.endswith("(over 7 days)")
+    assert not young_head.endswith("(over 7 days)")
+
+
+def test_counts_by_class_lead_the_inbox(store: InMemoryRoadmapStore) -> None:
+    _item(store, "a", fields={ItemField.STATUS: "New"}, marks={RefineRecordKey.NEXT_STEP: "person"})
+    _item(store, "b", fields={ItemField.STATUS: "New"}, marks={RefineRecordKey.NEXT_STEP: "person"})
+    _item(store, "c", fields={ItemField.STATUS: "New"}, marks={RefineRecordKey.NEXT_STEP: "split"})
+
+    blocks = render_inbox(_read(store), repo=REPO).split("\n\n")
+
+    assert blocks[1] == "Counts by class: refine 2, split 1."
+
+
+def test_the_class_filter_keeps_one_kind(store: InMemoryRoadmapStore) -> None:
+    _item(store, "a", fields={ItemField.STATUS: "New"}, marks={RefineRecordKey.NEXT_STEP: "person"})
+    split = _item(
+        store, "c", fields={ItemField.STATUS: "New"}, marks={RefineRecordKey.NEXT_STEP: "split"}
+    )
+
+    rendered = render_inbox(_read(store), repo=REPO, kinds=frozenset({InboxKind.SPLIT}))
+
+    assert f"  #{split} " in rendered
+    assert "New items that wait on a person in refine" not in rendered
+    assert "Counts by class: refine 1, split 1." in rendered

@@ -9,13 +9,15 @@ are enough.
 **The jobs' lines**, in the order of the gates (docs/ROADMAP_WORKFLOW.md): ready plan pull
 requests (G1), ready implementation pull requests (G2), the release pull request (G3), items in
 `status/blocked` with their cause, New items that wait on a person in refine (one line for each,
-from the job record alone, #3483), old claims, labels that the repository lacks, and the Planned
-queue when it is at the limit of the stage job (#3487). A pull request is a job's when the job
-record of an open item names it: `implement.pr` makes it an implementation, `stage.pr` a plan, and
-`implement.pr` wins because a staged branch keeps one pull request through both jobs. A draft of a
-job waits for its checks, so it is not listed, and a pull request that a runner Job holds is not
-listed: the Job pushes to it. The release pull request is
-the open one whose head branch starts with the prefix of release-please.
+from the job record alone, #3483), New items with an unapplied split, New items with an
+alternatives question (#3494), drafts of jobs, old claims, labels that the repository lacks, and
+the Planned queue when it is at the limit of the stage job (#3487). A pull request is a job's when
+the job record of an open item names it: `implement.pr` makes it an implementation, `stage.pr` a
+plan, and `implement.pr` wins because a staged branch keeps one pull request through both jobs. A
+draft of a job is listed when it is older than `roadmap.inbox.draft_days`, or when a check run of
+its head commit failed. A pull request that a runner Job holds is not listed: the Job pushes to it.
+The release pull request is the open one whose head branch starts with the prefix of
+release-please.
 
 **The people's lines** are every other open pull request, so a person's own pull requests are
 apart from the jobs'. A draft is marked as a draft.
@@ -28,9 +30,8 @@ the issue (`<type>/<issue>-<slug>`). The inbox shows an old claim and never remo
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from enum import StrEnum
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_RETRY_COMMENT,
@@ -45,6 +46,7 @@ from devops_cli.git.branch_form import issue_of_branch
 from devops_cli.github.labels import diff_labels
 from devops_cli.lang import MESSAGES
 from devops_cli.output import format_duration
+from devops_cli.roadmap.inbox_kind import InboxKind
 from devops_cli.roadmap.planned import planned_count
 from devops_cli.roadmap.pull_labels import declared_specs
 from devops_cli.roadmap.refine import NextStep
@@ -60,20 +62,6 @@ from devops_cli.roadmap.store import (
 )
 
 
-class InboxKind(StrEnum):
-    """What a line of the inbox is. The members are in the order the inbox lists them."""
-
-    PLAN = "plan"
-    IMPLEMENT = "implement"
-    RELEASE = "release"
-    BLOCKED = "blocked"
-    REFINE = "refine"
-    CLAIM = "claim"
-    LABELS = "labels"
-    QUEUE = "queue"
-    PERSON = "person"
-
-
 @dataclass(frozen=True)
 class InboxLine:
     """One thing that waits for a person: what it is, the number of its issue or pull request
@@ -85,6 +73,7 @@ class InboxLine:
     age: timedelta | None
     subject: str
     clear: str
+    old_days: int | None = None
 
 
 @dataclass(frozen=True)
@@ -118,15 +107,37 @@ def _named_pulls(items: Iterable[Item]) -> dict[int, InboxKind | None]:
 
 
 def _pull_kind(pull: OpenPull, named: Mapping[int, InboxKind | None]) -> InboxKind | None:
-    """The kind of the line of `pull`, or None when no person must act on it now: a draft of a
-    job or the release, or a pull request that a runner Job holds."""
+    """The kind of the line of `pull`, or None when no line shows it: a draft of the release, or
+    a pull request that a runner Job holds. A draft of a job is `InboxKind.DRAFT` (#3494)."""
     if pull.head_ref.startswith(CONST_ROADMAP_RELEASE_BRANCH_PREFIX):
-        kind: InboxKind | None = InboxKind.RELEASE
-    elif pull.number in named:
-        kind = named[pull.number]
-    else:
+        return None if pull.draft else InboxKind.RELEASE
+    if pull.number not in named:
         return InboxKind.PERSON
-    return None if pull.draft else kind
+    kind = named[pull.number]
+    if kind is None:
+        return None
+    return InboxKind.DRAFT if pull.draft else kind
+
+
+def _failing_drafts(
+    store: RoadmapStore, pulls: Sequence[OpenPull], named: Mapping[int, InboxKind | None]
+) -> frozenset[int]:
+    """The numbers of the drafts of jobs whose head commit has a failed check run. Only the
+    drafts of jobs are read, one check-run read for each (#3494)."""
+    return frozenset(
+        pull.number
+        for pull in pulls
+        if _pull_kind(pull, named) is InboxKind.DRAFT and store.failed_checks(pull.head_sha)
+    )
+
+
+def _draft_line(pull: OpenPull, repo: str, now: datetime, *, failed: bool, days: int) -> InboxLine:
+    """The line of a draft of a job: its failed check when one failed, else its age (#3494)."""
+    texts = MESSAGES.roadmap
+    key = "draft_failed" if failed else "draft_old"
+    subject = texts.inbox_subjects[key].format(title=pull.title, days=days)
+    clear = texts.inbox_clears[key].format(number=pull.number, repo=repo)
+    return InboxLine(InboxKind.DRAFT, pull.number, _age(now, pull.updated_at), subject, clear)
 
 
 def _age(now: datetime, moment: datetime | None) -> timedelta | None:
@@ -144,13 +155,26 @@ def _pull_line(pull: OpenPull, kind: InboxKind, repo: str, now: datetime) -> Inb
 
 
 def _pull_lines(
-    pulls: Iterable[OpenPull], named: Mapping[int, InboxKind | None], repo: str, now: datetime
+    pulls: Iterable[OpenPull],
+    named: Mapping[int, InboxKind | None],
+    failing: frozenset[int],
+    repo: str,
+    now: datetime,
+    draft_days: int,
 ) -> list[InboxLine]:
+    """The lines of the pull requests. A draft of a job has a line when a check run of its head
+    commit failed, or when it is older than `draft_days` (#3494)."""
     lines: list[InboxLine] = []
     for pull in pulls:
         kind = _pull_kind(pull, named)
-        if kind is not None:
+        if kind is None:
+            continue
+        if kind is not InboxKind.DRAFT:
             lines.append(_pull_line(pull, kind, repo, now))
+        elif pull.number in failing or now - pull.updated_at > timedelta(days=draft_days):
+            lines.append(
+                _draft_line(pull, repo, now, failed=pull.number in failing, days=draft_days)
+            )
     return lines
 
 
@@ -211,6 +235,47 @@ def _refine_lines(items: Iterable[Item], repo: str, now: datetime) -> list[Inbox
         clear = texts.inbox_clears["refine"].format(number=item.number, repo=repo)
         lines.append(
             InboxLine(InboxKind.REFINE, item.number, _age(now, item.updated_at), subject, clear)
+        )
+    return lines
+
+
+def _open_new(item: Item) -> bool:
+    return item.state is GitHubState.OPEN and item.status == CONST_ROADMAP_STATUS_NEW
+
+
+def _split_lines(items: Iterable[Item], now: datetime) -> list[InboxLine]:
+    """One line for each open New item whose refine next step is a split, which no person has
+    applied yet (#3494)."""
+    texts = MESSAGES.roadmap
+    return [
+        InboxLine(
+            InboxKind.SPLIT,
+            item.number,
+            _age(now, item.updated_at),
+            texts.inbox_subjects["split"].format(title=item.title),
+            texts.inbox_clears["split"].format(number=item.number),
+        )
+        for item in items
+        if _open_new(item)
+        and item.job_record.get(RefineRecordKey.NEXT_STEP) == NextStep.SPLIT.value
+    ]
+
+
+def _alternatives_lines(items: Iterable[Item], now: datetime) -> list[InboxLine]:
+    """One line for each open New item whose refine round put a covering tool to a person
+    (#3494). The line names the tool that the round recorded."""
+    texts = MESSAGES.roadmap
+    lines: list[InboxLine] = []
+    for item in items:
+        tool = item.job_record.get(RefineRecordKey.ALTERNATIVES_ASKED)
+        if not _open_new(item) or not tool:
+            continue
+        subject = texts.inbox_subjects["alternatives"].format(title=item.title, tool=tool)
+        clear = texts.inbox_clears["alternatives"].format(number=item.number)
+        lines.append(
+            InboxLine(
+                InboxKind.ALTERNATIVES, item.number, _age(now, item.updated_at), subject, clear
+            )
         )
     return lines
 
@@ -277,13 +342,29 @@ def _queue_lines(items: Iterable[Item], repo: str, planned_limit: int) -> list[I
     return [InboxLine(InboxKind.QUEUE, None, None, subject, clear)]
 
 
+def _marked(line: InboxLine, wait_days: int) -> InboxLine:
+    """The line with its mark when its wait is over `wait_days` (#3494). A line with no age is
+    never marked."""
+    if line.age is None or line.age <= timedelta(days=wait_days):
+        return line
+    return replace(line, old_days=wait_days)
+
+
 def _order(line: InboxLine) -> tuple[int, bool, float]:
     """Kind order, then the oldest first, a line with no age last."""
     seconds = line.age.total_seconds() if line.age is not None else 0.0
     return (list(InboxKind).index(line.kind), line.age is None, -seconds)
 
 
-def read_inbox(store: RoadmapStore, *, repo: str, now: datetime, planned_limit: int) -> Inbox:
+def read_inbox(
+    store: RoadmapStore,
+    *,
+    repo: str,
+    now: datetime,
+    planned_limit: int,
+    draft_days: int,
+    wait_days: int,
+) -> Inbox:
     """What waits for a person in `repo` at `now`. It reads the open items, the open pull
     requests, the labels and the labels file, and the newest commit of that file when the labels
     differ, and writes nothing. A line states when the count of Planned items is at
@@ -291,15 +372,18 @@ def read_inbox(store: RoadmapStore, *, repo: str, now: datetime, planned_limit: 
     labels file of a repository that has none fails the read."""
     items = store.open_items()
     pulls = store.open_pulls()
+    named = _named_pulls(items)
     lines = [
-        *_pull_lines(pulls, _named_pulls(items), repo, now),
+        *_pull_lines(pulls, named, _failing_drafts(store, pulls, named), repo, now, draft_days),
         *_blocked_lines(items, repo, now),
         *_refine_lines(items, repo, now),
+        *_split_lines(items, now),
+        *_alternatives_lines(items, now),
         *_claim_lines(items, pulls, repo, now),
         *_label_lines(store, repo, now),
         *_queue_lines(items, repo, planned_limit),
     ]
-    ordered = sorted(lines, key=_order)
+    ordered = sorted((_marked(line, wait_days) for line in lines), key=_order)
     return Inbox(
         jobs=tuple(line for line in ordered if line.kind is not InboxKind.PERSON),
         people=tuple(line for line in ordered if line.kind is InboxKind.PERSON),
@@ -310,7 +394,10 @@ def _render_line(line: InboxLine) -> str:
     texts = MESSAGES.roadmap
     number = texts.inbox_no_number if line.number is None else f"#{line.number}"
     age = texts.inbox_no_age if line.age is None else format_duration(line.age.total_seconds())
-    head = texts.inbox_line.format(number=number, age=age, subject=line.subject)
+    subject = line.subject
+    if line.old_days is not None:
+        subject = f"{subject} {texts.inbox_old.format(days=line.old_days)}"
+    head = texts.inbox_line.format(number=number, age=age, subject=subject)
     return f"{head}\n{texts.inbox_clear.format(clear=line.clear)}"
 
 
@@ -321,19 +408,35 @@ def _render_section(kind: InboxKind, lines: Sequence[InboxLine]) -> str:
     return "\n".join([heading, *(_render_line(line) for line in lines)])
 
 
-def render_inbox(inbox: Inbox, *, repo: str) -> str:
-    """The inbox as the report of the command: a section for each kind that has a line, the
-    jobs' sections first, then the people's, and the note on what the inbox leaves out."""
+def _counts(lines: Sequence[InboxLine]) -> str:
+    """The count of the lines of each class that has one, in the order of the classes (#3494)."""
     texts = MESSAGES.roadmap
-    lines = (*inbox.jobs, *inbox.people)
-    if not lines:
+    parts = [
+        texts.inbox_count.format(kind=kind.value, count=count)
+        for kind in InboxKind
+        if (count := sum(1 for line in lines if line.kind is kind))
+    ]
+    return texts.inbox_counts.format(counts=", ".join(parts))
+
+
+def render_inbox(inbox: Inbox, *, repo: str, kinds: frozenset[InboxKind] | None = None) -> str:
+    """The inbox as the report of the command: the title, the count of the lines of each class,
+    a section for each kind that has a line, the jobs' sections first, then the people's, and the
+    note on what the inbox leaves out. `kinds` keeps the lines of those classes only, and the
+    counts stay complete (#3494)."""
+    texts = MESSAGES.roadmap
+    every = (*inbox.jobs, *inbox.people)
+    if not every:
         return f"{texts.inbox_empty.format(repo=repo)}\n\n{texts.inbox_footer}"
+    lines = [line for line in every if kinds is None or line.kind in kinds]
     sections = [
         _render_section(kind, [line for line in lines if line.kind is kind])
         for kind in InboxKind
         if any(line.kind is kind for line in lines)
     ]
-    return "\n\n".join([texts.inbox_title.format(repo=repo), *sections, texts.inbox_footer])
+    return "\n\n".join(
+        [texts.inbox_title.format(repo=repo), _counts(every), *sections, texts.inbox_footer]
+    )
 
 
 __all__ = ["Inbox", "InboxKind", "InboxLine", "read_inbox", "render_inbox"]

@@ -172,6 +172,15 @@ class StoreRequests:
         """The listing of the open pull requests (#2915)."""
         return self.listing(gh.pulls_endpoint(self.repo), "open_pulls")
 
+    def check_runs(self) -> Requests:
+        """The check runs of the head commit of each open draft of a job, one read for each
+        draft (#3494). The commit is a placeholder, since the run learns it from the listing."""
+        path = f"/repos/{self.repo}/commits/{_p('head_sha')}/check-runs?per_page=100"
+        request = planned_session_read(
+            path, self._target("check_runs"), repeat=MESSAGES.roadmap.plan_repeat_draft
+        )
+        return within([request], MESSAGES.roadmap.plan_conditions["job_drafts"])
+
     def repository_labels(self) -> Requests:
         """The listing of the labels of the repository (#2915)."""
         return self.listing(gh.labels_endpoint(self.repo), "repository_labels")
@@ -857,8 +866,9 @@ def inbox_requests(
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap inbox` reads, in order (#2915). It reads the open issues, the open
     pull requests, the labels of the repository and `.github/labels.yml` on the default branch,
-    and the newest commit that changed that file only when the labels differ. It reads the
-    listing of every issue never, makes no write and calls no model."""
+    and the newest commit that changed that file only when the labels differ. It reads the check
+    runs of the head commit of each open draft of a job, one read for each draft (#3494). It
+    reads the listing of every issue never, makes no write and calls no model."""
     store = StoreRequests(repo)
     differ = MESSAGES.roadmap.plan_conditions["labels_differ"]
     reads = [
@@ -867,6 +877,7 @@ def inbox_requests(
         *store.repository_labels(),
         *store.file(CONST_ROADMAP_LABELS_PATH, None),
         *within(store.path_change(CONST_ROADMAP_LABELS_PATH), differ),
+        *store.check_runs(),
     ]
     return tuple(reads), ()
 

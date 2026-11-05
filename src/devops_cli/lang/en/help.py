@@ -1567,10 +1567,14 @@ class RoadmapCommandHelp:
         "that run commands."
     )
     inbox: str = (
-        "List what waits for a person, each line with its number, its age and the one command or "
-        "action that clears it, and a line when the count of Planned items is at the setting "
-        "roadmap.stage.planned_limit. It reads GitHub, calls no model and writes nothing. "
-        "Details: docs/roadmap/inbox.md."
+        "List what waits for a person in each repository of service.repos, or in the one that "
+        "--repo names. Each line has its number, its age and the step that clears it, and an old "
+        "wait is marked. It reads GitHub, calls no model and writes nothing; details: "
+        "docs/roadmap/inbox.md."
+    )
+    inbox_kind: str = (
+        "List only the lines of one class, such as refine, split, alternatives or draft. The "
+        "counts of every class stay complete."
     )
     inbox_dry_run: str = (
         "Make no request: print the reads that a run makes, in order, with placeholders."

@@ -109,6 +109,8 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_STEP_TIME_LIMIT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET,
+    DEFAULT_ROADMAP_INBOX_DRAFT_DAYS,
+    DEFAULT_ROADMAP_INBOX_WAIT_DAYS,
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
@@ -1153,12 +1155,30 @@ class AlternativesConfig(BaseModel):
     )
 
 
+class RoadmapInboxConfig(BaseModel):
+    """The two ages of `devops roadmap inbox` (#3494)."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    draft_days: int = Field(
+        default=DEFAULT_ROADMAP_INBOX_DRAFT_DAYS,
+        ge=1,
+        description="The age in days at which the inbox lists a draft of a job with no failed check. A newer draft with no failed check is not listed.",
+    )
+    wait_days: int = Field(
+        default=DEFAULT_ROADMAP_INBOX_WAIT_DAYS,
+        ge=1,
+        description="The age in days at which the inbox marks a line as old.",
+    )
+
+
 class RoadmapConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
     alternatives: AlternativesConfig = Field(default_factory=AlternativesConfig)
     stage: RoadmapStageConfig = Field(default_factory=RoadmapStageConfig)
     implement: RoadmapImplementConfig = Field(default_factory=RoadmapImplementConfig)
+    inbox: RoadmapInboxConfig = Field(default_factory=RoadmapInboxConfig)
 
 
 class DataConfig(BaseModel):

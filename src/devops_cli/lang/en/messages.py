@@ -3542,6 +3542,10 @@ class RoadmapMessages:
     # `devops roadmap inbox` (#2915).
     inbox_title: str = "Waiting for a person in {repo}. The age is the time since the last update."
     inbox_empty: str = "Nothing waits for a person in {repo}."
+    inbox_no_repos: str = (
+        "The inbox has no repository to read. Set service.repos, or pass --repo owner/name."
+    )
+    inbox_bad_repo: str = "The service.repos entry {entry} is not owner/name."
     inbox_footer: str = (
         "Not listed: an image digest that is not rolled yet. "
         "Run `devops argo cd apps status devops` to read it."
@@ -3553,6 +3557,9 @@ class RoadmapMessages:
             "release": "The release pull request (G3)",
             "blocked": "Items in status/blocked",
             "refine": "New items that wait on a person in refine",
+            "split": "New items with a split that no person has applied",
+            "alternatives": "New items with a covering tool that refine put to a person",
+            "draft": "Drafts of jobs that are old or have a failed check",
             "claim": "Claims with no activity for {days} days",
             "labels": "Repository state that a person owns",
             "queue": "The stage job waits for deliveries",
@@ -3561,6 +3568,9 @@ class RoadmapMessages:
     )
     inbox_line: str = "  {number}  {age}  {subject}"
     inbox_clear: str = "      Clear it: {clear}"
+    inbox_counts: str = "Counts by class: {counts}."
+    inbox_count: str = "{kind} {count}"
+    inbox_old: str = "(over {days} days)"
     inbox_no_number: str = "-"
     inbox_no_age: str = "-"
     inbox_subjects: dict[str, str] = field(
@@ -3572,7 +3582,11 @@ class RoadmapMessages:
             "no_cause": "{title}: no cause is recorded",
             "refine": "{title}: refine waits on a person",
             "refine_returned": "{title}: the stage job returned it twice on the same body",
+            "split": "{title}: refine proposed a split, not applied",
+            "alternatives": "{title}: refine put a covering tool to a person: {tool}",
             "claim": "{title} (claimed by {owner})",
+            "draft_old": "{title} (draft, no update for more than {days} days)",
+            "draft_failed": "{title} (draft, a check failed)",
             "labels": "{count} label(s) of {path} are missing or changed on GitHub: {names}",
             "more_labels": "{names}, and {more} more",
             "queue": (
@@ -3590,6 +3604,17 @@ class RoadmapMessages:
             "person_draft": (
                 "Wait for the checks with `devops pr monitor {number} --repo {repo}`, "
                 "then run `devops pr ready {number} --repo {repo}`."
+            ),
+            "draft_old": ("Finish the draft, then run `devops pr monitor {number} --repo {repo}`."),
+            "draft_failed": (
+                "Fix the failed check, then run `devops pr monitor {number} --repo {repo}`."
+            ),
+            "split": (
+                "Split it as refine proposed in a comment on #{number}, or edit its body to fit "
+                "one pull request."
+            ),
+            "alternatives": (
+                "Answer in a comment on #{number}. Refine reads the answer in its next round."
             ),
             "stopped": "Fix the cause, then comment `{retry}` on #{number}.",
             "blocked": (
@@ -3609,9 +3634,11 @@ class RoadmapMessages:
         }
     )
     plan_repeat_page: str = "per page, while GitHub links a next one"
+    plan_repeat_draft: str = "for each open draft of a job"
     plan_placeholders: dict[str, str] = field(
         default_factory=lambda: {
             "number": "<number>",
+            "head_sha": "<head commit of the draft>",
             "deferred_part": "<deferred part>",
             "milestone": "<milestone>",
             "labels": "<the labels, the field's family replaced>",
@@ -3643,6 +3670,7 @@ class RoadmapMessages:
         default_factory=lambda: {
             "file": "{path} at {ref}",
             "milestones": "every milestone",
+            "check_runs": "the check runs of the head commit of an open draft of a job",
             "issues": "the issues ({query})",
             "comments": "the comments on {subject}",
             "issue": "{subject}",
@@ -3688,6 +3716,7 @@ class RoadmapMessages:
     plan_conditions: dict[str, str] = field(
         default_factory=lambda: {
             "posted": "the change posts a comment",
+            "job_drafts": "the pull request is an open draft of a job",
             "check_on": "the repository is public and a Firecrawl key is set",
             "issues_unread": "the run has not read every issue yet",
             "labels_differ": "the labels of the repository differ from .github/labels.yml",

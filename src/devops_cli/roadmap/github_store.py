@@ -47,7 +47,12 @@ from devops_cli.config.constants import (
     CONST_GH_RAW_CONTENT_ACCEPT,
 )
 from devops_cli.config.defaults import DEFAULT_GH_ISSUE_TIMELINE_LIMIT, DEFAULT_GH_REST_PER_PAGE
-from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
+from devops_cli.exceptions.git import (
+    GitHubFileNotFoundError,
+    GitHubOperationError,
+    GitHubUnreadError,
+)
+from devops_cli.github.check_verdict import read_check_runs
 from devops_cli.github.error_classifier import classify_gh_failure, gh_http_status
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import get_github_session
@@ -209,6 +214,7 @@ class _PullPayload(BaseModel):
     html_url: str
     draft: bool = False
     head_ref: str = Field(validation_alias=AliasPath("head", "ref"))
+    head_sha: str = Field(default="", validation_alias=AliasPath("head", "sha"))
     updated_at: datetime
 
     def pull(self) -> OpenPull:
@@ -217,6 +223,7 @@ class _PullPayload(BaseModel):
             title=self.title,
             url=self.html_url,
             head_ref=self.head_ref,
+            head_sha=self.head_sha,
             draft=self.draft,
             updated_at=self.updated_at,
         )
@@ -671,6 +678,15 @@ class GitHubRoadmapStore(RoadmapStore):
         """The open pull requests, one page for each 100."""
         listing = self._listing(pulls_endpoint(self._repo), _PULL, "pull requests")
         return [pull.pull() for pull in listing]
+
+    def failed_checks(self, head_sha: str) -> bool:
+        """Whether a check run of the commit `head_sha` failed, read through the listing session.
+        A read that GitHub does not answer raises, so no draft shows as passing (#3494)."""
+        owner, _, name = self._repo.partition("/")
+        summary = read_check_runs(owner, name, head_sha, session=self._listing_session())
+        if summary.unread_reason:
+            raise GitHubUnreadError(summary.unread_reason, operation="check_runs")
+        return summary.fail_count > 0
 
     def repository_labels(self) -> list[RepositoryLabel]:
         """The labels of the repository, one page for each 100."""

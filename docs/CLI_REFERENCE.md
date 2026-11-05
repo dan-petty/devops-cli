@@ -6754,7 +6754,7 @@ devops roadmap explain [OPTIONS] <item>
 
 ### `devops roadmap inbox`
 
-**List what waits for a person, each line with its number, its age and the one command or action that clears it, and a line when the count of Planned items is at the setting roadmap.stage.planned_limit. It reads GitHub, calls no model and writes nothing. Details: docs/roadmap/inbox.md.**
+**List what waits for a person in each repository of service.repos, or in the one that --repo names. Each line has its number, its age and the step that clears it, and an old wait is marked. It reads GitHub, calls no model and writes nothing; details: docs/roadmap/inbox.md.**
 
 ```bash
 devops roadmap inbox [OPTIONS]
@@ -6765,6 +6765,7 @@ devops roadmap inbox [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--kind` | `choice (plan|implement|release|blocked|refine|split|alternatives|draft|claim|labels|queue|person)` | - | List only the lines of one class, such as refine, split, alternatives or draft. The counts of every class stay complete. |
 | `--dry-run` | `boolean` | - | Make no request: print the reads that a run makes, in order, with placeholders. |
 
 ### `devops roadmap repair`

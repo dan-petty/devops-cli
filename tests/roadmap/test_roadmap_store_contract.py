@@ -20,7 +20,11 @@ from typing import Protocol
 
 import pytest
 
-from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
+from devops_cli.exceptions.git import (
+    GitHubFileNotFoundError,
+    GitHubOperationError,
+    GitHubUnreadError,
+)
 from devops_cli.exceptions.roadmap import RoadmapItemChangedError
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
@@ -72,6 +76,8 @@ class World(Protocol):
         draft: bool = False,
         state: GitHubState = GitHubState.OPEN,
         updated_at: datetime | None = None,
+        head_sha: str = "0" * 40,
+        checks_failed: bool = False,
     ) -> int: ...
 
     def seed_label(self, name: str, color: str, description: str | None = None) -> None: ...
@@ -121,9 +127,17 @@ class MemoryWorld:
         draft: bool = False,
         state: GitHubState = GitHubState.OPEN,
         updated_at: datetime | None = None,
+        head_sha: str = "0" * 40,
+        checks_failed: bool = False,
     ) -> int:
         return self._roadmap.seed_pull(
-            title, head_ref=head_ref, draft=draft, state=state, updated_at=updated_at
+            title,
+            head_ref=head_ref,
+            draft=draft,
+            state=state,
+            updated_at=updated_at,
+            head_sha=head_sha,
+            checks_failed=checks_failed,
         )
 
     def seed_label(self, name: str, color: str, description: str | None = None) -> None:
@@ -183,11 +197,21 @@ class GitHubWorld:
         draft: bool = False,
         state: GitHubState = GitHubState.OPEN,
         updated_at: datetime | None = None,
+        head_sha: str = "0" * 40,
+        checks_failed: bool = False,
     ) -> int:
         number = len(self.github.issues) + 1
         self.github.seed_pull(
-            number, title, head_ref=head_ref, draft=draft, state=state.value, updated_at=updated_at
+            number,
+            title,
+            head_ref=head_ref,
+            draft=draft,
+            state=state.value,
+            updated_at=updated_at,
+            head_sha=head_sha,
         )
+        if checks_failed:
+            self.github.seed_check_run(head_sha, "ci", conclusion="failure")
         return number
 
     def seed_label(self, name: str, color: str, description: str | None = None) -> None:
@@ -1124,3 +1148,26 @@ def test_the_github_store_reads_open_issues_and_never_the_listing_of_every_issue
     world.store.open_items()
     read = [call[0] for call in world.github.calls if call[0].startswith(API)]
     assert [path.split("/issues?", 1)[1].split("&")[0] for path in read] == ["state=open"]
+
+
+def test_open_pulls_carry_the_head_sha_and_their_check_runs_read_by_sha(world: World) -> None:
+    sha, other = "a" * 40, "b" * 40
+    failing = world.seed_pull(
+        "draft", head_ref="feat/1-x", draft=True, head_sha=sha, checks_failed=True
+    )
+    passing = world.seed_pull("ready", head_ref="feat/2-y", head_sha=other)
+
+    heads = {pull.number: pull.head_sha for pull in world.store.open_pulls()}
+
+    assert heads == {failing: sha, passing: other}
+    assert (world.store.failed_checks(sha), world.store.failed_checks(other)) == (True, False)
+
+
+def test_the_github_store_raises_when_a_draft_check_cannot_be_read() -> None:
+    """A check read that GitHub does not answer raises, so no draft shows as passing (#3494)."""
+    world = GitHubWorld()
+
+    with pytest.raises(GitHubUnreadError, match="head commit SHA is missing") as raised:
+        world.store.failed_checks("")
+
+    assert raised.value.error_code == GitHubUnreadError.error_code
