@@ -40,7 +40,7 @@ When `service.github_app.slug` is unset, `bot_login` SHALL be None, and the trus
 - **THEN** the Item of the listing, the Item that the store reads and the issue record all give that login
 
 ### Requirement: An item of a bot needs the approval of refine's review
-The stage, implement and alternatives jobs SHALL take an item whose author is a bot only when its job record holds `refine.judge` `approved`. An item of a person SHALL need no approval. The reason of a job that leaves out an item of a bot with no approval SHALL say that no review approved it.
+The stage, implement and alternatives jobs SHALL take an item whose author is a bot only when its job record holds `refine.judge` `approved`. The body of the item SHALL also hash as `refine.body_hash` and `refine.section_hash` record, outside the section of refine and in it. An item of a person SHALL need no approval. The reason of a job that leaves out such an item SHALL say that no review approved its body as it is now.
 
 #### Scenario: A bot item with no approval
 - **WHEN** a Ready item of the Service App has no `refine.judge` in its job record
@@ -51,8 +51,16 @@ The stage, implement and alternatives jobs SHALL take an item whose author is a 
 - **THEN** the stage and implement jobs leave it out
 
 #### Scenario: A bot item with an approval
-- **WHEN** a Ready item of the Service App holds `refine.judge` `approved`
+- **WHEN** a Ready item of the Service App holds `refine.judge` `approved`, and its body hashes as the record holds
 - **THEN** the stage and implement jobs take it, and the alternatives job checks it
+
+#### Scenario: A bot item whose body changed after the review
+- **WHEN** a Ready item of the Service App holds `refine.judge` `approved`, and a person edited its body, in the section of refine or outside it
+- **THEN** the stage, implement and alternatives jobs leave it out, and the reason says that no review approved its body as it is now
+
+#### Scenario: A hash that no review wrote
+- **WHEN** a round records the hashes of a body with no review, because the body is too big to refine or the model failed on it twice
+- **THEN** the round clears `refine.judge`, and no job takes the item as approved
 
 #### Scenario: An item of a person
 - **WHEN** a Ready item of the owner has no `refine.judge`
@@ -65,9 +73,13 @@ The `implement: retry` check SHALL accept only a comment whose `author_associati
 - **WHEN** a stopped item has a comment `implement: retry` by `devops-roadmap[bot]` with the association CONTRIBUTOR
 - **THEN** the implement job leaves the item out as stopped
 
-### Requirement: The model of refine reads only the replies of trusted authors
-The comments that refine reads for an item, for the replies, the answers to a `covers` question, the stage return and the wait checks, SHALL be those whose `author_association` is OWNER, MEMBER or COLLABORATOR, or whose author login is equal to the login of the Service App's bot. A comment of any other account, `github-actions[bot]` included, SHALL NOT reach the model.
+### Requirement: The models of refine and of the alternatives job read only the replies of trusted authors
+Refine reads comments for the replies, the answers to a `covers` question, the stage return and the wait checks. The alternatives job gives comments to its model. These comments SHALL be those whose `author_association` is OWNER, MEMBER or COLLABORATOR, or whose author login is equal to the login of the Service App's bot. A comment of any other account, `github-actions[bot]` included, SHALL NOT reach either model.
 
 #### Scenario: Replies of several accounts
 - **WHEN** an item has replies from an account with the association NONE, from `dependabot[bot]`, from `github-actions[bot]`, from the owner and from the Service App's bot
-- **THEN** the `replies` of the request to the model hold the reply of the owner and the reply of the Service App's bot, in that order, and no other
+- **THEN** the `replies` of the request to the model of refine hold the reply of the owner and the reply of the Service App's bot, in that order, and no other
+
+#### Scenario: The alternatives job reads the same replies
+- **WHEN** the same item is checked by the alternatives job
+- **THEN** the `replies` of its request hold the same two replies and no other

@@ -22,9 +22,13 @@ The stage job can return an item to New with evidence that the plan cannot hold.
 
 ## Items that a bot opens
 
-The Service App and the workflows of the repository open items, such as the parts that refine splits off and the findings of an audit. A round takes an item whose author login is exactly `service.github_app.bot_login` or `github-actions[bot]`, as it takes the item of a person with write access. It takes no item of another bot or of an outside account. Refine writes one comment on such an item, so its author knows why the round leaves it alone, and a person with write access refines it with `--item`.
+The Service App and the workflows of the repository open items. Examples are the parts that refine splits off and the findings of an audit. A round takes an item whose author login is exactly `service.github_app.bot_login` or `github-actions[bot]`. It takes such an item as it takes the item of a person with write access. It takes no item of another bot or of an outside account. Refine writes one comment on such an item to tell its author why the round leaves it alone.
 
-Nobody wrote the text of a bot item, so a Ready proposal for it goes through a review first. The review is the verification pass of the stage job, with the model of the task slot `ai.tasks.verification`. It reads the issue and the proposal. With no open finding, refine sets the item Ready and records `refine.judge` `approved`. With an open finding, the item stays New and waits for a body edit, and one comment lists each finding with its evidence. The review looks again only after the body changes. The stage job, the implement job and the alternatives job take a bot item only with that approval. The review is a model, so text in the item can mislead it. The control is the login of the author, and the model of refine reads only the replies of a person with write access and of the App's bot. A person still merges each pull request, and a comment of a bot starts no `implement: retry`.
+Nobody wrote the text of a bot item, so a Ready proposal for it goes through a review first. The review is the verification pass of the stage job, with the model of the task slot `ai.tasks.verification`. It reads the issue and the proposal. With no open finding, refine sets the item Ready and records `refine.judge` `approved`.
+
+With an open finding, the item stays New and waits for a body edit. One comment lists each finding with its evidence. The approval covers the body that the review read, and the hashes in the job record show it. A body edit ends the approval, and the next round reviews the item again. The stage job, the implement job and the alternatives job take a bot item only with an approval that holds.
+
+The review is a model, so text in the item can mislead it. The control is the login of the author. The models of refine and of the alternatives job read only the replies of two kinds of author. These are a person with write access and the App's bot. A person still merges each pull request. A comment of a bot starts no `implement: retry`.
 
 ## What refine investigates
 
@@ -48,7 +52,7 @@ In each open milestone, and among the P0 and P1 items of the backlog, refine als
 
 Two kinds of item wait for a person. Only `--item` refines them:
 
-- An item that an account other than the owner, a member or a collaborator opened.
+- An item that another account opened. The accounts that a round trusts are the owner, a member, a collaborator, the Service App's bot and `github-actions[bot]`.
 - An item on which refine wrote 2 comments in the last 24 hours. It takes no place under `--limit` until the older comment is 24 hours old.
 
 `--item` refines an open New or Ready item even when nothing changed since its last round.

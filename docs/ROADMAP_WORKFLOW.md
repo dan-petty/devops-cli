@@ -106,7 +106,7 @@ These are all the keys of the job record, by the job that writes them:
 | Refine | `refine.needs_split`, `refine.next_step`, `refine.blocked_by`, `refine.block_paths` | Whether the Item needs a split, who acts next, and the open items and paths that block it |
 | Refine | `refine.capped_after`, `refine.alternatives_asked` | The comment cap of refine, and the covering tool that refine asked a person about |
 | Refine | `refine.deferred` | The numbers of the issues that refine filed for the deferred parts of the Item |
-| Refine | `refine.judge` | The verdict of the review of a Ready proposal for an Item that a bot opened, `approved` or `refused`; the stage, implement and alternatives jobs take such an Item only when it is `approved` |
+| Refine | `refine.judge` | The verdict of the review of a Ready proposal for an Item that a bot opened, `approved` or `refused`. The stage, implement and alternatives jobs take such an Item only when it is `approved` and its body hashes as `refine.body_hash` and `refine.section_hash` record |
 | Refine | `refine.returned_body_hash` | The body hash of a round that looked again at an Item after the stage job returned it; a second return on that body waits on a person |
 | Alternatives | `alternatives.checked_at`, `alternatives.body_hash`, `alternatives.verdict`, `alternatives.tool`, `alternatives.failed_at`, `alternatives.failed_error` | When the check ran, the text it read, its verdict and the tool it found; when the last check failed and the class of its error, until a check is written |
 | Stage | `stage.branch`, `stage.pr`, `stage.sha` | The staged branch, its draft pull request and its last commit |

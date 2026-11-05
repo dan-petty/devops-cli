@@ -27,18 +27,34 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stage_verify.py`. Changes: `src/d
 - [x] 3.2 Add `refine_judge.py`, the verdict in `RefinedItem` and in the marks, the `edit` step comment, the notice of `WaitingItem`, and the filter of the comments.
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_refine_trust.py tests/roadmap/test_roadmap_refine.py tests/roadmap/test_roadmap_refine_deferred.py tests/roadmap/test_roadmap_refine_investigation.py tests/roadmap/test_roadmap_stage_verify.py`
 
-## 4. Documents
+## 4. The approval holds for the body that the review read
 
-Kind: documents. Changes: `SECURITY.md`, `docs/roadmap/refine.md`, `docs/ROADMAP_WORKFLOW.md`.
+Kind: behavior. Reads: `src/devops_cli/roadmap/refine.py`. Changes: `src/devops_cli/roadmap/body_hash.py`, `src/devops_cli/roadmap/trust.py`, `src/devops_cli/roadmap/refine.py`, `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli/roadmap/repair.py`, `src/devops_cli/roadmap/refine_judge.py`, `src/devops_cli/lang/en/messages.py`, `tests/support/roadmap_trust.py`, `tests/roadmap/test_roadmap_trust.py`, `tests/roadmap/test_roadmap_refine_trust.py`, `tests/roadmap/test_roadmap_implement_selection.py`, `tests/roadmap/test_roadmap_refine.py`, `tests/roadmap/test_roadmap_repair.py`, `tests/roadmap/test_roadmap_explain.py`.
 
-- [x] 4.1 State the trust rule and its reason in `SECURITY.md`, the review and its record key in `docs/roadmap/refine.md` and `docs/ROADMAP_WORKFLOW.md`.
+- [x] 4.1 Write the tests of the three readers that leave out an approved bot item with an edited body. Add the tests of the second round and of the verdict that a record of the hashes clears.
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_trust.py tests/roadmap/test_roadmap_implement_selection.py tests/roadmap/test_roadmap_refine_trust.py`
+- [x] 4.2 Move the section split, the hashes and the unchanged check to `body_hash.py`, and make `is_approved` read them. Make `_refinable` take a Ready item of a bot with no valid approval. Clear the verdict where a round records the hashes with no review.
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_trust.py tests/roadmap/test_roadmap_refine.py tests/roadmap/test_roadmap_refine_trust.py tests/roadmap/test_roadmap_repair.py tests/roadmap/test_roadmap_explain.py`
+
+## 5. Replies and the dry-run plan
+
+Kind: behavior. Changes: `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_alternatives.py`, `tests/roadmap/test_roadmap_dry_runs.py`.
+
+- [x] 5.1 Write `test_the_request_holds_no_comment_of_an_account_that_the_jobs_do_not_trust` and the dry-run test of the read and the notice. Then filter the comments of the alternatives job with `trusted_replies`. Add the two requests and their conditions to `refine_requests`.
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_alternatives.py tests/roadmap/test_roadmap_dry_runs.py`
+
+## 6. Documents
+
+Kind: documents. Changes: `SECURITY.md`, `docs/roadmap/refine.md`, `docs/roadmap/alternatives.md`, `docs/ROADMAP_WORKFLOW.md`, and the deltas of `roadmap-alternatives`, `roadmap-stage` and `roadmap-implement-job` in this change.
+
+- [x] 6.1 State the trust rule, the approval and their reason in `SECURITY.md`. State the review and its record key in `docs/roadmap/refine.md` and `docs/ROADMAP_WORKFLOW.md`. State the items that the check takes in `docs/roadmap/alternatives.md`, and the new rule in the specs of the jobs.
   - Verification: `uv run devops ci docs`
 
-## 5. Archive
+## 7. Archive
 
 Kind: documents.
 
-- [ ] 5.1 Archive the change with `uv run devops openspec archive 3502-jobs-trust-service-app-items`.
+- [x] 7.1 Archive the change with `uv run devops openspec archive 3502-jobs-trust-service-app-items`.
 
 ## Workflow follow-up
 

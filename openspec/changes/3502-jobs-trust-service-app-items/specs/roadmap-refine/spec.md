@@ -5,7 +5,7 @@ Without `--item`, `devops roadmap refine` SHALL take only an item whose `author_
 
 #### Scenario: A round with an item from an account with no association to the repository
 - **WHEN** the backlog holds a New P2 item that an account with the association NONE opened and a New P3 item that the owner opened, and refine runs with `--limit 1`
-- **THEN** refine asks the model about the owner's item only, and the report shows the other item waiting on a person with the detail "The author is unknown, and its association with the repository is NONE. A refine round refines only the items that the owner, a member or a collaborator opened, and the items that the Service App's bot or github-actions[bot] opened. A person refines this item with --item 1."
+- **THEN** refine asks the model about the owner's item only, and the report shows the other item waiting on a person with the detail "The author is unknown, and its association with the repository is NONE. A refine round refines only the items that these accounts opened: the owner, a member, a collaborator, the Service App's bot and github-actions[bot]. A person refines this item with --item 1."
 
 #### Scenario: A person names the item with --item
 - **WHEN** refine runs with `--item` for that item, and the model gives a proposal that is ready
@@ -57,6 +57,21 @@ Refine SHALL make no review call for an item that waits on its body edit, and fo
 #### Scenario: An approved item that a round looks at again
 - **WHEN** a round looks again at an item that holds `refine.judge` `approved`, and its body is unchanged
 - **THEN** refine keeps the approval and makes no review call
+
+### Requirement: A round reviews a Ready item of a bot again when its approval ends
+A round SHALL take a Ready item of a trusted bot when its approval does not hold. The approval does not hold when `refine.judge` is not `approved`, or when the body hashes differently from `refine.body_hash` and `refine.section_hash`. The round SHALL review the new proposal. With no open finding, the item SHALL stay Ready with a new approval. With an open finding, the item SHALL go back to New.
+
+#### Scenario: A person edits the body of an approved item
+- **WHEN** refine approved a Ready item of the Service App, and a person adds a line to the body outside the section of refine
+- **THEN** the item has no approval that holds, the next round makes one proposal call and one review call, and the item stays Ready with a new approval
+
+#### Scenario: The review refuses the edited body
+- **WHEN** the review finds an open defect in the proposal for the edited body
+- **THEN** the item goes back to New, its job record holds `refine.judge` `refused` and `refine.next_step` `edit`, and no job takes it
+
+#### Scenario: An approval that holds
+- **WHEN** a Ready item of the Service App holds `refine.judge` `approved` and its body is unchanged
+- **THEN** a round does not take the item for this reason
 
 ### Requirement: Refine tells the author of an item that the jobs do not trust one time
 A round that leaves out an item that the jobs do not trust, and finds no comment that holds `CONST_ROADMAP_REFINE_OUTSIDE_MARKER` on it, SHALL write one comment that names the author, the association and `devops roadmap refine --item <number>`. A round that finds the marker SHALL write no comment. The comment SHALL not count as a reply to the model.
