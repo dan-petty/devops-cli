@@ -43,10 +43,17 @@ The stage prompt SHALL state that the `documentation` field starts with an imper
 - **WHEN** a test reads the stage prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md`
 - **THEN** the prompt states the imperative verb rule, the rule that names each document, and the `null` rule for a step that changes no document.
 
+### Requirement: A documentation task runs the regeneration step for a command change
+A documentation task SHALL end with the command `uv run devops docs generate --sync-readme` only when the group changes a path under `src/devops_cli/commands/` or `src/devops_cli/lang/`. A documentation task of any other group SHALL hold the documentation text and no regeneration command.
+
+#### Scenario: A group that changes a document only
+- **WHEN** a group has a `documentation` task and changes only `SECURITY.md`
+- **THEN** its last task holds the documentation text with no regeneration command, and its `Verification:` line holds `uv run devops ci docs`
+
 ## MODIFIED Requirements
 
 ### Requirement: A task group renders the tasks of its kind
-A `behavior` group SHALL render `n.1` as its failing test, `n.2` as its implementation, and `n.3` as its documentation when `documentation` is set. An `other` group SHALL render `n.1` as its implementation with its `verify` or its `process`, and `n.2` as its documentation when `documentation` is set. A task with a command SHALL write it on a line `- Verification: ` under the task, as a code span that `step_files` reads. A group with no `documentation` SHALL render no documentation task. A documentation task SHALL end with the command `uv run devops docs generate --sync-readme` only when the group changes a path under `src/devops_cli/commands/` or `src/devops_cli/lang/`.
+A `behavior` group SHALL render `n.1` as its failing test, `n.2` as its implementation, and `n.3` as its documentation when `documentation` is set. An `other` group SHALL render `n.1` as its implementation with its `verify` or its `process`, and `n.2` as its documentation when `documentation` is set. A task with a command SHALL write it on a line `- Verification: ` under the task, as a code span that `step_files` reads. A group with no `documentation` SHALL render no documentation task.
 
 #### Scenario: A deletion that keeps behavior
 - **WHEN** an `other` group deletes a definition and its `verify` is a `git grep` that must print nothing
@@ -67,7 +74,3 @@ A `behavior` group SHALL render `n.1` as its failing test, `n.2` as its implemen
 #### Scenario: A group with documentation
 - **WHEN** a group has a `documentation` task and changes `src/devops_cli/commands/pr.py`
 - **THEN** its last task holds the command that regenerates the documents, and its `Verification:` line holds `uv run devops ci docs`
-
-#### Scenario: A group that changes a document only
-- **WHEN** a group has a `documentation` task and changes only `SECURITY.md`
-- **THEN** its last task holds the documentation text with no regeneration command, and its `Verification:` line holds `uv run devops ci docs`
