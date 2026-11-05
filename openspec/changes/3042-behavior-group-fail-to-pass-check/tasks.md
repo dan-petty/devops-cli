@@ -13,9 +13,9 @@ Reads: `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/ci/fail_to_pa
 
 Reads: `src/devops_cli/roadmap/implement_trace.py`, `src/devops_cli/roadmap/implement_run.py`. Changes: `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/implement_tool_log.py`, `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_implement_step_trace.py`, `tests/roadmap/test_roadmap_implement_job.py`.
 
-- [ ] 2.1 Write a case in `tests/roadmap/test_roadmap_implement_step_trace.py` for a base run as a check event, and a case in `tests/roadmap/test_roadmap_implement_job.py` for the fail-to-pass line of each behavior group in the PR comment
+- [x] 2.1 Write a case in `tests/roadmap/test_roadmap_implement_step_trace.py` for a base run as a check event, and a case in `tests/roadmap/test_roadmap_implement_job.py` for the fail-to-pass line of each behavior group in the PR comment
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_trace.py tests/roadmap/test_roadmap_implement_job.py` fails on the base
-- [ ] 2.2 Record the replay as a check event of the trace, add the replay to the step outcome, and add one fail-to-pass line for each behavior group to the PR comment
+- [x] 2.2 Record the replay as a check event of the trace, add the replay to the step outcome, and add one fail-to-pass line for each behavior group to the PR comment
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_step_trace.py tests/roadmap/test_roadmap_implement_job.py` passes
 
 ## 3. Record the output of a group of kind other

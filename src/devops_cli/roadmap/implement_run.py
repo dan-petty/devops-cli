@@ -58,7 +58,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, NamedTuple, NoReturn
+from typing import Any, NamedTuple, NoReturn, assert_never
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.config.commands import BIN_DEVOPS, BIN_GIT, BIN_UV
@@ -112,6 +112,7 @@ from devops_cli.roadmap.implement_amend import (
     judge,
     parse_request,
 )
+from devops_cli.roadmap.implement_base_replay import BaseStatus
 from devops_cli.roadmap.implement_hooks import install_hook_environments, trusted_config
 from devops_cli.roadmap.implement_limits import ItemSpend
 from devops_cli.roadmap.implement_pull import (
@@ -1154,13 +1155,40 @@ class _ItemRun:
             )
             for step in self.skipped_steps[since.skipped :]
         ]
-        lines = "\n".join([*amend_lines, *skipped_lines, *scoped_lines])
+        lines = "\n".join([*amend_lines, *skipped_lines, *scoped_lines, *self._check_lines(since)])
         body = "\n\n".join(part for part in (table, lines) if part)
         comment = texts.implement_pull_comment.format(
             marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, lines=body or "-"
         )
         get_github_session().client.comment_on_pull(self.repo, pull, comment)
         self.last_comment_mark = self._mark()
+
+    def _check_lines(self, since: _Mark) -> list[str]:
+        """The lines of the checks of the outcomes after `since` (#3042): the fail-to-pass result of
+        each behavior group, and the output of each verify command of a group of kind `other`."""
+        texts = MESSAGES.roadmap
+        lines: list[str] = []
+        for outcome in self.outcomes[since.outcomes :]:
+            if (replay := outcome.fail_to_pass) is not None:
+                lines.append(
+                    texts.implement_pull_fail_to_pass.format(
+                        group=outcome.group,
+                        status=_base_status_text(replay.status),
+                        failed=", ".join(replay.failed) or texts.implement_pull_fail_to_pass_none,
+                    )
+                )
+                continue
+            lines.extend(
+                texts.implement_pull_verified.format(
+                    group=outcome.group,
+                    command=check.command,
+                    status=check.status,
+                    fence=code_fence(check.output),
+                    output=check.output,
+                )
+                for check in outcome.verified
+            )
+        return lines
 
     def _scoped_lines(self, since: _Mark) -> list[str]:
         """One line for each run of a scoped check after `since`: its name, its result and its
@@ -1578,3 +1606,19 @@ __all__ = [
     "raise_for_failed",
     "require_runner",
 ]
+
+
+def _base_status_text(status: BaseStatus) -> str:
+    """The words that the PR comment uses for the result of a replay on the base commit (#3042)."""
+    texts = MESSAGES.roadmap
+    match status:
+        case BaseStatus.FAILS:
+            return texts.implement_base_fails
+        case BaseStatus.PASSES:
+            return texts.implement_base_passes
+        case BaseStatus.ERRORS:
+            return texts.implement_base_errors
+        case BaseStatus.NOT_RUN:
+            return texts.implement_base_not_run
+        case _:
+            assert_never(status)

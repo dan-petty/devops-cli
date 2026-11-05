@@ -27,14 +27,23 @@ from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PR
 from devops_cli.roadmap.implement import parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement_run import apply_implement, raise_for_failed
 from devops_cli.roadmap.store import ImplementRecordKey
+from tests.support.base_replay import (
+    BEHAVIOR_FIRST_TICKED,
+    BEHAVIOR_TASKS,
+    BEHAVIOR_TICKED,
+    SHOUT_TEST_ID,
+    answer_pytest_on_base,
+    junit,
+)
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
-from tests.support.implement_step import WINDOW, command_text
+from tests.support.implement_step import TEST_BODY, WINDOW, command_text, write_call
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
     BRANCH,
     CHANGE,
     CHANGE_DIR,
     PULL,
+    SHOUT,
     TASKS_PATH,
     TICKED_FIRST,
     JobWorld,
@@ -1230,3 +1239,40 @@ def test_planned_item_holds_labels_and_removes_none(planned_world: JobWorld) -> 
         w for w in planned_world.store._roadmap.job_writes if w.operation == "unlabel_issue"
     ]
     assert unlabels == []
+
+
+class TestFailToPassOfABehaviorGroup:
+    """The job of a group whose staged tasks name a test that fails on base (#3042)."""
+
+    @pytest.fixture
+    def staged_tasks(self) -> str:
+        return BEHAVIOR_TASKS
+
+    @pytest.fixture
+    def staged_files(self) -> dict[str, str]:
+        return {"tests/conftest.py": '"""The tests."""\n'}
+
+    def test_the_pr_comment_shows_the_fail_to_pass_result_of_each_behavior_group(
+        self, job_world: JobWorld
+    ) -> None:
+        answer_pytest_on_base(job_world.programs, junit((SHOUT_TEST_ID, "failed")))
+        group_one = (
+            write_call("tests/test_shout.py", TEST_BODY),
+            write_call("src/devops_cli/shout.py", SHOUT),
+            write_call(TASKS_PATH, BEHAVIOR_FIRST_TICKED),
+        )
+        script = ModelScript(
+            tool_calls(*group_one),
+            say("Group 1 is done."),
+            tool_calls(*group_two_calls(BEHAVIOR_TICKED)),
+            say("Group 2 is done."),
+        )
+
+        applied = job_world.run(script)
+
+        assert (applied.ready, applied.stopped) == ((1,), ())
+        (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
+        assert (
+            "- fail-to-pass of group 1: fails on the base commit. "
+            "Tests that fail on the base commit: tests.test_shout::test_shout."
+        ) in comment["body"]

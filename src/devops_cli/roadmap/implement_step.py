@@ -1169,11 +1169,17 @@ class _Failure:
     klass: FailureClass | None = None
 
 
+def _changed_test_files(source: Path, base: str) -> list[str]:
+    """The test files that the step changed since `base`: its `wip:` commits and its staged files,
+    so a test that a keeper committed on the way is still one of them (#3042)."""
+    names = _git_output(source, "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z", base)
+    return [name for name in names.split("\0") if name and is_test_file(PurePosixPath(name))]
+
+
 def _fail_to_pass_failure(
     source: Path,
     inputs: StepInputs,
     keeper: WipKeeper,
-    changed: Sequence[str],
     log: ToolCallLog,
 ) -> _Failure | None:
     """Why the step stops when the tests of a behavior group do not fail on the base commit of the
@@ -1183,7 +1189,7 @@ def _fail_to_pass_failure(
     repair round that may change only the test files."""
     if not inputs.group.is_behavior:
         return None
-    files = [path for path in changed if is_test_file(PurePosixPath(path))]
+    files = _changed_test_files(source, keeper.base)
     if not files:
         return _Failure(MESSAGES.roadmap.implement_stop_no_test_file)
     replay = replay_group_tests(source, keeper.base, files)
@@ -1259,7 +1265,7 @@ def _exit_failure(
     )
     if early:
         return _Failure(early)
-    proof = _fail_to_pass_failure(source, inputs, keeper, changed, log)
+    proof = _fail_to_pass_failure(source, inputs, keeper, log)
     if proof is not None:
         return proof
     static = _static_failure(source, changed, log.trace)

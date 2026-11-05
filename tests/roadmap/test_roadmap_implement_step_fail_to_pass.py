@@ -20,6 +20,7 @@ import pytest
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from tests.support.base_replay import answer_pytest_on_base, junit
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import (
     SHOUT_CODE,
@@ -68,37 +69,6 @@ NO_TEST_REASON = (
 )
 
 
-def junit(*cases: tuple[str, str]) -> str:
-    """A JUnit report with one testcase for each `(test id, status)` pair of `cases`."""
-    body = ""
-    for test_id, status in cases:
-        classname, _, name = test_id.rpartition("::")
-        marker = {
-            "passed": "",
-            "failed": '<failure message="assert"/>',
-            "errored": '<error message="collection"/>',
-        }[status]
-        body += f'<testcase classname="{classname}" name="{name}">{marker}</testcase>'
-    return (
-        '<?xml version="1.0" encoding="utf-8"?>\n'
-        f'<testsuites><testsuite name="pytest">{body}</testsuite></testsuites>'
-    )
-
-
-def _pytest_on_base(programs: ProcessFake, *reports: str) -> None:
-    """Answer each pytest run of the replay with the next report, and the last one when the
-    reports run out. A replay reads the report that the run wrote at its `--junitxml` path."""
-    pending = list(reports)
-
-    def answer(call: ProcessCall) -> subprocess.CompletedProcess[str]:
-        path = next(word for word in call.argv if word.startswith("--junitxml="))
-        report = pending.pop(0) if len(pending) > 1 else pending[0]
-        Path(path.removeprefix("--junitxml=")).write_text(report, encoding="utf-8")
-        return subprocess.CompletedProcess(call.argv, 1, stdout="", stderr="")
-
-    programs.answer(lambda call: "pytest" in call.argv, ProcessAnswer(side_effect=answer))
-
-
 def _replay(outcome: StepOutcome) -> tuple[str, tuple[str, ...]]:
     """The status of the replay on base, and the tests that failed there."""
     replay = outcome.fail_to_pass
@@ -127,7 +97,7 @@ def _pytest_runs(programs: ProcessFake) -> list[ProcessCall]:
 def test_a_behavior_group_whose_tests_pass_on_base_is_refused_with_the_files_named(
     store: InMemoryRoadmapStore, checkout: Path, implement_programs: ProcessFake
 ) -> None:
-    _pytest_on_base(implement_programs, junit((TEST_ID, "passed")))
+    answer_pytest_on_base(implement_programs, junit((TEST_ID, "passed")))
     script = ModelScript(tool_calls(*WORK), say("Done."))
 
     outcome = _run(store, checkout, script)
@@ -142,7 +112,9 @@ def test_a_behavior_group_whose_tests_pass_on_base_is_refused_with_the_files_nam
 def test_a_test_that_passes_on_base_gets_one_repair_turn_that_writes_a_failing_test(
     store: InMemoryRoadmapStore, checkout: Path, implement_programs: ProcessFake
 ) -> None:
-    _pytest_on_base(implement_programs, junit((TEST_ID, "passed")), junit((TEST_ID, "failed")))
+    answer_pytest_on_base(
+        implement_programs, junit((TEST_ID, "passed")), junit((TEST_ID, "failed"))
+    )
     script = ModelScript(
         tool_calls(*WORK),
         say("Done."),
@@ -162,7 +134,7 @@ def test_a_test_that_passes_on_base_gets_one_repair_turn_that_writes_a_failing_t
 def test_a_repair_turn_of_a_behavior_group_may_not_change_source(
     store: InMemoryRoadmapStore, checkout: Path, implement_programs: ProcessFake
 ) -> None:
-    _pytest_on_base(implement_programs, junit((TEST_ID, "passed")))
+    answer_pytest_on_base(implement_programs, junit((TEST_ID, "passed")))
     script = ModelScript(
         tool_calls(*WORK),
         say("Done."),
@@ -178,7 +150,7 @@ def test_a_repair_turn_of_a_behavior_group_may_not_change_source(
 def test_a_collection_error_on_base_does_not_count_as_a_failure_on_base(
     store: InMemoryRoadmapStore, checkout: Path, implement_programs: ProcessFake
 ) -> None:
-    _pytest_on_base(implement_programs, junit((TEST_PATH, "errored")))
+    answer_pytest_on_base(implement_programs, junit((TEST_PATH, "errored")))
     script = ModelScript(tool_calls(*WORK), say("Done."))
 
     outcome = _run(store, checkout, script)
@@ -193,7 +165,7 @@ def test_a_collection_error_on_base_does_not_count_as_a_failure_on_base(
 def test_a_test_that_fails_on_base_and_passes_after_the_change_is_accepted(
     store: InMemoryRoadmapStore, checkout: Path, implement_programs: ProcessFake
 ) -> None:
-    _pytest_on_base(implement_programs, junit((TEST_ID, "failed")))
+    answer_pytest_on_base(implement_programs, junit((TEST_ID, "failed")))
     script = ModelScript(tool_calls(*WORK), say("Done."))
 
     outcome = _run(store, checkout, script)
@@ -209,7 +181,7 @@ def test_a_test_that_fails_on_base_and_passes_after_the_change_is_accepted(
 def test_a_behavior_group_that_changes_no_test_file_is_refused_without_a_repair_turn(
     store: InMemoryRoadmapStore, checkout: Path, implement_programs: ProcessFake
 ) -> None:
-    _pytest_on_base(implement_programs, junit((TEST_ID, "failed")))
+    answer_pytest_on_base(implement_programs, junit((TEST_ID, "failed")))
     script = ModelScript(
         tool_calls(
             write_call("src/sample.py", SHOUT_CODE), write_call(TASKS_PATH, TICKED_BEHAVIOR)

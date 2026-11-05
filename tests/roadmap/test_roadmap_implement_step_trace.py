@@ -15,13 +15,22 @@ import pytest
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
 from devops_cli.roadmap.implement_trace import ImplementTrace, TraceEvent, TraceEventKind
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from tests.support.base_replay import (
+    BEHAVIOR_TASKS,
+    BEHAVIOR_TICKED,
+    SHOUT_TEST_ID,
+    answer_pytest_on_base,
+    junit,
+)
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.implement_step import (
+    SHOUT_CODE,
     TASKS_PATH,
     TEST_BODY,
     TICKED,
     WINDOW,
     command_text,
+    make_checkout,
     tool_reads,
     write_call,
 )
@@ -202,3 +211,31 @@ def test_a_step_with_no_trace_behaves_as_before(
     outcome = _step(store, checkout, ModelScript(say("Done.")), None)
 
     assert outcome.status is StepStatus.STOPPED
+
+
+def test_a_base_run_is_a_check_event_with_its_status(
+    store: InMemoryRoadmapStore, programs: ProcessFake, tmp_path: Path
+) -> None:
+    checkout = make_checkout(tmp_path, BEHAVIOR_TASKS)
+    answer_pytest_on_base(programs, junit((SHOUT_TEST_ID, "failed")))
+    trace = ImplementTrace(step="group 1")
+    script = ModelScript(
+        tool_calls(
+            write_call("tests/test_shout.py", TEST_BODY),
+            write_call("src/sample.py", SHOUT_CODE),
+            write_call(TASKS_PATH, BEHAVIOR_TICKED),
+        ),
+        say("Done."),
+    )
+
+    outcome = _step(store, checkout, script, trace)
+
+    checks = [
+        (event.fields["command"], event.fields["status"])
+        for event in _of(trace, TraceEventKind.CHECK)
+        if event.fields["command"].startswith("pytest on base")
+    ]
+    assert (outcome.status, checks) == (
+        StepStatus.DONE,
+        [("pytest on base: tests/test_shout.py", 1)],
+    )
