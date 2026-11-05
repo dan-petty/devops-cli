@@ -3422,6 +3422,11 @@ CONST_ROADMAP_PRIORITY_VALUES: Final[tuple[str, ...]] = (
 CONST_ROADMAP_P0_PRIORITIES: Final[frozenset[str]] = frozenset(
     {CONST_ROADMAP_CRITICAL_PRIORITY, CONST_ROADMAP_P0_PRIORITY}
 )
+# The Priority values of an item that the stage job plans at `roadmap.stage.planned_limit` (#3692).
+CONST_ROADMAP_PLANNED_LIMIT_PRIORITIES: Final[tuple[str, ...]] = (
+    CONST_ROADMAP_CRITICAL_PRIORITY,
+    CONST_ROADMAP_P1_PRIORITY,
+)
 CONST_ROADMAP_CRITICAL_FIX_LABELS: Final[frozenset[str]] = frozenset({"type/bug", "type/security"})
 # An Item's Owner values, in the order of their labels' family (`owner/service`, ...; ADR 0016,
 # #2910). The Service claims an Item for the Job it creates, an agent and a person claim by hand.

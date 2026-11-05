@@ -898,7 +898,7 @@ class RoadmapStageConfig(BaseModel):
         ge=1,
     )
     planned_limit: Annotated[int, Variable()] = Field(
-        description="The count of open Planned items at which the stage job plans no new item. An item with the highest priority label passes the limit, and so does the item that `--item` names. `devops roadmap explain` names the limit for an item that it holds, and `devops roadmap inbox` states when it holds",
+        description="The count of open Planned items at which the stage job plans only items with the priority P0-Critical or P1-High. The item that `--item` names also passes the limit. `devops roadmap explain` names the limit for an item that it holds, and `devops roadmap inbox` states when it holds",
         default=DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
         ge=1,
     )

@@ -3049,8 +3049,8 @@ class RoadmapMessages:
     )
     stage_left_planned_limit: str = (
         "The count of Planned items is {count}, and the setting roadmap.stage.planned_limit is "
-        "{limit}. The job plans no new item until a delivery lowers the count. An item with the "
-        "priority {priority} passes the limit."
+        "{limit}. Until a delivery lowers the count, the job plans only an item with the priority "
+        "{priorities}."
     )
     stage_left_failed_lately: str = (
         "The last plan or write of the item failed ({error}). The job takes the item again after "
@@ -3688,7 +3688,7 @@ class RoadmapMessages:
             "more_labels": "{names}, and {more} more",
             "queue": (
                 "The count of Planned items is {count}, and roadmap.stage.planned_limit is "
-                "{limit}. The stage job plans no new item."
+                "{limit}. The stage job plans only items with the priority {priorities}."
             ),
         }
     )

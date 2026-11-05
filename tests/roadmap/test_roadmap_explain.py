@@ -255,18 +255,28 @@ def test_the_planned_limit_names_the_setting_and_the_count_for_the_stage_job(
 ) -> None:
     _seed(job_world, status="Planned", title="fix(roadmap): a first plan waits")
     _seed(job_world, status="Planned", title="fix(roadmap): a second plan waits")
-    number = _seed(job_world)
+    number = _seed(job_world, priority="P2-Medium")
 
     held = _explain(job_world, number, planned_limit=2)
     free = _explain(job_world, number, planned_limit=3)
 
     assert held.stage == JobVerdict(
         False,
-        TEXTS.stage_left_planned_limit.format(count=2, limit=2, priority="P0-Critical"),
+        TEXTS.stage_left_planned_limit.format(
+            count=2, limit=2, priorities="P0-Critical or P1-High"
+        ),
     )
     assert "roadmap.stage.planned_limit" in held.stage.reason
     assert "The count of Planned items is 2" in held.stage.reason
+    assert "P0-Critical or P1-High" in held.stage.reason
     assert free.stage == JobVerdict(True)
+
+
+def test_a_p1_item_passes_the_planned_limit_for_the_stage_job(job_world: JobWorld) -> None:
+    _seed(job_world, status="Planned", title="fix(roadmap): a first plan waits")
+    number = _seed(job_world, priority="P1-High")
+
+    assert _explain(job_world, number, planned_limit=1).stage == JobVerdict(True)
 
 
 def test_the_planned_limit_is_the_setting_when_the_option_is_absent(
@@ -275,12 +285,12 @@ def test_the_planned_limit_is_the_setting_when_the_option_is_absent(
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_PLANNED_LIMIT", "1")
     settings.reset_settings_cache()
     _seed(job_world, status="Planned", title="fix(roadmap): a first plan waits")
-    number = _seed(job_world)
+    number = _seed(job_world, priority="P2-Medium")
 
     explained = _explain(job_world, number)
 
     assert explained.stage.reason == TEXTS.stage_left_planned_limit.format(
-        count=1, limit=1, priority="P0-Critical"
+        count=1, limit=1, priorities="P0-Critical or P1-High"
     )
 
 
