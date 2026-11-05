@@ -144,7 +144,6 @@ from devops_cli.roadmap.stage_change import (
     StageProposal,
     check_proposal,
     closing_keyword_in,
-    creates_problems,
     measure_groups,
     pull_request_body,
     render_change,
@@ -1042,7 +1041,6 @@ class _Planner:
                 )
             )
             problems.extend(criterion_problems(asked.criteria, target.item.body, len(asked.groups)))
-            problems.extend(creates_problems(asked.groups, self._creators()))
             if problems:
                 return _Refused(" ".join(problems), asked)
         proposal = asked

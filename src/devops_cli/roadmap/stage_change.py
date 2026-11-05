@@ -624,11 +624,11 @@ def check_proposal(
     problems.extend(search_problems(proposal.groups, search_evidence))
     problems.extend(criterion_problems(proposal.criteria, issue_body, len(proposal.groups)))
     problems.extend(_overlap_problems(proposal.dependencies, overlaps))
-    problems.extend(creates_problems(proposal.groups, plan_creates or {}))
+    problems.extend(_creates_problems(proposal.groups, plan_creates or {}))
     return problems
 
 
-def creates_problems(groups: Sequence[StageGroup], creators: Mapping[str, int]) -> list[str]:
+def _creates_problems(groups: Sequence[StageGroup], creators: Mapping[str, int]) -> list[str]:
     """One sentence for each path that a group creates and the plan of an open item creates too
     (#3418). A path that two groups create gets one sentence."""
     texts = MESSAGES.roadmap
