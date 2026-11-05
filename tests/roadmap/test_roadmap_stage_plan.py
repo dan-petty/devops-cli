@@ -1213,6 +1213,39 @@ def test_a_note_of_openspec_on_a_valid_change_goes_back_to_the_model_once(
     assert model_fake.call_count == 2
 
 
+def test_the_note_that_a_change_sets_skip_specs_is_no_problem(
+    stage_repo: StageRepo, openspec_fake: OpenSpecFake
+) -> None:
+    note = (
+        "skip_specs is set in .openspec.yaml: change declares no spec-level behavior changes, "
+        "zero deltas accepted"
+    )
+    openspec_fake.script(VALIDATE, 0, validation_report(("INFO", note)))
+
+    with isolated_openspec() as tool:
+        problem = validate_change(tool, stage_repo.clone, CHANGE, {})
+
+    assert problem is None
+
+
+def test_another_note_of_openspec_stays_a_problem_next_to_the_skip_specs_note(
+    stage_repo: StageRepo, openspec_fake: OpenSpecFake
+) -> None:
+    refusal = "Archive would refuse this delta"
+    note = (
+        "skip_specs is set in .openspec.yaml: change declares no spec-level behavior changes, "
+        "zero deltas accepted"
+    )
+    openspec_fake.script(VALIDATE, 0, validation_report(("INFO", note), ("INFO", refusal)))
+
+    with isolated_openspec() as tool:
+        problem = validate_change(tool, stage_repo.clone, CHANGE, {})
+
+    assert problem is not None
+    assert refusal in problem
+    assert "skip_specs" not in problem
+
+
 def test_a_validation_that_times_out_fails_its_item_and_the_others_are_planned(
     store: InMemoryRoadmapStore,
     item: int,
@@ -1280,6 +1313,17 @@ def test_the_files_of_a_plan_pass_openspec_validate(tmp_path: Path) -> None:
         run = tool.run(["validate", "1-the-job-drops-a-comment", "--strict"], tmp_path)
 
     assert (run.returncode, run.stderr) == (0, "")
+
+
+@pytest.mark.live("openspec")
+def test_the_pinned_openspec_gives_no_problem_for_a_skip_specs_change(tmp_path: Path) -> None:
+    proposal = make_stage_proposal(skip_specs=True, specs=[])
+    files = render_change(CHANGE, proposal, [], created=TODAY.date())
+
+    with isolated_openspec() as tool:
+        problem = validate_change(tool, tmp_path, CHANGE, files)
+
+    assert problem is None
 
 
 @pytest.mark.live("openspec")
