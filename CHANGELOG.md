@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.62.5](https://github.com/dan-petty/devops-cli/compare/v0.62.4...v0.62.5) (2026-11-05)
+
+
+### Bug Fixes
+
+* **security:** keep prose after a token colon unmasked ([#3639](https://github.com/dan-petty/devops-cli/issues/3639)) ([73eff22](https://github.com/dan-petty/devops-cli/commit/73eff225de621a2c0db01e69d0cb77e5e26a72d5))
+
+
+### Performance Improvements
+
+* **roadmap:** read the default tree once per run ([#3636](https://github.com/dan-petty/devops-cli/issues/3636)) ([2db71f2](https://github.com/dan-petty/devops-cli/commit/2db71f29225e9378c0be310b98d7885d3100125c))
+
 ## [0.62.4](https://github.com/dan-petty/devops-cli/compare/v0.62.3...v0.62.4) (2026-11-05)
 
 
