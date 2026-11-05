@@ -153,6 +153,22 @@ def test_a_missing_path_gives_the_stage_message(stage_repo: StageRepo) -> None:
     assert MESSAGES.roadmap.stage_problem_path.split("{")[0].strip() in problem.message
 
 
+def test_a_new_path_with_no_mark_gives_both_forms(stage_repo: StageRepo) -> None:
+    files = _change()
+    tasks = files[f"openspec/changes/{CHANGE}/tasks.md"]
+    files[f"openspec/changes/{CHANGE}/tasks.md"] = tasks.replace(
+        "`tests/test_sample.py` (new)", "`tests/test_sample.py`"
+    )
+    sha = _push(stage_repo, files)
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha))
+
+    problem = next(p for p in result.problems if "tests/test_sample.py" in p.message)
+    assert problem.rule == "stage"
+    assert " (new)" in problem.message
+    assert "Changes:" in problem.message
+
+
 def test_a_wrong_title_is_reported(stage_repo: StageRepo) -> None:
     sha = _push(stage_repo, _change())
 

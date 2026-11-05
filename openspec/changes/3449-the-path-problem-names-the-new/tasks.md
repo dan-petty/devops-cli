@@ -13,7 +13,7 @@ Reads: `src/devops_cli/roadmap/stage_paths.py`, `src/devops_cli/lang/en/messages
 
 Reads: `src/devops_cli/roadmap/plan_check.py`, `src/devops_cli/roadmap/stage_paths.py`, `tests/roadmap/test_roadmap_plan_check.py`. Changes: `tests/roadmap/test_roadmap_plan_check.py`.
 
-- [ ] 2.1 In `tests/roadmap/test_roadmap_plan_check.py`, assert that a change folder whose group `Changes:` line names a new file with no ` (new)` mark reports a problem that holds ` (new)` and `Changes:`
+- [x] 2.1 In `tests/roadmap/test_roadmap_plan_check.py`, assert that a change folder whose group `Changes:` line names a new file with no ` (new)` mark reports a problem that holds ` (new)` and `Changes:`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_plan_check.py` passes
 
 ## Workflow follow-up
