@@ -17,16 +17,16 @@ Reads: `src/devops_cli/roadmap/implement.py`, `src/devops_cli/roadmap/stage.py`,
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_selection.py` fails on the base
 - [x] 2.2 Remove the `effort=low` entry of `DEFAULT_IMPLEMENT_FILTERS` in `src/devops_cli/roadmap/implement.py`, add the function that builds one filter for each effort value of the set and the union filter of the set, add `effort` and `fallback` to `ImplementPlan`, and walk the passes in order in `plan_implement` so that each later pass judges only the probe, with the probe of a later pass left out with the reason that the run takes an earlier effort first
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_selection.py` passes
-- [ ] 2.3 Use the union filter of the set for the matching of `_implement_verdict` in `src/devops_cli/roadmap/explain.py` and for the listing of `--why`, so a high-effort item gets the reason of the filter
+- [x] 2.3 Use the union filter of the set for the matching of `_implement_verdict` in `src/devops_cli/roadmap/explain.py` and for the listing of `--why`, so a high-effort item gets the reason of the filter
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_explain.py tests/roadmap/test_roadmap_implement_selection.py` passes
 
 ## 3. Name the effort pass in the run report and in explain
 
 Reads: `src/devops_cli/roadmap/implement.py`, `src/devops_cli/roadmap/explain.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_explain.py`, `tests/roadmap/test_roadmap_implement_selection.py`. Changes: `src/devops_cli/roadmap/implement.py`, `src/devops_cli/roadmap/explain.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_explain.py`, `tests/roadmap/test_roadmap_implement_selection.py`.
 
-- [ ] 3.1 Add to `tests/roadmap/test_roadmap_implement_selection.py` a test that the rendered plan of a run that takes a medium-effort item names the effort pass `medium` and the fallback, and add to `tests/roadmap/test_roadmap_explain.py` a test that `explain` on a Ready medium-effort item names the set `low,medium` and says that the fallback pass applies, and a test that it names the low-effort item that the run takes first when such an item is selectable
+- [x] 3.1 Add to `tests/roadmap/test_roadmap_implement_selection.py` a test that the rendered plan of a run that takes a medium-effort item names the effort pass `medium` and the fallback, and add to `tests/roadmap/test_roadmap_explain.py` a test that `explain` on a Ready medium-effort item names the set `low,medium` and says that the fallback pass applies, and a test that it names the low-effort item that the run takes first when such an item is selectable
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_selection.py tests/roadmap/test_roadmap_explain.py` fails on the base
-- [ ] 3.2 Add to `src/devops_cli/lang/en/messages.py` the texts of the effort pass, the fallback note, the later pass reason and the explain line, render the pass in `render_implement_plan`, and render the effort line of the implement job in `render_explanation` from the plan of `_implement_verdict`
+- [x] 3.2 Add to `src/devops_cli/lang/en/messages.py` the texts of the effort pass, the fallback note, the later pass reason and the explain line, render the pass in `render_implement_plan`, and render the effort line of the implement job in `render_explanation` from the plan of `_implement_verdict`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_explain.py tests/roadmap/test_roadmap_implement_selection.py` passes
 
 ## 4. Hold the setting in the example ConfigMap
