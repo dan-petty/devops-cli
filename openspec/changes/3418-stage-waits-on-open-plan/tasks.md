@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/roadmap/stage_probe.py`, `tests/roadmap/test_roadmap_stage_probe.py`. Changes: `src/devops_cli/roadmap/stage_probe.py`, `tests/roadmap/test_roadmap_stage_probe.py`.
 
-- [ ] 1.1 In `tests/roadmap/test_roadmap_stage_probe.py`, add `test_missing_path_an_open_plan_creates_is_a_dependency`. It asserts that `blocked_by` of the missing path with `{path: 3308}` gives `(3308,)`, and that a path which the staging commit holds gives `()`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_probe.py` fails on the base
+- [x] 1.1 In `tests/roadmap/test_roadmap_stage_probe.py`, add `test_missing_path_an_open_plan_creates_is_a_dependency`. It asserts that `blocked_by` of the missing path with `{path: 3308}` gives `(3308,)`, and that a path which the staging commit holds gives `()`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_probe.py` fails on the base
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_probe.py` fails on the base
-- [ ] 1.2 Add `blocked_by(missing, creators)` to `src/devops_cli/roadmap/stage_probe.py`. It returns the sorted numbers of the open items that create a missing path, with no duplicate
+- [x] 1.2 Add `blocked_by(missing, creators)` to `src/devops_cli/roadmap/stage_probe.py`. It returns the sorted numbers of the open items that create a missing path, with no duplicate
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_probe.py` passes
 
 ## 2. Return an item that needs an open plan, with no model call
