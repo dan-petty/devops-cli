@@ -217,7 +217,7 @@ devops roadmap explain [OPTIONS] <item>
 
 ## `devops roadmap inbox`
 
-**List what waits for a person, each line with its number, its age and the one command or action that clears it. A New item that waits on a person in refine has one line. It reads GitHub, calls no model and writes nothing. Details: docs/roadmap/inbox.md.**
+**List what waits for a person, each line with its number, its age and the one command or action that clears it. It reads GitHub, calls no model and writes nothing. Details: docs/roadmap/inbox.md.**
 
 ```bash
 devops roadmap inbox [OPTIONS]

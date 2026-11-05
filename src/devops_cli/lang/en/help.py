@@ -1553,8 +1553,7 @@ class RoadmapCommandHelp:
     )
     inbox: str = (
         "List what waits for a person, each line with its number, its age and the one command or "
-        "action that clears it. A New item that waits on a person in refine has one line. It "
-        "reads GitHub, calls no model and writes nothing. "
+        "action that clears it. It reads GitHub, calls no model and writes nothing. "
         "Details: docs/roadmap/inbox.md."
     )
     inbox_dry_run: str = (
