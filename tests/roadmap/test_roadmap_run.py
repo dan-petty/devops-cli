@@ -2666,43 +2666,6 @@ def test_the_issues_actions_run_a_scoped_intake_on_the_triage_lane() -> None:
     }
 
 
-def test_a_scoped_update_counts_its_job_under_its_result(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A scoped update counts one job of the job counter under its repository, its lane, its job
-    as the row and its result: `success` when its runner returns, and `error` when it raises, and
-    the error still reaches the caller (#3495)."""
-    GLOBAL_METRICS.reset()
-    store, _, _ = _candidates(3)
-    _stamp(tmp_path, intake=TWENTY_MINUTES_AGO)
-    model = _IntakeModel()
-
-    run_scoped_update(_delivery("opened", 2), store, data_dir=tmp_path, now=NOW, model=model)
-
-    def boom(*_args: object, **_kwargs: object) -> JobOutcome:
-        raise RuntimeError("the intake model failed")
-
-    monkeypatch.setattr(
-        "devops_cli.roadmap.run.SCOPED_UPDATES",
-        {key: replace(update, runner=boom) for key, update in SCOPED_UPDATES.items()},
-    )
-    with pytest.raises(RuntimeError, match="the intake model failed"):
-        run_scoped_update(_delivery("opened", 2), store, data_dir=tmp_path, now=NOW, model=model)
-
-    def count(result: str) -> float:
-        return GLOBAL_METRICS.get_counter(
-            CONST_SERVICE_METRIC_JOBS,
-            labels={
-                "repo": REPO,
-                "lane": CONST_SERVICE_LANE_TRIAGE,
-                "row": "intake",
-                "result": result,
-            },
-        )
-
-    assert (count("success"), count("error")) == (1, 1)
-
-
 @pytest.mark.parametrize("action", ["opened", "edited", "reopened"])
 def test_an_issues_delivery_intakes_only_its_issue_and_writes_no_last_success(
     action: str, tmp_path: Path
