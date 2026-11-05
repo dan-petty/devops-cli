@@ -1260,3 +1260,14 @@ The implement selection SHALL leave out a Planned item whose plan check needs th
 #### Scenario: Git fails to list the default tree
 - **WHEN** A run judges two Planned items and `git ls-tree` of `origin/<default>` fails.
 - **THEN** `plan_implement` returns no target, and each item has a left-out reason that says its plan cannot be read from git.
+
+### Requirement: The record keeps the size of the first request of each step
+The implement job SHALL record in `implement.spend`, under `steps`, the input tokens of the first model request of each step, from the usage of the first reply of the step. The job SHALL write the figure apart from the trace, so the limit of the trace never drops it.
+
+#### Scenario: A step records its first request
+- **WHEN** a step makes two model requests
+- **THEN** `implement.spend` holds for that step the input tokens of the first request, and they equal `tokens_in` of the first `model` event of the step.
+
+#### Scenario: A trace over its limit keeps the figure
+- **WHEN** a run has more events than `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` allows
+- **THEN** the trace has a `dropped` count above 0, and `implement.spend` still holds the first-request figure of each step.
