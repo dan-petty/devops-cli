@@ -15,7 +15,6 @@ from pathlib import Path
 import pytest
 
 from devops_cli.roadmap.explain import render_trace
-from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement_step import run_step
 from devops_cli.roadmap.implement_trace import ImplementTrace, TraceEvent, TraceEventKind, decode
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -130,23 +129,6 @@ def test_a_failure_that_stays_ends_the_last_attempt_with_stop_and_names_the_roun
         "The step used all its repair rounds: `roadmap.implement.repair_rounds=1`."
     )
     assert first
-
-
-def test_a_missing_tick_after_the_last_round_names_the_rounds(
-    store: InMemoryRoadmapStore,
-    checkout: Path,
-    programs: ProcessFake,
-    config: Callable[..., Path],
-) -> None:
-    config(roadmap={"implement": {"repair_rounds": 1}})
-    script = ModelScript(
-        tool_calls(write_call("src/sample.py", SHOUT_CODE)), say("Done."), say("No ticks.")
-    )
-
-    trace, reason, _ = _run(store, checkout, script)
-
-    assert reason.endswith("`roadmap.implement.repair_rounds=1`.")
-    assert _attempts(trace)[-1]["class"] == FailureClass.NOT_TICKED.value
 
 
 def test_a_failed_verification_command_gets_no_round_and_names_no_rounds(

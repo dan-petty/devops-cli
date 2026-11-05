@@ -380,33 +380,6 @@ def test_a_failed_static_check_stops_the_step_and_resets_the_checkout(
     )
 
 
-def test_a_task_left_unticked_after_the_extra_turn_stops_the_step(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, config: Callable[..., Path]
-) -> None:
-    config(roadmap={"implement": {"repair_rounds": 1}})
-    head = git(checkout, "rev-parse", "HEAD")
-    script = ModelScript(
-        tool_calls(write_call("src/sample.py", SHOUT_CODE)), say("Done."), say("No ticks.")
-    )
-
-    outcome = _step(store, checkout, script)
-
-    assert (
-        outcome.status,
-        outcome.reason,
-        outcome.last_message,
-        len(script.seen),
-        is_clean_at(checkout, head),
-    ) == (
-        StepStatus.STOPPED,
-        "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` for `src/sample.py`"
-        + rounds_spent(1),
-        "No ticks.",
-        3,
-        True,
-    )
-
-
 def test_a_text_change_to_another_group_is_undone_and_the_step_ends_done(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
@@ -422,10 +395,9 @@ def test_a_text_change_to_another_group_is_undone_and_the_step_ends_done(
     )
 
 
-def test_a_task_that_the_agent_removes_leaves_the_group_unticked_and_stops_the_step(
+def test_a_task_that_the_agent_removes_is_restored_and_the_group_is_ticked(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    head = git(checkout, "rev-parse", "HEAD")
     shorter = TICKED.replace(
         "- [x] Add `shout` to `src/sample.py`\n"
         "  - Verification: `uv run devops ci test tests/test_sample.py` and `uv run devops docs check`\n",
@@ -438,11 +410,10 @@ def test_a_task_that_the_agent_removes_leaves_the_group_unticked_and_stops_the_s
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
-        StepStatus.STOPPED,
-        "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` "
-        "for `src/sample.py`" + rounds_spent(3),
-        True,
+    assert (outcome.status, outcome.reason, git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n") == (
+        StepStatus.DONE,
+        "",
+        TICKED,
     )
 
 
@@ -661,10 +632,9 @@ def test_a_commit_that_the_agent_makes_stops_the_step_and_the_checkout_returns_t
     )
 
 
-def test_a_tasks_file_that_the_agent_removes_is_written_back_and_its_tasks_stay_unticked(
+def test_a_tasks_file_that_the_agent_removes_is_written_back_and_the_group_is_ticked(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    head = git(checkout, "rev-parse", "HEAD")
     script = ModelScript(
         tool_calls(*the_whole_group()),
         say("Done."),
@@ -676,22 +646,14 @@ def test_a_tasks_file_that_the_agent_removes_is_written_back_and_its_tasks_stay_
     assert (
         outcome.status,
         outcome.reason,
-        _is_clean_at_wip(checkout, head),
         (checkout / TASKS_PATH).exists(),
-    ) == (
-        StepStatus.STOPPED,
-        "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` "
-        "for `src/sample.py`" + rounds_spent(3),
-        True,
-        True,
-    )
+        git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n",
+    ) == (StepStatus.DONE, "", True, TICKED)
 
 
-def test_a_tasks_file_with_bytes_that_are_not_text_is_written_back_and_its_tasks_stay_unticked(
+def test_a_tasks_file_with_bytes_that_are_not_text_is_written_back_and_the_group_is_ticked(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    head = git(checkout, "rev-parse", "HEAD")
-
     def garble() -> None:
         (checkout / TASKS_PATH).write_bytes(b"\xff\xfe not utf-8")
 
@@ -699,11 +661,10 @@ def test_a_tasks_file_with_bytes_that_are_not_text_is_written_back_and_its_tasks
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
-        StepStatus.STOPPED,
-        "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` "
-        "for `src/sample.py`" + rounds_spent(3),
-        True,
+    assert (outcome.status, outcome.reason, git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n") == (
+        StepStatus.DONE,
+        "",
+        TICKED,
     )
 
 
@@ -856,20 +817,41 @@ TICK = write_call(TASKS_PATH, TICKED)
 FORGOT = "A forgetful agent writes the work and does not tick."
 
 
-def test_an_agent_that_forgot_the_ticks_gets_one_turn_for_them_and_ends_done(
+def _ruff_fails(programs: ProcessFake) -> None:
+    """Every `ruff check` fails, so each exit check of the group gets a repair turn (#3488)."""
+    programs.answer(
+        lambda call: command_text(call).startswith("uv run ruff check"),
+        ProcessAnswer(returncode=1, stdout="E501 too long\n"),
+    )
+
+
+def _ruff_fails_once(programs: ProcessFake) -> None:
+    """The first `ruff check` fails and the later ones pass, so one repair turn fixes the check."""
+    pending = [1]
+
+    def lint(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        code = pending.pop() if pending else 0
+        return subprocess.CompletedProcess(
+            call.argv, code, stdout="E501 too long\n" if code else "", stderr=""
+        )
+
+    programs.answer(
+        lambda call: command_text(call).startswith("uv run ruff check"),
+        ProcessAnswer(side_effect=lint),
+    )
+
+
+def test_an_agent_that_forgot_the_ticks_ends_done_with_no_extra_turn(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     before = git(checkout, "rev-parse", "HEAD")
-    script = ModelScript(
-        tool_calls(*WORK), say("The work is done."), tool_calls(TICK), say("Ticked.")
-    )
+    script = ModelScript(tool_calls(*WORK), say("The work is done."))
 
     outcome = _step(store, checkout, script)
 
     assert (
         outcome.status,
         outcome.reason,
-        outcome.last_message,
         outcome.requests,
         git(checkout, "rev-parse", "HEAD~1"),
         sorted(git(checkout, "show", "--name-only", "--format=", "HEAD").splitlines()),
@@ -877,146 +859,10 @@ def test_an_agent_that_forgot_the_ticks_gets_one_turn_for_them_and_ends_done(
     ) == (
         StepStatus.DONE,
         "",
-        "Ticked.",
-        4,
+        2,
         before,
         [TASKS_PATH, "src/sample.py", "tests/test_sample.py"],
         "",
-    )
-
-
-def test_the_message_of_the_extra_turn_names_the_tasks_file_and_the_unticked_tasks(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    script = ModelScript(tool_calls(*WORK), say("The work is done."), tool_calls(TICK), say("Ok."))
-
-    _step(store, checkout, script)
-
-    prompt = [str(getattr(part, "content", "")) for part in script.seen[2][-1].parts][-1]
-    assert prompt == (
-        f"The checks of your group passed, but `{TASKS_PATH}` still holds these tasks of your "
-        "group unticked:\n\n"
-        "- [ ] Add the failing test `tests/test_sample.py` for `src/sample.py`\n"
-        "- [ ] Add `shout` to `src/sample.py`\n\n"
-        "Change `- [ ]` to `- [x]` in front of each task whose work is done. Change nothing else "
-        "in that file and change no other file. Then reply with one short message."
-    )
-
-
-def test_the_extra_turn_continues_the_conversation_of_the_first_turn(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    script = ModelScript(tool_calls(*WORK), say("The work is done."), tool_calls(TICK), say("Ok."))
-
-    _step(store, checkout, script)
-
-    assert (len(script.seen[0]), len(script.seen[1]), len(script.seen[2])) == (1, 3, 5)
-
-
-def test_the_verification_commands_run_again_after_the_extra_turn(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    script = ModelScript(tool_calls(*WORK), say("The work is done."), tool_calls(TICK), say("Ok."))
-
-    _step(store, checkout, script)
-
-    uv = [command_text(call) for call in programs.calls if call.argv[0] == "uv"]
-    assert uv.count("uv run devops ci test tests/test_sample.py") == 2
-
-
-def test_an_extra_turn_that_changes_another_file_stops_the_step(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    head = git(checkout, "rev-parse", "HEAD")
-    other = write_call("src/other.py", "OTHER = 2\n")
-    script = ModelScript(
-        tool_calls(*WORK), say("The work is done."), tool_calls(other, TICK), say("Ticked.")
-    )
-
-    outcome = _step(store, checkout, script)
-
-    assert (outcome.status, outcome.reason, outcome.commit, is_clean_at(checkout, head)) == (
-        StepStatus.STOPPED,
-        "The extra turn for the ticks changed files other than the tasks file: src/other.py.",
-        "",
-        True,
-    )
-
-
-def test_an_extra_turn_that_writes_a_new_file_stops_the_step(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    extra = write_call("tests/test_sample_more.py", TEST_BODY)
-    script = ModelScript(tool_calls(*WORK), say("Done."), tool_calls(extra, TICK), say("Ok."))
-
-    outcome = _step(store, checkout, script)
-
-    assert (outcome.status, outcome.reason) == (
-        StepStatus.STOPPED,
-        "The extra turn for the ticks changed files other than the tasks file: "
-        "tests/test_sample_more.py.",
-    )
-
-
-def test_an_extra_turn_that_changes_many_files_names_only_the_first_of_them(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    """The reason goes into a comment of GitHub, which refuses a comment of 65,536 characters."""
-    shown = constants.CONST_ROADMAP_IMPLEMENT_REASON_PATHS
-
-    def agent_writes_many_files() -> None:
-        for number in range(shown + 30):
-            (checkout / "tests" / f"test_generated_{number:04d}.py").write_text(
-                "x = 1\n", encoding="utf-8"
-            )
-
-    script = ModelScript(
-        tool_calls(*WORK),
-        say("The work is done."),
-        tool_calls(TICK),
-        say("Ticked."),
-        effects={3: agent_writes_many_files},
-    )
-
-    outcome = _step(store, checkout, script)
-
-    names = [f"tests/test_generated_{number:04d}.py" for number in range(shown)]
-    assert outcome.reason == (
-        "The extra turn for the ticks changed files other than the tasks file: "
-        f"{', '.join(names)} and 30 more."
-    )
-
-
-def test_an_extra_turn_that_edits_the_text_of_another_group_is_undone(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    untick = write_call(
-        TASKS_PATH, TICKED.replace("Document the function", "Describe the function")
-    )
-    script = ModelScript(tool_calls(*WORK), say("Done."), tool_calls(untick), say("Ok."))
-
-    outcome = _step(store, checkout, script)
-
-    assert (outcome.status, outcome.reason, git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n") == (
-        StepStatus.DONE,
-        "",
-        TICKED,
-    )
-
-
-def test_a_step_gets_no_third_turn_when_the_extra_turn_ticks_nothing(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, config: Callable[..., Path]
-) -> None:
-    config(roadmap={"implement": {"repair_rounds": 1}})
-    script = ModelScript(tool_calls(*WORK), say(FORGOT), say("I forgot again."))
-
-    outcome = _step(store, checkout, script)
-
-    assert (outcome.status, outcome.requests, len(script.seen), outcome.last_message) == (
-        StepStatus.STOPPED,
-        3,
-        3,
-        "I forgot again.",
     )
 
 
@@ -1054,27 +900,10 @@ def test_a_failed_static_check_gets_one_extra_turn_for_it_and_none_for_the_ticks
     assert outcome.reason.endswith("exited with status 1.\nerror: bad type" + rounds_spent(1))
 
 
-def test_the_extra_turn_counts_against_the_request_limit_of_the_first_turn(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    """The first turn uses all requests but one. A second budget would let the step end done."""
-    reads = [tool_call("read_file", path="docs/SAMPLE.md")] * (
-        CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS - 3
-    )
-    script = ModelScript(tool_calls(*WORK), *reads, say(FORGOT), tool_calls(TICK), say("Ticked."))
-
-    outcome = _step(store, checkout, script)
-
-    assert (outcome.status, outcome.reason, outcome.requests) == (
-        StepStatus.STOPPED,
-        REQUEST_LIMIT_REASON,
-        CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS,
-    )
-
-
 def test_the_spend_of_both_turns_is_in_the_ledger_and_the_outcome(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, spend_ledger: SpendLedger
 ) -> None:
+    _ruff_fails_once(programs)
     script = ModelScript(tool_calls(*WORK), say("Done."), tool_calls(TICK), say("Ticked."))
 
     outcome = _step(store, checkout, script)
@@ -1123,12 +952,15 @@ def test_the_inputs_of_a_step_name_the_tasks_file_and_those_of_a_fix_step_do_not
     )
 
 
-def test_the_instructions_say_that_a_step_ends_only_when_every_task_is_ticked(
+def test_the_instructions_say_that_the_job_ticks_every_task_of_a_passing_group(
     store: InMemoryRoadmapStore, checkout: Path
 ) -> None:
     inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
 
-    assert "not done until every task of your group is ticked" in inputs.instructions
+    assert "The job ticks every task of your group when the exit checks of the group pass" in (
+        inputs.instructions
+    )
+    assert "not done until every task of your group is ticked" not in inputs.instructions
     assert "`- [ ]` to `- [x]`" in inputs.instructions
 
 
@@ -1585,9 +1417,10 @@ def test_a_long_message_of_the_error_is_cut_and_the_counts_stay_in_the_reason(
     )
 
 
-def test_the_counts_cover_the_extra_turn_for_the_ticks(
+def test_the_counts_cover_the_repair_turn(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
+    _ruff_fails(programs)
     refused = tool_call("shell", command="pytest tests/test_sample.py")
     script = ModelScript(refused, tool_calls(*WORK), say(FORGOT), refused)
 
@@ -1852,6 +1685,7 @@ def test_a_failed_read_of_the_discarded_diff_keeps_the_reason_of_the_stop(
         raise RoadmapImplementError("git add -A failed.\nfatal: index is locked")
 
     monkeypatch.setattr(implement_step, "_discarded_diff", refuse)
+    _ruff_fails(programs)
     script = ModelScript(tool_calls(*WORK), say(FORGOT), ModelAPIError("example-model", "broke"))
 
     outcome = _step(store, checkout, script)
@@ -1863,11 +1697,12 @@ def test_a_failed_read_of_the_discarded_diff_keeps_the_reason_of_the_stop(
 
 
 @pytest.mark.parametrize("failure", FAILED_CALLS)
-def test_a_model_call_that_fails_in_the_extra_turn_stops_the_step_with_the_diff_of_both_turns(
+def test_a_model_call_that_fails_in_the_repair_turn_stops_the_step_with_the_diff_of_both_turns(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, failure: ModelAPIError
 ) -> None:
-    """Every check passed in the first turn and only the ticks are missing: the diff is the work."""
+    """A check fails in the first turn, and the repair turn fails: the diff is the work."""
     head = git(checkout, "rev-parse", "HEAD")
+    _ruff_fails(programs)
     script = ModelScript(tool_calls(*WORK), say(FORGOT), failure)
 
     outcome = _step(store, checkout, script)
@@ -1883,9 +1718,10 @@ def test_a_model_call_that_fails_in_the_extra_turn_stops_the_step_with_the_diff_
     assert "diff --git a/tests/test_sample.py b/tests/test_sample.py" in outcome.diff
 
 
-def test_the_spend_of_a_failed_extra_turn_is_in_the_ledger(
+def test_the_spend_of_a_failed_repair_turn_is_in_the_ledger(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, spend_ledger: SpendLedger
 ) -> None:
+    _ruff_fails(programs)
     script = ModelScript(
         tool_calls(*WORK),
         say(FORGOT),
@@ -1902,9 +1738,10 @@ def test_the_spend_of_a_failed_extra_turn_is_in_the_ledger(
 
 
 @pytest.mark.parametrize("status", [401, 403])
-def test_a_refused_key_in_the_extra_turn_raises_after_the_checkout_is_reset(
+def test_a_refused_key_in_the_repair_turn_raises_after_the_checkout_is_reset(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, status: int
 ) -> None:
+    _ruff_fails(programs)
     head = git(checkout, "rev-parse", "HEAD")
     script = ModelScript(
         tool_calls(*WORK), say(FORGOT), ModelHTTPError(status, "example-model", {"error": "no"})
@@ -2012,9 +1849,10 @@ def test_other_failed_model_calls_are_not_sent_again(
     assert "tool call parsing failed" not in outcome.reason
 
 
-def test_a_400_inside_a_stream_in_the_extra_turn_is_sent_again(
+def test_a_400_inside_a_stream_in_the_repair_turn_is_sent_again(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
+    _ruff_fails_once(programs)
     script = ModelScript(
         tool_calls(*WORK), say(FORGOT), _in_stream_400(), tool_calls(TICK), say("Ticked.")
     )

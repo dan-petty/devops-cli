@@ -248,7 +248,6 @@ CLAIM = (
     "I have successfully completed the task. The item is already implemented and all acceptance "
     "criteria are met."
 )
-UNTICKED = TEXTS.implement_stop_unticked.format(task="[ ] Run `devops ci test tests/test_x.py`")
 
 
 def _scoped(name: str, command: str, output: str) -> str:
@@ -386,14 +385,6 @@ def test_each_synthetic_stop_text_has_its_class(stop: Stop) -> None:
     assert _class_of_stop(stop) is stop.expected
 
 
-def test_the_untyped_text_of_a_stop_for_an_unticked_task_reads_as_a_test_failure() -> None:
-    """The reason of a stop for a task that is not ticked holds the text of the task, here a test
-    command. The classifier reads it as a test failure, as in #2116 and #3106. This is why the
-    step passes the class `not_ticked` itself; test_roadmap_implement_step_failure_class.py runs
-    that path."""
-    assert classify_failure(FailureEvidence(text=UNTICKED)) is FailureClass.TEST
-
-
 def test_the_words_already_implemented_do_not_give_premise_false() -> None:
     """The claim of the agent is no evidence (#2116): the evidence has no field for it, and the
     reason of a fix step that changed no file is not read for it."""
@@ -408,7 +399,6 @@ def test_the_words_already_implemented_do_not_give_premise_false() -> None:
 # (test_roadmap_implement_step_failure_class.py and the job tests) run each site.
 TYPED_BY_SITE = {
     FailureClass.NO_CHANGE_IN_FIX,
-    FailureClass.NOT_TICKED,
     FailureClass.TESTS_LOST,
     FailureClass.HEAD_MOVED,
     FailureClass.OUTPUT_CAP,
@@ -491,7 +481,6 @@ def test_the_classes_are_the_nineteen_of_the_taxonomy() -> None:
         "conflict",
         "ci_infra",
         "no_change_in_fix",
-        "not_ticked",
         "tests_lost",
         "head_moved",
         "output_cap",
@@ -520,7 +509,6 @@ def test_the_default_actions_are_the_ones_of_the_design() -> None:
         "conflict": "wait",
         "ci_infra": "retry",
         "no_change_in_fix": "wait",
-        "not_ticked": "amend",
         "tests_lost": "retry",
         "head_moved": "retry",
         "output_cap": "raise_limit",

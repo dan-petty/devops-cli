@@ -26,11 +26,9 @@ from devops_cli.roadmap.implement_step import (
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessFake
 from tests.support.implement_step import (
-    SHOUT_CODE,
     WINDOW,
     git,
     the_whole_group,
-    write_call,
 )
 from tests.support.model_script import ModelScript, say, tool_calls
 
@@ -111,22 +109,6 @@ def test_an_agent_that_moves_head_stops_the_step_with_head_moved(
     outcome = _step(store, checkout, script)
 
     assert (outcome.status, outcome.failure_class) == (StepStatus.STOPPED, FailureClass.HEAD_MOVED)
-
-
-def test_a_task_left_unticked_stops_the_step_with_not_ticked(
-    store: InMemoryRoadmapStore,
-    checkout: Path,
-    programs: ProcessFake,
-    config: Callable[..., Path],
-) -> None:
-    config(roadmap={"implement": {"repair_rounds": 1}})
-    script = ModelScript(
-        tool_calls(write_call("src/sample.py", SHOUT_CODE)), say("Done."), say("No ticks.")
-    )
-
-    outcome = _step(store, checkout, script)
-
-    assert (outcome.status, outcome.failure_class) == (StepStatus.STOPPED, FailureClass.NOT_TICKED)
 
 
 def test_a_step_that_ends_done_has_no_failure_class(

@@ -41,7 +41,6 @@ from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
     BRANCH,
     CHANGE,
-    CHANGE_DIR,
     PULL,
     SHOUT,
     TASKS_PATH,
@@ -604,8 +603,7 @@ def _stop_with_a_dangerous_diff(job_world: JobWorld) -> str:
         tool_calls(*group_one_calls()),
         say("Group 1 is done."),
         tool_calls(write),
-        say("Wrote the note."),
-        say("I did not tick."),
+        ModelAPIError("example-model", "The provider broke."),
     )
     job_world.run(script)
     comments = job_world.issue_comments()
@@ -648,8 +646,7 @@ def test_the_stop_comment_of_a_cut_diff_says_that_it_is_cut(job_world: JobWorld)
         tool_calls(*group_one_calls()),
         say("Group 1 is done."),
         tool_calls(long_note),
-        say("Wrote the note."),
-        say("I did not tick."),
+        ModelAPIError("example-model", "The provider broke."),
     )
 
     job_world.run(script)
@@ -694,23 +691,25 @@ def test_a_refused_key_stops_the_whole_run_and_not_only_the_item(job_world: JobW
 
 def test_the_stop_comment_cuts_a_reason_that_is_too_long(job_world: JobWorld) -> None:
     """GitHub refuses a comment of more than 65,536 characters, and the comment would be lost."""
-    names = [f"{CHANGE_DIR}/{'f' * 240}{number:02d}.md" for number in range(30)]
-    many = tuple(("write_file", {"path": name, "content": "x\n"}) for name in names)
+    long_output = "E" * (2 * constants.CONST_ROADMAP_IMPLEMENT_REASON_CHARS)
+    job_world.programs.answer(
+        lambda call: command_text(call) == "uv run devops docs check",
+        ProcessAnswer(returncode=1, stdout=long_output),
+    )
     script = ModelScript(
         tool_calls(*group_one_calls()),
         say("Group 1 is done."),
         tool_calls(*group_two_calls(TICKED_FIRST)),
         say("Wrote the note."),
-        tool_calls(*many),
-        say("Ticked."),
     )
 
     job_world.run(script)
 
     comment = job_world.issue_comments()[0]
     reason = comment.partition("Reason:\n\n")[2].partition("\n\nLast message")[0]
-    assert reason.strip().startswith("The extra turn for the ticks changed files")
-    assert len(reason.strip()) == constants.CONST_ROADMAP_IMPLEMENT_REASON_CHARS
+    assert reason.strip().startswith("uv run devops docs check exited with status 1.")
+    assert reason.count("E") < 2 * constants.CONST_ROADMAP_IMPLEMENT_REASON_CHARS
+    assert len(comment) < 65_536
 
 
 def test_a_stop_pushes_the_commits_of_the_steps_that_passed_and_leaves_the_draft(
@@ -1371,3 +1370,30 @@ class TestVerifyOutputOfAnOtherGroup:
             "```\nshout ran\n```"
         ) in comment["body"]
         assert "- fail-to-pass of group 1" not in comment["body"]
+
+
+def test_a_passing_group_without_a_model_tick_is_ticked_by_the_job_and_pushed(
+    job_world: JobWorld,
+) -> None:
+    """The model writes the code of group 1 and no tick. The job ticks the group when its exit
+    checks pass, and the commit of the group on origin holds the tick (#3488)."""
+    script = ModelScript(
+        tool_calls(("write_file", {"path": "src/devops_cli/shout.py", "content": SHOUT})),
+        say("Group 1 is done."),
+        tool_calls(*group_two_calls()),
+        say("Group 2 is done."),
+    )
+
+    applied = job_world.run(script)
+
+    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    lines = job_world.repo.origin_git(
+        "log", "--reverse", "--format=%H %s", f"main..{BRANCH}"
+    ).splitlines()
+    (first,) = [
+        line.split(" ", 1)[0]
+        for line in lines
+        if line.endswith(" fix(roadmap): The first group (#1)")
+    ]
+    tasks = job_world.repo.origin_git("show", f"{first}:{TASKS_PATH}")
+    assert "- [x] Add `src/devops_cli/shout.py`" in tasks

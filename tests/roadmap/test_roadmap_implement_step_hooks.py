@@ -235,15 +235,15 @@ def test_a_repair_that_breaks_ruff_gets_the_next_round(
     assert _prompt(script, 4).startswith("A static check of your group failed:")
 
 
-def test_the_turn_for_the_ticks_counts_as_a_round(
+def test_a_missing_tick_takes_no_repair_round(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     work = tool_calls(write_call("tests/test_sample.py", TEST_BODY), CODE)
-    script = ModelScript(work, say("Done."), tool_calls(TICK), say("Ticked."))
+    script = ModelScript(work, say("Done."))
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.repair_rounds) == (StepStatus.DONE, 1)
+    assert (outcome.status, outcome.repair_rounds) == (StepStatus.DONE, 0)
 
 
 def test_the_table_of_a_step_shows_the_repair_rounds(

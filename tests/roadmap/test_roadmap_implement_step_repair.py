@@ -94,13 +94,6 @@ ASK = (
     f"{LINT} exited with status 1.\n{UNUSED}\n\n"
     "Fix what the check reports. Change only the files that you changed."
 )
-ASK_TICKS = (
-    f" The file `{TASKS_PATH}` also holds these tasks of your group unticked:\n\n"
-    "- [ ] Add the failing test `tests/test_sample.py` for `src/sample.py`\n"
-    "- [ ] Add `shout` to `src/sample.py`\n\n"
-    "Change `- [ ]` to `- [x]` in front of each task whose work is done. Change nothing else "
-    "in that file."
-)
 END = " Then reply with one short message."
 
 
@@ -218,7 +211,7 @@ def test_an_extra_turn_that_writes_a_new_file_stops_the_step(
     )
 
 
-def test_a_failure_and_an_unticked_task_get_one_extra_turn_that_holds_both(
+def test_a_failure_gets_one_extra_turn_and_the_job_ticks_the_group(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     _lint_fails_on_an_unused_import(programs)
@@ -232,11 +225,11 @@ def test_a_failure_and_an_unticked_task_get_one_extra_turn_that_holds_both(
     outcome = _step(store, checkout, script)
 
     assert (outcome.status, outcome.reason, outcome.requests) == (StepStatus.DONE, "", 4)
-    assert _prompt(script, 2) == ASK + ASK_TICKS + END
+    assert _prompt(script, 2) == ASK + END
     assert git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n" == TICKED
 
 
-def test_the_ticks_that_stay_missing_after_the_extra_turn_stop_the_step_with_no_third_turn(
+def test_a_task_that_the_repair_turn_leaves_unticked_is_ticked_by_the_job(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, config: Callable[..., Path]
 ) -> None:
     config(roadmap={"implement": {"repair_rounds": 1}})
@@ -247,11 +240,8 @@ def test_the_ticks_that_stay_missing_after_the_extra_turn_stop_the_step_with_no_
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, len(script.seen)) == (StepStatus.STOPPED, 4)
-    assert outcome.reason == (
-        "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` for "
-        "`src/sample.py`" + rounds_spent(1)
-    )
+    assert (outcome.status, outcome.reason, len(script.seen)) == (StepStatus.DONE, "", 4)
+    assert git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n" == TICKED
 
 
 def test_a_failed_verification_command_gets_no_extra_turn(
@@ -273,20 +263,16 @@ def test_a_failed_verification_command_gets_no_extra_turn(
     )
 
 
-def test_a_static_failure_after_the_extra_turn_for_the_ticks_gets_no_second_extra_turn(
+def test_a_clean_group_gets_no_extra_turn_and_is_ticked_by_the_job(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    """The checks pass after the first turn. The turn for the ticks makes `ruff check` fail."""
-    _lint_fails_on_an_unused_import(programs)
+    """The checks pass after the first turn, so the job ticks the group and no turn follows."""
     clean = (write_call("tests/test_sample.py", TEST_BODY), write_call("src/sample.py", SHOUT_CODE))
-    spoil = write_call("tests/test_sample.py", BAD_TEST)
-    script = ModelScript(
-        tool_calls(*clean), say("Done."), tool_calls(TICK, spoil), say("Ticked."), say("Third.")
-    )
+    script = ModelScript(tool_calls(*clean), say("Done."), say("Never asked."))
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, len(script.seen)) == (StepStatus.STOPPED, 4)
+    assert (outcome.status, len(script.seen)) == (StepStatus.DONE, 2)
 
 
 def test_a_fix_step_gets_the_extra_turn_with_the_failure_and_no_list_of_ticks(

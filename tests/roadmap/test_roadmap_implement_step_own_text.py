@@ -36,7 +36,6 @@ from tests.support.implement_step import (
     is_clean_at,
     make_checkout,
     programs_run,
-    rounds_spent,
     write_call,
 )
 from tests.support.model_script import ModelScript, say, tool_calls
@@ -203,20 +202,16 @@ def test_a_reorder_or_a_new_heading_is_undone_and_the_ticks_are_kept(
 
 
 @pytest.mark.parametrize("tasks", [ADDED, REMOVED], ids=["added", "removed"])
-def test_an_added_or_removed_task_of_the_group_gives_no_tick_and_the_unticked_task_is_named(
+def test_an_added_or_removed_task_of_the_group_is_restored_and_the_group_is_ticked(
     tasks: str, store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    head = git(checkout, "rev-parse", "HEAD")
     script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, tasks)), say("Done."))
 
     result = _step(store, checkout, script)
 
-    assert (result, is_clean_at(checkout, head)) == (
-        (
-            StepStatus.STOPPED,
-            f"A task of the group is not ticked: [ ] {FIRST_TASK}" + rounds_spent(3),
-        ),
-        True,
+    assert (result, git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n") == (
+        (StepStatus.DONE, ""),
+        TICKED,
     )
 
 
@@ -243,20 +238,16 @@ def test_a_group_at_the_end_of_a_file_with_no_final_line_end_is_restored_as_it_w
     )
 
 
-def test_a_task_that_stays_unticked_after_a_rewrite_names_the_text_from_before(
+def test_a_task_that_the_agent_rewrites_is_restored_from_its_text_before_and_ticked(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    rewritten = TASKS.replace(FIRST_TASK, RENAMED_TASK)
-    script = ModelScript(
-        tool_calls(*WORK, write_call(TASKS_PATH, rewritten)),
-        say("Done."),
-        tool_calls(write_call(TASKS_PATH, rewritten)),
-        say("Ok."),
-    )
+    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, REWRITTEN)), say("Done."))
 
-    assert _step(store, checkout, script) == (
-        StepStatus.STOPPED,
-        f"A task of the group is not ticked: [ ] {FIRST_TASK}" + rounds_spent(3),
+    result = _step(store, checkout, script)
+
+    assert (result, git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n") == (
+        (StepStatus.DONE, ""),
+        TICKED,
     )
 
 

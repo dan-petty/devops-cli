@@ -69,13 +69,25 @@ def kept_commits(git: GitOutput, upstream: str) -> list[str]:
     ]
 
 
+def restore_sources(git: GitOutput, source: Path, paths: Sequence[str]) -> None:
+    """Put back the old path of each renamed stray file (#3488). A rename moves the file away, so
+    the old path is a staged deletion, and the file is gone from the checkout. The index and the
+    checkout take the path back from HEAD. A file that the agent wrote at the old path keeps its
+    content, and only the index takes the path back."""
+    for path in paths:
+        scope = ["--staged"] if (source / path).exists() else ["--staged", "--worktree"]
+        git("--literal-pathspecs", "restore", "--source=HEAD", *scope, "--", path)
+
+
 @dataclass
 class WipKeeper:
     """Commits the green tasks of one step. `before` is the text of the `tasks.md` before the run,
     `group` is the group as that text has it, `item` is the issue number, `git` runs git in the
     checkout, `verify` runs the verification commands of a task, and `strays` lists the stray files
-    of the group, which no commit holds. `blocked` says why the staged work must not be kept (a test
-    that existed at the start is lost), or None. `on_commit` tells the job of each commit.
+    of the group, which no commit holds. `moved` maps the new path of each staged rename to its old
+    path, so a rename into a stray name keeps its source (#3488). `blocked` says why the staged work
+    must not be kept (a test that existed at the start is lost), or None. `on_commit` tells the job
+    of each commit.
 
     `tip` is the commit that a stop resets to: the last `wip:` commit, or the commit that the step
     started at. `base` is the last commit that is no `wip:` commit. The exit checks of the step
@@ -90,6 +102,7 @@ class WipKeeper:
     git: GitOutput
     verify: Verify
     strays: Callable[[], list[str]]
+    moved: Callable[[], dict[str, str]]
     blocked: Callable[[], str | None]
     on_commit: Callable[[WipCommit], None] | None = None
     tip: str = ""
@@ -140,11 +153,14 @@ class WipKeeper:
         ]
 
     def _stage(self) -> list[str]:
-        """Stage the checkout except the stray files, and give their names."""
+        """Stage the checkout except the stray files, and give their names. A rename into a stray
+        name keeps its old path out of the commit too (#3488)."""
         strays = self.strays()
+        moved = self.moved()
         self.git("add", "-A")
         if strays:
-            self.git("reset", "-q", "--", *strays)
+            self.git("--literal-pathspecs", "reset", "-q", "--", *strays)
+            restore_sources(self.git, self.source, [moved[n] for n in strays if n in moved])
         return strays
 
     def _green(self, fresh: list[int]) -> list[int]:
