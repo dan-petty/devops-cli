@@ -1752,7 +1752,6 @@ are exported on their own.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `output` | `string` | No | - | JSONL dataset to append to (default: the configured data.feedback_dataset_path). |
 | `reviews_dir` | `string` | No | - | Directory containing review sessions. |
 | `status` | `string` | No | `INVALIDATED` | Finding status to export: INVALIDATED, VERIFIED, MITIGATED, or ALL. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
