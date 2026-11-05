@@ -40,9 +40,9 @@ Reads: `k8s/devops/configmap.example.yaml`, `tests/config/test_k8s_devops_runtim
 
 Reads: `docs/roadmap/implement.md`, `src/devops_cli/config/settings.py`. Changes: `docs/roadmap/implement.md`, the generated documents of `devops docs generate --sync-readme`.
 
-- [ ] 5.1 Replace the default filter of `docs/roadmap/implement.md` with `status=ready` and `status=planned`, and describe the effort passes, the fallback, the explicit `--filter effort=` and the setting `roadmap.implement.effort`
+- [x] 5.1 Replace the default filter of `docs/roadmap/implement.md` with `status=ready` and `status=planned`, and describe the effort passes, the fallback, the explicit `--filter effort=` and the setting `roadmap.implement.effort`
   - Verification: `uv run devops ci docs` passes
-- [ ] 5.2 Run `uv run devops docs generate --sync-readme` so that the generated documents name the setting `roadmap.implement.effort`
+- [x] 5.2 Run `uv run devops docs generate --sync-readme` so that the generated documents name the setting `roadmap.implement.effort`
   - Verification: `uv run devops docs generate --sync-readme && uv run devops ci docs` passes
 
 ## Workflow follow-up

@@ -50,7 +50,7 @@ A step writes nothing to GitHub.
 
 ## The job
 
-The job takes each Staged or Planned item that a label filter names. The default filter is `status=ready`, `status=planned` and `effort=low`. `--item` takes one item that is Staged or Planned, and ignores the filter and the limit.
+The job takes each Staged or Planned item that a label filter names. The default filter is `status=ready` and `status=planned`. The effort of an item picks its pass: the job runs one pass for each value of the setting `roadmap.implement.effort`, in its order. The default is `low` and then `medium`. The first pass that takes an item supplies the run, so a medium-effort item runs only when no low-effort item is selectable. An item of high effort stays out of the default set. An explicit `--filter effort=` names one pass, and the setting does not apply to that run. The run report names the pass, and `devops roadmap explain` names the effort set and whether the fallback pass applies to an item. `--item` takes one item that is Staged or Planned, and ignores the filter and the limit.
 
 The job leaves out a Planned item whose title has no Conventional Commit type, or whose title summary has more than 60 characters. It judges the title before it reads the plan or makes a model request. `devops roadmap retitle` shortens such a title.
 
