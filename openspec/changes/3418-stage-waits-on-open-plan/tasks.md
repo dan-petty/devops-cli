@@ -53,7 +53,7 @@ Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage.p
 
 Reads: `src/devops_cli/roadmap/stage_eval_run.py`, `src/devops_cli/roadmap/stage.py`. Changes: `src/devops_cli/roadmap/stage_eval_run.py`, `src/devops_cli/roadmap/stage.py`.
 
-- [ ] 6.1 Delete the `Blocked` branch of `_planned_as` in `src/devops_cli/roadmap/stage_eval_run.py`. In `plan_item` in `src/devops_cli/roadmap/stage.py`, raise `RoadmapStageError` when the planner returns a `Blocked` outcome, and type the result as `StagedChange | OverBudget`. `plan_item` reads no open plan, so the planner never returns `Blocked` there
+- [x] 6.1 Delete the `Blocked` branch of `_planned_as` in `src/devops_cli/roadmap/stage_eval_run.py`. In `plan_item` in `src/devops_cli/roadmap/stage.py`, raise `RoadmapStageError` when the planner returns a `Blocked` outcome, and type the result as `StagedChange | OverBudget`. `plan_item` reads no open plan, so the planner never returns `Blocked` there
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_eval_run.py`
 
 ## 7. List the task reads of open plans in the dry run

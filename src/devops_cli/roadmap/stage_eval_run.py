@@ -36,7 +36,6 @@ from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.clone_git import git
 from devops_cli.roadmap.refine_investigation import task_window
 from devops_cli.roadmap.stage import (
-    Blocked,
     OverBudget,
     StageClient,
     StagedChange,
@@ -141,14 +140,10 @@ def _first_reply_problems(
     return run_gates(PlanUnderTest.of_reply(reply, tree, known, requirements, case.issue_body))
 
 
-def _planned_as(planned: StagedChange | OverBudget | Blocked) -> tuple[Outcome, str]:
-    """How a case ended when the planner gave an outcome and raised no error. A plan that waits on
-    an open plan is refused: the golden set reads no open plan, so the planner returns none (#3418)."""
+def _planned_as(planned: StagedChange | OverBudget) -> tuple[Outcome, str]:
+    """How a case ended when the planner gave an outcome and raised no error."""
     if isinstance(planned, OverBudget):
         return Outcome.OVER_BUDGET, MESSAGES.roadmap.stage_eval_over_budget
-    if isinstance(planned, Blocked):
-        issues = ", ".join(f"#{number}" for number in planned.blockers)
-        return Outcome.REFUSED, MESSAGES.roadmap.stage_left_blocked.format(issues=issues)
     return Outcome.STAGED, ""
 
 

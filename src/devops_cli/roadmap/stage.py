@@ -1391,18 +1391,25 @@ def plan_item(
     checkout: Path,
     sha: str,
     step_tokens: int | None = None,
-) -> StagedChange | OverBudget | Blocked:
+) -> StagedChange | OverBudget:
     """Plans `item` as the job does, in the checkout at `sha`, and writes nothing (#3028).
 
     The golden set of the stage job runs this on each case. A reply the checks refuse goes back to
     the model once, as in a run, and a second one raises `RoadmapStageError`. `step_tokens`
     overrides `roadmap.stage.step_tokens`. A `client` that is a `ToolboxClient` plans with the
-    read-only tools (#3037); the golden set builds it for the case checkout.
+    read-only tools (#3037); the golden set builds it for the case checkout. This planner reads no
+    open plan, so it finds no dependency. A dependency that the type still allows raises
+    `RoadmapStageError`, which the golden set counts as refused (#3418).
     """
     budget = step_tokens or load_settings().roadmap.stage.step_tokens
+    target = _target_of(item)
     with openspec_tool() as tool:
         planner = _planner_of(client, checkout, sha, budget=budget, tool=tool)
-        return planner.plan(_target_of(item))
+        outcome = planner.plan(target)
+    if isinstance(outcome, Blocked):
+        issues = ", ".join(f"#{number}" for number in outcome.blockers)
+        raise _stage_error(MESSAGES.roadmap.stage_left_blocked.format(issues=issues), target)
+    return outcome
 
 
 def dry_run_stage(repo: str, *, item: int | None = None, limit: int | None = None) -> StagePlan:
