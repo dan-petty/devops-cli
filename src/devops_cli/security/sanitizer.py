@@ -226,14 +226,22 @@ def _mask_literal(match: re.Match[str], masked: str, is_code: bool = False) -> s
     return masked
 
 
+# One character of an assigned value. A backslash that starts an escaped quote mark, `\"` or `\'`,
+# ends the value. JSON text writes a quote mark inside a string in that way. A mask of the
+# backslash alone leaves a quote mark that ends the string early (#2569). A double backslash is one
+# character, so a value never splits it.
+_VALUE_CHAR = r"""(?:[^\s\"',;\\]|\\\\|\\(?![\\\"']))"""
+
+
 def _quoted(value: str) -> str:
     """Wrap the pattern of an assigned value in an optional pair of quote marks.
 
-    The pair is the group `quote` and the closing quote mark of the same kind, so a match with
-    no opening quote mark has no closing one either. A value such as the token in
-    `"download_url":"https://example.com/f?token=<value>"` ends inside a string, and the quote
-    mark after it closes that string. A mask that takes it breaks the JSON text (#2569). After an
-    opening quote mark the closing one stays optional, so a value with no closing mark is masked.
+    The pair is the group `quote` and a closing quote mark of the same kind. A match with no
+    opening quote mark has no closing one. A value such as the token in
+    `"download_url":"https://example.com/f?token=<value>"` ends inside a string. The quote mark
+    after it closes that string, and a mask that takes that mark breaks the JSON text (#2569).
+    After an opening quote mark, the closing one stays optional, so a value with no closing mark
+    is masked.
     """
     return r"""(?P<quote>["'])?""" + value + r"(?(quote)(?P=quote)?)"
 
@@ -261,7 +269,7 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
         (
             re.compile(
                 r"\b(?:password|passwd|pwd)[^\S\r\n]*(?P<sep>[:=])[^\S\r\n]*"
-                + _quoted(r"(?!<masked-)(?P<value>[^\s\"',;]{8,})"),
+                + _quoted(rf"(?!<masked-)(?P<value>{_VALUE_CHAR}{{8,}})"),
                 re.IGNORECASE,
             ),
             lambda match: _mask_literal(match, "password=<masked-password>", is_code=is_code),
@@ -282,7 +290,7 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
         (
             re.compile(
                 r"\b(?:token|auth_token)[^\S\r\n]*(?P<sep>[:=])[^\S\r\n]*"
-                + _quoted(r"(?!<masked-)(?P<value>[^\s\"',;]{8,})"),
+                + _quoted(rf"(?!<masked-)(?P<value>{_VALUE_CHAR}{{8,}})"),
                 re.IGNORECASE,
             ),
             lambda match: _mask_literal(match, "token=<masked-token>", is_code=is_code),

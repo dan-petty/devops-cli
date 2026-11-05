@@ -886,29 +886,27 @@ def test_tokens_enclosed_in_brackets_are_masked() -> None:
 # =============================================================================
 
 
+_QUERY_SECRETS = [
+    pytest.param("token", "token=<masked-token>", "AGJ4EXAMPLE1234567890", id="token"),
+    pytest.param("auth_token", "token=<masked-token>", "AGJ4EXAMPLE1234567890", id="auth-token"),
+    pytest.param("password", "password=<masked-password>", "hunter2hunter2", id="password"),
+    pytest.param(
+        "client_secret",
+        "client_secret=<masked-client-secret>",
+        "abcdefghij0123456789abcdefghij",
+        id="client-secret",
+    ),
+    pytest.param(
+        "aws_secret_access_key",
+        "aws_secret_access_key=<masked-aws-secret>",
+        "A" * 40,
+        id="aws-secret-access-key",
+    ),
+]
+
+
 @pytest.mark.parametrize("syntax", ["data", "code"])
-@pytest.mark.parametrize(
-    ("keyword", "masked", "secret"),
-    [
-        pytest.param("token", "token=<masked-token>", "AGJ4EXAMPLE1234567890", id="token"),
-        pytest.param(
-            "auth_token", "token=<masked-token>", "AGJ4EXAMPLE1234567890", id="auth-token"
-        ),
-        pytest.param("password", "password=<masked-password>", "hunter2hunter2", id="password"),
-        pytest.param(
-            "client_secret",
-            "client_secret=<masked-client-secret>",
-            "abcdefghij0123456789abcdefghij",
-            id="client-secret",
-        ),
-        pytest.param(
-            "aws_secret_access_key",
-            "aws_secret_access_key=<masked-aws-secret>",
-            "A" * 40,
-            id="aws-secret-access-key",
-        ),
-    ],
-)
+@pytest.mark.parametrize(("keyword", "masked", "secret"), _QUERY_SECRETS)
 def test_the_closing_quote_of_a_json_string_stays_when_a_query_secret_in_it_is_masked(
     keyword: str, masked: str, secret: str, syntax: str
 ) -> None:
@@ -921,6 +919,45 @@ def test_the_closing_quote_of_a_json_string_stays_when_a_query_secret_in_it_is_m
     out = redact_text(reply, syntax=syntax)
 
     assert json.loads(out) == {"download_url": f"{url}?{masked}", "type": "file"}
+    assert secret not in out
+
+
+@pytest.mark.parametrize("syntax", ["data", "code"])
+@pytest.mark.parametrize(("keyword", "masked", "secret"), _QUERY_SECRETS)
+def test_the_escaped_quote_after_a_secret_in_a_json_string_stays_escaped(
+    keyword: str, masked: str, secret: str, syntax: str
+) -> None:
+    """A JSON string writes a quote mark as a backslash and the mark. The mask must leave the two
+    together. A mask of the backslash alone leaves an unescaped quote mark that ends the string
+    early. The text is the `href` of a link in the `body` field of an API reply."""
+    url = "https://example.com/o/r/f.txt"
+    reply = json.dumps({"body": f'<a href="{url}?{keyword}={secret}">f</a>', "n": 1})
+
+    out = redact_text(reply, syntax=syntax)
+
+    assert json.loads(out) == {"body": f'<a href="{url}?{masked}">f</a>', "n": 1}
+    assert secret not in out
+
+
+@pytest.mark.parametrize("syntax", ["data", "code"])
+@pytest.mark.parametrize(
+    ("keyword", "masked", "secret"),
+    [
+        pytest.param("token", "token=<masked-token>", "AGJ4EXAMPLE1234567890", id="token"),
+        pytest.param("password", "password=<masked-password>", "hunter2hunter2", id="password"),
+    ],
+)
+def test_a_double_backslash_at_the_end_of_a_secret_in_a_json_string_is_one_character(
+    keyword: str, masked: str, secret: str, syntax: str
+) -> None:
+    """A JSON string writes one backslash as two. A mask that splits the pair leaves a lone
+    backslash that escapes the quote mark closing the string."""
+    url = "https://example.com/o/r/f.txt"
+    reply = json.dumps({"url": f"{url}?{keyword}={secret}\\", "n": 1})
+
+    out = redact_text(reply, syntax=syntax)
+
+    assert json.loads(out) == {"url": f"{url}?{masked}", "n": 1}
     assert secret not in out
 
 
@@ -963,6 +1000,6 @@ def test_the_closing_quote_of_a_json_string_stays_when_a_query_secret_in_it_is_m
 def test_a_quote_stays_unless_it_closes_a_quote_that_opened_the_value(
     text: str, masked: str, syntax: str
 ) -> None:
-    """The mask takes a closing quote only together with the quote that opened the value, and a
-    quote of the other kind is not that quote."""
+    """The mask takes a closing quote only together with the quote that opened the value. A quote
+    of the other kind is not that quote."""
     assert redact_text(text, syntax=syntax) == masked

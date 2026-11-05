@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
-### Requirement: A closing quote mark stays when no quote mark opened the value
-The secret masking system SHALL end the match of an assigned credential value before a quote mark when no quote mark opened the value, and SHALL leave that quote mark in the text. This holds for the rules of `token`, `auth_token`, `password`, `passwd`, `pwd`, `client_secret` and `aws_secret_access_key`, in data and code syntax. So the text of a JSON reply is still valid JSON after the mask replaces a secret inside one of its strings.
+### Requirement: A quote mark that did not open the value stays in the text
+The secret masking system SHALL end the match of an assigned credential value before a quote mark when no quote mark opened the value. It SHALL leave that quote mark in the text. This holds for the rules of `token`, `auth_token`, `password`, `passwd`, `pwd`, `client_secret` and `aws_secret_access_key`, in data and code syntax. So the text of a JSON reply is still valid JSON after the mask replaces a secret inside one of its strings.
 
 #### Scenario: A token in the query of a URL in a JSON string
 - **WHEN** secret masking processes `{"download_url":"https://example.com/o/r/f.txt?token=AGJ4EXAMPLE1234567890","type":"file"}`
@@ -23,8 +23,19 @@ The secret masking system SHALL end the match of an assigned credential value be
 - **WHEN** `devops gh api repos/octo/private/contents/f.txt` prints a reply whose `download_url` holds `?token=AGJ4EXAMPLE1234567890`
 - **THEN** the printed text parses as JSON, and its `download_url` ends with `?token=<masked-token>`
 
+### Requirement: An escaped quote mark after a value stays escaped
+The secret masking system SHALL end the match of a credential value before an escaped quote mark, `\"` or `\'`. It SHALL NOT split a double backslash. This holds for the rules of the requirement above. So the mask never leaves a quote mark with no escape in the text of a JSON string.
+
+#### Scenario: A secret before an escaped quote mark in a JSON string
+- **WHEN** secret masking processes the JSON text `{"body":"<a href=\"https://example.com/f?token=AGJ4EXAMPLE1234567890\">f</a>","n":1}`
+- **THEN** the result is `{"body":"<a href=\"https://example.com/f?token=<masked-token>\">f</a>","n":1}`, and `json.loads` parses it
+
+#### Scenario: A secret that ends in a double backslash in a JSON string
+- **WHEN** secret masking processes the JSON text `{"url":"https://example.com/f?token=AGJ4EXAMPLE1234567890\\","n":1}`
+- **THEN** the result is `{"url":"https://example.com/f?token=<masked-token>","n":1}`, and `json.loads` parses it
+
 ### Requirement: A value in a pair of quote marks is masked with the pair
-The secret masking system SHALL mask a credential value that a quote mark opened together with its opening quote mark and its closing quote mark of the same kind, for the rules of the requirement above. A closing quote mark of the other kind SHALL stay in the text.
+The secret masking system SHALL mask a credential value that a quote mark opened. It SHALL mask the value together with its opening quote mark and its closing quote mark of the same kind. This holds for the rules of the requirement above. A closing quote mark of the other kind SHALL stay in the text.
 
 #### Scenario: A value in a pair of quote marks
 - **WHEN** secret masking processes `token="AGJ4EXAMPLE1234567890" next` or `{"note": "set token='AGJ4EXAMPLE1234567890' now"}`

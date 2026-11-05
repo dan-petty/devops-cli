@@ -91,7 +91,7 @@ def test_a_url_user_with_no_password_is_masked_and_the_rest_stays(
         ]
     ),
     secret=st.text(alphabet=_ALPHANUMERIC, min_size=8, max_size=48),
-    after=st.sampled_from(["", "&page=2", "#top"]),
+    after=st.sampled_from(["", "&page=2", "#top", '"', "\\", '\\"']),
     syntax=syntaxes,
 )
 def test_masking_a_secret_in_a_json_string_keeps_the_text_valid_json(
