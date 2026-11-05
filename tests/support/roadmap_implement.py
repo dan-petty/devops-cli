@@ -189,14 +189,17 @@ def seed_staged(
     title: str = TITLE,
     pull: int = PULL,
 ) -> int:
-    """An item with the stage job's record: its branch and the draft pull request `pull`."""
+    """An item with the stage job's record: its branch and the draft pull request `pull`. The
+    login of the author is given to the store only when the caller names one."""
+    author: dict[str, Any] = {"author_association": author_association}
+    if author_login is not None:
+        author["author_login"] = author_login
     number = store.seed_issue(
         title,
         body=BODY,
         labels=labels,
         fields={ItemField.STATUS: status, ItemField.PRIORITY: priority},
-        author_association=author_association,
-        author_login=author_login,
+        **author,
     )
     if record:
         item = store.item(number)
