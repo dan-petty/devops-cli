@@ -1016,6 +1016,7 @@ class _Planner:
             probes=self._probe_lines,
             overlaps=self._overlaps,
             search_evidence=evidence,
+            plan_creates=self._creators(),
         )
         if problems:
             return _Refused(" ".join(problems), proposal)
@@ -1062,6 +1063,11 @@ class _Planner:
             proposal,
             pulls_requests=self._pull_requests,
         )
+
+    def _creators(self) -> Mapping[str, int]:
+        """The paths that the plans of open items create, each with its item (#3418). The job
+        reads them once for the run, with the premise probe, and a plan run without them has none."""
+        return {} if self._open_creates is None else self._open_creates()
 
     def _tree_of(self, target: StageTarget, proposal: StageProposal) -> StagedTree:
         """The files that exist when the change is written: the tracked files of the commit and

@@ -1945,3 +1945,23 @@ def test_the_prompts_say_what_the_criteria_list_holds(task: str) -> None:
     assert "`criteria`" in prompt
     assert "`pending-person`" in prompt
     assert "counted from 1" in prompt
+
+
+def test_check_proposal_refuses_path_an_open_plan_creates() -> None:
+    """A plan that creates a path which the plan of an open item also creates is refused, and the
+    problem names the path and the item (#3418)."""
+    plan = make_stage_proposal()
+
+    problems = check_proposal(
+        plan, ["comment-thread"], SAMPLE_TREE, plan_creates={"tests/test_sample.py": 3308}
+    )
+
+    assert len(problems) == 1
+    assert "tests/test_sample.py" in problems[0]
+    assert "#3308" in problems[0]
+    assert (
+        check_proposal(
+            plan, ["comment-thread"], SAMPLE_TREE, plan_creates={"src/devops_cli/other.py": 3308}
+        )
+        == []
+    )

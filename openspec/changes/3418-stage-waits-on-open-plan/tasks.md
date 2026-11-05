@@ -40,9 +40,9 @@ Reads: `src/devops_cli/roadmap/planned.py`, `src/devops_cli/roadmap/plan_read.py
 
 Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage.py`, `tests/roadmap/test_roadmap_stage_plan.py`. Changes: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage.py`, `tests/roadmap/test_roadmap_stage_plan.py`.
 
-- [ ] 5.1 In `tests/roadmap/test_roadmap_stage_plan.py`, add `test_check_proposal_refuses_path_an_open_plan_creates`. It asserts that `check_proposal` with `plan_creates={path: 3308}` returns one problem that names the path and #3308 for a reply that creates the path, and none for a reply that does not. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` fails on the base
+- [x] 5.1 In `tests/roadmap/test_roadmap_stage_plan.py`, add `test_check_proposal_refuses_path_an_open_plan_creates`. It asserts that `check_proposal` with `plan_creates={path: 3308}` returns one problem that names the path and #3308 for a reply that creates the path, and none for a reply that does not. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` fails on the base
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` fails on the base
-- [ ] 5.2 Add the keyword `plan_creates` to `check_proposal` and the problem sentence `stage_problem_creates` to the messages. In `_Planner._settle`, pass the open creates of the run. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` passes
+- [x] 5.2 Add the keyword `plan_creates` to `check_proposal` and the problem sentence `stage_problem_creates` to the messages. In `_Planner._settle`, pass the open creates of the run. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` passes
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py` passes
 
 ## 6. Document the return of the stage job

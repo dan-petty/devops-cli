@@ -3367,6 +3367,10 @@ class RoadmapMessages:
         "Add an entry that names #{pull} and `{path}`, or show in that entry why the overlap is "
         "no dependency."
     )
+    stage_problem_creates: str = (
+        "The open issue #{number} plans to create `{path}`, and this plan creates it too. Remove "
+        "the path from this plan, or wait until #{number} closes."
+    )
     stage_path_same_name: str = "These files have the same name: {names}."
     stage_path_no_same_name: str = "No file has this name."
     stage_path_places: dict[str, str] = field(
