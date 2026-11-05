@@ -29,6 +29,7 @@ from tests.support.implement_step import (
     git,
     is_clean_at_wip,
     programs_run,
+    rounds_spent,
     tool_reads,
     write_call,
 )
@@ -175,6 +176,7 @@ def test_a_hook_failure_that_the_agent_cannot_fix_uses_every_round_and_stops_wit
     )
     assert outcome.reason == (
         f"The hooks of the stage pre-commit failed with the exit status 1.\n{HOOK_REPORT}"
+        + rounds_spent(3)
     )
     assert is_clean_at_wip(checkout, head)
 

@@ -64,6 +64,13 @@ class OutputCapReached(UnexpectedModelBehavior):
         self.response = response
 
 
+class LimitReached(UnexpectedModelBehavior):
+    """A step spent one of its budgets of tokens or time, so it makes no more model requests
+    (#3053). The message names the setting and its value."""
+
+    error_code = "LIMIT_REACHED"
+
+
 class ToolFailed(p_exc.ToolFailed, DevOpsCLIError):
     """Raised when a tool encounters an unrecoverable runtime failure without requesting model retry."""
 

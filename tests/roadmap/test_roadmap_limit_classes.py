@@ -341,6 +341,22 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "setting",
         "already a setting; the repair turns of a step",
     ),
+    "DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET": (
+        "setting",
+        "a setting (#3053); above the largest done step (5.9 million), below the stops (7 to 10 million)",
+    ),
+    "DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET": (
+        "setting",
+        "a setting (#3053); above the largest item that finished its steps (16.6 million)",
+    ),
+    "DEFAULT_ROADMAP_IMPLEMENT_STEP_TIME_LIMIT_SECONDS": (
+        "setting",
+        "a setting (#3053); above one verification command (1800 s) and a few model calls",
+    ),
+    "DEFAULT_ROADMAP_IMPLEMENT_ITEM_TIME_LIMIT_SECONDS": (
+        "setting",
+        "a setting (#3053); below the ceiling of the Job, so the stop names itself",
+    ),
     "DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_CLASS": (
         "setting",
         "already a setting; the clears by a new runner image for one class of stop",

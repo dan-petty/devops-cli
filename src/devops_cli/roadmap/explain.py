@@ -259,6 +259,21 @@ def _event_line(event: TraceEvent) -> str:
             )
         case TraceEventKind.RETRY:
             return texts.explain_trace_retry.format(step=step, reason=fields.get("reason", ""))
+        case TraceEventKind.ATTEMPT:
+            tier = fields.get("tier")
+            failure_class = fields.get("class")
+            return texts.explain_trace_attempt.format(
+                step=step,
+                number=fields.get("number", ""),
+                tier=texts.explain_trace_attempt_tier.format(tier=tier) if tier else "",
+                outcome=fields.get("outcome", ""),
+                failure=texts.explain_trace_attempt_failure.format(
+                    failure_class=failure_class, evidence=fields.get("evidence", "")
+                )
+                if failure_class
+                else "",
+                next=fields.get("next", ""),
+            )
 
 
 def render_trace(trace: ImplementTrace | None, *, number: int) -> str:

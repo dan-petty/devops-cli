@@ -36,6 +36,7 @@ from tests.support.implement_step import (
     is_clean_at,
     make_checkout,
     programs_run,
+    rounds_spent,
     write_call,
 )
 from tests.support.model_script import ModelScript, say, tool_calls
@@ -211,7 +212,10 @@ def test_an_added_or_removed_task_of_the_group_gives_no_tick_and_the_unticked_ta
     result = _step(store, checkout, script)
 
     assert (result, is_clean_at(checkout, head)) == (
-        (StepStatus.STOPPED, f"A task of the group is not ticked: [ ] {FIRST_TASK}"),
+        (
+            StepStatus.STOPPED,
+            f"A task of the group is not ticked: [ ] {FIRST_TASK}" + rounds_spent(3),
+        ),
         True,
     )
 
@@ -252,7 +256,7 @@ def test_a_task_that_stays_unticked_after_a_rewrite_names_the_text_from_before(
 
     assert _step(store, checkout, script) == (
         StepStatus.STOPPED,
-        f"A task of the group is not ticked: [ ] {FIRST_TASK}",
+        f"A task of the group is not ticked: [ ] {FIRST_TASK}" + rounds_spent(3),
     )
 
 

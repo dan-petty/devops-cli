@@ -2108,6 +2108,9 @@ class RoadmapMessages:
     explain_trace_check_status: str = "exit status {status}"
     explain_trace_check_timeout: str = "timed out"
     explain_trace_retry: str = "{step}: retry: {reason}"
+    explain_trace_attempt: str = "{step}: attempt {number}{tier}, {outcome}{failure}, next: {next}"
+    explain_trace_attempt_tier: str = " on {tier}"
+    explain_trace_attempt_failure: str = " ({failure_class}): {evidence}"
     explain_trace_dropped: str = "{count} earlier event(s) are not kept."
     explain_trace_unreadable: str = (
         "The value of implement.trace on issue #{number} is not a trace: {error}"
@@ -2397,6 +2400,10 @@ class RoadmapMessages:
     )
     implement_stop_counts: str = "Refused commands: {refused}. Other retries: {retried}."
     implement_model_call_deadline: str = "{detail}, no complete reply in {seconds:g} seconds"
+    implement_stop_limit: str = "The step spent its budget `{setting}={value}`."
+    implement_stop_rounds: str = (
+        "The step used all its repair rounds: `roadmap.implement.repair_rounds={rounds}`."
+    )
     implement_stop_capped: str = (
         "The model reply reached the output cap of {tokens} tokens, so the call ended."
     )

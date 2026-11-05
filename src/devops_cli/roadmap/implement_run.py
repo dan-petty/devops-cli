@@ -52,6 +52,7 @@ import json
 import re
 import subprocess
 import textwrap
+import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
@@ -112,6 +113,7 @@ from devops_cli.roadmap.implement_amend import (
     parse_request,
 )
 from devops_cli.roadmap.implement_hooks import install_hook_environments, trusted_config
+from devops_cli.roadmap.implement_limits import ItemSpend
 from devops_cli.roadmap.implement_pull import (
     Answer,
     ChangeFacts,
@@ -453,6 +455,8 @@ class _ItemRun:
     returned: bool = False
     # The last `wip:` commit of the group that runs (#3054), or None.
     wip: WipCommit | None = None
+    # The time at which the run of the item began, for the time limit of the item (#3053).
+    started: float = field(default_factory=time.monotonic)
 
     def __post_init__(self) -> None:
         self.pull = self.target.pull
@@ -490,6 +494,13 @@ class _ItemRun:
         if held is None:
             raise RoadmapImplementError(MESSAGES.roadmap.item_left_not_item)
         return held
+
+    def _item_spend(self) -> ItemSpend:
+        """What the steps of this run spent so far, for the budgets of the next step (#3053)."""
+        return ItemSpend(
+            input_tokens=sum(outcome.input_tokens for outcome in self.outcomes),
+            started=self.started,
+        )
 
     def _spend(self) -> str:
         """The spend of every step, itemized under the tier that served it (#3060)."""
@@ -879,6 +890,7 @@ class _ItemRun:
                     model_for_tier=self.model_for_tier,
                     trace=self.trace,
                     on_wip=self._keep,
+                    spend=self._item_spend(),
                 )
             except OverWindowError as err:
                 self._handle_over_window(group, err, change, tasks_text, tasks_file, tasks)
@@ -1244,6 +1256,7 @@ class _ItemRun:
             hooks=self._hooks_config(),
             model_for_tier=self.model_for_tier,
             trace=self.trace,
+            spend=self._item_spend(),
         )
         self.outcomes.append(outcome)
         if outcome.status is StepStatus.STOPPED:
