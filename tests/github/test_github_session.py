@@ -24,6 +24,7 @@ from devops_cli.config.constants import (
     CONST_GITHUB_DIFF_MEDIA_TYPE,
     CONST_GITHUB_USER_AGENT,
 )
+from devops_cli.config.defaults import DEFAULT_GH_SERVER_ERROR_RETRY_FLOOR_SECONDS
 from devops_cli.core import process
 from devops_cli.core.process import GitHubIdentity
 from devops_cli.exceptions.git import (
@@ -46,6 +47,7 @@ from tests.support.fakes.github import (
     next_page,
     quota_headers,
 )
+from tests.support.github_identity import PINNED_GITHUB_TOKEN
 from tests.support.paths import REPO_ROOT
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until, wait_while_running
 from tests.web_fakes import rebinding, scripted_resolver
@@ -986,3 +988,74 @@ def test_a_page_answered_from_its_etag_that_is_no_list_of_items_still_fails_clos
             list(session.paginate(_ISSUES))
         pages.append(unread.value.details["page"])
     assert (pages, _conditions(github_api)) == ([1, 1], [None, _ETAG])
+
+
+# ── Lost connections (#3506) ─────────────────────────────────────────────────────────────────────
+
+
+def test_a_get_that_loses_its_connection_is_sent_again(github_api: GitHubApiFake) -> None:
+    """A GET whose connection is lost before GitHub's answer is read is sent again, and the
+    second answer is the normal result."""
+    github_api.route("GET", "/user", httpx2.RemoteProtocolError, github_json({"login": "octocat"}))
+    answer = get_github_session().rest("GET", "/user")
+    assert (answer, len(github_api.sent), len(github_api.waits)) == ({"login": "octocat"}, 2, 1)
+
+
+def test_a_get_that_loses_its_connection_on_every_attempt_raises_after_the_retries(
+    github_api: GitHubApiFake,
+) -> None:
+    """A GET that loses its connection on every attempt is sent three times, then raises the
+    unread error with the text it had before the retries."""
+    github_api.route("GET", "/user", httpx2.RemoteProtocolError)
+    with pytest.raises(GitHubUnreadError) as raised:
+        get_github_session().rest("GET", "/user")
+    assert (raised.value.message, len(github_api.sent), len(github_api.waits)) == (
+        "GitHub gave no readable answer to GET /user: RemoteProtocolError",
+        3,
+        2,
+    )
+
+
+def test_a_write_that_loses_its_connection_is_sent_once(github_api: GitHubApiFake) -> None:
+    """GitHub may have applied a write whose connection was lost, so the write is not repeated."""
+    github_api.route("POST", "/user/keys", httpx2.RemoteProtocolError)
+    with pytest.raises(GitHubUnreadError) as raised:
+        get_github_session().rest("POST", "/user/keys", body={"title": "t", "key": "k"})
+    assert (raised.value.error_code, len(github_api.sent), github_api.waits) == (
+        "GITHUB_UNREAD",
+        1,
+        [],
+    )
+
+
+def test_a_listing_that_loses_page_3_sends_page_3_again(github_api: GitHubApiFake) -> None:
+    """A listing whose page 3 loses its connection sends page 3 again and not pages 1 and 2,
+    and it returns each item once."""
+    second, third = _LINK_STYLES["page-links"]
+    github_api.route("GET", _ISSUES, _page([{"id": 1}, {"id": 2}], None, next_url=second))
+    github_api.route("GET", second, _page([{"id": 3}, {"id": 4}], None, next_url=third))
+    github_api.route("GET", third, httpx2.RemoteProtocolError, _page([{"id": 5}], None))
+    items = list(get_github_session().paginate(_ISSUES))
+    assert (items, github_api.requested) == (
+        [{"id": n} for n in range(1, 6)],
+        [
+            f"GET {API}{_ISSUES}",
+            f"GET {API}{second}",
+            f"GET {API}{third}",
+            f"GET {API}{third}",
+        ],
+    )
+
+
+def test_a_lost_get_waits_through_the_identity_ledger(github_api: GitHubApiFake) -> None:
+    """Each resend of a lost GET waits the delay that the identity's ledger gives from the read
+    floor, and the ledger records that wait as one throttle."""
+    github_api.route("GET", "/user", httpx2.RemoteProtocolError, github_json({"login": "octocat"}))
+    get_github_session().rest("GET", "/user")
+    ledger = rate_limiter.identity_rate_limiter(PINNED_GITHUB_TOKEN)
+    (wait,) = github_api.waits
+    assert (
+        wait >= DEFAULT_GH_SERVER_ERROR_RETRY_FLOOR_SECONDS,
+        ledger.get_total_throttles(),
+        ledger.get_total_wait_seconds(),
+    ) == (True, 1, wait)
