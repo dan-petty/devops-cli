@@ -2366,6 +2366,15 @@ class RoadmapMessages:
     implement_git_failed: str = "git {command} failed.\n{output}"
     implement_fix_title: str = "Make check {check} pass"
     implement_fix_task: str = "[ ] Make check `{check}` pass"
+    implement_wip_commit: str = (
+        "{prefix} {done} of {total} tasks of group {group}, {title} (#{item})"
+    )
+    implement_wip_push_failed: str = "The push of the work in progress failed: {output}"
+    implement_stop_kept: str = (
+        "\n\nThe job kept {count} work-in-progress {commits} on the branch `{branch}` on origin. "
+        "The last is `{sha}`. The job discarded only the work after it. The next run continues "
+        "from it and does the tasks that are not ticked."
+    )
     implement_stop_unticked: str = "A task of the group is not ticked: {task}"
     implement_stop_tick_turn_changed: str = (
         "The extra turn for the ticks changed files other than the tasks file: {paths}."

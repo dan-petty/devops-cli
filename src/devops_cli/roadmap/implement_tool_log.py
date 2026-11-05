@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import shlex
 from collections import Counter, deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -50,6 +50,7 @@ from pydantic_ai.exceptions import (
     UnexpectedModelBehavior,
 )
 from pydantic_ai.messages import ToolCallPart
+from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.tools import ToolDefinition
 
 from devops_cli.config.constants import (
@@ -258,7 +259,9 @@ class ToolCallLog:
     holds the last reasons of the retries of each tool (#2866), and `ended_on` the tool whose
     retries ended the run. `root` is the checkout: a reason shows the `path` argument of a call
     only when the checkout holds that path. A log with no root shows no path. With a `trace`, each call is also an event of it (#3032):
-    this log is the one place that knows a refusal by policy from another retry."""
+    this log is the one place that knows a refusal by policy from another retry. `before_request` runs
+    before each model request, when the tool calls of the last reply have all returned and the
+    agent is paused: the step uses it to keep the work in progress (#3054)."""
 
     root: Path | None = None
     refused: Counter[str] = field(default_factory=Counter[str])
@@ -268,6 +271,7 @@ class ToolCallLog:
     removed: list[str] = field(default_factory=list[str])
     trace: ImplementTrace | None = None
     refusals: set[str] = field(default_factory=set[str])
+    before_request: Callable[[], None] | None = None
 
     def refuse(self, tool_call_id: str | None) -> None:
         """Note that the shell refused the call with this id and returned the refusal as a result.
@@ -318,7 +322,11 @@ class ToolCallLog:
 
     def hooks(self) -> Hooks[None]:
         """The capability for the agent of the step."""
-        return Hooks(tool_execute=self._execute, tool_validate_error=self._invalid)
+        return Hooks(
+            tool_execute=self._execute,
+            tool_validate_error=self._invalid,
+            before_model_request=self._request,
+        )
 
     def _note(
         self,
@@ -402,6 +410,14 @@ class ToolCallLog:
                 )
             )
         return result
+
+    async def _request(
+        self, _ctx: RunContext[Any], request_context: ModelRequestContext, /
+    ) -> ModelRequestContext:
+        """Run `before_request`, and pass on the request as it is."""
+        if self.before_request is not None:
+            self.before_request()
+        return request_context
 
     async def _invalid(
         self,
