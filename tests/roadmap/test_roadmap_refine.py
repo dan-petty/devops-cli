@@ -2902,11 +2902,12 @@ def _seed_authored(store: InMemoryRoadmapStore, association: str | None, priorit
 
 
 def _outside_author(association: str, number: int) -> str:
-    """The detail line of an item that an account without write access opened."""
+    """The detail line of an item that an account that the jobs do not trust opened."""
     return (
-        f"The author's association with the repository is {association}. A refine round "
-        "refines only the items that the owner, a member or a collaborator opened. A person "
-        f"refines this item with --item {number}."
+        f"The author is unknown, and its association with the repository is {association}. A "
+        "refine round refines only the items that the owner, a member or a collaborator "
+        "opened, and the items that the Service App's bot or github-actions[bot] opened. A "
+        f"person refines this item with --item {number}."
     )
 
 

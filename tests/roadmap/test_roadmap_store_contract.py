@@ -327,9 +327,11 @@ def test_an_item_carries_its_authors_login(world: World) -> None:
     assert (
         [(item.number, item.author_login) for item in world.store.backlog()],
         read(world, app).author_login,
+        [(issue.number, issue.author_login) for issue in world.store.issues()],
     ) == (
         [(app, "devops-cli-service[bot]"), (anonymous, None)],
         "devops-cli-service[bot]",
+        [(app, "devops-cli-service[bot]"), (anonymous, None)],
     )
 
 

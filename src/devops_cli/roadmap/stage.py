@@ -95,7 +95,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
-    CONST_ROADMAP_TRUSTED_AUTHORS,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.dry_run.requests import PlannedRequest
@@ -193,6 +192,7 @@ from devops_cli.roadmap.store import (
     RoadmapStore,
     StageRecordKey,
 )
+from devops_cli.roadmap.trust import is_approved, is_trusted
 from devops_cli.security.sanitizer import mask_secrets, redact_text
 from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL, emit
 
@@ -452,12 +452,15 @@ class _Judge:
         return MESSAGES.roadmap.stage_left_tracker if is_tracker else None
 
     def _author(self, item: Item) -> str | None:
-        if item.author_association in CONST_ROADMAP_TRUSTED_AUTHORS:
-            return None
+        """An account that the jobs do not trust opened the item, or a bot opened it and no
+        review of refine approved it (#3502)."""
         texts = MESSAGES.roadmap
-        return texts.stage_left_author.format(
-            association=item.author_association or texts.refine_author_unknown
-        )
+        if not is_trusted(item):
+            return texts.stage_left_author.format(
+                author=item.author_login or texts.refine_author_unknown,
+                association=item.author_association or texts.refine_author_unknown,
+            )
+        return None if is_approved(item) else texts.stage_left_unjudged
 
     def _title(self, item: Item) -> str | None:
         texts = MESSAGES.roadmap

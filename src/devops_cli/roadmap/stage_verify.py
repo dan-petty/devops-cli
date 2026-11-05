@@ -211,7 +211,9 @@ def open_findings(findings: Sequence[Finding], given: VerificationInput) -> list
     ]
 
 
-def _line(finding: Finding) -> str:
+def finding_line(finding: Finding) -> str:
+    """The line that lists `finding` in a comment: its type, place and problem, and its quote with
+    the secrets and the markup of the model's text made safe."""
     quote = (
         MESSAGES.roadmap.stage_finding_quote.format(quote=safe_text(finding.quote))
         if finding.quote.strip()
@@ -227,7 +229,7 @@ def _line(finding: Finding) -> str:
 
 def return_problem(findings: Sequence[Finding]) -> str:
     """The `problem` that sends the plan back to the planner: one line for each finding."""
-    lines = "\n".join(_line(finding) for finding in findings)
+    lines = "\n".join(finding_line(finding) for finding in findings)
     return MESSAGES.roadmap.stage_verify_return.format(findings=lines)
 
 
@@ -235,7 +237,7 @@ def findings_section(findings: Sequence[Finding]) -> str:
     """The section of the comment of the job that lists `findings`, or an empty text for none."""
     if not findings:
         return ""
-    lines = "\n".join(_line(finding) for finding in findings)
+    lines = "\n".join(finding_line(finding) for finding in findings)
     return MESSAGES.roadmap.stage_comment_findings.format(findings=lines)
 
 
@@ -244,7 +246,7 @@ def open_findings_section(findings: Sequence[Finding]) -> str:
     none (#3264)."""
     if not findings:
         return ""
-    lines = "\n".join(_line(finding) for finding in findings)
+    lines = "\n".join(finding_line(finding) for finding in findings)
     return MESSAGES.roadmap.stage_comment_open_findings.format(findings=lines)
 
 
@@ -257,6 +259,7 @@ __all__ = [
     "VerificationInput",
     "cited_files",
     "cited_paths",
+    "finding_line",
     "findings_section",
     "open_findings",
     "open_findings_section",

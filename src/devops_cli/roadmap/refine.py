@@ -6,8 +6,9 @@ P1 items; the backlog's other New items; each place by priority. The number of R
 not stop a round: the board shows that number to the person who plans, and `--limit` is the only
 cap (#2004). Each open milestone and the backlog's P0/P1 items also give their Ready items no
 refine round has recorded, which refine confirms Ready or sets back to New. It leaves out items
-that are Blocked or started, items that an account without write access opened (GitHub's
-`author_association` is not OWNER, MEMBER or COLLABORATOR), which wait on a person (#2478),
+that are Blocked or started, items that an account that the jobs do not trust opened (GitHub's
+`author_association` is not OWNER, MEMBER or COLLABORATOR, and the author login is neither
+`service.github_app.bot_login` nor `github-actions[bot]`), which wait on a person (#2478, #3502),
 items whose section a person edited (`check_person_edits`), items unchanged since their last
 round that still wait on their next step, and items on which refine wrote
 `CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM` comments in the last 24 hours, which wait on a person
@@ -18,6 +19,12 @@ the selection. Apply records, logs and counts once each comment that the cap sto
 that would answer the item's newest comment. `--item` refines the item it names whenever it is
 open, New or Ready, whoever opened it and however many comments refine wrote on it, since a
 person asked for it.
+
+A Ready proposal for an item that one of the two bots opened goes through a review before the item
+is Ready (`refine_judge`, #3502): an approval is recorded as `RefineRecordKey.JUDGE`, and a refusal
+keeps the item New, waiting for a body edit, with one comment that lists each open finding. The
+round also writes one comment, with `CONST_ROADMAP_REFINE_OUTSIDE_MARKER`, on an item that the jobs
+do not trust. The model reads only the comments of trusted authors (`trust.trusted_replies`).
 
 A part of an item that cannot be built as written, or that waits on a question or a block that only
 a person or an outside event settles, moves to new issues (`deferred`, #2423) when the rest of the
@@ -82,11 +89,12 @@ import json
 import logging
 import re
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from functools import cache, partial
 from pathlib import Path, PurePosixPath
-from typing import Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 from urllib.parse import urlsplit
 
 from markdown_it import MarkdownIt
@@ -128,11 +136,11 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_SPECS,
     CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS,
     CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS,
+    CONST_ROADMAP_REFINE_OUTSIDE_MARKER,
     CONST_ROADMAP_REFINE_START_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
-    CONST_ROADMAP_TRUSTED_AUTHORS,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_REFINE_LIMIT
 from devops_cli.config.settings import get_firecrawl_api_key, load_settings
@@ -166,12 +174,17 @@ from devops_cli.roadmap.store import (
     Item,
     ItemField,
     JobRecord,
+    JudgeVerdict,
     RefineRecordKey,
     RoadmapStore,
     StageRecordKey,
     Verdict,
 )
+from devops_cli.roadmap.trust import is_bot_filed, is_trusted, trusted_replies
 from devops_cli.telemetry.instruments import ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL, emit
+
+if TYPE_CHECKING:
+    from devops_cli.roadmap.stage import StageClient
 
 logger = logging.getLogger(__name__)
 
@@ -303,7 +316,8 @@ class RefinedItem:
     `deferred` holds the parts that apply files as new issues before it sets the item Ready
     (#2423). `after_stage_return` is set when the round looked again at the same body after the
     stage job returned the item, which apply records, so a second return waits on a person
-    (#3483)."""
+    (#3483). `judge` is the verdict of the review of the proposal for an item that a bot opened,
+    which apply records, and None for the item of a person (#3502)."""
 
     item: Item
     proposal: RefinementProposal
@@ -324,6 +338,7 @@ class RefinedItem:
     record_only: bool = False
     deferred: tuple[PlannedDeferral, ...] = ()
     after_stage_return: bool = False
+    judge: JudgeVerdict | None = None
 
 
 @dataclass(frozen=True)
@@ -334,12 +349,17 @@ class WaitingItem:
     `cap_stop` is set when the cap on refine's comments stops the comment that would answer the
     item's newest comment, and no earlier round stopped it: the newest comment's creation time,
     which apply records in the item's job record, logs and counts (#2475).
+
+    `notice` is set when an account that the jobs do not trust opened the item and no comment
+    of a round told its author why the round leaves it alone: apply writes that comment once
+    (#3502).
     """
 
     item: Item
     step: NextStep
     details: tuple[str, ...] = ()
     cap_stop: str | None = None
+    notice: bool = False
 
 
 @dataclass(frozen=True)
@@ -1741,18 +1761,23 @@ def _still_waiting(
 
 
 def _outside_author(item: Item) -> WaitingItem | None:
-    """The wait of an item that an account without write access opened, as GitHub's
-    `author_association` gives it, or None for the owner's, a member's or a collaborator's item.
+    """The wait of an item that an account that the jobs do not trust opened, or None for the
+    item of a person with write access (GitHub's `author_association` is OWNER, MEMBER or
+    COLLABORATOR) and for the item of the Service App's bot or of `github-actions[bot]`
+    (`trust.is_trusted`).
 
-    Build agents take Ready items as work, so a round never refines text from such an account:
+    Build agents take Ready items as work, so a round never refines text from another account:
     the item waits on a person, who refines it with `--item` (#2478). An item with no
     association, which GitHub never gives, is treated the same way.
     """
-    if item.author_association in CONST_ROADMAP_TRUSTED_AUTHORS:
+    if is_trusted(item):
         return None
     texts = MESSAGES.roadmap
+    unknown = texts.refine_author_unknown
     detail = texts.refine_outside_author.format(
-        association=item.author_association or texts.refine_author_unknown, number=item.number
+        author=item.author_login or unknown,
+        association=item.author_association or unknown,
+        number=item.number,
     )
     return WaitingItem(item, NextStep.PERSON, (detail,))
 
@@ -1796,18 +1821,23 @@ class _Selection:
     comments: dict[int, list[IssueComment]] = field(default_factory=dict)
 
     def comments_on(self, number: int) -> list[IssueComment]:
-        """The comments on issue `number`, read once for the selection."""
+        """The comments of trusted authors on issue `number` (`trust.trusted_replies`), read
+        once for the selection."""
         if number not in self.comments:
-            self.comments[number] = self.store.comments_on(number)
+            self.comments[number] = trusted_replies(self.store.comments_on(number))
         return self.comments[number]
 
     def consider(self, item: Item) -> None:
-        """Take `item` unless an account without write access opened it (#2478), its wait is
-        not over, a person edited its section (#1515), or refine wrote its cap of comments on
+        """Take `item` unless an account that the jobs do not trust opened it (#2478), its wait
+        is not over, a person edited its section (#1515), or refine wrote its cap of comments on
         it in the last 24 hours (#2475)."""
         outside = _outside_author(item)
         if outside is not None:
-            self.waiting.append(outside)
+            told = any(
+                CONST_ROADMAP_REFINE_OUTSIDE_MARKER in comment.body
+                for comment in self.comments_on(item.number)
+            )
+            self.waiting.append(replace(outside, notice=not told))
             return
         if _is_unchanged(item, item.body) and not _needs_second_look(item):
             waits = _still_waiting(self.store, item, self.comments_on)
@@ -1936,12 +1966,15 @@ def refine_one_item(
     client: LLMClient | Any,
     web: WebSearch | None = None,
     investigator: Any = None,
+    verifier: Callable[[], StageClient],
     max_context_tokens: int = 8192,
     intake_model: IntakeModel | None = None,
 ) -> RefinedItem:
     """Refines one item through context collection, proposal, validation and, when a question
     stays open, the investigation with `web`'s search and the `investigator` model (#2398). A
-    Ready proposal's deferred parts get an intake plan each, with `intake_model` (#2423)."""
+    Ready proposal's deferred parts get an intake plan each, with `intake_model` (#2423). A Ready
+    proposal for an item that a bot opened goes through the review of `refine_judge`, with the
+    client that `verifier` makes (#3502)."""
     web = web or WebSearch()
     current_body = store.read_issue_body(item.number)
 
@@ -1966,8 +1999,8 @@ def refine_one_item(
     # Step 1: Context minimization
     ctx = collect_context(source, sha, current_body, max_tokens=max_context_tokens)
 
-    # Step 2: Proposal generation
-    comments = store.comments_on(item.number)
+    # Step 2: Proposal generation. Only the comments of trusted authors reach the model (#3502).
+    comments = trusted_replies(store.comments_on(item.number))
     returned = _stage_return(item, comments)
     check = recorded_check(item, current_body)
     covers = covers_question(check, comments)
@@ -2010,10 +2043,27 @@ def refine_one_item(
                 revised, current_body, allowed_urls, source, sha, store, covers
             )
     is_ready = check_ready(proposal, open_questions)
+    judge: JudgeVerdict | None = None
+    findings: tuple[str, ...] = ()
+    if is_ready and is_bot_filed(item):
+        from devops_cli.roadmap.refine_judge import judge as review
+
+        judge, findings = review(
+            verifier,
+            item,
+            current_body,
+            proposal,
+            source,
+            unchanged=_is_unchanged(item, current_body),
+        )
+        is_ready = judge is JudgeVerdict.APPROVED
     needs_split = not proposal.fits_one_pr
     step, model_details, blocked_by = next_step_of(
         store, proposal, open_questions, is_ready=is_ready
     )
+    if findings:
+        # The review refused the item: it waits for a body edit, and the comment lists each finding.
+        step, model_details, blocked_by = NextStep.EDIT, findings, ()
     deferred, refused = (
         _plan_deferrals(store, item, proposal, repo=repo, model=intake_model, urls=allowed_urls)
         if is_ready
@@ -2080,6 +2130,7 @@ def refine_one_item(
         read_hash=hash_text(outside),
         deferred=deferred,
         after_stage_return=returned is not None and _is_unchanged(item, current_body),
+        judge=judge,
     )
 
 
@@ -2230,25 +2281,33 @@ def plan_refine(
     model: Any = None,
     investigator: Any = None,
     intake_model: IntakeModel | None = None,
+    verifier: Any = None,
 ) -> RefinePlan:
     """Plans refinement for eligible candidates without writing anything to GitHub.
 
     `model` is the proposal step's client and `investigator` the investigation's pydantic-ai
     model; each defaults to the `analysis` task's (#2398). `intake_model` plans the new issues
-    of deferred parts, and is built only when a part exists (#2423)."""
+    of deferred parts, and is built only when a part exists (#2423). `verifier` is the client
+    that reviews the proposal for an item that a bot opened; it defaults to the client of the
+    `verification` task, and is built only when such a review runs (#3502)."""
     source_path = Path(source)
     sha = inspect_checkout(source_path, repo)
 
     candidates, waiting = select_candidates(store, item_number=item_number, limit=limit)
-    cap_stops = any(w.cap_stop is not None for w in waiting)
+    waiting_writes = any(w.cap_stop is not None or w.notice for w in waiting)
     if not candidates:
-        return RefinePlan(repo=repo, sha=sha, waiting_items=waiting, has_writes=cap_stops)
+        return RefinePlan(repo=repo, sha=sha, waiting_items=waiting, has_writes=waiting_writes)
 
     settings = load_settings()
     ai_config = settings.ai
     client = model or get_llm_client(task="analysis", settings=settings)
     max_tokens = ai_config.for_task("analysis").context_window or 8192
     web = web_search_of(store)
+    verifier_of: Callable[[], StageClient] = (
+        cache(partial(get_llm_client, task="verification", settings=settings))
+        if verifier is None
+        else lambda: verifier
+    )
 
     refined: list[RefinedItem] = []
     failed: list[RefineFailure] = []
@@ -2263,6 +2322,7 @@ def plan_refine(
                 client=client,
                 web=web,
                 investigator=investigator,
+                verifier=verifier_of,
                 max_context_tokens=max_tokens,
                 intake_model=intake_model,
             )
@@ -2274,7 +2334,7 @@ def plan_refine(
         refined.append(res)
 
     has_writes = (
-        cap_stops
+        waiting_writes
         or any(r.skip_reason is None or r.record_only for r in refined)
         or any(failure.item_caused for failure in failed)
     )
@@ -2432,6 +2492,25 @@ def _record_cap_stops(store: RoadmapStore, plan: RefinePlan) -> None:
         emit(ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL, 1)
 
 
+def _tell_outside_authors(store: RoadmapStore, plan: RefinePlan) -> int:
+    """Comment once on each item that an account that the jobs do not trust opened, to say why a
+    round leaves it alone. The selection found no such comment, and the marker in this one stops
+    a later round from writing another (#3502). Returns how many comments it wrote."""
+    told = [waiting.item for waiting in plan.waiting_items if waiting.notice]
+    for item in told:
+        unknown = MESSAGES.roadmap.refine_author_unknown
+        store.comment(
+            item.number,
+            MESSAGES.roadmap.refine_outside_notice.format(
+                marker=CONST_ROADMAP_REFINE_OUTSIDE_MARKER,
+                author=item.author_login or unknown,
+                association=item.author_association or unknown,
+                number=item.number,
+            ),
+        )
+    return len(told)
+
+
 def _file_deferrals(store: RoadmapStore, refined: RefinedItem) -> tuple[int, ...] | None:
     """File the deferred parts of `refined` through intake, and return the numbers of every part
     of the item, the recorded ones first. When a part is not filed, record the numbers that are,
@@ -2468,6 +2547,28 @@ def _with_deferrals(comment: str | None, numbers: Sequence[int]) -> str | None:
     return f"{comment}\n\n{MESSAGES.roadmap.refine_deferred_comment.format(items=items)}"
 
 
+def _refine_marks(r: RefinedItem, deferred: Sequence[int]) -> JobRecord:
+    """The marks that apply sets in the job record of `r.item`: what the round saw, the next step,
+    the verdict of the review when the item held one or the round gave one (#3502), and the
+    numbers of the issues that refine filed for the deferred parts."""
+    marks: JobRecord = {
+        RefineRecordKey.BODY_HASH: r.body_hash,
+        RefineRecordKey.SECTION_HASH: r.section_hash,
+        RefineRecordKey.NEEDS_SPLIT: "true" if r.needs_split else "false",
+        RefineRecordKey.FAILED_BODY_HASH: None,
+        RefineRecordKey.NEXT_STEP: r.next_step.value,
+        RefineRecordKey.BLOCKED_BY: ",".join(str(number) for number in r.blocked_by) or None,
+        RefineRecordKey.BLOCK_PATHS: ",".join(r.block_paths) or None,
+        RefineRecordKey.ALTERNATIVES_ASKED: r.alternatives_asked,
+        RefineRecordKey.RETURNED_BODY_HASH: r.body_hash if r.after_stage_return else None,
+    }
+    if r.judge is not None or RefineRecordKey.JUDGE in r.item.job_record:
+        marks[RefineRecordKey.JUDGE] = r.judge.value if r.judge is not None else None
+    if deferred:
+        marks[RefineRecordKey.DEFERRED] = _numbers_text(deferred)
+    return marks
+
+
 def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
     """Applies the planned writes to GitHub: updates issue body, marks, status and comments,
     records the body of an item too big to refine or failing on its own text, and records each
@@ -2492,20 +2593,7 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
         store.write_issue_body(r.item.number, r.new_body)
         refined_count += 1
 
-        # Prepare marks
-        marks: JobRecord = {
-            RefineRecordKey.BODY_HASH: r.body_hash,
-            RefineRecordKey.SECTION_HASH: r.section_hash,
-            RefineRecordKey.NEEDS_SPLIT: "true" if r.needs_split else "false",
-            RefineRecordKey.FAILED_BODY_HASH: None,
-            RefineRecordKey.NEXT_STEP: r.next_step.value,
-            RefineRecordKey.BLOCKED_BY: ",".join(str(number) for number in r.blocked_by) or None,
-            RefineRecordKey.BLOCK_PATHS: ",".join(r.block_paths) or None,
-            RefineRecordKey.ALTERNATIVES_ASKED: r.alternatives_asked,
-            RefineRecordKey.RETURNED_BODY_HASH: r.body_hash if r.after_stage_return else None,
-        }
-        if deferred:
-            marks[RefineRecordKey.DEFERRED] = _numbers_text(deferred)
+        marks = _refine_marks(r, deferred)
 
         # Status change & marks: a Ready item refine finds not ready goes back to New (#1515)
         if r.is_ready:
@@ -2527,6 +2615,7 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
 
     _record_unwritten(store, plan)
     _record_cap_stops(store, plan)
+    comments_posted += _tell_outside_authors(store, plan)
     return RefineApplied(
         refined_count=refined_count,
         readied_count=readied_count,

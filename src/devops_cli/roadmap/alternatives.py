@@ -71,7 +71,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
-    CONST_ROADMAP_TRUSTED_AUTHORS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_PYPI_PACKAGE_URL,
@@ -108,6 +107,7 @@ from devops_cli.roadmap.store import (
     is_name_segment,
     is_repository_name,
 )
+from devops_cli.roadmap.trust import is_approved, is_trusted
 from devops_cli.telemetry.instruments import ROADMAP_ALTERNATIVES_TOTAL, emit
 
 logger = logging.getLogger(__name__)
@@ -486,7 +486,8 @@ def _is_eligible(item: Item) -> bool:
     return (
         item.state is GitHubState.OPEN
         and item.status in {CONST_ROADMAP_STATUS_NEW, CONST_ROADMAP_STATUS_READY}
-        and item.author_association in CONST_ROADMAP_TRUSTED_AUTHORS
+        and is_trusted(item)
+        and is_approved(item)
     )
 
 

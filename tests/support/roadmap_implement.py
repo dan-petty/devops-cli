@@ -185,6 +185,7 @@ def seed_staged(
     status: str = "Ready",
     record: bool = True,
     author_association: str | None = "OWNER",
+    author_login: str | None = None,
     title: str = TITLE,
     pull: int = PULL,
 ) -> int:
@@ -195,6 +196,7 @@ def seed_staged(
         labels=labels,
         fields={ItemField.STATUS: status, ItemField.PRIORITY: priority},
         author_association=author_association,
+        author_login=author_login,
     )
     if record:
         item = store.item(number)

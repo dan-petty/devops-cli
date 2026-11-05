@@ -52,4 +52,5 @@ The jobs read an item through `Item`, and decided its trust with `author_associa
 - [The review sees no file, so it finds fewer defects than the stage review] → the review is no security control. The login and the reply filter are the controls, and a person still merges each pull request.
 - [An item of `github-actions[bot]` can carry text from a workflow input] → the owner accepted this in the decision on #3502. The filter keeps outside replies away from the model, and SECURITY.md names the risk.
 - [A bot-filed item approved by the review, then edited by a person, keeps its approval until the next round] → a person with write access edits it, and the next round looks at the changed body.
+- [The approval is a block in the issue body, so text that a bot copies into the body could forge it] → the audit workflow writes a fixed text, and refine neutralizes `<!` in the text that it files for the Service (#2478). SECURITY.md names the risk for a new workflow.
 - [A round reads the comments of each item that the jobs do not trust] → the set is small once the bots are trusted.
