@@ -22,9 +22,9 @@ Reads: `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/stage_probe.py
 
 Reads: `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/refine.py`, `tests/roadmap/test_roadmap_stage_selection.py`. Changes: `src/devops_cli/roadmap/stage.py`, `tests/roadmap/test_roadmap_stage_selection.py`.
 
-- [ ] 3.1 In `tests/roadmap/test_roadmap_stage_selection.py`, add `test_open_recorded_blocker_leaves_item_out` and `test_closed_recorded_blocker_does_not_leave_item_out`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_selection.py` fails on the base for the first test
+- [x] 3.1 In `tests/roadmap/test_roadmap_stage_selection.py`, add `test_open_recorded_blocker_leaves_item_out` and `test_closed_recorded_blocker_does_not_leave_item_out`. Verify that `uv run devops ci test tests/roadmap/test_roadmap_stage_selection.py` fails on the base for the first test
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_selection.py` fails on the base
-- [ ] 3.2 Add `_Judge._recorded_blocker` to `src/devops_cli/roadmap/stage.py`. It names each open item of `recorded_blockers` in the reason, with the message `stage_left_blocked`
+- [x] 3.2 Add `_Judge._recorded_blocker` to `src/devops_cli/roadmap/stage.py`. It names each open item of `recorded_blockers` in the reason, with the message `stage_left_blocked`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_selection.py` passes
 
 ## 4. Read the create paths of open plans and skip closed plans

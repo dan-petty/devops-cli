@@ -21,7 +21,13 @@ from devops_cli.roadmap.stage import (
     parse_filters,
     select_stageable,
 )
-from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, ItemField, StageRecordKey
+from devops_cli.roadmap.store import (
+    GitHubState,
+    ImplementRecordKey,
+    ItemField,
+    RefineRecordKey,
+    StageRecordKey,
+)
 
 REPO = "example/roadmap"
 BUG = ("type/bug",)
@@ -639,3 +645,31 @@ def test_an_item_that_fails_another_rule_keeps_that_reason_at_the_planned_limit(
     reason = _reasons(_select(store, *DEFAULT_ROADMAP_STAGE_FILTER, planned_limit=2))[claimed]
 
     assert reason == "It is claimed by human."
+
+
+def test_open_recorded_blocker_leaves_item_out(store: InMemoryRoadmapStore) -> None:
+    """An item whose record names an open blocker waits for it, and the reason names the blocker
+    (#3418)."""
+    blocker = _seed(store, status="Planned")
+    number = _seed(store)
+    item = store.item(number)
+    assert item is not None
+    store.set_marks(item, {RefineRecordKey.BLOCKED_BY: str(blocker)})
+
+    selection = _select(store)
+
+    assert number not in _numbers(selection)
+    assert f"#{blocker}" in _reasons(selection)[number]
+
+
+def test_closed_recorded_blocker_does_not_leave_item_out(store: InMemoryRoadmapStore) -> None:
+    """A closed blocker no longer holds the item back, so the job may stage it (#3418)."""
+    blocker = _seed(store, status="Done", state=GitHubState.CLOSED)
+    number = _seed(store)
+    item = store.item(number)
+    assert item is not None
+    store.set_marks(item, {RefineRecordKey.BLOCKED_BY: str(blocker)})
+
+    selection = _select(store)
+
+    assert _numbers(selection) == [number]

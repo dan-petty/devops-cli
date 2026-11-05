@@ -131,7 +131,13 @@ from devops_cli.roadmap.planned import (
 )
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
 from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels, remove_pull_labels
-from devops_cli.roadmap.refine import NextStep, body_dependencies, collect_context, inspect_checkout
+from devops_cli.roadmap.refine import (
+    NextStep,
+    body_dependencies,
+    collect_context,
+    inspect_checkout,
+    recorded_blockers,
+)
 from devops_cli.roadmap.refine_investigation import task_window
 from devops_cli.roadmap.stage_change import (
     MeasuredGroup,
@@ -412,6 +418,7 @@ class _Judge:
             self._author,
             self._title,
             self._dependency,
+            self._recorded_blocker,
             self._planned_on_default,
             self._held,
             self._secret,
@@ -467,6 +474,18 @@ class _Judge:
         if not open_issues:
             return None
         return MESSAGES.roadmap.stage_left_dependency.format(issues=", ".join(open_issues))
+
+    def _recorded_blocker(self, item: Item) -> str | None:
+        """An open item that the record of a refine round or of the stage job names as the blocker
+        of `item` (#3418). A closed blocker holds nothing back, so it is no reason to leave out."""
+        open_blockers = [
+            f"#{number}"
+            for number in recorded_blockers(item)
+            if (found := self._store.item(number)) is not None and found.state is GitHubState.OPEN
+        ]
+        if not open_blockers:
+            return None
+        return MESSAGES.roadmap.stage_left_blocked.format(issues=", ".join(open_blockers))
 
     def _planned_on_default(self, item: Item) -> str | None:
         """The plan is on the default branch, or its change is archived there (#2714). The folder
