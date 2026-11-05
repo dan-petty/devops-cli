@@ -13,9 +13,9 @@ Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/message
 
 Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/test_roadmap_stage_prompt_rules.py`, `src/devops_cli/ai/task_loader.py`. Changes: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/test_roadmap_stage_prompt_rules.py`.
 
-- [ ] 2.1 In `tests/roadmap/test_roadmap_stage_prompt_rules.py`, write a test that loads the prompt with `load_task_prompt` and asserts that it holds `StageProposal`, `content_problems` and the self-acceptance test rule
+- [x] 2.1 In `tests/roadmap/test_roadmap_stage_prompt_rules.py`, write a test that loads the prompt with `load_task_prompt` and asserts that it holds `StageProposal`, `content_problems` and the self-acceptance test rule
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_prompt_rules.py` fails on the base
-- [ ] 2.2 Add the self-acceptance test rule to `src/devops_cli/ai/tasks/roadmap_stage_change.md` beside the other checks of a plan: a behavior group that changes `src/devops_cli/roadmap/stage_change.py` needs a group test that builds the plan's own `StageProposal` and asserts that `content_problems` returns no problem for it
+- [x] 2.2 Add the self-acceptance test rule to `src/devops_cli/ai/tasks/roadmap_stage_change.md` beside the other checks of a plan: a behavior group that changes `src/devops_cli/roadmap/stage_change.py` needs a group test that builds the plan's own `StageProposal` and asserts that `content_problems` returns no problem for it
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_prompt_rules.py` passes
 
 ## Workflow follow-up
