@@ -511,6 +511,16 @@ def comments_endpoint(repo: str, number: Number) -> str:
     return f"repos/{repo}/issues/{number}/comments"
 
 
+def repository_comments_endpoint(repo: str, since: datetime | None) -> str:
+    """The REST listing of every comment on the issues and pull requests of `repo`, newest
+    created first, with only those changed at or after `since` when it is given. GitHub filters
+    `since` on the time a comment was last changed, not on the time it was created (#2754)."""
+    query = "sort=created&direction=desc"
+    if since is not None:
+        query += f"&since={as_utc(since):%Y-%m-%dT%H:%M:%SZ}"
+    return f"repos/{repo}/issues/comments?{query}"
+
+
 def milestone_edit_args(repo: str, number: Number, fields: Sequence[tuple[str, str]]) -> list[str]:
     """The REST write that changes `fields` of milestone `number`."""
     flags = [part for name, value in fields for part in ("-f", f"{name}={value}")]
@@ -814,6 +824,14 @@ class GitHubRoadmapStore(RoadmapStore):
             comments_endpoint(self._repo, number), _COMMENT, f"#{number} comments"
         )
         return [comment.comment() for comment in listing]
+
+    def comments_since(self, since: datetime | None) -> Iterator[IssueComment]:
+        """The comments of the repository, newest first, one page of 100 at a time as the caller
+        asks for them: a caller that stops at the first comment it wants reads no later page.
+        The session raises on a failed page, as it does for any listing (#2754)."""
+        path = listing_path(repository_comments_endpoint(self._repo, since))
+        for found in self._listing_session().paginate(path):
+            yield self._validate_entry(found, _COMMENT, "comments").comment()
 
     def path_changed_at(self, path: str) -> datetime | None:
         """When the newest commit on the default branch that changed `path` was made, or None
@@ -1153,6 +1171,7 @@ __all__ = [
     "milestone_edit_args",
     "milestones_endpoint",
     "path_commits_args",
+    "repository_comments_endpoint",
     "repository_file_args",
     "repository_issue_events_endpoint",
     "repository_query_args",

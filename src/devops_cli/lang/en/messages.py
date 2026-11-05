@@ -1956,7 +1956,8 @@ class ServeMessages:
     # Logged once, when a roadmap job reaches its limit of failed rounds (#2161).
     job_suspended: str = (
         "The roadmap job {job} of {repo} failed {rounds} rounds in a row (causes: {causes}), so "
-        "it does not run again until its input changes."
+        "it does not run again until its input changes: a webhook, a change of an issue, or "
+        "a comment of a person."
     )
     # Logged once, at the info level, when the stop of the Service ends a round (#3493).
     round_stopped: str = (

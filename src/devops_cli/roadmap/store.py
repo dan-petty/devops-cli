@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast, runtime_checkable
@@ -865,6 +865,12 @@ class RoadmapStore(Protocol):
 
     def comments_on(self, number: int) -> list[IssueComment]:
         """Every comment on issue `number`, oldest first."""
+
+    def comments_since(self, since: datetime | None) -> Iterator[IssueComment]:
+        """The comments of the whole repository, on issues and pull requests, newest first, that
+        were changed at or after `since` (every comment when None). A comment that someone edited
+        after `since` can come with an older creation time. The read is lazy: a caller that stops
+        at the first comment it wants asks for no more pages (#2754)."""
 
     def path_changed_at(self, path: str) -> datetime | None:
         """When the newest commit on the default branch that changed `path` was made, or None

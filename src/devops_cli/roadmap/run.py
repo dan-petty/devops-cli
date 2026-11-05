@@ -139,6 +139,7 @@ from devops_cli.roadmap.stage_ready import mark_stage_ready
 from devops_cli.roadmap.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.status_sync import sync_statuses
 from devops_cli.roadmap.store import Change, ChangeKind, RoadmapStore
+from devops_cli.roadmap.trust import is_person_comment
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.server.service import (
     LaneJob,
@@ -1006,11 +1007,12 @@ class FailureLedger:
     """How many rounds in a row each roadmap job failed, and the input it failed on (#2161).
 
     A job that fails `limit` rounds in a row does not run again until its input is not the one it
-    failed on: a webhook trigger, or a change to an item the job reads. A poll alone brings no
-    new input, so a failing job stops costing GitHub requests at every round. A success clears
-    the job's record. With a `record`, the ledger is kept in that file at each change and read
-    back when the ledger is made, so a restart of the Service keeps it (#2474). The Service's
-    /metrics shows each job that failed its limit of rounds in a row (#2475).
+    failed on: a webhook trigger, a change to an item the job reads, or a comment of a person
+    (#2754). A poll alone brings no new input, so a failing job stops costing GitHub requests at
+    every round. A success clears the job's record. With a `record`, the ledger is kept in that
+    file at each change and read back when the ledger is made, so a restart of the Service keeps
+    it (#2474). The Service's /metrics shows each job that failed its limit of rounds in a row
+    (#2475).
 
     The ledger also holds the cause of each failed round, the class of its error, for the log
     line that suspends a job. The record keeps the causes, so a restart does not make them
@@ -1045,6 +1047,11 @@ class FailureLedger:
         with self._lock:
             rounds, failed_on = self._failed.get((repo, job), (0, None))
             return rounds >= self._limit and failed_on == current
+
+    def holds_failure(self, repo: str, job: str) -> bool:
+        """Whether `job` failed a round that no success has cleared since."""
+        with self._lock:
+            return (repo, job) in self._failed
 
     def failed(self, repo: str, job: str, current: str, cause: str) -> int:
         """Count a failed round on `current` with its `cause`; the rounds in a row, which
@@ -1109,17 +1116,75 @@ def _round_input(
     batch: Mapping[tuple[str, str, str], int],
     at: datetime,
     reads_changes: bool = True,
+    comment_at: datetime | None = None,
 ) -> str:
     """What the round's jobs read, as one digest a ledger record can keep: the changes since the
     oldest last success and, when the batch holds a trigger other than a poll, the time of the
     round, so such a trigger is new input to every job. A lane that reads no change has no input
     that a poll can change, so its input holds the hour of the round: a suspended row tries again
-    in a later hour, once its fault is fixed (#2757)."""
+    in a later hour, once its fault is fixed (#2757). A row that failed a round also holds
+    `comment_at`, when the newest comment of a person was made, so that person's answer is new
+    input for it (#2754). A row with no such comment has the digest it had before."""
     seen = [(change.kind.value, change.number, change.at.isoformat()) for change in changes]
     pushed = any(key[0] != CONST_SERVICE_SOURCE_POLL for key in batch)
     hour = None if reads_changes else at.strftime("%Y-%m-%dT%H")
-    read = json.dumps([seen, at.isoformat() if pushed else None, hour])
-    return hashlib.sha256(read.encode("utf-8")).hexdigest()
+    parts: list[Any] = [seen, at.isoformat() if pushed else None, hour]
+    if comment_at is not None:
+        parts.append(comment_at.isoformat())
+    return hashlib.sha256(json.dumps(parts).encode("utf-8")).hexdigest()
+
+
+def _row_inputs(
+    rows: Sequence[JobRow],
+    changes: Sequence[Change],
+    batch: Mapping[tuple[str, str, str], int],
+    at: datetime,
+    comment_stamps: Mapping[str, datetime],
+) -> dict[str, str]:
+    """The input of each row in the round: the input of the round, and for a row in
+    `comment_stamps` also the time of that comment of a person (#2754)."""
+    reads_changes = _lane_reads_changes(rows)
+    return {
+        row.name: _round_input(changes, batch, at, reads_changes, comment_stamps.get(row.name))
+        for row in rows
+    }
+
+
+def _person_comment_stamps(
+    rows: Sequence[JobRow],
+    initially_due: Mapping[str, bool],
+    schedule: Mapping[str, datetime],
+    failures: FailureLedger,
+    repo: str,
+    store: RoadmapStore,
+) -> dict[str, datetime]:
+    """For each row that may run in the round and failed a round before, when the newest comment
+    of a person was made, unless that comment is older than the row's last success: the new input
+    that a person's answer gives to a suspended row (#2754).
+
+    One read serves all those rows: the comments of the repository, newest first, from the oldest
+    last success among them (with no limit when one never succeeded), up to the first comment of
+    a person. A comment older than a row's own last success is no input for it, so what a row
+    holds never depends on the other rows that set the start of the read. With no such row the
+    round reads nothing. A read that fails raises, as the read of the changes does."""
+    failed = [
+        row.name
+        for row in rows
+        if (initially_due[row.name] or row.cross_job_predicate is not None)
+        and failures.holds_failure(repo, row.name)
+    ]
+    if not failed:
+        return {}
+    lasts = {name: schedule.get(name) for name in failed}
+    known = [last for last in lasts.values() if last is not None]
+    since = min(known) if len(known) == len(lasts) else None
+    actor = _current_actor(store)
+    newest = next(
+        (c.created_at for c in store.comments_since(since) if is_person_comment(c, actor)), None
+    )
+    if newest is None:
+        return {}
+    return {name: newest for name, last in lasts.items() if last is None or newest >= last}
 
 
 def _count_failure(
@@ -1187,11 +1252,13 @@ def _execute_due_rows(
     clone_dirname: str,
     failures: FailureLedger,
     lane: str | None,
+    comment_stamps: Mapping[str, datetime],
 ) -> tuple[str, ...]:
     """Execute all due jobs in order with failure tracking, the clone rows in `clone_dirname`.
     Each runner also gets the repository's data directory and the round's time. With the
     `failures` ledger, a job that failed its limit of rounds in a row on the same input does not
-    run (#2161). A refusal of the identity ends the round at once: no later job sends a
+    run (#2161). The input of a row in `comment_stamps` also holds the time of that comment of a
+    person (#2754). A refusal of the identity ends the round at once: no later job sends a
     request. Each row runs in the request scope of its name, so its GitHub requests count under
     it (#2475)."""
     succeeded_jobs: list[str] = []
@@ -1201,13 +1268,13 @@ def _execute_due_rows(
     clone_error: Exception | None = None
     clone_jobs: list[str] = []
     error_entries: list[tuple[list[str], Exception]] = []
-    current = _round_input(changes, active_batch, current_time, _lane_reads_changes(rows))
+    inputs = _row_inputs(rows, changes, active_batch, current_time, comment_stamps)
 
     for row in rows:
         is_due = initially_due[row.name] or (
             row.cross_job_predicate is not None and row.cross_job_predicate(outcomes)
         )
-        if not is_due or failures.suspended(repo, row.name, current):
+        if not is_due or failures.suspended(repo, row.name, inputs[row.name]):
             continue
 
         if row.needs_clone and clone_error is not None:
@@ -1239,7 +1306,7 @@ def _execute_due_rows(
             failed_jobs.append(row.name)
             _count_job(repo, lane, row.name, _failed_result(exc))
             outcomes[row.name] = _outcome_of_failure(exc)
-            _count_failure(failures, repo, row.name, current, exc)
+            _count_failure(failures, repo, row.name, inputs[row.name], exc)
             if row.needs_clone and clone_path is None:
                 clone_error = exc
                 clone_jobs.append(row.name)
@@ -1281,7 +1348,9 @@ def run_due_jobs(
 
     With no trigger in the batch, rows are judged on no changes, which reads nothing; a round
     whose rows are all not due reads no more than its changes. Each row is judged by
-    `schedule.json` as the round found it, and each success is written as it happens.
+    `schedule.json` as the round found it, and each success is written as it happens. When a row
+    that may run failed a round before, the round reads the comments of the repository once, for
+    a comment of a person is new input for such a row (#2754).
     """
     current_time = now or datetime.now(UTC)
     base_data = _resolve_data_dir(data_dir)
@@ -1307,6 +1376,8 @@ def run_due_jobs(
     if dry_run:
         return _simulate_dry_run(rows, initially_due)
 
+    ledger = failures or FailureLedger()
+    comment_stamps = _person_comment_stamps(rows, initially_due, schedule, ledger, repo, store)
     return _execute_due_rows(
         rows,
         initially_due,
@@ -1319,8 +1390,9 @@ def run_due_jobs(
         schedule_path,
         current_time,
         clone_dirname,
-        failures or FailureLedger(),
+        ledger,
         lane,
+        comment_stamps,
     )
 
 

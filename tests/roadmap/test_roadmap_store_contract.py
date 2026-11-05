@@ -997,6 +997,23 @@ def test_a_comment_is_kept_on_its_issue_with_the_time_it_was_made(
     ]
 
 
+def test_the_comments_of_the_repository_come_newest_first_from_the_time_asked(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    """The comments of every issue, as GitHub's listing of the repository gives them (#2754):
+    newest first, and none made before `since`."""
+    first, second = store.seed_issue("first"), store.seed_issue("second")
+    for number, body in ((first, "one"), (second, "two"), (first, "three")):
+        clock.now += timedelta(minutes=10)
+        store.seed_comment(number, body)
+
+    assert (
+        [c.body for c in store.comments_since(None)],
+        [c.body for c in store.comments_since(clock.now - timedelta(minutes=10))],
+        [c.body for c in store.comments_since(clock.now + timedelta(minutes=1))],
+    ) == (["three", "two", "one"], ["three", "two"], [])
+
+
 def test_a_path_changed_when_the_newest_commit_that_changed_it_was_made(
     store: InMemoryRoadmapStore, clock: SteppedClock
 ) -> None:

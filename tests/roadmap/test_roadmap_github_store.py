@@ -1243,6 +1243,80 @@ def test_a_comment_carries_its_authors_login_and_association() -> None:
     ]
 
 
+def _repository_comment(created_at: str, login: str, association: str) -> dict[str, Any]:
+    """A comment as the listing of the whole repository gives it."""
+    return {
+        "body": "An answer",
+        "created_at": created_at,
+        "author_association": association,
+        "user": {"login": login},
+        "issue_url": f"{API}/repos/{REPO}/issues/844",
+        "html_url": f"https://github.com/{REPO}/issues/844#issuecomment-1",
+    }
+
+
+COMMENTS_LISTING = f"/repos/{REPO}/issues/comments?sort=created&direction=desc"
+
+
+def test_comments_since_reads_the_repository_comments_newest_first_from_the_time(
+    github_api: GitHubApiFake,
+) -> None:
+    listing = f"{COMMENTS_LISTING}&since=2026-11-05T12:00:00Z&per_page=100"
+    github_api.route(
+        "GET",
+        listing,
+        github_json(
+            [
+                _repository_comment(
+                    "2026-11-05T13:00:00Z", "devops-cli-service[bot]", "CONTRIBUTOR"
+                ),
+                _repository_comment("2026-11-05T12:30:00Z", "alice", "OWNER"),
+            ]
+        ),
+    )
+    store, runner = over_github()
+
+    found = list(store.comments_since(datetime(2026, 11, 5, 12, tzinfo=UTC)))
+
+    assert [(c.author_login, c.author_association, c.created_at) for c in found] == [
+        ("devops-cli-service[bot]", "CONTRIBUTOR", datetime(2026, 11, 5, 13, tzinfo=UTC)),
+        ("alice", "OWNER", datetime(2026, 11, 5, 12, 30, tzinfo=UTC)),
+    ]
+    assert (github_api.requested, runner.calls) == ([f"GET {API}{listing}"], [])
+
+
+def test_comments_since_with_no_time_sends_no_since_parameter(github_api: GitHubApiFake) -> None:
+    listing = f"{COMMENTS_LISTING}&per_page=100"
+    github_api.route("GET", listing, github_json([]))
+    store, _ = over_github()
+
+    assert list(store.comments_since(None)) == []
+    assert github_api.requested == [f"GET {API}{listing}"]
+
+
+def test_comments_since_sends_no_request_for_a_page_the_caller_does_not_read(
+    github_api: GitHubApiFake,
+) -> None:
+    listing = f"{COMMENTS_LISTING}&per_page=100"
+    second = f"{COMMENTS_LISTING}&per_page=100&page=2"
+    github_api.route(
+        "GET",
+        listing,
+        github_json(
+            [_repository_comment("2026-11-05T13:00:00Z", "alice", "OWNER")],
+            headers=next_page(second),
+        ),
+    )
+    github_api.route(
+        "GET", second, github_json([_repository_comment("2026-11-05T12:00:00Z", "bob", "OWNER")])
+    )
+    store, _ = over_github()
+
+    first = next(store.comments_since(None))
+
+    assert (first.author_login, len(github_api.sent)) == ("alice", 1)
+
+
 def test_path_changed_at_reads_the_newest_commit_of_a_path_once_for_the_stores_life() -> None:
     """The newest commit on the default branch that changed a path, one commit a page, as the
     commits API lists them newest first; a path no commit changed has no time, and each path is

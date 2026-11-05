@@ -21,7 +21,7 @@ person's change since raises before anything changes.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any
@@ -462,6 +462,14 @@ class InMemoryRoadmapStore(RoadmapStore):
     def comments_on(self, number: int) -> list[IssueComment]:
         """Every comment on issue `number`, oldest first."""
         return list(self._roadmap.comments.get(number, []))
+
+    def comments_since(self, since: datetime | None) -> Iterator[IssueComment]:
+        """The comments of every issue, newest first, made at or after `since` (all of them when
+        None). A comment here is never edited, so its creation time is the time it changed."""
+        cutoff = None if since is None else as_utc(since)
+        made = (comment for comments in self._roadmap.comments.values() for comment in comments)
+        wanted = (c for c in made if cutoff is None or c.created_at >= cutoff)
+        return reversed(sorted(wanted, key=lambda comment: comment.created_at))
 
     def close(self, number: int, reason: CloseReason, *, comment: str | None = None) -> None:
         """Post `comment` on issue `number` when given, then close it for `reason`. A pull
