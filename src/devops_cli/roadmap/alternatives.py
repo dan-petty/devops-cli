@@ -25,6 +25,14 @@ the facts. A failed model call, a stopped run or a refused reply skips its item,
 written. The run fails, naming each skipped item, only when it tried items and checked none.
 Rejected credentials stop the run at the first item.
 
+**The ADRs and the item (#3505).** Once for a run that checks an item of no skip class, the job
+reads the number, the title and the `Considered Options` section of each ADR of `docs/adr/`, and
+the request holds them as `decisions`, cut to a token cap. The reply may name the ADR that rejected
+its tool in `adr`. The job confirms that the repository holds the ADR and that its text names the
+tool, else it refuses the reply, and then gives the verdict `rejected`. Else it gives `in-use` for a
+tool that the title or the body of the item names, outside the job's block and refine's section.
+The model cannot give `rejected` or `in-use`. Refine asks no question for either.
+
 **Writes.** With `--confirm` a check replaces the job's block in the body, records
 `alternatives.*` in the job record, and posts one comment that carries
 `CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER`. It changes no label and closes no issue. A comment
@@ -84,7 +92,7 @@ from devops_cli.exceptions.roadmap import RoadmapAlternativesError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.adr import Adr, read_adrs
+from devops_cli.roadmap.adr import Adr, names, read_adrs
 from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.refine import (
@@ -126,14 +134,18 @@ _FIX_TYPE = "fix"
 
 
 _TOOL_VERDICTS = frozenset({Verdict.COVERS, Verdict.PARTLY})
+# The verdicts that only the job gives, from the ADRs and the text of the item (#3505).
+_JOB_VERDICTS = frozenset({Verdict.REJECTED, Verdict.IN_USE})
 
 
 class AlternativesReply(BaseModel):
     """The model's reply. The license, the dates, whether the tool is maintained and the searches
-    that ran are the job's to write, so the reply holds none of them."""
+    that ran are the job's to write, so the reply holds none of them. `adr` is the number of the
+    ADR that rejected the tool of a `covers` or `partly` verdict; the job confirms it (#3505)."""
 
     verdict: Verdict
     tool_url: str | None = None
+    adr: int | None = None
     covers: list[str] = Field(default_factory=list)
     lacks: list[str] = Field(default_factory=list)
     sources: list[str] = Field(default_factory=list)
@@ -407,6 +419,7 @@ class Check:
     new_body: str
     comment: str
     skip_class: str | None = None
+    adr: int | None = None
 
 
 @dataclass(frozen=True)
@@ -447,13 +460,19 @@ class AlternativesPlan:
         return bool(self.checks) or bool(self.failures) or bool(self.write_requests)
 
 
-def body_hash_of(body: str) -> str:
-    """The hash of `body` outside the job's block and refine's section: what a person wrote, so a
-    write of either job starts no new check."""
+def _person_text(body: str) -> str:
+    """`body` outside the job's block and refine's section: what a person wrote. Both blocks name
+    the tool of an earlier check, so neither says that the item names it (#3505)."""
     outside, _ = extract_section_and_outside(
         body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
     )
-    return hash_text(extract_section_and_outside(outside)[0])
+    return extract_section_and_outside(outside)[0]
+
+
+def body_hash_of(body: str) -> str:
+    """The hash of `body` outside the job's block and refine's section: what a person wrote, so a
+    write of either job starts no new check."""
+    return hash_text(_person_text(body))
 
 
 def _recorded_time(item: Item, key: AlternativesRecordKey, name: str) -> datetime | None:
@@ -588,13 +607,29 @@ def _search_missing(tools: AlternativesTools) -> str | None:
     return None if tools.queries else MESSAGES.roadmap.alternatives_retry_search
 
 
-def _refusal(reply: AlternativesReply, tools: AlternativesTools) -> str | None:
+def _adr_refusal(number: int, facts: ToolFacts, adrs: Sequence[Adr]) -> str | None:
+    """Why the job cannot confirm that ADR `number` rejected the tool of `facts`, or None: the
+    repository holds no such ADR, or its title and options do not name the tool (#3505)."""
+    texts = MESSAGES.roadmap
+    adr = next((candidate for candidate in adrs if candidate.number == number), None)
+    if adr is None:
+        return texts.alternatives_reason_adr_unknown.format(number=number)
+    if not names(f"{adr.title}\n{adr.options}", facts.name):
+        return texts.alternatives_reason_adr_tool.format(number=number, name=facts.name)
+    return None
+
+
+def _refusal(reply: AlternativesReply, tools: AlternativesTools, adrs: Sequence[Adr]) -> str | None:
     """Why the job refuses `reply`, or None. The model cannot give `not-applicable`, since the job
-    sets it for a skip class only; every verdict must follow a search; a tool verdict needs a tool
-    whose facts a tool read; and every source must be a URL that a tool returned."""
+    sets it for a skip class only, nor `rejected` or `in-use`, which the job sets from the ADRs and
+    the item; every verdict must follow a search; a tool verdict needs a tool whose facts a tool
+    read, and an ADR it names that the job confirms; and every source must be a URL that a tool
+    returned."""
     texts = MESSAGES.roadmap
     if reply.verdict is Verdict.NOT_APPLICABLE:
         return texts.alternatives_reason_skip_only
+    if reply.verdict in _JOB_VERDICTS:
+        return texts.alternatives_reason_job_verdict.format(verdict=reply.verdict.value)
     if not tools.queries:
         return texts.alternatives_reason_no_search
     if reply.verdict in _TOOL_VERDICTS:
@@ -602,6 +637,10 @@ def _refusal(reply: AlternativesReply, tools: AlternativesTools) -> str | None:
             return texts.alternatives_reason_no_tool.format(verdict=reply.verdict.value)
         if _key(reply.tool_url) not in tools.facts:
             return texts.alternatives_reason_no_facts.format(url=reply.tool_url)
+        if reply.adr is not None:
+            problem = _adr_refusal(reply.adr, tools.facts[_key(reply.tool_url)], adrs)
+            if problem is not None:
+                return problem
     unknown = next((url for url in reply.sources if _key(url) not in tools.allowed_urls), None)
     return texts.alternatives_reason_url.format(url=unknown) if unknown is not None else None
 
@@ -641,6 +680,16 @@ def _tool_section(tool: CheckedTool | None) -> list[str]:
     ]
 
 
+def _basis(check: Check) -> list[str]:
+    """The line that says why the job gave the verdict `rejected` or `in-use`, or none."""
+    texts = MESSAGES.roadmap
+    if check.verdict is Verdict.REJECTED and check.adr is not None:
+        return [texts.alternatives_basis_rejected.format(number=check.adr)]
+    if check.verdict is Verdict.IN_USE:
+        return [texts.alternatives_basis_in_use]
+    return []
+
+
 def _list_section(title: str, lines: Sequence[str]) -> list[str]:
     item = MESSAGES.roadmap.alternatives_comment_item
     return [title, *(item.format(text=line) for line in lines)] if lines else []
@@ -662,6 +711,7 @@ def _comment_of(check: Check) -> str:
     sections = [
         heading,
         skip,
+        _basis(check),
         _tool_section(check.tool),
         _list_section(texts.alternatives_comment_covers, check.covers),
         _list_section(texts.alternatives_comment_lacks, check.lacks),
@@ -702,6 +752,7 @@ def _block_of(check: Check) -> str:
                 date=check.checked_at.date().isoformat(), verdict=check.verdict.value
             ),
             *skip,
+            *_basis(check),
             detail,
             CONST_ROADMAP_ALTERNATIVES_END_MARKER,
         ]
@@ -767,19 +818,42 @@ def _skip_check(item: Item, skip_class: str, now: datetime) -> Check | CheckFail
     )
 
 
+def _verdict_of(
+    item: Item, reply: AlternativesReply, tool: CheckedTool | None
+) -> tuple[Verdict, int | None]:
+    """The verdict of the check, and the ADR that rejected its tool (#3505). A reply with a tool
+    and an ADR (which `_refusal` confirmed) is `rejected`. Else a tool that the title or the body
+    of the item names is `in-use`, whatever the model said. Else the verdict is the reply's."""
+    if tool is None:
+        return reply.verdict, None
+    if reply.adr is not None:
+        return Verdict.REJECTED, reply.adr
+    if names(f"{item.title}\n{_person_text(item.body)}", tool.name):
+        return Verdict.IN_USE, None
+    return reply.verdict, None
+
+
 def validate_reply(
-    item: Item, reply: AlternativesReply, tools: AlternativesTools, now: datetime
+    item: Item,
+    reply: AlternativesReply,
+    tools: AlternativesTools,
+    now: datetime,
+    adrs: Sequence[Adr],
 ) -> Check | CheckFailure:
-    """The check that `reply` makes, or the failure when the job refuses it."""
-    refusal = _refusal(reply, tools) or _marker_problem(item.body)
+    """The check that `reply` makes, or the failure when the job refuses it. `adrs` are the ADRs
+    of the repository, which confirm the ADR that the reply names."""
+    refusal = _refusal(reply, tools, adrs) or _marker_problem(item.body)
     if refusal is not None:
         return CheckFailure(item, refusal, CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR, now)
     allowed = tools.allowed_urls
+    tool = _checked_tool(reply, tools, now)
+    verdict, adr = _verdict_of(item, reply, tool)
     return _completed(
         Check(
             item=item,
-            verdict=reply.verdict,
-            tool=_checked_tool(reply, tools, now),
+            verdict=verdict,
+            adr=adr,
+            tool=tool,
             covers=_clean(reply.covers, allowed),
             lacks=_clean(reply.lacks, allowed),
             queries=_clean(tools.queries, allowed),
@@ -841,7 +915,7 @@ def _check_one(
             reply.reason,
         )
         return CheckFailure(item, _stopped_reason(reply), reply.reason, now)
-    return validate_reply(item, reply, tools, now)
+    return validate_reply(item, reply, tools, now, adrs)
 
 
 # ── Entry points ──────────────────────────────────────────────────────────────

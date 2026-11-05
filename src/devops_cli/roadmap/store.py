@@ -169,13 +169,17 @@ class JudgeVerdict(StrEnum):
 class Verdict(StrEnum):
     """What an alternatives check found (#2650): `COVERS` one tool covers the whole need,
     `PARTLY` one covers a part, `NONE` the search found no tool, `NOT_APPLICABLE` the item is in a
-    skip class, such as a `docs` item, and the job made no search (#2946). The model cannot give
-    `NOT_APPLICABLE`. The job records the verdict, and refine reads it (#2652)."""
+    skip class, such as a `docs` item, and the job made no search (#2946), `REJECTED` an ADR of the
+    repository rejected the tool that the model found, and `IN_USE` the item already names it
+    (#3505). The model cannot give `NOT_APPLICABLE`, `REJECTED` or `IN_USE`: the job sets them.
+    The job records the verdict, and refine reads it (#2652)."""
 
     COVERS = "covers"
     PARTLY = "partly"
     NONE = "none"
     NOT_APPLICABLE = "not-applicable"
+    REJECTED = "rejected"
+    IN_USE = "in-use"
 
 
 class AlternativesRecordKey(StrEnum):

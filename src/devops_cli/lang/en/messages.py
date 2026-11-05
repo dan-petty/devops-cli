@@ -2345,6 +2345,15 @@ class RoadmapMessages:
         "the reply gives the verdict not-applicable, which the job sets for a skip class only"
     )
     alternatives_reason_no_search: str = "the reply gives a verdict with no search"
+    alternatives_reason_job_verdict: str = (
+        "the reply gives the verdict {verdict}, which the job sets and the model cannot give"
+    )
+    alternatives_reason_adr_unknown: str = (
+        "the reply cites ADR {number}, which the repository does not hold"
+    )
+    alternatives_reason_adr_tool: str = (
+        "the reply says ADR {number} rejected {name}, and the ADR does not name it"
+    )
     alternatives_retry_search: str = (
         "Call search_web at least once before you reply. The job refuses a verdict that follows "
         "no search. Give the verdict none when the search finds no tool."
@@ -2374,6 +2383,12 @@ class RoadmapMessages:
     alternatives_comment_heading: str = "## Alternatives check: {verdict}"
     alternatives_comment_tool: str = "Tool: {name} ({url})"
     alternatives_comment_no_tool: str = "Tool: none found"
+    # The line that says why the job, not the model, gave the verdict `rejected` or `in-use`
+    # (#3505). The ADR number has four digits, as in the file name.
+    alternatives_basis_rejected: str = (
+        "Rejected by ADR {number:04d}. A newer fact can change an ADR."
+    )
+    alternatives_basis_in_use: str = "The item already names this tool."
     alternatives_comment_skip_class: str = (
         "Class: {skip_class}. The check makes no search and no model call for an item of this "
         "class."
