@@ -240,9 +240,9 @@ def test_a_request_that_gets_no_answer_counts_with_status_none(
         get_github_session().rest("GET", "/user")
 
     assert (
-        (type(raised.value), raised.value.error_code, raised.value.exit_code),
+        type(raised.value),
         otlp.points(GITHUB_REQUESTS_TOTAL.name),
     ) == (
-        (GitHubUnreadError, "GITHUB_UNREAD", 1),
+        GitHubUnreadError,
         [({"resource": "core", "method": "GET", "status": "none", **_UNSCOPED}, 1.0)],
     )

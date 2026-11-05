@@ -8,7 +8,7 @@ The counter keeps its name and its total, and gains a `status` label. The issue 
 
 ### The request is counted after its answer
 
-`acquire` no longer counts a request, because it runs before the request is sent and cannot know the status. `SessionGitHubAPI._request` counts each attempt after its answer, with the answer status `answer[0]`. A 304 therefore counts with status `304`. The token of an App is read inside that block, after the attempt is paced. An attempt that raises before an answer, a refused token included, counts with status `none` in a `finally` block, and the error still propagates. `run_gh` counts each paced attempt with status `none`, since gh does not report the HTTP status.
+`acquire` no longer counts a request, because it runs before the request is sent and cannot know the status. `SessionGitHubAPI._request` counts each attempt after its answer, with the answer status `answer[0]`. A 304 therefore counts with status `304`. An attempt that raises before an answer counts with status `none` in a `finally` block, and the error still propagates. `run_gh` counts each paced attempt with status `none`, since gh does not report the HTTP status.
 
 ### The labels are read in the thread that paces the request
 

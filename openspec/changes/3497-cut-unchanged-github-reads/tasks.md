@@ -6,8 +6,6 @@
   Verification: `uv run devops ci test tests/github/test_github_api_metrics.py`
 - [x] 1.2 Count each paced attempt in the session after its answer, and each paced gh attempt with status `none`, and remove the emit from `acquire`.
   Verification: `uv run devops ci test tests/github/test_github_api_metrics.py`
-- [x] 1.3 Write the failing test that a paced attempt whose token is refused counts with status `none`, then read the token inside that count.
-  Verification: `uv run devops ci test tests/github/test_github_app_identity.py`
 
 ## 2. The pace lines log at DEBUG (behavior)
 
@@ -23,4 +21,4 @@
 
 ## Workflow follow-up
 
-- Follow-up issue #3497 stays open for the slices this change does not do: the refine slice (a comment read for an unchanged item), the cache slice (a last page under `per_page`), the scoped intake page cap, the stage_ready backoff, and the idle poll interval.
+- Pending a person: file one issue for each open slice of #3497: the refine slice (a comment read for an unchanged item), the cache slice (a last page under `per_page`), the scoped intake page cap, the stage_ready backoff, and the idle poll interval.
