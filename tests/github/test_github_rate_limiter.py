@@ -195,6 +195,20 @@ def test_rate_limiter_mandatory_pause_when_quota_exhausted(clock: ClockFake) -> 
     assert clock.waits[0] == pytest.approx(20.0, abs=0.5)
 
 
+def test_a_mandatory_pause_logs_one_debug_record_and_no_info_record(
+    caplog: pytest.LogCaptureFixture, clock: ClockFake
+) -> None:
+    """A pause is per-request detail: one DEBUG record names it, and no record of it is at INFO."""
+    caplog.set_level(logging.DEBUG, logger="devops_cli.github.rate_limiter")
+    limiter = GitHubRateLimiter()
+    limiter.update_quota("core", remaining=0, limit=5000, reset_epoch=time.time() + 20.0)
+
+    limiter.acquire("core")
+
+    pause_levels = [r.levelno for r in caplog.records if "Mandatory pause" in r.getMessage()]
+    assert (len(clock.waits), pause_levels) == (1, [logging.DEBUG])
+
+
 def test_rate_limiter_acquire_mandatory_pacing(tmp_path: Path, clock: ClockFake) -> None:
     """Verify acquire always applies calculated pacing delay with zero threshold bypass."""
     cache_file = tmp_path / "gh_quota.json"
@@ -1870,7 +1884,7 @@ def test_a_call_just_past_a_reset_waits_out_the_reset_second(
     """GitHub still reports the window that reset 0.5 s ago: the call refreshes once, waits until a
     second past that reset and runs, logging the boundary once. The request is not counted against
     the old window."""
-    caplog.set_level(logging.INFO, logger="devops_cli.github.rate_limiter")
+    caplog.set_level(logging.DEBUG, logger="devops_cli.github.rate_limiter")
     gh = _GhAtTheReset({"core": _window(7, _RESET)})
     with _clock_at(clock, _RESET + 0.5, gh, stored_core_reset=_RESET):
         proc = run_gh(_ISSUES)
@@ -1894,6 +1908,8 @@ def test_a_call_just_past_a_reset_waits_out_the_reset_second(
             "waiting until at least 2026-10-08T12:00:01Z"
         ],
     )
+    reset_levels = [r.levelno for r in caplog.records if "quota window reset" in r.getMessage()]
+    assert reset_levels == [logging.DEBUG]
 
 
 def test_a_call_after_an_idle_hour_paces_from_the_new_window(clock: ClockFake) -> None:
