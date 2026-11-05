@@ -59,7 +59,7 @@ Reads: `src/devops_cli/server/counter_series.py`, `src/devops_cli/server/routes/
   - Verification: `uv run devops ci test tests/telemetry/test_service_counter_series.py` fails on the base
 - [x] 6.2 Prime the trigger counter and the chat counter in `src/devops_cli/server/counter_series.py`, define the chat command constants in `src/devops_cli/config/constants.py`, and use them in the chat route of `src/devops_cli/server/routes/webhooks.py`
   - Verification: `uv run devops ci test tests/telemetry/test_service_counter_series.py tests/server/test_mattermost_slash_command.py` passes
-- [ ] 6.3 State in `src/devops_cli/docs/generator.py`, the source of `docs/TELEMETRY.md`, and in `k8s/README.md` that the identity counter is the one counter whose label set does not start at zero, and regenerate `docs/TELEMETRY.md` with `uv run devops docs generate --no-sync-readme`
+- [x] 6.3 State in `src/devops_cli/docs/generator.py`, the source of `docs/TELEMETRY.md`, and in `k8s/README.md` that the identity counter is the one counter whose label set does not start at zero, and regenerate `docs/TELEMETRY.md` with `uv run devops docs generate --no-sync-readme`
   - Verification: `uv run devops ci docs` passes
 
 ## Workflow follow-up
