@@ -114,11 +114,21 @@ class StructuredOutputValidationError(AIClientError):
     """Raised when the model answered, but no answer validated against the schema after retries.
 
     `violations` counts the last answer's schema violations, and is 0 when it held no JSON.
+    `error_types` names their pydantic error types, sorted and without a repeat, and is empty
+    when the answer held no JSON: a caller tells one kind of fault from another by it.
     """
 
-    def __init__(self, message: str, *, violations: int = 0, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        violations: int = 0,
+        error_types: tuple[str, ...] = (),
+        **kwargs: Any,
+    ) -> None:
         super().__init__(message, **kwargs)
         self.violations = violations
+        self.error_types = error_types
 
 
 class AICredentialsError(AIClientError):

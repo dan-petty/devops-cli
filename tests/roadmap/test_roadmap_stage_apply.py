@@ -29,7 +29,7 @@ from devops_cli.roadmap.stage import (
     render_stage_plan,
     stage_results,
 )
-from devops_cli.roadmap.stage_change import StageProposal, StageSplit
+from devops_cli.roadmap.stage_change import StageSplit
 from devops_cli.roadmap.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.store import ItemField, StageRecordKey
 from tests.support.builders import make_stage_proposal
@@ -647,10 +647,11 @@ def test_the_comment_holds_the_masked_argument_and_not_the_secret(
     assert (_SECRET in comment, "<masked-github-token>" in comment) == (False, True)
 
 
-def test_the_replay_of_2971_returns_the_item_with_the_evidence_and_opens_no_pull_request(
+def test_the_replay_of_2971_fails_the_item_that_answers_with_premise_failed_and_returns_nothing(
     stage_repo: StageRepo, model_fake: ModelFake, github_api: GitHubApiFake
 ) -> None:
-    """The issue cites `validate_url`, which a commit removed (#3011)."""
+    """The issue cites `validate_url`, which a commit removed (#3011). The reply has no key to say
+    that the premise is false (#3478), so the answer fails the schema and the item stays."""
     stage_repo.track({"src/devops_cli/urls.py": "def validate_url(url):\n    return url\n"})
     stage_repo.git("rm", "-q", "src/devops_cli/urls.py")
     stage_repo.git("commit", "-q", "-m", "remove validate_url")
@@ -660,44 +661,48 @@ def test_the_replay_of_2971_returns_the_item_with_the_evidence_and_opens_no_pull
         store, "fix(http): validate_url lets a private address pass", body="Fix `validate_url`."
     )
     evidence = "`validate_url` has no definition at the staging commit. Commit removed it."
-    model_fake.answer(StageProposal.model_validate({"premise_failed": evidence}))
-
-    applied = _stage(store, stage_repo)
-
-    request = json.loads(model_fake.calls[0].prompt)
-    assert "remove validate_url" in request["probes"]
-    assert (applied.returned, applied.staged, applied.stopped, applied.failed) == (
-        (number,),
-        (),
-        (),
-        (),
-    )
-    (comment,) = _comments(store, number)
-    assert comment.startswith("<!-- devops roadmap stage -->\n")
-    assert comment.endswith(evidence)
-    item = store.item(number)
-    assert item is not None
-    assert item.status == "New"
-    assert StageRecordKey.BRANCH not in item.job_record
-    assert _pushed(stage_repo) == ["main"]
-    assert github_api.requested == []
-    assert model_fake.call_count == 1
-
-
-def test_a_returned_item_counts_under_the_result_returned(
-    stage_repo: StageRepo, model_fake: ModelFake
-) -> None:
-    store = InMemoryRoadmapStore(repo=STAGE_REPO)
-    seed_stageable(store)
-    model_fake.answer(StageProposal.model_validate({"premise_failed": "The premise is false."}))
+    model_fake.answer(json.dumps({"premise_failed": evidence}))
     plan = plan_stage(
         store,
         repo=STAGE_REPO,
         source=stage_repo.clone,
         filters=parse_filters(()),
+        model=model_fake.checking_replies(),
     )
 
     applied = apply_stage(store, plan, source=stage_repo.clone)
 
-    assert stage_results(plan, applied) == {1: StageResult.RETURNED}
-    assert render_stage_plan(plan).count("## Returned: the premise is false") == 1
+    request = json.loads(model_fake.calls[0].prompt)
+    assert "remove validate_url" in request["probes"]
+    assert (applied.staged, applied.stopped, applied.failed) == ((), (), ())
+    (failure,) = plan.failed
+    assert (failure.number, failure.error) == (number, "StructuredOutputValidationError")
+    assert _comments(store, number) == []
+    item = store.item(number)
+    assert item is not None
+    assert item.status == "Ready"
+    assert StageRecordKey.BRANCH not in item.job_record
+    assert _pushed(stage_repo) == ["main"]
+    assert github_api.requested == []
+    assert model_fake.call_count == 2
+
+
+def test_a_failed_item_counts_under_the_result_failed_and_the_report_has_no_returned_section(
+    stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    seed_stageable(store)
+    model_fake.answer(json.dumps({"premise_failed": "The premise is false."}))
+    plan = plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(()),
+        model=model_fake.checking_replies(),
+    )
+
+    applied = apply_stage(store, plan, source=stage_repo.clone)
+
+    assert stage_results(plan, applied) == {1: StageResult.FAILED}
+    assert "Returned" not in render_stage_plan(plan)
+    assert not hasattr(StageResult, "RETURNED")

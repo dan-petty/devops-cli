@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import re
 from collections.abc import Collection, Sequence
-from typing import Final
+from typing import Annotated, Final
+
+from pydantic import AfterValidator
+from pydantic_core import PydanticCustomError
 
 from devops_cli.config.constants import (
     CONST_BRANCH_TYPES,
@@ -89,6 +92,7 @@ _TEMPLATE_COMMENT: Final[str] = "<!--"
 _PLACEHOLDERS: Final[frozenset[str]] = frozenset(
     {
         "x",
+        "y",
         "xx",
         "xxx",
         "foo",
@@ -110,14 +114,36 @@ _PLACEHOLDERS: Final[frozenset[str]] = frozenset(
         "body",
         "why",
         "text",
+        "probe",
     }
 )
 _PLACEHOLDER_EDGES: Final[str] = " \t\r\n.,:;!?-_*<>[]()`'\""
+# The start of the text that a model writes when it declines the task: "Not yet: I need to inspect
+# the repository first." (#3104). It stands in for the real text, whatever follows it.
+_PLACEHOLDER_LEAD: Final[str] = "not yet:"
+# The pydantic error type of a `ReplyText` that holds a placeholder: a caller tells it from another
+# violation of the schema (#3478).
+PLACEHOLDER_ERROR_TYPE: Final[str] = "placeholder_text"
 
 
 def is_placeholder(text: str) -> bool:
-    """Whether `text` is a text that stands in for the real text, such as `x` or `placeholder`."""
-    return text.strip(_PLACEHOLDER_EDGES).casefold() in _PLACEHOLDERS
+    """Whether `text` is a text that stands in for the real text, such as `x`, `placeholder` or
+    "Not yet: I need to inspect the repository first."."""
+    kept = text.strip(_PLACEHOLDER_EDGES).casefold()
+    return kept in _PLACEHOLDERS or text.strip().casefold().startswith(_PLACEHOLDER_LEAD)
+
+
+def _reply_text(text: str) -> str:
+    """The text of a free-text field of a model reply, refused when it is a placeholder. A blank
+    text stays: a field that must hold text says so in its own constraint."""
+    if is_placeholder(text):
+        raise PydanticCustomError(PLACEHOLDER_ERROR_TYPE, MESSAGES.roadmap.reply_placeholder)
+    return text
+
+
+# A free-text field of a model reply that refine reads: one rule for a placeholder, the rule of the
+# pull request form (#3478).
+ReplyText = Annotated[str, AfterValidator(_reply_text)]
 
 
 def _declared_scopes(declared: Collection[str]) -> set[str]:

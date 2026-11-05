@@ -254,12 +254,15 @@ def test_the_stage_prompt_says_that_a_text_is_one_line_and_starts_with_a_word() 
     assert "on one line and start with a word" in prompt
 
 
-def test_the_stage_prompt_asks_feasibility_to_quote_the_probes_and_names_premise_failed() -> None:
+def test_the_stage_prompt_asks_feasibility_to_quote_the_probes_and_has_no_premise_failed_key() -> (
+    None
+):
     prompt = load_task_prompt("roadmap_stage_change.md")
 
     assert "`probes`" in prompt
     assert "quote the lines of `probes`" in prompt
-    assert "`premise_failed`" in prompt
+    assert "premise_failed" not in prompt
+    assert "has no key to report a false premise" in prompt
     assert "no commit ever held" in prompt
 
 

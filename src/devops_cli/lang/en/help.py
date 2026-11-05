@@ -1557,6 +1557,19 @@ class RoadmapCommandHelp:
     inbox_dry_run: str = (
         "Make no request: print the reads that a run makes, in order, with placeholders."
     )
+    repair: str = (
+        "Find the items that a placeholder reply of a model stalled. A returned item goes back "
+        "to Ready. A stub refine item loses its stub section and its refine block. An item that "
+        "a person set or answered stays as it is. This command reads GitHub and calls no model. "
+        "It writes only with --confirm. Details: docs/roadmap/repair.md."
+    )
+    repair_dry_run: str = (
+        "Make no request: print the requests that a run makes, in order, with placeholders."
+    )
+    repair_confirm: str = (
+        "Make the writes to GitHub: set the Status of a returned item to Ready, and strip the "
+        "section and clear the refine block of a stub item."
+    )
     release: str = (
         "Release an item: remove its owner/* label, whoever holds it. No job removes the claim "
         "of an agent or a person."

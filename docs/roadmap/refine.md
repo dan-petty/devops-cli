@@ -51,6 +51,10 @@ An item that is too big for one pull request still waits for a person to split i
 
 An item whose model call fails is skipped and reported. Refine still refines the other items, and then exits 1.
 
+**Placeholder text.** Each free-text field of the reply is a `ReplyText`. A text such as `x`, `y`, `none`, `probe`, `placeholder` or "Not yet: I need to inspect the repository first." fails the schema. The reply goes back to the model once with the schema report. A second reply with a placeholder is a placeholder failure of the item: refine logs the skip, and it writes no comment, no body and no mark. It asks no person and sets no Status. The round does not fail for it, so a placeholder failure never suspends the refine row of the Service. The next round asks the model again. `suspected_block` is a plain text, because `none` is a valid answer for it.
+
+The command [`devops roadmap repair`](repair.md) sets back the items that a placeholder reply stalled before this rule.
+
 ## Where the rules are
 
 | Topic | Spec |

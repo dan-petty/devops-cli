@@ -436,7 +436,6 @@ def test_a_heading_in_a_list_item_is_no_section_of_a_document() -> None:
 # Fields that hold text and are not folded by the schema, each with the check that replaces it.
 OTHER_CHECKS = {
     ("StageSpec", "capability"): "is_valid_slug",
-    ("StageProposal", "premise_failed"): "safe_text on the comment",
     ("StageProposal", "summary"): "safe_text on the title",
     ("StageProposal", "pull_request_body"): "safe_text on the body",
     ("StageCriterion", "criterion"): "folded when the line is written",

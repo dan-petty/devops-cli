@@ -18,12 +18,11 @@ from devops_cli.roadmap.stage import (
     parse_filters,
     plan_stage,
 )
-from devops_cli.roadmap.stage_change import StageProposal
 from devops_cli.roadmap.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage_verify import PLAN_NEEDS_FIX_LABEL, Finding, Verification
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import API, github_json
-from tests.support.fakes.model import ModelFake
+from tests.support.fakes.model import ModelFake, ModelFakeReplies
 from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
@@ -70,12 +69,19 @@ def _finding(kind: DefectType, quote: str = "", where: str = "group 1") -> Findi
     return Finding(type=kind, where=where, problem=f"Problem of {kind.value}.", quote=quote)
 
 
-def _plan(store: InMemoryRoadmapStore, repo: StageRepo, verifier: ModelFake | None) -> StagePlan:
+def _plan(
+    store: InMemoryRoadmapStore,
+    repo: StageRepo,
+    verifier: ModelFake | None,
+    *,
+    model: ModelFakeReplies | None = None,
+) -> StagePlan:
     return plan_stage(
         store,
         repo=STAGE_REPO,
         source=repo.clone,
         filters=parse_filters(()),
+        model=cast("StageClient | None", model),
         verifier=cast("StageClient", verifier.checking_replies()) if verifier else None,
     )
 
@@ -166,18 +172,20 @@ def test_a_false_premise_with_a_quote_returns_the_plan_to_the_planner_once(
     )
 
 
-def test_a_return_that_the_planner_answers_with_premise_failed_returns_the_item(
+def test_a_return_that_the_planner_answers_with_premise_failed_fails_the_item(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
 ) -> None:
-    model_fake.answer(
-        make_stage_proposal(), StageProposal.model_validate({"premise_failed": "The code is gone."})
-    )
+    model_fake.answer(make_stage_proposal(), json.dumps({"premise_failed": "The code is gone."}))
     verifier.answer(Verification(findings=[_finding(DefectType.FALSE_PREMISE, SAMPLE_QUOTE)]))
 
-    plan = _plan(store, stage_repo, verifier)
+    plan = _plan(store, stage_repo, verifier, model=model_fake.checking_replies())
 
-    (returned,) = plan.returned
-    assert (plan.ready, returned.evidence, verifier.call_count) == ((), "The code is gone.", 1)
+    (failure,) = plan.failed
+    assert (plan.ready, failure.error, verifier.call_count) == (
+        (),
+        StructuredOutputValidationError.__name__,
+        1,
+    )
 
 
 def test_a_return_that_the_gates_refuse_stops_the_item(

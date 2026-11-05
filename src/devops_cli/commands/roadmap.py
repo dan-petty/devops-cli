@@ -424,7 +424,6 @@ def stage_cmd(
             MESSAGES.roadmap.stage_applied.format(
                 staged=len(applied.staged),
                 stopped=len(applied.stopped),
-                returned=len(applied.returned),
                 removed=len(applied.removed),
             )
         )
@@ -871,6 +870,44 @@ def inbox_cmd(
         _, store = _open_store(target)
         inbox = read_inbox(store, repo=target, now=datetime.now(UTC))
     write_stdout(render_inbox(inbox, repo=target) + "\n")
+
+
+@app.command("repair", help=HELP.roadmap.repair)
+@dry_run_class("request-plan")
+def repair_cmd(
+    repo: RepoOption = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.repair_dry_run)] = False,
+    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.repair_confirm)] = False,
+) -> None:
+    """List the items that a placeholder reply stalled, and with --confirm set them back."""
+    _one_mode(dry_run=dry_run, confirm=confirm)
+    target = _target(repo)
+
+    from devops_cli.roadmap.repair import (
+        apply_repair,
+        dry_run_repair,
+        plan_repair,
+        render_repair_plan,
+    )
+    from devops_cli.roadmap.stage import raise_for_failed
+
+    texts = MESSAGES.roadmap
+    if dry_run or is_dry_run():
+        plan = dry_run_repair(target)
+        render_dry_run("repair", target, plan.requests, plan.write_requests)
+        return
+    with _exit_on_failure("Could not plan the repair"):
+        _, store = _open_store(target)
+        plan = plan_repair(store, repo=target)
+    write_stdout(render_repair_plan(plan) + "\n")
+    if not confirm:
+        print_info(texts.preview_only)
+        return
+    with _exit_on_failure("Could not apply the repair"):
+        done = apply_repair(store, plan)
+        print_success(texts.repair_done.format(count=len(done.reset)))
+    with _exit_on_failure("Repair incomplete"):
+        raise_for_failed(done.failed, summary=texts.repair_failed)
 
 
 def _resolve_comment(comment: str, comment_file: Path | None) -> str:
