@@ -1176,10 +1176,11 @@ def _person_comment_stamps(
 
     One read serves all those rows: the comments of the repository, newest first, from the oldest
     last success among them (from the first comment when one never succeeded), up to the first
-    comment of a person. The read stops at the newest `_COMMENT_WINDOW` comments. A person's comment that
-    more comments than that have followed counts as no comment, so the row has the input it had
-    before and runs again once. A comment older than a row's own last success is no input for
-    it, so what a row holds never depends on the other rows that set the start of the read.
+    comment of a person. The read stops at the newest `_COMMENT_WINDOW` comments. A person's
+    comment that more comments than that have followed counts as no comment, so the row has the
+    input it had before and runs again once. A comment older than a row's own last success is no
+    input for it, so what a row holds never depends on the other rows that set the start of the
+    read.
 
     The round reads nothing when a webhook started it, since the time of such a round is already
     new input for every row, and when no row that may run failed a round. A read that fails
