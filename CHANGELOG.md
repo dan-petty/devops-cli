@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.63.1](https://github.com/dan-petty/devops-cli/compare/v0.63.0...v0.63.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* **mcp:** find path options by type and decide each ([#3687](https://github.com/dan-petty/devops-cli/issues/3687)) ([f7320cf](https://github.com/dan-petty/devops-cli/commit/f7320cf1c2ac7f6c75d48178844666b5854122ba))
+
 ## [0.63.0](https://github.com/dan-petty/devops-cli/compare/v0.62.7...v0.63.0) (2026-11-05)
 
 
