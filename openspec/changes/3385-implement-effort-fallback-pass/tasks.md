@@ -33,7 +33,7 @@ Reads: `src/devops_cli/roadmap/implement.py`, `src/devops_cli/roadmap/explain.py
 
 Reads: `k8s/devops/configmap.example.yaml`, `tests/config/test_k8s_devops_runtime.py`. Changes: `k8s/devops/configmap.example.yaml`.
 
-- [ ] 4.1 Add under `roadmap.implement` in `k8s/devops/configmap.example.yaml` the list `effort` with the entries `low` and `medium`, and a comment that names the fallback pass
+- [x] 4.1 Add under `roadmap.implement` in `k8s/devops/configmap.example.yaml` the list `effort` with the entries `low` and `medium`, and a comment that names the fallback pass
   - Verification: `uv run devops ci test tests/config/test_k8s_devops_runtime.py` passes
 
 ## 5. Document the effort set
