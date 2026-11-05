@@ -1,14 +1,14 @@
 ## ADDED Requirements
 
 ### Requirement: The item ages have their own alert group
-The rule group `roadmap-service-items` in `k8s/monitoring/prometheus-values.yaml` SHALL hold the warning alert `RoadmapServiceItemStuck`. promtool SHALL accept it. Each `devops_cli_` selector of the group SHALL have `job="roadmap-service"`, and the description SHALL point to the section "Roadmap service" of `k8s/README.md`, which SHALL say what to do.
+The rule group `roadmap-service-items` in `k8s/monitoring/prometheus-values.yaml` SHALL hold the warning alert `RoadmapServiceItemStuck`. promtool SHALL accept it. Each `devops_cli_` selector of the group SHALL have `job="roadmap-service"`. The description SHALL point to the section "Roadmap service" of `k8s/README.md`. That section SHALL say what to do.
 
 #### Scenario: The selectors of the group
 - **WHEN** a test reads the selectors of the group
 - **THEN** each `devops_cli_` selector has `job="roadmap-service"` and names a series that the Service sends
 
 ### Requirement: A stuck item warns and is named
-`RoadmapServiceItemStuck` SHALL fire when `devops_cli_roadmap_item_age_seconds` is above 86400 seconds for `state` `blocked`, or for `state` `ready` with `plan` `true`. Its summary SHALL name the repository, the state, the age, and the item number that `devops_cli_roadmap_oldest_item_number` holds for the same `repo`, `state` and `plan`.
+`RoadmapServiceItemStuck` SHALL fire when `devops_cli_roadmap_item_age_seconds` is above 86400 seconds for `state` `blocked`, or for `state` `ready` with `plan` `true`. Its summary SHALL name the repository, the state and the age. It SHALL also name the item number that `devops_cli_roadmap_oldest_item_number` holds for the same `repo`, `state` and `plan`.
 
 #### Scenario: A Blocked item over a day
 - **WHEN** `promtool test rules` evaluates `state` `blocked` with the age 90000 and the number 2919

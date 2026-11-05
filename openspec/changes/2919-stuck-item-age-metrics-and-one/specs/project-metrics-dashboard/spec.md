@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: The metrics row sends the age of the oldest item in each state
-For its repository, each round of the metrics row of the Service SHALL send `devops_cli_roadmap_item_age_seconds` and `devops_cli_roadmap_oldest_item_number` for each pair of a Status value and a `plan` flag, with the labels `repo`, `state` and `plan`. The age is the clock minus the time of the `labeled` event that set the current Status label of the oldest open Item of the pair. The number is the issue number of that Item. A pair with no Item sends 0 for both.
+In each round, the metrics row SHALL send, for its repository, two gauges for each pair of a Status value and a `plan` flag. The gauges are `devops_cli_roadmap_item_age_seconds` and `devops_cli_roadmap_oldest_item_number`, with the labels `repo`, `state` and `plan`. The age is the clock minus the time of the `labeled` event of the oldest open Item of the pair. A pair with no Item sends 0 for both gauges.
 
 #### Scenario: The age comes from the label event and the clock
 - **WHEN** an open Item got the label `status/ready` at time T, and the clock reads T plus 3600 seconds
@@ -24,14 +24,14 @@ For its repository, each round of the metrics row of the Service SHALL send `dev
 - **THEN** the round sends the age 0 and the number 0 for `state` `blocked`, for both values of `plan`
 
 ### Requirement: The metrics row sends the age of the oldest claim
-`devops_cli_roadmap_claim_age_seconds` SHALL carry the label `repo`. Its value SHALL be the clock minus the time of the `labeled` event of the current `owner/*` label of the open Item whose claim is oldest, and 0 when no open Item holds a claim.
+`devops_cli_roadmap_claim_age_seconds` SHALL carry the label `repo`. Its value SHALL be the clock minus the time of the `labeled` event of the current `owner/*` label. The labeled Item is the open Item whose claim is oldest. The value SHALL be 0 when no open Item holds a claim.
 
 #### Scenario: Two claims
 - **WHEN** an Item got `owner/agent` at T and another got `owner/service` at T plus 600 seconds, and the clock reads T plus 3600 seconds
 - **THEN** the claim age is 3600
 
 ### Requirement: The label events of an Item are read when its labels change
-The metrics row SHALL read the label changes of an open Item that holds a Status or an Owner label at the first round of the process that sees its current Status and Owner labels. It SHALL NOT read them again while those labels stay the same.
+The metrics row SHALL read the label changes of an open Item that holds a Status or an Owner label. It SHALL do so in the first round of the process that sees its current Status and Owner labels. It SHALL NOT read them again while those labels stay the same.
 
 #### Scenario: Two rounds with no change
 - **WHEN** two rounds run over the same Items and labels
@@ -42,7 +42,7 @@ The metrics row SHALL read the label changes of an open Item that holds a Status
 - **THEN** the second round reads the events of that issue only, and the age counts from the new event
 
 ### Requirement: A failed read of the label events keeps the other metrics
-When the read of the label changes of an Item fails, `collect_project_metrics_report` SHALL log a warning, SHALL return the other sections of the report whole, and SHALL return no age. The row SHALL send no age point that round.
+When the read of the label changes of an Item fails, `collect_project_metrics_report` SHALL log a warning. It SHALL return the other sections of the report whole, and no age. The row SHALL send no age point in that round.
 
 #### Scenario: GitHub answers HTTP 500 for an events listing
 - **WHEN** GitHub answers HTTP 500 for `issues/<number>/events`
