@@ -491,13 +491,14 @@ def change_root(files: Sequence[str], issue: int) -> tuple[str | None, list[str]
 
 
 def specs_at(
-    source: Path, rev: str, *, operation: str
+    source: Path, rev: str, *, operation: str, files: Sequence[str] | None = None
 ) -> tuple[frozenset[str], dict[str, tuple[str, ...]]]:
-    """The capabilities of the base specs at commit `rev`, and the requirement names of each."""
+    """The capabilities of the base specs at commit `rev`, and the requirement names of each.
+    `files` is the paths of `rev` when the caller listed them already (#3430)."""
     if not rev:
         return frozenset(), {}
     specs: dict[str, BaseSpec] = {}
-    for path in tree_files(source, rev, operation=operation):
+    for path in tree_files(source, rev, operation=operation) if files is None else files:
         match = _SPEC_FILE.match(path)
         if match is not None:
             text = files_at(source, rev, [path], operation=operation)[path]

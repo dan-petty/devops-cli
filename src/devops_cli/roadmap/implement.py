@@ -277,6 +277,7 @@ class _Judge:
         self._heads = remote_heads
         self._pushed = frozenset(remote_branches(remote_heads))
         self._planned = planned
+        self._default_rev = f"origin/{planned.default}"
         self._pull_status = pull_status
         self._bot = load_settings().service.github_app.bot_login
 
@@ -343,15 +344,31 @@ class _Judge:
             )
         if all(task.ticked for group in parse_task_groups(tasks) for task in group.tasks):
             return texts.implement_left_all_ticked.format(folder=folder)
-        if (problem := self._plan_reason(item, f"origin/{self._planned.default}")) is not None:
+        if (problem := self._plan_reason(item, self._default_rev)) is not None:
             return problem
         return ImplementTarget(item, branch, None, retry)
+
+    @cached_property
+    def _default_files(self) -> tuple[str, ...]:
+        """The paths that the default branch tracks. The judge lists them once for each run, and
+        not once for each item (#3430). A read that fails is not kept, so the next item tries
+        again and gets its own reason."""
+        return tuple(tree_files(self._source, self._default_rev, operation=GIT_OPERATION))
 
     @cached_property
     def _base_facts(self) -> tuple[frozenset[str], dict[str, tuple[str, ...]]]:
         """The capabilities and the requirement names of the base specs on the default branch. The
         judge reads them once for each run, and not once for each item (#3393)."""
-        return specs_at(self._source, f"origin/{self._planned.default}", operation=GIT_OPERATION)
+        return specs_at(
+            self._source, self._default_rev, operation=GIT_OPERATION, files=self._default_files
+        )
+
+    def _tree(self, rev: str) -> Sequence[str]:
+        """The paths that commit `rev` tracks. The default branch is the one tree that every item
+        shares. The branch of a Staged item is its own, so its listing is read for each item."""
+        if rev == self._default_rev:
+            return self._default_files
+        return tree_files(self._source, rev, operation=GIT_OPERATION)
 
     def _plan_reason(self, item: Item, rev: str) -> str | None:
         """The first problem that the stage gates find in the plan of `item` at `rev`, or None when
@@ -359,7 +376,7 @@ class _Judge:
         the item is left out and the run goes on with the other items."""
         texts = MESSAGES.roadmap
         try:
-            files = tree_files(self._source, rev, operation=GIT_OPERATION)
+            files = self._tree(rev)
             root, folder_problems = change_root(files, item.number)
             if root is None:
                 return folder_problems[0]
