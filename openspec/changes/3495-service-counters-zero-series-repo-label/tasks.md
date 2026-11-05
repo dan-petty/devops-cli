@@ -37,7 +37,7 @@ Reads: `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`, `tests/fixt
 
 - [x] 4.1 Add a promtool case `pod_change_gives_true_total` to `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`. Its series of the failure counter start at 0 in each pod, and the case asserts the sum of `increase()` over a pod change
   - Verification: `promtool test rules tests/fixtures/prometheus_rules/roadmap_service_tests.yaml` passes
-- [x] 4.2 Add a promtool case to `tests/fixtures/prometheus_rules/roadmap_service_webhooks_tests.yaml` that fires `RoadmapServiceWebhooksRejected` on a rejected series that starts at 0
+- [x] 4.2 Edit the first case of `tests/fixtures/prometheus_rules/roadmap_service_webhooks_tests.yaml`, so that its rejected series with the event `other` starts at 0 and the case fires `RoadmapServiceWebhooksRejected` at 34 minutes. The case replaces the #2505 gap with the zero samples and adds no new case
   - Verification: `promtool test rules tests/fixtures/prometheus_rules/roadmap_service_webhooks_tests.yaml` passes
 - [x] 4.3 Remove the #2505 workaround terms of `RoadmapServiceWebhooksRejected` and `RoadmapServiceSelfDeliveriesHigh` from `k8s/monitoring/prometheus-values.yaml`, and replace the stale comment at lines 670-673 with the scrape behavior. Keep the OTLP terms
   - Verification: `uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` passes and `promtool test rules tests/fixtures/prometheus_rules/roadmap_service_webhooks_tests.yaml` passes
@@ -51,8 +51,21 @@ Reads: `docs/TELEMETRY.md`, `k8s/README.md`. Changes: `docs/TELEMETRY.md`, `k8s/
 - [x] 5.2 Rewrite the action text of `RoadmapServiceGitHubRequestsHigh` in `k8s/README.md` without the word to lower the budget, rewrite `docs/TELEMETRY.md` lines 19-32 to state the scrape behavior and the labels, state the class count of 19 in `k8s/README.md`, and run `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` passes and `uv run devops ci docs` passes
 
+## 6. The trigger and chat counters start at zero
+
+Reads: `src/devops_cli/server/counter_series.py`, `src/devops_cli/server/routes/webhooks.py`, `src/devops_cli/server/service.py`. Changes: `src/devops_cli/config/constants.py`, `src/devops_cli/server/counter_series.py`, `src/devops_cli/server/routes/webhooks.py`, `src/devops_cli/docs/generator.py`, `docs/TELEMETRY.md`, `k8s/README.md`, `tests/telemetry/test_service_counter_series.py`.
+
+- [x] 6.1 Add tests to `tests/telemetry/test_service_counter_series.py` that assert that the trigger counter exists at 0 for each repository with the sources `webhook` and `poll`, and that the chat counter exists at 0 for each result `usage`, `status`, `unknown_repo` and `error`
+  - Verification: `uv run devops ci test tests/telemetry/test_service_counter_series.py` fails on the base
+- [x] 6.2 Prime the trigger counter and the chat counter in `src/devops_cli/server/counter_series.py`, define the chat command constants in `src/devops_cli/config/constants.py`, and use them in the chat route of `src/devops_cli/server/routes/webhooks.py`
+  - Verification: `uv run devops ci test tests/telemetry/test_service_counter_series.py tests/server/test_mattermost_slash_command.py` passes
+- [ ] 6.3 State in `src/devops_cli/docs/generator.py`, the source of `docs/TELEMETRY.md`, and in `k8s/README.md` that the identity counter is the one counter whose label set does not start at zero, and regenerate `docs/TELEMETRY.md` with `uv run devops docs generate --no-sync-readme`
+  - Verification: `uv run devops ci docs` passes
+
 ## Workflow follow-up
 
 - Open item: agree the label `repo` of `devops_cli_service_implement_failures_total` with #3069 before this change lands. The issue says that #3069 reuses the label `class`.
 - Open item: check the live series with a Prometheus query after the deploy. This change runs no live query.
+- Open item: a person decides whether `devops_cli_service_identity_refused_total` gets a zero label set. The design defers it, and no issue records the deferral yet.
+- Open item: a round that fails before its first row counts no job, so `RoadmapServiceJobsFailing` may miss a failure at store level. A person decides whether to count it.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

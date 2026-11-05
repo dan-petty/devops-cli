@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: The Service starts each label set of its counters at zero
-The Service SHALL create each bounded label set of its counters at zero when it starts. The bounded label sets are: each failure class for each repository of `service.repos` on `devops_cli_service_implement_failures_total`; each repository, lane, row and result on `devops_cli_service_jobs_total`; each repository and lane on `devops_cli_service_job_seconds_total`; and each provider, declared event or `other`, and outcome on `devops_cli_service_webhook_deliveries_total`.
+The Service SHALL create each bounded label set of its counters at zero when it starts. The bounded label sets are: each failure class for each repository of `service.repos` on `devops_cli_service_implement_failures_total`; each repository, lane, row and result on `devops_cli_service_jobs_total`; each repository and lane on `devops_cli_service_job_seconds_total`; each provider, declared event or `other`, and outcome on `devops_cli_service_webhook_deliveries_total`.
 
 #### Scenario: The failure counter exists at zero after start
 - **WHEN** the Service starts with the repositories `example/app` and `example/tools`
@@ -14,6 +14,13 @@ The Service SHALL create each bounded label set of its counters at zero when it 
 #### Scenario: The webhook counter exists at zero for each declared event
 - **WHEN** the Service starts with a provider that declares the events `issues` and `push`
 - **THEN** the webhook counter exists at 0 for each of the outcomes with the events `issues`, `push` and `other`
+
+### Requirement: The Service starts the trigger and chat counters at zero
+The Service SHALL create each bounded label set of `devops_cli_service_triggers_total` and `devops_cli_service_chat_commands_total` at zero when it starts. The bounded label sets are: each repository of `service.repos` with each source `webhook` or `poll`; and each result `usage`, `status`, `unknown_repo` or `error` of the `/roadmap` chat command.
+
+#### Scenario: The trigger and chat counters exist at zero after start
+- **WHEN** the Service starts with the repositories `example/app` and `example/tools`
+- **THEN** the trigger counter exists at 0 for each repository with the sources `webhook` and `poll`, and the chat counter exists at 0 for each result `usage`, `status`, `unknown_repo` and `error`
 
 ### Requirement: The job counter carries the row of the job
 The Service SHALL add 1 to `devops_cli_service_jobs_total` with the labels `repo`, `lane`, `row` and `result` for each row of a lane that ends in the roadmap run. A scoped update SHALL add 1 with the name of its job as the label `row`. The Service SHALL NOT count a lane batch as one job.

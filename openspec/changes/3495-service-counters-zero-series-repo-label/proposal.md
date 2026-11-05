@@ -6,7 +6,7 @@ Issue #3495 reports that the Service counters give a false picture. The counters
 
 ## What Changes
 
-- When the Service starts, it creates each bounded label set of its counters at zero: each failure class for each repository of `service.repos`, each repository, lane, row and result of `devops_cli_service_jobs_total`, each repository and lane of `devops_cli_service_job_seconds_total`, and each provider, declared event and outcome of `devops_cli_service_webhook_deliveries_total`.
+- When the Service starts, it creates each bounded label set of its counters at zero: each failure class for each repository of `service.repos`, each repository, lane, row and result of `devops_cli_service_jobs_total`, each repository and lane of `devops_cli_service_job_seconds_total`, each provider, declared event and outcome of `devops_cli_service_webhook_deliveries_total`, each repository and source of `devops_cli_service_triggers_total`, and each result of the `/roadmap` chat command on `devops_cli_service_chat_commands_total`. The identity counter `devops_cli_service_identity_refused_total` is left out (see design.md).
 - `devops_cli_service_implement_failures_total` gets the label `repo`.
 - `devops_cli_service_jobs_total` gets the label `row`. The roadmap run counts each row of a lane with its result. The worker no longer counts a whole lane batch.
 - The alert expressions of `RoadmapServiceWebhooksRejected` and `RoadmapServiceSelfDeliveriesHigh` lose their #2505 workaround terms. The OTLP alert expressions keep theirs.
@@ -25,7 +25,7 @@ Issue #3495 reports that the Service counters give a false picture. The counters
 
 ## Impact
 
-- Code: `src/devops_cli/telemetry/metrics.py`, `src/devops_cli/server/service.py`, `src/devops_cli/roadmap/implement_submit.py`, `src/devops_cli/roadmap/run.py`, `src/devops_cli/server/routes/webhooks.py`.
+- Code: `src/devops_cli/telemetry/metrics.py`, `src/devops_cli/server/service.py`, `src/devops_cli/server/counter_series.py`, `src/devops_cli/roadmap/implement_submit.py`, `src/devops_cli/roadmap/run.py`, `src/devops_cli/server/routes/webhooks.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/docs/generator.py`.
 - Monitoring: `k8s/monitoring/prometheus-values.yaml`.
 - Tests: `tests/prometheus/test_implement_failure_labels.py`, `tests/telemetry/test_service_counter_series.py`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`, `tests/fixtures/prometheus_rules/roadmap_service_webhooks_tests.yaml`.
 - Documents: `docs/TELEMETRY.md`, `k8s/README.md`.
@@ -44,4 +44,4 @@ Issue #3495 reports that the Service counters give a false picture. The counters
 
 ## Existing Tool Considered
 
-The open tool `prometheus_client` covers the zero series: calling `.labels(...)` at start creates the child at 0, and the text exposition shows it (see Feasibility). The open tool `promtool` checks the rules and runs their unit tests. Both are present, so the change adds no code for the exposition format. The change deletes these internal parts: the per-batch count of `devops_cli_service_jobs_total` in the worker (`src/devops_cli/server/service.py`), the two #2505 workaround terms of the webhook alerts in `k8s/monitoring/prometheus-values.yaml`, and the stale comment at lines 670-673 of the same file. The code of the zero-start function is about 80 lines. It holds the label sets of the counters, and it adds no custom metric type.
+The open tool `prometheus_client` covers the zero series: calling `.labels(...)` at start creates the child at 0, and the text exposition shows it (see Feasibility). The open tool `promtool` checks the rules and runs their unit tests. Both are present, so the change adds no code for the exposition format. The change deletes these internal parts: the per-batch count of `devops_cli_service_jobs_total` in the worker (`src/devops_cli/server/service.py`), the two #2505 workaround terms of the webhook alerts in `k8s/monitoring/prometheus-values.yaml`, and the stale comment at lines 670-673 of the same file. The module `src/devops_cli/server/counter_series.py` has 95 lines, and its function `prime_service_counters` has 48 lines. The function holds the label sets of the counters, and the change adds no custom metric type.

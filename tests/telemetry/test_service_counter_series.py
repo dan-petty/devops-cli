@@ -12,14 +12,18 @@ from datetime import UTC, datetime
 from devops_cli.config.constants import (
     CONST_ROADMAP_WEBHOOK_EVENTS,
     CONST_SERVICE_EVENT_OTHER,
+    CONST_SERVICE_METRIC_CHAT_COMMANDS,
     CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
     CONST_SERVICE_METRIC_JOBS,
+    CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
     CONST_SERVICE_OUTCOME_ACCEPTED,
     CONST_SERVICE_OUTCOME_IGNORED,
     CONST_SERVICE_OUTCOME_NO_SUBSCRIBER,
     CONST_SERVICE_OUTCOME_REJECTED,
     CONST_SERVICE_OUTCOME_SELF,
+    CONST_SERVICE_SOURCE_POLL,
+    CONST_SERVICE_SOURCE_WEBHOOK,
 )
 from devops_cli.config.settings import GitHubAppConfig, ServiceConfig
 from devops_cli.roadmap.failure import FailureClass
@@ -109,6 +113,31 @@ def test_webhook_counter_exists_at_zero_for_each_declared_event_and_outcome() ->
         frozenset({("provider", "github"), ("event", event), ("outcome", outcome)})
         for event in (*CONST_ROADMAP_WEBHOOK_EVENTS, CONST_SERVICE_EVENT_OTHER)
         for outcome in outcomes
+    }
+
+    assert {key: series.get(key) for key in expected} == dict.fromkeys(expected, 0.0)
+
+
+def test_trigger_counter_exists_at_zero_for_each_repository_and_source() -> None:
+    _manager(REPOS)
+
+    series = _series(CONST_SERVICE_METRIC_TRIGGERS)
+    expected = {
+        frozenset({("repo", repo), ("source", source)})
+        for repo in REPOS
+        for source in (CONST_SERVICE_SOURCE_WEBHOOK, CONST_SERVICE_SOURCE_POLL)
+    }
+
+    assert {key: series.get(key) for key in expected} == dict.fromkeys(expected, 0.0)
+
+
+def test_chat_command_counter_exists_at_zero_for_each_result() -> None:
+    _manager(REPOS)
+
+    series = _series(CONST_SERVICE_METRIC_CHAT_COMMANDS)
+    expected = {
+        frozenset({("command", "/roadmap"), ("result", result)})
+        for result in ("usage", "status", "unknown_repo", "error")
     }
 
     assert {key: series.get(key) for key in expected} == dict.fromkeys(expected, 0.0)

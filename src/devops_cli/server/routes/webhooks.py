@@ -28,6 +28,11 @@ from devops_cli.config.constants import (
     CONST_GH_WEBHOOK_SIGNATURE_PREFIX,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_ROADMAP_WEBHOOK_EVENTS,
+    CONST_SERVICE_CHAT_COMMAND_ROADMAP,
+    CONST_SERVICE_CHAT_RESULT_ERROR,
+    CONST_SERVICE_CHAT_RESULT_STATUS,
+    CONST_SERVICE_CHAT_RESULT_UNKNOWN_REPO,
+    CONST_SERVICE_CHAT_RESULT_USAGE,
     CONST_SERVICE_DELIVERY_LRU_CAPACITY,
     CONST_SERVICE_EVENT_OTHER,
     CONST_SERVICE_MAX_BODY_BYTES,
@@ -170,6 +175,14 @@ def _format_lane_status(status: Any) -> str:
     )
 
 
+def _count_chat_command(result: str) -> None:
+    """Count one `/roadmap` chat command under its `result` (#1395, #3495)."""
+    GLOBAL_METRICS.increment_counter(
+        CONST_SERVICE_METRIC_CHAT_COMMANDS,
+        labels={"command": CONST_SERVICE_CHAT_COMMAND_ROADMAP, "result": result},
+    )
+
+
 async def mattermost_roadmap_responder(
     request: Request,
     service_manager: ServiceManager,
@@ -183,9 +196,7 @@ async def mattermost_roadmap_responder(
     try:
         args = shlex.split(raw_text)
     except ValueError:
-        GLOBAL_METRICS.increment_counter(
-            CONST_SERVICE_METRIC_CHAT_COMMANDS, labels={"command": "/roadmap", "result": "usage"}
-        )
+        _count_chat_command(CONST_SERVICE_CHAT_RESULT_USAGE)
         return {
             "response_type": "ephemeral",
             "text": MESSAGES.serve.chat_roadmap_usage,
@@ -195,20 +206,14 @@ async def mattermost_roadmap_responder(
         if not args or args == ["status"]:
             statuses = service_manager.lane_statuses()
             lines = [_format_lane_status(s) for s in statuses]
-            GLOBAL_METRICS.increment_counter(
-                CONST_SERVICE_METRIC_CHAT_COMMANDS,
-                labels={"command": "/roadmap", "result": "status"},
-            )
+            _count_chat_command(CONST_SERVICE_CHAT_RESULT_STATUS)
             return {"response_type": "ephemeral", "text": "\n".join(lines)}
 
         if len(args) == 2 and args[0] == "status":
             target_repo = args[1]
             if target_repo not in service_manager.managed_repos:
                 known = ", ".join(service_manager.config.repos)
-                GLOBAL_METRICS.increment_counter(
-                    CONST_SERVICE_METRIC_CHAT_COMMANDS,
-                    labels={"command": "/roadmap", "result": "unknown_repo"},
-                )
+                _count_chat_command(CONST_SERVICE_CHAT_RESULT_UNKNOWN_REPO)
                 return {
                     "response_type": "ephemeral",
                     "text": MESSAGES.serve.chat_roadmap_unknown_repo.format(
@@ -218,24 +223,17 @@ async def mattermost_roadmap_responder(
 
             statuses = service_manager.lane_statuses(target_repo)
             lines = [_format_lane_status(s) for s in statuses]
-            GLOBAL_METRICS.increment_counter(
-                CONST_SERVICE_METRIC_CHAT_COMMANDS,
-                labels={"command": "/roadmap", "result": "status"},
-            )
+            _count_chat_command(CONST_SERVICE_CHAT_RESULT_STATUS)
             return {"response_type": "ephemeral", "text": "\n".join(lines)}
 
-        GLOBAL_METRICS.increment_counter(
-            CONST_SERVICE_METRIC_CHAT_COMMANDS, labels={"command": "/roadmap", "result": "usage"}
-        )
+        _count_chat_command(CONST_SERVICE_CHAT_RESULT_USAGE)
         return {
             "response_type": "ephemeral",
             "text": MESSAGES.serve.chat_roadmap_usage,
         }
     except Exception as exc:
         logger.error("Error executing /roadmap chat command: %s", exc, exc_info=True)
-        GLOBAL_METRICS.increment_counter(
-            CONST_SERVICE_METRIC_CHAT_COMMANDS, labels={"command": "/roadmap", "result": "error"}
-        )
+        _count_chat_command(CONST_SERVICE_CHAT_RESULT_ERROR)
         return {
             "response_type": "ephemeral",
             "text": f"Error executing roadmap command: {exc}",
