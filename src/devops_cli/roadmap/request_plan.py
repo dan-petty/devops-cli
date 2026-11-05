@@ -799,6 +799,47 @@ def explain_requests(
     return (*reads, *blockers), ()
 
 
+def plan_recheck_requests(
+    repo: str,
+) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
+    """What `devops roadmap plan-recheck` reads, in order (#3492): the default branch of the
+    clone, the files of the change folders, the open issues, and the issue of each folder that is
+    not open. It makes no write and calls no model."""
+    texts = MESSAGES.roadmap
+    clone = "<model-clone>"
+    store = StoreRequests(repo)
+    git_reads = [
+        PlannedRequest(
+            "git",
+            texts.plan_recheck_request_fetch,
+            argv=("git", "-C", clone, "fetch", "-q", "origin", "main"),
+        ),
+        PlannedRequest(
+            "git",
+            texts.plan_recheck_request_tree,
+            argv=("git", "-C", clone, "ls-tree", "-r", "--name-only", "origin/main"),
+        ),
+        PlannedRequest(
+            "git",
+            texts.plan_recheck_request_files,
+            argv=(
+                "git",
+                "-C",
+                clone,
+                "show",
+                f"origin/main:openspec/changes/{_p('change')}/<file>",
+            ),
+            repeat=texts.plan_repeat["recheck_folder"],
+        ),
+    ]
+    closed = within(
+        store.issue(_p("item")),
+        texts.plan_recheck_request_closed_condition,
+        repeat=texts.plan_repeat["recheck_folder"],
+    )
+    return (*git_reads, *store.open_items(), *closed), ()
+
+
 def inbox_requests(
     repo: str,
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
@@ -876,6 +917,7 @@ __all__ = [
     "milestones_edit_requests",
     "milestones_list_requests",
     "milestones_status_requests",
+    "plan_recheck_requests",
     "planned_gh",
     "planned_session_read",
     "refine_requests",

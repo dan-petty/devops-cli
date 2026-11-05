@@ -1479,6 +1479,18 @@ class RoadmapCommandHelp:
     plan_check_dry_run: str = (
         "Make no request: print the reads that a run makes, in order, with placeholders."
     )
+    plan_recheck: str = (
+        "Check each change folder on the default branch again. Each folder gets one result: ok, "
+        "rewrite, new-plan, delivered or cleanup. The command reads GitHub and git, calls no "
+        "model and writes nothing. Details: docs/roadmap/plan-recheck.md."
+    )
+    plan_recheck_source: str = "The clone of the repository. Without it, the model clone."
+    plan_recheck_json: str = (
+        "Print the folders and the counts as JSON, with the result of each folder."
+    )
+    plan_recheck_dry_run: str = (
+        "Make no request: print the reads that a run makes, in order, with placeholders."
+    )
     explain: str = (
         "Say, for one issue, whether the stage job and the implement job take it. For each job "
         "the answer is yes, or no with the reason of the first rule that fails: the issue is "
