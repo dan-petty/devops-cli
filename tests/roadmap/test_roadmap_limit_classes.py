@@ -397,6 +397,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "DEFAULT_ROADMAP_INTAKE_REASON_CHARS": ("kept", "the reason of a decision in a comment"),
     "DEFAULT_ROADMAP_INTAKE_LIMIT": ("kept", "candidates of one round"),
     "DEFAULT_ROADMAP_REFINE_LIMIT": ("kept", "items of one round"),
+    "DEFAULT_ROADMAP_INBOX_DRAFT_DAYS": (
+        "setting",
+        "the age from which the inbox lists a draft of a job; roadmap.inbox.draft_days",
+    ),
+    "DEFAULT_ROADMAP_INBOX_WAIT_DAYS": (
+        "setting",
+        "the age from which the inbox marks a wait; roadmap.inbox.wait_days",
+    ),
     "DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES": ("other", "a schedule"),

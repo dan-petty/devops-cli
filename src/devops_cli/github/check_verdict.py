@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterator
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -305,8 +306,14 @@ def _parse_rest_commit_statuses_payload(
     return status_items, combined_item
 
 
+class PaginatingSession(Protocol):
+    """A session that reads a REST listing page by page, such as `GitHubSession` (#3494)."""
+
+    def paginate(self, path: str, *, iterable_key: str | None = None) -> Iterator[Any]: ...
+
+
 def _fetch_check_runs_from_rest(
-    owner: str, repo_name: str, head_sha: str, session: GitHubSession | None
+    owner: str, repo_name: str, head_sha: str, session: PaginatingSession | None
 ) -> tuple[list[PRCheckItem], str]:
     """Read every page of a commit's check runs through the GitHub session, the process's own
     unless `session` is given, returning (items, unread_reason). A page that can't be read, or
@@ -376,7 +383,7 @@ def read_check_runs(
     repo_name: str,
     head_sha: str,
     *,
-    session: GitHubSession | None = None,
+    session: PaginatingSession | None = None,
 ) -> CheckVerdictSummary:
     """Read and classify the check runs of a commit, failing closed, with no commit status.
 
