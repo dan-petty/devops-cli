@@ -31,7 +31,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stage_verify.py`. Changes: `src/d
 
 Kind: documents. Changes: `SECURITY.md`, `docs/roadmap/refine.md`, `docs/ROADMAP_WORKFLOW.md`.
 
-- [ ] 4.1 State the trust rule and its reason in `SECURITY.md`, the review and its record key in `docs/roadmap/refine.md` and `docs/ROADMAP_WORKFLOW.md`.
+- [x] 4.1 State the trust rule and its reason in `SECURITY.md`, the review and its record key in `docs/roadmap/refine.md` and `docs/ROADMAP_WORKFLOW.md`.
   - Verification: `uv run devops ci docs`
 
 ## 5. Archive
