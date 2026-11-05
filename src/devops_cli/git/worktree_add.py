@@ -401,12 +401,12 @@ def add_worktree(
     With no branch of `origin` for the issue, the worktree is on the new branch
     `<type>/<issue>-<slug>` at the fetched `origin/main`, and `type_` and `slug` are required.
     With a pushed branch, the App must have written every commit of it past main, apart from a
-    clean merge by a person (#3392): the run takes the branch over (`took over`), takes `type_` and `slug` from it, and refuses a value that
-    differs. The run refuses an issue that a local worktree holds before it reads `origin`, and
-    one that a branch of `origin` holds before it adds the worktree, so a refused run leaves no
-    worktree and no local branch. A dry run reads the local worktrees only and lists the four
-    commands. `reclaim` is the result of `reclaim_merged_worktrees`, which the caller ran first;
-    it goes into the report.
+    clean merge by a person (#3392). The run takes the branch over (`took over`), takes `type_` and
+    `slug` from it, and refuses a value that differs. The run refuses an issue that a local
+    worktree holds before it reads `origin`, and one that a branch of `origin` holds before it adds
+    the worktree, so a refused run leaves no worktree and no local branch. A dry run reads the
+    local worktrees only and lists the four commands. `reclaim` is the result of
+    `reclaim_merged_worktrees`, which the caller ran first; it goes into the report.
     """
     reclaim = reclaim or ReclaimResult()
     directory = worktree_directory(issue, repo_root)

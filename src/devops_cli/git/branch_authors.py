@@ -2,8 +2,8 @@
 merge (#3392).
 
 GitHub writes a merge commit for the "Update branch" button, with the person who pressed it as the
-author. A merge commit with two parents is a clean merge when `git merge-tree --write-tree` gives
-its tree: the merge changes no file by hand and resolves no conflict. The implement job, the stage
+author. A merge commit with two parents is clean when `git merge-tree --write-tree` gives its tree.
+A clean merge changes no file by hand and resolves no conflict. The implement job, the stage
 reconcile and the takeover of `worktrees add` leave a clean merge out of the authors. A merge that
 changed a file or resolved a conflict keeps its author.
 """

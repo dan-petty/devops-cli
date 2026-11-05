@@ -157,7 +157,7 @@ def _as(work: Path, author: str, *args: str) -> None:
 
 
 def _advance_main(work: Path, name: str, text: str) -> None:
-    """Commit `name` with `text` to `main` of `origin` and push it, so `main` moves past a branch."""
+    """Commit `name` with `text` to `main` of `origin` and push it, so `main` moves on."""
     subprocess.run(["git", "-C", str(work), "checkout", "-q", "main"], check=True)
     (work / name).write_text(text, encoding="utf-8")
     _as(work, "Other", "add", "-A")
