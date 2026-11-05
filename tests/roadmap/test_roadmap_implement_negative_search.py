@@ -281,10 +281,7 @@ E_NO_LITERAL = "the option `-e` has no literal after it"
 
 
 def _e_forms(word: str) -> str:
-    return (
-        f"the word `{word}` comes after an `-e` literal, and the search takes one literal with no "
-        "`-e`, or one or more `-e` literals and then `--`"
-    )
+    return f"the word `{word}` is not allowed with `-e`, so use one literal, or `-e` literals and then `--`"
 
 
 def test_a_search_for_two_names_passes_when_neither_name_occurs(
