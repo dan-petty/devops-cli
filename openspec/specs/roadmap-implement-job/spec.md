@@ -60,7 +60,7 @@ A run SHALL take the items that the filter names with the highest priority first
 
 ### Requirement: The job leaves out an item and says why
 
-The job SHALL leave out, with a reason in the plan, an item that the filter names and that is neither Ready nor Planned, is neither Staged nor Planned, holds `implement.stopped`, has an untrusted author, has a commit past the default branch by anyone but the App other than a clean merge, is held by a worktree, or whose pull request is not an open draft. A clean merge is a merge commit whose tree is the one that `git merge-tree --write-tree` gives for its two parents.
+The job SHALL leave out, with a reason in the plan, an item that the filter names and that is neither Ready nor Planned, is neither Staged nor Planned, holds `implement.stopped`, fails the check of `roadmap-author-trust`, has a commit past the default branch by anyone but the App other than a clean merge, is held by a worktree, or whose pull request is not an open draft. A clean merge is a merge commit whose tree is the one that `git merge-tree --write-tree` gives for its two parents.
 
 #### Scenario: An item that is not Staged
 - **WHEN** a Ready P1 bug of low effort has no `stage.pr` in its record and no change folder on `origin/main`
@@ -69,6 +69,10 @@ The job SHALL leave out, with a reason in the plan, an item that the filter name
 #### Scenario: An item with a stop on record
 - **WHEN** a Staged item holds `implement.stopped`
 - **THEN** the plan leaves it out with the reason that names the stop and the comment `implement: retry`
+
+#### Scenario: An item of a bot with no approval
+- **WHEN** a Staged item of the Service App's bot has no approval of refine's review, or its body changed after the review
+- **THEN** the plan leaves it out with the reason that no review approved its body as it is now
 
 #### Scenario: A commit by another author
 - **WHEN** the branch of a Staged item holds a commit whose author is not the App
