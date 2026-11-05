@@ -11,9 +11,9 @@ first request and refuses a step that does not fit the window of `ai.tasks.imple
 The run is one pydantic-ai agent on the harness's `Coder`, tuned where its parts are public: a
 shell with an allowlist, a smaller cap on each tool result, and the window of the task. The step
 judges the exit, not the model: the tasks of the group change only in their checkboxes, the
-verification commands pass, the static checks pass on the changed files, and every task is ticked.
-A model that did the work and forgot the ticks gets one more turn of the same conversation, which
-may change only `tasks.md` (#2721). Then the step commits the checkout, or it resets it. While the
+verification commands pass, the static checks pass on the changed files, and the hooks pass. Then
+the job ticks every task of the group (#3488), so a model that did the work and forgot the ticks
+does not stop the step. Then the step commits the checkout, or it resets it. While the
 agent works, the step keeps the work that is green: a task that the agent ticked and whose
 verification passes becomes a `wip:` commit (`implement_wip.py`, #3054), and a reset goes back to the
 last of them. A step writes nothing to GitHub; the caller pushes the `wip:` commits.
@@ -132,7 +132,7 @@ from devops_cli.roadmap.implement_strays import stray_files
 from devops_cli.roadmap.implement_test_names import lost_since
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.implement_trace import ImplementTrace
-from devops_cli.roadmap.implement_wip import WipCommit, WipKeeper
+from devops_cli.roadmap.implement_wip import WipCommit, WipKeeper, restore_sources
 from devops_cli.roadmap.step_commit import step_commit_title
 from devops_cli.roadmap.step_files import (
     CHECKBOXES,
@@ -910,14 +910,6 @@ def _own_after(inputs: StepInputs) -> TaskGroup | None:
     return next((g for g in parse_task_groups(tasks_md) if g.number == inputs.group.number), None)
 
 
-def _unticked(inputs: StepInputs) -> tuple[GroupTask, ...]:
-    """The tasks of the group that the run left unticked. A fix step ticks no task."""
-    mine = _own_after(inputs)
-    if mine is None or inputs.fix is not None:
-        return ()
-    return tuple(task for task in mine.tasks if not task.ticked)
-
-
 def _ticked_lines(inputs: StepInputs) -> list[int]:
     """The lines, in the text before the run, of the tasks of the own group that the run ticked.
     A task counts by its position in the group. When the run changed the number of the tasks, the
@@ -954,12 +946,29 @@ def _restore_tasks(inputs: StepInputs) -> None:
     print_muted(note, to_stderr=True)
 
 
-def _unticked_failure(inputs: StepInputs) -> str | None:
-    """Why the step stops when a task of the group is not ticked, else None."""
-    unticked = _unticked(inputs)
+def _tick_group(source: Path, inputs: StepInputs) -> str | None:
+    """Tick every unticked task of the own group in `tasks.md`, and stage the file (#3488). The job
+    calls it when every exit check of the group passed, so the commit holds the ticks of the group,
+    also those of a task that the model did not tick. A fix step ticks no task. The own group is
+    the one that `_restore_tasks` wrote, so it is in the file and has the tasks of before the run.
+    Returns None when the group is ticked or needs no tick, else the reason the job cannot tick it:
+    the step stops with that reason, so it never ends done without its ticks."""
+    if inputs.fix is not None:
+        return None
+    mine = _own_after(inputs)
+    text = _tasks_after(inputs)
+    if mine is None or text is None:
+        return MESSAGES.roadmap.implement_stop_tick_unreadable.format(group=inputs.group.number)
+    unticked = [task.line for task in mine.tasks if not task.ticked]
     if not unticked:
         return None
-    return MESSAGES.roadmap.implement_stop_unticked.format(task=unticked[0].text)
+    lines = file_lines(text)
+    for number in unticked:
+        lines[number] = lines[number].replace(CHECKBOXES[0], CHECKBOXES[1], 1)
+    path = inputs.change / "tasks.md"
+    path.write_text("".join(lines), encoding="utf-8", newline="")
+    _git_output(source, "add", "--", path.relative_to(source).as_posix())
+    return None
 
 
 def _command_failure(
@@ -1116,25 +1125,70 @@ def _static_failure(
     return None
 
 
+def _index_adds(source: Path) -> tuple[list[str], dict[str, str]]:
+    """The paths that the index adds, and the old path of each added path that a rename moved
+    (#3488). Git lists a rename once, with both paths, so the new path of a rename is no addition
+    of `--diff-filter=A`. The renames are found with `-M`, which is the default of `git diff`."""
+    text = _git_output(source, "diff", "--cached", "--name-status", "-z", "-M")
+    fields = [field for field in text.split("\0") if field]
+    added: list[str] = []
+    moved: dict[str, str] = {}
+    index = 0
+    while index < len(fields):
+        status = fields[index]
+        if status.startswith("R"):
+            old, new = fields[index + 1], fields[index + 2]
+            added.append(new)
+            moved[new] = old
+            index += 3
+        else:
+            if status == "A":
+                added.append(fields[index + 1])
+            index += 2
+    return added, moved
+
+
 def _strays(source: Path, inputs: StepInputs) -> list[str]:
-    """The stray files of the group (#3092): see `_remove_strays`. None for a fix step."""
-    if inputs.fix is not None:
-        return []
+    """The stray files of the step (#3092, #3488): see `_remove_strays`. The untracked files and the
+    files that the index adds, which the agent staged with `git add` or `git mv`. A fix step's group
+    names no file, so its strays are the files outside the project directories."""
     listed = _git_output(source, "ls-files", "--others", "--exclude-standard", "-z")
+    added, _ = _index_adds(source)
+    names = [name for name in listed.split("\0") if name] + added
     change = inputs.change.relative_to(source).as_posix()
-    return stray_files([name for name in listed.split("\0") if name], inputs.group, change)
+    return stray_files(names, inputs.group, change)
 
 
 def _remove_strays(source: Path, inputs: StepInputs, log: ToolCallLog) -> None:
-    """Delete the stray files of the group (#3092) and record their names in `log`: the untracked
-    files that git does not ignore (`git ls-files --others --exclude-standard`) and that the group
-    does not allow (`stray_files`): a file outside `src/`, `tests/`, `docs/` and `openspec/`, or a
-    nested git repository. It runs before the checks stage the checkout, so no stray file
-    reaches `ruff`, `mypy` or the commit. The group of a fix step names no file, so a fix step
-    keeps its new files."""
+    """Unstage and delete the stray files of the step (#3092, #3488) and record their names in
+    `log`. A stray file is a file that the group does not allow (`stray_files`): a file outside
+    `src/`, `tests/`, `docs/` and `openspec/`, or a nested git repository. It is an untracked file
+    that git does not ignore, or a new file that the agent staged. A rename into a stray name also
+    puts back the old path of the file, so the commit does not delete it. It runs before the checks
+    stage the checkout, so no stray file reaches `ruff`, `mypy` or the commit. A fix step removes its
+    strays too, and keeps a new file under `src/`, `tests/`, `docs/` or `openspec/`. The paths go to
+    git as literal names, so a name with glob characters matches only its own file."""
     strays = _strays(source, inputs)
+    _, moved = _index_adds(source)
+    if strays:
+        _git_output(
+            source,
+            "--literal-pathspecs",
+            "rm",
+            "--cached",
+            "--force",
+            "--ignore-unmatch",
+            "-q",
+            "--",
+            *strays,
+        )
     for name in strays:
         _delete(source / name)
+    restore_sources(
+        lambda *args: _git_output(source, *args),
+        source,
+        [moved[name] for name in strays if name in moved],
+    )
     log.removed_strays(strays)
 
 
@@ -1231,9 +1285,9 @@ def _exit_failure(
     """The first exit check that fails, or None when every one passes. The step makes the only
     commit, besides the `wip:` commits of its keeper (#3054), so a checkout that left the head of
     the keeper fails the first check. The `tasks.md` is written
-    back first, whatever the run did to it. The ticks are judged last, by
-    `_unticked_failure`, as a step with a task unticked gets a turn for them first. The stray files
-    of the agent are deleted before the checkout is staged (#3092)."""
+    back first, whatever the run did to it. Once every check passes, `_tick_group` ticks the
+    tasks of the group (#3488). The stray files of the agent are deleted before the checkout is
+    staged (#3092)."""
     log.fail_to_pass = None
     log.verified.clear()
     head = _head(source)
@@ -1269,7 +1323,12 @@ def _exit_failure(
     static = _static_failure(source, changed, log.trace)
     if static:
         return _Failure(static, frozenset(changed))
-    return _hooks_failure(source, inputs.hooks, changed, log.trace)
+    failure = _hooks_failure(source, inputs.hooks, changed, log.trace)
+    if failure is None:
+        refused = _tick_group(source, inputs)
+        if refused is not None:
+            return _Failure(refused)
+    return failure
 
 
 def _hooks_failure(
@@ -1393,41 +1452,19 @@ def _foreign_change(source: Path, inputs: StepInputs, tree: str, ask: _Ask) -> s
     return ask.changed_reason.format(paths=_paths_text(others))
 
 
-def _unticked_fields(source: Path, inputs: StepInputs) -> dict[str, str]:
-    """The path of the `tasks.md` of the change and the list of the unticked tasks of the group,
-    for the message of an extra turn."""
-    tasks_md = (inputs.change / "tasks.md").relative_to(source).as_posix()
-    tasks = "\n".join(f"- {task.text}" for task in _unticked(inputs))
-    return {"path": tasks_md, "tasks": tasks}
-
-
-def _extra_ask(
-    source: Path, inputs: StepInputs, failure: _Failure | None, log: ToolCallLog
-) -> _Ask | None:
-    """The extra turn that the result of the exit checks earns, or None. A failed static check or
-    hook gets the turn that fixes it, and the message lists the unticked tasks too, so no turn for
-    the ticks follows. A step whose checks passed gets the turn for the ticks when a task is
-    unticked. No other failure gets a turn. The message names the stray files that the step
-    deleted, and why (#3092). A failure with no repair paths, as a group that changed no file
-    (`plan_defect`), gets no turn: no attempt can fix it (#3053). The caller counts the turns
+def _extra_ask(failure: _Failure | None, log: ToolCallLog) -> _Ask | None:
+    """The extra turn that a failed static check or hook earns, or None. No turn asks for a tick:
+    the job ticks the group when its checks pass (#3488). The message names the stray files that
+    the step deleted, and why (#3092). A failure with no repair paths, as a group that changed no
+    file (`plan_defect`), gets no turn: no attempt can fix it (#3053). The caller counts the turns
     against `repair_rounds`."""
+    if failure is None or failure.repair_paths is None:
+        return None
     texts = MESSAGES.roadmap
     removed = texts.implement_removed_note.format(paths=log.removed_text()) if log.removed else ""
-    unticked = bool(_unticked(inputs))
-    if failure is None:
-        if not unticked:
-            return None
-        message = texts.implement_tick_turn.format(
-            **_unticked_fields(source, inputs), removed=removed
-        )
-        return _Ask(message, frozenset(), texts.implement_stop_tick_turn_changed)
-    if failure.repair_paths is None:
-        return None
-    ticks = texts.implement_repair_turn_ticks.format(**_unticked_fields(source, inputs))
     template = texts.implement_hook_turn if failure.hook else texts.implement_repair_turn
     message = template.format(
         failure=mask_secrets(failure.reason)[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS],
-        ticks=ticks if unticked else "",
         removed=removed,
     )
     return _Ask(message, failure.repair_paths, texts.implement_stop_repair_turn_changed)
@@ -1470,7 +1507,7 @@ def _extra_turn(
 def _moves_tier(run: _Run) -> bool:
     """Whether another tier may serve the step (#3060). A run that ended on a provider error
     moves down the ladder, as does a failure whose class selects `change_tier`, such as a parser
-    failure. A failed check or a missing tick keeps its tier and spends a repair round."""
+    failure. A failed check keeps its tier and spends a repair round."""
     if run.provider_error:
         return True
     if not run.reason:
@@ -1520,26 +1557,25 @@ def _repair_rounds(
     follows (#3053). The state after the last attempt."""
     run, failure, used, number = start.run, start.failure, start.used, start.number
     while True:
-        ask = _extra_ask(source, inputs, failure, log)
+        ask = _extra_ask(failure, log)
         repair = ask is not None and used < start.allowed
-        _trace_attempt(trace, number, tier, failure, inputs, repair=repair)
+        _trace_attempt(trace, number, tier, failure, repair=repair)
         if ask is None or not repair:
             return _Rounds(run, failure, used, number, start.allowed, spent=ask is not None)
         if trace is not None:
-            trace.retry((failure.reason if failure else "") or _unticked_failure(inputs) or "")
+            trace.retry(failure.reason if failure else "")
         run, failure = _extra_turn(agent, model, log, source, inputs, keeper, run, ask)
         used += 1
         number += 1
 
 
-def _failure_class(failure: _Failure | None, inputs: StepInputs) -> FailureClass | None:
+def _failure_class(failure: _Failure | None) -> FailureClass | None:
     """The class of the failure of an attempt, or None when the attempt passed (#3053). A failure
     that knows its cause carries the class. Any other failure is classified from its text, as the
-    stop would classify it. A step whose checks passed and that left a task unticked is
-    `not_ticked`."""
-    if failure is not None:
-        return failure.klass or classify_failure(FailureEvidence(text=failure.reason))
-    return FailureClass.NOT_TICKED if _unticked(inputs) else None
+    stop would classify it."""
+    if failure is None:
+        return None
+    return failure.klass or classify_failure(FailureEvidence(text=failure.reason))
 
 
 def _trace_attempt(
@@ -1547,7 +1583,6 @@ def _trace_attempt(
     number: int,
     tier: str,
     failure: _Failure | None,
-    inputs: StepInputs,
     *,
     repair: bool,
 ) -> None:
@@ -1555,10 +1590,8 @@ def _trace_attempt(
     whether a repair round follows (#3053)."""
     if trace is None:
         return
-    klass = _failure_class(failure, inputs)
-    evidence = (
-        ((failure.reason if failure else "") or _unticked_failure(inputs) or "") if klass else ""
-    )
+    klass = _failure_class(failure)
+    evidence = failure.reason if failure and klass else ""
     trace.attempt(number, tier, klass.value if klass else "", evidence, repair=repair)
 
 
@@ -1578,7 +1611,7 @@ def _attempt(
     trace: ImplementTrace | None = None,
 ) -> StepOutcome:
     """Run the agent one tier at a time, then judge the exit and commit. A failed check or a
-    missing tick gets an extra turn while one of the `roadmap.implement.repair_rounds` rounds is
+    hook gets an extra turn while one of the `roadmap.implement.repair_rounds` rounds is
     left. A failure that carries no repair paths gets none. A step that stops with a failure that
     a round could have taken, and no round left, says so in its reason (#3053). A run that ends on a provider error or
     on a class that selects `change_tier` moves to the next healthy tier at once, spends no repair
@@ -1657,8 +1690,6 @@ def _attempt(
         tier_spend=spent,
         fail_to_pass=log.fail_to_pass,
     )
-    if not reason and (unticked := _unticked_failure(inputs)):
-        reason, klass = unticked, FailureClass.NOT_TICKED
     if reason and rounds_spent:
         reason = f"{reason}\n{MESSAGES.roadmap.implement_stop_rounds.format(rounds=budget)}"
     commit = ""
@@ -1709,6 +1740,7 @@ def _keeper(
         git=lambda *args: _git_output(source, *args),
         verify=lambda commands: commands_failure(source, commands, log.trace),
         strays=lambda: _strays(source, inputs),
+        moved=lambda: _index_adds(source)[1],
         blocked=lambda: _unkeepable(source, keeper.base),
         on_commit=on_wip,
     )

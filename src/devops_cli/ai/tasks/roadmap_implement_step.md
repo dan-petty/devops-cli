@@ -22,7 +22,7 @@ Work in this order:
 }
 ```
 
-The job writes the whole file back as it was before your run, and keeps only your ticks of the tasks of your group. Your step is not done until every task of your group is ticked. If you forget a tick, you get one more turn that asks only for the ticks. If a task is still unticked after that turn, the step stops and the work after your last kept task is lost.
+The job writes the whole file back as it was before your run, and keeps only your ticks of the tasks of your group. The job ticks every task of your group when the exit checks of the group pass, so a tick that you forget does not stop your step.
 
 The job keeps your work in steps. When you tick a task, the job runs the verification commands of that task. If they pass, the job commits the checkout and pushes it, and that task is kept. A step that stops loses only the work after its last kept task. The next attempt starts from the kept work. A task of your group that is already ticked when you start is done and checked. Do not do it again, and leave its files as they are. Do the tasks that are not ticked.
 5. Run the verification command of each task. A verification command that starts with `!` is a negative search: the step runs it itself after your run, and the shell refuses `!`. To see its result now, run the `git grep` form that the table below gives. Stop when every one of them passes. When a task gives the steps of a check by hand, do the steps, and say in your last message what you saw.

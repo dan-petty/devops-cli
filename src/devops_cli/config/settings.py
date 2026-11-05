@@ -938,7 +938,7 @@ class RoadmapImplementConfig(BaseModel):
         default=False,
     )
     repair_rounds: Annotated[int, Variable()] = Field(
-        description="The most extra turns that one implementation step gives the agent after its first run: one for each failed `ruff`, `mypy` or hook of the project, and one for each time that tasks stay unticked. The same number bounds the fix steps that the scoped checks before a push cause. When no round is left, the step or the item stops. 0 gives the agent no extra turn",
+        description="The most extra turns that one implementation step gives the agent after its first run: one for each failed `ruff`, `mypy` or hook of the project. A missing tick takes no round, because the job ticks the group when its checks pass. The same number bounds the fix steps that the scoped checks before a push cause. When no round is left, the step or the item stops. 0 gives the agent no extra turn",
         default=DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
         ge=0,
     )

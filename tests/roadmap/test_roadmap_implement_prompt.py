@@ -164,3 +164,11 @@ def test_the_prompt_no_longer_holds_write_the_file_at_that_path_anyway() -> None
     prompt = load_task_prompt(PROMPT)
 
     assert "write the file at that path anyway" not in prompt
+
+
+def test_the_prompt_promises_no_extra_turn_for_a_tick_and_says_the_job_ticks_the_group() -> None:
+    prompt = load_task_prompt(PROMPT)
+
+    assert "one more turn that asks only for the ticks" not in prompt
+    assert "Your step is not done until every task of your group is ticked" not in prompt
+    assert "The job ticks every task of your group when the exit checks of the group pass" in prompt

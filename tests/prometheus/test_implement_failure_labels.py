@@ -88,4 +88,4 @@ def test_the_reader_of_the_matchers_finds_each_value_of_the_counter(
 
 
 def test_the_taxonomy_holds_the_new_classes_that_a_panel_may_match() -> None:
-    assert {"no_change_in_fix", "not_ticked", "tests_lost", "head_moved", "output_cap"} <= CLASSES
+    assert {"no_change_in_fix", "tests_lost", "head_moved", "output_cap"} <= CLASSES

@@ -4,7 +4,8 @@ The prompt asks the agent to keep scratch files under `.data/agent/scratch/`, an
 leaves some in the checkout. The step stages the whole checkout and gives every changed Python file
 to `ruff` and `mypy`, so such a file stopped the step and, if it passed, reached the commit. A
 stray file is an untracked file that git does not ignore (`git ls-files --others
---exclude-standard`) and that its group does not allow. The group allows:
+--exclude-standard`), or a new file that the index holds because the agent staged it (`git diff
+--cached --name-only --diff-filter=A`), and that its group does not allow. The group allows:
 
 - a path that it names in a code span: its `Changes:` line, where the plan marks a created path
   with `(new)`, and its tasks;
@@ -16,7 +17,9 @@ stray file is an untracked file that git does not ignore (`git ls-files --others
 A directory in the list is a stray file at any place: git lists a directory only when it holds a
 nested git repository.
 
-This module only decides. The step lists the files, deletes the stray ones and reports them.
+This module only decides. The step lists the files, unstages and deletes the stray ones and reports
+them. A fix step names no file in its group, so it applies the same rule with the four project
+directories (#3488).
 """
 
 from __future__ import annotations

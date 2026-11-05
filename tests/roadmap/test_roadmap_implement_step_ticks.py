@@ -32,7 +32,6 @@ from tests.support.implement_step import (
     WINDOW,
     git,
     make_checkout,
-    rounds_spent,
     write_call,
 )
 from tests.support.model_script import ModelScript, say, tool_calls
@@ -385,7 +384,7 @@ def test_a_link_in_place_of_the_tasks_file_is_replaced_and_the_target_is_not_wri
     result = _step(store, later_open, script)
 
     assert (result[0], target.read_text(encoding="utf-8"), tasks.is_symlink()) == (
-        StepStatus.STOPPED,
+        StepStatus.DONE,
         "outside\n",
         False,
     )
@@ -416,7 +415,7 @@ def test_a_link_to_a_file_with_the_wanted_text_is_replaced_by_the_file(
     )
 
 
-def test_a_directory_in_place_of_the_tasks_file_ends_the_step_with_a_stop_and_the_file(
+def test_a_directory_in_place_of_the_tasks_file_is_replaced_and_the_group_is_ticked(
     store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
 ) -> None:
     tasks = later_open / TASKS_PATH
@@ -433,58 +432,35 @@ def test_a_directory_in_place_of_the_tasks_file_ends_the_step_with_a_stop_and_th
     result = _step(store, later_open, script)
 
     assert (result[0], tasks.is_file(), (later_open / TASKS_PATH).read_text(encoding="utf-8")) == (
-        StepStatus.STOPPED,
+        StepStatus.DONE,
         True,
         # The tick of the agent kept both tasks of group 1 in a `wip:` commit (#3054).
         LATER_OPEN.replace("- [ ] Add", "- [x] Add"),
     )
 
 
-def test_a_group_that_the_model_ticks_in_part_gets_the_extra_turn_for_the_rest(
+def test_a_group_that_the_model_ticks_in_part_is_ticked_for_the_rest_by_the_job(
     store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
 ) -> None:
     first_only = LATER_OPEN.replace("- [ ] Add the failing", "- [x] Add the failing")
     script = ModelScript(
-        tool_calls(*WORK, write_call(TASKS_PATH, first_only)),
-        say("The work is done."),
-        tool_calls(write_call(TASKS_PATH, EVERY_TICK)),
-        say("Ticked."),
+        tool_calls(*WORK, write_call(TASKS_PATH, first_only)), say("The work is done.")
     )
 
     result = _step(store, later_open, script)
 
-    last = [str(getattr(part, "content", "")) for part in script.seen[2][-1].parts][-1]
-    assert (result, "- [ ] Add `shout`" in last, "Add the failing" in last) == (
-        (StepStatus.DONE, ""),
-        True,
-        False,
-    )
-    assert _committed_tasks(later_open) == BASE
+    assert (result, _committed_tasks(later_open)) == ((StepStatus.DONE, ""), BASE)
 
 
-def test_a_group_that_the_model_ticks_in_part_and_not_more_stops_with_the_first_unticked_task(
-    store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
-) -> None:
-    first_only = LATER_OPEN.replace("- [ ] Add the failing", "- [x] Add the failing")
-    script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, first_only)), say("Done."))
-
-    assert _step(store, later_open, script) == (
-        StepStatus.STOPPED,
-        "A task of the group is not ticked: [ ] Add `shout` to `src/sample.py`" + rounds_spent(3),
-    )
-
-
-def test_a_model_that_adds_a_task_to_its_group_and_ticks_all_gets_no_tick(
+def test_a_model_that_adds_a_task_to_its_group_has_the_group_restored_and_ticked(
     store: InMemoryRoadmapStore, later_open: Path, programs: ProcessFake
 ) -> None:
     added = BASE.replace("- [x] Add `shout`", "- [x] Do more\n- [x] Add `shout`")
     script = ModelScript(tool_calls(*WORK, write_call(TASKS_PATH, added)), say("Done."))
 
-    assert _step(store, later_open, script) == (
-        StepStatus.STOPPED,
-        "A task of the group is not ticked: [ ] Add the failing test `tests/test_sample.py` "
-        "for `src/sample.py`" + rounds_spent(3),
-    )
+    result = _step(store, later_open, script)
+
+    assert (result, _committed_tasks(later_open)) == ((StepStatus.DONE, ""), BASE)
 
 
 def test_a_step_that_unticks_a_task_of_its_own_done_group_keeps_it_ticked(
@@ -507,3 +483,54 @@ def test_the_instructions_say_to_tick_only_the_tasks_of_the_group_and_give_the_r
         "Tick only the tasks of your group. A later group runs in its own step and ticks its own."
         in inputs.instructions
     )
+
+
+def test_a_passing_group_without_a_model_tick_is_ticked_and_committed(
+    store: InMemoryRoadmapStore, tmp_path: Path, programs: ProcessFake
+) -> None:
+    checkout = make_checkout(tmp_path)
+    script = ModelScript(tool_calls(*WORK), say("Done."))
+
+    result = _step(store, checkout, script)
+
+    assert (result, _committed_tasks(checkout), git(checkout, "status", "--porcelain")) == (
+        (StepStatus.DONE, ""),
+        TICKED,
+        "",
+    )
+
+
+def test_a_group_without_a_verification_line_is_ticked_when_its_exit_checks_pass(
+    store: InMemoryRoadmapStore, tmp_path: Path, programs: ProcessFake
+) -> None:
+    unverified = "".join(
+        line
+        for line in TASKS.splitlines(keepends=True)
+        if not line.strip().startswith("- Verification:")
+    )
+    checkout = make_checkout(tmp_path, unverified)
+    script = ModelScript(tool_calls(*WORK), say("Done."))
+
+    result = _step(store, checkout, script)
+
+    assert (result, _committed_tasks(checkout)) == (
+        (StepStatus.DONE, ""),
+        unverified.replace("- [ ] Add", "- [x] Add"),
+    )
+
+
+def test_the_job_stops_when_the_tasks_file_holds_no_group_to_tick(
+    store: InMemoryRoadmapStore, implement_checkout: Path
+) -> None:
+    """A group that `tasks.md` lacks cannot be ticked. The job gives a reason, so the step stops
+    and does not end done with no tick (#3488). The import sits in the test, so that a checkout
+    without `_tick_group` fails this test alone."""
+    from devops_cli.roadmap.implement_step import _tick_group
+
+    inputs = build_step_inputs(store, item=1, group=1, source=implement_checkout, window=WINDOW)
+    (implement_checkout / TASKS_PATH).write_text("# Tasks\n", encoding="utf-8")
+
+    reason = _tick_group(implement_checkout, inputs)
+
+    assert reason is not None
+    assert "group 1" in reason

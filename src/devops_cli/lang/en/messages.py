@@ -2411,10 +2411,6 @@ class RoadmapMessages:
         "The last is `{sha}`. The job discarded only the work after it. The next run continues "
         "from it and does the tasks that are not ticked."
     )
-    implement_stop_unticked: str = "A task of the group is not ticked: {task}"
-    implement_stop_tick_turn_changed: str = (
-        "The extra turn for the ticks changed files other than the tasks file: {paths}."
-    )
     implement_stop_repair_turn_changed: str = (
         "The extra turn for the static check changed files that the step had not changed: {paths}."
     )
@@ -2476,20 +2472,9 @@ class RoadmapMessages:
     implement_stop_retries: str = "Last retries of {tool}: {reasons}"
     implement_stop_reasons_separator: str = " | "
     implement_tool_masked: str = "<masked>"
-    implement_tick_turn: str = (
-        "The checks of your group passed, but `{path}` still holds these tasks of your group "
-        "unticked:\n\n{tasks}\n\nChange `- [ ]` to `- [x]` in front of each task whose work is "
-        "done. Change nothing else in that file and change no other file.{removed} Then reply with "
-        "one short message."
-    )
     implement_repair_turn: str = (
         "A static check of your group failed:\n\n{failure}\n\nFix what the check reports. Change "
-        "only the files that you changed.{ticks}{removed} Then reply with one short message."
-    )
-    implement_repair_turn_ticks: str = (
-        " The file `{path}` also holds these tasks of your group unticked:\n\n{tasks}\n\n"
-        "Change `- [ ]` to `- [x]` in front of each task whose work is done. Change nothing else "
-        "in that file."
+        "only the files that you changed.{removed} Then reply with one short message."
     )
     implement_restored_tasks: str = (
         "Restored the tasks.md of the change {change}. A step only ticks the tasks of its own "
@@ -2532,6 +2517,7 @@ class RoadmapMessages:
     implement_base_passes: str = "passes on the base commit"
     implement_base_errors: str = "stops with an error on the base commit"
     implement_base_not_run: str = "did not run on the base commit"
+    implement_stop_tick_unreadable: str = "The job cannot tick group {group}. The tasks.md of the change has no readable group {group}."
     implement_stop_tests_lost: str = (
         "The agent removed tests that existed at the start of the step. "
         "A step may add tests. It may not remove or rename one.\n{files}"
@@ -2556,7 +2542,7 @@ class RoadmapMessages:
     implement_hook_turn: str = (
         "A hook of the project failed on your changes:\n\n{failure}\n\nThe hooks of the project "
         "check each commit. Fix what the hooks report. Change only the files that you "
-        "changed.{ticks}{removed} Then reply with one short message."
+        "changed.{removed} Then reply with one short message."
     )
     implement_title: str = "Implement step: item #{item}, group {group} ({title})"
     implement_labels: dict[str, str] = field(

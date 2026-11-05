@@ -9,7 +9,7 @@ message of the agent, which is a claim that no check verified (#3476). `ACTION_B
 table of defaults: each class has exactly one `FailureAction`.
 
 **Typed classes.** A stop site that knows its cause passes the class itself: `no_change_in_fix`,
-`not_ticked`, `tests_lost`, `head_moved`, `output_cap` and `limit_reached` come from the step, and no rule below
+`tests_lost`, `head_moved`, `output_cap` and `limit_reached` come from the step, and no rule below
 makes them. The rules are the fallback for a stop whose cause has no class of its own.
 
 **Order of the rules.** The first rule that matches wins, and the order goes from the cause that is
@@ -59,7 +59,6 @@ class FailureClass(StrEnum):
     CONFLICT = "conflict"
     CI_INFRA = "ci_infra"
     NO_CHANGE_IN_FIX = "no_change_in_fix"
-    NOT_TICKED = "not_ticked"
     TESTS_LOST = "tests_lost"
     HEAD_MOVED = "head_moved"
     OUTPUT_CAP = "output_cap"
@@ -96,7 +95,6 @@ ACTION_BY_CLASS: Final[Mapping[FailureClass, FailureAction]] = MappingProxyType(
         FailureClass.CONFLICT: FailureAction.WAIT,
         FailureClass.CI_INFRA: FailureAction.RETRY,
         FailureClass.NO_CHANGE_IN_FIX: FailureAction.WAIT,
-        FailureClass.NOT_TICKED: FailureAction.AMEND,
         FailureClass.TESTS_LOST: FailureAction.RETRY,
         FailureClass.HEAD_MOVED: FailureAction.RETRY,
         FailureClass.OUTPUT_CAP: FailureAction.RAISE_LIMIT,
@@ -215,7 +213,7 @@ _PREMISE = re.compile(
 )
 # The plan cannot be run as written: a task of an archived change is not ticked, or the inputs of
 # the step do not fit the window. An open finding of the stage keeps the plan in draft for the same
-# class (#3264). The stops of a step that changed no file or left a task unticked are typed by the
+# class (#3264). The stops of a step that changed no file are typed by the
 # step (#3476).
 _PLAN = re.compile(
     r"has a task that is not ticked"

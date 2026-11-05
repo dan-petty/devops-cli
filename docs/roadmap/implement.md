@@ -32,13 +32,12 @@ The command refuses to start when the inputs do not fit the window of the task, 
 - `ruff` on the changed Python files.
 - `mypy` on the changed files that the type check of `devops ci` covers: the files under `src`, with its options.
 - The agent made no commit, and removed or renamed no test that existed at the start of the step.
-- The agent ticked every task of the group.
 
-Before these checks, the command deletes each new file that git does not ignore, that the group does not name, and that is outside `src`, `tests`, `docs` and `openspec`. The report lists those files.
+Before these checks, the command unstages and deletes each new file that the group does not name and that is outside `src`, `tests`, `docs` and `openspec`. Such a file is an untracked file that git does not ignore, or a file that the agent staged. A fix step applies the same rule. The report lists those files.
 
-The command writes the tasks file back to its text before the run and keeps only the ticks of the group, so no edit of that file stops the step. It then runs the pre-commit stage of the hooks of the repository on the staged changes.
+The command writes the tasks file back to its text before the run and keeps only the ticks of the group, so no edit of that file stops the step. It then runs the pre-commit stage of the hooks of the repository on the staged changes. When the hooks pass, the command ticks every task of the group in the tasks file, also a task that the agent did not tick, and stages the file. So a missing tick does not stop the step.
 
-**Repair.** An agent whose `ruff`, `mypy` or hook fails, or that forgets a tick, gets more turns. The setting `roadmap.implement.repair_rounds` bounds them. The turns may change only the files that the agent changed. A step that used all its rounds says so in its reason. A group that changed no file gets no round. A behavior group whose tests pass on the base commit, or stop with an error there, gets a turn that may change only its test files. A behavior group that changed no test file gets no round.
+**Repair.** An agent whose `ruff`, `mypy` or hook fails gets more turns. The setting `roadmap.implement.repair_rounds` bounds them. The turns may change only the files that the agent changed. A step that used all its rounds says so in its reason. A group that changed no file gets no round. A behavior group whose tests pass on the base commit, or stop with an error there, gets a turn that may change only its test files. A behavior group that changed no test file gets no round.
 
 **Budgets.** A step stops before a model request when it has spent `roadmap.implement.step_token_budget`, `item_token_budget`, `step_time_limit_seconds` or `item_time_limit_seconds`. The stop has the class `limit_reached`, and its reason names the setting and its value. The trace holds one `attempt` event for each attempt.
 

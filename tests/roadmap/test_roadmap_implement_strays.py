@@ -15,18 +15,22 @@ from devops_cli.roadmap.implement_step import (
     FixRequest,
     StepOutcome,
     StepStatus,
+    _remove_strays,
+    build_step_inputs,
     render_outcome,
     run_fix_step,
     run_step,
 )
 from devops_cli.roadmap.implement_strays import stray_files
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
+from devops_cli.roadmap.implement_wip import WipCommit
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import (
     REPO,
     SHOUT_CODE,
+    TASKS,
     TASKS_PATH,
     TEST_BODY,
     TICKED,
@@ -218,14 +222,17 @@ def test_the_extra_turn_tells_the_agent_which_files_the_step_removed(
     )
 
 
-def test_a_scratch_file_of_the_extra_turn_is_removed_and_does_not_stop_the_step(
+def test_a_scratch_file_of_the_repair_turn_is_removed_and_does_not_stop_the_step(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    ticks_missing = tool_calls(
-        write_call("tests/test_sample.py", TEST_BODY), write_call("src/sample.py", SHOUT_CODE)
-    )
+    unused = "import os\n\n" + TEST_BODY
     script = ModelScript(
-        ticks_missing, say("Done."), tool_calls(write_call(TASKS_PATH, TICKED), STRAY), say("Ok.")
+        tool_calls(
+            write_call("tests/test_sample.py", unused), write_call("src/sample.py", SHOUT_CODE)
+        ),
+        say("Done."),
+        tool_calls(write_call("tests/test_sample.py", TEST_BODY), STRAY),
+        say("Fixed."),
     )
 
     outcome = _step(store, checkout, script)
@@ -371,3 +378,149 @@ def test_the_table_has_no_row_for_removed_files_when_none_was_removed(
     )
 
     assert "Removed stray files" not in capsys.readouterr().out
+
+
+def test_a_fix_step_removes_a_new_file_outside_the_project_directories(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(tool_calls(write_call("src/sample.py", SHOUT_CODE), STRAY), say("Fixed."))
+
+    outcome = run_fix_step(
+        store,
+        item=1,
+        fix=FixRequest(check="Static Analysis", log="E501 line"),
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+    )
+
+    assert (outcome.status, outcome.removed) == (StepStatus.DONE, ("tmp_test_x.py",))
+    assert not (checkout / "tmp_test_x.py").exists()
+    assert _committed(checkout) == ["src/sample.py"]
+
+
+def test_a_stray_file_that_the_agent_stages_is_unstaged_and_removed_in_a_group_step(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    def stage() -> None:
+        git(checkout, "add", "tmp_test_x.py")
+
+    script = ModelScript(tool_calls(*the_whole_group(), STRAY), say("Done."), effects={2: stage})
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.removed, (checkout / "tmp_test_x.py").exists()) == (
+        StepStatus.DONE,
+        ("tmp_test_x.py",),
+        False,
+    )
+    assert sorted(_committed(checkout)) == [TASKS_PATH, "src/sample.py", "tests/test_sample.py"]
+    assert git(checkout, "status", "--porcelain") == ""
+
+
+def test_a_stray_file_that_the_agent_stages_is_unstaged_and_removed_in_a_fix_step(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    def stage() -> None:
+        git(checkout, "add", "tmp_test_x.py")
+
+    script = ModelScript(
+        tool_calls(write_call("src/sample.py", SHOUT_CODE), STRAY),
+        say("Fixed."),
+        effects={2: stage},
+    )
+
+    outcome = run_fix_step(
+        store,
+        item=1,
+        fix=FixRequest(check="Static Analysis", log="E501 line"),
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+    )
+
+    assert (outcome.status, outcome.removed, (checkout / "tmp_test_x.py").exists()) == (
+        StepStatus.DONE,
+        ("tmp_test_x.py",),
+        False,
+    )
+    assert _committed(checkout) == ["src/sample.py"]
+
+
+# ── Renames, literal names and the work-in-progress keeper (#3488) ────────────────────────────
+
+TICK_FIRST = TASKS.replace("- [ ] Add the failing test", "- [x] Add the failing test")
+
+
+def test_a_staged_rename_into_a_stray_name_is_removed_and_its_source_stays(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    def move() -> None:
+        git(checkout, "mv", "src/other.py", "tmp_test_x.py")
+
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."), effects={2: move})
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.removed) == (StepStatus.DONE, ("tmp_test_x.py",))
+    assert not (checkout / "tmp_test_x.py").exists()
+    assert git(checkout, "ls-files", "src/other.py") == "src/other.py"
+    assert "src/other.py" not in _committed(checkout)
+    assert git(checkout, "status", "--porcelain") == ""
+
+
+def test_a_stray_name_with_glob_characters_does_not_unstage_the_tracked_file_it_matches(
+    store: InMemoryRoadmapStore, checkout: Path
+) -> None:
+    """`git rm` reads a path as a glob, so the stray `scr[a].py`, staged by the agent, would also
+    unstage the tracked `scra.py` (#3488). The stray is literal: only its own entry leaves the index."""
+    (checkout / "scra.py").write_text("A = 1\n", encoding="utf-8")
+    git(checkout, "add", "scra.py")
+    git(checkout, "commit", "-q", "-m", "track scra")
+    (checkout / "scr[a].py").write_text("B = 1\n", encoding="utf-8")
+    git(checkout, "--literal-pathspecs", "add", "--", "scr[a].py")
+    inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
+    log = ToolCallLog()
+
+    _remove_strays(checkout, inputs, log)
+
+    assert log.removed == ["scr[a].py"]
+    assert not (checkout / "scr[a].py").exists()
+    assert git(checkout, "ls-files", "scra.py") == "scra.py"
+    assert git(checkout, "diff", "--cached", "--name-only") == ""
+
+
+def test_a_rename_into_a_stray_name_stays_out_of_a_wip_commit_and_its_source_stays(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """The keeper commits the ticks of a turn, so a rename that the turn staged must not reach
+    that commit: neither the stray nor the deletion of its source (#3488)."""
+    kept: list[WipCommit] = []
+
+    def move() -> None:
+        git(checkout, "mv", "src/other.py", "tmp_test_x.py")
+
+    script = ModelScript(
+        tool_calls(
+            write_call("tests/test_sample.py", TEST_BODY), write_call(TASKS_PATH, TICK_FIRST)
+        ),
+        tool_calls(write_call(TASKS_PATH, TICKED)),
+        say("Done."),
+        effects={2: move},
+    )
+
+    run_step(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        on_wip=kept.append,
+    )
+
+    assert [commit.done for commit in kept] == [1, 2]
+    names = git(checkout, "show", "--name-only", "--format=", kept[-1].sha).splitlines()
+    assert "tmp_test_x.py" not in names
+    assert "src/other.py" not in names
+    assert git(checkout, "ls-files", "src/other.py") == "src/other.py"
