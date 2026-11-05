@@ -86,6 +86,26 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
         "allowed": frozenset({"target", "format_type"}),
         "required": frozenset(),
     },
+    # No `sarif`: the command prints its findings, so the model needs no file (#3235).
+    ("scan", "injection"): {
+        "allowed": frozenset(
+            {
+                "target",
+                "min_severity",
+                "suppress",
+                "show_suppressed",
+                "fail_on",
+                "output_format",
+                "json_output",
+            }
+        ),
+        "required": frozenset(),
+    },
+    # No `out`: a path that the model gives would make the command write a file (#3235).
+    ("tf", "plan"): {
+        "allowed": frozenset({"directory", "var_file", "destroy", "dry_run"}),
+        "required": frozenset(),
+    },
     # No `output`: the command prints the stream, so the model needs no file.
     ("k8s", "security-stream"): {
         "allowed": frozenset(

@@ -37,7 +37,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`argo_fleet_sync`](#argo-fleet-sync) | `false` | Synchronize an application across a fleet of Kubernetes clusters with bounded concurrency. |
 | [`argo_rollouts_analyze`](#argo-rollouts-analyze) | `false` | Evaluate metric rollback gates and trigger automated rollback on threshold violation. |
 | [`branches_list`](#branches-list) | `true` | List branches across all repos. |
-| [`ci`](#ci) | `true` | Run tests, linting, formatting, and type-checks. A run that selects test, security or typecheck first waits for a free gate slot, so the gates of parallel agents take turns. ci.gate_slots sets how many run at once. |
+| [`ci`](#ci) | `false` | Run tests, linting, formatting, and type-checks. A run that selects test, security or typecheck first waits for a free gate slot, so the gates of parallel agents take turns. ci.gate_slots sets how many run at once. |
 | [`config_audit_keys`](#config-audit-keys) | `true` | Audit OS Keyring token health, backend status, and zero-plaintext secret compliance. The audit scans each config file that the settings merge: the global config file and the project config file. It also scans config.yaml and .devops/config.yaml in the current directory. Exits 0 only when the audit is compliant. Exits 1 when a config file holds a plaintext secret, or when a config file cannot be read or parsed, reporting it unaudited. The full report prints before the exit. The alert of a leak names two commands. `devops config set <key>` stores a credential in the keyring. Add `--from-file <path>` for a multi-line credential, such as a PEM key. `DEVOPS_CLI_CONFIG=<file> devops config unset <key>` removes the value from the file of the leak. |
 | [`config_output`](#config-output) | `true` | Output environment variables available for devops-cli configuration. |
 | [`config_show`](#config-show) | `true` | Print every setting that a variable sets and every credential. A credential shows as set or not set, never its value. |
@@ -89,7 +89,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`k8s_teardown_stack`](#k8s-teardown-stack) | `false` | Uninstall the k8s infrastructure / LLM stack and delete namespaces. |
 | [`k8s_tempo_info`](#k8s-tempo-info) | `true` | Retrieve Tempo distributed tracing HTTP API URL and OTLP trace endpoints. |
 | [`k8s_validate`](#k8s-validate) | `true` | Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform. |
-| [`pr_check_readiness`](#pr-check-readiness) | `true` | Validate PR merge readiness: conflicts, draft state, checks, review threads, grounding and draft readiness.  Grounding applies where the base holds openspec/changes/. The PR targets the default branch. It closes exactly one issue, an open issue of its own repository that holds a priority/* label: a roadmap item. GitHub closes that issue when the PR merges. The PR adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive writes for that issue's change. Only that archive writes openspec/specs/ and openspec/changes/archive/. An implement pull request must have every task group ticked. |
+| [`pr_check_readiness`](#pr-check-readiness) | `false` | Validate PR merge readiness: conflicts, draft state, checks, review threads, grounding and draft readiness.  Grounding applies where the base holds openspec/changes/. The PR targets the default branch. It closes exactly one issue, an open issue of its own repository that holds a priority/* label: a roadmap item. GitHub closes that issue when the PR merges. The PR adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops openspec archive writes for that issue's change. Only that archive writes openspec/specs/ and openspec/changes/archive/. An implement pull request must have every task group ticked. |
 | [`pr_checks`](#pr-checks) | `true` | Check remote CI quality gate status on a pull request. |
 | [`pr_close`](#pr-close) | `false` | Close a pull request. |
 | [`pr_describe`](#pr-describe) | `true` | Print the title and the body of the pull request that delivers an issue. The first line is the title, then a blank line, then the body. |
@@ -112,8 +112,8 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`review_pr`](#review-pr) | `false` | Review a GitHub pull request. |
 | [`review_stats`](#review-stats) | `true` | Compute and display review accuracy statistics across saved sessions. |
 | [`roadmap_intake`](#roadmap-intake) | `false` | Turn each open issue with no priority label into a roadmap item, or file a new candidate: intake sets the labels, adds a reason comment and names a possible duplicate for a person to close. It writes nothing without --confirm. Details: docs/roadmap/intake.md. |
-| [`roadmap_refine`](#roadmap-refine) | `true` | Refine roadmap items to Ready: investigate open questions with tools that read the code and the documentation, then write the design, tasks and acceptance criteria to GitHub. Without --confirm, refine prints its plan only. Details: docs/roadmap/refine.md. |
-| [`roadmap_run`](#roadmap-run) | `true` | Run the roadmap jobs that are due, in order: metrics, then intake, refine and the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every 31 minutes, on a first run, and after an intake that placed a critical fix or a P0 item; the alternatives check is due every 719 minutes and on a first run, and checks at most roadmap.alternatives.first_pass_limit items while an item has no check, and roadmap.alternatives.limit items after. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
+| [`roadmap_refine`](#roadmap-refine) | `false` | Refine roadmap items to Ready: investigate open questions with tools that read the code and the documentation, then write the design, tasks and acceptance criteria to GitHub. Without --confirm, refine prints its plan only. Details: docs/roadmap/refine.md. |
+| [`roadmap_run`](#roadmap-run) | `false` | Run the roadmap jobs that are due, in order: metrics, then intake, refine and the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every 31 minutes, on a first run, and after an intake that placed a critical fix or a P0 item; the alternatives check is due every 719 minutes and on a first run, and checks at most roadmap.alternatives.first_pass_limit items while an item has no check, and roadmap.alternatives.limit items after. Without --confirm, or with --dry-run, prints the due list and runs nothing. |
 | [`sandbox_deploy`](#sandbox-deploy) | `false` | Deploy an isolated background container sandbox with security containment. |
 | [`sandbox_exec`](#sandbox-exec) | `false` | Execute a command inside an active sandbox container. |
 | [`sandbox_network_policy`](#sandbox-network-policy) | `true` | Generate declarative Kubernetes NetworkPolicy YAML for workload sandbox isolation. |
@@ -640,7 +640,7 @@ List branches across all repos.
 
 Run tests, linting, formatting, and type-checks. A run that selects test, security or typecheck first waits for a free gate slot, so the gates of parallel agents take turns. ci.gate_slots sets how many run at once.
 
-**Annotations:** `readOnlyHint: true`
+**Annotations:** `readOnlyHint: false`
 
 **Parameters:**
 
@@ -1443,7 +1443,7 @@ adds openspec/changes/archive/\<date\>-\<issue\>-\<slug\>/, which uv run devops 
 writes for that issue's change. Only that archive writes openspec/specs/ and
 openspec/changes/archive/. An implement pull request must have every task group ticked.
 
-**Annotations:** `readOnlyHint: true`
+**Annotations:** `readOnlyHint: false`
 
 **Parameters:**
 
@@ -1884,7 +1884,7 @@ Turn each open issue with no priority label into a roadmap item, or file a new c
 
 Refine roadmap items to Ready: investigate open questions with tools that read the code and the documentation, then write the design, tasks and acceptance criteria to GitHub. Without --confirm, refine prints its plan only. Details: docs/roadmap/refine.md.
 
-**Annotations:** `readOnlyHint: true`
+**Annotations:** `readOnlyHint: false`
 
 **Parameters:**
 
@@ -1901,7 +1901,7 @@ Refine roadmap items to Ready: investigate open questions with tools that read t
 
 Run the roadmap jobs that are due, in order: metrics, then intake, refine and the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at most 5 candidates a run and keeps a record of those it left beside the schedule; refine is due every 31 minutes, on a first run, and after an intake that placed a critical fix or a P0 item; the alternatives check is due every 719 minutes and on a first run, and checks at most roadmap.alternatives.first_pass_limit items while an item has no check, and roadmap.alternatives.limit items after. Without --confirm, or with --dry-run, prints the due list and runs nothing.
 
-**Annotations:** `readOnlyHint: true`
+**Annotations:** `readOnlyHint: false`
 
 **Parameters:**
 
@@ -2057,7 +2057,6 @@ Scan target files for prompt-injection smuggling vectors and canary tokens.
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `target` | `string` | No | `.` | Target file or directory to scan for prompt-injection smuggling vectors. |
-| `sarif` | `string` | No | - | Write findings to this path as a SARIF 2.1.0 document. |
 | `min_severity` | `string` | No | - | Drop findings below this severity (CRITICAL|HIGH|MEDIUM|LOW|INFO). |
 | `suppress` | `string` | No | - | Suppression policy file; inherited policies are resolved via 'extends'. |
 | `show_suppressed` | `boolean` | No | `False` | List findings hidden by the suppression policy and the rule that hid them. |
@@ -2314,7 +2313,6 @@ Generate and show an OpenTofu execution plan.
 |---|---|---|---|---|
 | `directory` | `string` | No | `.` | Target directory containing OpenTofu configuration. |
 | `var_file` | `string` | No | - | Path to variable definitions file. |
-| `out` | `string` | No | - | Write generated plan to file. |
 | `destroy` | `boolean` | No | `False` | Generate a plan to destroy all resources. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 

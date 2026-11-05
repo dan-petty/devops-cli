@@ -265,6 +265,10 @@ CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
     CONST_MCP_EAGER_DOMAINS | CONST_MCP_LAZY_DOMAINS | {"github", "secrets", "benchmarks"}
 )
 # Command exposure table: (command_path, timeout_seconds, read_only, format_json)
+# A role server and a client choose tools by the read-only flag. A tool with an option that writes
+# to GitHub or to a file is not read-only, or its schema leaves that option out.
+# `tests/ai/mcp/test_mcp_read_only_write_options.py` finds such an option by the verbs resolve,
+# write, delete and create in its description (#3235).
 CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool], ...]] = (
     (("ai", "ast", "graph"), 60.0, True, False),
     (("ai", "ast", "parse"), 60.0, True, True),
@@ -297,7 +301,8 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("argo", "fleet", "sync"), 300.0, False, True),
     (("argo", "rollouts", "analyze"), 300.0, False, True),
     (("branches", "list"), 60.0, True, False),
-    (("ci",), 360.0, True, False),
+    # `--fix` is on by default and rewrites files (#3235).
+    (("ci",), 360.0, False, False),
     (("config", "audit-keys"), 30.0, True, False),
     (("config", "output"), 30.0, True, True),
     (("config", "show"), 30.0, True, False),
@@ -348,7 +353,8 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("k8s", "status"), 60.0, True, False),
     (("k8s", "teardown-stack"), 180.0, False, False),
     (("k8s", "validate"), 60.0, True, False),
-    (("pr", "check-readiness"), 60.0, True, False),
+    # `--auto-resolve` resolves review threads on GitHub (#3235).
+    (("pr", "check-readiness"), 60.0, False, False),
     (("pr", "checks"), 60.0, True, False),
     (("pr", "close"), 60.0, False, False),
     (("pr", "describe"), 60.0, True, False),
@@ -371,8 +377,10 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("review", "pr"), 300.0, False, False),
     (("review", "stats"), 60.0, True, False),
     (("roadmap", "intake"), 300.0, False, False),
-    (("roadmap", "refine"), 300.0, True, False),
-    (("roadmap", "run"), 300.0, True, False),
+    # `--confirm` writes the proposed designs to GitHub (#3235).
+    (("roadmap", "refine"), 300.0, False, False),
+    # `--confirm` runs the jobs that write to GitHub (#3235).
+    (("roadmap", "run"), 300.0, False, False),
     (("sandbox", "deploy"), 300.0, False, False),
     (("sandbox", "exec"), 300.0, False, False),
     (("sandbox", "network-policy"), 300.0, True, False),
