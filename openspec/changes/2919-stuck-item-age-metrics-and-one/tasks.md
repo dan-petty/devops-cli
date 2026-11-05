@@ -58,7 +58,7 @@ Reads: `k8s/monitoring/dashboards/project-metrics.json`, `tests/telemetry/test_t
 
 Reads: `src/devops_cli/telemetry/instruments.py`, `docs/TELEMETRY.md`. Changes: `docs/TELEMETRY.md`.
 
-- [ ] 7.1 Run `uv run devops docs generate --sync-readme`. Only `docs/TELEMETRY.md` changes: it gains three rows from the descriptions of the instruments.
+- [x] 7.1 Run `uv run devops docs generate --sync-readme`. Only `docs/TELEMETRY.md` changes: it gains three rows from the descriptions of the instruments.
   - Verification: `uv run devops docs check`
 
 ## Criteria
