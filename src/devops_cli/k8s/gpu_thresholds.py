@@ -2,8 +2,9 @@
 
 `k8s/llm/profiles/gpu-thresholds.yaml` names two architectures, and each template in
 `k8s/llm/profiles/tier-templates/` is one tier. A tier at or below `embedding_only` serves embedding
-models alone, and the gateway tries it first. A tier at or below `per_gpu` runs one Ollama instance
-per GPU, each with its own Service and gateway deployment. A rendered tier is named for what it is:
+models alone, and the gateway tries it first. A tier above it is a chat tier: it loads one model, and
+the gateway sends it no embedding batch (#3567). A tier at or below `per_gpu` runs one Ollama
+instance per GPU, each with its own Service and gateway deployment. A rendered tier is named for what it is:
 `ollama-<VRAM of one instance>gib-<embed or speed tier>`, with `-gpu<n>` for each instance. The output
 goes between two marker lines in each manifest, so the rest of the file stays as a person wrote it
 (#3501).
@@ -45,9 +46,8 @@ _EMBEDDING_ONLY_SPEED: Final[str] = "embed"
 # The most GPUs a node has for the gpu.count requirement of a later instance. The operator is In,
 # the one operator that the GPU placement check reads.
 _MOST_GPUS_ON_A_NODE: Final[int] = 8
-# LiteLLM tries the lowest order first. The other tiers of the embedding group are at order 2 and 3.
+# LiteLLM tries the lowest order first. The tiers that the config writes by hand are at order 2.
 _EMBEDDING_ONLY_ORDER: Final[int] = 1
-_FALLBACK_ORDER: Final[int] = 3
 # An embedding-only tier needs no memory for a chat model. Peak memory of an instance was 890 MiB
 # under load. With LLAMA_ARG_THREADS at 1, an instance uses 1.2 CPU cores under load.
 _EMBEDDING_ONLY_RESOURCES: Final[dict[str, dict[str, str]]] = {
@@ -341,16 +341,18 @@ def render_tier_manifests(
         tier = _rendered_daemonsets(template, thresholds)
         embedding_only = _at_or_below(template, thresholds.embedding_only)
         daemonsets += tier
-        order = _EMBEDDING_ONLY_ORDER if embedding_only else _FALLBACK_ORDER
-        model = template["metadata"]["annotations"][_EMBEDDING_MODEL_ANNOTATION]
-        routes += [_embedding_route(daemonset, model, order=order) for daemonset in tier]
         if embedding_only:
+            model = template["metadata"]["annotations"][_EMBEDDING_MODEL_ANNOTATION]
+            routes += [
+                _embedding_route(daemonset, model, order=_EMBEDDING_ONLY_ORDER)
+                for daemonset in tier
+            ]
             names = {str(d["metadata"]["name"]) for d in tier}
             refusals.append(({str(template["metadata"]["name"]), *names}, sorted(names)[0]))
 
     gateway = _replace_region(
         manifests.gateway,
-        "".join(f"  {line}\n" for line in _dump(routes).splitlines()),
+        "".join(f"  {line}\n" for line in _dump(routes).splitlines()) if routes else "",
         "gateway config",
     )
     for services, tier_name in refusals:

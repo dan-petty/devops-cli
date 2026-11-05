@@ -76,7 +76,7 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "128000"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_SCHED_SPREAD
               value: "1"
           resources:
@@ -222,8 +222,8 @@ def test_a_later_gpu_instance_needs_a_node_with_that_many_gpus() -> None:
 
 
 def test_a_tier_newer_than_both_thresholds_runs_as_its_template_says() -> None:
-    """Below the tier's newest architecture, neither threshold changes the tier, and its
-    embedding route stays a fallback."""
+    """Below the tier's newest architecture, neither threshold changes the tier, and a chat tier
+    gets no embedding route: it loads one model (#3567)."""
     rendered = _render("maxwell", "kepler")
     (tier,) = _daemonsets(rendered).values()
     template = yaml.safe_load(_TEMPLATE)
@@ -239,7 +239,7 @@ def test_a_tier_newer_than_both_thresholds_runs_as_its_template_says() -> None:
             "llm.devops.io/vram-gib": "48gib",
             "llm.devops.io/speed-tier": "slow",
         },
-        [("qwen3-embedding:0.6b", SLOW, 3)],
+        [],
     )
 
 
@@ -258,16 +258,16 @@ def test_the_two_thresholds_act_alone() -> None:
         _env(_daemonsets(per_gpu)["ollama-24gib-slow-gpu0"])["OLLAMA_MAX_LOADED_MODELS"],
         _env(single)["LLAMA_ARG_THREADS"],
         "LLAMA_ARG_THREADS" in _env(_daemonsets(per_gpu)["ollama-24gib-slow-gpu0"]),
-        [order for _, _, order in _routes(per_gpu)],
+        _routes(per_gpu),
     ) == (
         ["ollama-48gib-embed"],
         "1",
         "1",
         [("qwen3-embedding:0.6b", "http://ollama-48gib-embed.llm.svc.cluster.local:11434", 1)],
-        "2",
+        "1",
         "1",
         False,
-        [3, 3],
+        [],
     )
 
 

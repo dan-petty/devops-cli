@@ -143,9 +143,9 @@ def _remote_settings(provider: str, **ai_fields: Any) -> Settings:
         ),
         (
             "gateway",
-            "qwen3-coder:30b",
+            "qwen3.8:27b",
             {"gateway_url": _EXAMPLE_GATEWAY},
-            ("qwen3-coder:30b", f"{_EXAMPLE_GATEWAY}/"),
+            ("qwen3.8:27b", f"{_EXAMPLE_GATEWAY}/"),
         ),
         (
             "openai",
@@ -320,7 +320,7 @@ def test_remote_model_on_loopback_needs_no_opt_in(
     )
 
 
-@pytest.mark.parametrize(("provider", "model"), [("mock", "gpt-4o"), ("custom", "qwen3-coder:30b")])
+@pytest.mark.parametrize(("provider", "model"), [("mock", "gpt-4o"), ("custom", "qwen3.8:27b")])
 def test_remote_model_pydantic_ai_cannot_infer_raises(
     remote_bridge: Any, provider: str, model: str
 ) -> None:
@@ -328,7 +328,7 @@ def test_remote_model_pydantic_ai_cannot_infer_raises(
 
     Neither provider maps to a pydantic-ai prefix, so pydantic-ai is left the bare name: it
     refuses `gpt-4o` as an unknown model, with its hint "Did you mean 'openai-chat:gpt-4o'?",
-    and `qwen3-coder:30b` as naming an unknown provider.
+    and `qwen3.8:27b` as naming an unknown provider.
     """
     from devops_cli.exceptions import ConfigurationError
 
@@ -373,7 +373,7 @@ def test_remote_model_whose_provider_package_is_missing_raises(
 def _cascade_settings(provider: str) -> Settings:
     return _remote_settings(
         provider,
-        model="qwen3-coder:30b",
+        model="qwen3.8:27b",
         gateway_url=_EXAMPLE_GATEWAY,
         portkey_url=_EXAMPLE_PORTKEY,
         ollama_urls=[_EXAMPLE_OLLAMA],
@@ -394,7 +394,7 @@ def test_cascade_reaches_each_gateway_and_then_ollama(remote_bridge: Any, provid
     assert [(m.system, m.model_name, str(m.base_url)) for m in cascade.models] == [
         ("openai", "devops-chat", f"{_EXAMPLE_GATEWAY}/"),
         ("openai", "devops-chat", f"{_EXAMPLE_PORTKEY}/"),
-        ("ollama", "qwen3-coder:30b", f"{_EXAMPLE_OLLAMA}/v1/"),
+        ("ollama", "qwen3.8:27b", f"{_EXAMPLE_OLLAMA}/v1/"),
     ]
 
 
@@ -416,7 +416,7 @@ def test_gateway_cascade_falls_back_through_its_routes_to_ollama(
         cascade = router.build_pydantic_cascade_model(virtual_model, settings=settings)
         return [(m.system, m.model_name, str(m.base_url)) for m in cascade.models]
 
-    ollama = ("ollama", "qwen3-coder:30b", f"{_EXAMPLE_OLLAMA}/v1/")
+    ollama = ("ollama", "qwen3.8:27b", f"{_EXAMPLE_OLLAMA}/v1/")
     assert (members("devops-coder"), members("devops-chat")) == (
         [
             ("openai", "devops-coder", f"{_EXAMPLE_GATEWAY}/"),

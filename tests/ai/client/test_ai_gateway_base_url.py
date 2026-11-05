@@ -69,7 +69,7 @@ def test_task_switching_provider_does_not_inherit_global_api_base_url() -> None:
         ),
         ("openai:gpt-4o", ("openai:gpt-4o", OPENAI_URL)),
         ("devops-coder", ("openai-chat:devops-coder", OPENAI_URL)),
-        ("qwen3-coder:30b", ("openai-chat:qwen3-coder:30b", OPENAI_URL)),
+        ("qwen3.8:27b", ("openai-chat:qwen3.8:27b", OPENAI_URL)),
     ],
 )
 def test_bridge_gateway_prefixes_use_their_configured_urls(

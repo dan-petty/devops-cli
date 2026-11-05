@@ -771,7 +771,7 @@ def test_corpus_score_warns_when_a_gateway_group_serves_several_models(
     corpus_dir, reviews = _reviewed_corpus(tmp_path, monkeypatch)
     _session(reviews, "20260924-100000", corpus_dir / CORPUS_FILES_DIR, [], **_profiled(100))
     pool = [
-        {"backend": "backend-a", "model": "ollama_chat/qwen3-coder:30b", "weight": 1},
+        {"backend": "backend-a", "model": "ollama_chat/qwen3.8:27b", "weight": 1},
         {"backend": "backend-b", "model": "ollama_chat/gpt-oss:20b", "weight": 1},
     ]
     monkeypatch.setattr(

@@ -2,11 +2,16 @@
 # Tiers: 16gib, 24gib, 32gib, 48gib, 64gib, 72gib, 96gib, 128gib.
 # Each tier serves one request per model at a time. Ollama reserves KV cache for
 # OLLAMA_CONTEXT_LENGTH x OLLAMA_NUM_PARALLEL tokens, and four slots left a dense ~30B model too
-# little VRAM to load (#1061). A tier keeps one model loaded, except a chat tier that the gateway
-# sends embeddings to (16gib, 48gib and 64gib), which keeps two. Ollama loads the second model
-# only when both fit in VRAM, and otherwise unloads the idle one, so the embedder stays beside the
-# chat model where it fits (#1987). Each of these tiers must hold qwen3-embedding:0.6b in its model
-# directory.
+# little VRAM to load (#1061). A tier keeps one model loaded, except ollama-16gib, which the gateway
+# sends embeddings to as its fallback and which keeps two. Ollama loads the second model only when
+# both fit in VRAM, and otherwise unloads the idle one, so the embedder stays beside the chat model
+# where it fits (#1987). That tier must hold qwen3-embedding:0.6b in its model directory.
+# ollama-48gib and ollama-64gib load qwen3.8:27b and no other model (#3567): OLLAMA_MAX_LOADED_MODELS
+# is 1 and OLLAMA_KEEP_ALIVE is -1, so the model stays loaded for good and no swap drops its KV
+# cache. The gateway sends them no other model and no embedding batch. The model directory of
+# each node still holds the files of other models, and a client that calls the tier directly with
+# one of those names makes Ollama unload qwen3.8:27b and load it. Change these settings and the
+# gateway routes together.
 #
 # gpu-thresholds.yaml and tier-templates/ set the region between the two "rendered" lines:
 # `devops ai gateway render --apply` writes it, so do not edit it. With the thresholds at pascal,
@@ -16,16 +21,23 @@
 # up to 8192 gave no gain, so these tiers also serve one request at a time. LLAMA_ARG_THREADS of 1
 # keeps the speed and uses 1.2 CPU cores, not 12.
 # ollama-64gib sets LLAMA_ARG_CACHE_RAM to 4096 MiB and a container memory limit of 12Gi. Node
-# gemini has 15.3 GiB of memory, and its 160000 context length can exhaust host memory without
-# a prompt cache bound (#2382).
+# gemini had 15.3 GiB of memory, and its 160000 context length could exhaust host memory without
+# a prompt cache bound (#2382). The node now has 62.5 GiB, and its memory use peaked at 13.4 GiB
+# in 14 days. The bounds stay: the llama-server of one model takes about 4 GiB, and the cache
+# bound adds 4 GiB. A prompt cache entry of qwen3.8:27b takes 34 KiB a token with q8_0, so a prompt
+# of more than about 120000 tokens does not fit the bound.
 #
-# Context lengths were measured on the tiers (#2822). ollama-48gib runs 262144, the native limit
-# of qwen3-coder:30b and qwen3.8:27b: with q8_0 KV cache, qwen3-coder:30b takes 37 GB of the
-# 48 GiB at that length, 100% on the GPUs, and read a 142000-token prompt in 84 s. ollama-16gib
-# runs 131072, the native limit of gpt-oss:20b, which takes 13 GB with q4_0 KV cache (#2822).
-# Every tier now sets q8_0 so that every embedding vector is the same (#2396). The q8_0 cache
-# of that model is larger by up to 1.5 GiB (an estimate, not a measurement). The 70B
-# models of ollama-64gib stay at 160000: their KV cache already fills that tier.
+# Context lengths were measured on the tiers (#2822, #3567). ollama-48gib and ollama-64gib run
+# 262144, the native limit of qwen3.8:27b (`ollama show`). With q8_0 KV cache, qwen3.8:27b takes
+# 27 GB at that length, 100% on the GPUs of ollama-48gib (`ollama ps`, 2026-11-05). That is a
+# little over half of the 48 GiB, and under half of the 64 GiB of ollama-64gib, whose two GPUs
+# share the model. Nobody has
+# loaded 262144 on ollama-64gib: it ran qwen3.8:27b at 160000, and the VRAM is the figure above
+# plus 3.4 GiB of KV cache at most. Earlier, with qwen3-coder:30b, ollama-48gib took 37 GB at that
+# length and read a 142000-token prompt in 84 s. ollama-16gib runs 131072, the native limit of
+# gpt-oss:20b, which takes 13 GB with q4_0 KV cache (#2822). Every tier now sets q8_0 so that
+# every embedding vector is the same (#2396). The q8_0 cache of that model is larger by up to
+# 1.5 GiB (an estimate, not a measurement).
 #
 # Every tier runs ollama as UID and GID 10001, which no host login account uses, with RuntimeDefault
 # seccomp, no privilege escalation, all capabilities dropped and a read-only root filesystem; /tmp is
@@ -559,9 +571,11 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "262144"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_NUM_PARALLEL
               value: "1"
+            - name: OLLAMA_KEEP_ALIVE
+              value: "-1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD
@@ -1037,11 +1051,13 @@ spec:
             - name: OLLAMA_MODELS
               value: /home/ollama/.ollama/models
             - name: OLLAMA_CONTEXT_LENGTH
-              value: "160000"
+              value: "262144"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_NUM_PARALLEL
               value: "1"
+            - name: OLLAMA_KEEP_ALIVE
+              value: "-1"
             - name: OLLAMA_KV_CACHE_TYPE
               value: q8_0
             - name: OLLAMA_SCHED_SPREAD

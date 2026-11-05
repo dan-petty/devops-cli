@@ -60,7 +60,7 @@ class TestReasoningCapabilityResolution:
             },
             {
                 "model_name": "devops-review",
-                "litellm_params": {"model": "ollama_chat/qwen3-coder:30b"},
+                "litellm_params": {"model": "ollama_chat/qwen3.8:27b"},
                 "model_info": {},
             },
             {
@@ -69,8 +69,8 @@ class TestReasoningCapabilityResolution:
                 "model_info": {"supports_reasoning": True},
             },
             {
-                "model_name": "qwen3-coder:30b",
-                "litellm_params": {"model": "ollama_chat/qwen3-coder:30b"},
+                "model_name": "qwen3.8:27b",
+                "litellm_params": {"model": "ollama_chat/qwen3.8:27b"},
                 "model_info": {},
             },
         ]
@@ -78,7 +78,7 @@ class TestReasoningCapabilityResolution:
         assert (
             capabilities.get("gpt-oss:20b"),
             capabilities.get("devops-review"),
-            capabilities.get("qwen3-coder:30b"),
+            capabilities.get("qwen3.8:27b"),
             capabilities.get("o3"),
         ) == (True, False, False, None)
 

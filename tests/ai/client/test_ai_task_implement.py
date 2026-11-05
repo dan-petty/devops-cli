@@ -63,9 +63,9 @@ def test_the_tier_model_of_a_local_group_goes_to_the_gateway(
 def test_the_tier_model_of_an_ollama_tag_is_the_local_model(config: Callable[..., Path]) -> None:
     config(ai={"provider": "ollama"})
 
-    model = factory.get_tier_model("ollama:qwen3-coder:30b")
+    model = factory.get_tier_model("ollama:qwen3.8:27b")
 
-    assert model.model_name == "qwen3-coder:30b"
+    assert model.model_name == "qwen3.8:27b"
     assert isinstance(model, Model)
 
 

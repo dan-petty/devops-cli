@@ -35,7 +35,7 @@ tags:
 from devops_cli.ai.pydantic_ai_bridge import build_fallback_cascade_model, resolve_pydantic_ai_model
 
 # Resolve a configured model name to a pydantic-ai Model on its configured endpoint
-model = resolve_pydantic_ai_model("ollama:qwen3-coder:30b")
+model = resolve_pydantic_ai_model("ollama:qwen3.8:27b")
 
 # Fall back across the gateway routes and then Ollama
 cascade = build_fallback_cascade_model()
