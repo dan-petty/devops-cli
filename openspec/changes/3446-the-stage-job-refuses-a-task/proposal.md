@@ -7,7 +7,7 @@
 ## What Changes
 
 - `path_problems` in `src/devops_cli/roadmap/stage_paths.py` refuses a task code-span path that its group lists in neither `reads`, `changes` nor `creates`.
-- A task path under `openspec/changes/` or `openspec/specs/` stays accepted, because the stage job and `openspec archive` write those folders.
+- A task path under the change folder or the living spec folder stays accepted, because the stage job and the archive command write those folders.
 - A task path that is a folder of a path in the group's `creates` stays accepted.
 - A message field of `RoadmapMessages` in `src/devops_cli/lang/en/messages.py` carries the refusal, with the group number and the path.
 - `tests/roadmap/test_roadmap_stage_content.py` holds a case for the refusal and a case for each accepted form.
