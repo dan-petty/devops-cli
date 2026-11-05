@@ -102,12 +102,12 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
 
     counts = {t.type: (t.caught, t.missed, t.unjudged) for t in report.by_type()}
 
-    assert counts[DefectType.MISSING_PATH] == (31, 0, 0)
+    assert counts[DefectType.MISSING_PATH] == (32, 0, 0)
     assert counts[DefectType.SPEC_DELTA_WRONG] == (5, 0, 20)
     assert counts[DefectType.VERIFY_FORM] == (6, 0, 12)
     assert counts[DefectType.TASK_ORDER] == (0, 0, 8)
     assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)
-    assert report.judged() == (67, 303)
+    assert report.judged() == (68, 304)
 
 
 def test_the_judged_share_counts_the_caught_and_the_missed_and_not_the_rest(

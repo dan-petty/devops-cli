@@ -1,0 +1,13 @@
+# Item #3411: feat(roadmap): refuse a what_changes item that names no group path
+
+## Problem or Motivation
+
+The stage job renders the `## Impact` section of `proposal.md` from the paths in the group `changes` (`_impact` in `src/devops_cli/roadmap/stage_change.py`). The model also writes `what_changes` as free text. Nothing compares the two.
+
+The plan of #3379 for #3373 named `src/devops_cli/lang/en/messages.py` in What Changes, but no group listed it in `changes`. The rendered Impact omitted the file, and every gate accepted the plan. A reader of the plan cannot see that the file changes, and the implement step has no group that edits it.
+
+The same gap hides a path that a What Changes item names but no group changes or creates. The check reads the paths of the groups, and not the text of the proposal.
+
+### Acceptance criteria
+
+- [ ] The stage check refuses a What Changes item that names a repository path that no group lists in `changes` or `creates`.

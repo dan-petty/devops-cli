@@ -1,5 +1,6 @@
 """`devops roadmap stage`: a plan holds no placeholder text, quotes its probe, gives the cost of
-its own code and keeps its summary whole (#3200)."""
+its own code, keeps its summary whole (#3200) and names no What Changes path that no group lists
+(#3411)."""
 
 from __future__ import annotations
 
@@ -22,6 +23,9 @@ from tests.support.builders import make_stage_proposal
 
 PROBE = "def f(): pass"
 TREE = StagedTree(["src/devops_cli/sample.py", "tests/test_sample.py"])
+MESSAGES_FILE = "src/devops_cli/lang/en/messages.py"
+LIVING_SPEC = "openspec/specs/roadmap-stage/spec.md"
+LIVING_SPEC_TREE = TREE.with_files([LIVING_SPEC])
 
 
 def _check(proposal: StageProposal, **keywords: Any) -> list[str]:
@@ -160,3 +164,74 @@ def test_the_staging_title_holds_the_whole_summary() -> None:
 
 def test_the_replay_has_a_content_gate_for_the_other_type() -> None:
     assert gate_for(DefectType.OTHER) is GateName.CONTENT
+
+
+def test_a_what_changes_path_that_no_group_lists_is_refused() -> None:
+    plan = make_stage_proposal(what_changes=[f"`{MESSAGES_FILE}` gains a message."])
+
+    problems = _check(plan)
+
+    assert any(MESSAGES_FILE in p for p in problems)
+
+
+def test_a_what_changes_path_that_a_group_changes_is_accepted() -> None:
+    plan = make_stage_proposal(what_changes=["`src/devops_cli/sample.py` keeps the last comment."])
+
+    assert not any("src/devops_cli/sample.py" in p for p in _check(plan))
+
+
+def test_a_what_changes_path_that_a_group_creates_is_accepted() -> None:
+    sample = make_stage_proposal()
+    group = sample.groups[0].model_copy(
+        update={
+            "changes": [*sample.groups[0].changes, "src/devops_cli/new_check.py"],
+            "creates": [*sample.groups[0].creates, "src/devops_cli/new_check.py"],
+            "creates_lines": {**sample.groups[0].creates_lines, "src/devops_cli/new_check.py": 20},
+        }
+    )
+    plan = make_stage_proposal(
+        what_changes=["`src/devops_cli/new_check.py` refuses the plan."], groups=[group]
+    )
+
+    assert not any("src/devops_cli/new_check.py" in p for p in _check(plan))
+
+
+def test_a_what_changes_item_with_no_path_is_accepted() -> None:
+    plan = make_stage_proposal(what_changes=["The job keeps the last comment of a thread."])
+
+    assert not any("What Changes" in p for p in _check(plan))
+
+
+def test_a_what_changes_code_span_that_is_no_path_is_accepted() -> None:
+    plan = make_stage_proposal(what_changes=["Run `uv run devops ci test` before the change."])
+
+    assert not any("What Changes" in p for p in _check(plan))
+
+
+def test_a_what_changes_path_under_the_living_spec_folder_is_accepted() -> None:
+    plan = make_stage_proposal(what_changes=[f"`{LIVING_SPEC}` gains a scenario."])
+
+    problems = check_proposal(plan, ["comment-thread"], LIVING_SPEC_TREE)
+
+    assert not any(LIVING_SPEC in p for p in problems)
+
+
+def test_a_what_changes_folder_that_a_group_writes_under_is_accepted() -> None:
+    sample = make_stage_proposal()
+    group = sample.groups[0].model_copy(
+        update={
+            "changes": [*sample.groups[0].changes, "src/devops_cli/sample/ready.py"],
+            "creates": [*sample.groups[0].creates, "src/devops_cli/sample/ready.py"],
+            "creates_lines": {
+                **sample.groups[0].creates_lines,
+                "src/devops_cli/sample/ready.py": 10,
+            },
+        }
+    )
+    plan = make_stage_proposal(
+        what_changes=["Move the sample module into `src/devops_cli/sample/`."], groups=[group]
+    )
+
+    problems = _check(plan)
+
+    assert not any("src/devops_cli/sample/" in p for p in problems)

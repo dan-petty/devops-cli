@@ -4,23 +4,23 @@
 
 Reads: `src/devops_cli/roadmap/stage_paths.py`, `tests/roadmap/test_roadmap_stage_paths.py`. Changes: `src/devops_cli/roadmap/stage_paths.py`.
 
-- [ ] 1.1 Add `StagedTree.code_span_paths(text)` to `src/devops_cli/roadmap/stage_paths.py`, which reads the code spans of `text` with `code_spans` and returns the paths that `StagedTree.paths_in` finds, and let the group check call it. Behaviour stays the same: the group texts keep refusing the same paths
+- [x] 1.1 Add `StagedTree.code_span_paths(text)` to `src/devops_cli/roadmap/stage_paths.py`, which reads the code spans of `text` with `code_spans` and returns the paths that `StagedTree.paths_in` finds, and let the group check call it. Behaviour stays the same: the group texts keep refusing the same paths
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_paths.py` passes
 
 ## 2. Refuse an unlisted What Changes path
 
 Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage_paths.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_content.py`. Changes: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_content.py`.
 
-- [ ] 2.1 Add a case to `tests/roadmap/test_roadmap_stage_content.py` where a proposal names `src/devops_cli/lang/en/messages.py` in What Changes and no group lists it, and assert that `check_proposal` returns a problem that names that path; add a case for a changed path, one for a created path, one for an item with no path, one for a code span that is no path and one for a path under the living spec folder
+- [x] 2.1 Add a case to `tests/roadmap/test_roadmap_stage_content.py` where a proposal names `src/devops_cli/lang/en/messages.py` in What Changes and no group lists it, and assert that `check_proposal` returns a problem that names that path; add a case for a changed path, one for a created path, one for an item with no path, one for a code span that is no path and one for a path under the living spec folder
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_content.py` fails on the base
-- [ ] 2.2 Add a message to `RoadmapMessages` in `src/devops_cli/lang/en/messages.py` that names the path and says that no group lists it in `changes` or `creates`. Add a function to `src/devops_cli/roadmap/stage_change.py` that collects the `changes` and `creates` paths of every group and returns one problem for each code-span path of a `what_changes` item that the set does not hold and that is not under `openspec/specs/`. Call it from `check_proposal` with the staged tree
+- [x] 2.2 Add a message to `RoadmapMessages` in `src/devops_cli/lang/en/messages.py` that names the path and says that no group lists it in `changes` or `creates`. Add a function to `src/devops_cli/roadmap/stage_change.py` that collects the `changes` and `creates` paths of every group and returns one problem for each code-span path of a `what_changes` item that the set does not hold and that is not under `openspec/specs/`. Call it from `check_proposal` with the staged tree
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_content.py` passes
 
 ## 3. Add the golden case of the unlisted What Changes path
 
 Reads: `tests/roadmap/test_roadmap_stage_eval_cases.py`, `tests/roadmap/test_roadmap_stage_eval_run.py`, `src/devops_cli/roadmap/stage_eval_cases.py`, `src/devops_cli/roadmap/stage_eval_gates.py`, `tests/fixtures/roadmap_eval/stage/3167-a-comment-by-a-person-on/`. Changes: `tests/fixtures/roadmap_eval/stage/3411-a-what-changes-item-that-names/case.json` (new), `tests/fixtures/roadmap_eval/stage/3411-a-what-changes-item-that-names/issue.txt` (new), `tests/fixtures/roadmap_eval/stage/3411-a-what-changes-item-that-names/plan.json` (new), `tests/fixtures/roadmap_eval/stage/3411-a-what-changes-item-that-names/facts.json` (new), `tests/roadmap/test_roadmap_stage_eval_cases.py`.
 
-- [ ] 3.1 Add the four files `case.json` (new), `issue.txt` (new), `plan.json` (new) and `facts.json` (new) to the folder `3411-a-what-changes-item-that-names` under the stage golden set. The plan names a repository path in What Changes that no group lists. Give `facts.json` the top folder and the suffix of that path, so the tree rule reads it as a path. Record one `missing_path` defect with gate `paths` and that path. Add the case pull number to `EVALUATED_PULLS` and the count in `tests/roadmap/test_roadmap_stage_eval_cases.py`
+- [x] 3.1 Add the four files `case.json` (new), `issue.txt` (new), `plan.json` (new) and `facts.json` (new) to the folder `3411-a-what-changes-item-that-names` under the stage golden set. The plan names a repository path in What Changes that no group lists. Give `facts.json` the top folder and the suffix of that path, so the tree rule reads it as a path. Record one `missing_path` defect with gate `paths` and that path. Add the case pull number to `EVALUATED_PULLS` and the count in `tests/roadmap/test_roadmap_stage_eval_cases.py`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_eval_cases.py tests/roadmap/test_roadmap_stage_eval_run.py tests/roadmap/test_roadmap_stage_eval_gates.py` passes
 
 ## Criteria

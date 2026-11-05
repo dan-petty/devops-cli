@@ -133,6 +133,11 @@ class StagedTree:
         """The paths among the words of `text`."""
         return [path for word in text.split() if (path := self.as_path(word)) is not None]
 
+    def code_span_paths(self, text: str) -> list[str]:
+        """The paths among the code spans of `text`, in order. Only a code span names a path: the
+        other words of a text are prose that a check leaves alone."""
+        return [path for span in code_spans(text) for path in self.paths_in(span)]
+
 
 def _keep_slash(path: str) -> str:
     """`path` in normal form, with the trailing slash kept: a path that ends in `/` is a folder,
@@ -162,8 +167,7 @@ def _named(group: StageGroup, tree: StagedTree) -> Iterator[tuple[_Place, str]]:
     yield from ((_Place.READS, path) for path in group.reads)
     yield from ((_Place.CHANGES, path) for path in group.changes)
     for text in (group.test, group.implementation, group.documentation, group.process):
-        for span in code_spans(text or ""):
-            yield from ((_Place.TASK, path) for path in tree.paths_in(span))
+        yield from ((_Place.TASK, path) for path in tree.code_span_paths(text or ""))
     yield from ((_Place.VERIFY, path) for path in _verify_paths(group.verify or "", tree))
 
 

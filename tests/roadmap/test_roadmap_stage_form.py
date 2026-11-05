@@ -48,7 +48,9 @@ def _plan(*changes: str, creates: tuple[str, ...] = (), verify: str | None = Non
         update["verify"] = verify
     group = StageGroup.model_validate({**base, **update})
     return make_stage_proposal(
-        groups=[group], **({} if sourced else {"skip_specs": True, "specs": []})
+        groups=[group],
+        what_changes=[f"`{path}` changes." for path in changes],
+        **({} if sourced else {"skip_specs": True, "specs": []}),
     )
 
 
