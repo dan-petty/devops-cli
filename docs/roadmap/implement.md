@@ -55,6 +55,8 @@ The effort of an item picks its pass: the job runs one pass for each value of th
 
 The job leaves out a Planned item whose title has no Conventional Commit type, or whose title summary has more than 60 characters. It judges the title before it reads the plan or makes a model request. `devops roadmap retitle` shortens such a title.
 
+The job also leaves out an item whose plan fails the stage gates, or whose plan the reader cannot read. The job checks a Staged item on its branch, and a Planned item on the default branch. The job names the first problem in the report and in `devops roadmap explain`. No runner Job starts for such an item.
+
 - A **Staged** item has its staged branch and draft on `origin`.
 - A **Planned** item has its change folder on the default branch and no branch. The job makes the branch `<type>/<issue>-<slug>` there, with the slug of the folder. It opens the draft when the branch first holds a commit.
 

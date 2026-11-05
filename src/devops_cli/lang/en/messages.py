@@ -2656,6 +2656,8 @@ class RoadmapMessages:
     implement_left_no_branch: str = "Its staged branch `{branch}` is not on origin."
     implement_left_foreign: str = "Its branch has a commit by {author}, not by {bot}."
     implement_left_pull: str = "Its pull request #{pull} is not an open draft."
+    implement_left_plan: str = "Its plan fails the stage check: {problem}"
+    implement_left_plan_git: str = "Its plan cannot be read from git: {reason}"
     implement_job_title: str = "# Implement plan for {repo}"
     implement_job_nothing: str = "No item to implement."
     implement_job_heading_ready: str = "## To implement"

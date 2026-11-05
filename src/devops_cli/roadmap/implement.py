@@ -27,9 +27,10 @@ neither Staged nor Planned, a step stopped it
 and no person cleared the stop,
 its author is not the owner, a member or a collaborator, its branch is gone from `origin` or holds
 a commit by anyone but the App (a clean merge by a person does not count, #3392), a worktree holds
-the issue, its pull request is not an open draft, or, for a Planned item, a branch of `origin`
-holds the issue, its change is archived, it has no branch name, its change has no `tasks.md` on
-the default branch, or every task of its change is ticked. A run takes at most `--limit` items,
+the issue, its plan fails the stage gates of `check_proposal` or the reader cannot read it (#3393),
+its pull request is not an open draft, or, for a Planned item, a branch of `origin` holds the issue,
+its change is archived, it has no branch name, its change has no `tasks.md` on the default branch,
+or every task of its change is ticked. A run takes at most `--limit` items,
 the highest priority first. `--item` takes the one item it names and does not apply the filter or
 the limit.
 
@@ -48,6 +49,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import Final, NamedTuple
 
@@ -78,6 +80,14 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors
 from devops_cli.roadmap.commit_title import commit_type
+from devops_cli.roadmap.plan_read import (
+    PlanReadError,
+    change_root,
+    files_at,
+    read_change,
+    specs_at,
+    tree_files,
+)
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes, tasks_on_default
 from devops_cli.roadmap.refine import inspect_checkout
 from devops_cli.roadmap.stage import (
@@ -90,6 +100,8 @@ from devops_cli.roadmap.stage import (
     unmatched_items,
     walk_named,
 )
+from devops_cli.roadmap.stage_change import check_proposal
+from devops_cli.roadmap.stage_paths import StagedTree
 from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.store import (
@@ -286,7 +298,11 @@ class _Judge:
         retry = bool(stopped)
         if isinstance(route, _Planned):
             return self._planned_target(item, route.folder, retry=retry)
-        why = self._branch_reason(item, route.branch) or self._pull_reason(route.pull)
+        why = (
+            self._branch_reason(item, route.branch)
+            or self._plan_reason(item, f"origin/{route.branch}")
+            or self._pull_reason(route.pull)
+        )
         return why if why is not None else ImplementTarget(item, route.branch, route.pull, retry)
 
     def _route(self, item: Item) -> RecordedBranch | _Planned | None:
@@ -327,7 +343,37 @@ class _Judge:
             )
         if all(task.ticked for group in parse_task_groups(tasks) for task in group.tasks):
             return texts.implement_left_all_ticked.format(folder=folder)
+        if (problem := self._plan_reason(item, f"origin/{self._planned.default}")) is not None:
+            return problem
         return ImplementTarget(item, branch, None, retry)
+
+    @cached_property
+    def _base_facts(self) -> tuple[frozenset[str], dict[str, tuple[str, ...]]]:
+        """The capabilities and the requirement names of the base specs on the default branch. The
+        judge reads them once for each run, and not once for each item (#3393)."""
+        return specs_at(self._source, f"origin/{self._planned.default}", operation=GIT_OPERATION)
+
+    def _plan_reason(self, item: Item, rev: str) -> str | None:
+        """The first problem that the stage gates find in the plan of `item` at `rev`, or None when
+        the plan passes (#3393). A plan that the reader or git cannot read gives its reason too, so
+        the item is left out and the run goes on with the other items."""
+        texts = MESSAGES.roadmap
+        try:
+            files = tree_files(self._source, rev, operation=GIT_OPERATION)
+            root, folder_problems = change_root(files, item.number)
+            if root is None:
+                return folder_problems[0]
+            changed = [path for path in files if path.startswith(f"{root}/")]
+            proposal = read_change(files_at(self._source, rev, changed, operation=GIT_OPERATION))
+            known, requirements = self._base_facts
+        except PlanReadError as error:
+            return texts.plan_check_read.format(path=error.path, reason=error.reason)
+        except GitOperationError as error:
+            return texts.implement_left_plan_git.format(reason=error)
+        problems = check_proposal(
+            proposal, known, StagedTree(files), requirements=requirements, issue_body=item.body
+        )
+        return texts.implement_left_plan.format(problem=problems[0]) if problems else None
 
     def _branch_reason(self, item: Item, branch: str) -> str | None:
         texts = MESSAGES.roadmap

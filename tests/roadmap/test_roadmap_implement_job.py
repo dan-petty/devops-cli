@@ -24,8 +24,9 @@ from devops_cli.config import constants
 from devops_cli.exceptions import RoadmapImplementError
 from devops_cli.git.worktree_add import worktree_directory
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
-from devops_cli.roadmap.implement import parse_implement_filters, plan_implement
+from devops_cli.roadmap.implement import ImplementPlan, parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement_run import apply_implement, raise_for_failed
+from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ImplementRecordKey
 from tests.support.base_replay import (
     BEHAVIOR_FIRST_TICKED,
@@ -35,6 +36,7 @@ from tests.support.base_replay import (
     answer_pytest_on_base,
     junit,
 )
+from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.implement_step import TEST_BODY, WINDOW, command_text, write_call
 from tests.support.model_script import ModelScript, say, tool_calls
@@ -43,20 +45,23 @@ from tests.support.roadmap_implement import (
     CHANGE,
     PULL,
     SHOUT,
+    TASKS,
     TASKS_PATH,
     TICKED_FIRST,
     JobWorld,
     archive_effect,
+    branch_of,
     docs_effect,
     group_one_calls,
     group_two_calls,
+    merge_plan,
     move_main_when,
     push_staged_branch,
     route_pull_status,
     seed_staged,
     two_groups,
 )
-from tests.support.roadmap_stage import STAGE_REPO
+from tests.support.roadmap_stage import STAGE_REPO, StageRepo
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -1051,7 +1056,7 @@ def test_unticked_task_in_archived_change_stops_at_ready(job_world: JobWorld) ->
         )
         content = target_tasks.read_text(encoding="utf-8")
         target_tasks.write_text(
-            content.replace("- [x] Document", "- [ ] Document"), encoding="utf-8"
+            content.replace("- [x] 2.1 Document", "- [ ] 2.1 Document"), encoding="utf-8"
         )
         return res
 
@@ -1282,20 +1287,28 @@ TWO_BEHAVIOR_TASKS = """\
 
 ## 1. The first group
 
-- [ ] Add the failing test `tests/test_shout.py` for `src/devops_cli/shout.py`
+Reads: `CONTEXT.md`. Changes: `tests/test_shout.py` (new), `src/devops_cli/shout.py` (new).
+
+- [ ] 1.1 Add the failing test `tests/test_shout.py` for `src/devops_cli/shout.py`
   - Verification: `uv run devops ci test tests/test_shout.py` fails on the base
-- [ ] Add `shout` to `src/devops_cli/shout.py`
+- [ ] 1.2 Add `shout` to `src/devops_cli/shout.py`
   - Verification: `uv run devops ci test tests/test_shout.py`
 
 ## 2. The second group
 
-- [ ] Add the failing test `tests/test_whisper.py` for `src/devops_cli/whisper.py`
+Reads: `CONTEXT.md`. Changes: `tests/test_whisper.py` (new), `src/devops_cli/whisper.py` (new).
+
+- [ ] 2.1 Add the failing test `tests/test_whisper.py` for `src/devops_cli/whisper.py`
   - Verification: `uv run devops ci test tests/test_whisper.py` fails on the base
-- [ ] Add `whisper` to `src/devops_cli/whisper.py`
+- [ ] 2.2 Add `whisper` to `src/devops_cli/whisper.py`
   - Verification: `uv run devops ci test tests/test_whisper.py`
+
+## Criteria
+
+- Group 1: The job keeps every comment.
 """
-TWO_FIRST_TICKED = TWO_BEHAVIOR_TASKS.replace("- [ ] Add", "- [x] Add", 2)
-TWO_TICKED = TWO_BEHAVIOR_TASKS.replace("- [ ] Add", "- [x] Add")
+TWO_FIRST_TICKED = TWO_BEHAVIOR_TASKS.replace("- [ ] 1.", "- [x] 1.")
+TWO_TICKED = TWO_BEHAVIOR_TASKS.replace("- [ ] 1.", "- [x] 1.").replace("- [ ] 2.", "- [x] 2.")
 WHISPER = '"""Whisper."""\n\n\ndef whisper(text: str) -> str:\n    return text.lower()\n'
 WHISPER_TEST_BODY = "def test_whisper() -> None:\n    assert True\n"
 WHISPER_TEST_ID = "tests.test_whisper::test_whisper"
@@ -1396,4 +1409,145 @@ def test_a_passing_group_without_a_model_tick_is_ticked_by_the_job_and_pushed(
         if line.endswith(" fix(roadmap): The first group (#1)")
     ]
     tasks = job_world.repo.origin_git("show", f"{first}:{TASKS_PATH}")
-    assert "- [x] Add `src/devops_cli/shout.py`" in tasks
+    assert "- [x] 1.1 Add `src/devops_cli/shout.py`" in tasks
+
+
+# ── The plan check of the selection (#3393) ───────────────────────────────────────────────
+
+PLACEHOLDER_TASKS = TASKS.replace("1.1 Add `src/devops_cli/shout.py`", "1.1 x")
+FIRST_PROBLEM = (
+    "The text of implementation of group 1 has 1 characters, and the least is 10. "
+    "Write a real sentence."
+)
+SECOND_PROBLEM = "is the placeholder `x`"
+
+
+def _select(store: InMemoryRoadmapStore, repo: StageRepo, number: int) -> ImplementPlan:
+    """The selection of item `number`: the plan of a run that names it."""
+    return plan_implement(
+        store,
+        repo=STAGE_REPO,
+        source=repo.clone,
+        filters=parse_implement_filters(()),
+        item_number=number,
+    )
+
+
+def test_a_staged_item_whose_branch_plan_holds_task_x_is_left_out_with_the_first_problem(
+    stage_repo: StageRepo,
+    app_slug: None,
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+) -> None:
+    push_staged_branch(stage_repo, tasks=PLACEHOLDER_TASKS)
+    route_pull_status(github_api)
+    number = seed_staged(roadmap_store)
+
+    plan = _select(roadmap_store, stage_repo, number)
+
+    assert plan.selected == ()
+    (left,) = plan.left_out
+    assert (left.number, FIRST_PROBLEM in left.reason) == (number, True)
+
+
+def test_a_planned_item_whose_default_branch_plan_holds_task_x_gets_no_target_and_no_branch(
+    stage_repo: StageRepo,
+    app_slug: None,
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+) -> None:
+    number = seed_staged(roadmap_store, record=False)
+    merge_plan(stage_repo, number, tasks=PLACEHOLDER_TASKS)
+
+    plan = _select(roadmap_store, stage_repo, number)
+
+    assert plan.selected == ()
+    (left,) = plan.left_out
+    assert FIRST_PROBLEM in left.reason
+    assert branch_of(number) not in stage_repo.origin_git(
+        "for-each-ref", "--format=%(refname:short)", "refs/heads"
+    )
+
+
+def test_a_plan_with_two_problems_reports_only_the_first_problem(
+    stage_repo: StageRepo,
+    app_slug: None,
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+) -> None:
+    push_staged_branch(stage_repo, tasks=PLACEHOLDER_TASKS)
+    route_pull_status(github_api)
+    number = seed_staged(roadmap_store)
+
+    plan = _select(roadmap_store, stage_repo, number)
+
+    (left,) = plan.left_out
+    assert (FIRST_PROBLEM in left.reason, SECOND_PROBLEM in left.reason) == (True, False)
+
+
+def test_a_plan_that_passes_the_check_selects_a_staged_item(
+    stage_repo: StageRepo,
+    app_slug: None,
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+) -> None:
+    push_staged_branch(stage_repo)
+    route_pull_status(github_api)
+    number = seed_staged(roadmap_store)
+
+    plan = _select(roadmap_store, stage_repo, number)
+
+    assert [(t.item.number, t.branch, t.pull) for t in plan.selected] == [(number, BRANCH, PULL)]
+
+
+def test_a_plan_that_passes_the_check_selects_a_planned_item(
+    stage_repo: StageRepo,
+    app_slug: None,
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+) -> None:
+    number = seed_staged(roadmap_store, record=False)
+    merge_plan(stage_repo, number)
+
+    plan = _select(roadmap_store, stage_repo, number)
+
+    assert [t.branch for t in plan.selected] == [branch_of(number)]
+
+
+def test_a_plan_the_reader_cannot_parse_is_left_out_and_names_its_file(
+    stage_repo: StageRepo,
+    app_slug: None,
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+) -> None:
+    unreadable = TASKS.replace("Reads: `CONTEXT.md`. Changes: `CONTEXT.md`.\n\n", "")
+    push_staged_branch(stage_repo, tasks=unreadable)
+    route_pull_status(github_api)
+    number = seed_staged(roadmap_store)
+
+    plan = _select(roadmap_store, stage_repo, number)
+
+    assert plan.selected == ()
+    (left,) = plan.left_out
+    assert "tasks.md" in left.reason
+
+
+def test_a_plan_whose_test_path_no_file_holds_is_left_out_and_names_the_path(
+    stage_repo: StageRepo,
+    app_slug: None,
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+) -> None:
+    missing = TASKS.replace(
+        "uv run devops ci test tests/test_shout.py",
+        "uv run devops ci test tests/commands/test_shout.py",
+    )
+    push_staged_branch(stage_repo, tasks=missing)
+    route_pull_status(github_api)
+    number = seed_staged(roadmap_store)
+
+    plan = _select(roadmap_store, stage_repo, number)
+
+    assert plan.selected == ()
+    (left,) = plan.left_out
+    assert "tests/commands/test_shout.py" in left.reason

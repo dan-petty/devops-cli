@@ -13,11 +13,12 @@ a message; a person reads one line for each and an agent reads the JSON array.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Protocol
 
+from devops_cli.config.constants import CONST_OPENSPEC_CHANGES_DIR, CONST_OPENSPEC_SPECS_DIR
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.dry_run import PlannedRequest
 from devops_cli.exceptions.git import GitOperationError
@@ -30,7 +31,14 @@ from devops_cli.github.client import IssueView, PullRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.clone_git import git
-from devops_cli.roadmap.plan_read import PlanReadError, read_change
+from devops_cli.roadmap.plan_read import (
+    PlanReadError,
+    change_root,
+    files_at,
+    read_change,
+    specs_at,
+    tree_files,
+)
 from devops_cli.roadmap.pull_form import BODY_MAX_CHARS, SUMMARY_MAX_CHARS, summary_length
 from devops_cli.roadmap.request_plan import planned_session_read
 from devops_cli.roadmap.stage_change import (
@@ -40,14 +48,12 @@ from devops_cli.roadmap.stage_change import (
     closing_keyword_in,
 )
 from devops_cli.roadmap.stage_paths import StagedTree
-from devops_cli.roadmap.stage_specs import BaseSpec, read_spec
 from devops_cli.roadmap.stage_validate import validate_change
 
 GIT_OPERATION: Final[str] = "roadmap.plan-check"
 SEMANTIC_TITLE_CHECK: Final[str] = "Semantic PR title"
-_CHANGES: Final[str] = "openspec/changes"
-_SPECS: Final[str] = "openspec/specs"
-_SPEC_FILE: Final[re.Pattern[str]] = re.compile(rf"^{_SPECS}/(?P<capability>[^/]+)/spec\.md$")
+_CHANGES: Final[str] = CONST_OPENSPEC_CHANGES_DIR
+_SPECS: Final[str] = CONST_OPENSPEC_SPECS_DIR
 _REQUIREMENT: Final[re.Pattern[str]] = re.compile(r"^### Requirement: (?P<name>.+?)[ \t]*$", re.M)
 _SCENARIO: Final[str] = "#### Scenario:"
 _PLANS: Final[re.Pattern[str]] = re.compile(r"^Plans #(?P<issue>[0-9]+)$")
@@ -217,17 +223,6 @@ def _check_problems(checks: CheckVerdictSummary) -> list[PlanProblem]:
     ]
 
 
-def tree_files(source: Path, rev: str) -> list[str]:
-    """The paths of the files that commit `rev` tracks."""
-    listing = git(source, "ls-tree", "-r", "--name-only", "-z", rev, operation=GIT_OPERATION)
-    return [path for path in listing.split("\0") if path]
-
-
-def files_at(source: Path, rev: str, paths: Sequence[str]) -> dict[str, str]:
-    """The text of each of `paths` at commit `rev`."""
-    return {path: git(source, "show", f"{rev}:{path}", operation=GIT_OPERATION) for path in paths}
-
-
 def _has_commit(source: Path, rev: str) -> bool:
     try:
         git(source, "cat-file", "-e", f"{rev}^{{commit}}", operation=GIT_OPERATION)
@@ -271,26 +266,14 @@ def _plan_parent(source: Path, head: str, root: str) -> str:
     return parent if commit and _has_commit(source, parent) else ""
 
 
-def specs_at(source: Path, rev: str) -> tuple[frozenset[str], dict[str, tuple[str, ...]]]:
-    """The capabilities of the base specs at commit `rev`, and the requirement names of each."""
-    if not rev:
-        return frozenset(), {}
-    specs: dict[str, BaseSpec] = {}
-    for path in tree_files(source, rev):
-        match = _SPEC_FILE.match(path)
-        if match is not None:
-            specs[match["capability"]] = read_spec(files_at(source, rev, [path])[path])
-    return frozenset(specs), {name: spec.requirements for name, spec in specs.items()}
-
-
 def _spec_requirements(source: Path, rev: str, capability: str) -> dict[str, str]:
     """The statement of each requirement in the base spec of `capability` at `rev`."""
     if not rev:
         return {}
     path = f"{_SPECS}/{capability}/spec.md"
-    if path not in tree_files(source, rev):
+    if path not in tree_files(source, rev, operation=GIT_OPERATION):
         return {}
-    text = files_at(source, rev, [path])[path]
+    text = files_at(source, rev, [path], operation=GIT_OPERATION)[path]
     matches = list(_REQUIREMENT.finditer(text))
     found: dict[str, str] = {}
     for index, match in enumerate(matches):
@@ -344,27 +327,6 @@ def _moved_problems(
     return problems
 
 
-def _change_root(files: Sequence[str], issue: int) -> tuple[str | None, list[str]]:
-    prefix = f"{_CHANGES}/{issue}-"
-    names = sorted(
-        {
-            path.split("/")[2]
-            for path in files
-            if path.startswith(prefix) and len(path.split("/")) > 3
-        }
-    )
-    if len(names) == 1:
-        return f"{_CHANGES}/{names[0]}", []
-    texts = MESSAGES.roadmap
-    if not names:
-        return None, [texts.plan_check_folder_none.format(issue=issue)]
-    return None, [
-        texts.plan_check_folder_many.format(
-            count=len(names), issue=issue, folders=", ".join(f"`{name}`" for name in names)
-        )
-    ]
-
-
 def _gate_problems(
     proposal: StageProposal,
     root: str,
@@ -373,8 +335,8 @@ def _gate_problems(
     base_rev: str,
     issue_body: str,
 ) -> list[PlanProblem]:
-    tree = StagedTree(tree_files(source, head))
-    known, requirements = specs_at(source, base_rev)
+    tree = StagedTree(tree_files(source, head, operation=GIT_OPERATION))
+    known, requirements = specs_at(source, base_rev, operation=GIT_OPERATION)
     return [
         PlanProblem(root, "stage", message)
         for message in check_proposal(
@@ -417,8 +379,8 @@ def plan_check(
 
     git(source, "fetch", "--quiet", "origin", f"refs/pull/{number}/head", operation=GIT_OPERATION)
     head = git(source, "rev-parse", "FETCH_HEAD", operation=GIT_OPERATION)
-    files = tree_files(source, head)
-    root, folder_problems = _change_root(files, issue)
+    files = tree_files(source, head, operation=GIT_OPERATION)
+    root, folder_problems = change_root(files, issue)
     if root is None:
         return PlanCheckResult(
             tuple(
@@ -435,7 +397,7 @@ def plan_check(
     base_rev = _base_revision(source, facts)
     plan_rev = _plan_parent(source, head, root)
     changed = [path for path in files if path == root or path.startswith(f"{root}/")]
-    change_files = files_at(source, head, changed)
+    change_files = files_at(source, head, changed, operation=GIT_OPERATION)
     try:
         proposal = read_change(change_files)
     except PlanReadError as exc:

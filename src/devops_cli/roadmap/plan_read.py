@@ -14,13 +14,16 @@ from the tasks, gives each created path one estimated line, and sets `builds_own
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Final
 
 from pydantic import ValidationError
 
+from devops_cli.config.constants import CONST_OPENSPEC_CHANGES_DIR, CONST_OPENSPEC_SPECS_DIR
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.clone_git import git
 from devops_cli.roadmap.implement_shell_policy import shown, verification_problem
 from devops_cli.roadmap.stage_change import (
     REGENERATE_DOCUMENTS,
@@ -34,9 +37,13 @@ from devops_cli.roadmap.stage_change import (
     StageSpec,
 )
 from devops_cli.roadmap.stage_criteria import StageCriterion
+from devops_cli.roadmap.stage_specs import BaseSpec, read_spec
 from devops_cli.roadmap.step_files import FAILS_ON_BASE, KIND_LINE, TaskGroup, parse_task_groups
 
 _CHANGE_FILE: Final[str] = "/.openspec.yaml"
+_SPEC_FILE: Final[re.Pattern[str]] = re.compile(
+    rf"^{CONST_OPENSPEC_SPECS_DIR}/(?P<capability>[^/]+)/spec\.md$"
+)
 _PROPOSAL: Final[str] = "proposal.md"
 _DESIGN: Final[str] = "design.md"
 _TASKS: Final[str] = "tasks.md"
@@ -445,3 +452,54 @@ def read_change(files: Mapping[str, str]) -> StageProposal:
         )
     except ValidationError as exc:
         raise PlanReadError(root, _reasons(exc)) from exc
+
+
+# ── The files of a revision ───────────────────────────────────────────────────────────────
+
+
+def tree_files(source: Path, rev: str, *, operation: str) -> list[str]:
+    """The paths of the files that commit `rev` tracks."""
+    listing = git(source, "ls-tree", "-r", "--name-only", "-z", rev, operation=operation)
+    return [path for path in listing.split("\0") if path]
+
+
+def files_at(source: Path, rev: str, paths: Sequence[str], *, operation: str) -> dict[str, str]:
+    """The text of each of `paths` at commit `rev`."""
+    return {path: git(source, "show", f"{rev}:{path}", operation=operation) for path in paths}
+
+
+def change_root(files: Sequence[str], issue: int) -> tuple[str | None, list[str]]:
+    """The change folder of `issue` among `files`, or the reasons that no one folder is found."""
+    prefix = f"{CONST_OPENSPEC_CHANGES_DIR}/{issue}-"
+    names = sorted(
+        {
+            path.split("/")[2]
+            for path in files
+            if path.startswith(prefix) and len(path.split("/")) > 3
+        }
+    )
+    if len(names) == 1:
+        return f"{CONST_OPENSPEC_CHANGES_DIR}/{names[0]}", []
+    texts = MESSAGES.roadmap
+    if not names:
+        return None, [texts.plan_check_folder_none.format(issue=issue)]
+    return None, [
+        texts.plan_check_folder_many.format(
+            count=len(names), issue=issue, folders=", ".join(f"`{name}`" for name in names)
+        )
+    ]
+
+
+def specs_at(
+    source: Path, rev: str, *, operation: str
+) -> tuple[frozenset[str], dict[str, tuple[str, ...]]]:
+    """The capabilities of the base specs at commit `rev`, and the requirement names of each."""
+    if not rev:
+        return frozenset(), {}
+    specs: dict[str, BaseSpec] = {}
+    for path in tree_files(source, rev, operation=operation):
+        match = _SPEC_FILE.match(path)
+        if match is not None:
+            text = files_at(source, rev, [path], operation=operation)[path]
+            specs[match["capability"]] = read_spec(text)
+    return frozenset(specs), {name: spec.requirements for name, spec in specs.items()}

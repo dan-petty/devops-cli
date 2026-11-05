@@ -17,18 +17,26 @@ BEHAVIOR_TASKS = """\
 
 ## 1. The first group
 
-- [ ] Add the failing test `tests/test_shout.py` for `src/devops_cli/shout.py`
+Reads: `CONTEXT.md`. Changes: `tests/test_shout.py` (new), `src/devops_cli/shout.py` (new).
+
+- [ ] 1.1 Add the failing test `tests/test_shout.py` for `src/devops_cli/shout.py`
   - Verification: `uv run devops ci test tests/test_shout.py` fails on the base
-- [ ] Add `shout` to `src/devops_cli/shout.py`
+- [ ] 1.2 Add `shout` to `src/devops_cli/shout.py`
   - Verification: `uv run devops ci test tests/test_shout.py`
 
 ## 2. The second group
 
-- [ ] Document the function in `CONTEXT.md`
+Reads: `CONTEXT.md`. Changes: `CONTEXT.md`.
+
+- [ ] 2.1 Document the function in `CONTEXT.md`
   - Verification: `uv run devops docs check`
+
+## Criteria
+
+- Group 1: The job keeps every comment.
 """
-BEHAVIOR_FIRST_TICKED = BEHAVIOR_TASKS.replace("- [ ] Add", "- [x] Add")
-BEHAVIOR_TICKED = BEHAVIOR_FIRST_TICKED.replace("- [ ] Document", "- [x] Document")
+BEHAVIOR_FIRST_TICKED = BEHAVIOR_TASKS.replace("- [ ] 1.", "- [x] 1.")
+BEHAVIOR_TICKED = BEHAVIOR_FIRST_TICKED.replace("- [ ] 2.", "- [x] 2.")
 SHOUT_TEST_ID = "tests.test_shout::test_shout"
 
 

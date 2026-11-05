@@ -57,7 +57,9 @@ LABELS_FILE = """\
 
 PROPOSAL = (
     "# Proposal\n\n## Why\n\nThe job drops the last comment of a thread (#1). It must keep it.\n\n"
-    "## What Changes\n\n- The job keeps every comment.\n"
+    "## What Changes\n\n- The job keeps every comment.\n\n"
+    "## Feasibility\n\n- The job reads every comment of the thread in the clone.\n\n"
+    "## Existing Tool Considered\n\nNo external tool covers this repository function.\n"
 )
 DESIGN = "# Design\n\n## Decisions\n\n- Keep the last comment.\n"
 TASKS = """\
@@ -65,16 +67,28 @@ TASKS = """\
 
 ## 1. The first group
 
-- [ ] Add `src/devops_cli/shout.py`
+Reads: `CONTEXT.md`. Changes: `src/devops_cli/shout.py` (new), `tests/test_shout.py` (new).
+
+- [ ] 1.1 Add `src/devops_cli/shout.py`
   - Verification: `uv run devops ci test tests/test_shout.py`
 
 ## 2. The second group
 
-- [ ] Document the function in `CONTEXT.md`
+Reads: `CONTEXT.md`. Changes: `CONTEXT.md`.
+
+- [ ] 2.1 Document the function in `CONTEXT.md`
   - Verification: `uv run devops docs check`
+
+## Criteria
+
+- Group 1: The job keeps every comment.
+
+## Workflow follow-up
+
+- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
 """
-TICKED_FIRST = TASKS.replace("- [ ] Add", "- [x] Add")
-TICKED_ALL = TICKED_FIRST.replace("- [ ] Document", "- [x] Document")
+TICKED_FIRST = TASKS.replace("- [ ] 1.1 Add", "- [x] 1.1 Add")
+TICKED_ALL = TICKED_FIRST.replace("- [ ] 2.1 Document", "- [x] 2.1 Document")
 SHOUT = '"""Shout."""\n\n\ndef shout(text: str) -> str:\n    """Shout `text`."""\n    return text.upper()\n'
 SHOUT_DOC = "# Context\nThe shout function upper-cases a text.\n"
 TASKS_PATH = f"{CHANGE_DIR}/tasks.md"
@@ -95,9 +109,9 @@ OPEN_DRAFT = {
 }
 
 
-def branch_of(number: int) -> str:
-    """The staged branch of item `number`."""
-    return f"fix/{number}-the-job-drops-a-comment"
+def branch_of(number: int, slug: str = "the-job-drops-a-comment") -> str:
+    """The staged branch of item `number`, named with the slug of its change folder."""
+    return f"fix/{number}-{slug}"
 
 
 def write_change(
@@ -117,7 +131,7 @@ def write_change(
         ("proposal.md", PROPOSAL),
         ("design.md", DESIGN),
         ("tasks.md", tasks),
-        (".openspec.yaml", "schema: spec-driven\ncreated: 2026-10-29\n"),
+        (".openspec.yaml", "schema: spec-driven\ncreated: 2026-10-29\nskip_specs: true\n"),
     ):
         (folder / filename).write_text(text, encoding="utf-8")
 
@@ -128,13 +142,15 @@ def push_staged_branch(
     tasks: str = TASKS,
     author: str = STAGE_NAME,
     number: int = 1,
+    slug: str = "the-job-drops-a-comment",
     files: Mapping[str, str] | None = None,
 ) -> None:
     """Push the branch of item `number` with one commit by `author` that adds the change and the
-    `files` of `files`, as the stage job does; the clone stays on `main` with no local branch."""
-    branch = branch_of(number)
+    `files` of `files`, as the stage job does; the clone stays on `main` with no local branch.
+    `slug` names the branch and the change folder."""
+    branch = branch_of(number, slug)
     repo.git("switch", "-q", "-c", branch)
-    write_change(repo.clone, tasks, number)
+    write_change(repo.clone, tasks, number, slug=slug)
     for name, text in (files or {}).items():
         (repo.clone / name).parent.mkdir(parents=True, exist_ok=True)
         (repo.clone / name).write_text(text, encoding="utf-8")
