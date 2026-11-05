@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import threading
 import time
+from collections.abc import Iterable
 from typing import Any
 
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
@@ -98,6 +99,16 @@ class InMemoryMetricsRegistry:
                 collector.labels(*label_vals).inc(value)
             else:
                 collector.inc(value)
+
+    def prime_counter(self, name: str, label_sets: Iterable[dict[str, str]]) -> None:
+        """Create the child of each label set of the counter `name` at zero, so that its series
+        exists before its first count. An `increase()` over a window loses that first count
+        (#3495)."""
+        with self._lock:
+            for labels in label_sets:
+                collector, label_keys = self._get_or_create_collector(name, Counter, labels)
+                if label_keys:
+                    collector.labels(*(str(labels[k]) for k in label_keys))
 
     def set_gauge(
         self,

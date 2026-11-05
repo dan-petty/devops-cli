@@ -56,6 +56,7 @@ from devops_cli.exceptions import (
 from devops_cli.github.rate_limiter import set_request_gate
 from devops_cli.github.request_scope import request_scope
 from devops_cli.lang import MESSAGES
+from devops_cli.server.counter_series import prime_service_counters
 from devops_cli.server.routes.webhooks import (
     DeliveryLRUCache,
     WebhookConsumer,
@@ -757,6 +758,7 @@ class ServiceManager:
             for repo in config.repos
             for lane, job in jobs.items()
         }
+        prime_service_counters(config.repos)
         self._stop_event = threading.Event()
         self._ready = False
         self._draining = False

@@ -398,10 +398,10 @@ def test_a_job_that_failed_stops_an_item_that_is_in_progress_and_no_job_is_made_
     ) == ("Blocked", "failed", "job", True, True, 1)
 
 
-def _failures(failure_class: str) -> float:
-    """The count of the Service's counter of failures for `failure_class`."""
+def _failures(failure_class: str, repo: str = STAGE_REPO) -> float:
+    """The count of the Service's counter of failures for `failure_class` in `repo` (#3495)."""
     return GLOBAL_METRICS.get_counter(
-        CONST_SERVICE_METRIC_IMPLEMENT_FAILURES, labels={"class": failure_class}
+        CONST_SERVICE_METRIC_IMPLEMENT_FAILURES, labels={"class": failure_class, "repo": repo}
     )
 
 
