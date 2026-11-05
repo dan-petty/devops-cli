@@ -6,9 +6,9 @@ the toolset `base`, and with `extended`, the setting `roadmap.stage.toolset`, th
 call for another schema goes to the inner client, with no tool. Each run has a new budget of tool
 calls and requests, ends its tools when the messages fill the context window (#3037), and keeps a
 `RunTrace` of what it did. It sends the counts of the run as metrics (`tool_metrics`, #3240). The
-output tokens have no count of their own (#3206). A run that ends
-with no plan raises `RoadmapStageError` and names the limit it hit, or
-`StructuredOutputValidationError` when the model broke the schema of its reply past its retries.
+output tokens have no count of their own (#3206). A run that ends with no plan raises
+`RoadmapStageError` and names the limit it hit, or `StructuredOutputValidationError` when the model
+broke the schema of its reply past its retries.
 """
 
 from __future__ import annotations
