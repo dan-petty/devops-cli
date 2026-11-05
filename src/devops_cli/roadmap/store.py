@@ -454,9 +454,15 @@ def family_prefix(field: ItemField) -> str:
     return f"{field.value.lower()}/"
 
 
+def label_slug(value: str) -> str:
+    """The part of a label that names `value`: `p1-high` for P1-High, in lower case with a hyphen
+    for each space."""
+    return value.lower().replace(" ", "-")
+
+
 def field_label(field: ItemField, value: str) -> str:
     """The label that holds `value` of `field`: `priority/p1-high` for P1-High."""
-    return family_prefix(field) + value.lower().replace(" ", "-")
+    return family_prefix(field) + label_slug(value)
 
 
 def _held_values(labels: Iterable[str], field: ItemField) -> list[str]:
@@ -776,6 +782,11 @@ class RoadmapStore(Protocol):
     def changes_since(self, since: datetime, *, except_actor: str | None = None) -> list[Change]:
         """The issue changes made at or after `since`, oldest first, without those
         `except_actor` made."""
+
+    def label_changes(self, number: int) -> list[Change]:
+        """The labeled and unlabeled changes of issue `number`, oldest first. The time a label was
+        set is the time of its last labeled change that no unlabeled change of that label
+        followed (#2919)."""
 
     def set_field(
         self,

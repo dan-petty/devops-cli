@@ -334,8 +334,38 @@
       ]
     },
     {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "The age of the oldest open roadmap item in each state, and the age of the oldest claim on an open item. The age is the time since the status or owner label was set. It shows the latest value of each series in the time range, and no data when none was sent in it.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisCenteredZero": false, "drawStyle": "line", "lineInterpolation": "smooth" },
+          "unit": "s"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
+      "id": 24,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "title": "Oldest Item Age by State",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (state) (last_over_time(devops_cli_roadmap_item_age_seconds[$__range]))",
+          "legendFormat": "{{state}}",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max(last_over_time(devops_cli_roadmap_claim_age_seconds[$__range]))",
+          "legendFormat": "oldest claim",
+          "refId": "B"
+        }
+      ]
+    },
+    {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 },
       "id": 15,
       "title": "GitHub Traffic & Repository Engagement",
       "type": "row"
@@ -355,7 +385,7 @@
           "unit": "short"
         }
       },
-      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 35 },
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 43 },
       "id": 16,
       "options": {
         "colorMode": "value",
@@ -402,7 +432,7 @@
           "unit": "short"
         }
       },
-      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 35 },
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 43 },
       "id": 17,
       "options": {
         "colorMode": "value",
@@ -449,7 +479,7 @@
           "unit": "short"
         }
       },
-      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 35 },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 43 },
       "id": 18,
       "options": {
         "colorMode": "value",
@@ -496,7 +526,7 @@
           "unit": "short"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 39 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 47 },
       "id": 19,
       "options": {
         "displayMode": "gradient",
@@ -535,7 +565,7 @@
           "unit": "short"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 39 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 47 },
       "id": 20,
       "options": {
         "displayMode": "gradient",
@@ -561,7 +591,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 47 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 55 },
       "id": 21,
       "title": "Upstream Platform Operational Status",
       "type": "row"
@@ -596,7 +626,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 48 },
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 56 },
       "id": 22,
       "options": {
         "colorMode": "value",
@@ -652,7 +682,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 48 },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 56 },
       "id": 23,
       "options": {
         "colorMode": "value",

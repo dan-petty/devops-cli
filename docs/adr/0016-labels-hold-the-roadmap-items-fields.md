@@ -35,3 +35,4 @@ On 2026-10-28 the owner decided that labels and milestones hold an Item's state,
 - `.github/roadmap.toml`, the board read of the store, the `Job record` field, the board's GraphQL budget probe, the GraphQL spend line of a round and the Service's pause after a board budget refusal are deleted. `devops gh project` keeps its own board reads in `github/project_read.py`, for the owner's board.
 - `devops pr check-readiness` blocks a pull request whose one issue holds no `priority/*` label.
 - The open issues of each managed repository get their labels from their board values once. A person runs that migration.
+- The age metrics of the roadmap Service (#2919) read the label events of an open Item. The rejected option above named that read as a cost for each Item. The metrics row reads an Item again only when its status or owner label changes. The first round after a start reads each open Item with a status. Later rounds read only the Items that changed.

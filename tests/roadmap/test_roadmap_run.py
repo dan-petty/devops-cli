@@ -109,6 +109,8 @@ from devops_cli.telemetry.instruments import (
     PROJECT_RELEASES,
     PROJECT_STARS,
     PROJECT_TRAFFIC_VIEWS,
+    ROADMAP_ITEM_AGE,
+    ROADMAP_OLDEST_ITEM,
 )
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.roadmap_faults import Fault, StoppingStore
@@ -1366,6 +1368,52 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         [({"release": "", "state": "open", "type": "feature", "priority": "P2-Medium"}, 1.0)],
         [],
     )
+
+
+def test_the_metrics_row_sends_the_age_of_a_blocked_item_and_logs_no_collection_failure(
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    stub_web: StubWeb,
+    otlp: FakeCollector,
+) -> None:
+    """The metrics row of the Service asks for the item ages (#2919). A Blocked item sends its age
+    and its number with the labels `repo`, `state` and `plan`, and the row logs no warning from
+    the collection."""
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    (clone / ".git").mkdir()
+    monkeypatch.setattr(subprocess, "run", GitHubFake(REPO).process(subprocess.run))
+    for url in (CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY):
+        stub_web.page(url, json.dumps(STATUS_PAGE))
+    number = seeded_store.seed_issue("blocked item", fields=PLACED)
+    blocked = seeded_store.item(number)
+    assert blocked is not None
+    seeded_store.set_field(blocked, ItemField.STATUS, "Blocked")
+    with caplog.at_level(logging.WARNING):
+        _run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone)
+    ages = {
+        attrs["plan"]: (attrs["repo"], value)
+        for attrs, value in otlp.points(ROADMAP_ITEM_AGE.name)
+        if attrs["state"] == "blocked"
+    }
+    numbers = {
+        attrs["plan"]: value
+        for attrs, value in otlp.points(ROADMAP_OLDEST_ITEM.name)
+        if attrs["state"] == "blocked"
+    }
+    assert (
+        ages["false"][0],
+        ages["false"][1] > 0.0,
+        numbers["false"],
+        numbers["true"],
+        [
+            record.getMessage()
+            for record in caplog.records
+            if record.levelno >= logging.WARNING and "collection failed" in record.getMessage()
+        ],
+    ) == (REPO, True, float(number), 0.0, [])
 
 
 def test_a_failed_metrics_collection_or_status_read_is_logged_and_the_job_goes_on(

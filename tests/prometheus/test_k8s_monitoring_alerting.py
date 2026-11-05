@@ -42,6 +42,8 @@ from devops_cli.telemetry.instruments import (
     FIRECRAWL_SEARCHES_TOTAL,
     GITHUB_REQUESTS_TOTAL,
     GITHUB_THROTTLE_WAIT,
+    ROADMAP_ITEM_AGE,
+    ROADMAP_OLDEST_ITEM,
 )
 from tests.support.paths import FIXTURES, REPO_ROOT
 
@@ -63,6 +65,9 @@ ROADMAP_SERVICE_WEBHOOKS_RULE_TESTS = (
 ROADMAP_SERVICE_ACTIVITY_RULE_TESTS = (
     FIXTURES / "prometheus_rules" / "roadmap_service_activity_tests.yaml"
 )
+ROADMAP_SERVICE_ITEMS_RULE_TESTS = (
+    FIXTURES / "prometheus_rules" / "roadmap_service_items_tests.yaml"
+)
 OTEL_COLLECTOR_CAPTURE = FIXTURES / "metrics" / "otel-collector.yaml"
 OTEL_COLLECTOR_RULE_TESTS = FIXTURES / "prometheus_rules" / "otel_collector_tests.yaml"
 VALKEY_MEMORY_RULE_TESTS = FIXTURES / "prometheus_rules" / "valkey_memory_tests.yaml"
@@ -74,11 +79,14 @@ ROADMAP_SERVICE_GROUP = "roadmap-service"
 ROADMAP_SERVICE_WEBHOOKS_GROUP = "roadmap-service-webhooks"
 # The Service's writes, the deliveries of its own writes and its web search (#2475).
 ROADMAP_SERVICE_ACTIVITY_GROUP = "roadmap-service-activity"
+# The age of the oldest roadmap item in each state, and its alert (#2919).
+ROADMAP_SERVICE_ITEMS_GROUP = "roadmap-service-items"
 # Each group of the roadmap Service, with the promtool unit tests of its rules.
 ROADMAP_SERVICE_GROUP_TESTS = (
     (ROADMAP_SERVICE_GROUP, ROADMAP_SERVICE_RULE_TESTS),
     (ROADMAP_SERVICE_WEBHOOKS_GROUP, ROADMAP_SERVICE_WEBHOOKS_RULE_TESTS),
     (ROADMAP_SERVICE_ACTIVITY_GROUP, ROADMAP_SERVICE_ACTIVITY_RULE_TESTS),
+    (ROADMAP_SERVICE_ITEMS_GROUP, ROADMAP_SERVICE_ITEMS_RULE_TESTS),
 )
 ROADMAP_SERVICE_GROUPS = tuple(group for group, _ in ROADMAP_SERVICE_GROUP_TESTS)
 # The rules over the OpenTelemetry collector's own telemetry (#1642).
@@ -181,6 +189,9 @@ SERVED_SERIES = frozenset(
         FIRECRAWL_SEARCHES_TOTAL.name,
         GITHUB_REQUESTS_TOTAL.name,
         GITHUB_THROTTLE_WAIT.name,
+        # The age of each roadmap state and its number, sent by the metrics row (#2919).
+        ROADMAP_ITEM_AGE.name,
+        ROADMAP_OLDEST_ITEM.name,
     }
 )
 SEVERITIES = frozenset({"critical", "warning"})
@@ -300,6 +311,7 @@ def test_the_baseline_rule_set() -> None:
         ("RoadmapServiceGitHubThrottled", "critical"),
         ("RoadmapServiceGitHubWritesHigh", "warning"),
         ("RoadmapServiceIdentityRefused", "critical"),
+        ("RoadmapServiceItemStuck", "warning"),
         ("RoadmapServiceJobsFailing", "warning"),
         ("RoadmapServiceLaneStalled", "warning"),
         ("RoadmapServiceModelRequestsHigh", "warning"),

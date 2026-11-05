@@ -853,6 +853,28 @@ serverFiles:
             annotations:
               summary: 'Firecrawl refused web searches of the roadmap Service with HTTP {{ $labels.result }} in the last hour'
               description: "Firecrawl refused a web search of the roadmap Service with HTTP {{ $labels.result }}: 402 when the account has no credits, 429 at its rate limit. Refine goes on without the results (k8s/README.md, Roadmap service)."
+      # The age of the oldest roadmap item in each state (#2919). The metrics row sends the age and
+      # the number of the oldest item of each pair of a state and a plan flag once in each round. So
+      # a series has a sample in each round, and the rule reads its last sample of the last 30
+      # minutes, which is longer than a round (#2505). The value 86400 is one day, a literal as the
+      # other roadmap rules keep theirs: a person who wants another value edits this line and its
+      # unit test.
+      - name: roadmap-service-items
+        rules:
+          # A blocked item, or a ready item with a plan that waits for a person, stays in its state
+          # for more than a day. The summary names the item number of the same repository, state and
+          # plan.
+          - alert: RoadmapServiceItemStuck
+            expr: >-
+              max by (repo, state, plan) (last_over_time(devops_cli_roadmap_item_age_seconds{job="roadmap-service", state="blocked"}[30m])) > 86400
+              or
+              max by (repo, state, plan) (last_over_time(devops_cli_roadmap_item_age_seconds{job="roadmap-service", state="ready", plan="true"}[30m])) > 86400
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'Item {{ with printf "max by (repo, state, plan) (last_over_time(devops_cli_roadmap_oldest_item_number{job=\"roadmap-service\", repo=%q, state=%q, plan=%q}[30m]))" $labels.repo $labels.state $labels.plan | query }}#{{ . | first | value | printf "%.0f" }} {{ end }}of {{ $labels.repo }} has been in state {{ $labels.state }} for {{ $value | humanizeDuration }}'
+              description: "An item of the roadmap stayed in one state for more than 24 hours. Run devops roadmap inbox to see the item (k8s/README.md, Roadmap service)."
       - name: mattermost
         rules:
           - alert: MattermostUnavailable

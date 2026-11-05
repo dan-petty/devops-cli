@@ -30,6 +30,7 @@ from devops_cli.ai.spend.ledger import SpendLedger, track_request_spend
 from devops_cli.ai.spend.pricing import get_pricing_registry
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
+from devops_cli.telemetry import instruments as instruments_module
 from devops_cli.telemetry import tracer as tracer_module
 from devops_cli.telemetry.exporter import OtlpSignal
 from devops_cli.telemetry.instruments import (
@@ -398,6 +399,28 @@ def test_the_release_panel_shows_an_item_in_no_release_as_unreleased() -> None:
     assert queries["Active Items by State"] == (
         "sum by (state) (last_over_time(devops_cli_project_items[$__range]))"
     )
+
+
+ROADMAP_AGE_GAUGE_NAMES = (
+    "devops_cli_roadmap_item_age_seconds",
+    "devops_cli_roadmap_oldest_item_number",
+    "devops_cli_roadmap_claim_age_seconds",
+)
+
+
+def test_the_roadmap_age_gauges_are_declared_gauges_with_their_units_and_labels() -> None:
+    """The gauges of the age of the oldest roadmap item, of its number and of the oldest claim
+    (#2919) are gauges in INSTRUMENTS. The item age and the claim age carry the unit `s`. The
+    item gauges take the labels `repo`, `state` and `plan`, and their descriptions name them."""
+    declared = {instrument.name: instrument for instrument in INSTRUMENTS}
+    assert [name for name in ROADMAP_AGE_GAUGE_NAMES if name not in declared] == []
+
+    item_age, oldest_item, claim_age = (declared[name] for name in ROADMAP_AGE_GAUGE_NAMES)
+    assert [item_age.kind, oldest_item.kind, claim_age.kind] == [InstrumentKind.GAUGE] * 3
+    assert [item_age.unit, oldest_item.unit, claim_age.unit] == ["s", "1", "s"]
+    labels = tuple(getattr(instruments_module, "ROADMAP_AGE_LABELS", ()))
+    assert labels == ("repo", "state", "plan")
+    assert all(label in gauge.description for gauge in (item_age, oldest_item) for label in labels)
 
 
 def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sends() -> None:
@@ -1140,3 +1163,49 @@ def test_two_job_runs_add_up_in_the_increase_query_the_dashboards_use() -> None:
         "job-2": [(job_2_start, 0.0), (job_2_end, job_2_requests)],
     }
     assert evaluate_promql_increase(series_with_created) == job_1_requests + job_2_requests
+
+
+def _overlapping_panels(panels: list[dict[str, Any]]) -> list[tuple[Any, Any]]:
+    """Each pair of panels whose grid positions share a cell."""
+    boxes = [(panel.get("title", panel.get("id")), panel["gridPos"]) for panel in panels]
+
+    def shares_a_cell(first: dict[str, int], second: dict[str, int]) -> bool:
+        return (
+            first["x"] < second["x"] + second["w"]
+            and second["x"] < first["x"] + first["w"]
+            and first["y"] < second["y"] + second["h"]
+            and second["y"] < first["y"] + first["h"]
+        )
+
+    return [
+        (name, other_name)
+        for index, (name, box) in enumerate(boxes)
+        for other_name, other_box in boxes[index + 1 :]
+        if shares_a_cell(box, other_box)
+    ]
+
+
+def test_the_oldest_item_age_panel_charts_each_state_and_the_claim_in_the_items_row() -> None:
+    """The panel "Oldest Item Age by State" (#2919) charts the age of the oldest item of each state
+    and the age of the oldest claim, in seconds, at `x` 0 and `y` 34, beside the items panels. No
+    panel of the dashboard overlaps another."""
+    dashboard = DASHBOARDS / "project-metrics.json"
+    matches = [
+        panel for panel in _panels(dashboard) if panel.get("title") == "Oldest Item Age by State"
+    ]
+    assert len(matches) == 1
+    (panel,) = matches
+    assert (
+        [target["expr"] for target in panel["targets"]],
+        panel["fieldConfig"]["defaults"]["unit"],
+        panel["gridPos"],
+        _overlapping_panels(json.loads(dashboard.read_text(encoding="utf-8"))["panels"]),
+    ) == (
+        [
+            "max by (state) (last_over_time(devops_cli_roadmap_item_age_seconds[$__range]))",
+            "max(last_over_time(devops_cli_roadmap_claim_age_seconds[$__range]))",
+        ],
+        "s",
+        {"x": 0, "y": 34, "w": 12, "h": 8},
+        [],
+    )

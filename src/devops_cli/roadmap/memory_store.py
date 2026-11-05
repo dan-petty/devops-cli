@@ -553,6 +553,15 @@ class InMemoryRoadmapStore(RoadmapStore):
             if change.at >= cutoff and (skipped is None or change.actor != skipped)
         ]
 
+    def label_changes(self, number: int) -> list[Change]:
+        """The labeled and unlabeled changes of issue `number` that its writes recorded, oldest
+        first (#2919)."""
+        return [
+            change
+            for change in self._roadmap.changes
+            if change.number == number and change.kind in (ChangeKind.LABELED, ChangeKind.UNLABELED)
+        ]
+
     # ── Item writes ──
 
     def set_field(
