@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.63.2](https://github.com/dan-petty/devops-cli/compare/v0.63.1...v0.63.2) (2026-11-05)
+
+
+### Bug Fixes
+
+* **github:** keep a quote mark that the mask did not open ([#3691](https://github.com/dan-petty/devops-cli/issues/3691)) ([ed91c67](https://github.com/dan-petty/devops-cli/commit/ed91c67c6f20fd2cd7b2e24bacc8c83d8ce3c313))
+
 ## [0.63.1](https://github.com/dan-petty/devops-cli/compare/v0.63.0...v0.63.1) (2026-11-05)
 
 
