@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A failed exit check stops the step and resets the checkout
-The exit checks SHALL run in this order: the agent made no commit, no test that existed at the start is lost, each verification command passes, the static checks pass, the hooks of the repository pass, and every task of the group is ticked. The checks SHALL judge all the work since the last commit that is no `wip:` commit. The step SHALL stop at the first check that fails, name it as the reason, make no step commit, and reset the checkout to its last `wip:` commit, or to the commit where it started when it made none. A failed static check, a failed hook, and a task left unticked after the first five checks, first get the extra turns of their own requirements.
+The exit checks SHALL run in this order: the agent made no commit, no test from the start is lost, each verification command passes, the static checks pass, the hooks pass, and every task is ticked. The step SHALL stop at the first check that fails, name it as the reason, make no step commit, and reset the checkout to its last `wip:` commit, or to its start. A failed static check or hook, and an unticked task, first get the extra turns of their own requirements.
 
 #### Scenario: A verification command fails
 - **WHEN** the model ends its run with the files written and the tasks ticked, and the verification command exits 1
@@ -83,7 +83,7 @@ The `wip:` commit SHALL hold the `tasks.md` as it was before the run with the ti
 - **THEN** the `wip:` commit does not hold that file
 
 ### Requirement: A step that ends done folds its work in progress into its commit
-A step that starts on a branch with `wip:` commits and ends done SHALL make one commit, titled `<group title> (#N)`, that holds all the work since the last commit that is no `wip:` commit. The branch SHALL then hold no `wip:` commit of that step.
+A step that starts on a branch with `wip:` commits and ends done SHALL make one commit, titled `<group title> (#N)`, that holds all the work since the last commit that is no `wip:` commit. The branch SHALL then hold no `wip:` commit of that step. The exit checks SHALL judge all the work since that commit.
 
 #### Scenario: A second step finishes the group
 - **WHEN** a step stopped after a `wip:` commit, and a second step ticks the remaining task
