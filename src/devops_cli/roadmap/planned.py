@@ -13,7 +13,7 @@ issue that its name starts with, whatever its slug (`CONST_OPENSPEC_CHANGE_NAME_
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,8 +22,10 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_ARCHIVED_DIR_RE,
     CONST_OPENSPEC_CHANGE_DIR_RE,
     CONST_OPENSPEC_CHANGES_DIR,
+    CONST_ROADMAP_STATUS_PLANNED,
 )
 from devops_cli.roadmap.clone_git import default_branch, git
+from devops_cli.roadmap.store import GitHubState, Item
 
 _ACTIVE = re.compile(CONST_OPENSPEC_CHANGE_DIR_RE)
 _ARCHIVED = re.compile(CONST_OPENSPEC_ARCHIVED_DIR_RE)
@@ -37,6 +39,16 @@ class PlannedChanges:
     default: str
     active: Mapping[int, str]
     archived: Mapping[int, str]
+
+
+def planned_count(items: Iterable[Item]) -> int:
+    """How many of `items` are open and Planned (#3487): the plans that wait for a delivery. The
+    stage job and the inbox count the queue with this one function."""
+    return sum(
+        1
+        for item in items
+        if item.state is GitHubState.OPEN and item.status == CONST_ROADMAP_STATUS_PLANNED
+    )
 
 
 def _folders(listing: str, pattern: re.Pattern[str]) -> dict[int, str]:

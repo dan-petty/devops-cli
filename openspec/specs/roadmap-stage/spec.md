@@ -652,7 +652,7 @@ A plan run of the toolbox SHALL make at most `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS
 - **THEN** the second item is planned, and the job fails at the end for the first item
 
 ### Requirement: A plan run keeps its messages inside the context window
-A plan run SHALL offer no tool to a request when the tokens of its messages, with a quarter of the context window of the `analysis` task, reach the window. The model SHALL then give its plan. The tool answers SHALL NOT make a request longer than the window by more than the reply that was kept free.
+A plan run SHALL offer no tool to a request when the tokens of its messages, with a quarter of the context window of the `stage` task, reach the window. The model SHALL then give its plan. The tool answers SHALL NOT make a request longer than the window by more than the reply that was kept free.
 
 #### Scenario: A model that reads a big file in every turn
 - **WHEN** a plan run has a window of 12000 tokens and the model reads a file of 120 long lines in every turn
@@ -1658,6 +1658,52 @@ A test SHALL build the first request of a refine investigation at a window of 65
 - **WHEN** refine investigates an item with a body of 8192 tokens and three replies of 1000 tokens
 - **THEN** the test prints the count and the limit, and the count is under 49152 tokens
 
+### Requirement: A setting names the limit on Planned items
+The setting `roadmap.stage.planned_limit` SHALL be the count of open Planned items at which the stage job plans no new item. It SHALL have the variable `DEVOPS_CLI_ROADMAP_STAGE_PLANNED_LIMIT`, the default 20 and a least value of 1. The example ConfigMap of the Service SHALL hold the default.
+
+#### Scenario: The default
+- **WHEN** no config file and no variable sets `roadmap.stage.planned_limit`
+- **THEN** the limit is 20
+
+#### Scenario: A config file and a variable
+- **WHEN** the config file sets `roadmap.stage.planned_limit` to 7 and then the variable `DEVOPS_CLI_ROADMAP_STAGE_PLANNED_LIMIT` holds 9
+- **THEN** the limit is 7 from the file and 9 with the variable
+
+#### Scenario: A limit under 1
+- **WHEN** the config file sets `roadmap.stage.planned_limit` to 0
+- **THEN** loading the settings fails
+
+### Requirement: The stage job plans no new item at the limit on Planned items
+When the count of open Planned items is at `roadmap.stage.planned_limit` or over it, the stage job SHALL take no item. It SHALL leave out each item that passes every other rule, with a reason that names the count and the setting. An item with the priority `P0-Critical` SHALL pass the limit, and so SHALL the item that `--item` names. The count SHALL hold open items with the Status Planned only. The limit SHALL NOT apply to the filing of issues.
+
+#### Scenario: At the limit
+- **WHEN** 2 items are Planned, the limit is 2, and a Ready item passes every other rule
+- **THEN** the job takes no item, and the reason of the Ready item names the count 2 and the setting `roadmap.stage.planned_limit`
+
+#### Scenario: Under the limit
+- **WHEN** 1 item is Planned, the limit is 2, and two Ready items pass every other rule
+- **THEN** the job takes both items
+
+#### Scenario: An item of the highest priority
+- **WHEN** 2 items are Planned, the limit is 2, and a Ready `P0-Critical` item and a Ready `P1-High` item pass every other rule
+- **THEN** the job takes the `P0-Critical` item and leaves out the `P1-High` item with the reason of the limit
+
+#### Scenario: A closed item and an item of another Status
+- **WHEN** 1 open item is Planned, 1 closed item is Planned, 1 item is Staged, and the limit is 2
+- **THEN** the count is 1 and the job takes a Ready item
+
+#### Scenario: A named item
+- **WHEN** 2 items are Planned, the limit is 2, and `--item` names a Ready item
+- **THEN** the job takes that item
+
+#### Scenario: Another rule fails first
+- **WHEN** 2 items are Planned, the limit is 2, and a Ready item is claimed by a person
+- **THEN** the reason of that item is the claim, not the limit
+
+#### Scenario: The command at the limit
+- **WHEN** 1 item is Planned, the setting is 1, and `devops roadmap stage --plan` runs with Ready items
+- **THEN** the plan holds no branch, makes no model call, and lists each Ready item as left out with the reason of the limit
+
 ### Requirement: The stage prompt names a sample file by a bare name
 The stage prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` SHALL tell the planner to write a sample file that a test writes at run time, and that no group creates, as a bare name with no folder.
 
@@ -1743,3 +1789,14 @@ The reply schema of the stage job SHALL hold no key `premise_failed`, and SHALL 
 #### Scenario: A real text
 - **WHEN** `is_placeholder` reads "The probe shows the path" and "x-ray the cache"
 - **THEN** it is false for both
+
+### Requirement: The stage job plans with the model of the stage task
+The stage command and the stage round of the Service SHALL give the planner the model of the task `stage` as its toolbox model, and the call that splits the groups SHALL use the client of the task `stage`.
+
+#### Scenario: The command asks for the stage model
+- **WHEN** `devops roadmap stage --plan` plans an item
+- **THEN** the command asks for the model of the task `stage`, and the planner offers its tools to that model
+
+#### Scenario: A round asks for the stage model
+- **WHEN** a round of the Service plans an item
+- **THEN** the round asks for the model of the task `stage`

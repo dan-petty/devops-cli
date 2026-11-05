@@ -36,6 +36,8 @@ from devops_cli.config.defaults import (
     DEFAULT_LLM_TIER_TEMPLATES_PATH,
     DEFAULT_OLLAMA_CLUSTER_SERVICE,
     DEFAULT_OLLAMA_CLUSTER_URL,
+    DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL,
+    DEFAULT_RAG_EMBEDDING_MODEL,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import AIConfig, Settings
@@ -74,6 +76,8 @@ SERVES_COLUMN = "Serves"
 GATEWAY_IMAGE = "ghcr.io/berriai/litellm:v1.103.0"
 GATEWAY_SECRET = "llm-gateway-secrets"
 GATEWAY_SECRET_KEY = "master-key"
+# The tiers that load `qwen3.8:27b` and no other model until the configuration changes (#3567).
+SINGLE_MODEL_TIERS = ("ollama-48gib", "ollama-64gib")
 # The UID and GID every ollama tier runs as; no host login account uses it (#1060).
 OLLAMA_UID = 10001
 
@@ -305,6 +309,11 @@ def _routes(deployments: list[dict[str, Any]]) -> list[tuple[str, str, int | Non
     ]
 
 
+def _windows(deployments: list[dict[str, Any]]) -> list[int | None]:
+    """Return the `max_input_tokens` of each deployment, in configuration order."""
+    return [(m.get("model_info") or {}).get("max_input_tokens") for m in deployments]
+
+
 def _kustomized_files(directory: Path) -> set[Path]:
     """Return the files `kubectl apply -k` applies from a kustomization, following directories.
 
@@ -406,16 +415,13 @@ class TestK8sLLMGatewayManifests:
                 "devops-background",
                 "devops-triage",
                 "devops-review",
-                "qwen3-coder:30b",
                 "gpt-oss:20b",
-                "gemma4:31b",
                 "qwen3.8:27b",
-                "deepseek-r1:70b",
             ],
             "least-busy",
             [
-                {"devops-reasoning": ["devops-coder"]},
-                {"devops-coder": ["devops-reasoning", "devops-chat"]},
+                {"devops-reasoning": ["devops-chat"]},
+                {"devops-coder": ["devops-chat"]},
                 {"devops-review": ["devops-background"]},
                 {"claude-sonnet-5-5": ["deepseek-v4.1-flash-1017"]},
                 {"devops-triage": ["qwen3.8:27b"]},
@@ -434,9 +440,9 @@ class TestK8sLLMGatewayManifests:
             params["devops-coder"]["model"],
             params["devops-coder"]["api_base"],
         ) == (
-            "ollama_chat/qwen3-coder:30b",
+            "ollama_chat/qwen3.8:27b",
             "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
-            "ollama_chat/qwen3-coder:30b",
+            "ollama_chat/qwen3.8:27b",
             "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
         )
 
@@ -456,7 +462,7 @@ class TestK8sLLMGatewayManifests:
         ) == (
             True,
             False,
-            {"devops-coder": ["devops-reasoning", "devops-chat"]},
+            {"devops-coder": ["devops-chat"]},
         )
 
     def test_each_chat_deployment_declares_the_window_of_its_tier(self) -> None:
@@ -514,7 +520,7 @@ class TestK8sLLMGatewayManifests:
             [0, 0, 0],
         )
 
-    @pytest.mark.parametrize("group", ["qwen3-coder:30b", "gpt-oss:20b"])
+    @pytest.mark.parametrize("group", ["gpt-oss:20b"])
     def test_a_review_model_has_a_group_of_its_review_deployments_alone(self, group: str) -> None:
         """Verify each model devops-review serves can be pinned: its own group copies that model's
         devops-review deployments (model, backend and window, in order), so the pre-call check
@@ -547,6 +553,23 @@ class TestK8sLLMGatewayManifests:
             False,
         )
 
+    def test_a_review_can_be_pinned_to_qwen_on_the_tiers_of_the_pool(self) -> None:
+        """Verify the group `qwen3.8:27b` calls `qwen3.8:27b` on the backends and with the windows
+        of the `devops-review` deployments of that model, so a review pinned to it is routed as the
+        pool routes it (#3567). Unlike a pinned `gpt-oss:20b` review, it has the fallbacks of the
+        group, since `devops-triage` and `devops-background` fall back to it."""
+        backend = "ollama_chat/qwen3.8:27b"
+        review = [
+            m for m in _deployments("devops-review") if m["litellm_params"]["model"] == backend
+        ]
+        pinned = _deployments("qwen3.8:27b")
+
+        assert (bool(review), _routes(pinned), _windows(pinned)) == (
+            True,
+            _routes(review),
+            _windows(review),
+        )
+
     def test_gateway_routes_to_provider_vram_services(self) -> None:
         """Verify Gateway routes target standardized <llm_provider>-<vram_gib> services."""
         chat_deployments = _deployments("devops-chat")
@@ -567,9 +590,7 @@ class TestK8sLLMGatewayManifests:
             [
                 (1, "http://ollama-24gib-embed-gpu0.llm.svc.cluster.local:11434"),
                 (1, "http://ollama-24gib-embed-gpu1.llm.svc.cluster.local:11434"),
-                (2, "http://ollama-48gib-fast.llm.svc.cluster.local:11434"),
-                (2, "http://ollama-64gib-standard.llm.svc.cluster.local:11434"),
-                (3, "http://ollama-16gib-fast.llm.svc.cluster.local:11434"),
+                (2, "http://ollama-16gib-fast.llm.svc.cluster.local:11434"),
             ],
             {"embedding"},
         )
@@ -702,8 +723,8 @@ class TestK8sLLMGatewayManifests:
         [
             pytest.param(
                 _gateway_readme(
-                    "Also `ollama/qwen3-embedding:0.6b`, `ollama_chat/qwen3-coder:30b`, `qwen3.8:27b`,"
-                    " `deepseek-r1:70b`, `model_info.mode: embedding`"
+                    "Also `ollama/qwen3-embedding:0.6b`, `ollama_chat/gpt-oss:20b`, `qwen3.8:27b`,"
+                    " `gpt-oss:20b`, `model_info.mode: embedding`"
                     " and `devops-review`."
                 ),
                 [],
@@ -967,10 +988,72 @@ class TestK8sLLMGatewayManifests:
             }
             for name in settings
         }
-        for name in embedding_only:
+        for name in (*embedding_only, *SINGLE_MODEL_TIERS):
             expected[name]["OLLAMA_KEEP_ALIVE"] = "-1"
 
         assert settings == expected
+
+    def test_the_48gib_and_64gib_tiers_load_qwen_alone_at_its_native_context(self) -> None:
+        """Verify `ollama-48gib` and `ollama-64gib` keep one model loaded for good, with the native
+        context of `qwen3.8:27b` (262144, from `ollama show`), and that every gateway deployment
+        which calls either tier names that model and no embedding model (#3567).
+
+        A second model on one of these tiers evicts the loaded one and drops its KV cache, so a
+        reply waits for a load. A route for a second model would bring that back, so this test
+        fails on the route, not on the pods."""
+        loaded = {
+            name: {
+                var["name"]: var["value"]
+                for var in _load_deployment(OLLAMA_PROFILES_MANIFEST, name)["spec"]["template"][
+                    "spec"
+                ]["containers"][0]["env"]
+                if var["name"]
+                in (
+                    "OLLAMA_CONTEXT_LENGTH",
+                    "OLLAMA_KEEP_ALIVE",
+                    "OLLAMA_MAX_LOADED_MODELS",
+                    "OLLAMA_NUM_PARALLEL",
+                )
+            }
+            for name in SINGLE_MODEL_TIERS
+        }
+        models = {
+            (m["model_name"], m["litellm_params"]["model"])
+            for m, tiers in _deployment_tiers()
+            if tiers & set(SINGLE_MODEL_TIERS)
+        }
+
+        assert (loaded, {model for _, model in models}) == (
+            {
+                name: {
+                    "OLLAMA_CONTEXT_LENGTH": "262144",
+                    "OLLAMA_KEEP_ALIVE": "-1",
+                    "OLLAMA_MAX_LOADED_MODELS": "1",
+                    "OLLAMA_NUM_PARALLEL": "1",
+                }
+                for name in SINGLE_MODEL_TIERS
+            },
+            {"ollama_chat/qwen3.8:27b"},
+        )
+
+    def test_the_tier_template_of_48gib_loads_one_model(self) -> None:
+        """Verify the 48 GiB template of the old-GPU tiers keeps one model loaded for good, since
+        it is the 48 GiB tier that the thresholds can turn back into a chat tier (#3567)."""
+        template = yaml.safe_load(
+            (Path(DEFAULT_LLM_TIER_TEMPLATES_PATH) / "ollama-48gib-slow.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        env = {
+            var["name"]: var["value"]
+            for var in template["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+
+        assert (
+            env["OLLAMA_MAX_LOADED_MODELS"],
+            env["OLLAMA_KEEP_ALIVE"],
+            env["OLLAMA_CONTEXT_LENGTH"],
+        ) == ("1", "-1", "262144")
 
     def test_every_ollama_tier_runs_unprivileged(self) -> None:
         """Verify every tier runs ollama as one non-root UID with no privilege to gain (#1060).
@@ -1031,9 +1114,9 @@ class TestK8sLLMGatewayManifests:
     def test_ollama_64gib_tier_constrains_prompt_cache_and_memory_limit(self) -> None:
         """Verify the ollama-64gib tier sets a container memory limit and bounds prompt cache RAM (#2382).
 
-        Node gemini has 15.3 GiB of memory. Under a 160000 context length, the default prompt cache
-        can exhaust host memory and cause OOM kills. Setting LLAMA_ARG_CACHE_RAM to 4096 MiB bounds
-        prompt cache size. Setting limits.memory to 12Gi protects the node from memory exhaustion.
+        Node gemini had 15.3 GiB of memory, and the default prompt cache could exhaust it and cause
+        OOM kills. The node has 62.5 GiB now, and the bounds stay: the cache bound of 4096 MiB and
+        the 12Gi limit hold one `llama-server` of about 4 GiB with room to spare (#3567).
         """
         dep = _load_deployment(OLLAMA_PROFILES_MANIFEST, "ollama-64gib")
         container = dep["spec"]["template"]["spec"]["containers"][0]
@@ -1543,6 +1626,9 @@ def _ollama_consumers() -> set[tuple[str, str]]:
         f"{defaults}.DEFAULT_OLLAMA_CLUSTER_URL": _named_ollama_services(
             DEFAULT_OLLAMA_CLUSTER_URL
         ),
+        f"{defaults}.DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL": _named_ollama_services(
+            DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL
+        ),
         f"{defaults}.DEFAULT_GATEWAY_REVIEW_SLOTS": _named_ollama_services(
             DEFAULT_GATEWAY_REVIEW_SLOTS
         ),
@@ -1710,7 +1796,7 @@ def test_the_route_check_names_each_route_whose_tier_the_gateway_sends_no_such_m
             ("devops-reasoning", "deepseek-r1:70b", DEFAULT_OLLAMA_CLUSTER_SERVICE),
             ("devops-embedding", "qwen3-embedding:0.6b", "ollama-24gib"),
             ("devops-chat", "qwen3.8:27b", "ollama-nowhere"),
-            ("devops-review", "qwen3-coder:30b", "ollama-64gib-standard"),
+            ("devops-review", "qwen3.8:27b", "ollama-64gib-standard"),
         ]
     ]
 
@@ -1791,7 +1877,7 @@ def test_the_group_check_names_each_model_that_is_no_served_gateway_group() -> N
     assert _groups_off_the_gateway(
         {
             "devops-chat",
-            "qwen3-coder:30b",
+            "qwen3.8:27b",
             "qwen2.5-coder:7b",
             "devops-flagship",
             "hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S",
@@ -1812,6 +1898,15 @@ def _default_models() -> dict[str, set[str]]:
     }
 
 
+def _default_tier_url(model: str) -> str:
+    """Return the Service that serves a default model: the default Ollama Service for a chat
+    model, and the embedding Service for the embedding model. The default Service names a tier that
+    loads one chat model and no embedding model (#3567)."""
+    if model == DEFAULT_RAG_EMBEDDING_MODEL:
+        return DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL
+    return DEFAULT_OLLAMA_CLUSTER_URL
+
+
 def test_every_default_model_is_a_model_that_the_default_ollama_tier_and_the_gateway_serve() -> (
     None
 ):
@@ -1824,7 +1919,7 @@ def test_every_default_model_is_a_model_that_the_default_ollama_tier_and_the_gat
     default_models = _default_models()
     models = set().union(*default_models.values())
     unserved = {
-        model for model, _ in _off_the_gateway({(m, DEFAULT_OLLAMA_CLUSTER_URL) for m in models})
+        model for model, _ in _off_the_gateway({(m, _default_tier_url(m)) for m in models})
     } | _groups_off_the_gateway(models)
 
     assert (

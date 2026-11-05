@@ -213,7 +213,7 @@ def test_load_tier_context_lengths_against_repository_profiles() -> None:
         lengths.get("ollama-48gib"),
         lengths.get("ollama-24gib-embed-gpu0"),
         lengths.get("ollama-64gib"),
-    ) == (131072, 48000, 48000, 262144, 8192, 160000)
+    ) == (131072, 48000, 48000, 262144, 8192, 262144)
 
 
 def test_load_service_context_lengths_maps_services_to_tier_limits(tmp_path: Path) -> None:

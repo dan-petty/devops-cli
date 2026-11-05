@@ -173,6 +173,16 @@ def is_clean_at(checkout: Path, head: str) -> bool:
     )
 
 
+def is_clean_at_wip(checkout: Path, start: str) -> bool:
+    """Whether the checkout is clean at the one `wip:` commit that a step kept past `start`
+    (#3054): every task of the group passed its verification, and a later exit check failed."""
+    return (
+        git(checkout, "rev-list", "--count", f"{start}..HEAD") == "1"
+        and git(checkout, "log", "-1", "--format=%s").startswith("wip:")
+        and git(checkout, "status", "--porcelain") == ""
+    )
+
+
 def tool_reads(word: str, report: str) -> Callable[[ProcessCall], subprocess.CompletedProcess[str]]:
     """A static tool that fails when a file after `--` holds `word`, and prints `report`."""
 

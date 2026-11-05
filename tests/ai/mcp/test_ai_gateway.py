@@ -155,7 +155,7 @@ class TestGatewayRouter:
         ) == (
             "qwen3.8:27b",
             "failover:ollama",
-            "qwen3-coder:30b",
+            "qwen3.8:27b",
             "ollama",
         )
 
@@ -319,8 +319,8 @@ class TestGatewayRouter:
             ["devops-chat"],
             [
                 ("devops-chat", "qwen3.8:27b", "failover:ollama"),
-                ("devops-coder", "qwen3-coder:30b", "ollama"),
-                ("devops-reasoning", "qwen3-coder:30b", "ollama"),
+                ("devops-coder", "qwen3.8:27b", "ollama"),
+                ("devops-reasoning", "qwen3.8:27b", "ollama"),
                 ("devops-embedding", "qwen3-embedding:0.6b", "ollama"),
             ],
         )

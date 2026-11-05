@@ -8,7 +8,12 @@ from typing import Any
 
 import yaml
 
-from devops_cli.config.constants import CONST_OTEL_SERVICE_NAME
+from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_HOSTED_MODELS,
+    CONST_OTEL_SERVICE_NAME,
+    CONST_ROADMAP_IMPLEMENT_STEP_CLASSES,
+    CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
+)
 from devops_cli.config.env import CREDENTIALS
 from devops_cli.config.settings import Settings
 from tests.support.paths import REPO_ROOT
@@ -160,6 +165,30 @@ def test_config_targets_the_in_cluster_gateway_and_holds_no_credential() -> None
         str(settings.ai.gateway_url).split("/")[2].endswith(".svc.cluster.local:4000"),
         leaked,
     ) == ("gateway", True, [])
+
+
+def test_the_implement_step_runs_on_a_hosted_gateway_group_that_fits_its_window() -> None:
+    """The example ConfigMap names, for the task `implement` and for each step class of the
+    ladder, a group that the gateway config serves and that is hosted. The window of the task is
+    not above the window of that group, and holds a step and the turn reserve (#3573). A rename of
+    the group in `k8s/llm/gateway/config.yaml` fails this test."""
+    raw = yaml.safe_load(_doc("configmap.example.yaml")["data"]["devops-cli.yaml"])
+    settings = Settings.model_validate(raw)
+    gateway = yaml.safe_load((K8S_DIR / "llm" / "gateway" / "config.yaml").read_text("utf-8"))
+    served = {entry["model_name"]: entry for entry in gateway["model_list"]}
+    task = settings.ai.for_task("implement")
+    ladder = settings.roadmap.implement.ladder
+    tiers = {task.model, *(tier for step in ladder.values() for tier in step)}
+    group_window = served[task.model]["model_info"]["max_input_tokens"]
+
+    assert (
+        sorted(tiers - served.keys()),
+        sorted(tiers - set(CONST_AI_GATEWAY_HOSTED_MODELS)),
+        sorted(ladder) == sorted(CONST_ROADMAP_IMPLEMENT_STEP_CLASSES),
+        task.context_window <= group_window,
+        settings.roadmap.stage.step_tokens + CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS
+        <= task.context_window,
+    ) == ([], [], True, True, True)
 
 
 def _dotted(document: Any, key: str) -> Any:

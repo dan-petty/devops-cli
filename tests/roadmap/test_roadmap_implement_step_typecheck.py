@@ -26,7 +26,7 @@ from tests.support.implement_step import (
     WINDOW,
     command_text,
     git,
-    is_clean_at,
+    is_clean_at_wip,
     programs_run,
     tool_reads,
     write_call,
@@ -115,7 +115,7 @@ def test_a_new_type_error_in_a_source_file_still_stops_the_step(
         "",
         3,
     )
-    assert is_clean_at(checkout, head)
+    assert is_clean_at_wip(checkout, head)
 
 
 def test_the_command_of_the_step_is_the_command_of_the_gate_with_the_files_in_place_of_the_paths(

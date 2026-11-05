@@ -27,6 +27,13 @@ data:
         analysis:
           model: deepseek-v4.1-flash-1017
           context_window: 65536
+        # The implement job runs every step on the same group (#3573). Its prompts, which hold
+        # the code of the repository, leave the cluster to OpenRouter (SECURITY.md rule 13). The
+        # window is the smallest that an fp8 provider of the group offers (256,000 tokens); the
+        # gateway group allows 1,048,576.
+        implement:
+          model: deepseek-v4.1-flash-1017
+          context_window: 256000
         verification:
           model: claude-sonnet-5-5
         chat:
@@ -54,15 +61,18 @@ data:
         slug: devops-cli-service
     # The stage job of the Service (k8s/README.md, Roadmap service): it stages the Ready items
     # that this filter names, at most `limit` in a round, in task groups that each fit
-    # `step_tokens`. A repository's ConfigMap changes the filter; an entry is `family=value` over
-    # status, priority, type, value or effort. The `toolset` names the tools of a plan run:
-    # `extended` adds `references`, `read_issue` and `find_issues`, which read GitHub with the
-    # token of the Service; `base` has the nine tools that read the staged commit only.
+    # `step_tokens`. At `planned_limit` open Planned items it plans no new item, except for an
+    # item of the highest priority. A repository's ConfigMap changes the filter; an entry is
+    # `family=value` over status, priority, type, value or effort. The `toolset` names the tools
+    # of a plan run: `extended` adds `references`, `read_issue` and `find_issues`, which read
+    # GitHub with the token of the Service; `base` has the nine tools that read the staged
+    # commit only.
     roadmap:
       stage:
         filter:
           - status=ready
         limit: 3
+        planned_limit: 20
         step_tokens: 64000
         toolset: extended
       # The alternatives row takes `first_pass_limit` items in a round while an item has no
@@ -70,3 +80,11 @@ data:
       alternatives:
         limit: 5
         first_pass_limit: 20
+      # One tier for every step class of the implement job (#3573): a step has no weaker or
+      # stronger tier to move to, so a failure that selects `change_tier` ends the step.
+      implement:
+        ladder:
+          plan: [deepseek-v4.1-flash-1017]
+          edit: [deepseek-v4.1-flash-1017]
+          repair: [deepseek-v4.1-flash-1017]
+          review: [deepseek-v4.1-flash-1017]

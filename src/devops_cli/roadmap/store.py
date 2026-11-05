@@ -212,7 +212,9 @@ class ImplementRecordKey(StrEnum):
     and, once the Job ended, its state (#2667), and the digest of the runner image that the template
     named when it made the Job (#2912): the digest of the stop that the Job leaves. The Service
     keeps the digest clears of an item as a JSON list, and the time of the last comment of a clear
-    (#3481); a clear of a stop does not remove them."""
+    (#3481); a clear of a stop does not remove them. `implement.wip` holds the work in progress that
+    a step kept (#3054): its group, the tasks done, the tasks of the group and the last commit, as
+    JSON. The job removes it when the group passes."""
 
     GROUP = "implement.group"
     SHA = "implement.sha"
@@ -222,6 +224,7 @@ class ImplementRecordKey(StrEnum):
     FAILURE = "implement.failure"
     CHECK = "implement.check"
     CHECK_LOG = "implement.check_log"
+    WIP = "implement.wip"
     SPEND = "implement.spend"
     TRACE = "implement.trace"
     JOB = "implement.job"

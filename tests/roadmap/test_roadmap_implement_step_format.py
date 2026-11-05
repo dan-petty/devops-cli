@@ -31,6 +31,7 @@ from tests.support.implement_step import (
     git,
     git_for_real,
     is_clean_at,
+    is_clean_at_wip,
     make_checkout,
     programs_run,
     the_whole_group,
@@ -143,7 +144,8 @@ def test_the_format_run_is_the_first_command_and_the_check_of_the_format_is_gone
     _step(store, checkout, ModelScript(tool_calls(*the_whole_group()), say("Done.")))
 
     uv = [command_text(call) for call in programs.calls if call.argv[0] == "uv"]
-    assert uv == [
+    # The ticks of the agent run the verification of each task before the exit checks (#3054).
+    assert uv[uv.index(f"{FORMAT} {CHANGED_FILES}") :] == [
         f"{FORMAT} {CHANGED_FILES}",
         "uv run devops ci test tests/test_sample.py",
         "uv run devops docs check",
@@ -164,7 +166,8 @@ def test_the_formatter_gets_the_changed_python_files_and_no_other_file(
 
     _step(store, checkout, script)
 
-    assert programs_run(programs, "uv")[0] == f"{FORMAT} {CHANGED_FILES}"
+    formats = [line for line in programs_run(programs, "uv") if line.startswith(FORMAT)]
+    assert formats == [f"{FORMAT} {CHANGED_FILES}"]
 
 
 def test_a_lint_error_after_the_format_run_still_stops_the_step(
@@ -179,7 +182,7 @@ def test_a_lint_error_after_the_format_run_still_stops_the_step(
 
     outcome = _step(store, checkout, _formatted_script())
 
-    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
+    assert (outcome.status, outcome.reason, is_clean_at_wip(checkout, head)) == (
         StepStatus.STOPPED,
         f"uv run ruff check -- {CHANGED_FILES} exited with status 1.\nF401 unused import",
         True,
@@ -216,12 +219,18 @@ def test_a_file_with_a_syntax_error_stops_the_step_with_the_error_of_the_formatt
 
     outcome = _step(store, checkout, ModelScript(tool_calls(*the_whole_group()), say("Done.")))
 
-    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
+    assert (outcome.status, outcome.reason, is_clean_at_wip(checkout, head)) == (
         StepStatus.STOPPED,
         f"{FORMAT} {CHANGED_FILES} exited with status 2.\n{error}",
         True,
     )
-    assert programs_run(programs, "uv") == [f"{FORMAT} {CHANGED_FILES}"]
+    # The ticks run the verification of each task first (#3054).
+    assert programs_run(programs, "uv") == [
+        "uv run devops ci test tests/test_sample.py",
+        "uv run devops ci test tests/test_sample.py",
+        "uv run devops docs check",
+        f"{FORMAT} {CHANGED_FILES}",
+    ]
 
 
 def test_a_format_run_that_runs_out_of_time_stops_the_step(

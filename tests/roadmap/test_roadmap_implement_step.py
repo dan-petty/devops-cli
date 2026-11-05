@@ -59,6 +59,7 @@ from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import (
+    CHECK,
     DOCS,
     SHOUT_CODE,
     TASKS,
@@ -300,7 +301,15 @@ def test_the_exit_checks_format_first_run_each_command_once_then_the_static_chec
 
     py = "src/sample.py tests/test_sample.py"
     uv = [call for call in programs.calls if call.argv[0] == "uv"]
-    assert ([command_text(call) for call in uv], {call.cwd for call in uv}) == (
+    commands = [command_text(call) for call in uv]
+    first_exit_check = commands.index(f"uv run ruff format -- {py}")
+    # The tick of the agent runs the verification of each task before the exit checks (#3054).
+    assert commands[:first_exit_check] == [
+        "uv run devops ci test tests/test_sample.py",
+        "uv run devops ci test tests/test_sample.py",
+        "uv run devops docs check",
+    ]
+    assert (commands[first_exit_check:], {call.cwd for call in uv}) == (
         [
             f"uv run ruff format -- {py}",
             "uv run devops ci test tests/test_sample.py",
@@ -317,7 +326,7 @@ def test_a_failed_verification_command_stops_the_step_and_resets_the_checkout(
 ) -> None:
     head = git(checkout, "rev-parse", "HEAD")
     programs.answer(
-        lambda call: command_text(call) == DOCS, ProcessAnswer(returncode=1, stdout="no docs\n")
+        lambda call: command_text(call) == CHECK, ProcessAnswer(returncode=1, stdout="no docs\n")
     )
     script = ModelScript(tool_calls(*the_whole_group()), say("Done."))
 
@@ -332,11 +341,20 @@ def test_a_failed_verification_command_stops_the_step_and_resets_the_checkout(
         "def shout" in (checkout / "src" / "sample.py").read_text(encoding="utf-8"),
     ) == (
         StepStatus.STOPPED,
-        f"{DOCS} exited with status 1.\nno docs",
+        f"{CHECK} exited with status 1.\nno docs",
         "",
         True,
         False,
         False,
+    )
+
+
+def _is_clean_at_wip(checkout: Path, start: str) -> bool:
+    """Whether the checkout is clean, one `wip:` commit past `start`."""
+    return (
+        git(checkout, "rev-list", "--count", f"{start}..HEAD") == "1"
+        and git(checkout, "log", "-1", "--format=%s").startswith("wip:")
+        and git(checkout, "status", "--porcelain") == ""
     )
 
 
@@ -351,7 +369,8 @@ def test_a_failed_static_check_stops_the_step_and_resets_the_checkout(
 
     outcome = _step(store, checkout, ModelScript(tool_calls(*the_whole_group()), say("Done.")))
 
-    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
+    # Every task passed its verification, so the checkout goes back to the `wip:` commit (#3054).
+    assert (outcome.status, outcome.reason, _is_clean_at_wip(checkout, head)) == (
         StepStatus.STOPPED,
         "uv run ruff check -- src/sample.py tests/test_sample.py exited with status 1.\nE501 too long",
         True,
@@ -474,13 +493,16 @@ def test_a_commit_that_a_hook_refuses_stops_the_step_and_resets_the_checkout(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     head = git(checkout, "rev-parse", "HEAD")
-    hook = checkout / ".git" / "hooks" / "pre-commit"
-    hook.write_text("#!/bin/sh\necho refused by the hook\nexit 1\n", encoding="utf-8")
+    hook = checkout / ".git" / "hooks" / "commit-msg"
+    hook.write_text(
+        '#!/bin/sh\ngrep -q "^wip:" "$1" && exit 0\necho refused by the hook\nexit 1\n',
+        encoding="utf-8",
+    )
     hook.chmod(0o755)
 
     outcome = _step(store, checkout, ModelScript(tool_calls(*the_whole_group()), say("Done.")))
 
-    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
+    assert (outcome.status, outcome.reason, _is_clean_at_wip(checkout, head)) == (
         StepStatus.STOPPED,
         "The commit failed.\nrefused by the hook",
         True,
@@ -615,6 +637,8 @@ def test_a_commit_that_the_agent_makes_stops_the_step_and_the_checkout_returns_t
         git(checkout, "commit", "-q", "-m", "own commit")
         moved.append(git(checkout, "rev-parse", "HEAD"))
 
+    # The first verification command fails, so the step keeps nothing and starts at `head`.
+    programs.answer(lambda call: command_text(call) == CHECK, ProcessAnswer(returncode=1))
     script = ModelScript(tool_calls(*the_whole_group()), say("Done."), effects={2: agent_commits})
 
     outcome = _step(store, checkout, script)
@@ -642,7 +666,7 @@ def test_a_tasks_file_that_the_agent_removes_is_written_back_and_its_tasks_stay_
     assert (
         outcome.status,
         outcome.reason,
-        is_clean_at(checkout, head),
+        _is_clean_at_wip(checkout, head),
         (checkout / TASKS_PATH).exists(),
     ) == (
         StepStatus.STOPPED,
@@ -1104,7 +1128,10 @@ def test_the_instructions_say_that_a_reply_has_a_cap_and_a_long_file_is_written_
     inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
 
     assert "Each reply of yours has an output cap" in inputs.instructions
-    assert "stops and all your work is lost" in inputs.instructions.split("output cap")[1]
+    assert (
+        "stops and the work after your last kept task is lost"
+        in inputs.instructions.split("output cap")[1]
+    )
     assert "in parts with `edit_file`" in inputs.instructions
 
 
@@ -1113,9 +1140,11 @@ def test_the_instructions_say_that_a_reply_has_a_cap_and_a_long_file_is_written_
 TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
 
 
-def _stopped_on_docs(programs: ProcessFake) -> None:
+def _stopped_on_a_check(programs: ProcessFake) -> None:
+    """The first verification command fails, so no task passes it and the step keeps nothing:
+    the diff holds all the work (#3054)."""
     programs.answer(
-        lambda call: command_text(call) == DOCS, ProcessAnswer(returncode=1, stdout="no docs\n")
+        lambda call: command_text(call) == CHECK, ProcessAnswer(returncode=1, stdout="no docs\n")
     )
 
 
@@ -1123,7 +1152,7 @@ def test_a_stopped_step_reports_the_diff_of_the_work_it_discarded(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     head = git(checkout, "rev-parse", "HEAD")
-    _stopped_on_docs(programs)
+    _stopped_on_a_check(programs)
 
     outcome = _step(store, checkout, ModelScript(tool_calls(*the_whole_group()), say("Done.")))
 
@@ -1146,6 +1175,7 @@ def test_the_diff_of_a_stopped_step_holds_the_work_of_an_agent_that_committed(
         git(checkout, "add", "-A")
         git(checkout, "commit", "-q", "-m", "own commit")
 
+    programs.answer(lambda call: command_text(call) == CHECK, ProcessAnswer(returncode=1))
     script = ModelScript(tool_calls(*the_whole_group()), say("Done."), effects={2: agent_commits})
 
     outcome = _step(store, checkout, script)
@@ -1159,7 +1189,7 @@ def test_the_diff_of_a_stopped_step_holds_the_work_of_an_agent_that_committed(
 def test_the_diff_of_a_stopped_step_is_masked(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    _stopped_on_docs(programs)
+    _stopped_on_a_check(programs)
     leaky = write_call("src/sample.py", SHOUT_CODE + f'\nTOKEN = "{TOKEN}"\n')
 
     outcome = _step(store, checkout, ModelScript(tool_calls(leaky, TICK), say("Done.")))
@@ -1170,7 +1200,7 @@ def test_the_diff_of_a_stopped_step_is_masked(
 def test_the_diff_of_a_stopped_step_is_cut_to_a_constant_size(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    _stopped_on_docs(programs)
+    _stopped_on_a_check(programs)
     long_file = write_call(
         "src/sample.py", "y" * 3 * constants.CONST_ROADMAP_IMPLEMENT_DIFF_CHARS + "\n"
     )
@@ -1188,7 +1218,7 @@ def test_the_diff_of_a_stopped_step_is_masked_before_it_is_cut(
 ) -> None:
     """A private key spans more lines than the cut keeps. A cut before the masking would leave
     its first lines and no end marker, and the masking would find no key to mask."""
-    _stopped_on_docs(programs)
+    _stopped_on_a_check(programs)
     key = (
         "-----BEGIN "
         + "PRIVATE KEY-----\n"
@@ -1214,7 +1244,7 @@ def test_a_stopped_step_reports_the_diff_of_a_file_that_is_not_utf8(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     """A Latin-1 file in the discarded work must not crash the job that reads its diff."""
-    _stopped_on_docs(programs)
+    _stopped_on_a_check(programs)
 
     def agent_writes_latin1() -> None:
         (checkout / "tests" / "test_sample_latin1.py").write_bytes(
@@ -1239,7 +1269,7 @@ def test_a_stopped_step_masks_only_a_bounded_part_of_a_very_large_diff(
 ) -> None:
     """The masking is slower than linear, so its input is cut before it runs. The cut keeps a
     multiple of the limit, so that a secret inside the shown part is still masked whole."""
-    _stopped_on_docs(programs)
+    _stopped_on_a_check(programs)
     limit = constants.CONST_ROADMAP_IMPLEMENT_DIFF_CHARS
     masked_sizes: list[int] = []
     real_mask = implement_step.mask_secrets
@@ -1270,7 +1300,7 @@ def test_a_stopped_step_reads_its_diff_with_no_external_program_and_no_text_conv
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     """A diff driver that the agent sets in `.git/config` would run in the job's process."""
-    _stopped_on_docs(programs)
+    _stopped_on_a_check(programs)
 
     _step(store, checkout, ModelScript(tool_calls(*the_whole_group()), say("Done.")))
 

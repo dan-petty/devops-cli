@@ -2370,6 +2370,15 @@ class RoadmapMessages:
     implement_git_failed: str = "git {command} failed.\n{output}"
     implement_fix_title: str = "Make check {check} pass"
     implement_fix_task: str = "[ ] Make check `{check}` pass"
+    implement_wip_commit: str = (
+        "{prefix} {done} of {total} tasks of group {group}, {title} (#{item})"
+    )
+    implement_wip_push_failed: str = "The push of the work in progress failed: {output}"
+    implement_stop_kept: str = (
+        "\n\nThe job kept {count} work-in-progress {commits} on the branch `{branch}` on origin. "
+        "The last is `{sha}`. The job discarded only the work after it. The next run continues "
+        "from it and does the tasks that are not ticked."
+    )
     implement_stop_unticked: str = "A task of the group is not ticked: {task}"
     implement_stop_tick_turn_changed: str = (
         "The extra turn for the ticks changed files other than the tasks file: {paths}."
@@ -2939,6 +2948,11 @@ class RoadmapMessages:
         "An earlier run stopped on a task group over the budget: {detail}. A person decides, or "
         "runs the job with --item {number}."
     )
+    stage_left_planned_limit: str = (
+        "The count of Planned items is {count}, and the setting roadmap.stage.planned_limit is "
+        "{limit}. The job plans no new item until a delivery lowers the count. An item with the "
+        "priority {priority} passes the limit."
+    )
     stage_left_failed_lately: str = (
         "The last plan or write of the item failed ({error}). The job takes the item again after "
         "{until} UTC."
@@ -3099,9 +3113,9 @@ class RoadmapMessages:
             "default_plans": "the change folders of the default branch",
             "tracked_files": "the tracked files of the clone, to check the paths of each plan",
             "open_pulls": "the open pull requests and their files, to find an overlap",
-            "model_change": "the analysis model plans the change of the item",
-            "model_split": "the analysis model splits the task groups over the budget",
-            "model_correction": "the analysis model corrects a change that fails its checks",
+            "model_change": "the stage model plans the change of the item",
+            "model_split": "the stage model splits the task groups over the budget",
+            "model_correction": "the stage model corrects a change that fails its checks",
             "validate": "validate the change with OpenSpec in a scratch directory",
             "fetch_branch": "the staged branch of a closed item",
             "worktree": "the worktree of the item's branch at the fetched default branch",
@@ -3504,6 +3518,7 @@ class RoadmapMessages:
             "blocked": "Items in status/blocked",
             "claim": "Claims with no activity for {days} days",
             "labels": "Repository state that a person owns",
+            "queue": "The stage job waits for deliveries",
             "person": "Pull requests of people and agents",
         }
     )
@@ -3521,6 +3536,10 @@ class RoadmapMessages:
             "claim": "{title} (claimed by {owner})",
             "labels": "{count} label(s) of {path} are missing or changed on GitHub: {names}",
             "more_labels": "{names}, and {more} more",
+            "queue": (
+                "The count of Planned items is {count}, and roadmap.stage.planned_limit is "
+                "{limit}. The stage job plans no new item."
+            ),
         }
     )
     inbox_clears: dict[str, str] = field(
@@ -3540,6 +3559,10 @@ class RoadmapMessages:
             ),
             "claim": "devops roadmap release {number} --repo {repo} --confirm",
             "labels": "devops gh labels sync --repo {repo}",
+            "queue": (
+                "Deliver Planned items with `devops roadmap implement --repo {repo}`, "
+                "or raise roadmap.stage.planned_limit."
+            ),
         }
     )
     plan_repeat_page: str = "per page, while GitHub links a next one"
@@ -3806,7 +3829,7 @@ class RoadmapMessages:
     stage_eval_replay_failed: str = "Result: FAILED. {count} problem(s):"
     stage_eval_pending_gate: str = "{reference}"
     stage_eval_score_title: str = (
-        "# Stage golden set: {cases} case(s), the analysis model {model} at {gateway}"
+        "# Stage golden set: {cases} case(s), the stage model {model} at {gateway}"
     )
     stage_eval_score_header: str = "Defect type               Gate     Cases  Avoided  Caught  Rate"
     stage_eval_score_row: str = (
@@ -3817,8 +3840,11 @@ class RoadmapMessages:
         "gate catches ({rate})."
     )
     stage_eval_score_ended: str = "Cases by end: {ended}."
+    stage_eval_usage_tokens: str = "Tokens: {input} in, {output} out."
+    stage_eval_usage_spend: str = "Spend: {spend:.4f} USD at the hosted price of the model."
+    stage_eval_usage_unpriced: str = "Spend: no price for the model."
     stage_eval_dry_run: str = (
-        "Dry run: no request was made. A run plans {cases} case(s) with the analysis model at "
+        "Dry run: no request was made. A run plans {cases} case(s) with the stage model at "
         "{gateway}, {mode}, one case at a time:"
     )
     stage_eval_mode_toolbox: str = "with the read-only toolbox"

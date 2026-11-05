@@ -107,7 +107,7 @@ def test_confirm_stages_the_item_and_reports_it(
     assert "budget of 30000 tokens" in roadmap_store.comments_on(1)[0].body
 
 
-def test_the_command_plans_with_the_model_of_the_analysis_task_as_a_toolbox_model(
+def test_the_command_plans_with_the_model_of_the_stage_task_as_a_toolbox_model(
     cli: Cli,
     roadmap_store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
@@ -129,7 +129,7 @@ def test_the_command_plans_with_the_model_of_the_analysis_task_as_a_toolbox_mode
 
     assert result.exit_code == 0, result.output
     assert (tasks, script.tools_offered[0][:2], model_fake.call_count) == (
-        ["analysis"],
+        ["stage"],
         ["list_files", "read_file"],
         1,
     )
@@ -243,7 +243,7 @@ def test_the_dry_run_makes_no_request_and_lists_the_reads_the_git_commands_and_t
     shown = result.output.replace("'", "")
     for expected in (
         "git -C <model-clone> ls-remote --heads origin",
-        "analysis model",
+        "stage model",
         "openspec validate <change> --strict",
         "git -C <worktree> push -q -u origin <branch>",
         "POST https://api.github.com/repos/example/roadmap/pulls",

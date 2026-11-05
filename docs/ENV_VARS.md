@@ -38,6 +38,10 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_AI_TASK_METADATA_OLLAMA_URLS` | `ai.tasks.metadata.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
 | `DEVOPS_CLI_AI_TASK_METADATA_PROVIDER` | `ai.tasks.metadata.provider` | No | AI provider of this task, in place of `ai.provider` |
 | `DEVOPS_CLI_AI_TASK_METADATA_REASONING_EFFORT` | `ai.tasks.metadata.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
+| `DEVOPS_CLI_AI_TASK_STAGE_MODEL` | `ai.tasks.stage.model` | No | AI model of this task, in place of `ai.model` |
+| `DEVOPS_CLI_AI_TASK_STAGE_OLLAMA_URLS` | `ai.tasks.stage.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
+| `DEVOPS_CLI_AI_TASK_STAGE_PROVIDER` | `ai.tasks.stage.provider` | No | AI provider of this task, in place of `ai.provider` |
+| `DEVOPS_CLI_AI_TASK_STAGE_REASONING_EFFORT` | `ai.tasks.stage.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
 | `DEVOPS_CLI_ANTHROPIC_API_KEY` | `anthropic.api_key` | 🔒 Yes | Anthropic API key that `devops k8s push-secrets` writes to the LLM gateway Secret (stored in OS keyring) |
 | `DEVOPS_CLI_ARGOCD_GITHUB_APP_ID` | `argocd.github_app_id` | No | ID of the GitHub App that Argo CD's GitHub notifier acts as |
 | `DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID` | `argocd.github_app_installation_id` | No | ID of the installation of Argo CD's notifier App on the managed repositories |
@@ -104,6 +108,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS` | `roadmap.implement.request_timeout_seconds` | No | The seconds that one model call of an implementation step may take, the read of its stream included. A call that runs past it ends the step as stopped. Keep it under the timeout of the LLM gateway router (1500 s in the stack), or the router ends the call first |
 | `DEVOPS_CLI_ROADMAP_STAGE_FILTER` | `roadmap.stage.filter` | No | The labels of the items that the stage job takes, as entries `family=value` over the families status, priority, type, value and effort: the values of one family are alternatives, and the families all apply; the job also takes Ready items only |
 | `DEVOPS_CLI_ROADMAP_STAGE_LIMIT` | `roadmap.stage.limit` | No | The most items that one run of the stage job takes |
+| `DEVOPS_CLI_ROADMAP_STAGE_PLANNED_LIMIT` | `roadmap.stage.planned_limit` | No | The count of open Planned items at which the stage job plans no new item. An item with the highest priority label passes the limit, and so does the item that `--item` names. `devops roadmap explain` names the limit for an item that it holds, and `devops roadmap inbox` states when it holds |
 | `DEVOPS_CLI_ROADMAP_STAGE_STEP_TOKENS` | `roadmap.stage.step_tokens` | No | The most tokens that the inputs of one implementation step may hold: the step's instructions, the AGENTS.md of the repository and the documents it routes the group to, the item, the change folder and the packed files of one task group; `devops roadmap stage` splits a task group over it |
 | `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET` | `roadmap.stage.toolset` | No | The tools of a plan run of the stage job: `base` is the nine read-only tools that read the staged commit, and `extended` adds `references`, `read_issue` and `find_issues`. The last two read issues and pull requests of the repository on GitHub, with the token of the Service and no other permission |
 | `DEVOPS_CLI_RUNS_INDEX_PASSWORD` | `runs.index_password` | 🔒 Yes | Run index Valkey password (stored in OS keyring) |

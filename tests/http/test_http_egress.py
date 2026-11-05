@@ -776,7 +776,7 @@ def _ollama_model_call(flag: bool) -> Callable[[], Any]:
     settings = Settings(ai=_ollama_config(flag))
 
     def call() -> None:
-        model = resolve_pydantic_ai_model("ollama:qwen3-coder:30b", settings=settings)
+        model = resolve_pydantic_ai_model("ollama:qwen3.8:27b", settings=settings)
         asyncio.run(model.client.with_options(max_retries=0).models.list())
 
     return call
@@ -802,8 +802,8 @@ def _benchmark_chat_call(flag: bool) -> Callable[[], Any]:
     settings = Settings(ai=_ollama_config(flag).model_copy(update={"max_retries": 0}))
 
     def call() -> None:
-        runner = BenchmarkRunner(models=["qwen3-coder:30b"], tasks=[], settings=settings)
-        client = runner._client_for_model("qwen3-coder:30b", "http://example.com:11434")
+        runner = BenchmarkRunner(models=["qwen3.8:27b"], tasks=[], settings=settings)
+        client = runner._client_for_model("qwen3.8:27b", "http://example.com:11434")
         client._shared_client().get("http://example.com:11434/api/tags")
 
     return call

@@ -76,11 +76,16 @@ GREP_MATCHES_PER_FILE = CONST_ROADMAP_REFINE_TOOL_MAX_LINES + 1
 _DEFAULT_WINDOW = 8192
 
 
+def task_window(task: str) -> int:
+    """The context window of the task `task` in tokens, or a default when no setting names it. A
+    run of the model passes it to `investigate`, so the window ends its tools before the counts of
+    calls and requests do (#3206)."""
+    return load_settings().ai.for_task(task).context_window or _DEFAULT_WINDOW
+
+
 def analysis_window() -> int:
-    """The context window of the `analysis` task in tokens, or a default when no setting names it.
-    A run of the analysis model passes it to `investigate`, so the window ends its tools before the
-    counts of calls and requests do (#3206)."""
-    return load_settings().ai.for_task("analysis").context_window or _DEFAULT_WINDOW
+    """The context window of the `analysis` task in tokens (see `task_window`)."""
+    return task_window("analysis")
 
 
 def repository_path(text: str) -> str | None:
@@ -445,4 +450,5 @@ __all__ = [
     "cut",
     "investigate",
     "repository_path",
+    "task_window",
 ]

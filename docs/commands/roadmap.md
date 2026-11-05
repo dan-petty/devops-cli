@@ -209,7 +209,7 @@ devops roadmap plan-recheck [OPTIONS]
 
 ## `devops roadmap explain`
 
-**Say, for one issue, whether the stage job and the implement job take it. For each job the answer is yes, or no with the reason of the first rule that fails: the issue is closed or is no item, the filter, the rules of the job (the Status, the owner, the stop on record, the plan and the branch), and the limit of a run. The reasons are the texts of the 'Left out' list of stage --plan and implement --plan. The command reads GitHub and git, calls no model and writes nothing. It uses the filter and the limit that the Service uses for each job. A group over the step budget shows only when an earlier run recorded it.**
+**Say, for one issue, whether the stage job and the implement job take it. For each job the answer is yes, or no with the reason of the first rule that fails: the issue is closed or is no item, the filter, the rules of the job (the Status, the owner, the stop on record, the plan and the branch, and the setting roadmap.stage.planned_limit), and the limit of a run. The reasons are the texts of the 'Left out' list of stage --plan and implement --plan. The command reads GitHub and git, calls no model and writes nothing. It uses the filter and the limit that the Service uses for each job. A group over the step budget shows only when an earlier run recorded it.**
 
 ```bash
 devops roadmap explain [OPTIONS] <item>
@@ -236,7 +236,7 @@ devops roadmap explain [OPTIONS] <item>
 
 ## `devops roadmap inbox`
 
-**List what waits for a person, each line with its number, its age and the one command or action that clears it. It reads GitHub, calls no model and writes nothing. Details: docs/roadmap/inbox.md.**
+**List what waits for a person, each line with its number, its age and the one command or action that clears it, and a line when the count of Planned items is at the setting roadmap.stage.planned_limit. It reads GitHub, calls no model and writes nothing. Details: docs/roadmap/inbox.md.**
 
 ```bash
 devops roadmap inbox [OPTIONS]
@@ -365,7 +365,7 @@ devops roadmap eval stage [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--case` | `string` | - | Run only this case, by folder name or issue number. Repeat the option for more cases. |
-| `--model` | `string` | - | Model for the analysis task. Without it, the configured model. |
+| `--model` | `string` | - | Model for the stage task. Without it, the configured model of the task. |
 | `--limit` | `integer` | - | Run at most this many cases, the first ones of the set. |
 | `--json` | `boolean` | - | Print the report as JSON in place of the table. |
 | `--dry-run` | `boolean` | - | Make no request: list the cases and the model calls that a run makes. |

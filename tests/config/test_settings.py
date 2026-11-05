@@ -119,10 +119,10 @@ def test_the_implement_ladder_refuses_a_repeated_tier_and_an_empty_list() -> Non
 
 def test_the_implement_ladder_reads_a_json_object_of_a_config_set() -> None:
     ladder = RoadmapImplementConfig(
-        ladder='{"edit": ["devops-coder", "ollama:qwen3-coder:30b"]}'
+        ladder='{"edit": ["devops-coder", "ollama:qwen3.8:27b"]}'
     ).ladder
 
-    assert ladder["edit"] == ["devops-coder", "ollama:qwen3-coder:30b"]
+    assert ladder["edit"] == ["devops-coder", "ollama:qwen3.8:27b"]
 
 
 def test_the_implement_ladder_refuses_text_that_is_no_json_object() -> None:

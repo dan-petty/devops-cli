@@ -12,6 +12,7 @@ Each line has its number, its age and the one command or action that clears it. 
 4. Items in `status/blocked`, with their cause.
 5. Claims with no activity for 7 days.
 6. Labels of `.github/labels.yml` that the repository lacks.
+7. The state of the Planned queue, when the count of Planned items is at `roadmap.stage.planned_limit`. The stage job then plans no new item. The line has no number and no age.
 
 A second list holds the other open pull requests, those of people and agents. It marks the drafts.
 

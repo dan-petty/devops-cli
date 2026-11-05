@@ -11,7 +11,10 @@ import pytest
 from pydantic import ValidationError
 
 from devops_cli.config import settings
-from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_STEP_TOKENS
+from devops_cli.config.defaults import (
+    DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
+    DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
+)
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ItemField
@@ -41,7 +44,7 @@ def config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path.write_text("", encoding="utf-8")
     monkeypatch.setattr(settings, "CONFIG_PATH", path)
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(tmp_path / "no-project-config.yaml"))
-    for name in ("FILTER", "LIMIT", "STEP_TOKENS", "TOOLSET"):
+    for name in ("FILTER", "LIMIT", "PLANNED_LIMIT", "STEP_TOKENS", "TOOLSET"):
         monkeypatch.delenv(f"DEVOPS_CLI_ROADMAP_STAGE_{name}", raising=False)
     settings.reset_settings_cache()
     return path
@@ -129,6 +132,30 @@ def test_a_toolset_that_is_none_of_the_two_is_refused_naming_it(
     assert "'base' or 'extended'" in str(refused.value)
 
 
+def test_the_planned_limit_has_a_default(config_file: Path) -> None:
+    assert (
+        settings.load_settings().roadmap.stage.planned_limit == DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT
+    )
+
+
+def test_a_config_file_and_a_variable_set_the_planned_limit(
+    config_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_file.write_text("roadmap:\n  stage:\n    planned_limit: 7\n", encoding="utf-8")
+    from_file = settings.load_settings().roadmap.stage.planned_limit
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_PLANNED_LIMIT", "9")
+    settings.reset_settings_cache()
+
+    assert (from_file, settings.load_settings().roadmap.stage.planned_limit) == (7, 9)
+
+
+def test_a_planned_limit_under_one_is_refused(config_file: Path) -> None:
+    config_file.write_text("roadmap:\n  stage:\n    planned_limit: 0\n", encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="greater_than_equal"):
+        settings.load_settings()
+
+
 # ── The command ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -207,3 +234,24 @@ def test_the_limit_of_the_settings_caps_the_command_and_the_option_replaces_it(
 
     assert ("#1 " in capped, "#2 " in capped) == (True, False)
     assert ("#1 " in both, "#2 " in both) == (True, True)
+
+
+@pytest.mark.usefixtures("keyring_store", "two_kinds", "config_file")
+def test_the_command_plans_no_item_at_the_planned_limit_and_gives_the_limit_as_the_reason(
+    cli: Cli,
+    roadmap_store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_PLANNED_LIMIT", "1")
+    roadmap_store.seed_issue(
+        "fix(roadmap): a plan waits for its delivery",
+        fields={ItemField.STATUS: "Planned", ItemField.PRIORITY: "P1-High"},
+    )
+
+    output = _plan(cli, stage_repo)
+
+    assert "branch `" not in output
+    assert "- #1 fix(roadmap): the job drops a comment: The count of Planned items is 1" in output
+    assert "roadmap.stage.planned_limit" in output

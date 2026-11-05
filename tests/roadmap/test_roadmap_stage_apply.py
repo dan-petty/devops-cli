@@ -571,7 +571,7 @@ def test_the_comment_of_a_run_that_offered_no_tool_names_the_tool_removal_limit(
     opened: GitHubApiFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(stage, "analysis_window", lambda: 100)
+    monkeypatch.setattr(stage, "task_window", lambda task: 100)
 
     _stage(store, stage_repo, toolbox=Script(make_stage_proposal()))
 
