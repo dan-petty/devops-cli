@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,10 +22,15 @@ from markdown_it.token import Token
 from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.context_packer import ContextPacker, PackingConfig
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
+from devops_cli.lang import MESSAGES
 
 MARKDOWN = MarkdownIt("commonmark")
 CHECKBOXES = ("[ ]", "[x]", "[X]")
 _VERIFICATION = "Verification:"
+# The suffix of the `Verification:` line of a test that must fail on the base commit (the stage
+# template), and the `Kind:` line that a plan may write for a group (#3042).
+FAILS_ON_BASE = MESSAGES.roadmap.stage_task_test.rsplit("`", 1)[1].strip()
+KIND_LINE: re.Pattern[str] = re.compile(r"^Kind: (?P<kind>\w+)\.", re.M)
 
 
 @dataclass(frozen=True)
@@ -37,6 +43,7 @@ class GroupTask:
     ticked: bool
     verification: tuple[str, ...] = ()
     paths: tuple[str, ...] = ()
+    fails_on_base: bool = False
     line: int = field(default=-1, compare=False)
 
 
@@ -49,6 +56,16 @@ class TaskGroup:
     title: str
     tasks: tuple[GroupTask, ...]
     text: str
+
+    @property
+    def is_behavior(self) -> bool:
+        """Whether the group adds or changes what the code does, as the plan reader judges it: the
+        group says `Kind: behavior.`, or its first task's `Verification:` line ends with
+        `fails on the base`."""
+        found = KIND_LINE.search(self.text)
+        if found is not None and found["kind"] == "behavior":
+            return True
+        return bool(self.tasks) and self.tasks[0].fails_on_base
 
     @property
     def verification_commands(self) -> tuple[str, ...]:
@@ -86,17 +103,14 @@ def _task_of(item: Sequence[Token]) -> GroupTask | None:
     lines = [token for token in item if token.type == "inline"]
     if not lines or lines[0].content[:3] not in CHECKBOXES:
         return None
-    verification = tuple(
-        command
-        for line in lines[1:]
-        if line.content.startswith(_VERIFICATION)
-        for command in _code_spans(line)
-    )
+    checks = [line for line in lines[1:] if line.content.startswith(_VERIFICATION)]
+    verification = tuple(command for line in checks for command in _code_spans(line))
     return GroupTask(
         text=lines[0].content,
         ticked=lines[0].content[:3] != CHECKBOXES[0],
         verification=verification,
         paths=_code_spans(lines[0]),
+        fails_on_base=any(line.content.endswith(FAILS_ON_BASE) for line in checks),
         line=lines[0].map[0] if lines[0].map else -1,
     )
 

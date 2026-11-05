@@ -81,6 +81,17 @@ class ReplayCouldNotRun(BaseModel):
     output_tail: str = ""
 
 
+class BaseReplayRun(BaseModel):
+    """What pytest reported for the test files of one replay on base: the outcome of each test,
+    pytest's exit status, and why the run could not run, when it could not (#3042)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    outcomes: tuple[TestCaseOutcome, ...]
+    exit_status: int
+    could_not_run: ReplayCouldNotRun | None = None
+
+
 class FailToPassReport(BaseModel):
     """Outcome of replaying changed tests against the merge-base tree."""
 
@@ -176,7 +187,7 @@ def parse_junit_xml(xml_text: str) -> tuple[TestCaseOutcome, ...]:
     return tuple(parser.outcomes)
 
 
-def _is_test_file(path: PurePosixPath) -> bool:
+def is_test_file(path: PurePosixPath) -> bool:
     """Whether `path` is a `tests/**/test_*.py` file."""
     return (
         path.is_relative_to(CONST_TESTS_ROOT_DIR)
@@ -229,7 +240,7 @@ def _verify_commit(root: Path, revision: str) -> None:
 def _untracked_test_files(root: Path) -> list[str]:
     """Untracked `tests/**/test_*.py` files in the working tree."""
     listed = run_subprocess(untracked_tests_argv(), cwd=root, quiet=True).stdout
-    return [path for path in filter(None, listed.split("\0")) if _is_test_file(PurePosixPath(path))]
+    return [path for path in filter(None, listed.split("\0")) if is_test_file(PurePosixPath(path))]
 
 
 def changed_test_files(root: Path, base: str, head: str = "HEAD") -> tuple[str, tuple[str, ...]]:
@@ -242,7 +253,7 @@ def changed_test_files(root: Path, base: str, head: str = "HEAD") -> tuple[str, 
     tracked = [
         change.path
         for change in list_changed_files(root, merge_base, diff_head)
-        if change.change_type != _DELETED and _is_test_file(PurePosixPath(change.path))
+        if change.change_type != _DELETED and is_test_file(PurePosixPath(change.path))
     ]
     untracked = _untracked_test_files(root) if head == "HEAD" else []
     return merge_base, tuple(sorted(set(tracked) | set(untracked)))
@@ -372,7 +383,7 @@ def _read_junit_report(junit_path: Path) -> tuple[TestCaseOutcome, ...] | None:
 
 def _run_pytest_on_base(
     tree_dir: Path, junit_path: Path, test_files: Sequence[str]
-) -> tuple[tuple[TestCaseOutcome, ...], ReplayCouldNotRun | None]:
+) -> BaseReplayRun:
     """Run pytest on `test_files` inside `tree_dir` and parse its JUnit XML report.
 
     A run pytest interrupted, stopped with an internal or usage error, or that wrote no complete
@@ -385,9 +396,28 @@ def _run_pytest_on_base(
         outcomes is not None
         and result.returncode not in CONST_FAIL_TO_PASS_COULD_NOT_RUN_EXIT_STATUSES
     ):
-        return outcomes, None
+        return BaseReplayRun(outcomes=outcomes, exit_status=result.returncode)
     output = _output_tail(f"{result.stdout or ''}\n{result.stderr or ''}")
-    return outcomes or (), ReplayCouldNotRun(exit_status=result.returncode, output_tail=output)
+    return BaseReplayRun(
+        outcomes=outcomes or (),
+        exit_status=result.returncode,
+        could_not_run=ReplayCouldNotRun(exit_status=result.returncode, output_tail=output),
+    )
+
+
+def replay_on_base(
+    root: Path, merge_base: str, head: str, test_files: Sequence[str]
+) -> BaseReplayRun:
+    """Replay `test_files` on `merge_base`, with the tests of `head` overlaid, and report the
+    outcome of each test. The base tree is removed after the run (#3042)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        tree_dir = tmp_path / "tree"
+        try:
+            materialise_base_with_head_tests(root, merge_base, head, tree_dir)
+            return _run_pytest_on_base(tree_dir, tmp_path / "junit.xml", test_files)
+        finally:
+            remove_materialised_base(root, tree_dir)
 
 
 def _test_location(
@@ -450,7 +480,8 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
         junit_path = tmp_path / "junit.xml"
         try:
             materialise_base_with_head_tests(root, merge_base, head, tree_dir)
-            outcomes, could_not_run = _run_pytest_on_base(tree_dir, junit_path, files)
+            run = _run_pytest_on_base(tree_dir, junit_path, files)
+            outcomes, could_not_run = run.outcomes, run.could_not_run
             unchanged_failed = (
                 ()
                 if could_not_run

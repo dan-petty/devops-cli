@@ -13,7 +13,7 @@ import json
 import shutil
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -123,13 +123,21 @@ def write_change(
 
 
 def push_staged_branch(
-    repo: StageRepo, *, tasks: str = TASKS, author: str = STAGE_NAME, number: int = 1
+    repo: StageRepo,
+    *,
+    tasks: str = TASKS,
+    author: str = STAGE_NAME,
+    number: int = 1,
+    files: Mapping[str, str] | None = None,
 ) -> None:
-    """Push the branch of item `number` with one commit by `author` that adds the change, as the
-    stage job does; the clone stays on `main` with no local branch."""
+    """Push the branch of item `number` with one commit by `author` that adds the change and the
+    `files` of `files`, as the stage job does; the clone stays on `main` with no local branch."""
     branch = branch_of(number)
     repo.git("switch", "-q", "-c", branch)
     write_change(repo.clone, tasks, number)
+    for name, text in (files or {}).items():
+        (repo.clone / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo.clone / name).write_text(text, encoding="utf-8")
     repo.git("add", "-A")
     repo.git("-c", f"user.name={author}", "commit", "-q", "-m", "fix(roadmap): plan")
     repo.git("push", "-q", "origin", branch)
@@ -201,9 +209,17 @@ def staged_tasks() -> str:
 
 
 @pytest.fixture
-def staged_repo(stage_repo: StageRepo, app_slug: None, staged_tasks: str) -> StageRepo:
+def staged_files() -> dict[str, str]:
+    """The files that the staged branch adds besides its change folder. A test module overrides it."""
+    return {}
+
+
+@pytest.fixture
+def staged_repo(
+    stage_repo: StageRepo, app_slug: None, staged_tasks: str, staged_files: dict[str, str]
+) -> StageRepo:
     """`stage_repo` with the staged branch pushed."""
-    push_staged_branch(stage_repo, tasks=staged_tasks)
+    push_staged_branch(stage_repo, tasks=staged_tasks, files=staged_files)
     return stage_repo
 
 

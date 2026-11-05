@@ -27,14 +27,23 @@ from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PR
 from devops_cli.roadmap.implement import parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement_run import apply_implement, raise_for_failed
 from devops_cli.roadmap.store import ImplementRecordKey
+from tests.support.base_replay import (
+    BEHAVIOR_FIRST_TICKED,
+    BEHAVIOR_TASKS,
+    BEHAVIOR_TICKED,
+    SHOUT_TEST_ID,
+    answer_pytest_on_base,
+    junit,
+)
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
-from tests.support.implement_step import WINDOW, command_text
+from tests.support.implement_step import TEST_BODY, WINDOW, command_text, write_call
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
     BRANCH,
     CHANGE,
     CHANGE_DIR,
     PULL,
+    SHOUT,
     TASKS_PATH,
     TICKED_FIRST,
     JobWorld,
@@ -1230,3 +1239,135 @@ def test_planned_item_holds_labels_and_removes_none(planned_world: JobWorld) -> 
         w for w in planned_world.store._roadmap.job_writes if w.operation == "unlabel_issue"
     ]
     assert unlabels == []
+
+
+class TestFailToPassOfABehaviorGroup:
+    """The job of a group whose staged tasks name a test that fails on base (#3042)."""
+
+    @pytest.fixture
+    def staged_tasks(self) -> str:
+        return BEHAVIOR_TASKS
+
+    @pytest.fixture
+    def staged_files(self) -> dict[str, str]:
+        return {"tests/conftest.py": '"""The tests."""\n'}
+
+    def test_the_pr_comment_shows_the_fail_to_pass_result_of_each_behavior_group(
+        self, job_world: JobWorld
+    ) -> None:
+        answer_pytest_on_base(job_world.programs, junit((SHOUT_TEST_ID, "failed")))
+        group_one = (
+            write_call("tests/test_shout.py", TEST_BODY),
+            write_call("src/devops_cli/shout.py", SHOUT),
+            write_call(TASKS_PATH, BEHAVIOR_FIRST_TICKED),
+        )
+        script = ModelScript(
+            tool_calls(*group_one),
+            say("Group 1 is done."),
+            tool_calls(*group_two_calls(BEHAVIOR_TICKED)),
+            say("Group 2 is done."),
+        )
+
+        applied = job_world.run(script)
+
+        assert (applied.ready, applied.stopped) == ((1,), ())
+        (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
+        assert (
+            "- fail-to-pass of group 1: fails on the base commit. "
+            "Tests that fail on the base commit: tests.test_shout::test_shout."
+        ) in comment["body"]
+
+
+TWO_BEHAVIOR_TASKS = """\
+# Tasks
+
+## 1. The first group
+
+- [ ] Add the failing test `tests/test_shout.py` for `src/devops_cli/shout.py`
+  - Verification: `uv run devops ci test tests/test_shout.py` fails on the base
+- [ ] Add `shout` to `src/devops_cli/shout.py`
+  - Verification: `uv run devops ci test tests/test_shout.py`
+
+## 2. The second group
+
+- [ ] Add the failing test `tests/test_whisper.py` for `src/devops_cli/whisper.py`
+  - Verification: `uv run devops ci test tests/test_whisper.py` fails on the base
+- [ ] Add `whisper` to `src/devops_cli/whisper.py`
+  - Verification: `uv run devops ci test tests/test_whisper.py`
+"""
+TWO_FIRST_TICKED = TWO_BEHAVIOR_TASKS.replace("- [ ] Add", "- [x] Add", 2)
+TWO_TICKED = TWO_BEHAVIOR_TASKS.replace("- [ ] Add", "- [x] Add")
+WHISPER = '"""Whisper."""\n\n\ndef whisper(text: str) -> str:\n    return text.lower()\n'
+WHISPER_TEST_BODY = "def test_whisper() -> None:\n    assert True\n"
+WHISPER_TEST_ID = "tests.test_whisper::test_whisper"
+
+
+class TestFailToPassOfTwoBehaviorGroups:
+    """The job of a change whose two groups are behavior groups: the PR comment shows a fail-to-pass
+    line for each of them (#3042)."""
+
+    @pytest.fixture
+    def staged_tasks(self) -> str:
+        return TWO_BEHAVIOR_TASKS
+
+    @pytest.fixture
+    def staged_files(self) -> dict[str, str]:
+        return {"tests/conftest.py": '"""The tests."""\n'}
+
+    def test_the_pr_comment_shows_a_fail_to_pass_line_for_each_behavior_group(
+        self, job_world: JobWorld
+    ) -> None:
+        answer_pytest_on_base(
+            job_world.programs,
+            junit((SHOUT_TEST_ID, "failed")),
+            junit((WHISPER_TEST_ID, "failed")),
+        )
+        script = ModelScript(
+            tool_calls(
+                write_call("tests/test_shout.py", TEST_BODY),
+                write_call("src/devops_cli/shout.py", SHOUT),
+                write_call(TASKS_PATH, TWO_FIRST_TICKED),
+            ),
+            say("Group 1 is done."),
+            tool_calls(
+                write_call("tests/test_whisper.py", WHISPER_TEST_BODY),
+                write_call("src/devops_cli/whisper.py", WHISPER),
+                write_call(TASKS_PATH, TWO_TICKED),
+            ),
+            say("Group 2 is done."),
+        )
+
+        applied = job_world.run(script)
+
+        assert (applied.ready, applied.stopped) == ((1,), ())
+        (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
+        assert (
+            "- fail-to-pass of group 1: fails on the base commit. "
+            "Tests that fail on the base commit: tests.test_shout::test_shout."
+        ) in comment["body"]
+        assert (
+            "- fail-to-pass of group 2: fails on the base commit. "
+            "Tests that fail on the base commit: tests.test_whisper::test_whisper."
+        ) in comment["body"]
+
+
+class TestVerifyOutputOfAnOtherGroup:
+    """The job of a group of kind `other`: its verify command prints a line (#3042)."""
+
+    def test_the_pr_comment_shows_the_exit_status_and_the_output_of_the_verify_command(
+        self, job_world: JobWorld
+    ) -> None:
+        job_world.programs.answer(
+            lambda call: "devops" in call.argv and "test" in call.argv,
+            ProcessAnswer(stdout="shout ran\n"),
+        )
+
+        applied = job_world.run(two_groups())
+
+        assert (applied.ready, applied.stopped) == ((1,), ())
+        (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
+        assert (
+            "- verify of group 1: `uv run devops ci test tests/test_shout.py` exits 0.\n\n"
+            "```\nshout ran\n```"
+        ) in comment["body"]
+        assert "- fail-to-pass of group 1" not in comment["body"]

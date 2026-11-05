@@ -34,7 +34,7 @@ from devops_cli.roadmap.stage_change import (
     StageSpec,
 )
 from devops_cli.roadmap.stage_criteria import StageCriterion
-from devops_cli.roadmap.step_files import TaskGroup, parse_task_groups
+from devops_cli.roadmap.step_files import FAILS_ON_BASE, KIND_LINE, TaskGroup, parse_task_groups
 
 _CHANGE_FILE: Final[str] = "/.openspec.yaml"
 _PROPOSAL: Final[str] = "proposal.md"
@@ -50,13 +50,11 @@ _TASK_LINE: Final[re.Pattern[str]] = re.compile(r"^\[[ xX]\] (?P<number>\d+\.\d+
 _INLINE_VERIFY: Final[re.Pattern[str]] = re.compile(
     r"(?:,\s*and\s+)?[Vv]erify that `(?P<command>[^`]+)` (?P<suffix>fails on the base|passes)\s*$"
 )
-_KIND: Final[re.Pattern[str]] = re.compile(r"^Kind: (?P<kind>\w+)\.", re.M)
 _READS: Final[re.Pattern[str]] = re.compile(
     r"Reads: (?P<reads>.*?)\. Changes: (?P<changes>.*)\.$", re.M
 )
 _CODE_SPAN: Final[re.Pattern[str]] = re.compile(r"`(?P<text>[^`]+)`")
 _NEW_MARK: Final[str] = MESSAGES.roadmap.stage_group_new
-_FAILS_ON_BASE: Final[str] = MESSAGES.roadmap.stage_task_test.rsplit("`", 1)[1].strip()
 _PROCESS_MARK: Final[str] = MESSAGES.roadmap.stage_task_process.format(work="", process="").split(
     "{"
 )[0]
@@ -298,10 +296,10 @@ def _task(group: TaskGroup, index: int) -> _Task:
 
 
 def _kind(text: str, first: _Task) -> GroupKind:
-    found = _KIND.search(text)
+    found = KIND_LINE.search(text)
     if found is not None and found["kind"] == GroupKind.BEHAVIOR.value:
         return GroupKind.BEHAVIOR
-    return GroupKind.BEHAVIOR if first.suffix == _FAILS_ON_BASE else GroupKind.OTHER
+    return GroupKind.BEHAVIOR if first.suffix == FAILS_ON_BASE else GroupKind.OTHER
 
 
 def _verification_problems(group: TaskGroup, first: _Task) -> list[str]:

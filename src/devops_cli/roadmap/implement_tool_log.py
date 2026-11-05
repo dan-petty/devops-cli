@@ -66,6 +66,7 @@ from devops_cli.config.constants import (
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
 from devops_cli.roadmap.agent_run import bounded_text
+from devops_cli.roadmap.implement_base_replay import BaseReplay, VerifiedCommand
 from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_ALLOWED_PROGRAMS,
     IMPLEMENT_SHELL_REPLACEMENTS,
@@ -272,6 +273,8 @@ class ToolCallLog:
     trace: ImplementTrace | None = None
     refusals: set[str] = field(default_factory=set[str])
     before_request: Callable[[], None] | None = None
+    fail_to_pass: BaseReplay | None = None
+    verified: list[VerifiedCommand] = field(default_factory=list[VerifiedCommand])
 
     def refuse(self, tool_call_id: str | None) -> None:
         """Note that the shell refused the call with this id and returned the refusal as a result.
