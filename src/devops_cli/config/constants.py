@@ -1550,6 +1550,10 @@ CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES: Final[str] = "devops_cli_service_webhoo
 CONST_SERVICE_METRIC_TRIGGERS: Final[str] = "devops_cli_service_triggers_total"
 CONST_SERVICE_METRIC_JOBS: Final[str] = "devops_cli_service_jobs_total"
 CONST_SERVICE_METRIC_JOB_SECONDS: Final[str] = "devops_cli_service_job_seconds_total"
+# The `result` values of the jobs counter: a stop of the Service is no failure of its row (#2753).
+CONST_SERVICE_JOB_RESULT_SUCCESS: Final[str] = "success"
+CONST_SERVICE_JOB_RESULT_ERROR: Final[str] = "error"
+CONST_SERVICE_JOB_RESULT_STOPPED: Final[str] = "stopped"
 # The time the last job of a lane started, or the time its worker started before its first job
 # (#2505).
 CONST_SERVICE_METRIC_JOB_START_TIMESTAMP: Final[str] = (
@@ -1573,6 +1577,13 @@ CONST_SERVICE_METRIC_JOB_SUSPENDED: Final[str] = "devops_cli_service_job_suspend
 CONST_SERVICE_METRIC_IMPLEMENT_FAILURES: Final[str] = "devops_cli_service_implement_failures_total"
 # Counts chat commands handled through the webhook router by `command` and `result` (#1395).
 CONST_SERVICE_METRIC_CHAT_COMMANDS: Final[str] = "devops_cli_service_chat_commands_total"
+# The `command` label of the chat command that the webhook router counts, and its `result` values:
+# each one exists at zero from the start, so the constants serve the route and its priming (#3495).
+CONST_SERVICE_CHAT_COMMAND_ROADMAP: Final[str] = "/roadmap"
+CONST_SERVICE_CHAT_RESULT_USAGE: Final[str] = "usage"
+CONST_SERVICE_CHAT_RESULT_STATUS: Final[str] = "status"
+CONST_SERVICE_CHAT_RESULT_UNKNOWN_REPO: Final[str] = "unknown_repo"
+CONST_SERVICE_CHAT_RESULT_ERROR: Final[str] = "error"
 # The Service's window for its GitHub request budget (#2161).
 CONST_SERVICE_BUDGET_WINDOW_SECONDS: Final[int] = 3600
 # What the Service keeps on its volume so that a restart does not clear it (#2474), each a file in

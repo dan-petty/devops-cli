@@ -864,9 +864,9 @@ ROADMAP_SERVICE_RULES = [
     ),
     (
         "RoadmapServiceJobsFailing",
-        'sum by (repo, lane) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])) > 0'
-        " unless on (repo, lane)"
-        ' sum by (repo, lane) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="success"}[1h])) > 0',
+        'sum by (repo, lane, row) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])) > 0'
+        " unless on (repo, lane, row)"
+        ' sum by (repo, lane, row) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="success"}[1h])) > 0',
         "30m",
         "warning",
     ),
@@ -927,12 +927,7 @@ ROADMAP_SERVICE_ACTIVITY_RULES = [
     ),
     (
         "RoadmapServiceSelfDeliveriesHigh",
-        "sum( "
-        + _window_count(
-            'devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="self"}',
-            "1h",
-        )
-        + " ) > 150",
+        'sum(increase(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="self"}[1h])) > 150',
         "0m",
         "warning",
     ),
@@ -972,25 +967,30 @@ def test_the_roadmap_service_rules_watch_identity_jobs_lanes_pods_and_request_vo
     ] == ROADMAP_SERVICE_RULES
 
 
-def test_roadmap_service_jobs_failing_rule_groups_and_joins_on_repo_and_lane() -> None:
-    """The rule groups by and joins on exactly (repo, lane), and describes a Loki query."""
+def test_roadmap_service_jobs_failing_rule_groups_and_joins_on_repo_lane_and_row() -> None:
+    """The rule groups by and joins on exactly (repo, lane, row), and describes a Loki query. A
+    round counts each of its rows (#3495), so a join on the lane alone hides a row that fails
+    while another row of its lane succeeds. The log line of a failed round has the fields repo
+    and lane and names its rows in its text, so the query has no field row."""
     rule = next(r for r in _rules() if r.get("alert") == "RoadmapServiceJobsFailing")
     assert (
         rule["for"],
         rule["labels"]["severity"],
         "{{ $labels.repo }}" in rule["annotations"]["summary"],
         "{{ $labels.lane }}" in rule["annotations"]["summary"],
+        "{{ $labels.row }}" in rule["annotations"]["summary"],
         '{namespace="devops"} | json | repo="{{ $labels.repo }}" | lane="{{ $labels.lane }}" (k8s/README.md, Roadmap service)',
     ) == (
         "30m",
         "warning",
         True,
         True,
+        True,
         rule["annotations"]["description"],
     )
     expr = rule["expr"]
-    assert expr.count("sum by (repo, lane)") == 2
-    assert "unless on (repo, lane)" in expr
+    assert expr.count("sum by (repo, lane, row)") == 2
+    assert "unless on (repo, lane, row)" in expr
 
 
 def test_the_webhook_rule_warns_on_more_than_20_rejected_deliveries_in_15_minutes() -> None:
@@ -1007,7 +1007,7 @@ def test_the_webhook_rule_warns_on_more_than_20_rejected_deliveries_in_15_minute
     ] == [
         (
             "RoadmapServiceWebhooksRejected",
-            "sum( " + _window_count(rejected, "15m") + " ) > 20",
+            f"sum(increase({rejected}[15m])) > 20",
             "0m",
             "warning",
         )
@@ -1261,7 +1261,11 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
         yaml.safe_dump({"groups": [g for g in groups if g["name"] == group]}),
         encoding="utf-8",
     )
-    tested = {case["alertname"] for test in unit_tests["tests"] for case in test["alert_rule_test"]}
+    tested = {
+        case["alertname"]
+        for test in unit_tests["tests"]
+        for case in test.get("alert_rule_test", [])
+    }
     copy = tmp_path / rule_tests.name
     copy.write_text(rule_tests.read_text(encoding="utf-8"), encoding="utf-8")
     result = _promtool("test", "rules", copy)
@@ -1269,3 +1273,16 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
         sorted(rule["alert"] for rule in _group(group)),
         0,
     ), result.stdout + result.stderr
+
+
+def test_github_requests_high_action_does_not_lower_budget() -> None:
+    """The action of `RoadmapServiceGitHubRequestsHigh` names no lower budget. The alert follows
+    the budget, so a lower budget makes the alert fire sooner (#3495)."""
+    readme = (K8S / "README.md").read_text(encoding="utf-8")
+    row = next(
+        line
+        for line in readme.splitlines()
+        if line.startswith("| `RoadmapServiceGitHubRequestsHigh` |")
+    )
+
+    assert "lower the budget" not in row.lower()

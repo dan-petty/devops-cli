@@ -59,10 +59,14 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
     CONST_SERVICE_CAUSE_UNKNOWN,
     CONST_SERVICE_FAILURES_FILENAME,
+    CONST_SERVICE_JOB_RESULT_ERROR,
+    CONST_SERVICE_JOB_RESULT_STOPPED,
+    CONST_SERVICE_JOB_RESULT_SUCCESS,
     CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_LANE_STATUS,
     CONST_SERVICE_LANE_TRIAGE,
     CONST_SERVICE_METRIC_JOB_SUSPENDED,
+    CONST_SERVICE_METRIC_JOBS,
     CONST_SERVICE_SOURCE_POLL,
 )
 from devops_cli.config.defaults import (
@@ -830,13 +834,19 @@ def run_scoped_update(
         CONST_ROADMAP_RUN_STATE_FILENAME,
         error_cls=GitOperationError,
     )
-    return update.runner(
-        store,
-        delivery,
-        repo_dir=schedule_path.parent,
-        now=now or datetime.now(UTC),
-        model=model,
-    )
+    try:
+        outcome = update.runner(
+            store,
+            delivery,
+            repo_dir=schedule_path.parent,
+            now=now or datetime.now(UTC),
+            model=model,
+        )
+    except Exception as exc:
+        _count_job(delivery.repo, update.lane, update.job, _failed_result(exc))
+        raise
+    _count_job(delivery.repo, update.lane, update.job, CONST_SERVICE_JOB_RESULT_SUCCESS)
+    return outcome
 
 
 def build_stub_table(
@@ -1146,6 +1156,23 @@ def _format_error_line(exc: BaseException) -> str:
     return mask_secrets(first)[:256]
 
 
+def _failed_result(exc: BaseException) -> str:
+    """The `result` of a job that ended with `exc`: a stop of the Service is no failure (#2753)."""
+    return (
+        CONST_SERVICE_JOB_RESULT_STOPPED if ended_by_stop(exc) else CONST_SERVICE_JOB_RESULT_ERROR
+    )
+
+
+def _count_job(repo: str, lane: str | None, row: str, result: str) -> None:
+    """Count one job that ended under its repository, lane, row and result (#3495). A run with
+    no lane, such as one of the command line, counts no job."""
+    if lane is not None:
+        GLOBAL_METRICS.increment_counter(
+            CONST_SERVICE_METRIC_JOBS,
+            labels={"repo": repo, "lane": lane, "row": row, "result": result},
+        )
+
+
 def _execute_due_rows(
     rows: Sequence[JobRow],
     initially_due: Mapping[str, bool],
@@ -1159,6 +1186,7 @@ def _execute_due_rows(
     current_time: datetime,
     clone_dirname: str,
     failures: FailureLedger,
+    lane: str | None,
 ) -> tuple[str, ...]:
     """Execute all due jobs in order with failure tracking, the clone rows in `clone_dirname`.
     Each runner also gets the repository's data directory and the round's time. With the
@@ -1185,6 +1213,7 @@ def _execute_due_rows(
         if row.needs_clone and clone_error is not None:
             failed_jobs.append(row.name)
             clone_jobs.append(row.name)
+            _count_job(repo, lane, row.name, _failed_result(clone_error))
             continue
 
         try:
@@ -1205,8 +1234,10 @@ def _execute_due_rows(
             succeeded_jobs.append(row.name)
             _record_success(schedule_path, row.name, current_time)
             failures.succeeded(repo, row.name)
+            _count_job(repo, lane, row.name, CONST_SERVICE_JOB_RESULT_SUCCESS)
         except Exception as exc:
             failed_jobs.append(row.name)
+            _count_job(repo, lane, row.name, _failed_result(exc))
             outcomes[row.name] = _outcome_of_failure(exc)
             _count_failure(failures, repo, row.name, current, exc)
             if row.needs_clone and clone_path is None:
@@ -1244,6 +1275,7 @@ def run_due_jobs(
     now: datetime | None = None,
     clone_dirname: str = CONST_ROADMAP_RUN_CLONE_DIRNAME,
     failures: FailureLedger | None = None,
+    lane: str | None = None,
 ) -> tuple[str, ...]:
     """Evaluate and execute due roadmap jobs, the clone rows in `clone_dirname`.
 
@@ -1288,6 +1320,7 @@ def run_due_jobs(
         current_time,
         clone_dirname,
         failures or FailureLedger(),
+        lane,
     )
 
 
@@ -1296,6 +1329,7 @@ def service_job(
     *,
     table: Sequence[JobRow],
     clone_dirname: str,
+    lane: str | None = None,
     failures: FailureLedger | None = None,
 ) -> None:
     """Service mode adapter that runs one lane's due roadmap jobs, `table`, in its clone
@@ -1312,6 +1346,7 @@ def service_job(
         table=table,
         clone_dirname=clone_dirname,
         failures=failures,
+        lane=lane,
     )
 
 
@@ -1325,18 +1360,21 @@ def service_jobs(state_dir: Path) -> Mapping[str, LaneJob]:
             service_job,
             table=STATUS_LANE_ROWS,
             clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME,
+            lane=CONST_SERVICE_LANE_STATUS,
             failures=failures,
         ),
         CONST_SERVICE_LANE_TRIAGE: partial(
             service_job,
             table=TRIAGE_LANE_ROWS,
             clone_dirname=CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
+            lane=CONST_SERVICE_LANE_TRIAGE,
             failures=failures,
         ),
         CONST_SERVICE_LANE_MODEL: partial(
             service_job,
             table=MODEL_LANE_ROWS,
             clone_dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
+            lane=CONST_SERVICE_LANE_MODEL,
             failures=failures,
         ),
     }

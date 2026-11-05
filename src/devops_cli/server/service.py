@@ -34,7 +34,6 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_IDENTITY_REFUSED,
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
-    CONST_SERVICE_METRIC_JOBS,
     CONST_SERVICE_METRIC_QUEUE_DEPTH,
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_PROBE_PATHS,
@@ -56,6 +55,7 @@ from devops_cli.exceptions import (
 from devops_cli.github.rate_limiter import set_request_gate
 from devops_cli.github.request_scope import request_scope
 from devops_cli.lang import MESSAGES
+from devops_cli.server.counter_series import prime_service_counters
 from devops_cli.server.routes.webhooks import (
     DeliveryLRUCache,
     WebhookConsumer,
@@ -600,9 +600,6 @@ class RepoWorker:
                 span.set_attribute("service.result", result)
                 duration = time.perf_counter() - start_time
                 GLOBAL_METRICS.increment_counter(
-                    CONST_SERVICE_METRIC_JOBS, labels={**self._labels, "result": result}
-                )
-                GLOBAL_METRICS.increment_counter(
                     CONST_SERVICE_METRIC_JOB_SECONDS, value=duration, labels=self._labels
                 )
                 self.pause.round_ended()
@@ -660,9 +657,6 @@ class RepoWorker:
             finally:
                 span.set_attribute("service.result", result)
                 duration = time.perf_counter() - start_time
-                GLOBAL_METRICS.increment_counter(
-                    CONST_SERVICE_METRIC_JOBS, labels={**self._labels, "result": result}
-                )
                 GLOBAL_METRICS.increment_counter(
                     CONST_SERVICE_METRIC_JOB_SECONDS, value=duration, labels=self._labels
                 )
@@ -757,6 +751,7 @@ class ServiceManager:
             for repo in config.repos
             for lane, job in jobs.items()
         }
+        prime_service_counters(config.repos)
         self._stop_event = threading.Event()
         self._ready = False
         self._draining = False

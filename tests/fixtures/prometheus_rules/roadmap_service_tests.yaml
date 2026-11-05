@@ -60,18 +60,18 @@ tests:
         alertname: RoadmapServiceGitHubThrottled
         exp_alerts: []
 
-  - name: A lane whose new error series reaches 3 fires; one more error of an older series does not
+  - name: A row whose new error series reaches 3 fires; one more error of an older series does not
     interval: 1m
     input_series:
       # A new series: 3 failed rounds in a row, then the job is suspended.
-      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="model", result="error"}'
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="model", row="refine", result="error"}'
         values: '_x60 1x4 2x4 3x40'
       # A series that was there an hour ago and gets one more error.
-      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="status", result="error"}'
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="status", row="metrics", result="error"}'
         values: '5x70 6x40'
-      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="status", result="success"}'
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="status", row="metrics", result="success"}'
         values: '0+1x110'
-      - series: 'devops_cli_service_jobs_total{job="kubernetes-pods", repo="example/app", lane="model", result="error"}'
+      - series: 'devops_cli_service_jobs_total{job="kubernetes-pods", repo="example/app", lane="model", row="refine", result="error"}'
         values: '0+1x110'
     alert_rule_test:
       - eval_time: 62m
@@ -87,8 +87,9 @@ tests:
               severity: warning
               repo: example/app
               lane: model
+              row: refine
             exp_annotations:
-              summary: "All model jobs of example/app failed in the last hour"
+              summary: "All refine jobs of example/app failed in the last hour, on the model lane"
               description: '{namespace="devops"} | json | repo="example/app" | lane="model" (k8s/README.md, Roadmap service)'
 
   - name: An error series with no sample near the start of the hour counts only the errors of the hour
@@ -96,7 +97,7 @@ tests:
     input_series:
       # Samples at 50m, 70m and 110m: two jobs failed in the hour before 120m. The series has no
       # sample in the 5 minutes before 60m, and it is not new.
-      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="model", result="error"}'
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="model", row="refine", result="error"}'
         values: '_x5 5 _ 6 _ _ _ 7'
     alert_rule_test:
       - eval_time: 120m
@@ -106,15 +107,16 @@ tests:
               severity: warning
               repo: example/app
               lane: model
+              row: refine
             exp_annotations:
-              summary: "All model jobs of example/app failed in the last hour"
+              summary: "All refine jobs of example/app failed in the last hour, on the model lane"
               description: '{namespace="devops"} | json | repo="example/app" | lane="model" (k8s/README.md, Roadmap service)'
 
   - name: A new error series with one sample of 3 fires
     interval: 10m
     input_series:
       # One sample at 60m: 3 jobs failed before the Service sent the series.
-      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="model", result="error"}'
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="model", row="refine", result="error"}'
         values: '_x5 0 3'
     alert_rule_test:
       - eval_time: 65m
@@ -127,9 +129,32 @@ tests:
               severity: warning
               repo: example/app
               lane: model
+              row: refine
             exp_annotations:
-              summary: "All model jobs of example/app failed in the last hour"
+              summary: "All refine jobs of example/app failed in the last hour, on the model lane"
               description: '{namespace="devops"} | json | repo="example/app" | lane="model" (k8s/README.md, Roadmap service)'
+
+  - name: A row that fails each round fires while another row of its lane succeeds
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="status", row="implement", result="error"}'
+        values: '0+1x110'
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="status", row="implement", result="success"}'
+        values: '0x110'
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="status", row="metrics", result="success"}'
+        values: '0+1x110'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: RoadmapServiceJobsFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              lane: status
+              row: implement
+            exp_annotations:
+              summary: "All implement jobs of example/app failed in the last hour, on the status lane"
+              description: '{namespace="devops"} | json | repo="example/app" | lane="status" (k8s/README.md, Roadmap service)'
 
   - name: A lane with no job start for over 2 hours fires after 10 minutes while a replica is available
     interval: 1m
@@ -444,3 +469,19 @@ tests:
       - eval_time: 90m
         alertname: RoadmapServiceModelRequestsHigh
         exp_alerts: []
+  - name: A pod change keeps the true total of the failure counter, because each pod starts at zero
+    interval: 1m
+    input_series:
+      # Pod a counts 3 failures from minute 0 to minute 3, then stays at 3. Pod b starts at zero at
+      # minute 10 (#3495) and counts 2 failures by minute 12.
+      - series: 'devops_cli_service_implement_failures_total{job="roadmap-service", pod="a", repo="example/app", class="ci_infra"}'
+        values: '0+1x3 3x40'
+      - series: 'devops_cli_service_implement_failures_total{job="roadmap-service", pod="b", repo="example/app", class="ci_infra"}'
+        values: '_x10 0+1x2 2x40'
+    promql_expr_test:
+      # increase() extrapolates to the window edges, so the sum reads 5.03 where the counts are 5.
+      - expr: sum(increase(devops_cli_service_implement_failures_total{job="roadmap-service", class="ci_infra"}[1h]))
+        eval_time: 50m
+        exp_samples:
+          - labels: '{}'
+            value: 5.034090909090909
