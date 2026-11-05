@@ -4,7 +4,7 @@
 
 Reads: `src/devops_cli/roadmap/stage_paths.py`, `tests/roadmap/test_roadmap_stage_paths.py`. Changes: `src/devops_cli/roadmap/stage_paths.py`.
 
-- [ ] 1.1 Add `StagedTree.code_span_paths(text)` to `src/devops_cli/roadmap/stage_paths.py`, which reads the code spans of `text` with `code_spans` and returns the paths that `StagedTree.paths_in` finds, and let the group check call it. Behaviour stays the same: the group texts keep refusing the same paths
+- [x] 1.1 Add `StagedTree.code_span_paths(text)` to `src/devops_cli/roadmap/stage_paths.py`, which reads the code spans of `text` with `code_spans` and returns the paths that `StagedTree.paths_in` finds, and let the group check call it. Behaviour stays the same: the group texts keep refusing the same paths
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_paths.py` passes
 
 ## 2. Refuse an unlisted What Changes path
