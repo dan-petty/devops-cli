@@ -1396,7 +1396,7 @@ def test_the_planner_tool_panel_charts_the_calls_and_the_answer_size_of_the_stag
         for panel in _panels(dashboard)
         if panel.get("title") == "Planner Tool Calls and Answer Size"
     ]
-    selector = '{job="roadmap-service", row="stage"}'
+    selector = '{job=~"$job",row="stage"}'
     assert (
         [target["expr"] for target in panel["targets"]],
         panel["gridPos"],

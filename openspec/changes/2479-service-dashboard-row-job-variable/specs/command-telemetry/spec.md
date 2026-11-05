@@ -1,11 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: The devops-cli dashboard filters by job
-The dashboard `k8s/monitoring/dashboards/devops-cli.json` SHALL have the multi-value query variable `job`, with All, as its first variable. It SHALL read its values with `label_values(devops_cli_command_total, job)`. Each Prometheus query of the dashboard SHALL filter each `devops_cli_*` series with the matcher `job=~"$job"` first in its selector.
+The dashboard `k8s/monitoring/dashboards/devops-cli.json` SHALL have the multi-value query variable `job`, with All, as its first variable. It SHALL read its values with `label_values({__name__=~"devops_cli_command_total|devops_cli_github_requests_total"}, job)`. Each Prometheus query of the dashboard SHALL filter each `devops_cli_*` series with the matcher `job=~"$job"` first in its selector.
 
 #### Scenario: The job variable is a query
 - **WHEN** the dashboard file is read
 - **THEN** the first variable is `job`, a query variable of the Prometheus datasource with Multi-value and All, and it holds no fixed options
+
+#### Scenario: The job variable reads a series that the Service sends as it works
+- **WHEN** the query of the variable `job` is read
+- **THEN** its selector holds `devops_cli_command_total` and `devops_cli_github_requests_total`
 
 #### Scenario: Each query filters by job
 - **WHEN** each Prometheus query of the dashboard file is read

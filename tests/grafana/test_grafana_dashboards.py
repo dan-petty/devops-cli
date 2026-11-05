@@ -32,6 +32,9 @@ runner = CliRunner()
 
 _REPO_DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
 _SERIES_WITH_NO_JOB_MATCHER = re.compile(r'devops_cli_[a-z0-9_]+\b(?!\{job=~"\$job")')
+_JOB_VALUES = (
+    'label_values({__name__=~"devops_cli_command_total|devops_cli_github_requests_total"}, job)'
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -825,7 +828,9 @@ def _cli_dashboard_prometheus_queries() -> list[str]:
 
 def test_cli_dashboard_finds_each_job_from_its_series() -> None:
     """The first variable of devops-cli.json is `job`, because a variable reads only the variables
-    before it. It reads its values from the series that `command` reads (#2479)."""
+    before it. The list follows the time range, and the Service adds to the command series only
+    when it exits, so the variable also reads the GitHub requests that it sends as it works (#2479).
+    """
     cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
     first = cli_dash["templating"]["list"][0]
 
@@ -845,8 +850,8 @@ def test_cli_dashboard_finds_each_job_from_its_series() -> None:
         "job",
         "Job",
         "query",
-        "label_values(devops_cli_command_total, job)",
-        "label_values(devops_cli_command_total, job)",
+        _JOB_VALUES,
+        _JOB_VALUES,
         "prometheus",
         True,
         True,

@@ -13,7 +13,7 @@ Issue #2479: no dashboard shows the `devops_cli_service_*` series, and no panel 
 - A dashboard is a manifest that a consumer reads, so the change carries spec deltas.
 - This change fits one pull request.
 
-The work that this issue held before the split is out of scope: the Service's own gateway key is #3685, blocked by #1635, and #2500 delivered the one model retry.
+The work that this issue held before the split is out of scope. The Service's own gateway key is #3685, blocked by #1635. The one model retry needs no work, because `k8s/devops/configmap.example.yaml` already sets `ai.max_retries: 1`.
 
 ## Capabilities
 
@@ -25,6 +25,7 @@ None.
 
 - `command-telemetry`: the `job` variable, and the variables and the queries of the dashboard filter by it.
 - `github-api-metrics`: the queries of the row "GitHub API" filter by `$job`.
+- `metric-instruments`: the panels "Embedding Cache Hit Share" and "Planner Tool Calls and Answer Size" filter by `$job`.
 - `roadmap-service-counters`: the row "Roadmap Service" charts the series of the Service.
 
 ## Feasibility
@@ -32,7 +33,9 @@ None.
 The premise holds. I checked each point on 2026-11-05, against origin/main at 05544abc and against the live Prometheus of the cluster.
 
 - `git grep` finds no `devops_cli_service_` in `k8s/monitoring/dashboards/`. The dashboard has only the variables `command` and `sub_command`.
-- `count by (job) (last_over_time(devops_cli_command_total[7d]))` gives the values `devops-cli`, `devops-cli-job` and `roadmap-service`. So this series can give the values of the variable.
+- `count by (job) (last_over_time(devops_cli_command_total[7d]))` gives the values `devops-cli`, `devops-cli-job` and `roadmap-service`. This window is wider than the range of the dashboard, so it does not show the values of the variable.
+- The issue names `devops_cli_command_total` as the source of the variable, and this source is not sufficient. The dashboard opens at the last hour and the list follows the time range. `src/devops_cli/main.py` adds to this series only when a command ends, and the Service runs `devops serve` until it stops. Prometheus has only 3 series of `devops_cli_command_total{job="roadmap-service"}` in 7 days, and a 1-hour window over 7 days finds them at 72 of 168 hourly points. For the hour 10 hours before the check, the label values were `devops-cli` on this series, and `devops-cli` and `roadmap-service` on `devops_cli_github_requests_total`. `count_over_time(devops_cli_github_requests_total{job="roadmap-service"}[1h])` had a value at each hourly point of 3 days.
+- `label_values` accepts a selector with `__name__`. `packages/grafana-prometheus/src/metric_find_query.ts` of Grafana v12.0.0 sends the selector unchanged as `match[]`. The cluster API and Grafana refused connections when this selector was written, so the selector had no live run. In 7 days, each of its two series gave only `devops-cli`, `devops-cli-job` and `roadmap-service`, so the selector gives no `kubernetes-pods` in that window.
 - `label_values` on `devops_cli_service_.*` gives `job="roadmap-service"` only. Prometheus holds each series that `src/devops_cli/config/constants.py` names, except `devops_cli_service_identity_refused_total`, which starts at the first refusal, and `devops_cli_service_chat_commands_total`, which had no series in the live data at that time.
 - `sum by (job) (last_over_time(devops_cli_github_requests_total[7d]))` has a value for each of the three jobs, so the Jobs send their own requests under `job="devops-cli-job"`.
 - Only `src/devops_cli/server/service.py` makes a `RequestBudget`, and its record is on the Service's volume. `k8s/devops/cronjob.yaml` and `k8s/devops/cronjob-runner.yaml` give the Job pods an `emptyDir` home. So the Jobs do not count in the budget.

@@ -4,9 +4,9 @@
 
 Reads: `k8s/monitoring/dashboards/devops-cli.json`. Changes: `k8s/monitoring/dashboards/devops-cli.json`, `tests/grafana/test_grafana_dashboards.py`, `tests/telemetry/test_telemetry_instruments.py`.
 
-- [x] 1.1 Add tests to `tests/grafana/test_grafana_dashboards.py`: the first variable is `job`, and each `devops_cli_*` series of each Prometheus query has a selector that starts with `job=~"$job"`. Change the expected queries in the tests of the variables, the sub-command row, the GitHub API row and the embedding hit share
+- [x] 1.1 Add tests to `tests/grafana/test_grafana_dashboards.py`: the first variable is `job`, and each `devops_cli_*` series of each Prometheus query has a selector that starts with `job=~"$job"`. Change the expected queries in the tests of the variables, the sub-command row, the GitHub API row, the embedding hit share and the planner tool panel
   - Verification: `uv run devops ci test tests/grafana/test_grafana_dashboards.py tests/telemetry/test_telemetry_instruments.py` fails on the base
-- [x] 1.2 Add the variable `job` to `devops-cli.json`, make `command` and `sub_command` filter by it, and add the matcher to each Prometheus query
+- [x] 1.2 Add the variable `job` to `devops-cli.json`, reading each job from the series it sends as it works, make `command` and `sub_command` filter by it, and add the matcher to each Prometheus query
   - Verification: `uv run devops ci test tests/grafana/test_grafana_dashboards.py tests/telemetry/test_telemetry_instruments.py` passes
 
 ## 2. Chart the series of the Service

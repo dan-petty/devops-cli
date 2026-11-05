@@ -1277,7 +1277,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (tool, outcome) (increase(devops_cli_roadmap_tool_calls_total{job=\"roadmap-service\", row=\"stage\"}[1h]))",
+          "expr": "sum by (tool, outcome) (increase(devops_cli_roadmap_tool_calls_total{job=~\"$job\",row=\"stage\"}[1h]))",
           "legendFormat": "{{tool}} {{outcome}}",
           "refId": "A"
         },
@@ -1286,7 +1286,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_avg(sum by (tool) (increase(devops_cli_roadmap_tool_answer_chars{job=\"roadmap-service\", row=\"stage\"}[1h])))",
+          "expr": "histogram_avg(sum by (tool) (increase(devops_cli_roadmap_tool_answer_chars{job=~\"$job\",row=\"stage\"}[1h])))",
           "legendFormat": "{{tool}} mean chars",
           "refId": "B"
         }
@@ -1444,7 +1444,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "The GitHub requests of the Service in the last hour, beside its limit service.github_requests_per_hour. The cluster Jobs do not count in this budget. To see their requests, set the variable Job to devops-cli-job and read the row GitHub API.",
+      "description": "The GitHub requests of the Service in the last hour, beside its limit service.github_requests_per_hour. The cluster Jobs do not count in this budget. To see their requests, set the variable Job to devops-cli-job and read the row GitHub API. If the list does not show this value, no Job ended or sent a request in the time range: make the range wider.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1498,7 +1498,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "The times in the last hour that the Service held a request because the budget had no room.",
+      "description": "The times in the last hour that a hold began: the requests of the last hour used the budget, so no round could start. A request that waits for the budget inside a round does not count.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1942,7 +1942,7 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(devops_cli_command_total, job)",
+        "definition": "label_values({__name__=~\"devops_cli_command_total|devops_cli_github_requests_total\"}, job)",
         "hide": 0,
         "includeAll": true,
         "label": "Job",
@@ -1951,7 +1951,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(devops_cli_command_total, job)",
+          "query": "label_values({__name__=~\"devops_cli_command_total|devops_cli_github_requests_total\"}, job)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,

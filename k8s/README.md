@@ -1002,7 +1002,7 @@ This repository is public, so it holds no homelab value. Ingress hosts sit under
 
 To change the hourly GitHub request budget of the Service, run `devops config set service.github_requests_per_hour <n>`, then `devops k8s deploy-stack --stack devops`. The Service shows the budget it runs with in `devops_cli_service_budget_limit_requests{job="roadmap-service"}`, and the alert `RoadmapServiceGitHubRequestsHigh` follows that value.
 
-The cluster Jobs act as the same App as the Service, and they do not count in `service.github_requests_per_hour`. Only the Service keeps this budget, in a record on its volume. A Job pod has no budget and an `emptyDir` home, so the Service does not see the requests of a Job. GitHub counts the requests of both against the one rate limit of the App installation. To read the requests of the Jobs, set the variable `Job` of the `devops-cli Telemetry` dashboard to `devops-cli-job`, and read the row GitHub API.
+The cluster Jobs act as the same App as the Service, and they do not count in `service.github_requests_per_hour`. Only the Service keeps this budget, in a record on its volume. A Job pod has no budget and an `emptyDir` home, so the Service does not see the requests of a Job. GitHub counts the requests of both against the one rate limit of the App installation. To read the requests of the Jobs, set the variable `Job` of the `devops-cli Telemetry` dashboard to `devops-cli-job`, and read the row GitHub API. The list of the variable follows the time range of the dashboard. If the list does not show this value, no Job ended or sent a request in that range: make the range wider.
 
 The row Roadmap Service of that dashboard charts the rounds, the budget, the queues, the stops and the inputs of the Service.
 
