@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.60.0](https://github.com/dan-petty/devops-cli/compare/v0.59.0...v0.60.0) (2026-11-05)
+
+
+### Features
+
+* **roadmap:** refuse a what_changes item that names no group path ([#3586](https://github.com/dan-petty/devops-cli/issues/3586)) ([57f280c](https://github.com/dan-petty/devops-cli/commit/57f280c013267b738eefc21f170900d3039277ed))
+
 ## [0.59.0](https://github.com/dan-petty/devops-cli/compare/v0.58.0...v0.59.0) (2026-11-05)
 
 
