@@ -6,6 +6,8 @@ beside the examples it generalizes.
 
 from __future__ import annotations
 
+import json
+
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -72,3 +74,32 @@ def test_a_url_user_with_no_password_is_masked_and_the_rest_stays(
 
     assert masked_text == f"see {scheme}://<masked-user>@{host}{rest} now"
     assert mask_uri_credentials(url) == f"{scheme}://***@{host}{rest}"
+
+
+@given(
+    keyword=st.sampled_from(
+        [
+            "token",
+            "auth_token",
+            "password",
+            "passwd",
+            "pwd",
+            "client_secret",
+            "aws_secret_access_key",
+            "api_key",
+            "access_token",
+        ]
+    ),
+    secret=st.text(alphabet=_ALPHANUMERIC, min_size=8, max_size=48),
+    after=st.sampled_from(["", "&page=2", "#top", '"', "\\", '\\"']),
+    syntax=syntaxes,
+)
+def test_masking_a_secret_in_a_json_string_keeps_the_text_valid_json(
+    keyword: str, secret: str, after: str, syntax: str
+) -> None:
+    """The mask replaces the secret and never a quote of the JSON text around it (#2569)."""
+    reply = json.dumps({"url": f"https://example.com/f?{keyword}={secret}{after}", "type": "file"})
+
+    masked_reply = json.loads(mask_secrets(reply, syntax=syntax))
+
+    assert masked_reply["type"] == "file"
