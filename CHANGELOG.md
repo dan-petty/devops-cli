@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.57.2](https://github.com/dan-petty/devops-cli/compare/v0.57.1...v0.57.2) (2026-11-05)
+
+
+### Bug Fixes
+
+* **roadmap:** a placeholder reply of a model moves no item ([#3542](https://github.com/dan-petty/devops-cli/issues/3542)) ([9620c50](https://github.com/dan-petty/devops-cli/commit/9620c502aa7b54fe609f3ea7522dc140322ec4a0))
+* **roadmap:** the plan reader reports each bad plan ([#3545](https://github.com/dan-petty/devops-cli/issues/3545)) ([b05c1b0](https://github.com/dan-petty/devops-cli/commit/b05c1b0c9a7d430cf60de16c2e1725493def7993))
+
 ## [0.57.1](https://github.com/dan-petty/devops-cli/compare/v0.57.0...v0.57.1) (2026-11-05)
 
 
