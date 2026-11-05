@@ -30,6 +30,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS,
 )
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.premise import definition_lines
 from devops_cli.roadmap.refine import (
     SYMBOL_PATHSPEC,
     cited_identifiers,
@@ -43,16 +44,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _LOG_FORMAT: Final[str] = "--format=%h %as %s"
-
-
-def _definition_pattern(name: str) -> str:
-    """The extended expression for a definition of `name`: a `def`, an `async def` or a `class`, or
-    an assignment at the start of a line, with or without an annotation. `name` is an identifier,
-    so it holds no character that the expression reads."""
-    return (
-        rf"(^|[^A-Za-z0-9_])(def|class)[[:space:]]+{name}([^A-Za-z0-9_]|$)"
-        rf"|^[[:space:]]*{name}[[:space:]]*(:[^=]*)?="
-    )
 
 
 @dataclass(frozen=True)
@@ -91,10 +82,10 @@ class _Run:
     skipped: list[str] = field(default_factory=list)
     _tree: StagedTree | None = None
 
-    def git(self, *args: str) -> tuple[int, str]:
-        """Run one command of the budget."""
+    def git(self, source: Path, *args: str) -> tuple[int, str]:
+        """Run one command of the budget in `source`, which is the checkout of the run."""
         self.left -= 1
-        return git_result(self.source, *args)
+        return git_result(source, *args)
 
     def same_name(self, name: str) -> list[str]:
         """The files of the staging commit with the name of `name`, sorted and at most
@@ -103,7 +94,7 @@ class _Run:
         if self._tree is None:
             if self.left < 1:
                 return []
-            code, out = self.git("ls-tree", "-r", "-z", "--name-only", self.sha)
+            code, out = self.git(self.source, "ls-tree", "-r", "-z", "--name-only", self.sha)
             self._tree = (
                 StagedTree(path for path in out.split("\0") if path)
                 if code == 0
@@ -114,12 +105,12 @@ class _Run:
     def newest_commit(self, *args: str) -> str:
         """The newest commit that `git log` finds with `args` at the staging commit, as `hash
         date subject`, or an empty text when it finds none (the command costs one of the budget)."""
-        code, out = self.git("log", "-n1", _LOG_FORMAT, *args)
+        code, out = self.git(self.source, "log", "-n1", _LOG_FORMAT, *args)
         return out.strip() if code == 0 else ""
 
     def path(self, name: str) -> None:
         texts = MESSAGES.roadmap
-        code, _ = self.git("cat-file", "-e", f"{self.sha}:{name}")
+        code, _ = self.git(self.source, "cat-file", "-e", f"{self.sha}:{name}")
         if code == 0:
             self.lines.append(texts.stage_probe_path_present.format(path=name))
             return
@@ -152,11 +143,10 @@ class _Run:
 
     def identifier(self, name: str) -> None:
         texts = MESSAGES.roadmap
-        code, out = self.git(
-            "grep", "-n", "-E", "-e", _definition_pattern(name), self.sha, "--", SYMBOL_PATHSPEC
-        )
-        if code == 0 and out:
-            hits = out.splitlines()[:CONST_ROADMAP_STAGE_PROBE_DEFINITION_LINES]
+        hits = definition_lines(self.source, self.sha, name, self.git)[
+            :CONST_ROADMAP_STAGE_PROBE_DEFINITION_LINES
+        ]
+        if hits:
             for hit in hits:
                 where = hit.removeprefix(f"{self.sha}:").strip()
                 self.lines.append(texts.stage_probe_defined.format(name=name, where=where))
