@@ -1004,8 +1004,8 @@ def test_a_get_that_loses_its_connection_is_sent_again(github_api: GitHubApiFake
 def test_a_get_that_loses_its_connection_on_every_attempt_raises_after_the_retries(
     github_api: GitHubApiFake,
 ) -> None:
-    """A GET that loses its connection on every attempt is sent three times, then raises the
-    unread error with the text it had before the retries."""
+    """A GET that loses its connection on every attempt is sent three times. Then it raises the
+    unread error, with the text it had before the retries."""
     github_api.route("GET", "/user", httpx2.RemoteProtocolError)
     with pytest.raises(GitHubUnreadError) as raised:
         get_github_session().rest("GET", "/user")
@@ -1029,8 +1029,8 @@ def test_a_write_that_loses_its_connection_is_sent_once(github_api: GitHubApiFak
 
 
 def test_a_listing_that_loses_page_3_sends_page_3_again(github_api: GitHubApiFake) -> None:
-    """A listing whose page 3 loses its connection sends page 3 again and not pages 1 and 2,
-    and it returns each item once."""
+    """A listing whose page 3 loses its connection sends page 3 again. It does not send pages 1
+    and 2 again. Each item is returned once."""
     second, third = _LINK_STYLES["page-links"]
     github_api.route("GET", _ISSUES, _page([{"id": 1}, {"id": 2}], None, next_url=second))
     github_api.route("GET", second, _page([{"id": 3}, {"id": 4}], None, next_url=third))
@@ -1049,7 +1049,7 @@ def test_a_listing_that_loses_page_3_sends_page_3_again(github_api: GitHubApiFak
 
 def test_a_lost_get_waits_through_the_identity_ledger(github_api: GitHubApiFake) -> None:
     """Each resend of a lost GET waits the delay that the identity's ledger gives from the read
-    floor, and the ledger records that wait as one throttle."""
+    floor. The ledger records that wait as one throttle."""
     github_api.route("GET", "/user", httpx2.RemoteProtocolError, github_json({"login": "octocat"}))
     get_github_session().rest("GET", "/user")
     ledger = rate_limiter.identity_rate_limiter(PINNED_GITHUB_TOKEN)
