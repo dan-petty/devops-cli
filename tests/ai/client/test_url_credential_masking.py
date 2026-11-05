@@ -203,22 +203,37 @@ _DISPATCH: dict[str, Any] = {
         (
             "custom://myuser@example.com/path",
             "mask_uri",
-            "custom://myuser@example.com/path",
+            "custom://***@example.com/path",
         ),
         (
             "custom://myuser@example.com/path",
             "redact_text",
-            "custom://myuser@example.com/path",
+            "custom://<masked-user>@example.com/path",
         ),
         (
             "https://ghp_x@example.com/o/r",
             "mask_uri",
-            "https://ghp_x@example.com/o/r",
+            "https://***@example.com/o/r",
         ),
         (
             "https://ghp_x@example.com/o/r",
             "redact_text",
-            "https://ghp_x@example.com/o/r",
+            "https://<masked-user>@example.com/o/r",
+        ),
+        (
+            "http://tok_0123456789abcdef@[2001:db8::1]:11434/api/embed",
+            "mask_uri",
+            "http://***@[2001:db8::1]:11434/api/embed",
+        ),
+        (
+            "http://tok_0123456789abcdef@[2001:db8::1]:11434/api/embed",
+            "redact_text",
+            "http://<masked-user>@[2001:db8::1]:11434/api/embed",
+        ),
+        (
+            '["http://example.com","https://tok123@example.com/x"]',
+            "redact_text",
+            '["http://example.com","https://<masked-user>@example.com/x"]',
         ),
         (
             "http://[::1]:4318",
