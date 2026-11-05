@@ -17,7 +17,9 @@ were collected.
 The collector's `deltatocumulative` processor adds the deltas of each stream (its
 resource, scope, metric and attributes) into a running total before Prometheus stores
 it. Prometheus names a series by `service.name` (`job`), `service.instance.id`
-(`instance`) and the metric's attributes. The `service.instance.id` is the host name,
+(`instance`) and the metric's attributes. The collector sets `job` and `instance` from
+the resource after it copies the attributes. So an attribute with either name is lost.
+A job row is the `row` attribute. The `service.instance.id` is the host name,
 which every command on the host shares. The standard `OTEL_RESOURCE_ATTRIBUTES` sets
 another one: roadmap-service sets `service.instance.id=roadmap-service`, so on the OTLP
 path a new pod continues the series of the pod before it. The `/metrics` scrape adds the
@@ -92,6 +94,10 @@ writes by name.
 | `devops_cli_roadmap_refine_comments_capped_total` | Counter | `1` | Refine comments that the cap on refine's comments on one item in 24 hours stopped: one count for each newest comment on an item that the cap left with no answer. The item waits on a person and takes no place under the round's limit. A later round that finds no newer comment on the item does not count it again. |
 | `devops_cli_roadmap_alternatives_total` | Counter | `1` | Checks of open items for an open tool that covers them, by verdict: covers, partly, none or not-applicable. One count for each check that the alternatives job writes to an item. A check that fails, or that the job skips because a person changed the item, counts nothing. |
 | `devops_cli_roadmap_stage_total` | Counter | `1` | Items that a stage round handled, one count for each item, by result: staged for an item written as a branch and a draft pull request, needs_split for an item stopped on a task group over the budget, failed for an item that failed in the plan or in the writes, and skipped for an item the job left out with a reason. A plan with no write counts nothing. |
+| `devops_cli_roadmap_tool_calls_total` | Counter | `1` | Tool calls of the roadmap planner, by tool, row, toolset and outcome. The outcome ok is a call that gave its result. The outcome empty is a call that ran and found nothing, such as a search with no match. The outcome error is a call that could not run or got no answer. The row is the job row that ran the planner, such as stage. Each plan run adds 0 for every tool of its toolset before its first model request. So a tool that no run calls keeps a series. |
+| `devops_cli_roadmap_tool_answer_chars` | Histogram | `{char}` | Characters in the answer of each tool call of the roadmap planner, after the cut of the tool, by tool, row and toolset. The text of a refusal counts. A call that got no answer adds no observation. |
+| `devops_cli_roadmap_tool_calls_per_run` | Histogram | `{call}` | Tool calls of each plan run of the roadmap planner, by row and toolset. A run that raised because a model call failed adds no observation. |
+| `devops_cli_roadmap_tool_limit_hits_total` | Counter | `1` | Plan runs of the roadmap planner whose tools ended on a limit, by row, toolset and limit. The limit calls means fewer tool calls were left than a turn needs. The limit requests means one model request was left. The limit window means the messages filled the context window. One count for each run. |
 | `devops_cli_roadmap_item_age_seconds` | Gauge | `s` | Age of the oldest open roadmap item in each status, by repo, state and plan. The state is the status. Plan is true when the item holds a stage pull request. That pull request waits for a person. The age is the time since the status label was set. Zero when no item is in the pair. |
 | `devops_cli_roadmap_oldest_item_number` | Gauge | `1` | Issue number of the oldest open roadmap item in each pair of repo, state and plan. The pair is the one that devops_cli_roadmap_item_age_seconds reports. Zero when no item is in the pair. |
 | `devops_cli_roadmap_claim_age_seconds` | Gauge | `s` | Age of the oldest claim on an open roadmap item, by repo. The age is the time since the owner label was set. Zero when no open item holds a claim. |

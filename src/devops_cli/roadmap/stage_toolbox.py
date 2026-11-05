@@ -5,9 +5,10 @@ their code. A call for a `StageProposal` is one agent run with the tools of `Sta
 the toolset `base`, and with `extended`, the setting `roadmap.stage.toolset`, three more (#3238). A
 call for another schema goes to the inner client, with no tool. Each run has a new budget of tool
 calls and requests, ends its tools when the messages fill the context window (#3037), and keeps a
-`RunTrace` of what it did. The output tokens have no count of their own (#3206). A run that ends
-with no plan raises `RoadmapStageError` and names the limit it hit, or
-`StructuredOutputValidationError` when the model broke the schema of its reply past its retries.
+`RunTrace` of what it did. It sends the counts of the run as metrics (`tool_metrics`, #3240). The
+output tokens have no count of their own (#3206). A run that ends with no plan raises
+`RoadmapStageError` and names the limit it hit, or `StructuredOutputValidationError` when the model
+broke the schema of its reply past its retries.
 """
 
 from __future__ import annotations
@@ -35,12 +36,15 @@ from devops_cli.roadmap.refine_investigation import InvestigationStopped, invest
 from devops_cli.roadmap.stage_change import StageProposal
 from devops_cli.roadmap.stage_github import StageGitHub
 from devops_cli.roadmap.stage_tools import StageTools
+from devops_cli.roadmap.tool_metrics import end_run, start_run
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stage import StageClient
 
 _TOOLS_TASK = "roadmap_stage_tools.md"
 _EXTENDED_TOOLS_TASK = "roadmap_stage_tools_extended.md"
+# The job row of the metrics of the tool calls (`row` label, #3240).
+_ROW = "stage"
 
 
 @dataclass(frozen=True)
@@ -88,6 +92,8 @@ class ToolboxClient:
         if chosen == "extended":
             self._instructions += f"\n\n{load_task_prompt(_EXTENDED_TOOLS_TASK)}"
         self._window = window
+        self._toolset = chosen
+        self._tool_names = tuple(tool.name for tool in self._tools.tools())
         self.traces: list[RunTrace] = []
         problem = self._tools.checkout_problem()
         if problem is not None:
@@ -107,20 +113,26 @@ class ToolboxClient:
             return self._inner.chat_structured(system, prompt, schema, max_retries=max_retries)
         trace = RunTrace()
         self.traces.append(trace)
-        result = investigate(
-            self._model,
-            f"{system}\n\n{self._instructions}",
-            prompt,
-            self._tools,
-            schema,
-            limits=UsageLimits(
-                request_limit=CONST_ROADMAP_STAGE_MAX_REQUESTS,
-                tool_calls_limit=CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
-            ),
-            output_retries=max_retries,
-            trace=trace,
-            window=self._window,
-        )
+        start_run(self._tool_names, row=_ROW, toolset=self._toolset)
+        finished = False
+        try:
+            result = investigate(
+                self._model,
+                f"{system}\n\n{self._instructions}",
+                prompt,
+                self._tools,
+                schema,
+                limits=UsageLimits(
+                    request_limit=CONST_ROADMAP_STAGE_MAX_REQUESTS,
+                    tool_calls_limit=CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
+                ),
+                output_retries=max_retries,
+                trace=trace,
+                window=self._window,
+            )
+            finished = True
+        finally:
+            end_run(trace, row=_ROW, toolset=self._toolset, finished=finished)
         if isinstance(result, InvestigationStopped):
             raise _stopped(result, trace)
         return result

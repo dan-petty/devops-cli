@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from collections.abc import AsyncIterable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -19,6 +21,8 @@ from pydantic_ai.messages import (
     ModelResponse,
     RetryPromptPart,
     ToolCallPart,
+    ToolReturn,
+    ToolReturnPart,
 )
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
@@ -133,12 +137,58 @@ def argument_json(call: ToolCallPart) -> str:
     )
 
 
+class ToolOutcome(StrEnum):
+    """How a tool call ended, as `devops_cli_roadmap_tool_calls_total` labels it (#3240): `ok` for
+    an answer with the result that the call asked for, `empty` for a call that ran and found
+    nothing, and `error` for a call that could not run or got no answer. A tool of the stage
+    planner marks each answer with `ok_answer`, `empty_answer` or `error_answer`. A tool that
+    marks none gives `ok`, or `empty` when its text has no non-whitespace character."""
+
+    OK = "ok"
+    EMPTY = "empty"
+    ERROR = "error"
+
+
+def ok_answer(text: str) -> ToolReturn:
+    """The answer of a tool call that gave the result it was asked for: `text` is what the model
+    reads, and the run reads the outcome `ok` (#3240). A tool is annotated with a bare `ToolReturn`
+    because pydantic-ai builds the return schema of each tool when it makes the tool, and the
+    schema of a union that holds `ToolReturn` takes about 20 ms for each tool."""
+    return ToolReturn(text, metadata=ToolOutcome.OK)
+
+
+def empty_answer(text: str) -> ToolReturn:
+    """The answer of a tool call that ran and found nothing, such as a search with no match: `text`
+    is what the model reads, and the run reads the outcome `empty` (#3240)."""
+    return ToolReturn(text, metadata=ToolOutcome.EMPTY)
+
+
+def error_answer(text: str) -> ToolReturn:
+    """The answer of a tool call that could not run, such as a path outside the repository, a
+    missing file or a read that failed: `text` is what the model reads, and the run reads the
+    outcome `error`. A tool answers its failure so, and does not raise, so no call of the model
+    can stop the run (#3240)."""
+    return ToolReturn(text, metadata=ToolOutcome.ERROR)
+
+
+class RunLimit(StrEnum):
+    """The limit that ended the tools of a run, as `devops_cli_roadmap_tool_limit_hits_total`
+    labels it (#3240): the calls, the requests or the context window."""
+
+    CALLS = "calls"
+    REQUESTS = "requests"
+    WINDOW = "window"
+
+
 @dataclass(frozen=True)
 class ToolCallRecord:
-    """One tool call of a run: the tool, and its argument as JSON, masked and cut."""
+    """One tool call of a run: the tool, its argument as JSON, masked and cut, how the call ended,
+    and the characters of its answer, after the cut of the tool (None for a call with no answer)."""
 
     name: str
     argument: str
+    outcome: ToolOutcome = ToolOutcome.OK
+    chars: int | None = None
 
 
 @dataclass
@@ -146,7 +196,8 @@ class RunTrace:
     """What a run of an agent did (#3037): its tool calls in order, the count of its model
     requests, its input and output tokens, the count of schema violations in the last retry
     prompt of its output tool, and the names of the function tools that each request offered, in
-    order (#3477). A request that offered none holds an empty tuple."""
+    order (#3477). A request that offered none holds an empty tuple. `limit` is the limit that
+    ended the tools of the run, or None (#3240)."""
 
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     requests: int = 0
@@ -154,11 +205,12 @@ class RunTrace:
     output_tokens: int = 0
     violations: int = 0
     offered: list[tuple[str, ...]] = field(default_factory=list)
+    limit: RunLimit | None = None
 
     @classmethod
     def combined(cls, traces: Iterable[RunTrace]) -> RunTrace:
         """One trace for all `traces`, in order: their tool calls and offers joined and their counts
-        summed. The violations are those of the last trace that had any."""
+        summed. The violations and the limit are those of the last trace that had any."""
         total = cls()
         for trace in traces:
             total.tool_calls.extend(trace.tool_calls)
@@ -167,7 +219,15 @@ class RunTrace:
             total.input_tokens += trace.input_tokens
             total.output_tokens += trace.output_tokens
             total.violations = trace.violations or total.violations
+            total.limit = trace.limit or total.limit
         return total
+
+    def tool_counts(self) -> dict[str, tuple[int, int]]:
+        """The calls and the empty answers of each tool of the trace, as `(calls, empty)`, in the
+        alphabetical order of the tool names (#3240)."""
+        calls = Counter(record.name for record in self.tool_calls)
+        empty = Counter(r.name for r in self.tool_calls if r.outcome is ToolOutcome.EMPTY)
+        return {name: (calls[name], empty[name]) for name in sorted(calls)}
 
     def absorb(
         self,
@@ -175,27 +235,42 @@ class RunTrace:
         *,
         tools: Collection[str],
         offered: Iterable[tuple[str, ...]] = (),
+        limit: RunLimit | None = None,
     ) -> None:
         """Add the run of `messages` to the trace. `tools` are the names of the function tools of
         the run: a call to any other tool is the output tool's and is no tool call of the trace.
-        `offered` holds the tools that each request offered, which the messages do not record."""
+        `offered` holds the tools that each request offered, which the messages do not record.
+        `limit` is the limit that ended the tools of the run. The outcome and the answer size of a
+        call come from the part that answers it in the request after the reply, by the id of the
+        call: a call with no answer is an error (#3240)."""
         self.offered.extend(offered)
-        for message in messages:
+        self.limit = limit or self.limit
+        for index, message in enumerate(messages):
             if isinstance(message, ModelResponse):
-                self._add_reply(message, tools)
+                # The request after a reply holds the answers to its calls.
+                self._add_reply(message, tools, _answers(messages[index + 1 : index + 2]))
             elif isinstance(message, ModelRequest):
                 self._add_violations(message, tools)
 
-    def _add_reply(self, reply: ModelResponse, tools: Collection[str]) -> None:
+    def _add_reply(
+        self,
+        reply: ModelResponse,
+        tools: Collection[str],
+        answers: Mapping[str, ToolReturnPart | RetryPromptPart],
+    ) -> None:
         self.requests += 1
         self.input_tokens += reply.usage.input_tokens
         self.output_tokens += reply.usage.output_tokens
         for part in reply.parts:
             if isinstance(part, ToolCallPart) and part.tool_name in tools:
                 argument = bounded_text(argument_json(part))
+                outcome, chars = _outcome_of(answers.get(part.tool_call_id))
                 self.tool_calls.append(
                     ToolCallRecord(
-                        part.tool_name, argument[:CONST_ROADMAP_RUN_TRACE_ARGUMENT_CHARS]
+                        part.tool_name,
+                        argument[:CONST_ROADMAP_RUN_TRACE_ARGUMENT_CHARS],
+                        outcome,
+                        chars,
                     )
                 )
 
@@ -203,6 +278,30 @@ class RunTrace:
         for part in request.parts:
             if isinstance(part, RetryPromptPart) and part.tool_name not in tools:
                 self.violations = len(part.content) if isinstance(part.content, list) else 0
+
+
+def _answers(messages: Sequence[ModelMessage]) -> dict[str, ToolReturnPart | RetryPromptPart]:
+    """The part that answers each tool call, by the id of the call, in the requests of `messages`:
+    the return of the tool, or the retry prompt of a call that pydantic-ai refused."""
+    return {
+        part.tool_call_id: part
+        for message in messages
+        if isinstance(message, ModelRequest)
+        for part in message.parts
+        if isinstance(part, ToolReturnPart | RetryPromptPart)
+    }
+
+
+def _outcome_of(answer: ToolReturnPart | RetryPromptPart | None) -> tuple[ToolOutcome, int | None]:
+    """How a tool call ended, and the characters of its answer, or None for a call with no answer.
+    The answer is the text that the model read, after the cut of the tool. The tool sets its
+    outcome with `empty_answer` and `error_answer`. A call with no return of the tool is an error."""
+    if not isinstance(answer, ToolReturnPart) or answer.outcome != "success":
+        return ToolOutcome.ERROR, None
+    text = answer.model_response_str()
+    if isinstance(answer.metadata, ToolOutcome):
+        return answer.metadata, len(text)
+    return (ToolOutcome.OK if text.strip() else ToolOutcome.EMPTY), len(text)
 
 
 def record_run_spend(
@@ -228,13 +327,18 @@ def record_run_spend(
 
 
 __all__ = [
+    "RunLimit",
     "RunTrace",
     "ToolCallRecord",
+    "ToolOutcome",
     "argument_json",
     "body_error_text",
     "bounded_text",
     "drain_events",
+    "empty_answer",
+    "error_answer",
     "model_call_error",
+    "ok_answer",
     "record_run_spend",
     "run_error_message",
 ]

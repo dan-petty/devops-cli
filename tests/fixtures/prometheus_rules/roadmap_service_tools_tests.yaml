@@ -1,0 +1,133 @@
+# promtool rule unit tests of the alert group roadmap-service-tools in
+# k8s/monitoring/prometheus-values.yaml (#3240). The alert fires for a tool of a toolset when the
+# tool had no call in 7 days, its series is older than 7 days, and the Service made plan runs of the
+# same row and toolset in the same 7 days. Each plan run adds 0 to the call counter for every tool
+# of its toolset, so a tool that no run calls keeps a series. The plan runs are the observations of
+# the native histogram of the calls per run.
+#
+# tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files`
+# names, beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each
+# series at time 0, with one sample each `interval`. A leading run of `_` is a series that starts
+# later. The label sets are those of the Service: `job` and `instance` from the resource, and the
+# attributes of the instruments. A counter has one series for each outcome.
+rule_files:
+  - roadmap-service-tools.rules.yaml
+
+evaluation_interval: 1h
+
+tests:
+  - name: A tool with no call fires and a tool with calls stays quiet
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_roadmap_tool_calls_total{job="roadmap-service", instance="roadmap-service", row="stage", toolset="base", tool="repo_map", outcome="ok"}'
+        values: '0x400'
+      - series: 'devops_cli_roadmap_tool_calls_total{job="roadmap-service", instance="roadmap-service", row="stage", toolset="base", tool="read_file", outcome="ok"}'
+        values: '0+1x400'
+      - series: 'devops_cli_roadmap_tool_calls_per_run{job="roadmap-service", instance="roadmap-service", row="stage", toolset="base"}'
+        values: '{{schema:0 sum:0 count:1 buckets:[1]}}+{{schema:0 sum:3 count:1 buckets:[1]}}x400'
+    alert_rule_test:
+      - eval_time: 390h
+        alertname: RoadmapServiceToolUnused
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              row: stage
+              toolset: base
+              tool: repo_map
+            exp_annotations:
+              summary: "Tool repo_map of the toolset base had no call in 7 days"
+              description: "No plan run of the row stage called the tool repo_map of the toolset base in 7 days, and the Service made plan runs in that time. Read the Planner Tools row of the devops-cli Telemetry dashboard, and decide to change the tool description or to remove the tool (k8s/README.md, Roadmap service)."
+
+  - name: A tool with calls of an error outcome only counts as called
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_roadmap_tool_calls_total{job="roadmap-service", instance="roadmap-service", row="stage", toolset="base", tool="callers", outcome="ok"}'
+        values: '0x400'
+      - series: 'devops_cli_roadmap_tool_calls_total{job="roadmap-service", instance="roadmap-service", row="stage", toolset="base", tool="callers", outcome="error"}'
+        values: '0+1x400'
+      - series: 'devops_cli_roadmap_tool_calls_per_run{job="roadmap-service", instance="roadmap-service", row="stage", toolset="base"}'
+        values: '{{schema:0 sum:0 count:1 buckets:[1]}}+{{schema:0 sum:3 count:1 buckets:[1]}}x400'
+    alert_rule_test:
+      - eval_time: 390h
+        alertname: RoadmapServiceToolUnused
+        exp_alerts: []
+
+  - name: A tool with no call stays quiet when no plan run happened
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_roadmap_tool_calls_total{job="roadmap-service", instance="roadmap-service", row="stage", toolset="base", tool="repo_map", outcome="ok"}'
+        values: '0x400'
+      - series: 'devops_cli_roadmap_tool_calls_per_run{job="roadmap-service", instance="roadmap-service", row="stage", toolset="base"}'
+        values: '{{schema:0 sum:3 count:1 buckets:[1]}}x400'
+    alert_rule_test:
+      - eval_time: 390h
+        alertname: RoadmapServiceToolUnused
+        exp_alerts: []
+
+  - name: A tool with no call stays quiet when no run series exists
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_roadmap_tool_calls_total{job="roadmap-service", instance="roadmap-service", row="stage", toolset="base", tool="repo_map", outcome="ok"}'
+        values: '0x400'
+    alert_rule_test:
+      - eval_time: 390h
+        alertname: RoadmapServiceToolUnused
+        exp_alerts: []
+
+  - name: A series that starts in the 7 days stays quiet
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_roadmap_tool_calls_total{job="roadmap-service", instance="roadmap-service", row="stage", toolset="base", tool="repo_map", outcome="ok"}'
+        values: '_x300 0x100'
+      - series: 'devops_cli_roadmap_tool_calls_per_run{job="roadmap-service", instance="roadmap-service", row="stage", toolset="base"}'
+        values: '{{schema:0 sum:0 count:1 buckets:[1]}}+{{schema:0 sum:3 count:1 buckets:[1]}}x400'
+    alert_rule_test:
+      - eval_time: 390h
+        alertname: RoadmapServiceToolUnused
+        exp_alerts: []
+
+  - name: A tool of the extended toolset stays quiet when only the base toolset ran
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_roadmap_tool_calls_total{job="roadmap-service", instance="roadmap-service", row="stage", toolset="extended", tool="references", outcome="ok"}'
+        values: '0x400'
+      - series: 'devops_cli_roadmap_tool_calls_total{job="roadmap-service", instance="roadmap-service", row="stage", toolset="base", tool="read_file", outcome="ok"}'
+        values: '0+1x400'
+      - series: 'devops_cli_roadmap_tool_calls_per_run{job="roadmap-service", instance="roadmap-service", row="stage", toolset="base"}'
+        values: '{{schema:0 sum:0 count:1 buckets:[1]}}+{{schema:0 sum:3 count:1 buckets:[1]}}x400'
+    alert_rule_test:
+      - eval_time: 390h
+        alertname: RoadmapServiceToolUnused
+        exp_alerts: []
+
+  - name: A tool of the row implement fires with its own row
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_roadmap_tool_calls_total{job="roadmap-service", instance="roadmap-service", row="implement", toolset="base", tool="repo_map", outcome="ok"}'
+        values: '0x400'
+      - series: 'devops_cli_roadmap_tool_calls_per_run{job="roadmap-service", instance="roadmap-service", row="implement", toolset="base"}'
+        values: '{{schema:0 sum:0 count:1 buckets:[1]}}+{{schema:0 sum:3 count:1 buckets:[1]}}x400'
+    alert_rule_test:
+      - eval_time: 390h
+        alertname: RoadmapServiceToolUnused
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              row: implement
+              toolset: base
+              tool: repo_map
+            exp_annotations:
+              summary: "Tool repo_map of the toolset base had no call in 7 days"
+              description: "No plan run of the row implement called the tool repo_map of the toolset base in 7 days, and the Service made plan runs in that time. Read the Planner Tools row of the devops-cli Telemetry dashboard, and decide to change the tool description or to remove the tool (k8s/README.md, Roadmap service)."
+
+  - name: A series of another job stays quiet
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_roadmap_tool_calls_total{job="devops-cli", instance="a-workstation", row="stage", toolset="base", tool="repo_map", outcome="ok"}'
+        values: '0x400'
+      - series: 'devops_cli_roadmap_tool_calls_per_run{job="devops-cli", instance="a-workstation", row="stage", toolset="base"}'
+        values: '{{schema:0 sum:0 count:1 buckets:[1]}}+{{schema:0 sum:3 count:1 buckets:[1]}}x400'
+    alert_rule_test:
+      - eval_time: 390h
+        alertname: RoadmapServiceToolUnused
+        exp_alerts: []
