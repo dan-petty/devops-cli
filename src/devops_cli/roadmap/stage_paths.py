@@ -2,9 +2,10 @@
 
 The model cannot list files, and the issue body it reads cites paths of an older commit. So a plan
 can name a file that does not exist: 25 of the 37 plans of 2026-10-31 did. `path_problems` finds
-each such path in the reply. A path is missing when the commit does not hold it and no group up to
-the group that names it creates it. The groups are in order, so a group sees the `creates` of the
-groups before it and of itself.
+each such path in the reply and in the change folder of a plan pull request: a group lists a new
+file in the `creates` list of a reply, or marks it ` (new)` on its `Changes:` line in `tasks.md`. A
+path is missing when the commit does not hold it and no group up to the group that names it creates
+it. The groups are in order, so a group sees the `creates` of the groups before it and of itself.
 
 A group names paths in four places: `reads`, `changes`, the code spans of its three tasks, and the
 words of `verify`. The paths of a negative search are the paths of its fixed shape (#3263). Only

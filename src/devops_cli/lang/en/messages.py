@@ -3334,8 +3334,9 @@ class RoadmapMessages:
     stage_criteria_pending: str = "Pending person: {criterion}, {reason}"
     stage_problem_path: str = (
         "Group {group} names `{path}` in {place}. The staged commit has no such file, and no "
-        "group up to group {group} creates it. {hint} Name a file that exists, or make the group "
-        "that creates it list it in `creates`."
+        "group up to group {group} creates it. Name a file that exists. In a stage reply, make "
+        "the group that creates it list it in `creates`. In a change folder, add the ` (new)` "
+        "mark to the path on the `Changes:` line of `tasks.md`. {hint}"
     )
     stage_problem_verify: str = (
         "Group {group} gives the `verify` command `{command}`. A `verify` command starts with "

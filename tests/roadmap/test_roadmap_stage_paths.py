@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.stage_change import GroupKind, StageGroup
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from tests.support.builders import make_stage_proposal
@@ -61,6 +62,30 @@ def test_a_moved_test_file_is_a_problem_that_lists_the_file_with_the_same_name()
 
     assert "`tests/test_scanner_tool_executor.py`" in problem
     assert "`tests/security/test_scanner_tool_executor.py`" in problem
+
+
+def test_a_missing_path_names_the_creates_list_and_the_new_mark() -> None:
+    """A stage reply lists the file in `creates`; a change folder marks it ` (new)`."""
+    (problem,) = _problems(_group(reads=[], changes=["tests/test_scanner_tool_executor.py"]))
+
+    assert "`creates`" in problem
+    assert " (new)" in problem
+    assert "`Changes:`" in problem
+    hint = MESSAGES.roadmap.stage_path_same_name.format(
+        names="`tests/security/test_scanner_tool_executor.py`"
+    )
+    assert problem.endswith(hint)
+
+
+def test_a_path_that_a_later_group_creates_keeps_its_own_message() -> None:
+    first = _group(reads=["tests/test_new.py"])
+    later = _group(changes=["tests/test_new.py"], creates=["tests/test_new.py"], reads=[])
+
+    (problem,) = _problems(first, later)
+
+    assert "group 2" in problem
+    assert "`creates`" not in problem
+    assert " (new)" not in problem
 
 
 def test_a_path_that_no_file_matches_by_name_says_so() -> None:
