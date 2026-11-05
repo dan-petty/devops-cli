@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from hypothesis import example, given
 from hypothesis import strategies as st
@@ -877,3 +879,90 @@ def test_tokens_enclosed_in_brackets_are_masked() -> None:
     assert mask_secrets("<ghp_token>") == "<ghp_token>"
     assert mask_secrets("<ghs_token>") == "<ghs_token>"
     assert mask_secrets("<sk-key>") == "<sk-key>"
+
+
+# =============================================================================
+# A quote that the mask did not open stays (#2569)
+# =============================================================================
+
+
+@pytest.mark.parametrize("syntax", ["data", "code"])
+@pytest.mark.parametrize(
+    ("keyword", "masked", "secret"),
+    [
+        pytest.param("token", "token=<masked-token>", "AGJ4EXAMPLE1234567890", id="token"),
+        pytest.param(
+            "auth_token", "token=<masked-token>", "AGJ4EXAMPLE1234567890", id="auth-token"
+        ),
+        pytest.param("password", "password=<masked-password>", "hunter2hunter2", id="password"),
+        pytest.param(
+            "client_secret",
+            "client_secret=<masked-client-secret>",
+            "abcdefghij0123456789abcdefghij",
+            id="client-secret",
+        ),
+        pytest.param(
+            "aws_secret_access_key",
+            "aws_secret_access_key=<masked-aws-secret>",
+            "A" * 40,
+            id="aws-secret-access-key",
+        ),
+    ],
+)
+def test_the_closing_quote_of_a_json_string_stays_when_a_query_secret_in_it_is_masked(
+    keyword: str, masked: str, secret: str, syntax: str
+) -> None:
+    """The reply of `devops gh api repos/<owner>/<repo>/contents/<path>` for a private
+    repository has a `download_url` with a `token=` query parameter. The mask took the quote that
+    closes the string together with the value, so the printed reply was not valid JSON."""
+    url = "https://example.com/o/r/f.txt"
+    reply = json.dumps({"download_url": f"{url}?{keyword}={secret}", "type": "file"})
+
+    out = redact_text(reply, syntax=syntax)
+
+    assert json.loads(out) == {"download_url": f"{url}?{masked}", "type": "file"}
+    assert secret not in out
+
+
+@pytest.mark.parametrize("syntax", ["data", "code"])
+@pytest.mark.parametrize(
+    ("text", "masked"),
+    [
+        pytest.param(
+            "{'download_url':'https://example.com/f?token=AGJ4EXAMPLE1234567890','type':'file'}",
+            "{'download_url':'https://example.com/f?token=<masked-token>','type':'file'}",
+            id="single-quoted-string",
+        ),
+        pytest.param(
+            '{"note": "set token=\'AGJ4EXAMPLE1234567890\' now"}',
+            '{"note": "set token=<masked-token> now"}',
+            id="a-pair-of-single-quotes-inside-a-json-string",
+        ),
+        pytest.param(
+            'token="AGJ4EXAMPLE1234567890" next',
+            "token=<masked-token> next",
+            id="a-pair-of-quotes-around-the-value",
+        ),
+        pytest.param(
+            "token='AGJ4EXAMPLE1234567890\" next",
+            'token=<masked-token>" next',
+            id="a-quote-of-the-other-kind-is-not-the-closing-quote",
+        ),
+        pytest.param(
+            "https://example.com/f?token=AGJ4EXAMPLE1234567890",
+            "https://example.com/f?token=<masked-token>",
+            id="a-bare-value-at-the-end-of-the-text",
+        ),
+        pytest.param(
+            "token=AGJ4EXAMPLE1234567890 next",
+            "token=<masked-token> next",
+            id="a-bare-value-before-a-space",
+        ),
+    ],
+)
+def test_a_quote_stays_unless_it_closes_a_quote_that_opened_the_value(
+    text: str, masked: str, syntax: str
+) -> None:
+    """The mask takes a closing quote only together with the quote that opened the value, and a
+    quote of the other kind is not that quote."""
+    assert redact_text(text, syntax=syntax) == masked

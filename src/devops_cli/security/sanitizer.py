@@ -226,6 +226,18 @@ def _mask_literal(match: re.Match[str], masked: str, is_code: bool = False) -> s
     return masked
 
 
+def _quoted(value: str) -> str:
+    """Wrap the pattern of an assigned value in an optional pair of quote marks.
+
+    The pair is the group `quote` and the closing quote mark of the same kind, so a match with
+    no opening quote mark has no closing one either. A value such as the token in
+    `"download_url":"https://example.com/f?token=<value>"` ends inside a string, and the quote
+    mark after it closes that string. A mask that takes it breaks the JSON text (#2569). After an
+    opening quote mark the closing one stays optional, so a value with no closing mark is masked.
+    """
+    return r"""(?P<quote>["'])?""" + value + r"(?(quote)(?P=quote)?)"
+
+
 def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Replacement], ...]:
     # A keyword and its value sit on one line. Between them, and in a check after the value,
     # a pattern allows whitespace other than a line break, `[^\S\r\n]`, and never `\s`: with
@@ -249,7 +261,7 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
         (
             re.compile(
                 r"\b(?:password|passwd|pwd)[^\S\r\n]*(?P<sep>[:=])[^\S\r\n]*"
-                r"(?P<quote>[\"']?)(?!<masked-)(?P<value>[^\s\"',;]{8,})[\"']?",
+                + _quoted(r"(?!<masked-)(?P<value>[^\s\"',;]{8,})"),
                 re.IGNORECASE,
             ),
             lambda match: _mask_literal(match, "password=<masked-password>", is_code=is_code),
@@ -270,7 +282,7 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
         (
             re.compile(
                 r"\b(?:token|auth_token)[^\S\r\n]*(?P<sep>[:=])[^\S\r\n]*"
-                r"(?P<quote>[\"']?)(?!<masked-)(?P<value>[^\s\"',;]{8,})[\"']?",
+                + _quoted(r"(?!<masked-)(?P<value>[^\s\"',;]{8,})"),
                 re.IGNORECASE,
             ),
             lambda match: _mask_literal(match, "token=<masked-token>", is_code=is_code),
@@ -278,14 +290,14 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
         (
             re.compile(
                 r"(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY)[^\S\r\n]*[:=][^\S\r\n]*"
-                r"[\"']?[A-Za-z0-9/+=]{40}[\"']?"
+                + _quoted(r"[A-Za-z0-9/+=]{40}")
             ),
             "aws_secret_access_key=<masked-aws-secret>",
         ),
         (
             re.compile(
                 r"(?:client_secret|client-secret|AZURE_CLIENT_SECRET)[^\S\r\n]*[:=][^\S\r\n]*"
-                r"[\"']?[A-Za-z0-9_\-~.]{20,}[\"']?"
+                + _quoted(r"[A-Za-z0-9_\-~.]{20,}")
             ),
             "client_secret=<masked-client-secret>",
         ),
