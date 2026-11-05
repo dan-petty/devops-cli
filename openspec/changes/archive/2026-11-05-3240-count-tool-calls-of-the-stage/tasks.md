@@ -75,7 +75,7 @@ Reads: `docs/TELEMETRY.md`, `src/devops_cli/docs/generator.py`. Changes: `docs/T
 
 - [x] 8.1 In `generate_telemetry_docs` of `src/devops_cli/docs/generator.py`, say that an attribute named `job` or `instance` is lost because the resource sets both labels. Run `uv run devops docs generate --sync-readme` to write the four instruments and the sentence to `docs/TELEMETRY.md`
   - Verification: `uv run devops ci docs` passes
-- [ ] 8.2 Run the whole gate
+- [x] 8.2 Run the whole gate
   - Verification: `uv run devops ci` passes
 
 ## Criteria
