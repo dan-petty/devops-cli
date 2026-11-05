@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.63.0](https://github.com/dan-petty/devops-cli/compare/v0.62.7...v0.63.0) (2026-11-05)
+
+
+### Features
+
+* **roadmap:** let a negative search verify check more than one name ([#3678](https://github.com/dan-petty/devops-cli/issues/3678)) ([5a4364c](https://github.com/dan-petty/devops-cli/commit/5a4364c30456765803eacc05273cc4ac34c3baa2))
+* **telemetry:** count the tool calls of the stage planner by outcome ([#3679](https://github.com/dan-petty/devops-cli/issues/3679)) ([45da6dd](https://github.com/dan-petty/devops-cli/commit/45da6dd2345a2c2154749a9b7cf272169ff53fcb))
+
+
+### Bug Fixes
+
+* **ci:** count tests and specs as hardening guardrails ([#3684](https://github.com/dan-petty/devops-cli/issues/3684)) ([1d75506](https://github.com/dan-petty/devops-cli/commit/1d7550611517a503b5dd05f7233978f5f3a6b604))
+* **security:** mask the user name of a URL with no password ([#3676](https://github.com/dan-petty/devops-cli/issues/3676)) ([bc1cd9c](https://github.com/dan-petty/devops-cli/commit/bc1cd9c9b24907cf3cddcfc16bc7e5e7c8dc540d))
+* **service:** count each GitHub request with its HTTP status ([#3686](https://github.com/dan-petty/devops-cli/issues/3686)) ([b39dcba](https://github.com/dan-petty/devops-cli/commit/b39dcba6a4488dcb6dbea0016731bd33d30401e9))
+* **telemetry:** Service counters read true across pods and repos ([#3680](https://github.com/dan-petty/devops-cli/issues/3680)) ([05544ab](https://github.com/dan-petty/devops-cli/commit/05544abc8861fd3c4e8f474af5f09e4b42676288))
+
 ## [0.62.7](https://github.com/dan-petty/devops-cli/compare/v0.62.6...v0.62.7) (2026-11-05)
 
 
