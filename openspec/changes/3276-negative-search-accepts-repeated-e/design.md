@@ -15,7 +15,7 @@ Git matches a line that holds any of several `-e` patterns, with no `--and` and 
 
 ### Each `-e` value is a plain literal
 
-Each value passes the same check as the positional literal: the signs of `NEGATIVE_SEARCH_LITERAL_SIGNS` and no leading `-`. A value that starts with `-` is refused, so `-E`, `-P` and an option word stay refused as a value. The value `--` gets its own reason: it is a missing literal.
+Each value passes the same check as the positional literal: the signs of `NEGATIVE_SEARCH_LITERAL_SIGNS` and no leading `-`. A value that starts with `-` is refused with its own reason, so `-E`, `-P` and an option word stay refused as a value. The value `--` gets its own reason: it is a missing literal.
 
 - Rejected: let a value start with `-`. Git would read it as a pattern, but the grammar could no longer tell an option word from a literal, and `-E` as a value would pass unnoticed.
 

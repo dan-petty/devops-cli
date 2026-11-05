@@ -269,7 +269,9 @@ def _read_e_literals(options: tuple[str, ...], rest: list[str]) -> NegativeSearc
         if not rest or rest[0] == _PATHS_MARK:
             return texts.search_reason_e_value
         value = rest.pop(0)
-        if value.startswith("-") or _LITERAL.fullmatch(value) is None:
+        if value.startswith("-"):
+            return texts.search_reason_e_dash.format(word=shown(value))
+        if _LITERAL.fullmatch(value) is None:
             return texts.search_reason_literal.format(
                 word=shown(value), signs=NEGATIVE_SEARCH_LITERAL_SIGNS
             )

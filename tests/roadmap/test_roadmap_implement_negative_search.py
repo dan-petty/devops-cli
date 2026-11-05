@@ -262,6 +262,7 @@ def test_the_stage_prompt_gives_the_options_and_the_signs_that_the_step_reads() 
     )
     assert "`-e`" in prompt
     assert "then `--` before the relative paths" in prompt
+    assert "A literal after `-e` must not start with `-`." in prompt
 
 
 def test_a_negative_search_in_a_verification_line_is_a_command_of_the_group_and_the_step_runs_it(
@@ -278,6 +279,10 @@ def test_a_negative_search_in_a_verification_line_is_a_command_of_the_group_and_
 TWO_ABSENT = "! git grep -n -e absent_name -e other_absent -- src/ tests/"
 HELLO_OR_ABSENT = "! git grep -n -e hello -e absent_name -- src/ tests/"
 E_NO_LITERAL = "the option `-e` has no literal after it"
+
+
+def _e_dash(word: str) -> str:
+    return f"the text `{word}` starts with `-`, so it is not an `-e` literal"
 
 
 def _e_forms(word: str) -> str:
@@ -309,8 +314,9 @@ def test_a_search_for_two_names_stops_with_the_matching_lines(
         ("! git grep -n -e 'a|b' -- src/", _literal("a|b")),
         ("! git grep -n -e 'a;b' -- src/", _literal("a;b")),
         ("! git grep -n -e '$(id)' -- src/", _literal("$(id)")),
-        ("! git grep -n -e -E -- src/", _literal("-E")),
-        ("! git grep -n -e -P -- src/", _literal("-P")),
+        ("! git grep -n -e -E -- src/", _e_dash("-E")),
+        ("! git grep -n -e -P -- src/", _e_dash("-P")),
+        ("! git grep -n -e --addons -- src/", _e_dash("--addons")),
         ("! git grep -n -e -- src/", E_NO_LITERAL),
         ("! git grep -n -e name -e -- src/", E_NO_LITERAL),
         ("! git grep -e", E_NO_LITERAL),

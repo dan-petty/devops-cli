@@ -25,8 +25,12 @@ The step SHALL read each `-e` option of a negative search as the option that tak
 - **THEN** the step stops with the matching lines that git printed, and starts no other process
 
 #### Scenario: A value that is not a plain literal
-- **WHEN** a Verification line names `! git grep -n -e 'a|b' -- src/`, `! git grep -n -e -E -- src/`, `! git grep -n -e 'a;b' -- src/` or `! git grep -n -e -- src/`
+- **WHEN** a Verification line names `! git grep -n -e 'a|b' -- src/`, `! git grep -n -e 'a;b' -- src/` or `! git grep -n -e -- src/`
 - **THEN** the step stops with the reason that names the text, or that the `-e` option has no literal, and starts no process
+
+#### Scenario: A value that starts with -
+- **WHEN** a Verification line names `! git grep -n -e -E -- src/` or `! git grep -n -e --addons -- src/`
+- **THEN** the step stops with the reason that the text starts with `-`, and starts no process
 
 ### Requirement: A negative search with -e puts -- before its paths
 A negative search with `-e` options SHALL have `--` after its last literal and before its paths. It SHALL NOT have a word between the last literal and `--`.

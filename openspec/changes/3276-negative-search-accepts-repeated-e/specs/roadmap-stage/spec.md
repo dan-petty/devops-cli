@@ -9,4 +9,4 @@ The stage job SHALL record the staged hits of each `-e` literal of a negative-se
 
 #### Scenario: A move group names a module with a second literal
 - **WHEN** A move group for prefix `stage` gives the verify command `! git grep -n -e devops_cli.roadmap.stage_ready -e devops_cli.roadmap.stage -- src/ tests/`.
-- **THEN** check_proposal returns one problem that names the literal `devops_cli.roadmap.stage`.
+- **THEN** check_proposal returns two problems: the problem of the move and the problem of the created module, and each names the literal `devops_cli.roadmap.stage`.

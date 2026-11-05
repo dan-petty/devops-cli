@@ -9,7 +9,7 @@ The negative search of the implement step takes one literal and no `-e` option (
 - `read_negative_search` in `src/devops_cli/roadmap/implement_shell_policy.py` accepts one or more `-e <literal>` options. Each literal is a plain literal, as the positional literal is. The search takes `--` before the paths when it has `-e` options. The positional literal form stays.
 - `NegativeSearch` holds a tuple of literals and a flag that marks the `-e` form. The `argv` of the search passes each literal after its own `-e`. The field of one literal goes away.
 - The stage job checks each literal of a negative search. `record_search_evidence` and `search_problems` in `src/devops_cli/roadmap/stage_form.py` and `move_verify_problems` in `src/devops_cli/roadmap/stage_move.py` read every literal.
-- `src/devops_cli/lang/en/messages.py` holds three reasons: an `-e` option with no literal, a word that comes after an `-e` literal, and the literal rule of an `-e` value.
+- `src/devops_cli/lang/en/messages.py` holds three new reasons: an `-e` option with no literal, a word that comes after an `-e` literal, and an `-e` value that starts with `-`.
 - `src/devops_cli/ai/tasks/roadmap_stage_change.md` names the `-e` form, and `tests/roadmap/test_roadmap_implement_negative_search.py` asserts it.
 - `docs/TESTING.md` states the shape of the `! git grep` form: one plain literal, or one or more `-e` literals and `--`, with the refused tokens.
 - Task 3.3 of `openspec/changes/2610-devops-k8s-image-pins-resolves-with/tasks.md` uses four `-e` literals in place of `-E` and the pipe.

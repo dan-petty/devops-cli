@@ -2508,6 +2508,7 @@ class RoadmapMessages:
     search_reason_no_path: str = "it gives no path"
     search_reason_path: str = "the word `{word}` is not a path of the checkout"
     search_reason_e_value: str = "the option `-e` has no literal after it"
+    search_reason_e_dash: str = "the text `{word}` starts with `-`, so it is not an `-e` literal"
     search_reason_e_forms: str = (
         "the word `{word}` is not allowed with `-e`, so use one literal, or `-e` literals and then "
         "`--`"
