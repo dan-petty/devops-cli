@@ -11,9 +11,9 @@
 
 ## 2. Document the retry rule
 
-- [ ] 2.1 Update the Retries paragraph of `docs/adr/0006-github-session-requests-go-through-gidgethub.md` to state that a GET that loses its connection is sent again and a write is not.
+- [x] 2.1 Update the Retries paragraph of `docs/adr/0006-github-session-requests-go-through-gidgethub.md` to state that a GET that loses its connection is sent again and a write is not.
   Verification: `uv run devops ci docs`
-- [ ] 2.2 Regenerate the documentation with `uv run devops docs generate --sync-readme`.
+- [x] 2.2 Regenerate the documentation with `uv run devops docs generate --sync-readme`.
   Verification: `uv run devops docs check`
 
 ## 3. Prove the fix and pass the gate
