@@ -454,6 +454,72 @@ def test_assigned_credentials_are_unaffected_by_the_guard() -> None:
 
 
 # =============================================================================
+# A word after a keyword and a colon can be prose (#2613)
+# =============================================================================
+
+
+@pytest.mark.parametrize("syntax", ["data", "code"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(
+            "failed to fetch oauth token: unexpected status from GET request to "
+            "https://ghcr.io/token?scope=repository%3Aexample%2Fimage%3Apull: 403 Forbidden",
+            id="registry-error-after-token",
+        ),
+        pytest.param("wrong password: authentication failed for the account", id="password"),
+        pytest.param("invalid auth_token: unauthorized for this scope", id="auth-token"),
+        pytest.param("failed to refresh token: Unauthorized", id="word-with-a-leading-capital"),
+        pytest.param("the reason is the token: unexpected.", id="word-before-a-full-stop"),
+    ],
+)
+def test_a_prose_word_after_a_credential_keyword_and_a_colon_is_left_alone(
+    text: str, syntax: str
+) -> None:
+    """A colon is also prose punctuation, so an unquoted plain word after it is a word.
+
+    buildx writes "failed to fetch oauth token: unexpected status from GET request to ...", and
+    the rule rewrote it to "token=<masked-token> status from GET ...": the printed error no
+    longer said what failed.
+    """
+    assert redact_text(text, syntax=syntax) == text
+
+
+@pytest.mark.parametrize("syntax", ["data", "code"])
+@pytest.mark.parametrize(
+    ("text", "masked"),
+    [
+        pytest.param("token: abc123def456ghi789", "token=<masked-token>", id="digits"),
+        pytest.param("token: aBcDeFgHiJkL", "token=<masked-token>", id="internal-capital"),
+        pytest.param("token: " + "a" * 24, "token=<masked-token>", id="length-of-no-word"),
+        pytest.param("auth_token: my-service-account", "token=<masked-token>", id="hyphen"),
+        pytest.param("password: hunter2hunter2", "password=<masked-password>", id="password"),
+        pytest.param(
+            "password: correct-horse.battery", "password=<masked-password>", id="separators"
+        ),
+        pytest.param(
+            "token=unexpected", "token=<masked-token>", id="plain-word-after-an-equals-sign"
+        ),
+        pytest.param(
+            "password=correcthorse",
+            "password=<masked-password>",
+            id="plain-password-after-an-equals-sign",
+        ),
+        pytest.param(
+            'password: "correcthorse"', "password=<masked-password>", id="plain-word-in-quotes"
+        ),
+        pytest.param("token: 'unexpected'", "token=<masked-token>", id="plain-word-in-quote-marks"),
+    ],
+)
+def test_a_value_that_reads_as_a_credential_is_still_masked_after_a_colon(
+    text: str, masked: str, syntax: str
+) -> None:
+    """A digit, an internal capital, a separator or a long run marks a credential. An equals
+    sign or a quote mark says the word is a value, even when it reads as a word."""
+    assert redact_text(text, syntax=syntax) == masked
+
+
+# =============================================================================
 # A line break ends a credential keyword's value (#2450)
 # =============================================================================
 
