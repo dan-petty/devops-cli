@@ -86,6 +86,22 @@ def test_every_category_is_listed_once_in_the_order_of_the_gates(
     blocked = _item(
         store, fields={ItemField.STATUS: "Blocked"}, marks={ImplementRecordKey.STOPPED: "group 2"}
     )
+    split = _item(
+        store,
+        "big",
+        fields={ItemField.STATUS: "New"},
+        marks={RefineRecordKey.NEXT_STEP: "split"},
+    )
+    asked = _item(
+        store,
+        "asked",
+        fields={ItemField.STATUS: "New"},
+        marks={RefineRecordKey.ALTERNATIVES_ASKED: "https://example.com/tool"},
+    )
+    draft = store.seed_pull(
+        "draft", head_ref="feat/99-draft", draft=True, head_sha="a9", updated_at=_ago(days=8)
+    )
+    _item(store, marks={StageRecordKey.PR: str(draft)})
     claimed = _item(store, fields={ItemField.OWNER: "Agent"}, updated_at=_ago(days=9))
     store.seed_file(CONST_ROADMAP_LABELS_PATH, LABELS + "- name: scope/ci\n  color: 0E8A16\n")
 
@@ -96,6 +112,9 @@ def test_every_category_is_listed_once_in_the_order_of_the_gates(
         (InboxKind.IMPLEMENT, work),
         (InboxKind.RELEASE, release),
         (InboxKind.BLOCKED, blocked),
+        (InboxKind.SPLIT, split),
+        (InboxKind.ALTERNATIVES, asked),
+        (InboxKind.DRAFT, draft),
         (InboxKind.CLAIM, claimed),
         (InboxKind.LABELS, None),
     ]
