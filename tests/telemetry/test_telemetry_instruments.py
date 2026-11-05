@@ -53,6 +53,8 @@ SERIES_NAME = re.compile(r"devops_cli_[a-z0-9_]+")
 SENT_SERIES = {instrument.name for instrument in INSTRUMENTS}
 # `by (labels) (rate(selector[window]))` or `increase(...)`: the labels one series is summed by.
 GROUPED_SERIES = re.compile(r"\bby\s*\(([^)]*)\)\s*\(\s*(?:rate|increase)\(\s*([^\s\[]+)\s*\[")
+# The matcher that each query of devops-cli.json starts its selector with (#2479).
+JOB_MATCHER = re.compile(r'\{job=~"\$job"\}|job=~"\$job",')
 QUANTILE_OF = re.compile(
     r"histogram_quantile\(\s*([0-9.]+)\s*,\s*sum\s*(?:by\s*\([^)]*\)\s*)?\(\s*"
     r"(?:(?:rate|increase|last_over_time)\(\s*)?([a-z0-9_]+)"
@@ -578,7 +580,7 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
     }
     queries = _all_queries()
     grouped = {
-        (series, label.strip())
+        (JOB_MATCHER.sub("", series), label.strip())
         for query in queries
         for labels, series in GROUPED_SERIES.findall(query)
         for label in labels.split(",")
@@ -615,18 +617,18 @@ def test_the_github_api_row_charts_requests_throttles_and_graphql_points() -> No
 
     assert {panel["title"]: _panel_queries(panel) for panel in panels} == {
         "GitHub Requests by Resource": (
-            "sum by (resource) (increase(devops_cli_github_requests_total[1h]))"
+            'sum by (resource) (increase(devops_cli_github_requests_total{job=~"$job"}[1h]))'
         ),
         "GitHub Throttles by Resource": (
             "histogram_count(sum by (resource) "
-            "(increase(devops_cli_github_throttle_wait_seconds[1h])))"
+            '(increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[1h])))'
         ),
         "GitHub Throttle Wait by Resource": (
             "histogram_sum(sum by (resource) "
-            "(increase(devops_cli_github_throttle_wait_seconds[1h])))"
+            '(increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[1h])))'
         ),
         "GitHub GraphQL Points": (
-            "sum(increase(devops_cli_github_graphql_points_total[1h])) or vector(0)"
+            'sum(increase(devops_cli_github_graphql_points_total{job=~"$job"}[1h])) or vector(0)'
         ),
     }
 
@@ -679,9 +681,9 @@ def test_the_embedding_hit_share_panel_divides_hits_by_lookups_over_an_hour() ->
     panels = {panel["title"]: panel for panel in _panels(DASHBOARDS / "devops-cli.json")}
 
     assert _panel_queries(panels["Embedding Cache Hit Share"]) == (
-        '(sum(increase(devops_cli_embedding_cache_lookups_total{result="hit"}[1h])) '
-        "or sum(increase(devops_cli_embedding_cache_lookups_total[1h])) * 0) "
-        "/ sum(increase(devops_cli_embedding_cache_lookups_total[1h]))"
+        '(sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job",result="hit"}[1h])) '
+        'or sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[1h])) * 0) '
+        '/ sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[1h]))'
     )
 
 
@@ -708,8 +710,15 @@ def _zero_fallback(query: str) -> str:
     spend, _, _ = query.partition(" or ")
     if not re.search(r"\bby\b", _outermost(spend)):
         return f"{spend} or vector(0)"
-    requests = re.sub(r"\s*\*\s*\d+$", "", spend).replace(
-        "devops_cli_ai_spend_usd_total", 'devops_cli_ai_requests_total{cached="false"}'
+    requests = re.sub(r"\s*\*\s*\d+$", "", spend)
+    requests = re.sub(
+        r"devops_cli_ai_spend_usd_total(?:\{([^}]*)\})?",
+        lambda found: (
+            "devops_cli_ai_requests_total{"
+            + (f"{found.group(1)}," if found.group(1) else "")
+            + 'cached="false"}'
+        ),
+        requests,
     )
     return f"{spend} or {requests} * 0"
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,7 @@ from tests.support.paths import REPO_ROOT
 runner = CliRunner()
 
 _REPO_DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
+_SERIES_WITH_NO_JOB_MATCHER = re.compile(r'devops_cli_[a-z0-9_]+\b(?!\{job=~"\$job")')
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -784,8 +786,8 @@ def test_cli_dashboard_finds_each_command_and_sub_command_from_its_series() -> N
         (
             "command",
             "query",
-            "label_values(devops_cli_command_total, command)",
-            "label_values(devops_cli_command_total, command)",
+            'label_values(devops_cli_command_total{job=~"$job"}, command)',
+            'label_values(devops_cli_command_total{job=~"$job"}, command)',
             "prometheus",
             True,
             True,
@@ -796,8 +798,8 @@ def test_cli_dashboard_finds_each_command_and_sub_command_from_its_series() -> N
         (
             "sub_command",
             "query",
-            'label_values(devops_cli_subcommand_duration_seconds{command=~"$command"}, sub_command)',
-            'label_values(devops_cli_subcommand_duration_seconds{command=~"$command"}, sub_command)',
+            'label_values(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command"}, sub_command)',
+            'label_values(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command"}, sub_command)',
             "prometheus",
             True,
             True,
@@ -806,6 +808,59 @@ def test_cli_dashboard_finds_each_command_and_sub_command_from_its_series() -> N
             False,
         ),
     ]
+
+
+def _cli_dashboard_prometheus_queries() -> list[str]:
+    """Each Prometheus query of the panels of devops-cli.json."""
+    cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
+    return [
+        target["expr"]
+        for panel in cli_dash["panels"]
+        if panel.get("datasource", {}).get("type") != "loki"
+        for target in panel.get("targets", [])
+    ]
+
+
+def test_cli_dashboard_finds_each_job_from_its_series() -> None:
+    """The first variable of devops-cli.json is `job`, because a variable reads only the variables
+    before it. It reads its values from the series that `command` reads (#2479)."""
+    cli_dash = json.loads((_REPO_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
+    first = cli_dash["templating"]["list"][0]
+
+    assert (
+        first["name"],
+        first["label"],
+        first["type"],
+        first["definition"],
+        first["query"]["query"],
+        first["datasource"]["uid"],
+        first["multi"],
+        first["includeAll"],
+        first["allValue"],
+        first["refresh"],
+        first["options"],
+    ) == (
+        "job",
+        "Job",
+        "query",
+        "label_values(devops_cli_command_total, job)",
+        "label_values(devops_cli_command_total, job)",
+        "prometheus",
+        True,
+        True,
+        ".*",
+        2,
+        [],
+    )
+
+
+def test_each_prometheus_query_of_the_cli_dashboard_filters_by_job() -> None:
+    """Each `devops_cli_*` series of each Prometheus query starts its selector with the `job`
+    matcher, so a panel never adds the requests of a job that the reader did not select (#2479)."""
+    queries = _cli_dashboard_prometheus_queries()
+    unfiltered = [query for query in queries if _SERIES_WITH_NO_JOB_MATCHER.search(query)]
+
+    assert (len(queries) > 0, unfiltered) == (True, [])
 
 
 def test_cli_dashboard_repeats_a_latency_panel_for_each_selected_sub_command() -> None:
@@ -821,7 +876,8 @@ def test_cli_dashboard_repeats_a_latency_panel_for_each_selected_sub_command() -
     )
     row = panels[start + 1 : end]
     selector = (
-        'devops_cli_subcommand_duration_seconds{command=~"$command",sub_command=~"$sub_command"'
+        'devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command",'
+        'sub_command=~"$sub_command"'
     )
 
     assert [
