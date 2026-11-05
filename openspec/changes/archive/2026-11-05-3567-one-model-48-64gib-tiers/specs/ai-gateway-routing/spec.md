@@ -36,11 +36,15 @@ Each model that the `DEFAULT_MODELS` of the Open WebUI values names SHALL be a m
 - **THEN** it names each of them, and it passes `devops-chat` and `qwen3.8:27b`
 
 ### Requirement: Each default model of the CLI is a model that the default Ollama tier and the gateway serve
-The default of `ai.model`, each chat model of `devops ai bundle-models`, and the model that a task benchmark runs when it gets no candidate SHALL be a model that a deployment of the gateway config sends to a serving tier that the default Ollama Service selects. The embedding model of `devops ai bundle-models` SHALL be a model that a deployment sends to a serving tier that the default embedding Service selects. Each SHALL also be a model group of the gateway config with a deployment on a serving tier.
+The default of `ai.model`, each chat model of `devops ai bundle-models`, and the model that a task benchmark runs when it gets no candidate SHALL be a model that a deployment of the gateway config sends to a serving tier that the default Ollama Service selects. Each SHALL also be a model group of the gateway config with a deployment on a serving tier.
 
 #### Scenario: The defaults with no configuration
 - **WHEN** the CLI runs with no `ai.model` set, `devops ai bundle-models` runs, and a task benchmark gets no candidate
-- **THEN** each names a model that the gateway config sends to a serving tier of the default Ollama Service (of the default embedding Service for the embedding model), and a gateway group with a deployment on a serving tier
+- **THEN** each names a model that the gateway config sends to a serving tier of the default Ollama Service, and a gateway group with a deployment on a serving tier
+
+#### Scenario: The embedding model
+- **WHEN** `devops ai bundle-models` lists the default embedding model
+- **THEN** a deployment of the gateway config sends it to a serving tier that the default embedding Service selects, and not to the tier of the default Ollama Service
 
 #### Scenario: The benchmark with no candidate
 - **WHEN** a task benchmark gets an empty list of candidates
