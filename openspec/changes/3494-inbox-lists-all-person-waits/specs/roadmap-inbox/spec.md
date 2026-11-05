@@ -58,6 +58,13 @@ Without `--repo`, `devops roadmap inbox` SHALL read each repository of the setti
 - **WHEN** `service.repos` is empty and `--repo` is not given
 - **THEN** the command exits with status 1 and its error names `service.repos`
 
+### Requirement: The inbox refuses a service.repos entry that is not owner/name
+An entry of `service.repos` that is not `owner/name` SHALL fail `devops roadmap inbox` before any repository is read. The error SHALL name the entry and `service.repos`.
+
+#### Scenario: An entry that is not owner/name
+- **WHEN** `service.repos` holds an entry without `/`, such as `no-owner`
+- **THEN** the command exits with status 1, its error names the entry and `service.repos`, and it reads no repository
+
 ### Requirement: The inbox lists each unapplied split and each alternatives question
 `devops roadmap inbox` SHALL list one line for each open New item whose `refine.next_step` is `split`, and one line for each open New item whose `refine.alternatives_asked` is set. The split line SHALL show the step that clears it, which is to split the item as the refine comment proposes. The alternatives line SHALL name the covering tool that was put to a person. An item MAY have one line of each class.
 
