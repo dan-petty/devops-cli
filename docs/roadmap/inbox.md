@@ -8,7 +8,7 @@ Without `--repo`, the inbox reads each repository of the setting `service.repos`
 
 ## What the inbox lists
 
-Each line has its number, its age and the one command or action that clears it. The age is the time since the last update. A line whose age is over `roadmap.inbox.wait_days` ends with the mark `(over N days)`. The output starts with the count of the lines of each class, for example `Counts by class: refine 2, split 1.`
+Each line has its number, its age and the one command or action that clears it. The age is the time since the last update. A line whose age is over `roadmap.inbox.wait_days` ends with the mark `(over N days)`. After its title, the output starts with the count of the lines of each class, for example `Counts by class: refine 2, split 1.`
 
 The lines come in this order of classes:
 

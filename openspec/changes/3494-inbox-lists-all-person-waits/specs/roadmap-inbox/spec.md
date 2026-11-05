@@ -66,7 +66,7 @@ An entry of `service.repos` that is not `owner/name` SHALL fail `devops roadmap 
 - **THEN** the command exits with status 1, its error names the entry and `service.repos`, and it reads no repository
 
 ### Requirement: The inbox lists each unapplied split and each alternatives question
-`devops roadmap inbox` SHALL list one line for each open New item whose `refine.next_step` is `split`, and one line for each open New item whose `refine.alternatives_asked` is set. The split line SHALL show the step that clears it, which is to split the item as the refine comment proposes. The alternatives line SHALL name the covering tool that was put to a person. An item MAY have one line of each class.
+`devops roadmap inbox` SHALL list one line for each open New item whose `refine.next_step` is `split`, and one line for each open New item whose `refine.alternatives_asked` is set. The split line SHALL show the step that clears it, which is to split the item as the refine comment proposes. The alternatives line SHALL name the covering tool that refine put to a person. An item MAY have one line of each class.
 
 #### Scenario: An unapplied split
 - **WHEN** an open New item records `refine.next_step` as `split`
@@ -96,7 +96,7 @@ An entry of `service.repos` that is not `owner/name` SHALL fail `devops roadmap 
 - **THEN** the output lists no line for it
 
 ### Requirement: The inbox states the age of each wait and the classes it holds
-Each line whose age is over the setting `roadmap.inbox.wait_days` SHALL show a mark that the wait is over that number of days. The output SHALL start with the count of the lines of each class, before any line. The option `--kind` SHALL keep only the lines of the class it names, and the counts SHALL stay complete.
+Each line whose age is over the setting `roadmap.inbox.wait_days` SHALL show a mark that the wait is over that number of days. After its title, the output SHALL start with the count of the lines of each class, before any line. The option `--kind` SHALL keep only the lines of the class it names, and the counts SHALL stay complete.
 
 #### Scenario: An old wait
 - **WHEN** a line is older than `roadmap.inbox.wait_days`
@@ -104,7 +104,7 @@ Each line whose age is over the setting `roadmap.inbox.wait_days` SHALL show a m
 
 #### Scenario: Counts by class
 - **WHEN** the inbox lists lines of two classes
-- **THEN** the output starts with the count of each of the two classes
+- **THEN** the output starts, after its title, with the count of each of the two classes
 
 #### Scenario: The class filter
 - **WHEN** `--kind` names one class

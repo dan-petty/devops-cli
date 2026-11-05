@@ -11,7 +11,7 @@ Issue #3494: `devops roadmap inbox` omits most of the waits that a person must c
 - `OpenPull` gets the field `head_sha`, read from the pull request listing. `RoadmapStore` gets `failed_checks(head_sha)`, implemented by the GitHub store with `read_check_runs` and by the in-memory store. An unread check run raises `GitHubUnreadError`.
 - A new setting group `roadmap.inbox` holds `draft_days` and `wait_days`, both 7 by default (`src/devops_cli/config/settings.py`, `src/devops_cli/config/defaults.py`).
 - A line whose wait is older than `roadmap.inbox.wait_days` shows a mark.
-- The output starts with the count of lines in each class. The option `--kind` keeps the lines of one class.
+- After its title, the output starts with the count of lines in each class. The option `--kind` keeps the lines of one class.
 - `--dry-run` lists the reads of each repository, and the check-run reads of each open job draft, under the condition that the draft exists. It makes no request.
 - The spec delta `openspec/changes/3494-inbox-lists-all-person-waits/specs/roadmap-inbox/spec.md` changes the requirements about the gates, the draft rule and the bounded reads, and adds the requirements of this change. `docs/roadmap/inbox.md` and the help text of the command state the classes and the options.
 - The change fits one pull request. It has a spec delta because a command, an option, a message and a setting are observable (`openspec/config.yaml`).
