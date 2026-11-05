@@ -264,16 +264,17 @@ ROADMAP_ITEM_AGE = Instrument(
     InstrumentKind.GAUGE,
     "s",
     "Age of the oldest open roadmap item in each status, by repo, state and plan. The state is "
-    "the status, and plan is true when the item holds a stage pull request that waits for a "
-    "person. The age is the time since the status label was set. Zero when no item is in the "
-    "pair",
+    "the status. Plan is true when the item holds a stage pull request. That pull request waits "
+    "for a person. The age is the time since the status label was set. Zero when no item is in "
+    "the pair.",
 )
 ROADMAP_OLDEST_ITEM = Instrument(
     "devops_cli_roadmap_oldest_item_number",
     InstrumentKind.GAUGE,
     "1",
-    "Issue number of the oldest open roadmap item of each pair of repo, state and plan that "
-    "devops_cli_roadmap_item_age_seconds reports. Zero when no item is in the pair",
+    "Issue number of the oldest open roadmap item in each pair of repo, state and plan. The pair "
+    "is the one that devops_cli_roadmap_item_age_seconds reports. Zero when no item is in the "
+    "pair.",
 )
 ROADMAP_CLAIM_AGE = Instrument(
     "devops_cli_roadmap_claim_age_seconds",
