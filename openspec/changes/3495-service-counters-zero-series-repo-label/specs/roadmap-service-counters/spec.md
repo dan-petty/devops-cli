@@ -5,7 +5,7 @@ The Service SHALL create each bounded label set of its counters at zero when it 
 
 #### Scenario: The failure counter exists at zero after start
 - **WHEN** the Service starts with the repositories `example/app` and `example/tools`
-- **THEN** the failure counter exists at 0 for each of the 19 failure classes and each of the two repositories
+- **THEN** the failure counter exists at 0 for each of the 18 failure classes and each of the two repositories
 
 #### Scenario: The label repo holds only configured repositories
 - **WHEN** the Service starts with the repositories `example/app` and `example/tools`
@@ -59,8 +59,8 @@ The alerts `RoadmapServiceWebhooksRejected` and `RoadmapServiceSelfDeliveriesHig
 - **THEN** `RoadmapServiceWebhooksRejected` fires
 
 ### Requirement: A query gives the true total over a pod change
-A query of `sum(increase(devops_cli_service_implement_failures_total[24h]))` SHALL give the true total of the counts of all pods in the window, including the counts of a pod that started during the window.
+A query of `sum(increase(devops_cli_service_implement_failures_total[1h]))` SHALL give the counts of all pods in the window, including the counts of a pod that started during the window. The only difference from the counts SHALL be the extrapolation of `increase()` to the window edges.
 
 #### Scenario: A new pod adds its counts
 - **WHEN** `promtool test rules` evaluates the failure counter of a pod that counted 3 and of a new pod that counted 2 after a zero sample at its start
-- **THEN** the sum of `increase()` over the window is 5
+- **THEN** the sum of `increase()` over the window is the 5 counts plus the extrapolation to the window edges, about 5.03

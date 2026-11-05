@@ -33,17 +33,17 @@ from devops_cli.config.constants import (
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
-SERVICE_JOB_RESULTS = (
+_SERVICE_JOB_RESULTS = (
     CONST_SERVICE_JOB_RESULT_SUCCESS,
     CONST_SERVICE_JOB_RESULT_ERROR,
     CONST_SERVICE_JOB_RESULT_STOPPED,
 )
 """The value of the label `result` of a job that ended, as the roadmap run counts it."""
 
-SERVICE_TRIGGER_SOURCES = (CONST_SERVICE_SOURCE_WEBHOOK, CONST_SERVICE_SOURCE_POLL)
+_SERVICE_TRIGGER_SOURCES = (CONST_SERVICE_SOURCE_WEBHOOK, CONST_SERVICE_SOURCE_POLL)
 """The values of the label `source` of a trigger, as the Service enqueues it."""
 
-SERVICE_CHAT_RESULTS = (
+_SERVICE_CHAT_RESULTS = (
     CONST_SERVICE_CHAT_RESULT_USAGE,
     CONST_SERVICE_CHAT_RESULT_STATUS,
     CONST_SERVICE_CHAT_RESULT_UNKNOWN_REPO,
@@ -80,7 +80,7 @@ def prime_service_counters(repos: Iterable[str]) -> None:
             for lane, rows in lane_rows
             for row in rows
             for repo in repo_names
-            for result in SERVICE_JOB_RESULTS
+            for result in _SERVICE_JOB_RESULTS
         ),
     )
     GLOBAL_METRICS.prime_counter(
@@ -92,14 +92,14 @@ def prime_service_counters(repos: Iterable[str]) -> None:
         (
             {"repo": repo, "source": source}
             for repo in repo_names
-            for source in SERVICE_TRIGGER_SOURCES
+            for source in _SERVICE_TRIGGER_SOURCES
         ),
     )
     GLOBAL_METRICS.prime_counter(
         CONST_SERVICE_METRIC_CHAT_COMMANDS,
         (
             {"command": CONST_SERVICE_CHAT_COMMAND_ROADMAP, "result": result}
-            for result in SERVICE_CHAT_RESULTS
+            for result in _SERVICE_CHAT_RESULTS
         ),
     )
     GLOBAL_METRICS.prime_counter(CONST_SERVICE_METRIC_BUDGET_HOLDS, [{}])

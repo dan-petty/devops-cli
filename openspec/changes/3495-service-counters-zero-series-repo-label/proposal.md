@@ -13,7 +13,7 @@ Issue #3495 reports that the Service counters give a false picture. The counters
 - `RoadmapServiceJobsFailing` groups and joins on `repo`, `lane` and `row`. With a count for each row, a join on the lane hides a row that fails while another row of its lane succeeds.
 - The alert expressions of `RoadmapServiceWebhooksRejected` and `RoadmapServiceSelfDeliveriesHigh` lose their #2505 workaround terms. The OTLP alert expressions keep theirs.
 - Promtool cases prove the true total over a pod change, and prove that the webhook alerts hold without the workaround.
-- `docs/TELEMETRY.md` and `k8s/README.md` state the scrape behavior and the labels. The action text of `RoadmapServiceGitHubRequestsHigh` no longer says to lower the budget. The class count of the Service changes from 17 to 19.
+- `docs/TELEMETRY.md` and `k8s/README.md` state the scrape behavior and the labels. The action text of `RoadmapServiceGitHubRequestsHigh` no longer says to lower the budget. `k8s/README.md` gives the values of `class` by a link to the table of classes and no longer states a false count. `docs/ROADMAP_WORKFLOW.md` states the labels of the failure counter.
 
 ## Capabilities
 
@@ -30,7 +30,7 @@ Issue #3495 reports that the Service counters give a false picture. The counters
 - Code: `src/devops_cli/telemetry/metrics.py`, `src/devops_cli/server/service.py`, `src/devops_cli/server/counter_series.py`, `src/devops_cli/roadmap/implement_submit.py`, `src/devops_cli/roadmap/run.py`, `src/devops_cli/server/routes/webhooks.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/docs/generator.py`.
 - Monitoring: `k8s/monitoring/prometheus-values.yaml`.
 - Tests: `tests/telemetry/test_service_counter_series.py`, `tests/roadmap/test_roadmap_run.py`, `tests/roadmap/test_roadmap_implement_submit.py`, `tests/server/test_server_service.py`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `tests/fixtures/prometheus_rules/roadmap_service_tests.yaml`, `tests/fixtures/prometheus_rules/roadmap_service_webhooks_tests.yaml`.
-- Documents: `docs/TELEMETRY.md`, `k8s/README.md`.
+- Documents: `docs/TELEMETRY.md`, `docs/ROADMAP_WORKFLOW.md`, `k8s/README.md`.
 - The change adds no dependency.
 
 ## Feasibility
@@ -38,7 +38,7 @@ Issue #3495 reports that the Service counters give a false picture. The counters
 - The failure counter increments with the label `class` only. This is confirmed by reading `src/devops_cli/roadmap/implement_submit.py` at origin/main, where `GLOBAL_METRICS.increment_counter(CONST_SERVICE_METRIC_IMPLEMENT_FAILURES, labels={"class": failure.value})` runs.
 - The jobs counter has the labels `repo`, `lane` and `result`, and no `row`. This is confirmed by reading `src/devops_cli/server/service.py` at origin/main, where the worker increments it with `{**self._labels, "result": result}`.
 - A labelled counter emits no sample until a child exists. This is confirmed by a probe with prometheus_client 0.26.0 in the devcontainer: the counter with the labels `class` and `repo` emitted no line, and after `.labels("oom", "example/app")` it emitted `probe_total{class="oom",repo="example/app"} 0.0`.
-- The enum `FailureClass` in `src/devops_cli/roadmap/failure.py` has 19 members. `k8s/README.md:630` says 17. This is confirmed by reading both files at origin/main.
+- The enum `FailureClass` in `src/devops_cli/roadmap/failure.py` has 18 members. `k8s/README.md:630` says 17. This is confirmed by reading both files at origin/main.
 - The action text of `RoadmapServiceGitHubRequestsHigh` in `k8s/README.md:705` says "Lower the budget or remove a repository". This is confirmed by reading the file at origin/main.
 - `k8s/monitoring/prometheus-values.yaml:23` enables `created-timestamp-zero-ingestion`. The stale comment at lines 670-673 says that neither path has a zero sample. This is confirmed by reading the file at origin/main.
 - The upstream statement that start-timestamp injection covers only PrometheusProto and OpenMetrics 1.0.0 scrapes is recorded from the issue research and is not checked again here. The design does not depend on it.
