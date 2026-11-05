@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.62.6](https://github.com/dan-petty/devops-cli/compare/v0.62.5...v0.62.6) (2026-11-05)
+
+
+### Bug Fixes
+
+* **mcp:** mark tools that write not read-only and test the schema ([#3649](https://github.com/dan-petty/devops-cli/issues/3649)) ([6d9dded](https://github.com/dan-petty/devops-cli/commit/6d9ddedeb8ec54597b007ac67ab2297e20a9d4c0))
+
 ## [0.62.5](https://github.com/dan-petty/devops-cli/compare/v0.62.4...v0.62.5) (2026-11-05)
 
 
