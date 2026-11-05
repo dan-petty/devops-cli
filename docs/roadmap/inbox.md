@@ -22,7 +22,7 @@ The lines come in this order of classes:
 8. Drafts of jobs, class `draft`. A draft of a job is listed when its head commit has a failed check run, or when it is older than `roadmap.inbox.draft_days`. A newer draft with no failed check is not listed. A pull request that a runner Job holds is not listed either.
 9. Claims with no activity for 7 days, class `claim`.
 10. Labels of `.github/labels.yml` that the repository lacks, class `labels`.
-11. The state of the Planned queue, when the count of Planned items is at `roadmap.stage.planned_limit`, class `queue`. The stage job then plans no new item. The line has no number and no age.
+11. The state of the Planned queue, when the count of Planned items is at `roadmap.stage.planned_limit`, class `queue`. The stage job then plans only items with the priority `P0-Critical` or `P1-High`. The line has no number and no age.
 
 A second list holds the other open pull requests, those of people and agents, class `person`. It marks the drafts.
 

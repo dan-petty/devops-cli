@@ -86,9 +86,9 @@ from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import BIN_OPENSPEC
 from devops_cli.config.constants import (
-    CONST_ROADMAP_CRITICAL_PRIORITY,
     CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
+    CONST_ROADMAP_PLANNED_LIMIT_PRIORITIES,
     CONST_ROADMAP_PRIORITY_VALUES,
     CONST_ROADMAP_STAGE_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
@@ -127,6 +127,7 @@ from devops_cli.roadmap.planned import (
     PlannedChanges,
     open_plan_creates,
     planned_count,
+    planned_limit_priorities,
     read_planned_changes,
 )
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
@@ -360,7 +361,7 @@ def named_items(store: RoadmapStore, filters: StageFilter) -> list[Item]:
 @dataclass(frozen=True)
 class PlannedQueue:
     """The Planned items that wait for a delivery (#3487): how many there are, and the count at
-    which the job plans no new item."""
+    which the job plans only a P0 or P1 item."""
 
     count: int
     limit: int
@@ -511,14 +512,14 @@ class _Judge:
         return MESSAGES.roadmap.stage_left_secret if looks_secret else None
 
     def _queue_full(self, item: Item) -> str | None:
-        """The queue of Planned items is at its limit (#3487): the job plans no new item, except one
-        of the highest priority. `--item` overrules it, as it overrules a recorded split."""
-        if not self._queue.full or item.priority == CONST_ROADMAP_CRITICAL_PRIORITY:
+        """The queue of Planned items is at its limit (#3487): the job plans only a P0 or P1 item
+        (#3692). `--item` overrules it, as it overrules a recorded split."""
+        if not self._queue.full or item.priority in CONST_ROADMAP_PLANNED_LIMIT_PRIORITIES:
             return None
         return MESSAGES.roadmap.stage_left_planned_limit.format(
             count=self._queue.count,
             limit=self._queue.limit,
-            priority=CONST_ROADMAP_CRITICAL_PRIORITY,
+            priorities=planned_limit_priorities(),
         )
 
     def _failed_lately(self, item: Item) -> str | None:
@@ -606,8 +607,8 @@ def select_stageable(
     `holder_of` tells who holds an issue and its new `branch` (`worktree_add.issue_holder`), or None. `planned` holds
     the change folders of the default branch (#2714). With `item_number` the filter and the limit
     do not apply. `probe` is the issue that `walk_named` judges also after the limit. With
-    `planned_limit` Planned items or more, the job takes only an item of the highest priority
-    (#3487). An item that failed less than `roadmap.stage.retry_hours` hours before `now` waits
+    `planned_limit` Planned items or more, the job takes only a P0 or P1 item (#3487, #3692). An
+    item that failed less than `roadmap.stage.retry_hours` hours before `now` waits
     (#3493).
     """
     opened = _open_items(store)
@@ -1278,7 +1279,7 @@ def plan_stage(
 
     `source` is the clone of the repository, at the default branch. `limit` and `step_tokens`
     override `roadmap.stage.limit` and `roadmap.stage.step_tokens`. At `roadmap.stage.planned_limit`
-    Planned items the plan holds only items of the highest priority (#3487). A client as `model` replaces
+    Planned items the plan holds only P0 and P1 items (#3487, #3692). A client as `model` replaces
     the client of the `analysis` task and plans with the one call and no tool. A `ToolboxModel`
     plans with the read-only tools (#3037), and the client of the `analysis` task answers the call
     that splits the groups. A `verifier`, the client of the `verification` task, makes the model

@@ -175,7 +175,7 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "DEFAULT_ROADMAP_STAGE_LIMIT": ("setting", "items of one stage round; already a setting"),
     "DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT": (
         "setting",
-        "open Planned items at which the stage job plans no new item; already a setting",
+        "open Planned items at which the stage job plans only P0 and P1 items; already a setting",
     ),
     "DEFAULT_ROADMAP_STAGE_RETRY_HOURS": (
         "other",
