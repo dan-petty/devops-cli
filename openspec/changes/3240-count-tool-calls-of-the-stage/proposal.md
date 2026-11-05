@@ -12,7 +12,7 @@ Issue #3240: a person who tunes the toolset of the stage planner cannot see whic
 - `ToolboxClient` in `src/devops_cli/roadmap/stage_toolbox.py` calls both functions around each plan run.
 - `investigate` in `src/devops_cli/roadmap/refine_investigation.py` names the limit that ends the tools of a run: `calls`, `requests` or `window`.
 - `_run_report` in `src/devops_cli/roadmap/stage.py` adds one line to the comment of a staged item: the calls and the empty answers of each tool.
-- `k8s/monitoring/dashboards/project-metrics.json` gets one panel, "Planner Tool Calls and Answer Size", next to "Oldest Item Age by State".
+- `k8s/monitoring/dashboards/devops-cli.json` gets the row "Planner Tools" with one panel, "Planner Tool Calls and Answer Size". The refined design names `project-metrics.json`: see Feasibility 2.
 - `k8s/monitoring/prometheus-values.yaml` gets the group `roadmap-service-tools` with the alert `RoadmapServiceToolUnused`. A `promtool` unit test covers it. The pins in `tests/prometheus/test_k8s_monitoring_alerting.py` and the section "Roadmap service" of `k8s/README.md` name it.
 - `tests/telemetry/test_telemetry_instruments.py` gets a check that no `emit()` call sends the attribute `job` or `instance`.
 - `docs/TELEMETRY.md` is generated from `INSTRUMENTS`, and says that the resource sets `job` and `instance`.
@@ -26,15 +26,14 @@ None.
 
 ### Modified Capabilities
 
-- `metric-instruments`: The tool-call instruments are declared and documented, No instrument attribute is named job or instance
+- `metric-instruments`: The tool-call instruments are declared and documented, No instrument attribute is named job or instance, The devops-cli dashboard shows the tool calls of the planner
 - `roadmap-stage`: A plan run counts each tool call by outcome, A plan run measures the size of each answer, Each plan run gives every tool of its toolset a series, A plan run measures its calls and the limit that ended its tools, The comment of a staged item counts the calls of each tool
-- `project-metrics-dashboard`: The items dashboard shows the tool calls of the planner
-- `roadmap-service-alerts`: The planner tools have their own alert group
+- `roadmap-service-alerts`: The planner tools have their own alert group, A tool that no run called in 7 days warns
 
 ## Impact
 
 - Code: `src/devops_cli/telemetry/instruments.py`, `src/devops_cli/roadmap/agent_run.py`, `src/devops_cli/roadmap/refine_investigation.py`, `src/devops_cli/roadmap/stage_toolbox.py`, `src/devops_cli/roadmap/tool_metrics.py`, `src/devops_cli/roadmap/stage.py`, `src/devops_cli/lang/en/messages.py`
-- Manifests: `k8s/monitoring/dashboards/project-metrics.json`, `k8s/monitoring/prometheus-values.yaml`
+- Manifests: `k8s/monitoring/dashboards/devops-cli.json`, `k8s/monitoring/prometheus-values.yaml`
 - Tests: `tests/telemetry/test_telemetry_instruments.py`, `tests/roadmap/test_roadmap_stage_toolbox.py`, `tests/roadmap/test_roadmap_stage_apply.py`, `tests/roadmap/test_roadmap_refine_investigation.py`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `tests/fixtures/prometheus_rules/roadmap_service_tools_tests.yaml`
 - Documents: `docs/TELEMETRY.md` (generated), `k8s/README.md`
 - Deleted code: `_within_budget`, `_within_window_of` and `_recording` in `refine_investigation.py`. `_limit_reached` and `_offering` replace them.
@@ -42,16 +41,16 @@ None.
 ## Dependencies
 
 - #3238 (merged) added the toolset `extended` and the label value `toolset`. Nothing to wait for.
-- #2919 (merged) put the age panel in `project-metrics.json`. The free right half of its row holds the new panel.
-- #2950 (open plan) adds three alternatives instruments, one alert in the group `roadmap-service-activity` and a panel row. Both plans edit `INSTRUMENTS` and `__all__`, the table in `docs/TELEMETRY.md`, `SERVED_SERIES`, the baseline rule list in `tests/prometheus/test_k8s_monitoring_alerting.py` and `k8s/README.md`. The change that merges second merges `main` and keeps both entries. This change adds its alert to a new group, so no requirement is in both plans.
-- #3069 (open) may create a dashboard of its own. This change does not wait for it: the panel moves with a one-line edit of the file name.
+- #2919 (merged) put the age panels in `project-metrics.json`. That dashboard holds gauges only (see Feasibility 2), so this change does not use it.
+- #2950 (open plan) adds three alternatives instruments, one alert in the group `roadmap-service-activity` and a panel row in `devops-cli.json`. Both plans edit `INSTRUMENTS` and `__all__`, the table in `docs/TELEMETRY.md`, `SERVED_SERIES`, the baseline rule list in `tests/prometheus/test_k8s_monitoring_alerting.py`, `k8s/README.md` and the end of `devops-cli.json`. The plan of #2950 puts its row at `y` 94, as this change does with the ids 33 and 34. The change that merges second merges `main`, keeps both entries and moves its row below the other. This change adds its alert to a new group, so no requirement is in both plans.
+- #3069 (open) may create a dashboard of its own. This change does not wait for it: the row moves with a one-line edit of the file name.
 
 ## Feasibility
 
 Checked on `origin/main` 2db71f29. Each premise has its output.
 
 1. The module declares and sends instruments as the issue says. `git grep -n "ROADMAP_STAGE_TOTAL" src` shows the instrument, its entry in `INSTRUMENTS` and its `emit` in `stage.py`. `git grep -n "devops_cli_roadmap_tool" -- . ':!openspec'` prints nothing: the four names are free. `docs/TELEMETRY.md` is generated by `generate_telemetry_docs` in `src/devops_cli/docs/generator.py` from `INSTRUMENTS`.
-2. The issue asks for a panel in "the Roadmap dashboard". `ls k8s/monitoring/dashboards` lists 15 files, and none is a Roadmap dashboard. `project-metrics.json` holds the items panels. Its panel "Oldest Item Age by State" has `gridPos` `{"h": 8, "w": 12, "x": 0, "y": 34}`, so the right half at `x` 12 is free. The panel goes there.
+2. The issue asks for a panel in "the Roadmap dashboard". `ls k8s/monitoring/dashboards` lists 15 files, and none is a Roadmap dashboard. The refined design puts the panel in `project-metrics.json`, which holds the items panels. A panel with `increase()` cannot go there: `test_grafana_dashboard_projections_and_dcgm_grid_layout` in `tests/grafana/test_grafana_dashboards.py` asserts that the file has no `increase(` query, because it shows snapshots as gauges. A change that edits that assertion would lower a check. `devops-cli.json` (`devops-cli Telemetry`) holds the counters of the Service, such as "GitHub Requests by Resource", which reads the same `row` label. Its last panel has `gridPos` `{"h": 8, "w": 6, "x": 18, "y": 86}`, so the new row goes at `y` 94.
 3. The label `job` of the issue cannot work. The OTLP resource sets `service.name` as the Prometheus label `job`. `createAttributes` in `pkg/translator/prometheusremotewrite/helper.go` of opentelemetry-collector-contrib copies the data point attributes into a map first. It then runs `l[model.JobLabel] = val` for `service.name`, with no log. So a data point attribute named `job` is lost, and `job="stage"` would match nothing. The same holds for `instance`. `devops_cli_github_requests_total` names the same idea `row` (`src/devops_cli/github/request_scope.py`). The four instruments use `row` with the value `stage`, and the dashboard and the alert read `row`.
 4. A zero increment reaches the collector. A test that called `increment_counter("devops_cli_roadmap_tool_calls_total", 0, attributes={"tool": "read_file"})` on the `otlp` fixture exported one sum data point with `asDouble` 0.0 and delta temporality. So the zero increment at the start of a run gives each tool a series.
 5. pydantic-ai 2.59.0 already records each tool answer. `ToolReturnPart` holds `content` (the text that the model reads, after the cut of each tool), `tool_call_id` and `outcome`. A rejected call gives a `RetryPromptPart` with the same `tool_call_id`. `RunTrace.absorb` already reads the same messages. So the counts come from the messages, with no wrapper of the tool functions and no `Hooks` capability. A hook would miss a call that failed in argument validation.

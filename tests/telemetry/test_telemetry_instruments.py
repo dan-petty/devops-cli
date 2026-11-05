@@ -367,6 +367,71 @@ def test_the_instrument_check_names_a_metric_sent_by_name_and_an_undeclared_inst
     ]
 
 
+_RESOURCE_LABELS = frozenset({"job", "instance"})
+"""The labels that the resource of a process sets: the collector overwrites a data point
+attribute with either name, with no log (#3240)."""
+
+
+def _emit_attributes(call: ast.Call) -> ast.expr | None:
+    """The attributes argument of a call, by position or by keyword, or None."""
+    if len(call.args) > 2:
+        return call.args[2]
+    return next((keyword.value for keyword in call.keywords if keyword.arg == "attributes"), None)
+
+
+def _emits_with_a_resource_label(tree: ast.AST, label: str) -> list[str]:
+    """Each `emit()` call of a module, as `<label>:<line>`, whose attribute dict has the key
+    `job` or `instance`."""
+    emit_names, _ = _declared_instrument_imports(tree)
+    emits = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in emit_names
+    ]
+    named = [
+        call.lineno
+        for call in emits
+        if isinstance(attributes := _emit_attributes(call), ast.Dict)
+        and any(
+            isinstance(key, ast.Constant) and key.value in _RESOURCE_LABELS
+            for key in attributes.keys
+        )
+    ]
+    return [f"{label}:{line}" for line in sorted(named)]
+
+
+def test_no_emit_sends_an_attribute_that_the_resource_sets() -> None:
+    """Verify no `emit()` call under `src/devops_cli/` sends the attribute `job` or `instance`
+    (#3240). The collector sets both labels from the resource after it copies the attributes, so
+    such an attribute never reaches Prometheus. The job row is the `row` label."""
+    found = [
+        call
+        for path in sorted(SRC.rglob("*.py"))
+        for call in _emits_with_a_resource_label(
+            ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
+            str(path.relative_to(SRC)),
+        )
+    ]
+    assert found == []
+
+
+def test_the_resource_label_check_names_a_job_attribute_and_passes_a_row_attribute() -> None:
+    module = (
+        "from devops_cli.telemetry.instruments import COMMAND_TOTAL, emit\n"
+        'emit(COMMAND_TOTAL, 1.0, {"job": "stage"})\n'
+        'emit(COMMAND_TOTAL, 1.0, {"row": "stage"})\n'
+        'emit(COMMAND_TOTAL, 1.0, attributes={"instance": "a", "row": "stage"})\n'
+        "emit(COMMAND_TOTAL, 1.0)\n"
+    )
+
+    assert _emits_with_a_resource_label(ast.parse(module), "example.py") == [
+        "example.py:2",
+        "example.py:4",
+    ]
+
+
 def test_the_items_panels_group_only_by_labels_the_gauge_sends() -> None:
     """A panel that groups `devops_cli_project_items` by a label that the gauge does not send
     shows one series for all items (#2263)."""
@@ -421,6 +486,33 @@ def test_the_roadmap_age_gauges_are_declared_gauges_with_their_units_and_labels(
     labels = tuple(getattr(instruments_module, "ROADMAP_AGE_LABELS", ()))
     assert labels == ("repo", "state", "plan")
     assert all(label in gauge.description for gauge in (item_age, oldest_item) for label in labels)
+
+
+def test_the_roadmap_tool_instruments_are_declared_with_their_kinds_and_units() -> None:
+    """The four instruments of the tool calls of the stage planner (#3240): two counters, and two
+    histograms that count characters and calls."""
+    declared = {instrument.name: instrument for instrument in INSTRUMENTS}
+    expected = {
+        "devops_cli_roadmap_tool_calls_total": (InstrumentKind.COUNTER, "1"),
+        "devops_cli_roadmap_tool_limit_hits_total": (InstrumentKind.COUNTER, "1"),
+        "devops_cli_roadmap_tool_answer_chars": (InstrumentKind.HISTOGRAM, "{char}"),
+        "devops_cli_roadmap_tool_calls_per_run": (InstrumentKind.HISTOGRAM, "{call}"),
+    }
+
+    assert {
+        name: (declared[name].kind, declared[name].unit) for name in expected if name in declared
+    } == expected
+
+
+def test_the_telemetry_document_lists_each_roadmap_tool_instrument_with_its_kind_and_unit() -> None:
+    document = (REPO_ROOT / "docs" / "TELEMETRY.md").read_text(encoding="utf-8")
+
+    rows = [
+        f"| `{instrument.name}` | {instrument.kind.value.title()} | `{instrument.unit}` |"
+        for instrument in INSTRUMENTS
+        if instrument.name.startswith("devops_cli_roadmap_tool_")
+    ]
+    assert (len(rows), [row for row in rows if row not in document]) == (4, [])
 
 
 def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sends() -> None:
@@ -1207,5 +1299,32 @@ def test_the_oldest_item_age_panel_charts_each_state_and_the_claim_in_the_items_
         ],
         "s",
         {"x": 0, "y": 34, "w": 12, "h": 8},
+        [],
+    )
+
+
+def test_the_planner_tool_panel_charts_the_calls_and_the_answer_size_of_the_stage_row() -> None:
+    """The panel "Planner Tool Calls and Answer Size" (#3240) charts the calls of each tool of the
+    stage row by outcome, and the mean size of its answers on a second axis. It is in the row
+    "Planner Tools" of the `devops-cli Telemetry` dashboard, which holds the other counters of
+    the Service. No panel of the dashboard overlaps another."""
+    dashboard = DASHBOARDS / "devops-cli.json"
+    (panel,) = [
+        panel
+        for panel in _panels(dashboard)
+        if panel.get("title") == "Planner Tool Calls and Answer Size"
+    ]
+    selector = '{job="roadmap-service", row="stage"}'
+    assert (
+        [target["expr"] for target in panel["targets"]],
+        panel["gridPos"],
+        _overlapping_panels(json.loads(dashboard.read_text(encoding="utf-8"))["panels"]),
+    ) == (
+        [
+            f"sum by (tool, outcome) (increase(devops_cli_roadmap_tool_calls_total{selector}[1h]))",
+            "histogram_avg(sum by (tool) "
+            f"(increase(devops_cli_roadmap_tool_answer_chars{selector}[1h])))",
+        ],
+        {"x": 0, "y": 95, "w": 24, "h": 8},
         [],
     )

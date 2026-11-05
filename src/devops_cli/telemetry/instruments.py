@@ -257,6 +257,37 @@ ROADMAP_STAGE_TOTAL = Instrument(
     "group over the budget, failed for an item that failed in the plan or in the writes, and "
     "skipped for an item the job left out with a reason. A plan with no write counts nothing",
 )
+ROADMAP_TOOL_CALLS_TOTAL = Instrument(
+    "devops_cli_roadmap_tool_calls_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Tool calls of the roadmap planner, by tool, row, toolset and outcome: ok for an answer with "
+    "text, empty for an answer with no text, or error for a call that got no answer. The row is "
+    "the job row that ran the planner, such as stage. Each plan run adds 0 for every tool of its "
+    "toolset before its first model request, so a tool that no run calls keeps a series",
+)
+ROADMAP_TOOL_ANSWER_CHARS = Instrument(
+    "devops_cli_roadmap_tool_answer_chars",
+    InstrumentKind.HISTOGRAM,
+    "{char}",
+    "Characters in the answer of each tool call of the roadmap planner, after the cut of the "
+    "tool, by tool, row and toolset. A call that got no answer adds no observation",
+)
+ROADMAP_TOOL_CALLS_PER_RUN = Instrument(
+    "devops_cli_roadmap_tool_calls_per_run",
+    InstrumentKind.HISTOGRAM,
+    "{call}",
+    "Tool calls of each plan run of the roadmap planner, by row and toolset. A run that got no "
+    "model reply adds no observation",
+)
+ROADMAP_TOOL_LIMIT_HITS_TOTAL = Instrument(
+    "devops_cli_roadmap_tool_limit_hits_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Plan runs of the roadmap planner whose tools ended on a limit, by row, toolset and limit: "
+    "calls when fewer tool calls were left than a turn needs, requests when one model request "
+    "was left, or window when the messages filled the context window. One count for each run",
+)
 ROADMAP_AGE_LABELS = ("repo", "state", "plan")
 """The labels of `ROADMAP_ITEM_AGE` and `ROADMAP_OLDEST_ITEM`, in the order the dashboard names them."""
 ROADMAP_ITEM_AGE = Instrument(
@@ -485,6 +516,10 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL,
     ROADMAP_ALTERNATIVES_TOTAL,
     ROADMAP_STAGE_TOTAL,
+    ROADMAP_TOOL_CALLS_TOTAL,
+    ROADMAP_TOOL_ANSWER_CHARS,
+    ROADMAP_TOOL_CALLS_PER_RUN,
+    ROADMAP_TOOL_LIMIT_HITS_TOTAL,
     ROADMAP_ITEM_AGE,
     ROADMAP_OLDEST_ITEM,
     ROADMAP_CLAIM_AGE,
@@ -614,6 +649,10 @@ __all__ = [
     "ROADMAP_OLDEST_ITEM",
     "ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL",
     "ROADMAP_STAGE_TOTAL",
+    "ROADMAP_TOOL_ANSWER_CHARS",
+    "ROADMAP_TOOL_CALLS_PER_RUN",
+    "ROADMAP_TOOL_CALLS_TOTAL",
+    "ROADMAP_TOOL_LIMIT_HITS_TOTAL",
     "SUBCOMMAND_DURATION",
     "SUBPROCESS_DURATION",
     "TELEMETRY_TESTS_TOTAL",

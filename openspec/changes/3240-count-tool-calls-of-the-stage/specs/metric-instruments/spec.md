@@ -17,3 +17,14 @@ The resource of a process sets the Prometheus labels `job` and `instance`, and a
 #### Scenario: A module sends the attribute job
 - **WHEN** a module calls `emit(COMMAND_TOTAL, 1.0, {"job": "stage"})`
 - **THEN** the instrument check names that call, and it passes `emit(COMMAND_TOTAL, 1.0, {"row": "stage"})`
+
+### Requirement: The devops-cli dashboard shows the tool calls of the planner
+`k8s/monitoring/dashboards/devops-cli.json` SHALL have the row "Planner Tools" with the panel "Planner Tool Calls and Answer Size". The panel SHALL chart the calls of each tool by outcome from `devops_cli_roadmap_tool_calls_total`, and the mean answer size of each tool from `devops_cli_roadmap_tool_answer_chars`. Each query SHALL select `job="roadmap-service"` and `row="stage"`.
+
+#### Scenario: The dashboard JSON holds the tool panel
+- **WHEN** a test reads `k8s/monitoring/dashboards/devops-cli.json`
+- **THEN** one panel has a query for `devops_cli_roadmap_tool_calls_total` and a query for `devops_cli_roadmap_tool_answer_chars`, each with `row="stage"`
+
+#### Scenario: The panel reads each series through the function of its kind
+- **WHEN** the dashboard checks read the panel
+- **THEN** the counter is the first argument of `increase(`, and the histogram is the first argument of `increase(` inside `histogram_avg(`
