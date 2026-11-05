@@ -6,10 +6,10 @@ kustomizations, generators and the `namespace` transformer included. A manifest 
 path of deploy-stack's manifest tables is either: it applies a directory with `kubectl apply -k`
 and a file with `kubectl apply -f`.
 
-A committed kustomization under the repository's `k8s/` renders the same for the whole run, since
-no test writes to the workspace, so each is rendered once per test process, keyed by its resolved
-directory, and shared by every test that asks for it. A kustomization a test builds under
-`tmp_path` is rendered each time it is asked for.
+A committed kustomization under the repository's `k8s/` renders the same for the whole run, so
+each is rendered once per process, keyed by its resolved directory, and shared by every check
+of the `k8s` row that asks for it. A kustomization a check builds in a temporary directory is
+rendered each time it is asked for.
 """
 
 from __future__ import annotations

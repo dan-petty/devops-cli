@@ -743,6 +743,13 @@ _TEST_SETTINGS_SCRIPT = (
 )
 
 
+def _python_check_cmd(module: str) -> list[str]:
+    """The command that runs the `main` of a module of `tests/gate`: a check of committed files and
+    tool configuration, which is a row of `devops ci` and no pytest test (#2164)."""
+    script = f"import sys; from tests.gate.{module} import main; sys.exit(main())"
+    return ["uv", "run", "python", "-c", script]
+
+
 def get_check_specs() -> list[CheckSpec]:
     """Return the single ordered table of CI quality gate check specifications."""
     from devops_cli.ci.typecheck import TYPECHECK_PATHS, typecheck_argv
@@ -760,6 +767,7 @@ def get_check_specs() -> list[CheckSpec]:
             name="lint",
             display_title=MESSAGES.ci.ruff_check,
             cmd=["uv", "run", "ruff", "check", "--config", CONST_PYPROJECT_FILENAME, "."],
+            also_cmds=[_python_check_cmd("ruff_config")],
             span_name="ci.step.lint",
             metric_step="lint",
             fix_cmd=[
@@ -868,6 +876,10 @@ def get_check_specs() -> list[CheckSpec]:
             name="constructs",
             display_title=MESSAGES.ci.constructs,
             cmd=["uv", "run", "ast-grep", *CONST_AST_GREP_SCAN_ARGS],
+            also_cmds=[
+                ["uv", "run", "ast-grep", "test", "--skip-snapshot-tests"],
+                _python_check_cmd("construct_gate"),
+            ],
             span_name="ci.step.constructs",
             metric_step="constructs",
         ),
@@ -898,6 +910,34 @@ def get_check_specs() -> list[CheckSpec]:
             cmd=["uv", "run", "python", "-c", _TEST_SETTINGS_SCRIPT],
             span_name="ci.step.test_settings",
             metric_step="test_settings",
+        ),
+        CheckSpec(
+            name="k8s",
+            display_title=MESSAGES.ci.k8s_manifests,
+            cmd=_python_check_cmd("k8s"),
+            span_name="ci.step.k8s",
+            metric_step="k8s",
+        ),
+        CheckSpec(
+            name="test-tree",
+            display_title=MESSAGES.ci.test_tree,
+            cmd=_python_check_cmd("tree"),
+            span_name="ci.step.test_tree",
+            metric_step="test_tree",
+        ),
+        CheckSpec(
+            name="startup-imports",
+            display_title=MESSAGES.ci.startup_imports,
+            cmd=_python_check_cmd("startup_imports"),
+            span_name="ci.step.startup_imports",
+            metric_step="startup_imports",
+        ),
+        CheckSpec(
+            name="swallowed-failures",
+            display_title=MESSAGES.ci.swallowed_failures,
+            cmd=_python_check_cmd("swallowed_failures"),
+            span_name="ci.step.swallowed_failures",
+            metric_step="swallowed_failures",
         ),
     ]
 

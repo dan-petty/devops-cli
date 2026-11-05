@@ -1,7 +1,8 @@
-"""Shared session-scoped parsed AST trees for repository source and test files (#1749).
+"""Shared parsed AST trees for repository source and test files (#1749).
 
-Each file under `src/` and `tests/` is parsed at most once per test process.
-Invariant and architectural tests read from these shared representations.
+Each file under `src/` and `tests/` is parsed at most once per process. The invariant tests of
+`src/` read the session fixture `parsed_source_trees`, and the `test-tree` row of `devops ci`
+reads the trees of `tests/` (`tests/gate/tree.py`, #2164).
 """
 
 from __future__ import annotations
@@ -91,18 +92,3 @@ def parse_repo_trees(repo_root: Path | None = None) -> ParsedTreeMap:
 def parsed_source_trees() -> ParsedTreeMap:
     """Session fixture providing parsed AST modules for `src/` (#1749)."""
     return parse_source_trees()
-
-
-@pytest.fixture(scope="session")
-def parsed_test_trees() -> ParsedTreeMap:
-    """Session fixture providing parsed AST modules for `tests/` (#1749)."""
-    return parse_test_trees()
-
-
-@pytest.fixture(scope="session")
-def parsed_repo_trees(
-    parsed_source_trees: ParsedTreeMap,
-    parsed_test_trees: ParsedTreeMap,
-) -> ParsedTreeMap:
-    """Session fixture providing parsed AST modules for `src/` and `tests/` (#1749)."""
-    return ParsedTreeMap({**parsed_source_trees, **parsed_test_trees})

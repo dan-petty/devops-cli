@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import functools
-import os
 import subprocess
-from pathlib import Path
 from typing import Any
 
 import yaml
@@ -257,51 +255,3 @@ def test_kustomization_lists_every_manifest_and_pins_no_image_and_stays_out_of_t
         "images" in kustomization,
         [r for r in root["resources"] if r.startswith("devops")],
     ) == (manifests, False, [])
-
-
-def test_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when_missing(
-    tmp_path: Path,
-) -> None:
-    """Application devops renders the CronJob and roadmap-service on Image Updater's digest (#1485).
-
-    Git names the image untagged, and Argo CD adds the Application's `spec.source.kustomize.images`
-    entry, which sets the digest, to the kustomization it builds, as this overlay does. A tag of
-    `latest` would default the pull policy to Always, so both containers set IfNotPresent.
-    """
-    service = "ghcr.io/dan-petty/devops-cli/service"
-    digest = f"sha256:{'0' * 64}"
-    overlay = K8S_DIR / "overlays" / "homelab" / "devops"
-    (tmp_path / "kustomization.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "resources": [os.path.relpath(overlay, tmp_path)],
-                "images": [{"name": service, "newTag": "latest", "digest": digest}],
-            }
-        ),
-        encoding="utf-8",
-    )
-    rendered = subprocess.run(
-        ["kubectl", "kustomize", str(tmp_path)],
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=30,
-    ).stdout
-    workloads = [
-        d for d in yaml.safe_load_all(rendered) if d and d["kind"] in ("CronJob", "Deployment")
-    ]
-    containers = {
-        (workload["kind"], container["name"], container["image"], container["imagePullPolicy"])
-        for workload in workloads
-        for container in (
-            workload["spec"]["jobTemplate"]["spec"]
-            if workload["kind"] == "CronJob"
-            else workload["spec"]
-        )["template"]["spec"]["containers"]
-    }
-    # The runner has no entry here: Image Updater writes its own entry (#2667).
-    assert containers == {
-        ("CronJob", "devops-cli", f"{service}:latest@{digest}", "IfNotPresent"),
-        ("CronJob", "runner", "ghcr.io/dan-petty/devops-cli/runner", "IfNotPresent"),
-        ("Deployment", "service", f"{service}:latest@{digest}", "IfNotPresent"),
-    }

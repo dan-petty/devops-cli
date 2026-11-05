@@ -1,19 +1,4 @@
-"""No module under `tests/` finds a path from its own file or imports a test module (#1312).
-
-A module that builds a path from its own `__file__` reads another path once it moves to another
-depth, and what a test module or a conftest defines belongs to it: what tests share lives in
-`tests/support/`, whose modules may read `__file__`, as `tests/support/paths.py` does for the
-rest. One check over every Python file under `tests/` but `tests/fixtures/` names each such read
-and import as `path:line`.
-
-The check parses every file under `tests/`, so it runs only in the full gate, `uv run devops ci`
-and the `Tests & Coverage` check of CI. It lives in this module alone, which imports nothing
-from devops-cli and no module under `tests/`, spells no devops-cli module's dotted name and is
-named for none, so no narrowed selection over a changed source or helper module reaches it
-(`tests/test_test_selection.py` checks both); a narrowed run reaches it only when given this
-module, or when it runs the whole suite. It reads the repository root from pytest's `rootpath`
-rather than from `tests.support.paths`, which would make every change to that module select it.
-"""
+"""No test module finds a path from its own file or imports a test module (#1312, #2164)."""
 
 from __future__ import annotations
 
@@ -23,12 +8,20 @@ from collections.abc import Iterator, Mapping, Sequence
 from fnmatch import fnmatch
 from pathlib import Path
 
-import pytest
+from tests.support.paths import REPO_ROOT
 
+# The patterns by which pytest collects a test module: its default, since pyproject.toml sets none.
+PYTEST_PYTHON_FILES = ("test_*.py", "*_test.py")
 _TESTS = Path("tests")
+
+
 # The modules that may read `__file__`, and the test data, which is not code the suite imports.
 _SUPPORT = _TESTS / "support"
+
+
 _FIXTURES = _TESTS / "fixtures"
+
+
 _CONFTEST = "conftest"
 
 
@@ -120,8 +113,7 @@ def _violations(
     return found
 
 
-def test_no_test_module_finds_a_path_from_its_own_file_or_imports_a_test_module(
-    pytestconfig: pytest.Config,
+def check_no_test_module_finds_a_path_from_its_own_file_or_imports_a_test_module(
     parsed_test_trees: dict[Path, ast.Module],
 ) -> None:
     """Every module under `tests/` reads the repository root and its test data through
@@ -129,8 +121,8 @@ def test_no_test_module_finds_a_path_from_its_own_file_or_imports_a_test_module(
     paths at any depth and moves with no other edit (#1312)."""
     assert (
         _violations(
-            pytestconfig.rootpath,
-            pytestconfig.getini("python_files"),
+            REPO_ROOT,
+            PYTEST_PYTHON_FILES,
             trees=parsed_test_trees,
         )
         == []
@@ -140,7 +132,11 @@ def test_no_test_module_finds_a_path_from_its_own_file_or_imports_a_test_module(
 # The seeded sources spell each banned form, and each devops-cli module name, in parts, so that
 # a text search for them over `tests/`, or the test selector's import match, finds none here.
 _OWN_FILE_PATH = "Path(" + "__file__" + ")"
+
+
 _PACKAGE = "devops" + "_cli"
+
+
 _SEEDED_TREE = {
     "tests/__init__.py": "",
     "tests/conftest.py": "from tests." + "test_b import Y\n",
@@ -180,8 +176,8 @@ _SEEDED_TREE = {
 }
 
 
-def test_a_path_from_its_own_file_and_an_import_of_a_test_module_are_named_with_path_and_line(
-    tmp_path: Path, pytestconfig: pytest.Config
+def check_a_path_from_its_own_file_and_an_import_of_a_test_module_are_named_with_path_and_line(
+    tmp_path: Path,
 ) -> None:
     """Each planted read of a module's own `__file__`, with `Path` or without, and each import of
     a test module or a conftest, by either `python_files` pattern and relative ones included, is
@@ -193,7 +189,7 @@ def test_a_path_from_its_own_file_and_an_import_of_a_test_module_are_named_with_
     for relative, text in _SEEDED_TREE.items():
         (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / relative).write_text(text, encoding="utf-8")
-    assert _violations(tmp_path, pytestconfig.getini("python_files")) == [
+    assert _violations(tmp_path, PYTEST_PYTHON_FILES) == [
         "tests/a/b/test_nested.py:3",
         "tests/a/test_c.py:1",
         "tests/a/test_c.py:2",
