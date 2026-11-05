@@ -39,6 +39,7 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
     CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
     CONST_ROADMAP_IMPLEMENT_STEP_CLASSES,
+    CONST_ROADMAP_SIZE_OPTIONS,
     CONST_SETTINGS_CACHE_SETTLE_SECONDS,
 )
 from devops_cli.config.constants import (
@@ -101,6 +102,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_CLASS,
     DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_ITEM,
+    DEFAULT_ROADMAP_IMPLEMENT_EFFORT,
     DEFAULT_ROADMAP_IMPLEMENT_ITEM_TIME_LIMIT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET,
     DEFAULT_ROADMAP_IMPLEMENT_LADDER_TIERS,
@@ -926,6 +928,11 @@ class RoadmapStageConfig(BaseModel):
 class RoadmapImplementConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
+    effort: Annotated[list[str], Variable()] = Field(
+        description="The effort values of the implement job's passes, in order. The job takes an item of the first effort. It takes an item of the next effort only when no item of the first effort is selectable. Each value is `low`, `medium` or `high`, given once. A high-effort item stays out of the default set",
+        default_factory=lambda: list(DEFAULT_ROADMAP_IMPLEMENT_EFFORT),
+        min_length=1,
+    )
     in_runner: Annotated[bool, Variable()] = Field(
         description="Whether this process is the pod of a runner Job. Only then does `devops roadmap implement --confirm` run a step. The step's shell is no security boundary: the runner is the sandbox, with a narrow token and no other credential. The Service pod and a workstation keep this false",
         default=False,
@@ -1063,6 +1070,21 @@ class RoadmapImplementConfig(BaseModel):
         if self.item_time_limit_seconds > self.deadline_ceiling_seconds:
             raise ValueError("item_time_limit_seconds must not be above deadline_ceiling_seconds")
         return self
+
+    @field_validator("effort")
+    @classmethod
+    def _check_effort(cls, values: list[str]) -> list[str]:
+        """Each value is an effort value of the size options, lower case, and no value is given
+        twice, so each pass of the implement job runs once (#3385)."""
+        efforts = {option.lower() for option in CONST_ROADMAP_SIZE_OPTIONS}
+        seen: set[str] = set()
+        for value in values:
+            if value not in efforts:
+                raise ValueError(ERRORS.config.implement_effort_unknown.format(value=value))
+            if value in seen:
+                raise ValueError(ERRORS.config.implement_effort_repeated.format(value=value))
+            seen.add(value)
+        return values
 
 
 class ServiceConfig(BaseModel):

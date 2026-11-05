@@ -2099,6 +2099,10 @@ class RoadmapMessages:
     explain_job_implement: str = "Implement"
     explain_line_yes: str = "{job} job: yes."
     explain_line_no: str = "{job} job: no. {reason}"
+    explain_effort_line: str = "Effort set: {efforts}. The fallback pass {state} to this item."
+    explain_effort_applies: str = "applies"
+    explain_effort_not_applies: str = "does not apply"
+    explain_effort_explicit: str = "The filter names effort, so the effort set does not apply."
     # The report of `devops roadmap explain --trace` (#3032).
     explain_trace_none: str = "Issue #{number} has no trace of a run."
     explain_trace_model: str = "{step}: model {model}, {tokens_in}/{tokens_out} tokens, {seconds} s"
@@ -2677,6 +2681,12 @@ class RoadmapMessages:
         "- #{number} {title}: Planned, new branch `{branch}` and a new pull request{retry}"
     )
     implement_job_retry_note: str = " (a retry: the stop on record is cleared first)"
+    implement_job_effort_pass: str = "Effort pass: {effort}."
+    implement_job_effort_fallback: str = "This run uses the fallback pass."
+    implement_job_effort_later: str = (
+        "The run takes an item of effort {effort} first. An item of a later effort runs only "
+        "when no earlier item is selectable."
+    )
     implement_job_left_line: str = "- #{number} {title}: {reason}"
     implement_hardening_failed: str = (
         "The implement job could not make its process unreadable by its own shell "
@@ -2725,6 +2735,8 @@ class RoadmapMessages:
     implement_job_applied: str = "Took {ready} item(s) to a ready pull request, stopped {stopped}."
     implement_job_yielded: str = "Left {yielded} item(s) to the owner that claimed them."
     implement_round_left: str = "Left #{number}: an agent or a person claimed it since the plan."
+    implement_round_effort: str = "The round selected an item in effort pass {effort}."
+    implement_round_fallback: str = "The round uses the fallback pass."
     implement_boundary_group: str = "the start of group {group}"
     implement_boundary_end: str = "the end of the last group"
     implement_boundary_stop: str = "the stop of {step}"

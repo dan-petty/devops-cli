@@ -36,7 +36,13 @@ from devops_cli.roadmap.store import (
     RefineRecordKey,
     StageRecordKey,
 )
-from tests.support.roadmap_implement import TITLE, JobWorld
+from tests.support.roadmap_implement import (
+    TITLE,
+    JobWorld,
+    push_staged_branch,
+    route_pull_status,
+    seed_staged,
+)
 from tests.support.roadmap_stage import STAGE_REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -87,19 +93,74 @@ def _explain(
     )
 
 
-def test_an_item_of_medium_effort_names_the_filter_family_and_both_values(
+def test_an_item_of_high_effort_names_the_filter_family_and_the_values_it_takes(
     job_world: JobWorld,
 ) -> None:
-    number = _seed(job_world, labels=("type/bug", "effort/medium"), status="Planned")
+    number = _seed(job_world, labels=("type/bug", "effort/high"), status="Planned")
 
     explained = _explain(job_world, number)
 
     assert explained.implement == JobVerdict(
-        False, "The filter takes effort low. The item has effort medium."
+        False, "The filter takes effort low or medium. The item has effort high."
     )
     assert explained.stage == JobVerdict(
         False, "The filter takes status ready. The item has status planned."
     )
+
+
+def test_explain_names_the_effort_set_and_whether_the_fallback_applies(
+    job_world: JobWorld,
+) -> None:
+    job_world.store.add_label(job_world.number, "owner/agent")
+    medium = seed_staged(job_world.store, labels=("type/bug", "effort/medium"), pull=6)
+    push_staged_branch(job_world.repo, number=medium)
+    route_pull_status(job_world.api, pull=6)
+
+    explained = _explain(job_world, medium)
+    line = TEXTS.explain_effort_line.format(
+        efforts="low,medium", state=TEXTS.explain_effort_applies
+    )
+
+    assert (explained.implement, explained.implement_effort) == (JobVerdict(True), line)
+    assert render_explanation(explained).splitlines()[-1] == line
+
+
+def test_a_medium_effort_item_waits_for_the_low_effort_item_that_the_run_takes(
+    job_world: JobWorld,
+) -> None:
+    medium = seed_staged(job_world.store, labels=("type/bug", "effort/medium"), pull=6)
+    push_staged_branch(job_world.repo, number=medium)
+    route_pull_status(job_world.api, pull=6)
+
+    explained = _explain(job_world, medium)
+
+    assert (explained.implement, explained.implement_effort) == (
+        JobVerdict(False, TEXTS.implement_job_effort_later.format(effort="low")),
+        TEXTS.explain_effort_line.format(
+            efforts="low,medium", state=TEXTS.explain_effort_not_applies
+        ),
+    )
+
+
+def test_the_fallback_does_not_apply_to_a_medium_effort_item_when_no_pass_takes_an_item(
+    job_world: JobWorld,
+) -> None:
+    job_world.store.add_label(job_world.number, "owner/agent")
+    medium = _seed(job_world, labels=("type/bug", "effort/medium"))
+
+    explained = _explain(job_world, medium)
+
+    assert explained.implement_effort == TEXTS.explain_effort_line.format(
+        efforts="low,medium", state=TEXTS.explain_effort_not_applies
+    )
+
+
+def test_the_effort_line_says_the_set_does_not_apply_when_the_filter_names_effort(
+    job_world: JobWorld,
+) -> None:
+    explained = _explain(job_world, job_world.number, implement=("effort=low",))
+
+    assert explained.implement_effort == TEXTS.explain_effort_explicit
 
 
 def test_a_claimed_item_names_its_owner_for_both_jobs(job_world: JobWorld) -> None:

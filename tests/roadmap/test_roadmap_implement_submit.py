@@ -1081,3 +1081,20 @@ def test_the_report_of_a_job_keeps_the_claim_of_a_person_and_stops_nothing(
         },
     )
     assert "implement.stopped" not in _record(store, number)
+
+
+def test_a_round_that_creates_a_job_for_a_medium_effort_item_logs_the_fallback_pass(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    number = seed_staged(store, labels=("type/bug", "effort/medium"))
+
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.run"):
+        _round(store, staged_repo)
+
+    assert (len(_creates(kube)), _record(store, number)["implement.job"] is not None) == (1, True)
+    assert "The round selected an item in effort pass medium." in caplog.messages
+    assert "The round uses the fallback pass." in caplog.messages

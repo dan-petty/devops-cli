@@ -17,7 +17,8 @@ also when its plan is on the default branch.
 
 **Selection.** `--filter family=value` is repeatable over the label families `status`,
 `priority`, `type`, `value` and `effort`: the values of one family are alternatives, and the
-families all apply. With no filter the job takes the Ready and Planned items of low effort. The
+families all apply. With no filter the job takes the Ready and Planned items, one effort pass at a
+time: low effort first, then medium effort when no low-effort item is selectable (#3385). The
 Service sets `status/planned` once the plan is on the default branch (`status_sync.py`, #2920). An
 item that the filter names, and that the job leaves out, is in the plan with its reason: its Status
 is neither Ready nor Planned (an item In Progress stays while its record names a runner Job that no
@@ -82,6 +83,7 @@ from devops_cli.roadmap.refine import inspect_checkout
 from devops_cli.roadmap.stage import (
     LeftOut,
     StageFilter,
+    Walk,
     long_title_reason,
     named_items,
     parse_filters,
@@ -101,15 +103,45 @@ from devops_cli.roadmap.store import (
 
 GIT_OPERATION: Final[str] = "roadmap.implement"
 
-# What the job implements without a `--filter`: the Ready and Planned items of low effort, of any
-# type, priority and value (#2906, #2920).
-DEFAULT_IMPLEMENT_FILTERS: Final[tuple[str, ...]] = ("status=ready", "status=planned", "effort=low")
+# What the job implements without a `--filter`: the Ready and Planned items, of any type, priority
+# and value (#2906, #2920). The effort of an item picks its pass, from the setting
+# `roadmap.implement.effort` (#3385).
+DEFAULT_IMPLEMENT_FILTERS: Final[tuple[str, ...]] = ("status=ready", "status=planned")
 
 
 def parse_implement_filters(options: Iterable[str]) -> StageFilter:
     """The filter that the `family=value` options give, or `DEFAULT_IMPLEMENT_FILTERS` with none.
     A bad option raises `ValidationError`, as the stage job's parser does."""
     return parse_filters(options, DEFAULT_IMPLEMENT_FILTERS)
+
+
+def implement_efforts() -> tuple[str, ...]:
+    """The effort values of the passes of the job, in order: the setting
+    `roadmap.implement.effort` (#3385)."""
+    return tuple(load_settings().roadmap.implement.effort)
+
+
+def effort_filter(filters: StageFilter, efforts: Sequence[str]) -> StageFilter:
+    """The filter that names the items of the effort set: `filters` with the family `effort` of
+    the values of the set. A filter that names an effort already is returned as it is (#3385)."""
+    if "effort" in filters.families:
+        return filters
+    return StageFilter({**filters.families, "effort": frozenset(f"effort/{v}" for v in efforts)})
+
+
+def effort_passes(
+    filters: StageFilter, efforts: Sequence[str]
+) -> tuple[tuple[str, StageFilter], ...]:
+    """The passes of the job, in order, each with its effort. Each value of the set makes one pass
+    with the other families of `filters`. A filter that names an effort makes one pass, as it is
+    given, and the pass is named by the values that the filter names (#3385)."""
+    if "effort" in filters.families:
+        named = sorted(label.removeprefix("effort/") for label in filters.families["effort"])
+        return ((",".join(named), filters),)
+    return tuple(
+        (value, StageFilter({**filters.families, "effort": frozenset({f"effort/{value}"})}))
+        for value in efforts
+    )
 
 
 @dataclass(frozen=True)
@@ -142,8 +174,9 @@ class ImplementPlan:
     """What a run does: the items to implement, and the items the filter names that the job leaves
     out, each with its reason. `unmatched` holds the open items that the filter does not name, only
     when the plan was asked for them (`--why`). `beyond` holds the numbers of the items that pass
-    every rule but come after the limit (`walk_named`). A dry run holds the requests of a run and
-    nothing else."""
+    every rule but come after the limit (`walk_named`). `effort` is the effort of the pass that
+    takes the run, and `fallback` is true when that pass is a later value of the set (#3385). A dry
+    run holds the requests of a run and nothing else."""
 
     repo: str
     selected: tuple[ImplementTarget, ...] = ()
@@ -153,6 +186,8 @@ class ImplementPlan:
     write_requests: tuple[PlannedRequest, ...] = ()
     unmatched: tuple[LeftOut, ...] = ()
     beyond: tuple[int, ...] = ()
+    effort: str = ""
+    fallback: bool = False
 
 
 class RecordedBranch(NamedTuple):
@@ -341,6 +376,40 @@ def _named(judge: _Judge, store: RoadmapStore, number: int) -> ImplementPlanPart
     return (verdict,), ()
 
 
+def _walk_passes(
+    store: RoadmapStore,
+    passes: Sequence[tuple[str, StageFilter]],
+    judge: _Judge,
+    limit: int,
+    probe: int | None,
+) -> tuple[Walk[ImplementTarget], str]:
+    """Walk the passes in order, and return the walk of the first pass that takes an item, with the
+    effort of that pass, or `""` when no pass takes one (#3385). Until that pass takes an item, each
+    pass takes up to `limit` items. A pass after it takes none, and judges only `probe`: the probe
+    gets the reason that the run takes an earlier effort first."""
+    texts = MESSAGES.roadmap
+    walked_all: list[LeftOut] = []
+    taken: tuple[ImplementTarget, ...] = ()
+    beyond: tuple[int, ...] = ()
+    in_use = ""
+    for effort, pass_filter in passes:
+        named = named_items(store, pass_filter)
+        if taken:
+            walked = walk_named(named, judge.judge, 0, probe=probe)
+            walked_all.extend(walked.left_out)
+            walked_all.extend(
+                _left(item, texts.implement_job_effort_later.format(effort=in_use))
+                for item in named
+                if item.number in walked.beyond
+            )
+            continue
+        walked = walk_named(named, judge.judge, limit, probe=probe)
+        walked_all.extend(walked.left_out)
+        if walked.taken:
+            taken, beyond, in_use = walked.taken, walked.beyond, effort
+    return Walk(taken, tuple(walked_all), beyond), in_use
+
+
 def plan_implement(
     store: RoadmapStore,
     *,
@@ -376,13 +445,17 @@ def plan_implement(
     if item_number is not None:
         selected, left_out = _named(judge, store, item_number)
         return ImplementPlan(repo, selected, left_out)
-    walked = walk_named(named_items(store, filters), judge.judge, limit, probe=probe)
+    efforts = implement_efforts()
+    walked, in_use = _walk_passes(store, effort_passes(filters, efforts), judge, limit, probe)
+    explicit = "effort" in filters.families
     return ImplementPlan(
         repo,
         walked.taken,
         walked.left_out,
-        unmatched=unmatched_items(store, filters) if why else (),
+        unmatched=unmatched_items(store, effort_filter(filters, efforts)) if why else (),
         beyond=walked.beyond,
+        effort=in_use,
+        fallback=bool(in_use) and not explicit and in_use != efforts[0],
     )
 
 
@@ -401,6 +474,10 @@ def render_implement_plan(plan: ImplementPlan) -> str:
     """The plan as the report of the command: the items to implement, and those left out."""
     texts = MESSAGES.roadmap
     lines = [texts.implement_job_title.format(repo=plan.repo)]
+    if plan.effort:
+        lines.append(texts.implement_job_effort_pass.format(effort=plan.effort))
+    if plan.fallback:
+        lines.append(texts.implement_job_effort_fallback)
     ready = [
         (texts.implement_job_planned_line if t.planned else texts.implement_job_ready_line).format(
             number=t.item.number,

@@ -17,7 +17,7 @@ the Service keeps it on its own volume: the command does not read it.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, NamedTuple
@@ -27,7 +27,12 @@ from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git.worktree_add import read_remote_heads
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement import plan_implement
+from devops_cli.roadmap.implement import (
+    ImplementPlan,
+    effort_filter,
+    implement_efforts,
+    plan_implement,
+)
 from devops_cli.roadmap.implement_trace import (
     ImplementTrace,
     TraceDecodeError,
@@ -61,6 +66,7 @@ class Explanation:
     refine: JobVerdict
     stage: JobVerdict
     implement: JobVerdict
+    implement_effort: str = ""
 
 
 def _verdict(
@@ -117,6 +123,24 @@ def _stage_verdict(
     return _verdict(item.number, selection.left_out, selection.beyond, limit)
 
 
+def _implement_effort_line(
+    plan: ImplementPlan | None, item: Item, efforts: Sequence[str], filters: StageFilter
+) -> str:
+    """The line that names the effort set of the implement job and whether the fallback pass
+    applies to the item (#3385). The fallback applies when the pass in use takes the effort of the
+    item and that pass is a later value of the set. When no pass takes an item, no pass is in use,
+    so the fallback does not apply."""
+    texts = MESSAGES.roadmap
+    if "effort" in filters.families:
+        return texts.explain_effort_explicit
+    own = next((value for value in efforts if f"effort/{value}" in item.labels), "")
+    applies = plan is not None and bool(own) and own != efforts[0] and plan.effort == own
+    return texts.explain_effort_line.format(
+        efforts=",".join(efforts),
+        state=texts.explain_effort_applies if applies else texts.explain_effort_not_applies,
+    )
+
+
 def _implement_verdict(
     store: RoadmapStore,
     *,
@@ -126,9 +150,13 @@ def _implement_verdict(
     filters: StageFilter,
     limit: int,
     reads: _Reads,
-) -> JobVerdict:
-    if (why := filters.mismatch(item)) is not None:
-        return JobVerdict(False, why)
+) -> tuple[JobVerdict, str]:
+    """The verdict of the implement job for `item`, and the line that names its effort set (#3385).
+    The filter of the set names the efforts that the job takes, so an item of another effort gets
+    the reason of the filter."""
+    efforts = implement_efforts()
+    if (why := effort_filter(filters, efforts).mismatch(item)) is not None:
+        return JobVerdict(False, why), _implement_effort_line(None, item, efforts, filters)
     plan = plan_implement(
         store,
         repo=repo,
@@ -139,7 +167,8 @@ def _implement_verdict(
         remote_heads=reads.heads,
         planned=reads.planned,
     )
-    return _verdict(item.number, plan.left_out, plan.beyond, limit)
+    verdict = _verdict(item.number, plan.left_out, plan.beyond, limit)
+    return verdict, _implement_effort_line(plan, item, efforts, filters)
 
 
 def explain_item(
@@ -170,6 +199,15 @@ def explain_item(
     reads = _Reads(
         read_remote_heads(checkout), read_planned_changes(checkout, operation=_GIT_OPERATION)
     )
+    implement, implement_effort = _implement_verdict(
+        store,
+        repo=repo,
+        source=checkout,
+        item=item,
+        filters=implement_filters,
+        limit=implement_limit or DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
+        reads=reads,
+    )
     return Explanation(
         repo,
         number,
@@ -185,15 +223,8 @@ def explain_item(
             planned_limit=planned_limit or stage_settings.planned_limit,
             reads=reads,
         ),
-        _implement_verdict(
-            store,
-            repo=repo,
-            source=checkout,
-            item=item,
-            filters=implement_filters,
-            limit=implement_limit or DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
-            reads=reads,
-        ),
+        implement,
+        implement_effort=implement_effort,
     )
 
 
@@ -215,6 +246,8 @@ def render_explanation(explained: Explanation) -> str:
     ):
         line = texts.explain_line_yes if verdict.takes else texts.explain_line_no
         lines.append(line.format(job=job, reason=verdict.reason))
+    if explained.implement_effort:
+        lines.append(explained.implement_effort)
     return "\n".join(lines)
 
 

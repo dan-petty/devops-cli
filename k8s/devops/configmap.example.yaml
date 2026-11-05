@@ -83,6 +83,11 @@ data:
       # One tier for every step class of the implement job (#3573): a step has no weaker or
       # stronger tier to move to, so a failure that selects `change_tier` ends the step.
       implement:
+        # The effort values of the passes of the job (#3385): the job takes a low-effort item, and a
+        # medium-effort item only when no low-effort item is selectable.
+        effort:
+          - low
+          - medium
         ladder:
           plan: [deepseek-v4.1-flash-1017]
           edit: [deepseek-v4.1-flash-1017]

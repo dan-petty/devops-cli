@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from devops_cli.config import settings
@@ -19,6 +20,7 @@ from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ItemField
 from tests.support.builders import make_stage_proposal
+from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
@@ -156,6 +158,24 @@ def test_a_planned_limit_under_one_is_refused(config_file: Path) -> None:
         settings.load_settings()
 
 
+def test_the_implement_effort_defaults_to_low_then_medium(config_file: Path) -> None:
+    assert settings.load_settings().roadmap.implement.effort == ["low", "medium"]
+
+
+@pytest.mark.parametrize("values", [("low", "huge"), ("low", "low")])
+def test_an_implement_effort_value_that_is_no_effort_or_held_twice_is_refused_naming_it(
+    config_file: Path, values: tuple[str, str]
+) -> None:
+    entries = "".join(f"      - {value}\n" for value in values)
+    config_file.write_text(
+        f"roadmap:\n  implement:\n    effort:\n{entries}",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError, match=values[1]):
+        settings.load_settings()
+
+
 # ── The command ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -255,3 +275,11 @@ def test_the_command_plans_no_item_at_the_planned_limit_and_gives_the_limit_as_t
     assert "branch `" not in output
     assert "- #1 fix(roadmap): the job drops a comment: The count of Planned items is 1" in output
     assert "roadmap.stage.planned_limit" in output
+
+
+def test_the_example_configmap_holds_the_implement_effort_default() -> None:
+    """The example ConfigMap names `roadmap.implement.effort` with its default (#3385)."""
+    example = yaml.safe_load((REPO_ROOT / "k8s/devops/configmap.example.yaml").read_text("utf-8"))
+    configured = yaml.safe_load(example["data"]["devops-cli.yaml"])
+
+    assert configured["roadmap"]["implement"]["effort"] == ["low", "medium"]
