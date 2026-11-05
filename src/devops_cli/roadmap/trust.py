@@ -11,6 +11,9 @@ of refine approved it (`JudgeVerdict`). The approval covers the text that the re
 while the body hashes as refine recorded with the verdict (`body_hash`). A body edit ends it, and a
 refine round reviews the item again. The review is a model, so it is no security control: the login
 is the control, and refine's model reads only the replies of trusted authors (`trusted_replies`).
+
+A comment is new input for a job that failed its rounds only when a person with write access made
+it (`is_person_comment`, #2754): no bot and no outside account can start a job with a comment.
 """
 
 from __future__ import annotations
@@ -24,6 +27,9 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import load_settings
 from devops_cli.roadmap.body_hash import is_unchanged
 from devops_cli.roadmap.store import IssueComment, Item, JudgeVerdict, RefineRecordKey
+
+_BOT_LOGIN_SUFFIX = "[bot]"
+"""How GitHub ends the login of every bot account."""
 
 
 def bot_logins() -> frozenset[str]:
@@ -53,6 +59,23 @@ def is_approved(item: Item) -> bool:
         return True
     approved = item.job_record.get(RefineRecordKey.JUDGE) == JudgeVerdict.APPROVED.value
     return approved and is_unchanged(item, item.body)
+
+
+def is_person_comment(comment: IssueComment, actor: str | None) -> bool:
+    """Whether a person with write access made `comment` on an issue: only such a comment is new
+    input for a roadmap job that failed its rounds (#2754). The author's association is OWNER,
+    MEMBER or COLLABORATOR, as the repository is public and no other account may start a job. The
+    login does not end in `[bot]`, since a bot with write access is no person, and it is not
+    `actor`, the account that the process acts as, whose own comments never start its own jobs.
+    A comment on a pull request is not one, since the items of the jobs are issues."""
+    login = comment.author_login
+    return (
+        comment.author_association in CONST_ROADMAP_TRUSTED_AUTHORS
+        and login is not None
+        and login != actor
+        and not login.endswith(_BOT_LOGIN_SUFFIX)
+        and not comment.on_pull_request
+    )
 
 
 def trusted_replies(comments: Sequence[IssueComment]) -> list[IssueComment]:

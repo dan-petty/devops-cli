@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast, runtime_checkable
@@ -374,7 +374,8 @@ class IssueRecord(BaseModel):
 class IssueComment(BaseModel):
     """One comment on an issue: its body, when it was made, and the commenter's relation to the
     repository as GitHub gives it (`OWNER`, `MEMBER`, `COLLABORATOR`, `NONE` and others), None
-    when the store does not know it, and the commenter's login."""
+    when the store does not know it, and the commenter's login. `on_pull_request` says that the
+    comment is on a pull request, which GitHub's comment listings mix with the issues (#2754)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -382,6 +383,7 @@ class IssueComment(BaseModel):
     created_at: datetime
     author_association: str | None = None
     author_login: str | None = None
+    on_pull_request: bool = False
 
 
 class Closure(BaseModel):
@@ -865,6 +867,12 @@ class RoadmapStore(Protocol):
 
     def comments_on(self, number: int) -> list[IssueComment]:
         """Every comment on issue `number`, oldest first."""
+
+    def comments_since(self, since: datetime | None) -> Iterator[IssueComment]:
+        """The comments of the whole repository, on issues and pull requests, newest first, that
+        were changed at or after `since` (every comment when None). A comment that someone edited
+        after `since` can come with an older creation time. The read is lazy: a caller that stops
+        at the first comment it wants asks for no more pages (#2754)."""
 
     def path_changed_at(self, path: str) -> datetime | None:
         """When the newest commit on the default branch that changed `path` was made, or None

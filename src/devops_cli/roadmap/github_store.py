@@ -36,8 +36,9 @@ import threading
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import date, datetime
 from http import HTTPStatus
+from pathlib import PurePosixPath
 from typing import Any, Protocol
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from pydantic import AliasPath, BaseModel, Field, TypeAdapter
 from pydantic import ValidationError as MalformedPayloadError
@@ -291,11 +292,20 @@ class _IsPrivatePayload(BaseModel):
     is_private: bool = Field(validation_alias=AliasPath("data", "repository", "isPrivate"))
 
 
+def _is_pull_request_url(url: str) -> bool:
+    """Whether `url`, the page of a comment, is on a pull request. GitHub gives
+    `https://github.com/<owner>/<repo>/pull/<number>#issuecomment-<id>` for such a comment and
+    `.../issues/<number>#issuecomment-<id>` for a comment on an issue. The `issue_url` field names
+    `issues/<number>` for both, so only this field tells them apart (#2754)."""
+    return PurePosixPath(urlsplit(url).path).parts[3:4] == ("pull",)
+
+
 class _CommentPayload(BaseModel):
     body: str = ""
     created_at: datetime
     author_association: str | None = None
     author_login: str | None = Field(default=None, validation_alias=AliasPath("user", "login"))
+    html_url: str = ""
 
     def comment(self) -> IssueComment:
         return IssueComment(
@@ -303,6 +313,7 @@ class _CommentPayload(BaseModel):
             created_at=self.created_at,
             author_association=self.author_association,
             author_login=self.author_login,
+            on_pull_request=_is_pull_request_url(self.html_url),
         )
 
 
@@ -509,6 +520,16 @@ def issue_events_endpoint(repo: str, number: int) -> str:
 
 def comments_endpoint(repo: str, number: Number) -> str:
     return f"repos/{repo}/issues/{number}/comments"
+
+
+def repository_comments_endpoint(repo: str, since: datetime | None) -> str:
+    """The REST listing of every comment on the issues and pull requests of `repo`, newest
+    created first, with only those changed at or after `since` when it is given. GitHub filters
+    `since` on the time a comment was last changed, not on the time it was created (#2754)."""
+    query = "sort=created&direction=desc"
+    if since is not None:
+        query += f"&since={as_utc(since):%Y-%m-%dT%H:%M:%SZ}"
+    return f"repos/{repo}/issues/comments?{query}"
 
 
 def milestone_edit_args(repo: str, number: Number, fields: Sequence[tuple[str, str]]) -> list[str]:
@@ -814,6 +835,14 @@ class GitHubRoadmapStore(RoadmapStore):
             comments_endpoint(self._repo, number), _COMMENT, f"#{number} comments"
         )
         return [comment.comment() for comment in listing]
+
+    def comments_since(self, since: datetime | None) -> Iterator[IssueComment]:
+        """The comments of the repository, newest first, one page of 100 at a time as the caller
+        asks for them: a caller that stops at the first comment it wants reads no later page.
+        The session raises on a failed page, as it does for any listing (#2754)."""
+        path = listing_path(repository_comments_endpoint(self._repo, since))
+        for found in self._listing_session().paginate(path):
+            yield self._validate_entry(found, _COMMENT, "comments").comment()
 
     def path_changed_at(self, path: str) -> datetime | None:
         """When the newest commit on the default branch that changed `path` was made, or None
@@ -1153,6 +1182,7 @@ __all__ = [
     "milestone_edit_args",
     "milestones_endpoint",
     "path_commits_args",
+    "repository_comments_endpoint",
     "repository_file_args",
     "repository_issue_events_endpoint",
     "repository_query_args",

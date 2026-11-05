@@ -21,7 +21,7 @@ person's change since raises before anything changes.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any
@@ -449,19 +449,29 @@ class InMemoryRoadmapStore(RoadmapStore):
     ) -> None:
         """Add a comment as another commenter made it, with their relation to the repository and
         their login, as GitHub gives them: the owner's relation unless given, since GitHub gives
-        one for every comment. Seeding records no change and no write."""
-        self._require_issue(number, "roadmap.issue.seed_comment")
+        one for every comment. Seeding records no change and no write. A pull request takes a
+        comment as it does on GitHub, and the comment says so (#2754)."""
+        issue = self._require_issue(number, "roadmap.issue.seed_comment", pull_request=True)
         made = IssueComment(
             body=body,
             created_at=as_utc(self._roadmap.clock()),
             author_association=author_association,
             author_login=author_login,
+            on_pull_request=issue.pull_request,
         )
         self._roadmap.comments.setdefault(number, []).append(made)
 
     def comments_on(self, number: int) -> list[IssueComment]:
         """Every comment on issue `number`, oldest first."""
         return list(self._roadmap.comments.get(number, []))
+
+    def comments_since(self, since: datetime | None) -> Iterator[IssueComment]:
+        """The comments of every issue, newest first, made at or after `since` (all of them when
+        None). A comment here is never edited, so its creation time is the time it changed."""
+        cutoff = None if since is None else as_utc(since)
+        made = (comment for comments in self._roadmap.comments.values() for comment in comments)
+        wanted = (c for c in made if cutoff is None or c.created_at >= cutoff)
+        return reversed(sorted(wanted, key=lambda comment: comment.created_at))
 
     def close(self, number: int, reason: CloseReason, *, comment: str | None = None) -> None:
         """Post `comment` on issue `number` when given, then close it for `reason`. A pull
