@@ -235,3 +235,107 @@ def test_a_what_changes_folder_that_a_group_writes_under_is_accepted() -> None:
     problems = _check(plan)
 
     assert not any("src/devops_cli/sample/" in p for p in problems)
+
+
+# ── A citation of the staged file (#3422) ─────────────────────────────────────
+
+CITED = "src/sample.py"
+OTHER_CITED = "src/other.py"
+CITED_FILES = {
+    CITED: "\n".join(
+        [
+            "import os",
+            "",
+            "",
+            "def f(): pass",
+            "",
+            "",
+            "def f():",
+            "    return 1",
+            "",
+            "class G:",
+            "    pass",
+        ]
+    ),
+    OTHER_CITED: "\n".join(["import os", "", "", "def g(): pass", "", "", "def g():"]),
+}
+
+
+def _cited(text: str, **overrides: Any) -> list[str]:
+    plan = make_stage_proposal(feasibility=[text], **overrides)
+    return check_proposal(plan, ["comment-thread"], TREE, read_text=CITED_FILES.get)
+
+
+def test_the_sample_plan_cites_no_line_that_the_staged_file_lacks() -> None:
+    assert (
+        check_proposal(make_stage_proposal(), ["comment-thread"], TREE, read_text=CITED_FILES.get)
+        == []
+    )
+
+
+def test_a_citation_of_a_line_that_holds_other_text_is_refused() -> None:
+    problems = _cited(f"The probe shows `{CITED}:4:def g():` at the commit.")
+
+    assert any("feasibility" in p and CITED in p for p in problems)
+
+
+def test_a_citation_of_the_line_that_holds_the_text_is_accepted() -> None:
+    problems = _cited(f"The probe shows `{CITED}:4:def f():` at the commit.")
+
+    assert not any(CITED in p for p in problems)
+
+
+def test_a_citation_of_a_line_past_the_end_is_refused() -> None:
+    problems = _cited(f"The probe shows `{CITED}:99:def f():` at the commit.")
+
+    assert any("feasibility" in p and CITED in p for p in problems)
+
+
+def test_a_citation_of_an_absent_path_is_refused() -> None:
+    problems = _cited("The probe shows `src/absent.py:1:def f():` at the commit.")
+
+    assert any("feasibility" in p and "src/absent.py" in p for p in problems)
+
+
+def test_a_citation_of_a_text_of_fewer_than_three_characters_is_refused() -> None:
+    problems = _cited(f"The probe shows `{CITED}:4:de` at the commit.")
+
+    assert any("feasibility" in p and CITED in p for p in problems)
+
+
+def test_a_citation_of_a_symbol_is_accepted_when_the_file_defines_it() -> None:
+    problems = _cited(f"The probe shows `{CITED}:def f` at line 7.")
+
+    assert not any(CITED in p for p in problems)
+
+
+def test_a_citation_of_a_class_is_accepted_when_the_file_defines_it() -> None:
+    problems = _cited(f"The probe shows `{CITED}:class G` at line 10.")
+
+    assert not any(CITED in p for p in problems)
+
+
+def test_a_citation_of_an_absent_symbol_is_refused() -> None:
+    problems = _cited(f"The probe shows `{OTHER_CITED}:def f` at the commit.")
+
+    assert any("feasibility" in p and OTHER_CITED in p for p in problems)
+
+
+def test_a_stale_citation_of_what_changes_names_that_field() -> None:
+    plan = make_stage_proposal(what_changes=[f"The probe reads `{CITED}:4:def g():` now."])
+
+    problems = check_proposal(plan, ["comment-thread"], TREE, read_text=CITED_FILES.get)
+
+    assert any("what_changes" in p and CITED in p for p in problems)
+
+
+def test_a_plan_with_no_reader_gets_no_citation_problem() -> None:
+    plan = make_stage_proposal(feasibility=[f"The probe shows `{CITED}:4:def g():` at the commit."])
+
+    assert not any(CITED in p for p in _check(plan))
+
+
+def test_a_citation_holds_when_the_white_space_differs() -> None:
+    problems = _cited(f"The probe shows `{CITED}:4:def   f():` at the commit.")
+
+    assert not any(CITED in p for p in problems)

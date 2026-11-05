@@ -3,9 +3,10 @@ change it renders, and the measure of each task group against the step budget.
 
 The reply is one `StageProposal`. `check_proposal` finds what the rules of `openspec/config.yaml`
 ask and a schema cannot say: a Purpose on a new capability, a MODIFIED requirement only on a
-capability that exists, a spec delta only when the change is observable, and a path that is a file
-of the staged commit or that a group creates (`stage_paths`). `render_change`
-turns the reply into the files of `openspec/changes/<issue>-<slug>/`. `measure_groups` counts the
+capability that exists, a spec delta only when the change is observable, a path that is a file
+of the staged commit or that a group creates (`stage_paths`), and a citation of a line or a symbol
+that the staged file does not hold (#3422). `render_change` turns the reply into the files of
+`openspec/changes/<issue>-<slug>/`. `measure_groups` counts the
 inputs of one implementation step for each group with tiktoken. It counts the files that the tasks
 of the group name, each packed as the step packs it (`step_files`), so a group costs what its step
 reads.
@@ -16,7 +17,7 @@ from __future__ import annotations
 import re
 import string
 import unicodedata
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
@@ -118,6 +119,30 @@ _LIVING_SPEC_DIRECTORY: Final[str] = "openspec/specs/"
 # in `changes`, so the stage check names it when no group lists it (#3405).
 _MESSAGES_FILE: Final[str] = "src/devops_cli/lang/en/messages.py"
 _MESSAGE_NAME: Final[re.Pattern[str]] = re.compile(r"\bMESSAGES\.roadmap\b")
+# A plan cites a file of the staged commit in its evidence fields: `path:line:text`, or
+# `path:def name` and `path:class name`, which stay true when the code moves (#3422). The path
+# starts at a word boundary, so the host of a URL is no citation, and the cited text of a line
+# ends at the backtick that closes its code span.
+_CITED_PATH: Final[str] = r"[A-Za-z0-9_][A-Za-z0-9_./-]*\.[A-Za-z0-9_]+"
+_LINE_CITATION: Final[re.Pattern[str]] = re.compile(
+    rf"(?<![\w./-])(?P<path>{_CITED_PATH}):(?P<line>\d+):(?P<text>[^`]*)"
+)
+_SYMBOL_CITATION: Final[re.Pattern[str]] = re.compile(
+    rf"(?<![\w./-])(?P<path>{_CITED_PATH}):(?P<kind>def|class)\s+(?P<symbol>[A-Za-z_]\w*)"
+)
+# The fewest characters of the cited text that the check judges: a shorter text matches almost any
+# line, so the check refuses it and asks for a longer one.
+_CITATION_MIN_CHARS: Final[int] = 3
+_CITATION_STALE: Final[str] = (
+    "The {field} of the plan cites `{path}`, and the staged file holds no such text there. Cite "
+    "the text of the line in a code span at the staged commit, or cite a symbol as "
+    "`path:def name` or `path:class name`, which stays true when the line moves."
+)
+_CITATION_SHORT: Final[str] = (
+    "The {field} of the plan cites `{path}` with fewer than {least} characters of the line. Quote "
+    "at least {least} characters of the line, or cite a symbol as `path:def name` or "
+    "`path:class name`."
+)
 _SENTENCE_END: Final[str] = f"{string.whitespace}."
 REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
 
@@ -574,6 +599,96 @@ def _what_changes_problems(proposal: StageProposal, tree: StagedTree) -> list[st
     ]
 
 
+def _evidence_texts(proposal: StageProposal) -> list[tuple[str, str]]:
+    """The texts of the plan that hold evidence, each with the name of its field: `why`, the lines
+    of `feasibility` and each line of `what_changes` (#3422)."""
+    named = [("why", proposal.why)]
+    named.extend(("feasibility", line) for line in proposal.feasibility)
+    named.extend(("what_changes", line) for line in proposal.what_changes)
+    return named
+
+
+def _cited_text(text: str) -> str:
+    """The cited text as the check compares it: without its backticks and its one trailing full
+    stop, and with each run of white space as one space, as a line of the file reads."""
+    return _squash(text.replace("`", "").strip().removesuffix("."))
+
+
+def _line_at(content: str, number: int) -> str | None:
+    """The line `number` of `content`, counting from 1, or None when the file is shorter."""
+    lines = content.splitlines()
+    return lines[number - 1] if 1 <= number <= len(lines) else None
+
+
+def _defines(content: str, kind: str, symbol: str) -> bool:
+    """Whether `content` defines `symbol` with `kind` at any line, as `def name` or
+    `class name` does."""
+    pattern = re.compile(rf"\b{re.escape(kind)}\s+{re.escape(symbol)}\b")
+    return any(pattern.search(_squash(line)) for line in content.splitlines())
+
+
+def _line_citation_problem(
+    field: str, path: str, line: str, text: str, content: str | None
+) -> str | None:
+    """The problem of one `path:line:text` citation, or None when the staged line holds the text."""
+    if content is None:
+        return _CITATION_STALE.format(field=field, path=path)
+    cited = _cited_text(text)
+    if len(cited) < _CITATION_MIN_CHARS:
+        return _CITATION_SHORT.format(field=field, path=path, least=_CITATION_MIN_CHARS)
+    cited_line = _line_at(content, int(line))
+    if cited_line is not None and cited in _squash(cited_line):
+        return None
+    return _CITATION_STALE.format(field=field, path=path)
+
+
+def _symbol_citation_problem(
+    field: str, path: str, kind: str, symbol: str, content: str | None
+) -> str | None:
+    """The problem of one `path:def name` or `path:class name` citation, or None when the staged
+    file defines the symbol at some line."""
+    if content is not None and _defines(content, kind, symbol):
+        return None
+    return _CITATION_STALE.format(field=field, path=path)
+
+
+def _citation_problems(field: str, text: str, read_text: Callable[[str], str | None]) -> list[str]:
+    """One problem for each citation of `text` that the staged file does not hold."""
+    problems: list[str] = []
+    for match in _LINE_CITATION.finditer(text):
+        path = match.group("path")
+        problem = _line_citation_problem(
+            field, path, match.group("line"), match.group("text"), read_text(path)
+        )
+        if problem is not None:
+            problems.append(problem)
+    for match in _SYMBOL_CITATION.finditer(text):
+        path = match.group("path")
+        problem = _symbol_citation_problem(
+            field, path, match.group("kind"), match.group("symbol"), read_text(path)
+        )
+        if problem is not None:
+            problems.append(problem)
+    return problems
+
+
+def _plan_citation_problems(
+    proposal: StageProposal, read_text: Callable[[str], str | None] | None
+) -> list[str]:
+    """One problem for each citation of the evidence fields that the staged file does not hold, a
+    citation of the same field and path once. A check with no reader judges no citation: the
+    replay of the golden set holds no file text."""
+    if read_text is None:
+        return []
+    return list(
+        dict.fromkeys(
+            problem
+            for field, text in _evidence_texts(proposal)
+            for problem in _citation_problems(field, text, read_text)
+        )
+    )
+
+
 def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> list[str]:
     """What is wrong with the text of `proposal` that no schema says (#3200): a text that is too
     short or a placeholder word (`is_placeholder` of the pull request form), a `feasibility` that
@@ -607,6 +722,7 @@ def check_proposal(
     overlaps: Sequence[Overlap] = (),
     search_evidence: Mapping[str, Sequence[str]] | None = None,
     plan_creates: Mapping[str, int] | None = None,
+    read_text: Callable[[str], str | None] | None = None,
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
@@ -619,9 +735,13 @@ def check_proposal(
     change a path the item cites: the plan names each in `dependencies` (#3252).
     `search_evidence` maps each negative-search literal to the paths that the staged tree holds:
     the job records it, the replay reads it from its case, and None records no search. `plan_creates`
-    maps each path that the plan of an open item creates to that item's number (#3418)."""
+    maps each path that the plan of an open item creates to that item's number (#3418). `read_text`
+    returns the text of a cited file at the staged commit, or None when the commit holds no such
+    file: the stage job passes the reader of its checkout and commit, and a check with none judges
+    no citation (#3422)."""
     problems = _delta_problems(proposal, known, requirements or {})
     problems.extend(content_problems(proposal, probes))
+    problems.extend(_plan_citation_problems(proposal, read_text))
     problems.extend(form_problems(proposal.groups))
     problems.extend(path_problems(proposal.groups, tree))
     problems.extend(_what_changes_problems(proposal, tree))
