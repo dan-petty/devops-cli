@@ -301,7 +301,8 @@ class AIMessages:
     )
     hosted_model_unpriced: str = (
         "genai-prices and the price overrides hold no price for model {model} under provider "
-        "{provider}. Its requests are recorded at $0 with the pricing source unknown."
+        "{provider}. Its requests are recorded at $0 with the pricing source unknown. To set a "
+        "price, run 'devops ai cost set-price {model} <prompt_rate> <completion_rate>'."
     )
     reference_model_unpriced: str = (
         "genai-prices and the price overrides hold no price for {model} ({setting}) under "

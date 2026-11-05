@@ -146,19 +146,21 @@ ORDER BY s_cost DESC, t_tokens DESC;
 """
 
 # The backend that served a call decides whether it ran locally, so local usage is tallied by
-# server, provider and serving backend (#1631).
+# server, provider and serving backend (#1631). A gateway reply that names a deployment model and
+# no backend is hosted, so the tally also keeps the deployment model (#3656).
 _QUERY_SERVED_USAGE = """
 SELECT
     server,
     provider,
     served_by,
+    served_model,
     COUNT(*) as req_count,
     COALESCE(SUM(prompt_tokens), 0) as p_tokens,
     COALESCE(SUM(completion_tokens), 0) as c_tokens,
     COALESCE(SUM(CASE WHEN request_type = :embedding THEN prompt_tokens ELSE 0 END), 0) as e_tokens
 FROM ai_spend_records
 WHERE (:cutoff IS NULL OR timestamp >= :cutoff)
-GROUP BY server, provider, served_by;
+GROUP BY server, provider, served_by, served_model;
 """
 
 _QUERY_MODEL_BREAKDOWN = """
@@ -319,6 +321,7 @@ class _ServedUsage(NamedTuple):
     server: str
     provider: str
     served_by: str | None
+    served_model: str | None
     usage: _Usage
 
 
@@ -339,7 +342,10 @@ def _tally_and_annotate_servers(
     hosted: set[tuple[str, str]] = set()
     for group in served:
         if group.server != CONST_RESPONSE_CACHE_SERVER and is_local(
-            server=group.server, provider=group.provider, served_by=group.served_by
+            server=group.server,
+            provider=group.provider,
+            served_by=group.served_by,
+            served_model=group.served_model,
         ):
             local.append(group.usage)
         else:
@@ -663,6 +669,7 @@ class SpendLedger:
                 server=r["server"],
                 provider=r["provider"],
                 served_by=r["served_by"],
+                served_model=r["served_model"],
                 usage=_Usage(
                     requests=int(r["req_count"] or 0),
                     prompt_tokens=int(r["p_tokens"] or 0),

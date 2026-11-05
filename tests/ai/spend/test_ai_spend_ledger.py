@@ -1036,6 +1036,31 @@ def test_the_report_counts_a_gateway_call_as_local_by_the_backend_that_served_it
     ) == (1, 1_000_000, 2.5, [("localhost:4000", False)])
 
 
+def test_the_report_counts_a_hosted_group_that_names_no_backend_as_hosted(tmp_path: Path) -> None:
+    """A hosted group sets no `api_base`, so its reply names a deployment model and no backend.
+    Of two such calls through one loopback gateway, the call of a model with a deployment model
+    is hosted and does not count in local savings, and the call that names none stays with the
+    host that decides."""
+    ledger = SpendLedger(db_path=tmp_path / "spend.db")
+    for model, served_model, cost in (
+        ("claude-haiku-5-5", "anthropic/claude-haiku-5-5", 0.6),
+        ("devops-chat", None, 0.0),
+    ):
+        ledger.record_request(
+            provider="gateway",
+            server="localhost:4000",
+            served_model=served_model,
+            model=model,
+            prompt_tokens=1_000_000,
+            completion_tokens=100_000,
+            cost_usd=cost,
+        )
+
+    report = ledger.get_lifetime_report(reference_model="gpt-4o")
+
+    assert (report.local_requests, report.local_prompt_tokens) == (1, 1_000_000)
+
+
 def _local_chat_and_embedding_ledger(db_path: Path) -> SpendLedger:
     """A ledger with one local chat request and one local embedding request, of 1M tokens each."""
     ledger = SpendLedger(db_path=db_path)
