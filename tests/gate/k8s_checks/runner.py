@@ -1,9 +1,4 @@
-"""The runner of the implement job in namespace devops: the CronJob template, the Role of the
-Service and the network rules of the Service and of the Job (#2667).
-
-Each test reads what `kubectl kustomize k8s/devops` renders, so it reads the objects that Argo
-CD applies.
-"""
+"""The runner CronJob, its service account and its role, as Argo CD renders them (#2164)."""
 
 from __future__ import annotations
 
@@ -13,11 +8,15 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.k8s_manifests import kustomize
+from tests.gate.k8s_render import kustomize
 from tests.support.paths import REPO_ROOT
 
 DEVOPS_DIR = REPO_ROOT / "k8s" / "devops"
+
+
 RUNNER_IMAGE = "ghcr.io/dan-petty/devops-cli/runner"
+
+
 METADATA_ADDRESS = "169.254.169.254/32"
 
 
@@ -48,7 +47,7 @@ def _runner_container() -> dict[str, Any]:
     return container
 
 
-def test_the_runner_cronjob_is_a_suspended_template_that_never_retries() -> None:
+def check_the_runner_cronjob_is_a_suspended_template_that_never_retries() -> None:
     cronjob = _object("CronJob", "devops-cli-runner")
     job = cronjob["spec"]["jobTemplate"]["spec"]
     pod = _cronjob_pod("devops-cli-runner")
@@ -82,7 +81,7 @@ def test_the_runner_cronjob_is_a_suspended_template_that_never_retries() -> None
     )
 
 
-def test_the_runner_bounds_the_workers_of_the_test_runner_to_its_cpu_limit() -> None:
+def check_the_runner_bounds_the_workers_of_the_test_runner_to_its_cpu_limit() -> None:
     """`pytest-xdist` counts the CPUs of the node, not the CPU limit of the pod. On a node with 48
     CPUs a test run started 48 workers of about 280 MB each in a pod with 2 CPUs (#2806)."""
     container = _runner_container()
@@ -91,7 +90,7 @@ def test_the_runner_bounds_the_workers_of_the_test_runner_to_its_cpu_limit() -> 
     assert env["PYTEST_XDIST_AUTO_NUM_WORKERS"] == container["resources"]["limits"]["cpu"]
 
 
-def test_the_runner_pod_is_restricted_and_mounts_no_token() -> None:
+def check_the_runner_pod_is_restricted_and_mounts_no_token() -> None:
     pod = _cronjob_pod("devops-cli-runner")
     container = _runner_container()
     reference = _cronjob_pod("devops-cli")
@@ -109,7 +108,7 @@ def test_the_runner_pod_is_restricted_and_mounts_no_token() -> None:
     )
 
 
-def test_the_runner_container_knows_it_is_a_runner_and_takes_its_credentials_from_the_secret() -> (
+def check_the_runner_container_knows_it_is_a_runner_and_takes_its_credentials_from_the_secret() -> (
     None
 ):
     container = _runner_container()
@@ -126,7 +125,7 @@ def test_the_runner_container_knows_it_is_a_runner_and_takes_its_credentials_fro
     ) == ("true", [{"secretRef": {"name": "devops-cli"}}], "/config/devops-cli.yaml", [], [])
 
 
-def test_the_runner_home_is_an_empty_dir_of_4_gi_and_the_data_dir_lives_in_it() -> None:
+def check_the_runner_home_is_an_empty_dir_of_4_gi_and_the_data_dir_lives_in_it() -> None:
     pod = _cronjob_pod("devops-cli-runner")
     container = _runner_container()
     home = next(v for v in pod["volumes"] if v["name"] == "home")
@@ -140,7 +139,7 @@ def test_the_runner_home_is_an_empty_dir_of_4_gi_and_the_data_dir_lives_in_it() 
     ) == ({"sizeLimit": "4Gi"}, {"home": "/home/devops"}, True, True)
 
 
-def test_every_volume_of_the_runner_has_a_size_limit_inside_the_ephemeral_storage_limit() -> None:
+def check_every_volume_of_the_runner_has_a_size_limit_inside_the_ephemeral_storage_limit() -> None:
     """A step can write as much as it wants into `/tmp`. Without a limit one Job fills the disk
     of its node (#2667), so each volume has a limit and the container has a storage limit that
     covers them both."""
@@ -151,7 +150,7 @@ def test_every_volume_of_the_runner_has_a_size_limit_inside_the_ephemeral_storag
     assert (limits, storage) == ({"tmp": "1Gi", "home": "4Gi"}, "6Gi")
 
 
-def test_the_service_has_its_own_account_and_mounts_a_token_that_expires_in_an_hour() -> None:
+def check_the_service_has_its_own_account_and_mounts_a_token_that_expires_in_an_hour() -> None:
     account = _object("ServiceAccount", "roadmap-service")
     pod = _object("Deployment", "roadmap-service")["spec"]["template"]["spec"]
     (container,) = pod["containers"]
@@ -182,7 +181,7 @@ def test_the_service_has_its_own_account_and_mounts_a_token_that_expires_in_an_h
     )
 
 
-def test_the_jobs_run_as_an_account_with_no_token_and_no_role() -> None:
+def check_the_jobs_run_as_an_account_with_no_token_and_no_role() -> None:
     account = _object("ServiceAccount", "devops-cli")
     subjects = [
         (subject["kind"], subject["name"])
@@ -200,7 +199,7 @@ def test_the_jobs_run_as_an_account_with_no_token_and_no_role() -> None:
     )
 
 
-def test_the_role_of_the_service_holds_five_rules_and_one_binding() -> None:
+def check_the_role_of_the_service_holds_five_rules_and_one_binding() -> None:
     role = _object("Role", "roadmap-service-jobs")
     binding = _object("RoleBinding", "roadmap-service-jobs")
 
@@ -237,7 +236,7 @@ def test_the_role_of_the_service_holds_five_rules_and_one_binding() -> None:
     )
 
 
-def test_no_role_in_the_namespace_reads_a_secret_or_creates_anything_but_jobs() -> None:
+def check_no_role_in_the_namespace_reads_a_secret_or_creates_anything_but_jobs() -> None:
     rules = [
         rule
         for document in _rendered()
@@ -258,7 +257,7 @@ def _egress_to_port(policy: dict[str, Any], port: int) -> list[dict[str, Any]]:
     ]
 
 
-def test_only_the_service_pod_may_reach_the_api_server() -> None:
+def check_only_the_service_pod_may_reach_the_api_server() -> None:
     policy = _object("NetworkPolicy", "roadmap-service-egress")
     perimeter = _object("NetworkPolicy", "devops-default-perimeter")
     others = [
@@ -288,13 +287,13 @@ def test_only_the_service_pod_may_reach_the_api_server() -> None:
 
 
 @pytest.mark.parametrize("name", ["devops-cli", "devops-cli-runner"])
-def test_the_pods_of_jobs_carry_no_label_that_the_service_policy_selects(name: str) -> None:
+def check_the_pods_of_jobs_carry_no_label_that_the_service_policy_selects(name: str) -> None:
     template = _object("CronJob", name)["spec"]["jobTemplate"]["spec"]["template"]
 
     assert template["metadata"]["labels"].get("app.kubernetes.io/name") != "roadmap-service"
 
 
-def test_image_updater_keeps_the_runner_image_on_its_latest_digest() -> None:
+def check_image_updater_keeps_the_runner_image_on_its_latest_digest() -> None:
     values = yaml.safe_load(
         (REPO_ROOT / "k8s" / "argocd" / "image-updater-values.yaml").read_text(encoding="utf-8")
     )

@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 import json
 import re
-import shutil
 import sys
 from collections.abc import Callable, Iterator
 from functools import reduce
@@ -46,7 +45,6 @@ from devops_cli.k8s.gpu_matrix import (
     get_service_aliases,
     list_gpu_profiles,
 )
-from tests.k8s_manifests import kustomize
 from tests.support.markdown_examples import (
     YAML_FENCE_LANGUAGES,
     code_snippets,
@@ -59,7 +57,6 @@ DEFAULT_AI_GATEWAY_CLUSTER_URL: str = "http://llm-gateway.llm.svc.cluster.local:
 GATEWAY_DIR = Path("k8s/llm/gateway")
 # The LiteLLM config; the gateway kustomization generates ConfigMap llm-gateway-config from it.
 GATEWAY_CONFIG = GATEWAY_DIR / "config.yaml"
-LLM_DIR = Path("k8s/llm")
 PROFILES_DIR = Path("k8s/llm/profiles")
 OLLAMA_PROFILES_MANIFEST = PROFILES_DIR / "ollama-profiles.yaml"
 SERVICES_MANIFEST = PROFILES_DIR / "services.yaml"
@@ -131,20 +128,6 @@ def _gateway_config() -> dict[str, Any]:
 def _hosted_models() -> list[dict[str, Any]]:
     """Return the `model_list` entries of the hosted groups, in configuration order."""
     return [m for m in _full_gateway_config()["model_list"] if m["model_name"] in HOSTED_GROUPS]
-
-
-def _rendered_gateway(directory: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Return the gateway Deployment and the ConfigMap its config volume names, as
-    `kubectl apply -k <directory>` applies them; the ConfigMap is empty when none has that name."""
-    documents = [doc for doc in yaml.safe_load_all(kustomize(directory).stdout) if doc]
-    deployment = next(
-        doc
-        for doc in documents
-        if doc["kind"] == "Deployment" and doc["metadata"]["name"] == "llm-gateway"
-    )
-    volumes = {v["name"]: v for v in deployment["spec"]["template"]["spec"]["volumes"]}
-    configmaps = {doc["metadata"]["name"]: doc for doc in documents if doc["kind"] == "ConfigMap"}
-    return deployment, configmaps.get(volumes["config-volume"]["configMap"]["name"], {})
 
 
 def _deployments(group: str) -> list[dict[str, Any]]:
@@ -1882,53 +1865,6 @@ def test_every_gpu_matrix_virtual_model_is_a_group_that_the_gateway_serves() -> 
         bool(virtual_models),
         {place: group for place, group in virtual_models.items() if group in unserved},
     ) == (True, {})
-
-
-@pytest.mark.parametrize("directory", [LLM_DIR, GATEWAY_DIR], ids=["argo-cd", "deploy-stack"])
-def test_the_gateway_mounts_a_config_map_named_by_a_hash_of_its_config(directory: Path) -> None:
-    """Argo CD's `llm` Application renders `k8s/llm` with Kustomize, and deploy-stack applies
-    `k8s/llm/gateway` with `kubectl apply -k`. Both give the gateway ConfigMap
-    `llm-gateway-config-<hash>`, which holds `config.yaml` as git has it, and write that name into
-    the Deployment's config volume. Before #1929 the name had no hash, so a changed config left
-    the pod template as it was, and the gateway served the old config until a person restarted it.
-    """
-    _, configmap = _rendered_gateway(directory)
-    name = configmap.get("metadata", {}).get("name", "")
-
-    assert (
-        re.fullmatch(r"llm-gateway-config-[a-z0-9]{10}", name) is not None,
-        configmap.get("data"),
-    ) == (True, {"config.yaml": GATEWAY_CONFIG.read_text(encoding="utf-8")})
-
-
-def test_a_changed_gateway_config_changes_only_the_config_map_name_in_the_pod_template(
-    tmp_path: Path,
-) -> None:
-    """A change to `config.yaml` alone changes the gateway's pod template, so Kubernetes rolls the
-    Deployment onto the new config and no `kubectl rollout restart` is necessary (#1929). The
-    template changes in the name of its config volume's ConfigMap and in nothing else."""
-    before, after = tmp_path / "before", tmp_path / "after"
-    shutil.copytree(GATEWAY_DIR, before)
-    shutil.copytree(GATEWAY_DIR, after)
-    config = after / "config.yaml"
-    config.write_text(
-        config.read_text(encoding="utf-8").replace("cooldown_time: 30", "cooldown_time: 60"),
-        encoding="utf-8",
-    )
-    (old, old_configmap), (new, new_configmap) = _rendered_gateway(before), _rendered_gateway(after)
-
-    def unnamed(deployment: dict[str, Any]) -> dict[str, Any]:
-        template = copy.deepcopy(deployment["spec"]["template"])
-        for volume in template["spec"]["volumes"]:
-            volume.get("configMap", {}).pop("name", None)
-        return template
-
-    assert (
-        old["spec"]["template"] == new["spec"]["template"],
-        unnamed(old) == unnamed(new),
-        old_configmap["metadata"]["name"] == new_configmap["metadata"]["name"],
-        yaml.safe_load(new_configmap["data"]["config.yaml"])["router_settings"]["cooldown_time"],
-    ) == (False, True, False, 60)
 
 
 # ── The hosted model groups call a provider with a key from the gateway Secret (#3113) ──────────

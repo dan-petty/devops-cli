@@ -101,7 +101,14 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
     RunnerTool(
         "python",
         ToolSource.IMAGE_PIN,
-        ("ci:git", "ci:test-settings"),
+        (
+            "ci:git",
+            "ci:test-settings",
+            "ci:k8s",
+            "ci:startup-imports",
+            "ci:swallowed-failures",
+            "ci:test-tree",
+        ),
         ("python", "--version"),
         pin=f"Python {DEFAULT_PYTHON_VERSION}.",
     ),
@@ -112,7 +119,7 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
         ("ci:docs", "ci:openspec", "ci:zizmor", "hook:openspec-gate"),
         ("devops", "--version"),
     ),
-    _apt("git", "ci:git", "job"),
+    _apt("git", "ci:git", "ci:lint", "ci:constructs", "job"),
     RunnerTool("gh", ToolSource.IMAGE_PIN, ("job",), ("gh", "--version"), pin=GH_VERSION),
     RunnerTool(
         "node",
@@ -181,7 +188,10 @@ def hooks_without_programs(search_path: str | None = None) -> tuple[str, ...]:
 
 
 NOT_IN_RUNNER: dict[str, str] = {
-    "kubectl": _NO_CLUSTER,
+    "kubectl": (
+        "Only the `k8s` row runs it, to render the manifests of `k8s/`. A Job cannot run the "
+        "`k8s` row, so the pull request checks it."
+    ),
     "kustomize": _NO_CLUSTER,
     "helm": _NO_CLUSTER,
     "argo": _NO_CLUSTER,

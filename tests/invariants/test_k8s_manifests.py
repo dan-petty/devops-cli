@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import fnmatch
 import functools
-import os
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -17,10 +16,8 @@ import yaml
 from packaging.version import Version
 
 from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
-from devops_cli.config.constants import CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS
 from devops_cli.config.env import keyring_names, option_env_vars
-from devops_cli.k8s.argocd_overrides import host_patches
 from devops_cli.k8s.cluster_secrets import (
     CLUSTER_SECRETS,
     DEVOPS_CACHE_VALKEY_AUTH_KEY,
@@ -30,7 +27,6 @@ from devops_cli.k8s.cluster_secrets import (
     keyring_only_keys,
     keyring_sources,
 )
-from tests.k8s_manifests import kustomize
 from tests.support.k8s_tree import (
     POD_SPEC_PATHS,
     application_sources,
@@ -803,7 +799,6 @@ def test_the_readers_see_each_value_and_patch_that_reaches_a_checked_object() ->
 
 K8S_DIR = REPO_ROOT / "k8s"
 TABLE_REFS = {secret.ref for secret in CLUSTER_SECRETS}
-DOMAIN = "example.org"
 
 
 def _secret_references(node: Any) -> Iterator[str]:
@@ -986,36 +981,6 @@ def _document_hosts(documents: Iterator[dict[str, Any] | None]) -> list[str]:
             if host := ingress.get("host"):
                 hosts.append(host)
     return hosts
-
-
-def _hosts(rendered: str) -> list[str]:
-    return _document_hosts(yaml.safe_load_all(rendered))
-
-
-def _overlay(tmp_path: Path, source: Path, patches: list[dict]) -> Path:
-    """A kustomization over `source` with `patches`, the way Argo CD builds an Application."""
-    (tmp_path / "kustomization.yaml").write_text(
-        yaml.safe_dump({"resources": [os.path.relpath(source, tmp_path)], "patches": patches}),
-        encoding="utf-8",
-    )
-    return tmp_path
-
-
-@pytest.mark.parametrize("application", CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS)
-def test_kustomize_applies_the_overrides_to_every_host_the_application_renders(
-    application: str, tmp_path: Path
-) -> None:
-    manifest = yaml.safe_load((K8S_DIR / "argocd" / "apps" / f"{application}.yaml").read_text())
-    source = REPO_ROOT / manifest["spec"]["source"]["path"]
-    before = kustomize(source, check=False).stdout
-    after = kustomize(_overlay(tmp_path, source, host_patches(before, DOMAIN)), check=False)
-    hosts = _hosts(after.stdout)
-    assert (
-        after.returncode,
-        len(hosts) == len(_hosts(before)) > 0,
-        [h for h in hosts if "example.com" in h],
-        all("example.org" in h for h in hosts),
-    ) == (0, True, [], True)
 
 
 def test_the_tunnel_section_of_the_k8s_readme_names_only_hosts_that_a_manifest_serves() -> None:

@@ -18,7 +18,6 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     _MANIFESTS_BY_STACK,
 )
 from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
-from tests.k8s_manifests import kustomize, kustomized_objects
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -412,75 +411,7 @@ def test_this_repository_passes_the_argocd_gate() -> None:
     assert len(built) >= 23
 
 
-def test_rendered_raw_objects_single_ownership() -> None:
-    from devops_cli.k8s.argocd_gate import discover_path_applications
-
-    apps = _all_applications()
-    raw_leaf_apps = discover_path_applications(REPO_ROOT, APPS_DIR)
-
-    seen_objects: dict[tuple[str, str, str, str], str] = {}
-    namespaces_declared: list[str] = []
-
-    for app_name, dir_path in raw_leaf_apps.items():
-        assert app_name in apps
-        proc = kustomize(dir_path)
-        docs = list(yaml.load_all(proc.stdout, Loader=yaml.CSafeLoader))
-        for doc in docs:
-            if not doc:
-                continue
-            kind = doc.get("kind", "")
-            meta = doc.get("metadata", {})
-            name = meta.get("name", "")
-            ns = meta.get("namespace", apps[app_name]["spec"]["destination"]["namespace"])
-            group = (
-                doc.get("apiVersion", "").split("/")[0] if "/" in doc.get("apiVersion", "") else ""
-            )
-
-            key = (group, kind, ns, name)
-            if (
-                group == ""
-                and kind == "ConfigMap"
-                and ns == "monitoring"
-                and name.startswith("grafana-")
-            ):
-                continue
-            assert key not in seen_objects, (
-                f"Object {key} already owned by {seen_objects.get(key)}, conflict in {app_name}"
-            )
-            seen_objects[key] = app_name
-
-            if kind == "Namespace":
-                namespaces_declared.append(name)
-
-    assert len(namespaces_declared) == len(set(namespaces_declared)), (
-        "Duplicate namespaces declared"
-    )
-
-
 # ── Data Safety ──────────────────────────────────────────────────────────────
-
-
-def test_namespace_and_pvc_data_safety() -> None:
-    from devops_cli.k8s.argocd_gate import discover_path_applications
-
-    raw_leaf_apps = list(discover_path_applications(REPO_ROOT, APPS_DIR).values())
-
-    for dir_path in raw_leaf_apps:
-        proc = kustomize(dir_path)
-        docs = list(yaml.load_all(proc.stdout, Loader=yaml.CSafeLoader))
-        for doc in docs:
-            if not doc:
-                continue
-            kind = doc.get("kind", "")
-            if kind in ("Namespace", "PersistentVolumeClaim", "Cluster", "Mattermost"):
-                annos = doc.get("metadata", {}).get("annotations", {})
-                sync_opts = annos.get("argocd.argoproj.io/sync-options", "")
-                assert "Prune=false" in sync_opts, (
-                    f"{kind}/{doc['metadata']['name']} missing Prune=false"
-                )
-                assert "Delete=false" in sync_opts, (
-                    f"{kind}/{doc['metadata']['name']} missing Delete=false"
-                )
 
 
 def test_chart_pvc_and_crd_safety_values() -> None:
@@ -528,30 +459,6 @@ def test_argocd_enables_the_web_terminal() -> None:
 # ── Perimeters & Network Policies ────────────────────────────────────────────
 
 
-def test_exactly_one_application_renders_argocd_default_perimeter() -> None:
-    """The argocd-default-perimeter NetworkPolicy is rendered by exactly one Application (#1673)."""
-    apps = _all_applications()
-    rendering_apps: list[str] = []
-    for name, app in apps.items():
-        spec = app.get("spec", {})
-        sources = list(spec.get("sources", []))
-        if "source" in spec and isinstance(spec["source"], dict):
-            sources.append(spec["source"])
-        for src in sources:
-            rel_path = src.get("path")
-            if not rel_path:
-                continue
-            p = REPO_ROOT / rel_path
-            if (p / "kustomization.yaml").is_file() or (p / "kustomization.yml").is_file():
-                policies = kustomized_objects(p, "NetworkPolicy")
-                if ("argocd", "argocd-default-perimeter") in policies:
-                    rendering_apps.append(name)
-    assert rendering_apps == ["argocd"]
-
-    otel_kust = _load_yaml(K8S_DIR / "otel" / "kustomization.yaml")
-    assert "networkpolicy.yaml" in otel_kust.get("resources", [])
-
-
 def test_applicationset_controller_disabled_with_zero_replicas() -> None:
     """The ApplicationSet controller Deployment renders 0 replicas and avoids the obsolete enabled key (#1673)."""
     values = _load_yaml(ARGOCD_DIR / "values.yaml")
@@ -563,19 +470,6 @@ def test_applicationset_controller_disabled_with_zero_replicas() -> None:
 
 
 # ── Domain Overlays ──────────────────────────────────────────────────────────
-
-
-def test_homelab_domain_overlays() -> None:
-    for overlay in ("devops", "ingress"):
-        overlay_dir = K8S_DIR / "overlays" / "homelab" / overlay
-        proc = kustomize(overlay_dir)
-        assert proc.returncode == 0, f"Overlay {overlay} failed to build: {proc.stderr}"
-
-        docs = [d for d in yaml.load_all(proc.stdout, Loader=yaml.CSafeLoader) if d]
-        assert len(docs) > 0, f"No documents rendered for overlay {overlay}"
-        for doc in docs:
-            assert "kind" in doc
-            assert "metadata" in doc
 
 
 # ── Deploy-time homelab values (#1290) ───────────────────────────────────────
@@ -648,7 +542,6 @@ def test_cluster_app_of_apps_ignores_pre_and_post_delete_finalizers_jq() -> None
     """The jqPathExpression matches pre- and post-delete finalizers, preserving resources-finalizer (#1674)."""
     import json
     import shutil
-    import subprocess
 
     spec = _load_yaml(BOOTSTRAP_DIR / "cluster.yaml")["spec"]
     diff_entries = [
@@ -789,33 +682,6 @@ def test_image_updater_keeps_only_application_devops_on_the_digest_of_service_la
             ]
         },
         ["devops"],
-    )
-
-
-def test_no_application_renders_the_devops_cli_config_map_and_no_commit_holds_it() -> None:
-    """The ConfigMap is rendered from the active config at deploy time, never from git."""
-    rendered = kustomize(K8S_DIR / "overlays" / "homelab" / "devops").stdout
-    objects = [
-        (d["kind"], d["metadata"]["name"])
-        for d in yaml.load_all(rendered, Loader=yaml.CSafeLoader)
-        if d
-    ]
-    ignored = subprocess.run(
-        ["git", "check-ignore", "-q", "k8s/devops/configmap.yaml"],
-        cwd=REPO_ROOT,
-        check=False,
-    ).returncode
-    tracked = subprocess.run(
-        ["git", "ls-files", "k8s/devops/configmap.yaml"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    assert (("ConfigMap", "devops-cli-config") in objects, ignored, tracked) == (
-        False,
-        0,
-        "",
     )
 
 
