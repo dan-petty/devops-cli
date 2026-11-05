@@ -600,6 +600,7 @@ def check_proposal(
     probes: Sequence[str] = (),
     overlaps: Sequence[Overlap] = (),
     search_evidence: Mapping[str, Sequence[str]] | None = None,
+    plan_creates: Mapping[str, int] | None = None,
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
@@ -611,7 +612,8 @@ def check_proposal(
     is not empty, `feasibility` quotes one (#3200). `overlaps` lists the open pull requests that
     change a path the item cites: the plan names each in `dependencies` (#3252).
     `search_evidence` maps each negative-search literal to the paths that the staged tree holds:
-    the job records it, the replay reads it from its case, and None records no search."""
+    the job records it, the replay reads it from its case, and None records no search. `plan_creates`
+    maps each path that the plan of an open item creates to that item's number (#3418)."""
     problems = _delta_problems(proposal, known, requirements or {})
     problems.extend(content_problems(proposal, probes))
     problems.extend(form_problems(proposal.groups))
@@ -622,7 +624,16 @@ def check_proposal(
     problems.extend(search_problems(proposal.groups, search_evidence))
     problems.extend(criterion_problems(proposal.criteria, issue_body, len(proposal.groups)))
     problems.extend(_overlap_problems(proposal.dependencies, overlaps))
+    problems.extend(creates_problems(proposal.groups, plan_creates or {}))
     return problems
+
+
+def creates_problems(groups: Sequence[StageGroup], creators: Mapping[str, int]) -> list[str]:
+    """One sentence for each path that a group creates and the plan of an open item creates too
+    (#3418). A path that two groups create gets one sentence."""
+    texts = MESSAGES.roadmap
+    shared = dict.fromkeys(path for group in groups for path in group.creates if path in creators)
+    return [texts.stage_problem_creates.format(number=creators[path], path=path) for path in shared]
 
 
 def _overlap_problems(dependencies: Sequence[str], overlaps: Sequence[Overlap]) -> list[str]:

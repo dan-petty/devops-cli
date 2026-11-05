@@ -39,6 +39,7 @@ from devops_cli.roadmap.refine import (
 from devops_cli.roadmap.stage_paths import StagedTree
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
     from pathlib import Path
 
 _LOG_FORMAT: Final[str] = "--format=%h %as %s"
@@ -200,3 +201,10 @@ def probe_premise(source: Path, sha: str, body: str) -> Probe:
 
 
 __all__ = ["Probe", "probe_premise"]
+
+
+def blocked_by(missing: Iterable[str], creators: Mapping[str, int]) -> tuple[int, ...]:
+    """The open items that create a cited path which the staging commit lacks, sorted, with no
+    number twice. `creators` maps each path that an open item's plan creates to the number of that
+    item (#3418). A path that the commit holds is no dependency, so it is no entry of `missing`."""
+    return tuple(sorted({creators[path] for path in missing if path in creators}))

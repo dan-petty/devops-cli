@@ -16,6 +16,7 @@ import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from devops_cli.config.constants import (
     CONST_OPENSPEC_ARCHIVE_DIR,
@@ -25,7 +26,11 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_PLANNED,
 )
 from devops_cli.roadmap.clone_git import default_branch, git
+from devops_cli.roadmap.plan_read import created_paths
 from devops_cli.roadmap.store import GitHubState, Item
+
+if TYPE_CHECKING:
+    from devops_cli.roadmap.store import RoadmapStore
 
 _ACTIVE = re.compile(CONST_OPENSPEC_CHANGE_DIR_RE)
 _ARCHIVED = re.compile(CONST_OPENSPEC_ARCHIVED_DIR_RE)
@@ -85,3 +90,20 @@ def tasks_on_default(source: Path, planned: PlannedChanges, folder: str, *, oper
     """The text of `tasks.md` of the active change `folder` on `origin/<default>`."""
     path = f"{CONST_OPENSPEC_CHANGES_DIR}/{folder}/tasks.md"
     return git(source, "show", f"origin/{planned.default}:{path}", operation=operation)
+
+
+def open_plan_creates(
+    store: RoadmapStore, source: Path, planned: PlannedChanges, *, operation: str
+) -> dict[str, int]:
+    """The paths that the active change of each open item on the default branch marks `(new)`,
+    each with the number of its item (#3418). A closed item and an archived change create nothing
+    for this purpose, so a plan that a closed item left behind names no dependency."""
+    found: dict[str, int] = {}
+    for number, folder in sorted(planned.active.items()):
+        item = store.item(number)
+        if item is None or item.state is not GitHubState.OPEN:
+            continue
+        tasks = tasks_on_default(source, planned, folder, operation=operation)
+        for path in created_paths(tasks):
+            found.setdefault(path, number)
+    return found

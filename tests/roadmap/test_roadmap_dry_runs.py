@@ -465,6 +465,23 @@ def test_the_stage_plan_reads_the_tracked_files_of_the_clone_once_for_the_round(
     assert listing.condition
 
 
+def test_the_stage_plan_reads_the_tasks_of_each_open_plan_once_for_the_round() -> None:
+    from devops_cli.roadmap.request_plan import stage_requests
+
+    reads, _ = stage_requests(REPO)
+
+    (plans,) = [request for request in reads if request.argv[3:4] == ("show",)]
+    assert plans.argv == (
+        "git",
+        "-C",
+        "<model-clone>",
+        "show",
+        "origin/main:openspec/changes/<change>/tasks.md",
+    )
+    assert plans.repeat
+    assert plans.condition
+
+
 def test_the_implement_plan_reads_the_default_branch_and_lists_the_writes_of_a_planned_item() -> (
     None
 ):

@@ -9,7 +9,7 @@ import pytest
 from devops_cli.config.constants import CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS
 from devops_cli.roadmap import stage_probe
 from devops_cli.roadmap.refine import git_result
-from devops_cli.roadmap.stage_probe import probe_premise
+from devops_cli.roadmap.stage_probe import blocked_by, probe_premise
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -163,3 +163,11 @@ def test_every_command_reads_and_the_checkout_does_not_change(
 
     assert {args[0] for args in ran} == {"cat-file", "grep", "log", "ls-tree"}
     assert repo.git("status", "--porcelain") == ""
+
+
+def test_missing_path_an_open_plan_creates_is_a_dependency(repo: StageRepo) -> None:
+    probe = _probe(repo, f"Add `{GONE}` and change `{LIVE}`.")
+
+    assert probe.missing == (GONE,)
+    assert blocked_by(probe.missing, {GONE: 3308, LIVE: 3309}) == (3308,)
+    assert blocked_by(probe.missing, {LIVE: 3309}) == ()

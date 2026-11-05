@@ -4,18 +4,22 @@ each item once by its result, and fails for the items that failed (#2659)."""
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from devops_cli.ai.client.models import AIClientError
+from devops_cli.config.constants import CONST_ROADMAP_STATUS_NEW
 from devops_cli.exceptions import GitOperationError
+from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap import run
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.refine import NextStep
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, FailureLedger, JobOutcome, run_due_jobs
 from devops_cli.roadmap.stage_change import StageSplit
-from devops_cli.roadmap.store import ItemField, StageRecordKey
+from devops_cli.roadmap.store import ItemField, RefineRecordKey, StageRecordKey
 from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
@@ -356,3 +360,63 @@ def test_three_rounds_that_fail_outside_any_item_suspend_the_row(
 
     assert outcomes == ["RoadmapRunError"] * 3
     assert ledger.causes(STAGE_REPO, "stage") == ("GitOperationError",) * 3
+
+
+NEW_MODULE = "src/devops_cli/roadmap/stage_constants.py"
+OPEN_PLAN = f"""\
+# Tasks
+
+## 1. The constants
+
+Reads: `src/devops_cli/shout.py`. Changes: `{NEW_MODULE}` (new).
+
+- [ ] Add `{NEW_MODULE}`
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_constants.py`
+"""
+
+
+def test_dependency_returns_item_without_model_call(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    """An item that cites a path which an open plan creates goes back to New with that plan's
+    item in `refine.blocked_by`, and the round makes no model call (#3418)."""
+    get_github_rate_limiter().update_quota(
+        "graphql", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+    )
+    github_api.route(
+        "POST",
+        "/graphql",
+        github_json(
+            {
+                "data": {
+                    "repository": {
+                        "pullRequests": {
+                            "nodes": [],
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        }
+                    }
+                }
+            }
+        ),
+    )
+    open_plan = store.seed_issue(
+        "fix(roadmap): add the stage constants",
+        body="The stage job reads constants.",
+        labels=("type/bug",),
+        fields={ItemField.STATUS: "Planned", ItemField.PRIORITY: "P1-High"},
+    )
+    merge_plan(stage_repo, open_plan, tasks=OPEN_PLAN)
+    target = seed_stageable(store, body=f"The job needs `{NEW_MODULE}`.")
+
+    _round(store, stage_repo)
+
+    held = store.item(target)
+    assert held is not None
+    assert model_fake.calls == []
+    assert held.status == CONST_ROADMAP_STATUS_NEW
+    assert held.job_record[RefineRecordKey.BLOCKED_BY] == str(open_plan)
+    assert held.job_record[RefineRecordKey.NEXT_STEP] == NextStep.BLOCKED.value
+    assert any(f"#{open_plan}" in comment.body for comment in store.comments_on(target))

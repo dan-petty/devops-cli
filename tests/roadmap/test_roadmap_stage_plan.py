@@ -51,8 +51,10 @@ from devops_cli.roadmap.stage_criteria import StageCriterion
 from devops_cli.roadmap.stage_paths import StagedTree
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage_validate import validate_change
+from devops_cli.roadmap.store import ItemField
 from tests.support.builders import make_stage_proposal, stage_summary_limit
 from tests.support.fakes.github import github_json
+from tests.support.roadmap_implement import merge_plan
 from tests.support.roadmap_stage import (
     NO_FILES,
     STAGE_REPO,
@@ -1121,6 +1123,59 @@ def test_a_split_reply_with_a_missing_path_goes_back_to_the_model_once(
     assert len(plan.ready) == 1
 
 
+OPEN_CREATED = "src/devops_cli/roadmap/open_module.py"
+
+
+def _open_plan_creating(path: str) -> str:
+    """The tasks of an open item's plan that marks `path` as created."""
+    return (
+        "# Tasks\n\n## 1. The module\n\n"
+        f"Reads: `src/devops_cli/shout.py`. Changes: `{path}` (new).\n\n"
+        f"- [ ] Add `{path}`\n"
+        "  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_constants.py`\n"
+    )
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_split_reply_that_creates_a_path_an_open_plan_creates_goes_back_to_the_model_once(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    """A split reply is a plan too: a group that creates a path which an open plan creates goes
+    back to the model once, as a first reply does (#3418)."""
+    open_item = store.seed_issue(
+        "fix(roadmap): the open item",
+        labels=("type/bug",),
+        fields={ItemField.STATUS: "Planned", ItemField.PRIORITY: "P1-High"},
+    )
+    merge_plan(stage_repo, open_item, tasks=_open_plan_creating(OPEN_CREATED))
+    heavy = heavy_group(stage_repo)
+    shared = StageGroup.model_validate(
+        {
+            **make_stage_proposal().groups[0].model_dump(),
+            "title": "Shared",
+            "kind": "other",
+            "test": None,
+            "reads": [],
+            "changes": [OPEN_CREATED],
+            "creates": [OPEN_CREATED],
+            "creates_lines": {OPEN_CREATED: 10},
+            "implementation": "Keep the last comment",
+            "verify": "uv run devops ci docs",
+        }
+    )
+    model_fake.answer(
+        make_stage_proposal(groups=[heavy]),
+        StageSplit(groups=[shared]),
+        make_stage_proposal(),
+    )
+
+    plan = _plan(store, stage_repo, step_tokens=6000)
+
+    assert OPEN_CREATED in _requests(model_fake)[2]["problem"]
+    assert model_fake.call_count == 3
+    assert [g.group.title for g in plan.ready[0].groups] == ["Keep the last comment"]
+
+
 @pytest.mark.usefixtures("openspec")
 @pytest.mark.parametrize(
     "verify",
@@ -1945,3 +2000,23 @@ def test_the_prompts_say_what_the_criteria_list_holds(task: str) -> None:
     assert "`criteria`" in prompt
     assert "`pending-person`" in prompt
     assert "counted from 1" in prompt
+
+
+def test_check_proposal_refuses_path_an_open_plan_creates() -> None:
+    """A plan that creates a path which the plan of an open item also creates is refused, and the
+    problem names the path and the item (#3418)."""
+    plan = make_stage_proposal()
+
+    problems = check_proposal(
+        plan, ["comment-thread"], SAMPLE_TREE, plan_creates={"tests/test_sample.py": 3308}
+    )
+
+    assert len(problems) == 1
+    assert "tests/test_sample.py" in problems[0]
+    assert "#3308" in problems[0]
+    assert (
+        check_proposal(
+            plan, ["comment-thread"], SAMPLE_TREE, plan_creates={"src/devops_cli/other.py": 3308}
+        )
+        == []
+    )

@@ -1555,7 +1555,7 @@ def _recorded_step(item: Item) -> NextStep | None:
         return None
 
 
-def _recorded_blockers(item: Item) -> list[int]:
+def recorded_blockers(item: Item) -> list[int]:
     """The open items the item's last refine round found blocking it."""
     recorded = item.job_record.get(RefineRecordKey.BLOCKED_BY) or ""
     return [int(part) for part in recorded.split(",") if part.strip().isdecimal()]
@@ -1717,7 +1717,7 @@ def _still_waiting(
         case NextStep.EDIT:
             return WaitingItem(item, step)
         case NextStep.BLOCKED:
-            blockers = [number for number in _recorded_blockers(item) if _is_open(store, number)]
+            blockers = [number for number in recorded_blockers(item) if _is_open(store, number)]
             if not blockers:
                 return None
             details = tuple(f"#{number}" for number in blockers)

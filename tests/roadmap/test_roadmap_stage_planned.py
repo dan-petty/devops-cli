@@ -11,6 +11,7 @@ import pytest
 
 from devops_cli.exceptions import GitOperationError
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.planned import open_plan_creates, read_planned_changes
 from devops_cli.roadmap.stage import StagePlan, parse_filters, plan_stage
 from devops_cli.roadmap.store import GitHubState, ItemField, StageRecordKey
 from tests.support.builders import make_stage_proposal
@@ -214,3 +215,62 @@ def test_a_stale_stage_record_with_no_plan_on_main_stages_the_item_again(
 
     assert [change.target.item.number for change in plan.ready] == [number]
     assert plan.left_out == ()
+
+
+CLOSED_PATH = "src/devops_cli/roadmap/closed_module.py"
+OPEN_PATH = "src/devops_cli/roadmap/open_module.py"
+
+
+def _plan_creating(path: str) -> str:
+    return (
+        "# Tasks\n\n## 1. The module\n\n"
+        f"Reads: `src/devops_cli/shout.py`. Changes: `{path}` (new).\n\n"
+        f"- [ ] Add `{path}`\n"
+        "  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_constants.py`\n"
+    )
+
+
+def test_closed_plan_naming_a_path_is_no_dependency(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo
+) -> None:
+    """The plan of a closed item creates nothing for the stage job, and the plan of an open item
+    does (#3418)."""
+    closed = store.seed_issue(
+        "fix(roadmap): the closed item",
+        state=GitHubState.CLOSED,
+        labels=("type/bug",),
+        fields={ItemField.STATUS: "Done", ItemField.PRIORITY: "P1-High"},
+    )
+    open_item = store.seed_issue(
+        "fix(roadmap): the open item",
+        labels=("type/bug",),
+        fields={ItemField.STATUS: "Planned", ItemField.PRIORITY: "P1-High"},
+    )
+    merge_plan(stage_repo, closed, tasks=_plan_creating(CLOSED_PATH))
+    merge_plan(stage_repo, open_item, tasks=_plan_creating(OPEN_PATH))
+
+    planned = read_planned_changes(stage_repo.clone, operation="stage")
+    creators = open_plan_creates(store, stage_repo.clone, planned, operation="stage")
+
+    assert creators == {OPEN_PATH: open_item}
+
+
+ARCHIVED_PATH = "src/devops_cli/roadmap/archived_module.py"
+
+
+def test_archived_plan_naming_a_path_is_no_dependency(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo
+) -> None:
+    """The plan of an archived change creates nothing for the stage job, even when its item is
+    still open (#3418)."""
+    open_item = store.seed_issue(
+        "fix(roadmap): the open item",
+        labels=("type/bug",),
+        fields={ItemField.STATUS: "Planned", ItemField.PRIORITY: "P1-High"},
+    )
+    merge_plan(stage_repo, open_item, tasks=_plan_creating(ARCHIVED_PATH), archived=True)
+
+    planned = read_planned_changes(stage_repo.clone, operation="stage")
+    creators = open_plan_creates(store, stage_repo.clone, planned, operation="stage")
+
+    assert creators == {}
