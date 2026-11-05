@@ -1,9 +1,9 @@
 """A read-only MCP tool publishes no option that writes (#3235).
 
-A role server and a client choose tools by the `readOnlyHint` of the exposure table. A tool that
-the table marks read-only but that has an option to resolve, write, delete or create would give
-a model a write that the flag says it cannot make. The help text of an option is the signal: the
-generator copies it into the description of the published parameter.
+A role server and a client choose tools by the `readOnlyHint` of the exposure table. A read-only
+tool must not give a model a write. The help text of an option is the signal. The generator copies
+it into the description of the published parameter. The rule finds an option whose description
+holds the verb resolve, write, delete or create. A person reads each other option.
 """
 
 from __future__ import annotations
@@ -22,9 +22,9 @@ from pydantic import Field
 from devops_cli.ai.mcp.generator import resolve_click_command
 from devops_cli.ai.mcp.server import mcp
 
-# The write verbs of the issue, in the forms that say what an option does: the base form, the
-# `-s` form and the `-ing` form. A past form ("resolved via 'extends'") describes a result, not a
-# write, so it does not match.
+# The write verbs of the issue, in the forms that say what an option does. The forms are the base
+# form, the `-s` form and the `-ing` form. A past form ("resolved via 'extends'") describes a
+# result and not a write, so it does not match.
 _WRITE_STEMS = ("resolv", "writ", "delet", "creat")
 _WRITE_WORD = re.compile(r"\b(?:" + "|".join(_WRITE_STEMS) + r")(?:e|es|ing)\b", re.IGNORECASE)
 
@@ -138,7 +138,8 @@ def test_no_read_only_tool_publishes_a_write_option() -> None:
     [
         ("pr_check_readiness", "auto_resolve"),
         ("roadmap_refine", "confirm"),
-        ("tf_plan", "out"),
+        ("roadmap_run", "confirm"),
+        ("ci", "fix"),
     ],
 )
 def test_a_tool_that_keeps_a_writing_option_is_not_read_only(tool_name: str, option: str) -> None:
@@ -153,10 +154,19 @@ def test_the_readiness_command_keeps_its_auto_resolve_option() -> None:
     assert "--auto-resolve" in _flags(("pr", "check-readiness"))
 
 
-def test_the_injection_scan_stays_read_only_and_publishes_no_sarif_option() -> None:
-    """The scan prints its findings, so its tool leaves out the option that writes a file."""
-    tool = _published("scan_injection")
+@pytest.mark.parametrize(
+    ("tool_name", "path", "option", "flag"),
+    [
+        ("scan_injection", ("scan", "injection"), "sarif", "--sarif"),
+        ("tf_plan", ("tf", "plan"), "out", "--out"),
+    ],
+)
+def test_a_read_only_tool_leaves_out_an_option_that_writes_a_file(
+    tool_name: str, path: tuple[str, ...], option: str, flag: str
+) -> None:
+    """The command keeps the option for a person. Its tool takes no path that the command writes."""
+    tool = _published(tool_name)
 
     assert _read_only(tool) is True
-    assert "sarif" not in tool.parameters["properties"]
-    assert "--sarif" in _flags(("scan", "injection"))
+    assert option not in tool.parameters["properties"]
+    assert flag in _flags(path)

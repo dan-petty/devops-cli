@@ -101,6 +101,11 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
         ),
         "required": frozenset(),
     },
+    # No `out`: a path that the model gives would make the command write a file (#3235).
+    ("tf", "plan"): {
+        "allowed": frozenset({"directory", "var_file", "destroy", "dry_run"}),
+        "required": frozenset(),
+    },
     # No `output`: the command prints the stream, so the model needs no file.
     ("k8s", "security-stream"): {
         "allowed": frozenset(
