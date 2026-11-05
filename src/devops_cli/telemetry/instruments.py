@@ -257,6 +257,31 @@ ROADMAP_STAGE_TOTAL = Instrument(
     "group over the budget, failed for an item that failed in the plan or in the writes, and "
     "skipped for an item the job left out with a reason. A plan with no write counts nothing",
 )
+ROADMAP_AGE_LABELS = ("repo", "state", "plan")
+"""The labels of `ROADMAP_ITEM_AGE` and `ROADMAP_OLDEST_ITEM`, in the order the dashboard names them."""
+ROADMAP_ITEM_AGE = Instrument(
+    "devops_cli_roadmap_item_age_seconds",
+    InstrumentKind.GAUGE,
+    "s",
+    "Age of the oldest open roadmap item in each status, by repo, state and plan. The state is "
+    "the status, and plan is true when the item holds a stage pull request that waits for a "
+    "person. The age is the time since the status label was set. Zero when no item is in the "
+    "pair",
+)
+ROADMAP_OLDEST_ITEM = Instrument(
+    "devops_cli_roadmap_oldest_item_number",
+    InstrumentKind.GAUGE,
+    "1",
+    "Issue number of the oldest open roadmap item of each pair of repo, state and plan that "
+    "devops_cli_roadmap_item_age_seconds reports. Zero when no item is in the pair",
+)
+ROADMAP_CLAIM_AGE = Instrument(
+    "devops_cli_roadmap_claim_age_seconds",
+    InstrumentKind.GAUGE,
+    "s",
+    "Age of the oldest claim on an open roadmap item, by repo. The age is the time since the "
+    "owner label was set. Zero when no open item holds a claim",
+)
 EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
     "devops_cli_embedding_cache_lookups_total",
     InstrumentKind.COUNTER,
@@ -459,6 +484,9 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL,
     ROADMAP_ALTERNATIVES_TOTAL,
     ROADMAP_STAGE_TOTAL,
+    ROADMAP_ITEM_AGE,
+    ROADMAP_OLDEST_ITEM,
+    ROADMAP_CLAIM_AGE,
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
     EMBEDDING_CACHE_SIZE,
     RAG_EMBEDDING_BATCH_SIZE,
@@ -578,7 +606,11 @@ __all__ = [
     "RAG_QUERY_DURATION",
     "RAG_STOPS_TOTAL",
     "REVIEW_DURATION",
+    "ROADMAP_AGE_LABELS",
     "ROADMAP_ALTERNATIVES_TOTAL",
+    "ROADMAP_CLAIM_AGE",
+    "ROADMAP_ITEM_AGE",
+    "ROADMAP_OLDEST_ITEM",
     "ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL",
     "ROADMAP_STAGE_TOTAL",
     "SUBCOMMAND_DURATION",

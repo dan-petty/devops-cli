@@ -30,6 +30,7 @@ from devops_cli.ai.spend.ledger import SpendLedger, track_request_spend
 from devops_cli.ai.spend.pricing import get_pricing_registry
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
+from devops_cli.telemetry import instruments as instruments_module
 from devops_cli.telemetry import tracer as tracer_module
 from devops_cli.telemetry.exporter import OtlpSignal
 from devops_cli.telemetry.instruments import (
@@ -398,6 +399,28 @@ def test_the_release_panel_shows_an_item_in_no_release_as_unreleased() -> None:
     assert queries["Active Items by State"] == (
         "sum by (state) (last_over_time(devops_cli_project_items[$__range]))"
     )
+
+
+ROADMAP_AGE_GAUGE_NAMES = (
+    "devops_cli_roadmap_item_age_seconds",
+    "devops_cli_roadmap_oldest_item_number",
+    "devops_cli_roadmap_claim_age_seconds",
+)
+
+
+def test_the_roadmap_age_gauges_are_declared_gauges_with_their_units_and_labels() -> None:
+    """The gauges of the age of the oldest roadmap item, of its number and of the oldest claim
+    (#2919) are gauges in INSTRUMENTS. The item age and the claim age carry the unit `s`. The
+    item gauges take the labels `repo`, `state` and `plan`, and their descriptions name them."""
+    declared = {instrument.name: instrument for instrument in INSTRUMENTS}
+    assert [name for name in ROADMAP_AGE_GAUGE_NAMES if name not in declared] == []
+
+    item_age, oldest_item, claim_age = (declared[name] for name in ROADMAP_AGE_GAUGE_NAMES)
+    assert [item_age.kind, oldest_item.kind, claim_age.kind] == [InstrumentKind.GAUGE] * 3
+    assert [item_age.unit, oldest_item.unit, claim_age.unit] == ["s", "1", "s"]
+    labels = tuple(getattr(instruments_module, "ROADMAP_AGE_LABELS", ()))
+    assert labels == ("repo", "state", "plan")
+    assert all(label in gauge.description for gauge in (item_age, oldest_item) for label in labels)
 
 
 def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sends() -> None:
