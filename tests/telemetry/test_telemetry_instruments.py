@@ -379,25 +379,51 @@ def _emit_attributes(call: ast.Call) -> ast.expr | None:
     return next((keyword.value for keyword in call.keywords if keyword.arg == "attributes"), None)
 
 
+def _attribute_keys(
+    node: ast.expr | None,
+    assigned: dict[str, list[ast.expr]],
+    seen: frozenset[str] = frozenset(),
+) -> set[str]:
+    """The constant keys of the attributes of an `emit()` call: a dict display, the dict displays
+    that a name holds anywhere in the module, and each dict that `**` unpacks."""
+    if isinstance(node, ast.Dict):
+        keys: set[str] = set()
+        for key, value in zip(node.keys, node.values, strict=True):
+            if key is None:
+                keys |= _attribute_keys(value, assigned, seen)
+            elif isinstance(key, ast.Constant) and isinstance(key.value, str):
+                keys.add(key.value)
+        return keys
+    if isinstance(node, ast.Name) and node.id not in seen:
+        return {
+            key
+            for value in assigned.get(node.id, [])
+            for key in _attribute_keys(value, assigned, seen | {node.id})
+        }
+    return set()
+
+
 def _emits_with_a_resource_label(tree: ast.AST, label: str) -> list[str]:
-    """Each `emit()` call of a module, as `<label>:<line>`, whose attribute dict has the key
-    `job` or `instance`."""
+    """Each `emit()` call of a module, as `<label>:<line>`, whose attributes have the key `job` or
+    `instance`: in a dict display, in a name that holds one, or in a dict that `**` unpacks."""
     emit_names, _ = _declared_instrument_imports(tree)
-    emits = [
-        node
+    assigned: dict[str, list[ast.expr]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target, value = node.targets[0], node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            target, value = node.target, node.value
+        else:
+            continue
+        if isinstance(target, ast.Name):
+            assigned.setdefault(target.id, []).append(value)
+    named = [
+        node.lineno
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id in emit_names
-    ]
-    named = [
-        call.lineno
-        for call in emits
-        if isinstance(attributes := _emit_attributes(call), ast.Dict)
-        and any(
-            isinstance(key, ast.Constant) and key.value in _RESOURCE_LABELS
-            for key in attributes.keys
-        )
+        and _attribute_keys(_emit_attributes(node), assigned) & _RESOURCE_LABELS
     ]
     return [f"{label}:{line}" for line in sorted(named)]
 
@@ -417,18 +443,28 @@ def test_no_emit_sends_an_attribute_that_the_resource_sets() -> None:
     assert found == []
 
 
-def test_the_resource_label_check_names_a_job_attribute_and_passes_a_row_attribute() -> None:
+def test_the_resource_label_check_names_a_job_attribute_in_each_form_and_passes_a_row_attribute() -> (
+    None
+):
     module = (
         "from devops_cli.telemetry.instruments import COMMAND_TOTAL, emit\n"
         'emit(COMMAND_TOTAL, 1.0, {"job": "stage"})\n'
         'emit(COMMAND_TOTAL, 1.0, {"row": "stage"})\n'
         'emit(COMMAND_TOTAL, 1.0, attributes={"instance": "a", "row": "stage"})\n'
         "emit(COMMAND_TOTAL, 1.0)\n"
+        'labels = {"job": "stage"}\n'
+        "emit(COMMAND_TOTAL, 1.0, labels)\n"
+        'emit(COMMAND_TOTAL, 1.0, {**labels, "x": 1})\n'
+        'row = {"row": "stage"}\n'
+        'emit(COMMAND_TOTAL, 1.0, {**row, "x": 1})\n'
+        "emit(COMMAND_TOTAL, 1.0, row)\n"
     )
 
     assert _emits_with_a_resource_label(ast.parse(module), "example.py") == [
         "example.py:2",
         "example.py:4",
+        "example.py:7",
+        "example.py:8",
     ]
 
 
