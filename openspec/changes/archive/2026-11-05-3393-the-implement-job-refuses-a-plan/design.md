@@ -8,7 +8,9 @@
 - **Read the base specs at `origin/<default>` for both kinds of item.** The spec-delta gate and the criteria gate judge the plan against the living specs, not against a branch that may hold an old copy.
 - **Leave a refused item out with the first problem as its reason.** `plan_implement` selects and plans without a write to git or to GitHub, and a `LeftOut` reason already reaches `devops roadmap explain` and the implement report.
 - **Leave an item out when the plan cannot be read.** `read_change` raises `PlanReadError`, and a git read raises `GitOperationError`. A broken plan is no reason to stop the other items, so the judge returns a reason and the run goes on.
-- **Move the revision readers of `plan_check` to `plan_read` and make them public.** `files_at`, `file_texts_at` and `change_root` are the reads that both jobs need. A second copy in `implement.py` would let the two readers drift.
+- **Move the revision readers of `plan_check` to `plan_read` and make them public.** `tree_files`, `files_at`, `change_root` and `specs_at` are the reads that both jobs need. A second copy in `implement.py` would let the two readers drift. `plan_check` imports the GitHub client and the request planner, and `plan_read` imports neither, so the implement job takes the readers from `plan_read`.
+- **Read the base specs once for each `plan_implement` call.** `specs_at` runs one `git show` for each spec file, and the judge runs for each item of a walk. The judge keeps the result of the first read.
+- **Judge the criteria with the current body of the item.** The stage job passes `target.item.body` (`stage.py`), and the plan re-check passes the held body (`plan_recheck.py`). The implement job passes `item.body` in the same way, so the three jobs judge one plan with one body.
 
 ## Rejected alternatives
 

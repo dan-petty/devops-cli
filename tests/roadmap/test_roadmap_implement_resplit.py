@@ -49,7 +49,7 @@ THREE_GROUPS_TASKS = """\
 
 ## 1. The first group
 
-Reads: `src/devops_cli/shout.py`. Changes: `src/devops_cli/shout.py`.
+Reads: `CONTEXT.md`. Changes: `src/devops_cli/shout.py` (new).
 
 - [ ] 1.1 First task
   - Verification: `uv run devops ci test tests/test_shout.py`
@@ -330,7 +330,7 @@ def test_a_second_group_over_the_limit_stops_the_item_as_plan_defect(
 
 ## 1. The first group
 
-Reads: `src/devops_cli/shout.py`. Changes: `src/devops_cli/shout.py`.
+Reads: `CONTEXT.md`. Changes: `src/devops_cli/shout.py` (new).
 
 - [ ] 1.1 First task
   - Verification: `uv run devops ci test tests/test_shout.py`

@@ -19,9 +19,19 @@ from tests.support.roadmap_implement import BRANCH, TASKS_PATH, JobWorld
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 FILES = 5
-TASKS_OF_FIVE = "# Tasks\n\n## 1. The five files\n\n" + "".join(
-    f"- [ ] Add `src/devops_cli/f{i}.py`\n  - Verification: `uv run devops ci test tests/test_f{i}.py`\n"
+FILES_AND_TESTS = ", ".join(
+    f"`{path}` (new)"
     for i in range(1, FILES + 1)
+    for path in (f"src/devops_cli/f{i}.py", f"tests/test_f{i}.py")
+)
+TASKS_OF_FIVE = (
+    "# Tasks\n\n## 1. The five files\n\n"
+    f"Reads: `CONTEXT.md`. Changes: {FILES_AND_TESTS}.\n\n"
+    + "".join(
+        f"- [ ] 1.{i} Add `src/devops_cli/f{i}.py`\n  - Verification: `uv run devops ci test tests/test_f{i}.py`\n"
+        for i in range(1, FILES + 1)
+    )
+    + "\n## Criteria\n\n- Group 1: The job keeps every comment.\n"
 )
 PLAN = "fix(roadmap): plan"
 
@@ -109,8 +119,8 @@ def test_a_second_job_does_only_the_remaining_tasks_and_folds_the_kept_work(
     assert held is not None
     assert applied.ready == (1,)
     group = message.split("# Your group")[1].split("# The tasks file")[0]
-    assert group.count("- [x] Add") == 3
-    assert group.count("- [ ] Add") == 2
+    assert group.count("- [x] 1.") == 3
+    assert group.count("- [ ] 1.") == 2
     subjects = job_world.origin_log()
     assert not [subject for subject in subjects if subject.startswith("wip:")]
     assert "implement.wip" not in {k for k, v in held.job_record.items() if v}

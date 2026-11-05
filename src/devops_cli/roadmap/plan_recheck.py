@@ -29,8 +29,14 @@ from typing import Final
 from devops_cli.config.constants import CONST_OPENSPEC_CHANGES_DIR
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
-from devops_cli.roadmap.plan_check import files_at, specs_at, tree_files
-from devops_cli.roadmap.plan_read import PlanReadError, created_paths, read_change
+from devops_cli.roadmap.plan_read import (
+    PlanReadError,
+    created_paths,
+    files_at,
+    read_change,
+    specs_at,
+    tree_files,
+)
 from devops_cli.roadmap.planned import read_planned_changes
 from devops_cli.roadmap.stage_change import check_proposal
 from devops_cli.roadmap.stage_paths import StagedTree
@@ -145,7 +151,7 @@ def _record(shared: _Pass, issue: int, folder: str) -> PlanRecord:
         )
     root = f"{CONST_OPENSPEC_CHANGES_DIR}/{folder}"
     names = [path for path in shared.paths if path.startswith(f"{root}/")]
-    files = files_at(shared.source, shared.rev, names)
+    files = files_at(shared.source, shared.rev, names, operation=GIT_OPERATION)
     tasks = files.get(f"{root}/{_TASKS}", "")
     verified = any(group.verification_commands for group in parse_task_groups(tasks))
     created = created_paths(tasks)
@@ -191,8 +197,8 @@ def recheck_plans(source: Path, store: RoadmapStore, *, tool: OpenSpecTool) -> P
     tells which issues are closed. The pass reads and writes nothing else."""
     planned = read_planned_changes(source, operation=GIT_OPERATION)
     rev = f"origin/{planned.default}"
-    paths = tree_files(source, rev)
-    known, requirements = specs_at(source, rev)
+    paths = tree_files(source, rev, operation=GIT_OPERATION)
+    known, requirements = specs_at(source, rev, operation=GIT_OPERATION)
     shared = _Pass(
         source=source,
         rev=rev,
