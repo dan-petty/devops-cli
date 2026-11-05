@@ -34,8 +34,8 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/inbox.py` (lines 77 to 88, 286 to
 
 Kind: other. Reads: `docs/roadmap/inbox.md`, `src/devops_cli/lang/en/help.py` (lines 1569 to 1578). Changes: `docs/roadmap/inbox.md`, `src/devops_cli/lang/en/help.py`, `README.md` when the generator changes it.
 
-- [ ] 5.1 In `src/devops_cli/lang/en/help.py`, state the classes, the default repositories, the option `--kind` and the marks of the command help. Run `uv run devops docs generate --sync-readme`. Verification: `uv run devops roadmap inbox --help` names `--kind`, and `uv run devops ci docs` passes.
-- [ ] 5.2 Rewrite `docs/roadmap/inbox.md` for the classes in their order, the repositories that the command reads, the two settings, the counts and the filter. Verification: `uv run devops ci docs` passes.
+- [x] 5.1 In `src/devops_cli/lang/en/help.py`, state the classes, the default repositories, the option `--kind` and the marks of the command help. Run `uv run devops docs generate --sync-readme`. Verification: `uv run devops roadmap inbox --help` names `--kind`, and `uv run devops ci docs` passes.
+- [x] 5.2 Rewrite `docs/roadmap/inbox.md` for the classes in their order, the repositories that the command reads, the two settings, the counts and the filter. Verification: `uv run devops ci docs` passes.
 
 ## Criteria
 
