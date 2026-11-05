@@ -17,6 +17,7 @@ import pytest
 import typer
 from fastmcp import FastMCP
 from fastmcp.tools import Tool
+from typer._click.types import File as TyperFile
 from typer.models import TyperPath
 
 from devops_cli.ai.mcp.generator import _create_tool_function, resolve_click_command
@@ -26,7 +27,7 @@ from devops_cli.ai.mcp.path_confinement import (
     PATH_CONFINEMENTS,
 )
 from devops_cli.ai.mcp.server import mcp
-from devops_cli.config.constants import CONST_MCP_EXPOSURE_TABLE
+from devops_cli.config.constants import CONST_EXIT_FAILURE, CONST_MCP_EXPOSURE_TABLE
 from devops_cli.core.paths import _PATH_PARAM_KEYWORDS, validate_path_parameter
 from devops_cli.exceptions import SandboxValidationError, SecurityError, ValidationError
 
@@ -95,11 +96,15 @@ def _exposed_commands() -> dict[str, Any]:
 
 
 def _typed_as_path(command: Any) -> set[str]:
-    """The options of a command that Typer reads from a `Path` annotation.
+    """The options of a command that Typer reads from a path.
 
-    The type at this version is `typer.models.TyperPath`. It is not a `click.Path`.
+    A `Path` annotation gives `typer.models.TyperPath`, and a `FileText` or `FileBinaryRead`
+    annotation gives `typer._click.types.File`, which Typer opens from a path. Neither type is a
+    `click.Path`.
     """
-    return {param.name for param in command.params if isinstance(param.type, TyperPath)}
+    return {
+        param.name for param in command.params if isinstance(param.type, (TyperPath, TyperFile))
+    }
 
 
 def _path_parameters(tools: Sequence[Tool], commands: Mapping[str, Any]) -> dict[str, set[str]]:
@@ -146,6 +151,10 @@ def _undecided(found: Mapping[str, set[str]]) -> list[str]:
 
 
 def _probe_with_a_path_option(thing: Annotated[Path, typer.Option("--thing")]) -> None:
+    return None
+
+
+def _probe_with_a_file_option(thing: Annotated[typer.FileText, typer.Option("--thing")]) -> None:
     return None
 
 
@@ -201,6 +210,16 @@ def _record(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 
 def test_the_audit_fails_on_a_path_option_with_no_keyword_and_no_decision() -> None:
     tools, commands = _generated_probe(_probe_with_a_path_option)
+
+    found = _path_parameters(tools, commands)
+
+    assert found == {"probe": {"thing"}}
+    assert _undecided(found) == ["probe.thing"]
+
+
+def test_the_audit_fails_on_a_file_option_with_no_keyword_and_no_decision() -> None:
+    """Typer opens a `FileText` option from a path, so its Click type is `File`, not `Path`."""
+    tools, commands = _generated_probe(_probe_with_a_file_option)
 
     found = _path_parameters(tools, commands)
 
@@ -315,7 +334,11 @@ def test_a_traversal_value_of_each_confined_option_is_refused_before_a_command_r
     with pytest.raises(ValidationError) as caught:
         _tool(path)(**required, **{parameter: value})
 
-    assert caught.value.details["field"] == parameter
+    assert (caught.value.error_code, caught.value.exit_code, caught.value.details["field"]) == (
+        "VALIDATION_ERROR",
+        CONST_EXIT_FAILURE,
+        parameter,
+    )
     assert calls == []
 
 
@@ -355,7 +378,11 @@ def test_a_sandbox_workspace_outside_the_work_tree_is_refused(
     with pytest.raises(ValidationError) as caught:
         _tool(path)(**required, workspace=str(outside))
 
-    assert caught.value.details["field"] == "workspace"
+    assert (caught.value.error_code, caught.value.exit_code, caught.value.details["field"]) == (
+        "VALIDATION_ERROR",
+        CONST_EXIT_FAILURE,
+        "workspace",
+    )
     assert calls == []
 
 

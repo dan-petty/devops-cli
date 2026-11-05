@@ -2,7 +2,7 @@
 
 ## Decisions
 
-- **The audit tests `isinstance(param.type, TyperPath)` for a tool of the exposure table.**: Typer builds the Click type from the annotation, so the audit asks the library and walks no annotation. The class is `typer.models.TyperPath`. It is no subclass of `click.Path`. Typer is pinned, so a change of the class fails the test at import.
+- **The audit tests `isinstance(param.type, (TyperPath, TyperFile))` for a tool of the exposure table.**: Typer builds the Click type from the annotation, so the audit asks the library and walks no annotation. A `Path` annotation gives `typer.models.TyperPath`. A `FileText` or `FileBinaryRead` annotation gives `typer._click.types.File`, which Typer opens from a path. Neither class is a subclass of `click.Path`. Typer is pinned, so a change of a class fails the test at import.
 - **The audit reads `format: path` for a tool that no command backs.**: Pydantic writes it for a `Path` annotation of a hand-written function. The check is four lines and closes the gap for a new hand-written tool with a path under another name.
 - **A text option that holds a path is named in the test table `_TEXT_PATH_OPTIONS`.**: A type check cannot find a string. The table is the named decision of the issue for `scan_sast.config`. The audit then requires a decision in `PATH_CONFINEMENTS` or `NOT_A_FILE_PATH`, and a test fails when the table names an unpublished option.
 - **Each decision is made by reading the command.**:
@@ -33,7 +33,7 @@
 ## Rejected alternatives
 
 - **Add `repo`, `workspace`, `values`, `source` and `suppress` to `_PATH_PARAM_KEYWORDS`.**: The list is the run-time check of the agent tools, and the issue asks for no widening without a check of `validate_path_parameter`. `repo` names `owner/name` in other tools.
-- **Walk the annotations with `typing.get_type_hints`.**: It finds the same 60 options as the Click type (see Feasibility), and needs a walker over `Annotated`, unions and containers. The Click type is one library call.
+- **Walk the annotations with `typing.get_type_hints`.**: It finds the same 59 options as the Click type (see Feasibility), and needs a walker over `Annotated`, unions and containers. The Click type is one library call.
 - **Make the generator publish `Path` for a path option.**: Pydantic would then pass a `Path` object to the tool function. `_validate_arg_hyphen` checks strings only, so a value that starts with a hyphen would skip the flag-injection guard.
 - **Drop `scan_sast.config` from the schema.**: The requirement "The MCP Semgrep tool uses the default ruleset unless the caller names one" says that a caller names a ruleset, and a registry id is safe. Dropping the option removes the use and fixes nothing that confinement does not fix.
 - **Exempt `scan_sast.config` in `NOT_A_FILE_PATH`.**: The reason would be false. The option takes a local path, and a URL that Semgrep fetches.

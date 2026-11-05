@@ -498,15 +498,18 @@ def test_a_workspace_beside_the_ssh_agent_directory_is_mounted(
 
 @pytest.mark.parametrize("tool_name", ["docker_sandbox", "sandbox_deploy"])
 @pytest.mark.parametrize(
-    "case",
-    ["run-user", "unsupported-engine-endpoint", "unparseable-engine-endpoint", "ssh-agent-dir"],
+    "case", ["unsupported-engine-endpoint", "unparseable-engine-endpoint", "ssh-agent-dir"]
 )
 def test_mcp_sandbox_tools_refuse_the_workspace_before_any_command_runs(
     tool_name: str, case: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The tool raises the shared check's refusal, so the client gets it and no command runs."""
+    """The tool raises the shared check's refusal, so the client gets it and no command runs.
+
+    The workspace is in the work tree. The tool confines the workspace first, so a workspace
+    outside the tree never reaches the shared check (#3480)."""
     from devops_cli.ai.mcp import server
 
+    monkeypatch.chdir(tmp_path)
     workspace, _protected, env = _REFUSED_WORKSPACES[case](tmp_path, tmp_path)
     for name, value in env.items():
         monkeypatch.setenv(name, value)
@@ -941,7 +944,7 @@ def test_cli_sandbox_exec(tmp_path: Path) -> None:
         assert res_fail.exit_code == 42
 
 
-def test_fastmcp_sandbox_tools(tmp_path: Path) -> None:
+def test_fastmcp_sandbox_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test FastMCP sandbox tool definitions and resource dispatch."""
     from devops_cli.ai.mcp.server import (
         get_sandbox_instances_resource,
@@ -951,6 +954,7 @@ def test_fastmcp_sandbox_tools(tmp_path: Path) -> None:
         sandbox_stop,
     )
 
+    monkeypatch.chdir(tmp_path)
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="mcp output") as mock_run:
         deployed = sandbox_deploy(
             image="python:3.14-slim", name="mcp-sb", ports=[8080], workspace=str(tmp_path)

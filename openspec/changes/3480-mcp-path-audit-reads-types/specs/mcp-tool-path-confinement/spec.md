@@ -1,10 +1,14 @@
 ## ADDED Requirements
 
 ### Requirement: The audit finds a path option by its type
-The path-parameter audit SHALL find a published parameter that holds a path by its type and by its name. A command option that Typer reads from a `Path` annotation SHALL need an entry in `PATH_CONFINEMENTS` or `NOT_A_FILE_PATH` under any name. A parameter of a hand-written tool that carries a `Path` annotation SHALL need one too.
+The path-parameter audit SHALL find a published parameter that holds a path by its type and by its name. A command option that Typer reads from a `Path` annotation, or from a file annotation such as `FileText`, SHALL need an entry in `PATH_CONFINEMENTS` or `NOT_A_FILE_PATH` under any name. A parameter of a hand-written tool that carries a `Path` annotation SHALL need one too.
 
 #### Scenario: A path option under a name with no keyword
 - **WHEN** The audit reads a tool whose command has a `Path` option named `thing`, and neither table names it.
+- **THEN** The audit reports `probe.thing` as a parameter with no decision.
+
+#### Scenario: A file option under a name with no keyword
+- **WHEN** The audit reads a tool whose command has a `FileText` option named `thing`, and neither table names it.
 - **THEN** The audit reports `probe.thing` as a parameter with no decision.
 
 #### Scenario: A path annotation of a tool that no command backs
