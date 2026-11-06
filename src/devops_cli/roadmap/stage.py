@@ -148,6 +148,7 @@ from devops_cli.roadmap.refine import (
     NextStep,
     body_dependencies,
     collect_context,
+    git_result,
     inspect_checkout,
     recorded_blockers,
     stage_comment_text,
@@ -1101,6 +1102,9 @@ class _Planner:
             overlaps=self._overlaps,
             search_evidence=evidence,
             plan_creates=self._creators(),
+            # The citation rule reads the staged commit, the one the probe and the model read
+            # (#3422), and never the working tree.
+            read_text=partial(_read_staged_file, self._source, self._sha),
         )
         if problems:
             return _Refused(" ".join(problems), proposal)
@@ -1609,6 +1613,14 @@ class StageApplied:
 def _git(cwd: Path, *args: str) -> str:
     """The output of `git <args>` in `cwd` for the stage job."""
     return git(cwd, *args, operation=_GIT_OPERATION)
+
+
+def _read_staged_file(source: Path, sha: str, path: str) -> str | None:
+    """The text of `path` at the staged commit `sha`, or None when that commit holds no such file
+    (#3422). The citation check reads the commit that the job plans on, and not the working tree,
+    whose lines can differ from that commit."""
+    shown, content = git_result(source, "show", f"{sha}:{path}")
+    return content if shown == 0 else None
 
 
 def _move_clone(checkout: Path, sha: str) -> None:

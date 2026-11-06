@@ -35,7 +35,14 @@ from devops_cli.git.worktree_add import issue_holder, read_remote_heads
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.openspec.tool import isolated_openspec
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.stage import StagedChange, StagePlan, parse_filters, plan_item, plan_stage
+from devops_cli.roadmap.stage import (
+    StagedChange,
+    StagePlan,
+    _read_staged_file,
+    parse_filters,
+    plan_item,
+    plan_stage,
+)
 from devops_cli.roadmap.stage_change import (
     CREATED_LINE_TOKENS,
     StageGroup,
@@ -1745,6 +1752,17 @@ def test_plan_item_plans_with_a_toolbox_client(
 
     assert script.tool_returns()[0] == "src/devops_cli"
     assert type(planned) is StagedChange
+
+
+def test_the_citation_reader_returns_the_text_at_the_staged_commit(stage_repo: StageRepo) -> None:
+    stage_repo.track({"src/devops_cli/cited.py": "def staged(): pass\n"})
+    sha = stage_repo.git("rev-parse", "HEAD")
+    (stage_repo.clone / "src/devops_cli/cited.py").write_text("def worktree(): pass\n")
+
+    assert _read_staged_file(stage_repo.clone, sha, "src/devops_cli/cited.py") == (
+        "def staged(): pass\n"
+    )
+    assert _read_staged_file(stage_repo.clone, sha, "src/devops_cli/absent.py") is None
 
 
 def test_a_toolbox_plan_of_a_checkout_with_a_change_fails_before_any_model_call(

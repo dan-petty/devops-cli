@@ -406,6 +406,17 @@ def test_the_prompt_asks_for_the_hit_count_of_a_negative_search() -> None:
     assert "can never pass after it" in _PROMPT
 
 
+# ── A citation of a line or a symbol (#3422) ─────────────────────────────────
+
+
+def test_the_prompt_states_the_citation_forms_and_prefers_a_symbol() -> None:
+    assert "`path:line:text`" in _PROMPT
+    assert "`path:def name`" in _PROMPT
+    assert "`path:class name`" in _PROMPT
+    assert "Cite a symbol instead of a line number when a line is not needed" in _PROMPT
+    assert "refuses one whose line does not hold the text" in _PROMPT
+
+
 # ── The phrases that a document and the prompt keep together ──────────────────
 
 _SHARED = [

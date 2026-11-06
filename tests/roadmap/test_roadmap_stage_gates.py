@@ -75,3 +75,11 @@ def test_check_proposal_joins_the_problems_of_the_gates_in_the_order_of_the_gate
         problem for problems in found.values() for problem in problems
     ]
     assert list(found) == list(ProposalGate)
+
+
+def test_a_stale_citation_is_a_problem_of_the_gate_citation() -> None:
+    plan = make_stage_proposal(feasibility=["The probe shows `src/sample.py:4:def g():` here."])
+
+    found = check_gates(plan, KNOWN, TREE, read_text={"src/sample.py": "x\n\n\ndef f():\n"}.get)
+
+    assert [gate for gate, problems in found.items() if problems] == [ProposalGate.CITATION]

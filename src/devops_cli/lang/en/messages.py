@@ -3550,6 +3550,16 @@ class RoadmapMessages:
         "The open issue #{number} plans to create `{path}`. This plan creates it too. Remove the "
         "path from this plan, or wait until #{number} closes."
     )
+    stage_problem_citation_stale: str = (
+        "The {field} of the plan cites `{path}`, and the staged file holds no such text there. "
+        "Cite the text of the line in a code span at the staged commit, or cite a symbol as "
+        "`path:def name` or `path:class name`, which stays true when the line moves."
+    )
+    stage_problem_citation_short: str = (
+        "The {field} of the plan cites `{path}` with fewer than {least} characters of the line. "
+        "Quote at least {least} characters of the line, or cite a symbol as `path:def name` or "
+        "`path:class name`."
+    )
     stage_path_same_name: str = "These files have the same name: {names}."
     stage_path_no_same_name: str = "No file has this name."
     stage_path_places: dict[str, str] = field(
