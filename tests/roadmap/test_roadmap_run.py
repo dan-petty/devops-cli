@@ -554,8 +554,9 @@ def _poll_round(
 
 def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
     """The status lane's metrics, implement, stage_ready and release_comments rows run first, then
-    the triage lane's intake row, then the model lane's refine, stage and alternatives rows; no row closes items,
-    cuts or starts a release (#1360, #1534, #2652, #2659, #2667, #2757, #2865)."""
+    the triage lane's intake row, then the model lane's refine, retitle, stage and alternatives
+    rows; no row closes items, cuts or starts a release
+    (#1360, #1534, #2652, #2659, #2667, #2757, #2865, #3535)."""
     assert (
         [row.name for row in DEFAULT_DUE_TABLE],
         DEFAULT_DUE_TABLE == (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS),
@@ -568,6 +569,7 @@ def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
             "release_comments",
             "intake",
             "refine",
+            "retitle",
             "stage",
             "alternatives",
         ],
@@ -894,6 +896,7 @@ def test_idle_records_zero_or_one_store_calls(
         tmp_path,
         intake=TWENTY_MINUTES_AGO,
         refine=TWENTY_MINUTES_AGO,
+        retitle=TWENTY_MINUTES_AGO,
         stage=TWENTY_MINUTES_AGO,
         implement=recent,
         stage_ready=recent,
@@ -1001,7 +1004,7 @@ def test_service_wiring(
         [
             ["metrics", "implement", "stage_ready", "release_comments"],
             ["intake"],
-            ["refine", "stage", "alternatives"],
+            ["refine", "retitle", "stage", "alternatives"],
         ],
     )
 
@@ -2057,6 +2060,7 @@ def test_a_model_lane_poll_when_not_due_reads_no_change_and_sends_no_request(
     _stamp(
         tmp_path,
         refine=recent,
+        retitle=recent,
         stage=recent,
         alternatives=recent,
     )
@@ -2368,7 +2372,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
         )
         assert (triage_round, model_round) == (
             ("intake",),
-            ("refine", "stage", "alternatives"),
+            ("refine", "retitle", "stage", "alternatives"),
         )
         return JobOutcome()
 
@@ -2385,6 +2389,7 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
         {
             "intake": later.isoformat(),
             "refine": later.isoformat(),
+            "retitle": later.isoformat(),
             "stage": later.isoformat(),
             "alternatives": later.isoformat(),
             "metrics": NOW.isoformat(),
@@ -2804,6 +2809,7 @@ def test_the_alternatives_row_follows_refine_and_is_due_every_719_minutes_and_by
     recent = {
         "intake": five_minutes_ago,
         "refine": five_minutes_ago,
+        "retitle": five_minutes_ago,
         "stage": five_minutes_ago,
     }
 
@@ -2822,7 +2828,7 @@ def test_the_alternatives_row_follows_refine_and_is_due_every_719_minutes_and_by
     hinted = ran({OPENED: 1}, **recent, alternatives=NOW - timedelta(hours=2))
 
     assert (first, too_soon, on_time, hinted) == (
-        ("intake", "refine", "stage", "alternatives"),
+        ("intake", "refine", "retitle", "stage", "alternatives"),
         (),
         ("alternatives",),
         ("intake",),
@@ -2840,8 +2846,8 @@ def test_the_dry_run_of_the_cli_lists_the_alternatives_row(
 
     assert (
         cli.exit_code,
-        "Due: metrics, implement, stage_ready, release_comments, intake, refine, stage, alternatives\n"
-        in cli.output,
+        "Due: metrics, implement, stage_ready, release_comments, intake, refine, retitle, stage,"
+        " alternatives\n" in cli.output,
     ) == (0, True)
 
 

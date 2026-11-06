@@ -1,7 +1,7 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
 The due table runs the status lane's rows, metrics, implement, stage_ready and release_comments,
-before the model lane's, intake, refine, stage and alternatives, so a burst of candidates never
+before the model lane's, intake, refine, retitle, stage and alternatives, so a burst of candidates never
 holds back the metrics (#1360), and a slow model never holds back the implement or stage_ready row
 (#2757, #2865). The row stage_ready marks a green stage draft pull request ready. The row
 release_comments comments the version, and the time it runs, on the issues of a release (#2917).
@@ -15,6 +15,8 @@ candidate its last round left (`IntakeRecord`, kept beside `schedule.json`). A r
 decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every 31 minutes, on a first
 run, and in a round where intake placed a critical fix or a P0 item (#1515). Stage, the row after
 refine, is due every 37 minutes, on a first run, and in a round where refine set an item Ready (#2659).
+Retitle, the row before stage, is due every 61 minutes and on a first run, and shortens at most
+`DEFAULT_ROADMAP_RETITLE_LIMIT` long title summaries, so stage reads the new titles (#3535).
 The alternatives row is due every 719 minutes and on a first run, and checks at most
 `roadmap.alternatives.first_pass_limit` items while an item has no check, else
 `roadmap.alternatives.limit` items after (#2652). Every clone tracks origin's default branch.
@@ -78,6 +80,8 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_RETITLE_LIMIT,
     DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES,
     DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
@@ -125,6 +129,7 @@ from devops_cli.roadmap.refine import apply_refine, plan_refine, raise_for_faile
 from devops_cli.roadmap.release_comments import comment_releases
 from devops_cli.roadmap.release_feed import GitHubReleaseFeed
 from devops_cli.roadmap.release_roll import cluster_digests
+from devops_cli.roadmap.retitle import apply_retitle, build_retitle_model, plan_retitle
 
 # `stage` imports the model client, which imports pydantic_ai too: import it here for the same
 # reason (#2659).
@@ -557,6 +562,18 @@ def _run_refine_adapter(
     return JobOutcome(set_ready=readied > 0)
 
 
+def _run_retitle_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOutcome:
+    """Shorten the title summary of at most `DEFAULT_ROADMAP_RETITLE_LIMIT` open items, as
+    `devops roadmap retitle --confirm` does, with the model of that command (#3535). The row runs
+    before the stage row, so the stage job reads the new titles in the same round. It reads and
+    writes the store only, so it needs no clone."""
+    plan = plan_retitle(
+        store, repo=repo, model=build_retitle_model(), limit=DEFAULT_ROADMAP_RETITLE_LIMIT
+    )
+    apply_retitle(store, plan)
+    return JobOutcome()
+
+
 def _run_stage_adapter(
     store: RoadmapStore,
     repo: str = "",
@@ -773,6 +790,12 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         cross_job_predicate=_refine_cross_job,
     ),
     JobRow(
+        name="retitle",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES),
+        runner=_run_retitle_adapter,
+        first_run_due=True,
+    ),
+    JobRow(
         name="stage",
         interval=timedelta(minutes=DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES),
         runner=_run_stage_adapter,
@@ -787,7 +810,7 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
         first_run_due=True,
     ),
 )
-"""The rows that call the model, which answers one call at a time: intake, refine, stage and the
+"""The rows that call the model, which answers one call at a time: intake, refine, retitle, stage and the
 daily check for alternative tools (#2652)."""
 
 DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS)
@@ -862,11 +885,13 @@ def build_stub_table(
     include_implement: bool | None = None,
     include_stage_ready: bool | None = None,
     include_release_comments: bool | None = None,
+    include_retitle: bool | None = None,
 ) -> tuple[JobRow, ...]:
     """The due table's rows, in its order, each running `runners`' stub for its job: metrics,
-    implement, stage_ready, release_comments, intake, refine, stage and alternatives. Intake is
-    always in; the others are added when asked for or given a stub."""
+    implement, stage_ready, release_comments, intake, refine, retitle, stage and alternatives.
+    Intake is always in; the others are added when asked for or given a stub."""
     r = runners or {}
+    add_retitle = include_retitle if include_retitle is not None else ("retitle" in r)
     add_refine = include_refine if include_refine is not None else ("refine" in r)
     add_metrics = include_metrics if include_metrics is not None else ("metrics" in r)
     add_stage = include_stage if include_stage is not None else ("stage" in r)
@@ -885,6 +910,7 @@ def build_stub_table(
     kept = {
         "metrics": add_metrics,
         "refine": add_refine,
+        "retitle": add_retitle,
         "stage": add_stage,
         "implement": add_implement,
         "stage_ready": add_stage_ready,

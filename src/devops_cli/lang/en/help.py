@@ -1302,7 +1302,7 @@ class RoadmapCommandHelp:
         "the alternatives check, and record each one's last success. Intake is due on an issue reopened, and decides at "
         "most 5 candidates a run and keeps a record of those it left beside the schedule; "
         "refine is due every 31 minutes, on a first run, and after an intake that placed a critical "
-        "fix or a P0 item; the alternatives check is due every 719 minutes and on a first run, and checks "
+        "fix or a P0 item; retitle is due every 61 minutes and on a first run; the alternatives check is due every 719 minutes and on a first run, and checks "
         "at most roadmap.alternatives.first_pass_limit items while an item has no check, and "
         "roadmap.alternatives.limit items after. Without --confirm, or with --dry-run, prints "
         "the due list and runs nothing."
