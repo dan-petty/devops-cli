@@ -5,13 +5,9 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Self
-from urllib.parse import urlsplit
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    import pydantic_ai.mcp as pydantic_mcp
-    from pydantic_ai.toolsets import PrefixedToolset
-
     from devops_cli.ai.function_signature import FunctionSignature
 
 from pydantic import BaseModel, Field
@@ -117,156 +113,6 @@ class ToolCall(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class MCPToolset(AbstractToolset):
-    """Toolset connecting to a Model Context Protocol (MCP) server over SSE/HTTP, stdio, or local FastMCP."""
-
-    url: str | None = None
-    server: Any | None = None
-    client: Any | None = None
-    script_path: Path | str | None = None
-    tool_prefix: str | None = None
-    timeout: float | None = None
-    auth: Any | None = None
-    tools: list[AgentTool] = Field(default_factory=list)
-    instructions: str | None = None
-    client_info: Any | None = None
-    sampling_model: Any | None = None
-    http_client: Any | None = None
-    sse_read_timeout: float | None = None
-
-    def __init__(
-        self,
-        target: str | Path | Any | None = None,
-        *,
-        url: str | None = None,
-        server: Any | None = None,
-        client: Any | None = None,
-        script_path: Path | str | None = None,
-        tool_prefix: str | None = None,
-        timeout: float | None = None,
-        auth: Any | None = None,
-        tools: list[AgentTool] | None = None,
-        instructions: str | None = None,
-        client_info: Any | None = None,
-        sampling_model: Any | None = None,
-        http_client: Any | None = None,
-        sse_read_timeout: float | None = None,
-        **kwargs: Any,
-    ) -> None:
-        if isinstance(target, str):
-            if urlsplit(target).scheme in {"http", "https"}:
-                url = target
-            else:
-                script_path = target
-        elif isinstance(target, Path):
-            script_path = target
-        elif target is not None and not (url or server or client or script_path):
-            if hasattr(target, "list_tools") or hasattr(target, "call_tool"):
-                client = target
-            else:
-                server = target
-
-        super().__init__(
-            url=url,
-            server=server,
-            client=client,
-            script_path=script_path,
-            tool_prefix=tool_prefix,
-            timeout=timeout,
-            auth=auth,
-            tools=list(tools or []),
-            instructions=instructions,
-            client_info=client_info,
-            sampling_model=sampling_model,
-            http_client=http_client,
-            sse_read_timeout=sse_read_timeout,
-            **kwargs,
-        )
-
-    def get_tools(self, ctx: Any = None) -> Any:
-        """Return discovered or registered MCP tools, applying tool_prefix if configured."""
-        if not self.tool_prefix:
-            return list(self.tools)
-        prefixed: list[AgentTool | Callable[..., Any]] = []
-        for t in self.tools:
-            name = (
-                f"{self.tool_prefix}_{t.name}"
-                if not t.name.startswith(f"{self.tool_prefix}_")
-                else t.name
-            )
-            prefixed.append(t.model_copy(update={"name": name}))
-        return prefixed
-
-    def get_instructions(self, ctx: Any = None) -> Any:
-        """Return system prompt guidance for this MCP server."""
-        if self.instructions:
-            return [self.instructions.strip()]
-        target = self.url or str(self.script_path) or "local"
-        prefix_note = f" (prefixed with '{self.tool_prefix}_')" if self.tool_prefix else ""
-        return [
-            f"Tools available via Model Context Protocol (MCP) server at {target}{prefix_note}."
-        ]
-
-    @classmethod
-    def from_config(cls, config: dict[str, Any] | str | Path) -> list[MCPToolset]:
-        """Construct a list of MCPToolsets from a standard MCP server configuration dictionary or file path."""
-        if isinstance(config, (str, Path)):
-            p = Path(config)
-            content = p.read_text(encoding="utf-8")
-            if p.suffix in (".yaml", ".yml"):
-                import yaml
-
-                data = yaml.safe_load(content) or {}
-            else:
-                data = json.loads(content)
-        else:
-            data = config
-
-        servers = data.get("mcpServers", data.get("servers", {}))
-        if not servers and isinstance(data, dict):
-            servers = data
-
-        toolsets: list[MCPToolset] = []
-        for name, cfg in servers.items():
-            if not isinstance(cfg, dict):
-                continue
-            url = cfg.get("url")
-            cmd = cfg.get("command")
-            args = cfg.get("args", [])
-            script = " ".join([str(cmd)] + [str(a) for a in args]) if cmd else None
-            toolsets.append(
-                cls(
-                    url=url,
-                    script_path=script,
-                    tool_prefix=name,
-                    instructions=cfg.get("description"),
-                )
-            )
-        return toolsets
-
-    def to_native_toolset(self) -> pydantic_mcp.MCPToolset[Any] | PrefixedToolset:
-        """Convert to a native pydantic_ai.mcp.MCPToolset with optional prefixing."""
-        from devops_cli.ai.mcp.toolset import create_mcp_toolset
-
-        target = self.server or self.client or self.url or self.script_path
-        if target is None:
-            from devops_cli.ai.mcp.server import mcp as devops_server
-
-            target = devops_server
-
-        return create_mcp_toolset(target, tool_prefix=self.tool_prefix)
-
-    async def __aenter__(self) -> Self:
-        return self
-
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        await self.close()
-
-    async def close(self) -> None:
-        """Close client connections."""
-        pass
-
-
 class AgentSpec(BaseModel):
     """Declarative specification for constructing a PydanticAgent."""
 
@@ -305,8 +151,6 @@ __all__ = [
     "AgentSpec",
     "AgentTool",
     "FunctionToolset",
-    "MCPToolset",
-    "PrefixedToolset",
     "Tool",
     "ToolCall",
     "ToolReturn",

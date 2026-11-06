@@ -468,13 +468,6 @@ class PydanticAgent[T, DepsT = Any]:
         self.hooks.on_tool_error.append(func)
         return func
 
-    def set_mcp_sampling_model(self, model: str | Any | None = None) -> None:
-        """Set the sampling model on all MCPToolsets registered with this agent."""
-        target_model = model or self.model
-        for ts in self.toolsets:
-            if hasattr(ts, "sampling_model"):
-                setattr(ts, "sampling_model", target_model)
-
     @contextmanager
     def override(
         self,
