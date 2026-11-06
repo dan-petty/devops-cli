@@ -11,7 +11,7 @@ from devops_cli.config.constants import CONST_ROADMAP_STAGE_MAX_REQUESTS
 from devops_cli.dry_run import PlannedRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.stage import CALLS_PER_ITEM_MAX
-from devops_cli.roadmap.stage_eval_cases import GateName, StageCase
+from devops_cli.roadmap.stage_eval_cases import GateName, StageCase, left_out_note
 from devops_cli.roadmap.stage_eval_gates import DefectStatus, ReplayReport
 from devops_cli.roadmap.stage_eval_score import DefectScore, StageScore, pending_reference
 from devops_cli.roadmap.stage_eval_usage import RunUsage
@@ -118,6 +118,8 @@ def render_score(score: StageScore, *, gateway: str, usage: RunUsage | None = No
             ended=", ".join(f"{outcome} {count}" for outcome, count in score.ended.items())
         ),
     ]
+    if score.left_out:
+        lines.append(left_out_note(score.left_out))
     if usage is not None:
         spend = usage.spend_usd(score.model)
         lines += [
@@ -146,6 +148,7 @@ def score_json(
         "scored_cases": score.scored[1],
         "total": score.total,
         "ended": {str(outcome): count for outcome, count in score.ended.items()},
+        "left_out": list(score.left_out),
         "rows": [asdict(row) | {"rate": row.rate} for row in score.rows],
     }
     if usage is not None:

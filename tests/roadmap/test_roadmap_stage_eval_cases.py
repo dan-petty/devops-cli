@@ -4,7 +4,9 @@ models (#3028)."""
 from __future__ import annotations
 
 import json
+import re
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -14,10 +16,12 @@ from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.stage_change import StageProposal
 from devops_cli.roadmap.stage_eval_cases import (
     CASES_DIRECTORY,
+    NO_COMMIT,
     DefectType,
     GateName,
     StageCase,
     Verdict,
+    cases_with_commit,
     load_cases,
     select_cases,
 )
@@ -39,6 +43,7 @@ EVALUATED_PULLS = frozenset(
     | {3167, 3174, 3331, 3378, 3411, 3435}
 )
 SHA_LENGTH = 40
+FULL_HASH = re.compile(r"[0-9a-f]{40}")
 
 
 @pytest.fixture(scope="module")
@@ -153,3 +158,76 @@ def test_a_case_reads_its_search_evidence_and_an_old_case_holds_none(
     }
     assert case.facts.search_evidence["devops_cli.roadmap.stage_"]
     assert old.facts.search_evidence == {}
+
+
+def _git(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(REPO_ROOT), *args], capture_output=True, text=True, check=False
+    )
+
+
+def test_each_base_commit_of_the_set_is_a_full_hash_of_a_real_commit_or_the_case_reads_none(
+    cases: list[StageCase],
+) -> None:
+    if _git("rev-parse", "--is-shallow-repository").stdout.strip() == "true":
+        pytest.skip("A shallow clone lacks the old commits that the cases name.")
+
+    not_commits = []
+    for case in cases:
+        if case.base_commit == NO_COMMIT:
+            assert any("reads no commit" in note for note in case.notes), case.name
+        elif not (
+            FULL_HASH.fullmatch(case.base_commit)
+            and _git("cat-file", "-e", f"{case.base_commit}^{{commit}}").returncode == 0
+        ):
+            not_commits.append((case.name, case.base_commit))
+
+    assert not_commits == []
+
+
+def test_each_merge_commit_of_the_set_is_a_full_hash_or_the_case_reads_none(
+    cases: list[StageCase],
+) -> None:
+    for case in cases:
+        assert case.merge_commit == NO_COMMIT or FULL_HASH.fullmatch(case.merge_commit), case.name
+        assert (case.merge_commit == NO_COMMIT) == (case.base_commit == NO_COMMIT), case.name
+
+
+def test_a_case_holds_a_commit_unless_its_base_commit_is_the_null_id(
+    cases: list[StageCase],
+) -> None:
+    held = cases[0]
+    unmerged = held.model_copy(update={"base_commit": NO_COMMIT})
+
+    assert (held.has_commit, unmerged.has_commit) == (True, False)
+    assert NO_COMMIT == "0" * SHA_LENGTH
+
+
+def test_the_cases_with_a_commit_keep_the_order_and_the_others_are_named(
+    cases: list[StageCase],
+) -> None:
+    first, second, third = cases[:3]
+    unmerged = second.model_copy(update={"base_commit": NO_COMMIT})
+
+    run, left_out = cases_with_commit([first, unmerged, third])
+
+    assert (run, left_out) == ([first, third], (unmerged.name,))
+
+
+def test_a_selection_of_cases_that_all_hold_a_commit_leaves_none_out(
+    cases: list[StageCase],
+) -> None:
+    run, left_out = cases_with_commit(cases[:2])
+
+    assert (run, left_out) == (cases[:2], ())
+
+
+def test_a_selection_with_no_case_that_holds_a_commit_fails_and_names_the_cases(
+    cases: list[StageCase],
+) -> None:
+    unmerged = [case.model_copy(update={"base_commit": NO_COMMIT}) for case in cases[:2]]
+
+    with pytest.raises(ConfigurationError, match="no commit") as raised:
+        cases_with_commit(unmerged)
+
+    assert all(case.name in str(raised.value) for case in unmerged)

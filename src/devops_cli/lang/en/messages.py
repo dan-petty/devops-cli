@@ -4071,6 +4071,11 @@ class RoadmapMessages:
         "The golden set has no case named {names}. Give the name of a case folder or the "
         "number of its issue."
     )
+    stage_eval_no_commit: str = (
+        "The selected case(s) hold no commit to check out: {names}. A run checks out the commit "
+        "of each case. Pick a case that holds a commit, or run the replay."
+    )
+    stage_eval_left_out: str = "Left out of the run, as they hold no commit to check out: {names}."
     stage_eval_over_budget: str = "A task group is over the step budget."
     stage_eval_no_value: str = "-"
     stage_eval_replay_title: str = (

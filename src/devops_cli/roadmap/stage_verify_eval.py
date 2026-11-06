@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Final
 
@@ -27,7 +27,14 @@ from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.clone_git import checkout_at
 from devops_cli.roadmap.refine_investigation import task_window
 from devops_cli.roadmap.stage import StageClient, openspec_tool
-from devops_cli.roadmap.stage_eval_cases import Defect, DefectType, Severity, StageCase, Verdict
+from devops_cli.roadmap.stage_eval_cases import (
+    Defect,
+    DefectType,
+    Severity,
+    StageCase,
+    Verdict,
+    left_out_note,
+)
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel, review
 from devops_cli.roadmap.stage_verify import Finding, VerificationInput, returning
 
@@ -97,13 +104,15 @@ class TypeRecall:
 @dataclass(frozen=True)
 class VerifyScore:
     """The score of a run: the recall by type, the recall of the serious defects, the findings on
-    the good plans and each case."""
+    the good plans and each case, and the names of the cases that the run left out because they
+    hold no commit (#3688)."""
 
     model: str
     rows: tuple[TypeRecall, ...]
     serious_labeled: int
     serious_found: int
     cases: tuple[CaseOutcome, ...]
+    left_out: tuple[str, ...] = ()
 
     @property
     def labeled(self) -> int:
@@ -163,13 +172,16 @@ def evaluate_cases(
     repository: Path,
     *,
     toolbox: ToolboxModel,
+    left_out: tuple[str, ...] = (),
 ) -> VerifyScore:
     """Run the pass on each case, one at a time, and score it. A call that fails ends its case
     as failed. Rejected credentials stop the run. The pass of each case is an agent of the `toolbox`
     model with the read tools of the job on the checkout of the case, so the score measures the
-    pass that the job runs (#3039). `client` answers a call that is not for the pass."""
+    pass that the job runs (#3039). `client` answers a call that is not for the pass. `left_out`
+    names the cases that the caller did not pass, as they hold no commit; the score reports them."""
     with openspec_tool() as tool:
-        return _scored(model, cases, client, repository, toolbox, tool)
+        score = _scored(model, cases, client, repository, toolbox, tool)
+    return replace(score, left_out=left_out)
 
 
 def _scored(
@@ -328,6 +340,8 @@ def render_verify(score: VerifyScore, *, gateway: str) -> str:
             ended=f"verified {len(score.cases) - score.failed}, failed {score.failed}"
         ),
     ]
+    if score.left_out:
+        lines.append(left_out_note(score.left_out))
     return "\n".join(lines) + "\n"
 
 
@@ -348,6 +362,7 @@ def verify_json(score: VerifyScore, *, gateway: str, taken: str) -> str:
         "good_findings": score.good_findings,
         "good_returning": score.good_returning,
         "failed": score.failed,
+        "left_out": list(score.left_out),
         "rows": [
             {"type": row.type.value, "labeled": row.labeled, "found": row.found, "rate": row.rate}
             for row in score.rows

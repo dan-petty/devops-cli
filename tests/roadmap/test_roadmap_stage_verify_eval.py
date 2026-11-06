@@ -16,6 +16,7 @@ from devops_cli.commands.roadmap_eval_verify import _review_model
 from devops_cli.config import settings
 from devops_cli.roadmap.stage_eval_cases import (
     CASES_DIRECTORY,
+    NO_COMMIT,
     Defect,
     DefectType,
     GateName,
@@ -295,6 +296,84 @@ def test_the_dry_run_makes_no_model_call_and_names_the_case(
     assert f"verification of the case {cases[0].name}" in result.output
     assert "Dry run: no request was made." in result.output
     assert model_fake.call_count == 0
+
+
+def _set_with_a_case_that_holds_no_commit(
+    tmp_path: Path, cases: list[StageCase], stage_repo: StageRepo
+) -> Path:
+    """A set of one case with a commit, `bad`, and one case that holds none, `a-no-commit`."""
+    bad = _case(cases, stage_repo, "bad", (_defect(DefectType.FALSE_PREMISE),))
+    unmerged = _case(cases, stage_repo, "a-no-commit", (_defect(DefectType.MISSING_PATH),))
+    return _write_set(tmp_path, bad, unmerged.model_copy(update={"base_commit": NO_COMMIT}))
+
+
+def test_a_run_leaves_out_a_case_that_holds_no_commit_and_names_it_and_exits_0(
+    cli: Cli, tmp_path: Path, cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    folder = _set_with_a_case_that_holds_no_commit(tmp_path, cases, stage_repo)
+    model_fake.answer(Verification(findings=[_finding(DefectType.FALSE_PREMISE)]))
+
+    result = _verify(cli, "--cases", str(folder), "--source", str(stage_repo.clone))
+
+    assert result.exit_code == 0, result.output
+    assert "Left out of the run, as they hold no commit to check out: a-no-commit." in result.output
+    assert "Recall of the labeled defects: 1 of 1 (100%)" in result.output
+    report = _stored(result.output)
+    assert (report["left_out"], report["labeled"], len(report["cases"])) == (["a-no-commit"], 1, 1)
+    assert model_fake.call_count == 1
+
+
+def test_a_run_that_leaves_out_no_case_has_an_empty_list(
+    cli: Cli, tmp_path: Path, cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    folder = _write_set(tmp_path, _case(cases, stage_repo, "bad", (_defect(DefectType.OTHER),)))
+    model_fake.answer(Verification())
+
+    result = _verify(cli, "--cases", str(folder), "--source", str(stage_repo.clone))
+
+    assert result.exit_code == 0, result.output
+    assert "Left out" not in result.output
+    assert _stored(result.output)["left_out"] == []
+
+
+def test_the_dry_run_lists_the_runs_of_the_cases_with_a_commit_and_names_the_others(
+    cli: Cli, tmp_path: Path, cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    folder = _set_with_a_case_that_holds_no_commit(tmp_path, cases, stage_repo)
+
+    result = _verify(cli, "--dry-run", "--cases", str(folder))
+
+    assert result.exit_code == 0, result.output
+    assert "verifies 1 case(s)" in result.output
+    assert "verification of the case bad" in result.output
+    assert "verification of the case a-no-commit" not in result.output
+    assert "Left out of the run, as they hold no commit to check out: a-no-commit." in result.output
+    assert model_fake.call_count == 0
+
+
+def test_a_selection_of_cases_that_hold_no_commit_exits_1_and_names_them(
+    cli: Cli, tmp_path: Path, cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    folder = _set_with_a_case_that_holds_no_commit(tmp_path, cases, stage_repo)
+
+    result = _verify(cli, "--cases", str(folder), "--case", "a-no-commit")
+
+    assert result.exit_code == 1
+    assert "a-no-commit" in result.output
+    assert model_fake.call_count == 0
+
+
+def test_the_golden_set_leaves_out_exactly_the_cases_that_read_no_commit(
+    cli: Cli, cases: list[StageCase]
+) -> None:
+    unmerged = [case.name for case in cases if not case.has_commit]
+
+    result = _verify(cli, "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert f"verifies {len(cases) - len(unmerged)} case(s)" in result.output
+    assert unmerged
+    assert f"hold no commit to check out: {', '.join(unmerged)}." in result.output
 
 
 def test_an_unknown_case_exits_1_and_names_it(cli: Cli) -> None:

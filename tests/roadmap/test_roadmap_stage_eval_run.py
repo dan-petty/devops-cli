@@ -209,6 +209,23 @@ def test_a_model_that_breaks_the_schema_twice_has_no_first_reply_and_scores_as_n
     assert (row.cases, row.avoided, row.caught, row.rate) == (1, 0, 0, 0.0)
 
 
+def test_a_commit_that_git_cannot_check_out_ends_its_case_failed_and_the_next_case_runs(
+    cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
+) -> None:
+    case = _live_case(cases, stage_repo)
+    lacking = case.model_copy(update={"name": "a-lacking", "base_commit": "1" * 40})
+    model_fake.answer(make_stage_proposal())
+
+    runs = run_cases([lacking, case], _client(model_fake), stage_repo.clone)
+
+    assert [(run.name, run.outcome, run.first is None) for run in runs] == [
+        ("a-lacking", Outcome.FAILED, True),
+        (case.name, Outcome.STAGED, False),
+    ]
+    assert "worktree" in runs[0].reason
+    assert model_fake.call_count == 1
+
+
 def test_rejected_credentials_stop_the_run(
     cases: list[StageCase], stage_repo: StageRepo, model_fake: ModelFake, openspec: OpenSpecFake
 ) -> None:
