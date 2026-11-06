@@ -122,9 +122,7 @@ from devops_cli.models.k8s import (
 from devops_cli.models.prometheus import PrometheusQueryResult, PrometheusSeries
 from devops_cli.models.security import (
     NetworkIntelRequest,
-    NetworkIntelResult,
     PackageIntelRequest,
-    PackageIntelResult,
     SecurityScanRequest,
     SecurityScanResult,
     SSHKeyAuditRequest,
@@ -244,11 +242,9 @@ __all__ = [
     "ManagedSSHKey",
     "ModelBenchmarkSummary",
     "NetworkIntelRequest",
-    "NetworkIntelResult",
     "NetworkReference",
     "NetworkReputationRecord",
     "PackageIntelRequest",
-    "PackageIntelResult",
     "PackageLookupResult",
     "PeerGrade",
     "PodInfo",

@@ -44,7 +44,9 @@ def test_threat_intel_network_findings_start_unverified() -> None:
     """Verify a host with published CVEs is left for verification, not reported as verified."""
     finding = _build_malicious_network_finding(
         "README.md",
-        NetworkReference(target="203.0.113.7", reference_type="ip", line_number=4),
+        NetworkReference(
+            target="203.0.113.7", reference_type="ip", line_number=4, security_status="✓ Safe"
+        ),
         NetworkReputationRecord(
             target="203.0.113.7", ip="203.0.113.7", is_malicious=True, outcome="ok"
         ),

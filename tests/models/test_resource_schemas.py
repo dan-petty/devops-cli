@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from devops_cli import models
 from devops_cli.models.ai import (
     ExportFeedbackRequest,
@@ -77,9 +80,7 @@ from devops_cli.models.k8s import (
 )
 from devops_cli.models.security import (
     NetworkIntelRequest,
-    NetworkIntelResult,
     PackageIntelRequest,
-    PackageIntelResult,
     SecurityScanRequest,
     SecurityScanResult,
     SSHKeyAuditRequest,
@@ -98,6 +99,10 @@ from devops_cli.models.tf import (
     TFOutputResult,
     TFPlanRequest,
     TFPlanResult,
+)
+from devops_cli.models.vulnerability import (
+    NetworkReference,
+    PackageLookupResult,
 )
 from devops_cli.models.workspace import (
     WorkspaceCleanRequest,
@@ -267,26 +272,9 @@ def test_security_resource_models_roundtrip() -> None:
 
     pkg_req = PackageIntelRequest(package_name="requests", version="2.25.0")
     assert pkg_req.package_name == "requests"
-    pkg_res = PackageIntelResult(
-        package_name="requests",
-        version="2.25.0",
-        ecosystem="PyPI",
-        is_vulnerable=False,
-        security_status="Clean",
-    )
-    assert pkg_res.is_vulnerable is False
 
     net_req = NetworkIntelRequest(target="example.com")
     assert net_req.target == "example.com"
-    net_res = NetworkIntelResult(
-        target="example.com",
-        target_type="domain",
-        is_malicious=False,
-        risk_level="LOW",
-        open_ports=[80, 443],
-        reputation_summary="Clean Domain",
-    )
-    assert net_res.is_malicious is False
 
     uv_req = UvAuditRequest(project_dir=".")
     assert uv_req.project_dir == "."
@@ -595,3 +583,27 @@ def test_domain_model_registry_completeness() -> None:
     for m in expected_models:
         assert m in exported, f"Missing {m} in models.__all__"
         assert hasattr(models, m), f"Missing attribute {m} on models package"
+
+
+def test_vulnerability_result_fields_are_required() -> None:
+    """A result that no lookup marked has no clean default, so a missing field raises (#2636)."""
+    with pytest.raises(ValidationError) as network_raised:
+        NetworkReference(target="203.0.113.7")
+    assert "security_status" in str(network_raised.value)
+
+    with pytest.raises(ValidationError) as lookup_raised:
+        PackageLookupResult()
+    assert "status" in str(lookup_raised.value)
+
+
+def test_removed_intel_result_models_are_not_exported() -> None:
+    """NetworkIntelResult and PackageIntelResult are removed from the models package (#2636)."""
+    assert "NetworkIntelResult" not in models.__all__
+    assert "PackageIntelResult" not in models.__all__
+    with pytest.raises(ImportError) as network_import:
+        from devops_cli.models import NetworkIntelResult  # noqa: F401
+    assert "NetworkIntelResult" in str(network_import.value)
+
+    with pytest.raises(ImportError) as package_import:
+        from devops_cli.models import PackageIntelResult  # noqa: F401
+    assert "PackageIntelResult" in str(package_import.value)

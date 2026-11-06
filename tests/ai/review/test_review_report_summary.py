@@ -228,8 +228,15 @@ def test_network_references_states_counts() -> None:
     from devops_cli.models.vulnerability import NetworkReference
 
     nets = [
-        NetworkReference(target="127.0.0.1", reference_type="ip", is_local=True),
-        NetworkReference(target="https://example.com", reference_type="url", is_local=False),
+        NetworkReference(
+            target="127.0.0.1", reference_type="ip", is_local=True, security_status="✓ Safe"
+        ),
+        NetworkReference(
+            target="https://example.com",
+            reference_type="url",
+            is_local=False,
+            security_status="✓ Safe",
+        ),
     ]
     report_md = render_markdown(
         make_report_input(

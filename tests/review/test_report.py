@@ -157,7 +157,12 @@ def _payload() -> FileReviewPayload:
                     target="malware.example-corp.com", is_malicious=True, outcome="ok"
                 ),
             ),
-            NetworkReference(target="http://localhost:8080", is_local=True, scope="local"),
+            NetworkReference(
+                target="http://localhost:8080",
+                is_local=True,
+                scope="local",
+                security_status="✓ Safe",
+            ),
         ],
     )
 
