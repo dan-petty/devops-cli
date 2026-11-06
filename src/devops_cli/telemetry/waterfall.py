@@ -15,8 +15,8 @@ from devops_cli.config.defaults import (
     DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS,
 )
 from devops_cli.exceptions import SSRFBlockedError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.telemetry.tracer import SpanWaterfallNode
 
 logger = logging.getLogger(__name__)
@@ -164,7 +164,7 @@ def query_tempo_trace(
         return []
     api_url = f"{tempo_url.rstrip('/')}/api/v2/traces/{clean_id}"
     try:
-        with new_http_client(level=EgressLevel.LOOPBACK, timeout=httpx2.Timeout(timeout)) as client:
+        with http_client(EgressLevel.LOOPBACK, timeout=httpx2.Timeout(timeout)) as client:
             resp = client.get(api_url)
             if resp.status_code != 200:
                 return []

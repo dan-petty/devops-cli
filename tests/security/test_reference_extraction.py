@@ -3,12 +3,10 @@ reference."""
 
 from __future__ import annotations
 
-import socket
-from typing import Any
-
 import pytest
 
 from devops_cli.security.reference_extractor import extract_network_references
+from tests.support.fakes.dns import DnsFake
 
 _EXAMPLE_DOC = """
 # Example Configuration
@@ -321,17 +319,9 @@ def test_example_targets_are_omitted_when_examples_are_excluded() -> None:
     ) == (False, False, False, False, True, True)
 
 
-def test_reference_extraction_makes_no_dns_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reference_extraction_makes_no_dns_lookup(dns: DnsFake) -> None:
     """Extraction reads the text only: it never resolves a name. Only a call with
     `AI_NUMERICHOST`, which makes no DNS query, reaches the resolver (#2152)."""
-    real_getaddrinfo = socket.getaddrinfo
-
-    def exploding_getaddrinfo(host: object, *args: Any, **kwargs: Any) -> Any:
-        if not kwargs.get("flags", 0) & socket.AI_NUMERICHOST:
-            raise AssertionError("DNS lookup attempted during reference extraction!")
-        return real_getaddrinfo(host, *args, **kwargs)
-
-    monkeypatch.setattr(socket, "getaddrinfo", exploding_getaddrinfo)
     content = """
     export HOST="api.datadoghq.com"
     export URL="https://api.custom-service.io/v1"
@@ -343,4 +333,5 @@ def test_reference_extraction_makes_no_dns_lookup(monkeypatch: pytest.MonkeyPatc
         "https://api.custom-service.io/v1" in targets,
         "1.1.1.1" in targets,
         "api.datadoghq.com" in targets,
-    ) == (True, True, False)
+        dns.lookups,
+    ) == (True, True, False, [])
