@@ -22,6 +22,10 @@ on:
 
 permissions: {}
 
+env:
+  # uv runs only its own CPython builds, never the runner image's Python (#1494).
+  UV_MANAGED_PYTHON: "1"
+
 jobs:
   semantic-title:
     name: Semantic PR title
