@@ -531,13 +531,10 @@ def test_cli_docker_sandbox_network_options(tmp_path: Path, cli: Callable[..., A
 
 
 @pytest.mark.usefixtures("public_dns", "docker_daemon")
-def test_docker_runner_whitelist_fail_closed_without_proxy(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_docker_runner_whitelist_fail_closed_without_proxy(tmp_path: Path) -> None:
     """Verify WorkloadSandboxRunner fails closed if whitelist modes lack an egress proxy."""
     from devops_cli.exceptions.docker import DockerSandboxError
 
-    monkeypatch.setenv("DOCKER_HOST", f"unix://{tmp_path / 'engine' / 'docker.sock'}")
     workspace = tmp_path / "workspace"
     workspace.mkdir()
 
@@ -579,12 +576,11 @@ def test_workload_sandbox_result_secret_masking() -> None:
 
 @pytest.mark.usefixtures("public_dns")
 def test_sandbox_engine_whitelist_fail_closed_without_proxy(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, docker_daemon: DockerEngineFake
+    tmp_path: Path, docker_daemon: DockerEngineFake
 ) -> None:
     """Verify WorkloadSandboxEngine fails closed if deploy config whitelist lacks egress proxy."""
     from devops_cli.sandbox.engine import WorkloadSandboxEngine
 
-    monkeypatch.setenv("DOCKER_HOST", f"unix://{tmp_path / 'engine' / 'docker.sock'}")
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     deploy_cfg = SandboxDeployConfig(
