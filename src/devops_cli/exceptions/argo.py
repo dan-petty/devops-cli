@@ -33,7 +33,14 @@ class ArgoResourceNotFoundError(ArgoError):
     error_code = "ARGO_RESOURCE_NOT_FOUND"
 
 
+class ArgoWorkflowTimeoutError(ArgoError):
+    """Raised when an Argo Workflow does not reach a terminal phase within the wait budget."""
+
+    error_code = "ARGO_WORKFLOW_TIMEOUT"
+
+
 __all__ = [
     "ArgoError",
     "ArgoResourceNotFoundError",
+    "ArgoWorkflowTimeoutError",
 ]

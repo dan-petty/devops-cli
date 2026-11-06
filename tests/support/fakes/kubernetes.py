@@ -321,11 +321,18 @@ class _FakeApi:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.refused = False
+        self.failures: dict[str, Exception] = {}
+
+    def fail(self, method: str, error: Exception) -> None:
+        """Make every later call of `method` raise `error`, as the API server's refusal does."""
+        self.failures[method] = error
 
     def _record(self, method: str, kwargs: dict[str, Any]) -> None:
         self.calls.append((method, kwargs))
         if self.refused:
             raise connection_refused(method)
+        if method in self.failures:
+            raise self.failures[method]
 
 
 class FakeCoreV1(_FakeApi):

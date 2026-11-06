@@ -16,6 +16,7 @@ from devops_cli.commands.argo import _validate_k8s_name
 from devops_cli.commands.argo import app as argo_app
 from devops_cli.k8s.service import KubernetesService
 from devops_cli.main import app as main_app
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.dns import DnsFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster
@@ -339,6 +340,30 @@ def test_argo_namespace_never_names_the_kubeconfig_context(tmp_path: Path) -> No
 
     namespaces = {call.kwargs["namespace"] for call in crd_api.method_calls}
     assert (exit_codes, set(contexts), namespaces) == ([0] * 5, {None}, {"argocd"})
+
+
+def test_argo_workflows_submit_wait_exits_1_when_the_workflow_never_finishes(
+    tmp_path: Path, cluster: FakeCluster, clock: ClockFake
+) -> None:
+    """`submit --wait` prints the timeout text and exits 1, and no traceback ends the command."""
+    workflow = tmp_path / "wf.yaml"
+    workflow.write_text(
+        "apiVersion: argoproj.io/v1alpha1\nkind: Workflow\nmetadata:\n  name: my-wf\n"
+        "status:\n  phase: Running\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        argo_app, ["workflows", "submit", str(workflow), "--namespace", "argocd", "--wait"]
+    )
+
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        "Timed out after" in output,
+        "waiting for workflow 'my-wf'" in output,
+        sum(clock.waits) > 0,
+    ) == (1, True, True, True)
 
 
 def test_argo_cd_apps_list_and_status_dry_run() -> None:

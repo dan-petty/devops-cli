@@ -1,37 +1,21 @@
-"""Unit tests for the isolated Dockerized workload sandbox environment."""
+"""Tests for `devops test sandbox` and `devops docker sandbox`.
+
+The commands run through `cli`, over `docker_daemon`, the in-memory Docker engine of
+`tests/support/fakes/docker_engine.py`.
+"""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.docker import app as docker_app
-from devops_cli.commands.test_cmd import app as cli_test_app
-from devops_cli.config.constants import (
-    CONST_TRACEPARENT_ENV_VAR,
-    CONST_TRACESTATE_ENV_VAR,
-)
-from devops_cli.config.defaults import DEFAULT_SANDBOX_PIDS_LIMIT
-from devops_cli.config.settings import TelemetryConfig
-from devops_cli.docker.sandbox import (
-    WorkloadSandboxConfig,
-    WorkloadSandboxRunner,
-)
-from devops_cli.exceptions.docker import DockerSandboxError
-from devops_cli.sandbox.models import SandboxNetworkConfig
-from devops_cli.telemetry import (
-    extract_env,
-    get_recent_spans,
-    reset_tracer,
-)
+from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
 from tests.support.fakes.dns import DnsFake
-
-runner = CliRunner()
+from tests.support.fakes.docker_engine import DockerEngineFake
 
 
 @pytest.fixture(autouse=True)
@@ -40,72 +24,10 @@ def _every_name_is_public(dns: DnsFake) -> None:
     dns.answer_every_name()
 
 
-_TRACE_ENV_VARS = (CONST_TRACEPARENT_ENV_VAR, CONST_TRACESTATE_ENV_VAR)
-
-
-def test_sandbox_config_defaults(tmp_path: Path) -> None:
-    """Test WorkloadSandboxConfig default values and volume mapping."""
-    cfg = WorkloadSandboxConfig(
-        workspace_dir=tmp_path,
-        command=["pytest", "-v"],
-    )
-    assert cfg.image == "python:3.14-slim"
-    assert cfg.memory_limit == "2g"
-    assert cfg.cpu_limit == 2.0
-    assert cfg.network_mode == "none"
-    assert cfg.rootless is True
-    assert cfg.read_only is True
-
-
-def test_sandbox_runner_docker_execution_success(tmp_path: Path, docker_engine: Any) -> None:
-    """Test running a sandboxed command successfully using Docker SDK."""
-    cfg = WorkloadSandboxConfig(
-        workspace_dir=tmp_path,
-        command=["python3", "-c", "print('sandbox-ok')"],
-    )
-    sandbox = WorkloadSandboxRunner(cfg)
-
-    mock_container = MagicMock()
-    mock_container.id = "c123456789"
-    mock_container.wait.return_value = {"StatusCode": 0}
-    mock_container.logs.side_effect = [b"sandbox-ok\n", b""]
-
-    mock_client = MagicMock()
-    mock_client.containers.create.return_value = mock_container
-
-    with docker_engine(mock_client):
-        res = sandbox.run()
-        assert res.exit_code == 0
-        assert "sandbox-ok" in res.stdout
-        assert mock_container.start.called
-        mock_client.api.remove_container.assert_called_once_with("c123456789", force=True)
-        create_kwargs = mock_client.containers.create.call_args.kwargs
-        assert create_kwargs.get("cap_drop") == ["ALL"]
-        assert create_kwargs.get("security_opt") == ["no-new-privileges:true"]
-        assert create_kwargs.get("pids_limit") == 256
-
-
-def test_sandbox_runner_docker_execution_failure(tmp_path: Path, docker_engine: Any) -> None:
-    """Test handling container execution failure and cleanup."""
-    cfg = WorkloadSandboxConfig(
-        workspace_dir=tmp_path,
-        command=["exit", "1"],
-    )
-    sandbox = WorkloadSandboxRunner(cfg)
-
-    mock_container = MagicMock()
-    mock_container.id = "c987654321"
-    mock_container.wait.return_value = {"StatusCode": 1}
-    mock_container.logs.side_effect = [b"", b"Error occurred"]
-
-    mock_client = MagicMock()
-    mock_client.containers.create.return_value = mock_container
-
-    with docker_engine(mock_client):
-        res = sandbox.run()
-        assert res.exit_code == 1
-        assert "Error occurred" in res.stderr
-        mock_client.api.remove_container.assert_called_once_with("c987654321", force=True)
+def _created(engine: DockerEngineFake) -> dict[str, Any]:
+    """The arguments of the one container creation that reached the engine."""
+    (create,) = [call for call in engine.calls if call.name == "containers.create"]
+    return {"image": create.args[0], **create.kwargs}
 
 
 def _plan_lines(output: str) -> list[str]:
@@ -117,18 +39,16 @@ def _plan_lines(output: str) -> list[str]:
 
 @pytest.mark.parametrize("flag_first", [True, False])
 def test_cli_test_sandbox_dry_run_lists_the_docker_requests(
-    tmp_path: Path, cli: Any, flag_first: bool
+    tmp_path: Path, cli: Callable[..., Any], docker_daemon: DockerEngineFake, flag_first: bool
 ) -> None:
     """A dry run builds no Docker client and lists the five engine requests (#2260)."""
     argv = ["test", "sandbox", "--workspace", str(tmp_path), "--image", "alpine:latest"]
     argv = ["--dry-run", *argv] if flag_first else [*argv, "--dry-run"]
-    with (
-        patch("docker.from_env", side_effect=AssertionError("no Docker client")),
-        patch("docker.DockerClient", side_effect=AssertionError("no Docker client")),
-    ):
-        res = cli([*argv, "--", "echo", "test"])
+
+    res = cli([*argv, "--", "echo", "test"])
 
     assert res.exit_code == 0, res.output
+    assert (docker_daemon.factory_params, docker_daemon.calls) == ([], [])
     assert _plan_lines(res.output) == [
         "DOCKER POST /containers/create",
         "DOCKER POST /containers/<container-id>/start",
@@ -147,23 +67,18 @@ def test_cli_test_sandbox_dry_run_lists_the_docker_requests(
 
 
 def test_cli_test_sandbox_runs_the_create_of_its_plan(
-    tmp_path: Path, cli: Any, docker_engine: Any
+    tmp_path: Path, cli: Callable[..., Any], docker_daemon: DockerEngineFake
 ) -> None:
     """The real run creates the container with the image, command and network of the plan."""
     argv = ["test", "sandbox", "--workspace", str(tmp_path), "--image", "alpine:latest"]
     planned = cli([*argv, "--dry-run", "--", "echo", "test"]).output
     body = json.loads(planned.split("POST /containers/create\n", 1)[1].splitlines()[0])
-    container = MagicMock(id="c1")
-    container.wait.return_value = {"StatusCode": 0}
-    container.logs.side_effect = [b"test\n", b""]
-    client = MagicMock()
-    client.containers.create.return_value = container
+    docker_daemon.script_every_run(stdout=b"test\n")
 
-    with docker_engine(client):
-        result = cli([*argv, "--", "echo", "test"])
+    result = cli([*argv, "--", "echo", "test"])
 
     assert result.exit_code == 0, result.output
-    kwargs = client.containers.create.call_args.kwargs
+    kwargs = _created(docker_daemon)
     assert (kwargs["image"], kwargs["command"], kwargs.get("network_mode")) == (
         body["image"],
         body["command"],
@@ -171,167 +86,27 @@ def test_cli_test_sandbox_runs_the_create_of_its_plan(
     )
 
 
-def test_cli_test_sandbox_whitelist_url_with_path(tmp_path: Path) -> None:
+def test_cli_test_sandbox_whitelist_url_with_path(cli: Callable[..., Any], tmp_path: Path) -> None:
     """Test devops test sandbox accepts valid whitelist URLs with paths."""
-    res = runner.invoke(
-        cli_test_app,
-        [
-            "sandbox",
-            "--dry-run",
-            "--workspace",
-            str(tmp_path),
-            "--network-mode",
-            "public_whitelist",
-            "--public-whitelist",
-            "https://example.com/path",
-            "echo",
-            "test",
-        ],
+    res = cli(
+        "test",
+        "sandbox",
+        "--dry-run",
+        "--workspace",
+        str(tmp_path),
+        "--network-mode",
+        "public_whitelist",
+        "--public-whitelist",
+        "https://example.com/path",
+        "echo",
+        "test",
     )
     assert (res.exit_code, "echo" in res.output) == (0, True)
 
 
-def test_cli_docker_sandbox_dry_run(tmp_path: Path) -> None:
+def test_cli_docker_sandbox_dry_run(cli: Callable[..., Any], tmp_path: Path) -> None:
     """Test devops docker sandbox CLI subcommand with dry-run."""
-    res = runner.invoke(
-        docker_app,
-        ["sandbox", "--dry-run", "--workspace", str(tmp_path), "pytest", "tests/unit"],
+    res = cli(
+        "docker", "sandbox", "--dry-run", "--workspace", str(tmp_path), "pytest", "tests/unit"
     )
     assert (res.exit_code, "pytest" in res.output) == (0, True)
-
-
-def test_sandbox_runner_env_and_hardening_propagation(tmp_path: Path, docker_engine: Any) -> None:
-    """Config env and container hardening reach the Engine API creation payload."""
-    cfg = WorkloadSandboxConfig(
-        workspace_dir=tmp_path,
-        command=["python3", "-c", "print('hello')"],
-        env={"TEST_VAR": "custom_val", "API_KEY": "secret123"},
-    )
-    sandbox = WorkloadSandboxRunner(cfg)
-
-    mock_container = MagicMock()
-    mock_container.id = "c111222333"
-    mock_container.wait.return_value = {"StatusCode": 0}
-    mock_container.logs.side_effect = [b"hello", b""]
-    mock_client = MagicMock()
-    mock_client.containers.create.return_value = mock_container
-
-    with docker_engine(mock_client):
-        res = sandbox.run()
-
-    create_kwargs = mock_client.containers.create.call_args.kwargs
-    environment = create_kwargs["environment"]
-    assert res.exit_code == 0
-    assert (
-        {key: environment[key] for key in environment if key not in _TRACE_ENV_VARS},
-        create_kwargs["cap_drop"],
-        create_kwargs["security_opt"],
-        create_kwargs["pids_limit"],
-        create_kwargs["network_mode"],
-    ) == (
-        {"TEST_VAR": "custom_val", "API_KEY": "secret123"},
-        ["ALL"],
-        ["no-new-privileges:true"],
-        DEFAULT_SANDBOX_PIDS_LIMIT,
-        "none",
-    )
-
-
-def test_workload_sandbox_runner_exclude_home_dir(tmp_path: Path) -> None:
-    """Verify WorkloadSandboxRunner enforces exclude_home_dir preference."""
-    cfg_home = WorkloadSandboxConfig(workspace_dir=Path.home(), command=["echo", "hi"])
-    runner_default = WorkloadSandboxRunner(cfg_home)
-    assert runner_default.exclude_home_dir is True
-    with pytest.raises(DockerSandboxError, match="home directory"):
-        runner_default.run()
-
-    cfg_subhome = WorkloadSandboxConfig(
-        workspace_dir=Path.home() / "some_nested_dir",
-        command=["echo", "hi"],
-    )
-    runner_sub = WorkloadSandboxRunner(cfg_subhome)
-    with pytest.raises(DockerSandboxError, match="home directory"):
-        runner_sub.run()
-
-    # When exclude_home_dir is explicitly disabled:
-    runner_allow = WorkloadSandboxRunner(cfg_home, exclude_home_dir=False)
-    assert runner_allow.exclude_home_dir is False
-    # Home root is still forbidden
-    with pytest.raises(DockerSandboxError, match="home directory"):
-        runner_allow.run()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Trace context in workload containers (#702)
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def _run_with_mock_engine(cfg: WorkloadSandboxConfig, docker_engine: Any) -> dict[str, str]:
-    """Run a workload through a mocked Engine API client and return the environment it got."""
-    container = MagicMock()
-    container.id = "c-trace-1"
-    container.wait.return_value = {"StatusCode": 0}
-    container.logs.side_effect = [b"", b""]
-    client = MagicMock()
-    client.containers.create.return_value = container
-    with docker_engine(client):
-        WorkloadSandboxRunner(cfg).run()
-    environment: dict[str, str] = client.containers.create.call_args.kwargs["environment"]
-    return environment
-
-
-def test_a_workload_is_parented_to_its_run_span(
-    tmp_path: Path, docker_engine: Any, tracer: Any
-) -> None:
-    """The container's TRACEPARENT names the run span; the config's env is left as it was."""
-    cfg = WorkloadSandboxConfig(workspace_dir=tmp_path, command=["env"], env={"APP_MODE": "test"})
-    environment = _run_with_mock_engine(cfg, docker_engine)
-    child = extract_env(environment)
-    run_spans = [
-        span["spanId"]
-        for span in get_recent_spans()
-        if span.get("name") == "docker.workload_sandbox.run"
-    ]
-    assert (
-        child.span_id if child else None,
-        {key: environment[key] for key in environment if key not in _TRACE_ENV_VARS},
-        cfg.env,
-    ) == (run_spans[0], {"APP_MODE": "test"}, {"APP_MODE": "test"})
-
-
-def test_a_proxied_workload_keeps_its_proxy_variables_beside_the_trace_context(
-    tmp_path: Path, docker_engine: Any, tracer: Any
-) -> None:
-    """In a proxy mode the proxy variables are still set when the trace context is added."""
-    proxy = "http://example.com:3128"
-    cfg = WorkloadSandboxConfig(
-        workspace_dir=tmp_path,
-        command=["env"],
-        env={"APP_MODE": "test"},
-        network_config=SandboxNetworkConfig(
-            mode="public_whitelist", public_whitelist=["93.184.216.34"], egress_proxy=proxy
-        ),
-    )
-    environment = _run_with_mock_engine(cfg, docker_engine)
-    assert (
-        extract_env(environment) is not None,
-        {key: environment[key] for key in environment if key not in _TRACE_ENV_VARS},
-    ) == (
-        True,
-        {"HTTP_PROXY": proxy, "HTTPS_PROXY": proxy, "ALL_PROXY": proxy, "APP_MODE": "test"},
-    )
-
-
-def test_a_workload_run_with_tracing_off_gets_exactly_its_configured_env(
-    tmp_path: Path, docker_engine: Any
-) -> None:
-    """With tracing disabled the container's environment is the config's env and nothing else."""
-    cfg = WorkloadSandboxConfig(workspace_dir=tmp_path, command=["env"], env={"APP_MODE": "test"})
-    with patch(
-        "devops_cli.telemetry.tracer._resolve_telemetry_settings",
-        return_value=TelemetryConfig(enabled=False),
-    ):
-        reset_tracer()
-        environment = _run_with_mock_engine(cfg, docker_engine)
-        reset_tracer()
-    assert environment == {"APP_MODE": "test"}

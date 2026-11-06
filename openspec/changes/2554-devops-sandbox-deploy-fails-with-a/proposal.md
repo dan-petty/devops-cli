@@ -27,7 +27,7 @@ Issue #2554 reports that `devops sandbox deploy` fails with a raw Docker API 404
 ## Impact
 
 - Code: `src/devops_cli/docker/engine.py`, `src/devops_cli/docker/sdk.py`, `src/devops_cli/sandbox/engine.py`, `src/devops_cli/sandbox/sandbox_plans.py`.
-- Tests and test support: `tests/support/fakes/docker_engine.py`, `tests/support/docker_engine_scenarios.py`, `tests/docker/test_engine_contract.py`, `tests/fixtures/docker_engine/recorded_exchanges.json`, `tests/core/test_docker_engine.py`, `tests/sandbox/test_sandbox_deploy_pull.py` (new), `tests/commands/test_sandbox_dry_run.py`.
+- Tests and test support: `tests/support/fakes/docker_engine.py`, `tests/support/docker_engine_scenarios.py`, `tests/docker/test_engine_contract.py`, `tests/fixtures/docker_engine/recorded_exchanges.json`, `tests/docker/test_engine_containers.py`, `tests/sandbox/test_sandbox_deploy_pull.py` (new), `tests/commands/test_sandbox_dry_run.py`.
 - Existing tests that must keep passing: `tests/commands/test_sandbox_lifecycle.py` (deploy over mock clients, rollback, dry run), `tests/sandbox/test_sandbox_seccomp.py` (deploy over the fake with `alpine:3`, which the fake holds), `tests/commands/test_sandbox_logs.py`, `tests/commands/test_sandbox_network_policy.py`.
 - Code that this change reuses: `DockerEngineError` (`src/devops_cli/exceptions/docker.py`), `DockerEngineFake.fail` and `call_names` (a pull failure in a test uses `fail`), the `docker_daemon` fixture, `DEFAULT_SANDBOX_IMAGE` (`src/devops_cli/config/defaults.py`).
 

@@ -9,7 +9,8 @@ real engine, and keeps each call in `calls`.
 
 A test gives the fake its state: images, containers and what each one prints and exits with,
 networks, volumes, build cache and the daemon's facts. A container whose run is scripted with
-`script_run` exits when it starts; any other container runs until it is stopped. `unreachable`
+`script_run` (by name) or `script_every_run` (for any container without a script of its own)
+exits when it starts; any other container runs until it is stopped. `unreachable`
 makes the factory fail as the SDK fails when no daemon answers, and every later call fail as a
 dropped connection does.
 
@@ -522,6 +523,7 @@ class DockerEngineFake:
         self.volume_state: dict[str, dict[str, Any]] = {}
         self.build_cache: list[dict[str, Any]] = []
         self.runs: dict[str, ScriptedRun] = {}
+        self.every_run: ScriptedRun | None = None
         self.execs: dict[tuple[str, tuple[str, ...]], tuple[int, bytes]] = {}
         self.stats: dict[str, list[dict[str, Any]]] = {}
         self._serial = itertools.count(1)
@@ -723,12 +725,30 @@ class DockerEngineFake:
         frames: Sequence[tuple[str, bytes]] | None = None,
     ) -> None:
         """Make the container named `name` print and exit with this when it starts."""
+        self.runs[name] = self._scripted_run(stdout, stderr, exit_code, frames)
+
+    def script_every_run(
+        self,
+        *,
+        stdout: bytes = b"",
+        stderr: bytes = b"",
+        exit_code: int = 0,
+        frames: Sequence[tuple[str, bytes]] | None = None,
+    ) -> None:
+        """Make each container that has no script of its own print and exit with this when it
+        starts, for code that makes a container under a name the test cannot know."""
+        self.every_run = self._scripted_run(stdout, stderr, exit_code, frames)
+
+    @staticmethod
+    def _scripted_run(
+        stdout: bytes, stderr: bytes, exit_code: int, frames: Sequence[tuple[str, bytes]] | None
+    ) -> ScriptedRun:
         written = (
             list(frames)
             if frames is not None
             else [(stream, data) for stream, data in ((_STDOUT, stdout), (_STDERR, stderr)) if data]
         )
-        self.runs[name] = ScriptedRun(written, exit_code)
+        return ScriptedRun(written, exit_code)
 
     def script_exec(
         self, name: str, cmd: Sequence[str], *, exit_code: int = 0, output: bytes = b""
@@ -804,6 +824,8 @@ class DockerEngineFake:
     def start(self, container_id: str) -> None:
         """Run a container: a scripted run exits at once, any other one keeps running."""
         name = self.container_state[container_id]["Name"].lstrip("/")
+        if name not in self.runs and self.every_run is not None:
+            self.runs[name] = self.every_run
         run = self.runs.get(name)
         if run is None:
             self._set_running(container_id)

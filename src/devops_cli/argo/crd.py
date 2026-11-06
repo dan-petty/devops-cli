@@ -54,9 +54,6 @@ def is_not_found_error(exc: BaseException) -> bool:
     return "404" in msg or "not found" in msg
 
 
-_is_not_found = is_not_found_error
-
-
 def fnv32a(text: str) -> int:
     """Compute 32-bit FNV-1a hash matching the Argo Workflows controller."""
     h = CONST_FNV_OFFSET_BASIS_32
@@ -148,7 +145,7 @@ class ArgoCRDService:
                 name=name,
             )
         except Exception as exc:
-            if _is_not_found(exc):
+            if is_not_found_error(exc):
                 raise ArgoResourceNotFoundError(
                     f"Argo {plural[:-1]} '{name}' not found in namespace '{namespace}'",
                     resource=name,
@@ -181,7 +178,7 @@ class ArgoCRDService:
                 body=patch,
             )
         except Exception as exc:
-            if _is_not_found(exc):
+            if is_not_found_error(exc):
                 raise ArgoResourceNotFoundError(
                     f"Argo {plural[:-1]} '{name}' not found in namespace '{namespace}'",
                     resource=name,
@@ -214,7 +211,7 @@ class ArgoCRDService:
                 body=patch,
             )
         except Exception as exc:
-            if _is_not_found(exc):
+            if is_not_found_error(exc):
                 raise ArgoResourceNotFoundError(
                     f"Argo {plural[:-1]} '{name}' not found in namespace '{namespace}'",
                     resource=name,

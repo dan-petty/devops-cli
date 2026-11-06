@@ -19,12 +19,12 @@ from devops_cli.cloudflare.cloudflare_plans import (
     plan_cloudflare_tunnel_routes,
     plan_cloudflare_tunnel_sync,
 )
+from devops_cli.cloudflare.dns import delete_dns_records
 from devops_cli.config.constants import (
     CONST_CLOUDFLARE_BYPASS_POLICY_NAME,
     CONST_CLOUDFLARE_CATCHALL_SERVICE,
     CONST_CLOUDFLARE_DEFAULT_SERVICE,
     CONST_CLOUDFLARE_DEFAULT_SUBDOMAINS,
-    CONST_CLOUDFLARE_RECORD_COMMENT,
     CONST_OUTPUT_FORMAT_TABLE,
 )
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
@@ -34,7 +34,6 @@ from devops_cli.dry_run import dry_run_class, is_dry_run, set_dry_run
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions.cloudflare import CloudflareAuthError
 from devops_cli.lang import HELP
-from devops_cli.models.cloudflare import CloudflareDNSRecord
 from devops_cli.output import (
     print_error,
     print_info,
@@ -435,76 +434,6 @@ def dns_sync(
     _render_dns_sync_results(eff_domain, eff_tunnel, summary, output_format, json_output)
 
 
-def _resolve_dns_target_names(target: str, domain: str) -> tuple[str, str]:
-    """Resolve target string into lowercase target name and full domain-qualified target."""
-    if target == "@":
-        full = domain
-    elif "." not in target:
-        full = f"{target}.{domain}"
-    else:
-        full = target
-    return target.lower(), full.lower()
-
-
-def _record_matches_filter(
-    record: CloudflareDNSRecord,
-    target_names: tuple[str, str],
-    target: str,
-    type_upper: str | None,
-    force: bool,
-) -> bool:
-    """Check whether a single DNS record satisfies target, type, and managed predicates."""
-    rec_name = record.name.lower()
-    if record.id != target and rec_name not in target_names:
-        return False
-    if type_upper and record.type.upper() != type_upper:
-        return False
-    if not force and (record.comment or "").strip() != CONST_CLOUDFLARE_RECORD_COMMENT:
-        return False
-    return True
-
-
-def _find_matching_records(
-    existing: list[CloudflareDNSRecord],
-    target: str,
-    domain: str,
-    record_type: str | None = None,
-    force: bool = False,
-) -> list[CloudflareDNSRecord]:
-    """Find existing DNS records matching a target name or ID, type, and managed status."""
-    target_names = _resolve_dns_target_names(target, domain)
-    type_upper = record_type.upper() if record_type else None
-    return [
-        r for r in existing if _record_matches_filter(r, target_names, target, type_upper, force)
-    ]
-
-
-def _execute_dns_deletions(
-    client: CloudflareClient,
-    targets: list[str],
-    domain: str,
-    zone_id: str | None,
-    record_type: str | None = None,
-    force: bool = False,
-) -> tuple[list[tuple[str, str]], list[str]]:
-    """Delete matched DNS records."""
-    existing = client.list_dns_records(zone_id=zone_id)
-    deleted: list[tuple[str, str]] = []
-    not_found: list[str] = []
-
-    for target in targets:
-        matched = _find_matching_records(
-            existing, target, domain, record_type=record_type, force=force
-        )
-        if not matched:
-            not_found.append(target)
-            continue
-        for rec in matched:
-            client.delete_dns_record(rec.id, zone_id=zone_id)
-            deleted.append((rec.name, rec.id))
-    return deleted, not_found
-
-
 def _render_dns_delete_results(
     deleted: list[tuple[str, str]],
     not_found: list[str],
@@ -596,10 +525,10 @@ def dns_delete(
         return
 
     client = _resolve_client(settings)
-    deleted, not_found = _execute_dns_deletions(
-        client=client,
-        targets=targets,
-        domain=eff_domain,
+    deleted, not_found = delete_dns_records(
+        client,
+        targets,
+        eff_domain,
         zone_id=zone_id,
         record_type=record_type,
         force=force,

@@ -364,8 +364,13 @@ def test_cli_cloudflare_dns_delete_success(mock_settings: Settings) -> None:
         ) == (0, True, 1)
 
 
-def test_cli_cloudflare_dns_delete_unmanaged_protection(mock_settings: Settings) -> None:
-    """Verify unmanaged records are protected without --force and deleted with --force."""
+def _deleted_ids(client: MagicMock) -> list[str]:
+    """The record IDs a command passed to `delete_dns_record`, in order."""
+    return [call.args[0] for call in client.delete_dns_record.call_args_list]
+
+
+def test_cli_cloudflare_dns_delete_passes_force_to_the_matching(mock_settings: Settings) -> None:
+    """Verify --force reaches the matching: only it deletes a record devops-cli does not manage."""
     mock_client = MagicMock()
     mock_client.list_dns_records.return_value = [
         CloudflareDNSRecord(
@@ -373,8 +378,6 @@ def test_cli_cloudflare_dns_delete_unmanaged_protection(mock_settings: Settings)
             type="CNAME",
             name="example.com",
             content="target.cfargotunnel.com",
-            proxied=True,
-            ttl=1,
             comment=None,
         )
     ]
@@ -382,52 +385,38 @@ def test_cli_cloudflare_dns_delete_unmanaged_protection(mock_settings: Settings)
         patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
         patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
     ):
-        res_safe = runner.invoke(app, ["dns", "delete", "example.com"])
-        res_force = runner.invoke(app, ["dns", "delete", "--force", "example.com"])
+        safe = runner.invoke(app, ["dns", "delete", "example.com"])
+        deletes_after_safe = mock_client.delete_dns_record.call_count
+        forced = runner.invoke(app, ["dns", "delete", "--force", "example.com"])
 
     assert (
-        res_safe.exit_code,
-        "Records not found: example.com" in res_safe.output,
-        res_force.exit_code,
-        "Deleted" in res_force.output,
-        mock_client.delete_dns_record.call_count,
-    ) == (0, True, 0, True, 1)
+        safe.exit_code,
+        deletes_after_safe,
+        forced.exit_code,
+        _deleted_ids(mock_client),
+    ) == (0, 0, 0, ["rec-unmanaged"])
 
 
-def test_cli_cloudflare_dns_delete_type_filtering(mock_settings: Settings) -> None:
-    """Verify --type filters DNS deletions by record type."""
+def test_cli_cloudflare_dns_delete_passes_type_to_the_matching(mock_settings: Settings) -> None:
+    """Verify --type reaches the matching: only the record of that type is deleted."""
     mock_client = MagicMock()
     mock_client.list_dns_records.return_value = [
         CloudflareDNSRecord(
-            id="rec-cname",
-            type="CNAME",
+            id=record_id,
+            type=record_type,
             name="example.com",
             content="target.cfargotunnel.com",
-            proxied=True,
-            ttl=1,
             comment="Managed by devops-cli",
-        ),
-        CloudflareDNSRecord(
-            id="rec-a",
-            type="A",
-            name="example.com",
-            content="1.2.3.4",
-            proxied=False,
-            ttl=1,
-            comment="Managed by devops-cli",
-        ),
+        )
+        for record_id, record_type in (("rec-cname", "CNAME"), ("rec-a", "A"))
     ]
     with (
         patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
         patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
     ):
-        res = runner.invoke(app, ["dns", "delete", "--type", "A", "example.com"])
+        result = runner.invoke(app, ["dns", "delete", "--type", "A", "example.com"])
 
-    assert (
-        res.exit_code,
-        mock_client.delete_dns_record.call_count,
-        mock_client.delete_dns_record.call_args[0][0],
-    ) == (0, 1, "rec-a")
+    assert (result.exit_code, _deleted_ids(mock_client)) == (0, ["rec-a"])
 
 
 def test_cloudflare_client_list_dns_records_pagination() -> None:

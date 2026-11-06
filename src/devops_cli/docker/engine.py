@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import os
 import struct
-import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Final, cast
@@ -41,6 +40,7 @@ from devops_cli.config.defaults import (
     DEFAULT_DOCKER_STOP_TIMEOUT_SECONDS,
     DEFAULT_DOCKER_TIMEOUT_SECONDS,
 )
+from devops_cli.core import clock
 from devops_cli.exceptions.docker import (
     DockerDaemonUnavailableError,
     DockerEngineError,
@@ -657,14 +657,14 @@ class DockerEngineService:
         if entry is None:
             return None
         expires_at, value = entry
-        if time.monotonic() >= expires_at:
+        if clock.monotonic() >= expires_at:
             self._cache.pop(key, None)
             return None
         return value
 
     def _set_cached(self, key: str, value: Any, ttl: float | None = None) -> None:
         """Memoise an Engine API response for the given lifetime."""
-        self._cache[key] = (time.monotonic() + (self._cache_ttl if ttl is None else ttl), value)
+        self._cache[key] = (clock.monotonic() + (self._cache_ttl if ttl is None else ttl), value)
 
     # -- Container introspection ---------------------------------------------
 
