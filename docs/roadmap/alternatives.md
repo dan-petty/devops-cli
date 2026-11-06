@@ -48,6 +48,16 @@ With `--confirm`, a check does three things:
 
 A check changes no label and closes no issue. A person decides what a tool means for the item.
 
+The comment gives:
+
+- the verdict and the reason of the model for it, in one or two sentences;
+- the tool, with its URL, license and last activity, and what it covers and lacks;
+- the tools considered: every tool whose facts the run read, each with its URL, license and last activity;
+- the searches run, each with its number of results;
+- at most five sources, and a line that says how many more the comment leaves out. GitHub shows each URL as a link.
+
+A check adds a new comment. It never changes the comment of an earlier check.
+
 ## Which items a run takes
 
 A run takes open New and Ready items that a trusted author opened. A trusted author is a person with write access, the Service App's bot or `github-actions[bot]`. A run takes an item of a bot only with the approval of the review of refine.

@@ -21,6 +21,7 @@ Reply with these keys:
 - `tool_name`: the name that the ADR or the issue writes for the tool of `tool_url`, such as `Argo Workflows`. Set it when you set `adr` or `in_use`.
 - `adr`: for the verdicts `covers` and `partly` only: the number of the ADR in `decisions` that rejected the tool of `tool_url`. Give a number only when that ADR names the tool and rejects it. The job drops a number that it cannot confirm in `decisions`. Leave it empty in any other case.
 - `in_use`: `true` or `false`. Give `true` for a `covers` or `partly` verdict when the issue already names the tool of `tool_url` as a tool that the project uses. The `title` or the `body` must name it. The job drops `true` when the text does not name the tool.
+- `reason`: the reason of the verdict in one or two sentences. Say what the searches found and why it does cover, partly cover or not cover the need. For `none`, say what the searches found and why it does not cover the need.
 - `covers`: short statements of what the tool covers.
 - `lacks`: short statements of what the tool does not cover, or what the issue needs that it lacks.
 - `sources`: the URLs that support your statements. Each one is a URL that a tool gave you.
