@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.68.0](https://github.com/dan-petty/devops-cli/compare/v0.67.2...v0.68.0) (2026-11-06)
+
+
+### Features
+
+* **roadmap:** build the shared shortlist of the consolidation job ([#3777](https://github.com/dan-petty/devops-cli/issues/3777)) ([3c3bbb7](https://github.com/dan-petty/devops-cli/commit/3c3bbb7a7f24754dd0eb6f13c00a816a2a79ddfc))
+
 ## [0.67.2](https://github.com/dan-petty/devops-cli/compare/v0.67.1...v0.67.2) (2026-11-06)
 
 
