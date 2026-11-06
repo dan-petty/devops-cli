@@ -818,22 +818,6 @@ def _execute_sandbox_probe_before_trace(identifier: str) -> tuple[str, str | Non
     return report.target, report.trace_id
 
 
-def _resolve_spans_for_traces(
-    trace_id: str | None, last: bool, tempo_url: str | None
-) -> tuple[str, list[dict[str, Any]]]:
-    """Retrieve trace spans matching trace_id or fallback to most recent buffer spans."""
-    from devops_cli.telemetry.tracer import get_trace_spans
-    from devops_cli.telemetry.waterfall import resolve_trace_spans
-
-    active_id, spans = resolve_trace_spans(trace_id=trace_id, tempo_url=tempo_url)
-    if not spans and (last or not trace_id):
-        buffered = get_trace_spans(None)
-        if buffered:
-            return str(buffered[0].get("traceId", "unknown")), buffered
-
-    return active_id, spans
-
-
 @app.command("traces")
 @dry_run_class("request-plan")
 def traces(
@@ -885,7 +869,9 @@ def traces(
     if probe and identifier:
         target_display, resolved_trace_id = _execute_sandbox_probe_before_trace(identifier)
 
-    active_id, spans = _resolve_spans_for_traces(resolved_trace_id, last, tempo_url)
+    from devops_cli.telemetry.waterfall import resolve_trace_spans_or_latest
+
+    active_id, spans = resolve_trace_spans_or_latest(resolved_trace_id, last, tempo_url)
     if not spans:
         print_warning(f"No telemetry spans recorded for trace '{resolved_trace_id or active_id}'.")
         return None

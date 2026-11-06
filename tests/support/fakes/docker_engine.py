@@ -1081,11 +1081,14 @@ class DockerEngineFake:
 
 
 @pytest.fixture
-def docker_daemon(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> Iterator[DockerEngineFake]:
+def docker_daemon(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[DockerEngineFake]:
     """`DockerEngineService` over an in-memory engine that holds `alpine:3`.
 
-    The endpoint is a socket path under the test's own directory that nothing serves, so the
-    service resolves and checks it as it does a real one. The service is reset after the test.
+    The endpoint is a socket path in a directory of its own, beside `tmp_path`, that nothing
+    serves, so the service resolves and checks it as it does a real one, and a workspace under
+    `tmp_path` never overlaps it. The service is reset after the test.
     """
     for name in (
         "CONTAINER_HOST",
@@ -1095,7 +1098,8 @@ def docker_daemon(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> Iterator[Do
         "DOCKER_CERT_PATH",
     ):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("DOCKER_HOST", f"unix://{tmp_path / 'docker.sock'}")
+    socket_dir = tmp_path_factory.mktemp("docker-engine")
+    monkeypatch.setenv("DOCKER_HOST", f"unix://{socket_dir / 'docker.sock'}")
     fake = DockerEngineFake()
     fake.add_image("alpine:3", "alpine:latest")
     DockerEngineService.install(fake.client_factory)

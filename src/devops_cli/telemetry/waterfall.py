@@ -194,6 +194,27 @@ def resolve_trace_spans(
     return trace_id or "unknown", []
 
 
+def resolve_trace_spans_or_latest(
+    trace_id: str | None,
+    last: bool,
+    tempo_url: str | None = None,
+) -> tuple[str, list[dict[str, Any]]]:
+    """Retrieve the spans of a trace, or the latest buffered trace when none are found.
+
+    The latest buffered trace answers when the named trace has no spans and `last` is set. With no
+    trace named, `resolve_trace_spans` already reads the latest buffered trace.
+    """
+    from devops_cli.telemetry.tracer import get_trace_spans
+
+    active_id, spans = resolve_trace_spans(trace_id=trace_id, tempo_url=tempo_url)
+    if not spans and last:
+        buffered = get_trace_spans(None)
+        if buffered:
+            return str(buffered[0].get("traceId", "unknown")), buffered
+
+    return active_id, spans
+
+
 def poll_trace_spans(
     trace_id: str,
     tempo_url: str,
@@ -256,5 +277,6 @@ __all__ = [
     "read_trace_from_tempo",
     "render_waterfall_bar",
     "resolve_trace_spans",
+    "resolve_trace_spans_or_latest",
     "run_profiled_command",
 ]

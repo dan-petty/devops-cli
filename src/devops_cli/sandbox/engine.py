@@ -226,9 +226,11 @@ class WorkloadSandboxEngine:
         registry: SandboxRegistry | None = None,
         *,
         exclude_home_dir: bool | None = None,
+        cgroup_root: Path | None = None,
     ) -> None:
         self._prior_samples: dict[str, tuple[float, CgroupV2Metrics]] = {}
         self.registry = registry or SandboxRegistry()
+        self.cgroup_root = cgroup_root
         if exclude_home_dir is not None:
             self.exclude_home_dir = exclude_home_dir
         else:
@@ -605,6 +607,7 @@ class WorkloadSandboxEngine:
                 previous_cgroup=prev_cgroup,
                 previous_cpu_usec=prev_cpu,
                 elapsed_sec=elapsed,
+                cgroup_root=self.cgroup_root,
             )
             if snapshot.cgroup is not None:
                 self._prior_samples[prior_key] = (now, snapshot.cgroup)

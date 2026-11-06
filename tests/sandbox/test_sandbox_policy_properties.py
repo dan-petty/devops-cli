@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from hypothesis import HealthCheck, Phase, example, given, settings
+from hypothesis import HealthCheck, Phase, assume, example, given, settings
 from hypothesis import strategies as st
 
 from devops_cli.core.paths import (
@@ -29,12 +29,8 @@ from devops_cli.exceptions import (
     SSRFBlockedError,
 )
 from devops_cli.http.egress import EgressLevel, vet_addresses
-from devops_cli.sandbox.models import (
-    _parse_whitelist_entry,
-    _resolve_local_host,
-    _resolve_public_host,
-    _validate_local_whitelist_item,
-)
+from devops_cli.sandbox.models import SandboxNetworkConfig, SandboxNetworkMode
+from tests.web_fakes import scripted_resolver
 
 # Standard derandomized settings profile for deterministic CI property runs
 _DERANDOMIZED = settings(
@@ -55,6 +51,18 @@ def _check_raises(func: Any, *args: Any, expected_exc: type[Exception], **kwargs
         return False
     except expected_exc:
         return True
+
+
+def _whitelist_rules(mode: SandboxNetworkMode, entries: list[str]) -> list[dict[str, Any]]:
+    """The egress rules the NetworkPolicy of a whitelist holds after its kube-dns rule."""
+    field = "public_whitelist" if mode == SandboxNetworkMode.PUBLIC_WHITELIST else "local_whitelist"
+    config = SandboxNetworkConfig(mode=mode, **{field: entries})
+    return config.to_k8s_network_policy()["spec"]["egress"][1:]
+
+
+def _tcp_rule(cidr: str, port: int) -> dict[str, Any]:
+    """The egress rule that opens one TCP port on one address block."""
+    return {"to": [{"ipBlock": {"cidr": cidr}}], "ports": [{"protocol": "TCP", "port": port}]}
 
 
 # =============================================================================
@@ -188,66 +196,95 @@ def test_property_absolute_tilde_and_file_schemes_denied_when_not_allowed(
 def test_property_resolve_hosts_emit_correct_prefix_lengths(
     ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
 ) -> None:
-    """Property: _resolve_public_host and _resolve_local_host emit /128 for IPv6 and /32 for IPv4.
+    """Property: a whitelist emits /128 for an IPv6 address and /32 for an IPv4 address.
 
     A loopback address emits nothing: NetworkPolicy never polices a pod's loopback (#1174).
     """
-    from unittest.mock import patch
-
     ip_str = str(ip)
     expected_prefix = "128" if isinstance(ip, ipaddress.IPv6Address) else "32"
     expected_cidr = f"{ip_str}/{expected_prefix}"
-    mock_addr = [(2, 1, 6, "", (ip_str, 80))]
 
     net = ipaddress.ip_network(ip_str, strict=False)
     is_public = not is_non_public_ip(net)
 
     if ip.is_loopback:
-        assert _resolve_local_host(ip_str, 443) == []
+        assert _whitelist_rules(SandboxNetworkMode.LOCAL_WHITELIST, [ip_str]) == []
         return
-    with patch("socket.getaddrinfo", return_value=mock_addr):
+    with pytest.MonkeyPatch.context() as patches:
         if is_public:
-            blocks_direct = _resolve_public_host(ip_str, 443)
-            blocks_dns = _resolve_public_host("example.com", 443)
-            assert (blocks_direct, blocks_dns) == ([expected_cidr], [expected_cidr])
+            scripted_resolver(patches, {"example.com": [[ip_str]]})
+            rules = _whitelist_rules(SandboxNetworkMode.PUBLIC_WHITELIST, [ip_str, "example.com"])
+            assert rules == [_tcp_rule(expected_cidr, 443)] * 2
         elif ip.is_private and not is_cloud_metadata_host(ip):
-            blocks_direct = _resolve_local_host(ip_str, 443)
-            blocks_dns = _resolve_local_host("service.internal", 443)
-            assert (blocks_direct, blocks_dns) == ([expected_cidr], [expected_cidr])
+            scripted_resolver(patches, {"service.internal": [[ip_str]]})
+            entries = [ip_str, "service.internal"]
+            rules = _whitelist_rules(SandboxNetworkMode.LOCAL_WHITELIST, entries)
+            assert rules == [_tcp_rule(expected_cidr, 443)] * 2
 
 
 @_DERANDOMIZED
 @given(
-    ip=st.ip_addresses(v=6),
+    ip=st.ip_addresses(v=6, network="2000::/3"),
     port=st.integers(min_value=1, max_value=65535),
-    prefix_len=st.integers(min_value=0, max_value=128),
 )
-@example(ip=ipaddress.IPv6Address("fd00:ec2::254"), port=8080, prefix_len=128)
-@example(ip=ipaddress.IPv6Address("::1"), port=11434, prefix_len=128)
-@example(ip=ipaddress.IPv6Address("2001:db8::1"), port=443, prefix_len=64)
-def test_property_parse_whitelist_entry_reads_ipv6_hosts_and_ports_oracle(
+@example(ip=ipaddress.IPv6Address("2606:4700::1111"), port=8080)
+def test_property_public_whitelist_keeps_ipv6_hosts_and_ports_oracle(
+    ip: ipaddress.IPv6Address, port: int
+) -> None:
+    """Property: public whitelist entries keep the full IPv6 address and the port they state."""
+    ip_str = str(ip)
+    assume(not is_non_public_ip(ipaddress.ip_network(ip_str)))
+
+    # Oracle invariant: the host is never truncated to its first segment (e.g. '2606'), and an
+    # entry without a port gets 443
+    rules = [
+        _whitelist_rules(SandboxNetworkMode.PUBLIC_WHITELIST, [entry])
+        for entry in (
+            ip_str,
+            f"[{ip_str}]:{port}",
+            f"[{ip_str}]",
+            f"http://[{ip_str}]:{port}/api/v1",
+        )
+    ]
+    assert rules == [
+        [_tcp_rule(f"{ip_str}/128", 443)],
+        [_tcp_rule(f"{ip_str}/128", port)],
+        [_tcp_rule(f"{ip_str}/128", 443)],
+        [_tcp_rule(f"{ip_str}/128", port)],
+    ]
+
+
+@_DERANDOMIZED
+@given(
+    ip=st.ip_addresses(v=6, network="fc00::/7").filter(lambda ip: not is_cloud_metadata_host(ip)),
+    port=st.integers(min_value=1, max_value=65535),
+    prefix_len=st.integers(min_value=8, max_value=128),
+)
+@example(ip=ipaddress.IPv6Address("fd00::1234"), port=11434, prefix_len=128)
+@example(ip=ipaddress.IPv6Address("fd00::1234"), port=443, prefix_len=64)
+def test_property_local_whitelist_keeps_ipv6_hosts_cidrs_and_ports_oracle(
     ip: ipaddress.IPv6Address, port: int, prefix_len: int
 ) -> None:
-    """Property: whitelist entries keep the full IPv6 address or CIDR, and the port they state."""
+    """Property: local whitelist entries keep the full IPv6 address or CIDR, and the port."""
     ip_str = str(ip)
-    cidr_str = f"{ip_str}/{prefix_len}"
-    expected_cidr = str(ipaddress.ip_network(cidr_str, strict=False))
+    network = ipaddress.ip_network(f"{ip_str}/{prefix_len}", strict=False)
+    assume(not is_cloud_metadata_host(network))
 
-    # Oracle invariant: the host is never truncated to its first segment (e.g. 'fd00'), and an
-    # entry without a port gets 443
-    assert (
-        _parse_whitelist_entry(ip_str),
-        _parse_whitelist_entry(cidr_str),
-        _parse_whitelist_entry(f"[{ip_str}]:{port}"),
-        _parse_whitelist_entry(f"[{ip_str}]"),
-        _parse_whitelist_entry(f"http://[{ip_str}]:{port}/api/v1"),
-    ) == (
-        (ip_str, 443),
-        (expected_cidr, 443),
-        (ip_str, port),
-        (ip_str, 443),
-        (ip_str, port),
-    )
+    rules = [
+        _whitelist_rules(SandboxNetworkMode.LOCAL_WHITELIST, [entry])
+        for entry in (
+            ip_str,
+            f"{ip_str}/{prefix_len}",
+            f"[{ip_str}]:{port}",
+            f"http://[{ip_str}]:{port}/api/v1",
+        )
+    ]
+    assert rules == [
+        [_tcp_rule(f"{ip_str}/128", 443)],
+        [_tcp_rule(str(network), 443)],
+        [_tcp_rule(f"{ip_str}/128", port)],
+        [_tcp_rule(f"{ip_str}/128", port)],
+    ]
 
 
 def test_the_properties_run_under_the_ci_profile_so_a_loaded_host_cannot_fail_them() -> None:
@@ -262,34 +299,36 @@ def test_the_properties_run_under_the_ci_profile_so_a_loaded_host_cannot_fail_th
     ) == ("ci", None, True)
 
 
-def test_parse_whitelist_entry_host_extraction_and_rejections() -> None:
-    """Verify lowercase normalization, userinfo stripping, and empty port rejection in whitelist entries."""
-    from devops_cli.sandbox.models import (
-        _parse_whitelist_entry,
-        _validate_public_whitelist_item,
+def test_whitelist_entries_name_a_lowercase_host_without_userinfo_and_their_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Whitelist entries fold the host to lowercase, drop userinfo, and open 443 by default."""
+    address = "93.184.215.14"
+    resolver = scripted_resolver(monkeypatch, {"example.com": [[address]]})
+
+    rules = _whitelist_rules(
+        SandboxNetworkMode.PUBLIC_WHITELIST, ["Example.COM", "user@example.com:22"]
     )
 
-    assert (
-        _parse_whitelist_entry("Example.COM"),
-        _parse_whitelist_entry("user@example.com:22"),
-    ) == (
-        ("example.com", 443),
-        ("example.com", 22),
+    assert (rules, resolver.lookups) == (
+        [_tcp_rule(f"{address}/32", 443), _tcp_rule(f"{address}/32", 22)],
+        {"example.com": 2},
     )
 
-    for entry in (
-        "http://:8080",
-        "https://",
-        "http:///x",
-        "example.com:",
-        "example.com:/x",
-    ):
-        with pytest.raises(ValueError, match="Whitelist entry"):
-            _parse_whitelist_entry(entry)
 
-    for invalid_item in ("example.com:", "example.com:/x"):
-        with pytest.raises(ValueError, match="Whitelist entry"):
-            _validate_public_whitelist_item(invalid_item)
+@pytest.mark.parametrize(
+    "mode", [SandboxNetworkMode.PUBLIC_WHITELIST, SandboxNetworkMode.LOCAL_WHITELIST]
+)
+@pytest.mark.parametrize(
+    "entry",
+    ["http://:8080", "https://", "http:///x", "example.com:", "example.com:/x"],
+)
+def test_a_whitelist_entry_that_names_no_host_or_port_is_refused(
+    mode: SandboxNetworkMode, entry: str
+) -> None:
+    """An entry with no host, an empty port or a path but no scheme fails the config."""
+    with pytest.raises(ValueError, match="Whitelist entry"):
+        _whitelist_rules(mode, [entry])
 
 
 # =============================================================================
@@ -351,11 +390,15 @@ def test_property_cloud_metadata_superset_containment_at_all_six_sites(
 
     # 4. sandbox/models.py: local whitelist and local host
     whitelist_blocked = _check_raises(
-        _validate_local_whitelist_item,
-        f"http://{url_target}:80",
+        _whitelist_rules,
+        SandboxNetworkMode.LOCAL_WHITELIST,
+        [f"http://{url_target}:80"],
         expected_exc=ValueError,
     )
-    models_host_blocked = _check_raises(_resolve_local_host, target, 443, expected_exc=ValueError)
+    unvalidated = SandboxNetworkConfig.model_construct(
+        mode=SandboxNetworkMode.LOCAL_WHITELIST, local_whitelist=[target]
+    )
+    models_host_blocked = _check_raises(unvalidated.to_k8s_network_policy, expected_exc=ValueError)
 
     assert (
         pred_meta,

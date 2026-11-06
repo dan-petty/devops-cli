@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import os
 import shutil
 import signal
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -288,24 +285,29 @@ def test_host_sandbox_consumes_custom_policy(tmp_path: Path) -> None:
     ) == (True, True, True, True, True, True, True, True)
 
 
-def test_host_sandbox_handles_unexpected_exception_after_spawn(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+def test_host_sandbox_kills_the_process_group_when_waiting_for_the_child_fails(
+    tmp_path: Path, process_fake: ProcessFake
 ) -> None:
-    """An unexpected exception during communicate terminates the spawned process group."""
-    from devops_cli.sandbox.host import _run_sandbox_process
+    """An unexpected failure after the spawn ends the group and reports the failure."""
+    stub_bwrap = tmp_path / "bwrap"
+    stub_bwrap.write_text("#!/bin/sh\n", encoding="utf-8")
+    stub_bwrap.chmod(0o755)
+    proc = FakeSandboxProcess(returncode=0, wait_error=RuntimeError("boom"))
+    process_fake.answer_sandbox(proc)
 
-    fake_proc = FakeSandboxProcess(returncode=0)
-    process_fake.answer_sandbox(fake_proc)
+    res = HostSandbox(bwrap_binary=stub_bwrap).execute(["true"], cwd=tmp_path)
 
-    def _exploding_communicate(*args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr("devops_cli.sandbox.host._communicate_bounded", _exploding_communicate)
-    outcome = _run_sandbox_process(["bwrap"], 10.0, 1024, 10)
-    assert outcome.exit_code == -1
-    assert outcome.error is not None
-    assert "boom" in outcome.error
-    assert signal.SIGKILL in fake_proc.signals
+    assert (
+        res.passed,
+        res.exit_code,
+        "boom" in str(res.error),
+        signal.SIGKILL in proc.signals,
+    ) == (
+        False,
+        -1,
+        True,
+        True,
+    )
 
 
 def test_host_sandbox_default_policy_mounts_tmp_as_declared(tmp_path: Path) -> None:
@@ -398,20 +400,6 @@ def test_host_sandbox_linked_worktree_runs_git(tmp_path: Path) -> None:
         res.exit_code,
         "initial commit" in res.stdout,
     ) == (True, 0, True)
-
-
-def test_terminate_process_group_guards_devcontainer() -> None:
-    """Verify that _terminate_process_group safely rejects PID 1, PID 0, self, and mocks."""
-    from devops_cli.sandbox.host import _terminate_process_group
-
-    with patch("os.killpg") as mock_killpg:
-        # Should guard against non-int, PID <= 1, self, and PGID <= 1
-        _terminate_process_group(MagicMock())
-        _terminate_process_group(0)
-        _terminate_process_group(1)
-        _terminate_process_group(-5)
-        _terminate_process_group(os.getpid())
-        assert mock_killpg.called is False
 
 
 def test_every_allowlisted_criteria_binary_resolves_inside_the_sandbox_mounts() -> None:

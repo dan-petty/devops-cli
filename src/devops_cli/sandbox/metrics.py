@@ -255,8 +255,14 @@ def read_cgroup_v2_metrics(
     cgroup_path: Path | str | None = None,
     previous_cpu_usec: int | None = None,
     elapsed_sec: float | None = None,
+    cgroup_root: Path | None = None,
 ) -> CgroupV2Metrics | None:
-    """Read cgroup v2 metrics from filesystem path with fallback to container inspect."""
+    """Read cgroup v2 metrics from filesystem path with fallback to container inspect.
+
+    A container's cgroup is looked up under `cgroup_root`, which is the host's cgroup v2 mount
+    unless the caller names another.
+    """
+    root = cgroup_root or _CGROUP_ROOT
     has_delta = previous_cpu_usec is not None or elapsed_sec is not None
 
     if cgroup_path:
@@ -274,9 +280,9 @@ def read_cgroup_v2_metrics(
 
     if container_id:
         standard_paths = [
-            Path(f"/sys/fs/cgroup/system.slice/docker-{container_id}.scope"),
-            Path(f"/sys/fs/cgroup/docker/{container_id}"),
-            Path(f"/sys/fs/cgroup/{container_id}"),
+            root / "system.slice" / f"docker-{container_id}.scope",
+            root / "docker" / container_id,
+            root / container_id,
         ]
         for candidate in standard_paths:
             metrics = (
@@ -525,6 +531,7 @@ def collect_sandbox_metrics(
     previous_cpu_usec: int | None = None,
     elapsed_sec: float | None = None,
     latency_sla_ms: float | None = None,
+    cgroup_root: Path | None = None,
 ) -> SandboxMetricsSnapshot:
     """Execute end-to-end sandbox metrics collection pipeline."""
     if isinstance(instance_or_target, SandboxInstance):
@@ -534,6 +541,7 @@ def collect_sandbox_metrics(
             container_id=instance_or_target.container_id,
             previous_cpu_usec=previous_cpu_usec,
             elapsed_sec=elapsed_sec,
+            cgroup_root=cgroup_root,
         )
         host_port = _resolve_instance_port(instance_or_target)
         ep = prom_endpoint if prom_endpoint.startswith("/") else f"/{prom_endpoint}"

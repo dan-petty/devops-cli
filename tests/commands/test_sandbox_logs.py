@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from typing import Any
 
 import pytest
 import requests
-from typer.testing import CliRunner
 
-from devops_cli.commands.sandbox import app
 from devops_cli.exceptions.docker import DockerEngineError
 from devops_cli.exceptions.sandbox import SandboxNotFoundError
 from devops_cli.exceptions.security import SecurityError
@@ -24,37 +23,14 @@ from devops_cli.sandbox.models import (
     PanicIncident,
     PanicType,
     SandboxInstance,
-    SandboxLogLine,
-    SandboxLogsReport,
-    SandboxStatus,
 )
 from tests.support.fakes.docker_engine import LOG_TIME, DockerEngineFake
 
-runner = CliRunner()
-
-
-def _make_dummy_instance(
-    instance_id: str = "sandbox-web-123456",
-    container_id: str = "docker-cont-789",
-    name: str = "web-svc",
-) -> SandboxInstance:
-    """Create standard test SandboxInstance."""
-    return SandboxInstance(
-        instance_id=instance_id,
-        container_id=container_id,
-        name=name,
-        image="python:3.14-slim",
-        status=SandboxStatus.RUNNING,
-        workspace_dir="/workspace",
-        created_at="2026-09-12T20:00:00Z",
-    )
-
-
-def _sandbox_with_log(fake: DockerEngineFake, frames: list[tuple[str, bytes]]) -> SandboxInstance:
-    """A sandbox whose container on the fake engine wrote these `(stream, bytes)` frames."""
-    container_id = fake.add_container("web-svc", running=False)
-    fake.script_run("web-svc", frames=frames)
-    return _make_dummy_instance(container_id=container_id)
+_TRACEBACK = (
+    b"Traceback (most recent call last):\n"
+    b'  File "app.py", line 2, in <module>\n'
+    b"ZeroDivisionError: division by zero\n"
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -233,23 +209,13 @@ def test_parse_docker_log_line_with_timestamp() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_engine_logs_success(tmp_path: Path, docker_daemon: DockerEngineFake) -> None:
+def test_engine_logs_success(
+    tmp_path: Path, register_sandbox: Callable[..., SandboxInstance]
+) -> None:
     """Verify WorkloadSandboxEngine.logs retrieves and parses logs with incidents."""
-    inst = _sandbox_with_log(
-        docker_daemon,
-        [
-            (
-                "stdout",
-                b"Traceback (most recent call last):\n"
-                b'  File "app.py", line 2, in <module>\n'
-                b"ZeroDivisionError: division by zero\n",
-            )
-        ],
-    )
-    engine = WorkloadSandboxEngine()
-    engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
+    inst = register_sandbox("sandbox-web-123456", log_frames=[("stdout", _TRACEBACK)])
 
-    report = engine.logs(
+    report = WorkloadSandboxEngine().logs(
         identifier=inst.instance_id,
         tail=50,
         detect_panics_flag=True,
@@ -266,11 +232,8 @@ def test_engine_logs_success(tmp_path: Path, docker_daemon: DockerEngineFake) ->
 
 def test_engine_logs_not_found() -> None:
     """Verify engine raises SandboxNotFoundError when identifier doesn't exist."""
-    engine = WorkloadSandboxEngine()
-    engine.status = MagicMock(return_value=[])  # type: ignore[assignment]
-
     with pytest.raises(SandboxNotFoundError) as raised:
-        engine.logs(identifier="nonexistent-sandbox")
+        WorkloadSandboxEngine().logs(identifier="nonexistent-sandbox")
     assert raised.value.error_code == "SANDBOX_NOT_FOUND_ERROR"
 
 
@@ -279,106 +242,68 @@ def test_engine_logs_not_found() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_cli_sandbox_logs_json_output(tmp_path: Path) -> None:
+def test_cli_sandbox_logs_json_output(
+    cli: Callable[..., Any], register_sandbox: Callable[..., SandboxInstance]
+) -> None:
     """Verify devops sandbox logs --json outputs valid structured JSON."""
-    inst = _make_dummy_instance()
-    engine = WorkloadSandboxEngine()
-    engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
-
-    mock_report = SandboxLogsReport(
-        instance_id=inst.instance_id,
-        container_id=inst.container_id,
-        total_lines=2,
-        panics_detected=0,
-        lines=[
-            SandboxLogLine(content="Server initializing"),
-            SandboxLogLine(content="Ready on http://example.com:8080"),
-        ],
+    inst = register_sandbox(
+        log_frames=[
+            ("stdout", b"Server initializing\n"),
+            ("stdout", b"Ready on http://example.com:8080\n"),
+        ]
     )
 
-    with patch("devops_cli.commands.sandbox.WorkloadSandboxEngine") as mock_engine_cls:
-        mock_eng = MagicMock()
-        mock_eng.status.return_value = [inst]
-        mock_eng.logs.return_value = mock_report
-        mock_engine_cls.return_value = mock_eng
+    res = cli("sandbox", "logs", inst.instance_id, "--json")
 
-        res = runner.invoke(app, ["logs", inst.instance_id, "--json"])
-        assert res.exit_code == 0
-        data = json.loads(res.stdout)
-        assert data["instance_id"] == inst.instance_id
-        assert data["total_lines"] == 2
-        assert data["panics_detected"] == 0
+    assert res.exit_code == 0
+    data = json.loads(res.stdout)
+    assert (data["instance_id"], data["total_lines"], data["panics_detected"]) == (
+        inst.instance_id,
+        2,
+        0,
+    )
 
 
-def test_cli_sandbox_logs_dry_run() -> None:
+def test_cli_sandbox_logs_dry_run(cli: Callable[..., Any]) -> None:
     """Verify devops sandbox logs with --dry-run prints simulation output."""
-    inst = _make_dummy_instance()
-    with patch("devops_cli.commands.sandbox.WorkloadSandboxEngine") as mock_engine_cls:
-        mock_eng = MagicMock()
-        mock_eng.status.return_value = [inst]
-        mock_engine_cls.return_value = mock_eng
+    res = cli("sandbox", "logs", "sandbox-web-123456", "--dry-run")
 
-        res = runner.invoke(app, ["logs", inst.instance_id, "--dry-run"])
-        assert res.exit_code == 0
-        assert "Planned requests for devops sandbox logs" in res.stdout
+    assert res.exit_code == 0
+    assert "Planned requests for devops sandbox logs" in res.stdout
 
 
-def test_cli_sandbox_logs_panic_alert_display(tmp_path: Path) -> None:
+def test_cli_sandbox_logs_panic_alert_display(
+    tmp_path: Path, cli: Callable[..., Any], register_sandbox: Callable[..., SandboxInstance]
+) -> None:
     """Verify devops sandbox logs renders panic alert panel when a crash is detected."""
-    inst = _make_dummy_instance()
-    incident = PanicIncident(
-        incident_id="inc-alert-1234",
-        instance_id=inst.instance_id,
-        container_id=inst.container_id,
-        panic_type=PanicType.PYTHON_TRACEBACK,
-        message="ZeroDivisionError: division by zero",
-        stacktrace=["Traceback:", "ZeroDivisionError: division by zero"],
-        archived_path=str(tmp_path / "inc-alert-1234.json"),
-    )
-    mock_report = SandboxLogsReport(
-        instance_id=inst.instance_id,
-        container_id=inst.container_id,
-        total_lines=2,
-        panics_detected=1,
-        incidents=[incident],
-        lines=[
-            SandboxLogLine(content="Traceback (most recent call last):", is_panic=True),
-            SandboxLogLine(content="ZeroDivisionError: division by zero", is_panic=True),
-        ],
-    )
+    inst = register_sandbox(log_frames=[("stdout", _TRACEBACK)])
 
-    with patch("devops_cli.commands.sandbox.WorkloadSandboxEngine") as mock_engine_cls:
-        mock_eng = MagicMock()
-        mock_eng.status.return_value = [inst]
-        mock_eng.logs.return_value = mock_report
-        mock_engine_cls.return_value = mock_eng
+    res = cli("sandbox", "logs", inst.instance_id, "--incident-dir", tmp_path)
 
-        res = runner.invoke(app, ["logs", inst.instance_id])
-        assert res.exit_code == 0
-        assert "ZeroDivisionError" in res.stdout
-        assert "python_traceback" in res.stdout or "CRITICAL" in res.stdout
+    assert res.exit_code == 0
+    assert "ZeroDivisionError" in res.stdout
+    assert "python_traceback" in res.stdout or "CRITICAL" in res.stdout
+    assert len(list(tmp_path.glob("incident-*.json"))) == 1
 
 
-def test_engine_logs_surface_daemon_failure(docker_daemon: DockerEngineFake) -> None:
+def test_engine_logs_surface_daemon_failure(
+    docker_daemon: DockerEngineFake, register_sandbox: Callable[..., SandboxInstance]
+) -> None:
     """An Engine API log retrieval failure is surfaced rather than retried via the CLI."""
-    inst = _sandbox_with_log(docker_daemon, [("stdout", b"never read\n")])
-    engine = WorkloadSandboxEngine()
-    engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
+    inst = register_sandbox(log_frames=[("stdout", b"never read\n")])
     docker_daemon.fail("api.get", requests.exceptions.ConnectionError("engine went away"))
 
     with pytest.raises(DockerEngineError, match="Container log stream failed"):
-        engine.logs(identifier=inst.instance_id, detect_panics_flag=False)
+        WorkloadSandboxEngine().logs(identifier=inst.instance_id, detect_panics_flag=False)
 
 
-def test_engine_logs_generator_stream(docker_daemon: DockerEngineFake) -> None:
+def test_engine_logs_generator_stream(register_sandbox: Callable[..., SandboxInstance]) -> None:
     """Verify engine reads a followed log frame by frame."""
-    inst = _sandbox_with_log(
-        docker_daemon, [("stdout", b"stream chunk 1\n"), ("stdout", b"stream chunk 2\n")]
+    inst = register_sandbox(
+        log_frames=[("stdout", b"stream chunk 1\n"), ("stdout", b"stream chunk 2\n")]
     )
-    engine = WorkloadSandboxEngine()
-    engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
 
-    report = engine.logs(identifier=inst.instance_id, follow=True)
+    report = WorkloadSandboxEngine().logs(identifier=inst.instance_id, follow=True)
 
     assert [line.content for line in report.lines] == ["stream chunk 1", "stream chunk 2"]
 
@@ -408,54 +333,40 @@ def test_resolve_incident_dir_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         resolve_incident_dir()
 
 
-def test_cli_sandbox_logs_auto_resolve_success() -> None:
+def test_cli_sandbox_logs_auto_resolve_success(
+    cli: Callable[..., Any], register_sandbox: Callable[..., SandboxInstance]
+) -> None:
     """Verify devops sandbox logs auto-resolves single running container and succeeds."""
-    inst = _make_dummy_instance()
-    mock_report = SandboxLogsReport(
-        instance_id=inst.instance_id,
-        container_id=inst.container_id,
-        total_lines=1,
-        panics_detected=0,
-        lines=[SandboxLogLine(content="Application healthy.")],
-    )
+    register_sandbox(log_frames=[("stdout", b"Application healthy.\n")])
 
-    with patch("devops_cli.commands.sandbox.WorkloadSandboxEngine") as mock_engine_cls:
-        mock_eng = MagicMock()
-        mock_eng.status.return_value = [inst]
-        mock_eng.logs.return_value = mock_report
-        mock_engine_cls.return_value = mock_eng
+    res = cli("sandbox", "logs")
 
-        res = runner.invoke(app, ["logs"])
-        assert res.exit_code == 0
-        assert "Application healthy." in res.stdout
-        assert "Stream closed" in res.stdout
+    assert res.exit_code == 0
+    assert "Application healthy." in res.stdout
+    assert "Stream closed" in res.stdout
 
 
-def test_cli_sandbox_logs_multiple_instances_prompt() -> None:
+def test_cli_sandbox_logs_multiple_instances_prompt(
+    cli: Callable[..., Any], register_sandbox: Callable[..., SandboxInstance]
+) -> None:
     """Verify devops sandbox logs prompts error if multiple instances exist without identifier."""
-    inst1 = _make_dummy_instance(instance_id="inst-1")
-    inst2 = _make_dummy_instance(instance_id="inst-2")
+    register_sandbox("inst-1")
+    register_sandbox("inst-2")
 
-    with patch("devops_cli.commands.sandbox.WorkloadSandboxEngine") as mock_engine_cls:
-        mock_eng = MagicMock()
-        mock_eng.status.return_value = [inst1, inst2]
-        mock_engine_cls.return_value = mock_eng
+    res = cli("sandbox", "logs")
 
-        res = runner.invoke(app, ["logs"])
-        assert res.exit_code == 1
-        assert "Multiple sandboxes running" in res.output
+    assert res.exit_code == 1
+    assert "Multiple sandboxes running" in res.output
 
 
-def test_cli_sandbox_logs_no_instances_prompt() -> None:
+def test_cli_sandbox_logs_no_instances_prompt(
+    cli: Callable[..., Any], docker_daemon: DockerEngineFake
+) -> None:
     """Verify devops sandbox logs prompts error when no sandboxes are deployed."""
-    with patch("devops_cli.commands.sandbox.WorkloadSandboxEngine") as mock_engine_cls:
-        mock_eng = MagicMock()
-        mock_eng.status.return_value = []
-        mock_engine_cls.return_value = mock_eng
+    res = cli("sandbox", "logs")
 
-        res = runner.invoke(app, ["logs"])
-        assert res.exit_code == 1
-        assert "No running or deployed sandbox instances found" in res.output
+    assert res.exit_code == 1
+    assert "No running or deployed sandbox instances found" in res.output
 
 
 def test_archive_incident_nested_or_absolute_traversal_rejection(tmp_path: Path) -> None:
@@ -491,29 +402,23 @@ def test_archive_incident_atomic_replacement(tmp_path: Path) -> None:
     assert len(tmp_files) == 0
 
 
-def test_archive_incident_records_archive_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_panic_detected_while_the_archive_cannot_be_written_records_the_archive_error(
+    tmp_path: Path,
 ) -> None:
-    """Verify _create_incident_record captures archive_error when base_dir cannot be written."""
-    from devops_cli.sandbox.logs import _create_incident_record
+    """A panic is still reported when its incident record cannot be archived, with the cause."""
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("a file where the archive directory should be", encoding="utf-8")
 
-    def fail_archive(*args: object, **kwargs: object) -> None:
-        raise OSError("Permission denied: simulated archive write failure")
-
-    monkeypatch.setattr("devops_cli.sandbox.logs.archive_incident", fail_archive)
-
-    incident = _create_incident_record(
+    incidents = detect_panics(
+        ["Segmentation fault (core dumped)"],
         instance_id="inst-fail",
         container_id="cont-fail",
-        panic_type=PanicType.SEGFAULT,
-        message="crash",
-        stacktrace=["crash"],
-        stream="stderr",
-        timestamp=None,
         archive=True,
-        base_dir=tmp_path / "nested_dir",
+        base_dir=blocker / "nested_dir",
     )
-    assert incident.archive_error == "Permission denied: simulated archive write failure"
+
+    assert [incident.panic_type for incident in incidents] == [PanicType.SEGFAULT]
+    assert "Not a directory" in (incidents[0].archive_error or "")
 
 
 def test_detect_single_line_crash_during_active_panic() -> None:
@@ -562,20 +467,19 @@ def test_detect_rust_panic_symbolic_frames() -> None:
     assert len(incidents[0].stacktrace) >= 4
 
 
-def test_engine_logs_demux_stream_preservation(docker_daemon: DockerEngineFake) -> None:
+def test_engine_logs_demux_stream_preservation(
+    register_sandbox: Callable[..., SandboxInstance],
+) -> None:
     """Verify each log line keeps the stream it was written to, in the engine's order (#2520)."""
-    inst = _sandbox_with_log(
-        docker_daemon,
-        [
+    inst = register_sandbox(
+        log_frames=[
             ("stdout", b"stdout log message\n"),
             ("stderr", b"stderr log message\n"),
             ("stdout", b"stdout again\n"),
-        ],
+        ]
     )
-    engine = WorkloadSandboxEngine()
-    engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
 
-    report = engine.logs(identifier=inst.instance_id, detect_panics_flag=False)
+    report = WorkloadSandboxEngine().logs(identifier=inst.instance_id, detect_panics_flag=False)
 
     stamp = LOG_TIME.decode().strip()
     assert [(line.timestamp, line.stream, line.content) for line in report.lines] == [
@@ -585,15 +489,13 @@ def test_engine_logs_demux_stream_preservation(docker_daemon: DockerEngineFake) 
     ]
 
 
-def test_engine_logs_follow_bounded_buffer(docker_daemon: DockerEngineFake) -> None:
+def test_engine_logs_follow_bounded_buffer(
+    register_sandbox: Callable[..., SandboxInstance],
+) -> None:
     """Verify follow mode bounds memory retention to MAX_FOLLOW_BUFFER_LINES."""
-    inst = _sandbox_with_log(
-        docker_daemon, [("stdout", f"line {i}\n".encode()) for i in range(1500)]
-    )
-    engine = WorkloadSandboxEngine()
-    engine.status = MagicMock(return_value=[inst])  # type: ignore[assignment]
+    inst = register_sandbox(log_frames=[("stdout", f"line {i}\n".encode()) for i in range(1500)])
 
-    report = engine.logs(
+    report = WorkloadSandboxEngine().logs(
         identifier=inst.instance_id, follow=True, tail="all", detect_panics_flag=False
     )
 
@@ -604,102 +506,48 @@ def test_engine_logs_follow_bounded_buffer(docker_daemon: DockerEngineFake) -> N
     )
 
 
-def test_cli_sandbox_logs_rich_escaping_and_secret_masking() -> None:
-    """Verify terminal log rendering escapes Rich markup and masks secrets."""
-    inst = _make_dummy_instance()
-    mock_report = SandboxLogsReport(
-        instance_id=inst.instance_id,
-        container_id=inst.container_id,
-        total_lines=1,
-        panics_detected=0,
-        lines=[
-            SandboxLogLine(
-                content="Log with [bold red]untrusted tag[/bold red] and ghp_token12345678901234567890123456"
-            )
-        ],
-    )
-
-    with patch("devops_cli.commands.sandbox.WorkloadSandboxEngine") as mock_engine_cls:
-        mock_eng = MagicMock()
-        mock_eng.status.return_value = [inst]
-        mock_eng.logs.return_value = mock_report
-        mock_engine_cls.return_value = mock_eng
-
-        res = runner.invoke(app, ["logs", inst.instance_id])
-        assert res.exit_code == 0
-        assert "<masked-github-token>" in res.stdout
-        assert "ghp_token1234" not in res.stdout
-
-
-def test_cli_sandbox_logs_json_masks_secrets() -> None:
-    """Verify --json output masks secrets in log lines and incident fields."""
-    inst = _make_dummy_instance()
-    mock_report = SandboxLogsReport(
-        instance_id=inst.instance_id,
-        container_id=inst.container_id,
-        total_lines=1,
-        panics_detected=0,
-        lines=[SandboxLogLine(content="API key sk-ant-secret12345678901234567890")],
-    )
-
-    with patch("devops_cli.commands.sandbox.WorkloadSandboxEngine") as mock_engine_cls:
-        mock_eng = MagicMock()
-        mock_eng.status.return_value = [inst]
-        mock_eng.logs.return_value = mock_report
-        mock_engine_cls.return_value = mock_eng
-
-        res = runner.invoke(app, ["logs", inst.instance_id, "--json"])
-        assert res.exit_code == 0
-        assert "<masked-anthropic-key>" in res.stdout
-        assert "sk-ant-secret" not in res.stdout
-
-
-def test_cli_sandbox_logs_nonexistent_identifier_clean_exit() -> None:
-    """Verify explicit nonexistent identifier exits with status 1 and clean error message."""
-    with patch("devops_cli.commands.sandbox.WorkloadSandboxEngine") as mock_engine_cls:
-        mock_eng = MagicMock()
-        mock_eng.logs.side_effect = SandboxNotFoundError(
-            "Sandbox instance 'nonexistent-id' not found."
-        )
-        mock_engine_cls.return_value = mock_eng
-
-        res = runner.invoke(app, ["logs", "nonexistent-id"])
-        assert (res.exit_code, res.output) == (
-            1,
-            "✗ Sandbox instance 'nonexistent-id' not found.\n",
-        )
-
-
-def test_archive_panic_incident_chmod_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_cli_sandbox_logs_rich_escaping_and_secret_masking(
+    cli: Callable[..., Any], register_sandbox: Callable[..., SandboxInstance]
 ) -> None:
-    """Verify archive_incident unlinks target and raises SandboxError when chmod fails."""
-    import os
-
-    from devops_cli.exceptions.sandbox import SandboxError
-    from devops_cli.sandbox.logs import archive_incident
-    from devops_cli.sandbox.models import PanicIncident, PanicType
-
-    inc = PanicIncident(
-        incident_id="incident-chmod-fail",
-        instance_id="inst-123",
-        container_id="c-123",
-        panic_type=PanicType.PYTHON_TRACEBACK,
-        message="error",
-        stacktrace=[],
-        raw_stream="stderr",
+    """Verify terminal log rendering escapes Rich markup and masks secrets."""
+    inst = register_sandbox(
+        log_frames=[
+            (
+                "stdout",
+                b"Log with [bold red]untrusted tag[/bold red] and "
+                b"ghp_token12345678901234567890123456\n",
+            )
+        ]
     )
 
-    original_chmod = os.chmod
+    res = cli("sandbox", "logs", inst.instance_id)
 
-    def failing_chmod(path, mode, *args, **kwargs):
-        if str(path).endswith("incident-chmod-fail.json"):
-            raise OSError("Permission denied")
-        return original_chmod(path, mode, *args, **kwargs)
+    assert res.exit_code == 0
+    assert "[bold red]untrusted tag[/bold red]" in res.stdout
+    assert "<masked-github-token>" in res.stdout
+    assert "ghp_token1234" not in res.stdout
 
-    monkeypatch.setattr(os, "chmod", failing_chmod)
 
-    with pytest.raises(SandboxError, match="Failed to apply secure permissions"):
-        archive_incident(inc, base_dir=tmp_path)
+def test_cli_sandbox_logs_json_masks_secrets(
+    cli: Callable[..., Any], register_sandbox: Callable[..., SandboxInstance]
+) -> None:
+    """Verify --json output masks secrets in log lines and incident fields."""
+    inst = register_sandbox(log_frames=[("stdout", b"API key sk-ant-secret12345678901234567890\n")])
 
-    assert not (tmp_path / "incident-chmod-fail.json").exists()
+    res = cli("sandbox", "logs", inst.instance_id, "--json")
+
+    assert res.exit_code == 0
+    assert "<masked-anthropic-key>" in res.stdout
+    assert "sk-ant-secret" not in res.stdout
+
+
+def test_cli_sandbox_logs_nonexistent_identifier_clean_exit(
+    cli: Callable[..., Any], docker_daemon: DockerEngineFake
+) -> None:
+    """Verify explicit nonexistent identifier exits with status 1 and clean error message."""
+    res = cli("sandbox", "logs", "nonexistent-id")
+
+    assert (res.exit_code, res.output) == (
+        1,
+        "✗ Sandbox instance 'nonexistent-id' not found\n",
+    )

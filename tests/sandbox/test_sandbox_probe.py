@@ -5,17 +5,17 @@ from __future__ import annotations
 import json
 import socket
 import threading
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
-from typer.testing import CliRunner
 
+from devops_cli.exceptions import ValidationError
 from devops_cli.exceptions.sandbox import SandboxNotFoundError
-from devops_cli.main import app
+from devops_cli.sandbox.engine import WorkloadSandboxEngine
 from devops_cli.sandbox.models import (
     EndpointProbeResult,
     PortBinding,
@@ -33,9 +33,7 @@ from devops_cli.sandbox.probe import (
     run_sandbox_probes,
 )
 from tests.support.waits import POLL_INTERVAL_SECONDS
-
-runner = CliRunner()
-
+from tests.web_fakes import scripted_resolver
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Models Serialization Tests
@@ -126,7 +124,10 @@ def test_probe_tcp_timeout() -> None:
 
 
 class _MockHTTPHandler(BaseHTTPRequestHandler):
+    request_headers: ClassVar[list[dict[str, str]]] = []
+
     def do_GET(self) -> None:
+        self.request_headers.append(dict(self.headers))
         if self.path in ("/healthz", "/health", "/ready"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -166,6 +167,7 @@ class _MockHTTPHandler(BaseHTTPRequestHandler):
 @pytest.fixture
 def http_server() -> Generator[str]:
     """Spin up an ephemeral local HTTP test server."""
+    _MockHTTPHandler.request_headers.clear()
     server = HTTPServer(("127.0.0.1", 0), _MockHTTPHandler)
     host = str(server.server_address[0])
     port = int(server.server_address[1])
@@ -328,248 +330,134 @@ def test_run_sandbox_probes_with_raw_url(http_server: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
-def test_cli_sandbox_probe_dry_run(mock_engine_cls: MagicMock) -> None:
+def test_cli_sandbox_probe_dry_run(cli: Callable[..., Any]) -> None:
     """Test sandbox probe in dry-run mode."""
-    result = runner.invoke(app, ["sandbox", "probe", "sandbox-123", "--dry-run"])
+    result = cli("sandbox", "probe", "sandbox-123", "--dry-run")
     assert result.exit_code == 0
     assert "dry-run" in result.output.lower() or "probe" in result.output.lower()
 
 
-@patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
 def test_cli_sandbox_probe_by_instance_id_success(
-    mock_engine_cls: MagicMock, http_server: str, tmp_path: Path
+    cli: Callable[..., Any], register_sandbox: Callable[..., SandboxInstance], http_server: str
 ) -> None:
     """Test sandbox probe CLI command against existing sandbox instance."""
-    port = int(http_server.split(":")[-1])
-    mock_engine = MagicMock()
-    mock_instance = SandboxInstance(
-        instance_id="sandbox-test-123",
-        container_id="cont-123",
-        name="api-svc",
-        image="python:3.14-slim",
-        status=SandboxStatus.RUNNING,
-        port_bindings=[PortBinding(container_port=80, host_port=port, protocol="tcp")],
-        workspace_dir=str(tmp_path / "workspace"),
-        created_at="2026-09-12T12:00:00Z",
-    )
-    mock_engine.status.return_value = [mock_instance]
-    mock_engine.probe.return_value = SandboxProbeReport(
-        instance_id="sandbox-test-123",
-        target="api-svc",
-        overall_status=ProbeStatus.PASS,
-        total_probes=1,
-        passed_probes=1,
-        failed_probes=0,
-        duration_seconds=0.01,
-        results=[
-            EndpointProbeResult(
-                protocol=ProbeProtocol.TCP,
-                target=f"127.0.0.1:{port}",
-                status=ProbeStatus.PASS,
-                latency_ms=1.5,
-                message="TCP connection established",
-            )
-        ],
-    )
-    mock_engine_cls.return_value = mock_engine
+    register_sandbox("sandbox-test-123", host_ports=[int(http_server.split(":")[-1])])
 
-    result = runner.invoke(
-        app,
-        ["sandbox", "probe", "sandbox-test-123", "-p", "tcp,http", "--path", "/healthz"],
-    )
+    result = cli("sandbox", "probe", "sandbox-test-123", "-p", "tcp,http", "--path", "/healthz")
+
     assert result.exit_code == 0
-    assert "PASS" in result.output or "pass" in result.output.lower()
+    assert "PASS" in result.output
+    assert "/healthz" in result.output
 
 
-@patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
 def test_cli_sandbox_probe_json_output(
-    mock_engine_cls: MagicMock, http_server: str, tmp_path: Path
+    cli: Callable[..., Any], register_sandbox: Callable[..., SandboxInstance], http_server: str
 ) -> None:
     """Test sandbox probe CLI command with JSON output format."""
     port = int(http_server.split(":")[-1])
-    mock_engine = MagicMock()
-    mock_instance = SandboxInstance(
-        instance_id="sandbox-json-123",
-        container_id="cont-json-123",
-        name="api-svc",
-        image="python:3.14-slim",
-        status=SandboxStatus.RUNNING,
-        port_bindings=[PortBinding(container_port=80, host_port=port, protocol="tcp")],
-        workspace_dir=str(tmp_path / "workspace"),
-        created_at="2026-09-12T12:00:00Z",
-    )
-    mock_engine.status.return_value = [mock_instance]
-    mock_engine.probe.return_value = SandboxProbeReport(
-        instance_id="sandbox-json-123",
-        target="api-svc",
-        overall_status=ProbeStatus.PASS,
-        total_probes=1,
-        passed_probes=1,
-        failed_probes=0,
-        duration_seconds=0.01,
-        results=[
-            EndpointProbeResult(
-                protocol=ProbeProtocol.TCP,
-                target=f"127.0.0.1:{port}",
-                status=ProbeStatus.PASS,
-                latency_ms=1.5,
-                message="TCP connection established",
-            )
-        ],
-    )
-    mock_engine_cls.return_value = mock_engine
+    register_sandbox("sandbox-json-123", host_ports=[port])
 
-    result = runner.invoke(
-        app,
-        ["sandbox", "probe", "sandbox-json-123", "-p", "tcp", "--json"],
-    )
+    result = cli("sandbox", "probe", "sandbox-json-123", "-p", "tcp", "--json")
+
     assert result.exit_code == 0
     parsed = json.loads(result.output)
-    assert parsed["instance_id"] == "sandbox-json-123"
-    assert "overall_status" in parsed
-    assert len(parsed["results"]) >= 1
+    assert (parsed["instance_id"], parsed["overall_status"]) == ("sandbox-json-123", "pass")
+    assert [(r["protocol"], r["target"]) for r in parsed["results"]] == [
+        ("tcp", f"127.0.0.1:{port}")
+    ]
 
 
-@patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
-def test_cli_sandbox_probe_instance_not_found(mock_engine_cls: MagicMock) -> None:
+def test_cli_sandbox_probe_instance_not_found(cli: Callable[..., Any], docker_daemon: Any) -> None:
     """Test sandbox probe with non-existent instance identifier."""
-    mock_engine = MagicMock()
-    mock_engine.status.side_effect = SandboxNotFoundError("Instance not found")
-    mock_engine_cls.return_value = mock_engine
+    result = cli("sandbox", "probe", "nonexistent-instance")
 
-    result = runner.invoke(app, ["sandbox", "probe", "nonexistent-instance"])
     assert result.exit_code != 0
+    assert "not found" in result.output.lower()
 
 
-def test_engine_probe_method_delegation(tmp_path: Path) -> None:
-    """Test WorkloadSandboxEngine.probe delegates to run_sandbox_probes."""
-    from devops_cli.sandbox.engine import WorkloadSandboxEngine
+def test_engine_probe_reports_on_a_registered_instance(
+    register_sandbox: Callable[..., SandboxInstance], http_server: str
+) -> None:
+    """The engine probes the published ports of a registered sandbox."""
+    register_sandbox("sandbox-probe-unit-1", host_ports=[int(http_server.split(":")[-1])])
 
-    engine = WorkloadSandboxEngine()
-    mock_inst = SandboxInstance(
-        instance_id="sandbox-probe-unit-1",
-        container_id="cont-probe-1",
-        name="probe-test-svc",
-        image="python:3.14-slim",
-        status=SandboxStatus.RUNNING,
-        port_bindings=[PortBinding(container_port=80, host_port=18080, protocol="tcp")],
-        workspace_dir=str(tmp_path),
-        created_at="2026-09-12T12:00:00Z",
+    report = WorkloadSandboxEngine().probe("sandbox-probe-unit-1", protocols=[ProbeProtocol.TCP])
+
+    assert (report.instance_id, report.overall_status, report.total_probes) == (
+        "sandbox-probe-unit-1",
+        ProbeStatus.PASS,
+        1,
     )
-    with patch.object(engine.registry, "get_instance", return_value=mock_inst):
-        with patch("devops_cli.sandbox.probe.probe_tcp") as mock_tcp:
-            mock_tcp.return_value = EndpointProbeResult(
-                protocol=ProbeProtocol.TCP,
-                target="127.0.0.1:18080",
-                status=ProbeStatus.PASS,
-                latency_ms=1.0,
-            )
-            report = engine.probe("sandbox-probe-unit-1", protocols=[ProbeProtocol.TCP])
-            assert report.instance_id == "sandbox-probe-unit-1"
-            assert report.overall_status == ProbeStatus.PASS
 
 
 def test_engine_probe_raises_when_not_found() -> None:
     """Test WorkloadSandboxEngine.probe raises SandboxNotFoundError if not found."""
-    from devops_cli.sandbox.engine import WorkloadSandboxEngine
-
-    engine = WorkloadSandboxEngine()
-    with patch.object(engine.registry, "get_instance", return_value=None):
-        with pytest.raises(SandboxNotFoundError) as raised:
-            engine.probe("missing-id")
-        assert raised.value.error_code == "SANDBOX_NOT_FOUND_ERROR"
+    with pytest.raises(SandboxNotFoundError) as raised:
+        WorkloadSandboxEngine().probe("missing-id")
+    assert raised.value.error_code == "SANDBOX_NOT_FOUND_ERROR"
 
 
-def test_parse_target_endpoint_variations() -> None:
-    """Test _parse_target_endpoint returns httpx2.Origin with scheme, host, and port."""
-    from devops_cli.exceptions import ValidationError
-    from devops_cli.sandbox.probe import _parse_target_endpoint
+@pytest.mark.parametrize(
+    ("target", "probed_url"),
+    [
+        ("127.0.0.1:{port}", "http://127.0.0.1:{port}/x"),
+        ("localhost:{port}", "http://localhost:{port}/x"),
+        ("[::1]:{port}", "http://[::1]:{port}/x"),
+        ("HTTPS://127.0.0.1:{port}", "https://127.0.0.1:{port}/x"),
+    ],
+)
+def test_a_probe_target_names_its_scheme_host_and_port(
+    refusing_port: int, target: str, probed_url: str
+) -> None:
+    """A target is a URL or host:port; without a scheme it is http."""
+    report = run_sandbox_probes(
+        target.format(port=refusing_port),
+        protocols=[ProbeProtocol.HTTP],
+        http_paths=["/x"],
+        timeout=0.5,
+    )
 
-    cases = [
-        ("https://example.com", ("https", "example.com", 443)),
-        ("127.0.0.1:9090", ("http", "127.0.0.1", 9090)),
-        ("localhost", ("http", "localhost", 80)),
-        ("[::1]:8080", ("http", "::1", 8080)),
-        ("HTTPS://example.com:8443", ("https", "example.com", 8443)),
-    ]
-    for target, (expected_scheme, expected_host, expected_port) in cases:
-        orig = _parse_target_endpoint(target)
-        assert (orig.scheme, orig.host, orig.port) == (
-            expected_scheme,
-            expected_host,
-            expected_port,
-        )
+    assert [result.target for result in report.results] == [probed_url.format(port=refusing_port)]
 
-    for invalid_target in ("http://:8080", "example.com:abc"):
-        with pytest.raises(ValidationError) as exc_info:
-            _parse_target_endpoint(invalid_target)
-        assert invalid_target in str(exc_info.value)
+
+@pytest.mark.parametrize("invalid_target", ["http://:8080", "example.com:abc"])
+def test_a_probe_target_without_a_host_or_with_a_bad_port_is_refused(invalid_target: str) -> None:
+    """A target that names no host, or a port that is no number, fails validation."""
+    with pytest.raises(ValidationError) as exc_info:
+        run_sandbox_probes(invalid_target, protocols=[ProbeProtocol.TCP])
+    assert invalid_target in str(exc_info.value)
 
 
 def test_run_sandbox_probes_with_openapi_and_grpc(refusing_port: int) -> None:
     """Test run_sandbox_probes with OPENAPI and GRPC protocols."""
-    with patch("devops_cli.sandbox.probe.probe_tcp") as mock_tcp:
-        mock_tcp.return_value = EndpointProbeResult(
-            protocol=ProbeProtocol.TCP,
-            target=f"127.0.0.1:{refusing_port}",
-            status=ProbeStatus.PASS,
-            latency_ms=1.0,
-        )
-        report = run_sandbox_probes(
-            f"127.0.0.1:{refusing_port}",
-            protocols=[ProbeProtocol.OPENAPI, ProbeProtocol.GRPC],
-            timeout=1.0,
-        )
-        assert report.total_probes >= 2
+    report = run_sandbox_probes(
+        f"127.0.0.1:{refusing_port}",
+        protocols=[ProbeProtocol.OPENAPI, ProbeProtocol.GRPC],
+        timeout=1.0,
+    )
+    assert [result.protocol for result in report.results] == [
+        ProbeProtocol.OPENAPI,
+        ProbeProtocol.GRPC,
+    ]
 
 
-def test_probe_http_w3c_traceparent_propagation() -> None:
+def test_probe_http_w3c_traceparent_propagation(http_server: str) -> None:
     """Verify probe_http automatically propagates W3C traceparent headers."""
-    captured_headers: dict[str, str] = {}
+    result = probe_http(f"{http_server}/health")
 
-    class MockResp:
-        status_code = 200
-        text = '{"status": "ok"}'
-
-    class MockClient:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def __enter__(self) -> MockClient:
-            return self
-
-        def __exit__(self, *args: Any) -> None:
-            pass
-
-        def get(self, url: str, headers: dict[str, str] | None = None, **kwargs: Any) -> Any:
-            nonlocal captured_headers
-            if headers:
-                captured_headers = dict(headers)
-            return MockResp()
-
-    with patch("httpx2.Client", MockClient):
-        result = probe_http("http://example.com/health")
-        assert result.status == ProbeStatus.PASS
-        assert "traceparent" in captured_headers
-        assert captured_headers["traceparent"].startswith("00-")
-        assert result.details.get("traceparent") == captured_headers["traceparent"]
-        assert "trace_id" in result.details
+    sent = _MockHTTPHandler.request_headers[-1]
+    assert result.status == ProbeStatus.PASS
+    assert sent["traceparent"].startswith("00-")
+    assert result.details.get("traceparent") == sent["traceparent"]
+    assert "trace_id" in result.details
 
 
-def test_run_sandbox_probes_generates_and_links_trace_id() -> None:
+def test_run_sandbox_probes_generates_and_links_trace_id(http_server: str) -> None:
     """Verify run_sandbox_probes generates and correlates trace_id in report."""
-    with patch("devops_cli.sandbox.probe.probe_tcp") as mock_tcp:
-        mock_tcp.return_value = EndpointProbeResult(
-            protocol=ProbeProtocol.TCP,
-            target="127.0.0.1:8080",
-            status=ProbeStatus.PASS,
-            latency_ms=1.5,
-        )
-        report = run_sandbox_probes("127.0.0.1:8080", protocols=[ProbeProtocol.TCP])
-        assert report.overall_status == ProbeStatus.PASS
-        assert report.trace_id is not None
-        assert len(report.trace_id) > 0
+    report = run_sandbox_probes(http_server, protocols=[ProbeProtocol.TCP])
+    assert report.overall_status == ProbeStatus.PASS
+    assert report.trace_id is not None
+    assert len(report.trace_id) > 0
 
 
 def test_probe_tcp_metadata_endpoint_blocked() -> None:
@@ -595,36 +483,18 @@ def test_probe_http_metadata_endpoint_blocked() -> None:
     ]
 
 
-def test_probe_http_regex_safety() -> None:
+@pytest.mark.parametrize(
+    ("regex", "message"),
+    [("a" * 300, "exceeds maximum length"), ("[unclosed-bracket", "Invalid regex")],
+)
+def test_probe_http_refuses_a_regex_that_is_too_long_or_not_valid(
+    http_server: str, regex: str, message: str
+) -> None:
     """Verify regex length limits and syntax error handling during HTTP response evaluation."""
-    from devops_cli.sandbox.probe import _evaluate_http_response
+    res = probe_http(f"{http_server}/health", expected_statuses=[200], regex=regex)
 
-    # Overly long regex pattern (> 256 chars)
-    long_pattern = "a" * 300
-    res_long = _evaluate_http_response(
-        url="http://example.com/health",
-        status_code=200,
-        body="ok",
-        latency=5.0,
-        expected=[200],
-        regex=long_pattern,
-        latency_budget_ms=None,
-    )
-    assert res_long.status == ProbeStatus.FAIL
-    assert "exceeds maximum length" in res_long.message
-
-    # Invalid regex syntax
-    res_bad = _evaluate_http_response(
-        url="http://example.com/health",
-        status_code=200,
-        body="ok",
-        latency=5.0,
-        expected=[200],
-        regex="[unclosed-bracket",
-        latency_budget_ms=None,
-    )
-    assert res_bad.status == ProbeStatus.FAIL
-    assert "Invalid regex" in res_bad.message
+    assert res.status == ProbeStatus.FAIL
+    assert message in (res.message or "")
 
 
 def test_probe_tcp_metadata_trailing_dot_and_dns_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -633,11 +503,10 @@ def test_probe_tcp_metadata_trailing_dot_and_dns_blocked(monkeypatch: pytest.Mon
     `169.254.169.254.` is a DNS name to glibc, not an address, so its answers are vetted like
     any other name's.
     """
-
-    def mock_getaddrinfo(host, port, *args, **kwargs):
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 80))]
-
-    monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
+    scripted_resolver(
+        monkeypatch,
+        {"169.254.169.254.": [["169.254.169.254"]], "example.com": [["169.254.169.254"]]},
+    )
     results = [probe_tcp("169.254.169.254.", 80), probe_tcp("example.com", 80)]
 
     assert [(result.status, "cloud metadata" in result.message) for result in results] == [
@@ -674,27 +543,20 @@ def test_endpoint_probe_result_recursive_sanitizer() -> None:
 
 
 def test_probe_tcp_connects_to_vetted_sockaddr(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify probe_tcp connects to vetted sockaddr to prevent DNS rebinding."""
-    mock_sock = MagicMock()
-    monkeypatch.setattr(socket, "socket", lambda *args: mock_sock)
+    """Verify probe_tcp connects to the address it vetted, so a rebinding name cannot change it."""
+    resolver = scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"], ["192.0.2.1"]]})
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        res = probe_tcp("example.com", listener.getsockname()[1], timeout=2.0)
 
-    def mock_getaddrinfo(host, port, *args, **kwargs):
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
-
-    monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
-    res = probe_tcp("example.com", 8080)
-    assert res.status == ProbeStatus.PASS
-    mock_sock.connect.assert_called_once_with(("127.0.0.1", 8080))
+    assert (res.status, resolver.lookups["example.com"]) == (ProbeStatus.PASS, 1)
 
 
 def test_probe_http_metadata_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify probe_http refuses cloud metadata at the private level, by address or by answer."""
     literal = probe_http("http://169.254.169.254/latest/meta-data")
-
-    def mock_getaddrinfo(host, port, *args, **kwargs):
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 80))]
-
-    monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
+    scripted_resolver(monkeypatch, {"example.com": [["169.254.169.254"]]})
     answered = probe_http("http://example.com/computeMetadata/v1")
 
     assert [
