@@ -65,8 +65,8 @@ from devops_cli.telemetry.instruments import (
     ROADMAP_ALTERNATIVES_TOTAL,
     ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
 )
-from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
+from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore

@@ -43,8 +43,8 @@ from devops_cli.roadmap.store import (
     RepositoryLabel,
     RoadmapStore,
 )
-from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
+from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"

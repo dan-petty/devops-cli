@@ -19,7 +19,6 @@ from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import patch
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
@@ -58,7 +57,6 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import reset_settings_cache
 from devops_cli.exceptions import RoadmapRefineError, RoadmapRunError, ended_by_stop
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
-from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
@@ -86,7 +84,6 @@ from devops_cli.roadmap.refine import (
 )
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
-    _run_refine_adapter,
     build_stub_table,
     run_due_jobs,
 )
@@ -99,6 +96,7 @@ from devops_cli.roadmap.store import (
     Item,
     ItemField,
     RefineRecordKey,
+    install_roadmap_store,
     split_record,
 )
 from devops_cli.telemetry.instruments import ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL
@@ -109,10 +107,12 @@ from tests.support.fakes.http import WebFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore, JobWrite
+from tests.support.roadmap_jobs import due_job_runner
 from tests.support.service_stop import stop_error
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
+run_refine_adapter = due_job_runner("refine")
 REPO = "example/roadmap"
 REFINE_HEAD_SHA = "0123456789abcdef0123456789abcdef01234567"
 
@@ -244,9 +244,11 @@ class BodyReadCountingStore(InMemoryRoadmapStore):
 
 @pytest.fixture
 def store() -> BodyReadCountingStore:
+    """The roadmap, installed as the store every command opens during the test."""
     s = BodyReadCountingStore(repo=REPO)
     s.seed_milestone(FIRST, due_on=date(2026, 10, 29), state=GitHubState.OPEN)
     s.seed_milestone(SECOND, due_on=date(2026, 11, 5), state=GitHubState.OPEN)
+    install_roadmap_store(lambda repo, **_: s)
     return s
 
 
@@ -367,19 +369,19 @@ def test_a_symbol_with_no_other_file_adds_no_section(git_repo: Path) -> None:
     assert "Tests and callers" not in ctx
 
 
-def test_the_paths_of_one_symbol_are_bounded_and_the_cut_is_noted(
-    git_repo: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    assert constants.CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL == 50
-    monkeypatch.setattr("devops_cli.roadmap.refine.CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL", 3)
-    for index in range(5):
+def test_the_paths_of_one_symbol_are_bounded_and_the_cut_is_noted(git_repo: Path) -> None:
+    cap = constants.CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL
+    for index in range(cap + 4):
         _write(git_repo, f"tests/test_n{index}.py", "hello_world()\n")
     sha = inspect_checkout(git_repo, REPO)
 
     ctx = collect_context(git_repo, sha, "Call `hello_world` again.", max_tokens=4000)
 
     section = ctx.split("### Tests and callers of `hello_world`")[1].split("###")[0]
-    assert (section.count("\n- "), "3 of 6 paths shown; 3 more" in section) == (3, True)
+    assert (section.count("\n- "), f"{cap} of {cap + 5} paths shown; 5 more" in section) == (
+        cap,
+        True,
+    )
 
 
 def test_a_cited_file_brings_the_requirement_names_of_its_capability(git_repo: Path) -> None:
@@ -443,25 +445,13 @@ def test_the_web_search_state_of_a_round_whose_visibility_read_fails(
 ) -> None:
     """A spent quota stops the round, and any other failed read of the repository's visibility
     turns web search off with its reason and a warning (#1365, #2398)."""
-    with (
-        patch.object(
-            store,
-            "repository_is_private",
-            side_effect=GitHubRateLimitError("GraphQL budget exhausted"),
-        ),
-        pytest.raises(GitHubRateLimitError) as raised,
-    ):
+    store.fail_visibility(GitHubRateLimitError("GraphQL budget exhausted"))
+    with pytest.raises(GitHubRateLimitError) as raised:
         web_search_of(store)
     assert raised.value.error_code == "GITHUB_RATE_LIMIT_UNKNOWN"
 
-    with (
-        patch.object(
-            store,
-            "repository_is_private",
-            side_effect=GitHubOperationError("transient read failure", operation="read"),
-        ),
-        caplog.at_level(logging.WARNING),
-    ):
+    store.fail_visibility(GitHubOperationError("transient read failure", operation="read"))
+    with caplog.at_level(logging.WARNING):
         web = web_search_of(store)
 
     assert (
@@ -1032,25 +1022,24 @@ def test_cli_refine_dry_run_and_confirm(
     mock_llm = MockLLMClient()
     model_fake.answer(mock_llm.proposal)
     runner = CliRunner()
-    with patch("devops_cli.commands.roadmap._open_store", return_value=(REPO, store)):
-        # Dry run
-        res_dry = runner.invoke(
-            roadmap_app,
-            ["refine", "--repo", REPO, "--source", str(git_repo), "--item", str(num), "--dry-run"],
-        )
-        assert (res_dry.exit_code, store.read_issue_body(num)) == (0, "Need refinement")
+    # Dry run
+    res_dry = runner.invoke(
+        roadmap_app,
+        ["refine", "--repo", REPO, "--source", str(git_repo), "--item", str(num), "--dry-run"],
+    )
+    assert (res_dry.exit_code, store.read_issue_body(num)) == (0, "Need refinement")
 
-        # Confirm
-        res_confirm = runner.invoke(
-            roadmap_app,
-            ["refine", "--repo", REPO, "--source", str(git_repo), "--item", str(num), "--confirm"],
-        )
-        updated = _require_item(store, num)
-        assert (
-            res_confirm.exit_code,
-            CONST_ROADMAP_REFINE_START_MARKER in store.read_issue_body(num),
-            updated.status,
-        ) == (0, True, CONST_ROADMAP_STATUS_READY)
+    # Confirm
+    res_confirm = runner.invoke(
+        roadmap_app,
+        ["refine", "--repo", REPO, "--source", str(git_repo), "--item", str(num), "--confirm"],
+    )
+    updated = _require_item(store, num)
+    assert (
+        res_confirm.exit_code,
+        CONST_ROADMAP_REFINE_START_MARKER in store.read_issue_body(num),
+        updated.status,
+    ) == (0, True, CONST_ROADMAP_STATUS_READY)
 
 
 def test_run_due_table_refine_adapter(git_repo: Path, store: InMemoryRoadmapStore) -> None:
@@ -1060,7 +1049,7 @@ def test_run_due_table_refine_adapter(git_repo: Path, store: InMemoryRoadmapStor
     assert row.needs_clone is True
 
     # Run adapter
-    outcome = _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+    outcome = run_refine_adapter(store, repo=REPO, clone_path=git_repo)
     assert outcome is not None
 
 
@@ -1134,13 +1123,6 @@ def scripted_gateway(
         return serve_llm(web, answer)
 
     return script
-
-
-@pytest.fixture
-def cli_store(store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch) -> InMemoryRoadmapStore:
-    """`store`, as every roadmap store a command opens."""
-    monkeypatch.setattr(roadmap_store_module, "get_roadmap_store", lambda repo, **_: store)
-    return store
 
 
 def _seed_new_items(
@@ -1333,13 +1315,13 @@ def test_rejected_credentials_still_stop_the_job_at_the_first_item(
 @pytest.mark.parametrize("mode", ["--confirm", None])
 def test_the_cli_exits_1_after_reporting_a_failed_item(
     git_repo: Path,
-    cli_store: InMemoryRoadmapStore,
+    store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
     mode: str | None,
 ) -> None:
     """Verify `devops roadmap refine` prints its plan, writes the other items under --confirm,
     and exits 1 when an item's model call failed, in a preview too."""
-    first, second, third = _seed_new_items(cli_store)
+    first, second, third = _seed_new_items(store)
     scripted_gateway({first: _SCHEMA_MISS})
 
     args = ["refine", "--repo", REPO, "--source", str(git_repo), *([mode] if mode else [])]
@@ -1349,7 +1331,7 @@ def test_the_cli_exits_1_after_reporting_a_failed_item(
         result.exit_code,
         f"#{first} Item P1-High: skipped" in result.output,
         "leaked_model_key" in result.output,
-        _bodies_written(cli_store),
+        _bodies_written(store),
     ) == (1, True, False, [second, third] if mode == "--confirm" else [])
 
 
@@ -1382,7 +1364,7 @@ def test_a_failed_item_fails_the_refine_job_of_a_run_without_its_model_text(
     first, second, third = _seed_new_items(store)
     scripted_gateway({first: failing_answer()})
     table = build_stub_table(
-        {"refine": lambda **kwargs: _run_refine_adapter(**(kwargs | {"clone_path": git_repo}))}
+        {"refine": lambda **kwargs: run_refine_adapter(**(kwargs | {"clone_path": git_repo}))}
     )
 
     with pytest.raises(RoadmapRunError) as raised:
@@ -1411,11 +1393,11 @@ def test_the_refine_job_reports_whether_it_set_an_item_ready(
     stage row due in that round (#2659)."""
     _seed_item(store, "New", "P1-High")
     model_fake.answer(_READY)
-    readied = _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+    readied = run_refine_adapter(store, repo=REPO, clone_path=git_repo)
     _seed_item(store, "New", "P1-High")
     model_fake.answer(_QUESTION)
-    waiting = _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
-    quiet = _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+    waiting = run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+    quiet = run_refine_adapter(store, repo=REPO, clone_path=git_repo)
 
     assert (readied.set_ready, waiting.set_ready, quiet.set_ready) == (True, False, False)
 
@@ -1431,7 +1413,7 @@ def test_a_failed_item_does_not_hide_the_items_a_refine_round_set_ready(
     scripted_gateway({first: _SCHEMA_MISS})
 
     with pytest.raises(RoadmapRefineError) as raised:
-        _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+        run_refine_adapter(store, repo=REPO, clone_path=git_repo)
 
     assert (raised.value.failed_items, raised.value.readied_count) == ((first,), 2)
 
@@ -1459,7 +1441,7 @@ def test_a_stop_of_the_service_keeps_the_items_whose_model_call_failed(
     scripted_gateway({first: _SCHEMA_MISS})
 
     with pytest.raises(RoadmapRefineError) as raised:
-        _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+        run_refine_adapter(store, repo=REPO, clone_path=git_repo)
 
     assert (list(raised.value.failed_items), ended_by_stop(raised.value)) == ([first], False)
 
@@ -1758,7 +1740,7 @@ _TROUBLE_REPLIES = pytest.mark.parametrize(
 )
 def test_a_round_whose_only_item_is_too_big_or_fails_still_records_it_through_the_cli(
     git_repo: Path,
-    cli_store: InMemoryRoadmapStore,
+    store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
     reply: str,
     marks: list[tuple[str, str | None]],
@@ -1766,13 +1748,13 @@ def test_a_round_whose_only_item_is_too_big_or_fails_still_records_it_through_th
 ) -> None:
     """With nothing else to write, `devops roadmap refine --confirm` still applies the plan:
     the item's record is written and its body is not (#1539)."""
-    (first,) = _seed_new_items(cli_store, ("P1-High",))
+    (first,) = _seed_new_items(store, ("P1-High",))
     scripted_gateway({first: reply})
 
     args = ["refine", "--repo", REPO, "--source", str(git_repo), "--confirm"]
     result = CliRunner().invoke(roadmap_app, args)
 
-    assert (result.exit_code, _writes_to(cli_store, first)) == (
+    assert (result.exit_code, _writes_to(store, first)) == (
         exit_code,
         [JobWrite("set_mark", first, key, value) for key, value in marks],
     )
@@ -1788,7 +1770,7 @@ def test_the_runs_refine_job_records_an_item_too_big_to_refine(
     (first,) = _seed_new_items(store, ("P1-High",))
     scripted_gateway({first: _TOO_BIG_PROPOSAL})
 
-    _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+    run_refine_adapter(store, repo=REPO, clone_path=git_repo)
 
     assert _writes_to(store, first) == [
         JobWrite("set_mark", first, RefineRecordKey.BODY_HASH.value, _FIRST_BODY_HASH),
@@ -4156,7 +4138,7 @@ def test_a_round_gives_no_more_new_looks_than_its_limit(
 
 
 def test_the_check_of_a_wait_text_reads_at_most_the_bound_of_issues_and_of_paths(
-    git_repo: Path, store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch
+    git_repo: Path, store: InMemoryRoadmapStore
 ) -> None:
     """A wait text that names twelve issues and twelve paths costs the bound of reads for each."""
     store.seed_visibility(is_private=True)
@@ -4164,17 +4146,15 @@ def test_the_check_of_a_wait_text_reads_at_most_the_bound_of_issues_and_of_paths
     paths = [f"src/gone_{index}.py" for index in range(12)]
     text = " ".join([*(f"#{number}" for number in named), *(f"`{path}`" for path in paths)])
     number = _seed_person_wait(store, text)
-    reads: Counter[str] = Counter()
-    original_item, original_path = store.item, store.path_changed_at
-    monkeypatch.setattr(store, "item", lambda n: reads.update(["item"]) or original_item(n))
-    monkeypatch.setattr(
-        store, "path_changed_at", lambda p: reads.update(["path"]) or original_path(p)
-    )
+    store.reads.clear()
 
     _, waiting = select_candidates(store, limit=3)
 
     bound = constants.CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS
-    assert ([w.item.number for w in waiting if w.item.number == number], dict(reads)) == (
+    assert (
+        [w.item.number for w in waiting if w.item.number == number],
+        dict(Counter(store.reads)),
+    ) == (
         [number],
-        {"item": bound, "path": bound},
+        {"item": bound, "path_changed_at": bound},
     )

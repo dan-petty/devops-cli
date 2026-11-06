@@ -23,8 +23,8 @@ from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.release_comments import comment_releases
 from devops_cli.roadmap.release_feed import GitHubReleaseFeed
 from devops_cli.roadmap.release_roll import RolledDigests
-from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
+from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.oci_registry import RegistryFake
 

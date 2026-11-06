@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, urlsplit
 import httpx2
 import pytest
 
-from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
+from devops_cli.config.defaults import DEFAULT_GH_MAX_PAGINATED_PAGES, DEFAULT_GH_REST_PER_PAGE
 from devops_cli.exceptions.git import (
     GitHubFileNotFoundError,
     GitHubOperationError,
@@ -53,8 +53,8 @@ from devops_cli.roadmap.store import (
     RefineRecordKey,
     RepositoryFacts,
     RoadmapStore,
+    get_roadmap_store,
 )
-from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import (
     API,
     JSON_TYPE,
@@ -64,6 +64,7 @@ from tests.support.fakes.github import (
     next_page,
     quota_headers,
 )
+from tests.support.fakes.github_repository import GitHubFake
 from tests.support.paths import FIXTURES
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
@@ -1081,35 +1082,33 @@ def test_label_changes_raises_when_a_later_page_of_the_events_fails(
 
 
 def test_changes_since_raises_when_the_events_outrun_the_page_cap(
-    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+    github_api: GitHubApiFake,
 ) -> None:
     """A chain of linked pages that never reaches back past the cutoff stops at the session's
     page cap, raising rather than taking the listing as whole."""
     referenced = next(event for event in EVENTS if event["event"] == "referenced")
     start = datetime(2026, 10, 3, tzinfo=UTC)
     full_page = [event_at(referenced, start - timedelta(minutes=n)) for n in range(100)]
-    monkeypatch.setattr("devops_cli.github.session.DEFAULT_GH_MAX_PAGINATED_PAGES", 2)
-    pages = [EVENTS_LISTING, *(f"{EVENTS_LISTING}&page={n}" for n in (2, 3))]
+    cap = DEFAULT_GH_MAX_PAGINATED_PAGES
+    pages = [EVENTS_LISTING, *(f"{EVENTS_LISTING}&page={n}" for n in range(2, cap + 2))]
     for page, following in itertools.pairwise(pages):
         github_api.route("GET", page, github_json(full_page, headers=next_page(following)))
     store, _ = over_github()
-    with pytest.raises(GitHubUnreadError, match="runs past 2 pages"):
+    with pytest.raises(GitHubUnreadError, match=f"runs past {cap} pages"):
         store.changes_since(datetime(2026, 10, 1, tzinfo=UTC))
-    assert len(github_api.sent) == 2
+    assert len(github_api.sent) == cap
 
 
 # ── The factory ───────────────────────────────────────────────────────────────
 
 
-def test_the_factory_opens_the_github_adapter_without_reading(
-    github_roadmap_factory: Callable[..., RoadmapStore],
-) -> None:
-    store = github_roadmap_factory(REPO)
+def test_the_factory_opens_the_github_adapter_without_reading() -> None:
+    store = get_roadmap_store(REPO)
     assert type(store) is GitHubRoadmapStore
 
 
 def test_a_store_the_factory_opens_reads_its_listings_through_the_processs_session(
-    github_roadmap_factory: Callable[..., RoadmapStore], github_api: GitHubApiFake
+    github_api: GitHubApiFake,
 ) -> None:
     """Every roadmap command opens the store through the factory, which passes no session: its
     REST listings go through the process's GitHub session, and none through the gh runner
@@ -1119,7 +1118,7 @@ def test_a_store_the_factory_opens_reads_its_listings_through_the_processs_sessi
     def refuse(args: list[str], **_: Any) -> NoReturn:
         raise AssertionError(f"the listing went through gh: {args}")
 
-    store = github_roadmap_factory(REPO, runner=refuse)
+    store = get_roadmap_store(REPO, runner=refuse)
     titles = [milestone.title for milestone in store.milestones()]
     assert (titles[0], github_api.requested) == (
         "2026-10-29",

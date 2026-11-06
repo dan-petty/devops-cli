@@ -114,9 +114,9 @@ from devops_cli.telemetry.instruments import (
     ROADMAP_OLDEST_ITEM,
 )
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
-from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
+from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.oci_registry import RegistryFake

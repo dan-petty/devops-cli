@@ -82,8 +82,8 @@ from devops_cli.roadmap.store import (
     split_record,
 )
 from devops_cli.telemetry.tracer import OTelTelemetryClient, get_tracer
-from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
+from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.model import ModelFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore, JobWrite

@@ -24,7 +24,9 @@ can rely on it for the promises the GitHub adapter keeps.
 A test makes a job's write fail as a `gh` call fails part-way through a run with `fail_write`: a
 502, a timeout or a secondary rate limit, before GitHub applies the write or after it. `writes`
 names every write the job made or tried, in order. `fail_listing` makes the next listing of a
-repository directory fail, and `listed` names every directory that was listed.
+repository directory fail, and `listed` names every directory that was listed. `fail_visibility`
+makes the read of the repository's visibility fail, and `reads` names every read of an Item and
+of the last change of a path, in order.
 """
 
 from __future__ import annotations
@@ -191,9 +193,12 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._fault = Fault()
         self._counted_writes = 0
         self._listing_error: Exception | None = None
+        self._visibility_error: Exception | None = None
         # Every write this view made or tried, and every directory it listed, in order.
         self.writes: list[str] = []
         self.listed: list[str] = []
+        # Every read of an Item (`item`) and of a path's last change (`path_changed_at`).
+        self.reads: list[str] = []
 
     def as_actor(self, actor: str) -> InMemoryRoadmapStore:
         """The same roadmap, written by a person: changes carry their name, and no job record."""
@@ -221,6 +226,10 @@ class InMemoryRoadmapStore(RoadmapStore):
     def fail_listing(self, error: Exception) -> None:
         """Make the next listing of a repository directory raise `error`."""
         self._listing_error = error
+
+    def fail_visibility(self, error: Exception | None) -> None:
+        """Make every read of the repository's visibility raise `error`, until it is None."""
+        self._visibility_error = error
 
     def _attempt[R](self, name: str, number: int | None, apply: Callable[[], R]) -> R:
         """Make a write, or fail it as the fault says."""
@@ -609,6 +618,7 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     def path_changed_at(self, path: str) -> datetime | None:
         """When the newest commit `seed_commit` recorded for `path` was made, or None."""
+        self.reads.append("path_changed_at")
         return max(self._roadmap.commits.get(path, []), default=None)
 
     def repository_file(self, path: str, *, ref: str | None = None) -> str:
@@ -643,7 +653,9 @@ class InMemoryRoadmapStore(RoadmapStore):
         return found
 
     def repository_is_private(self) -> bool:
-        """Whether the repository is private."""
+        """Whether the repository is private, or the error `fail_visibility` set."""
+        if self._visibility_error is not None:
+            raise self._visibility_error
         return self._roadmap.is_private
 
     def repository_facts(self, full_name: str) -> RepositoryFacts | None:
@@ -667,6 +679,7 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     def item(self, number: int) -> Item | None:
         """The Item numbered `number`, or None when that issue is no Item."""
+        self.reads.append("item")
         issue = self._roadmap.issues.get(number)
         return next(iter(select_items([self._read(issue)])), None) if issue else None
 
