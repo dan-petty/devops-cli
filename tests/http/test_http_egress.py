@@ -45,7 +45,6 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import AIConfig, Settings, load_settings
 from devops_cli.core.process import reset_process_runner, set_process_runner
 from devops_cli.exceptions import SSRFBlockedError
-from devops_cli.http.broker import HttpClientBroker
 from devops_cli.http.client import new_async_http_client, new_http_client
 from devops_cli.http.egress import (
     AsyncVettingBackend,
@@ -55,6 +54,7 @@ from devops_cli.http.egress import (
     configured_level,
     vet_addresses,
 )
+from devops_cli.http.entry import aveto_request, http_client
 from devops_cli.http.pool import close_shared_clients, get_shared_async_client, get_shared_client
 from devops_cli.k8s import service_http
 from devops_cli.k8s.credentials import (
@@ -592,9 +592,9 @@ def test_a_lookup_with_no_answer_is_a_connect_error(dns: DnsFake) -> None:
         vet_addresses("example.com", 443, PUBLIC)
 
 
-async def test_the_broker_async_hook_makes_no_lookup(dns: DnsFake) -> None:
+async def test_the_async_request_veto_makes_no_lookup(dns: DnsFake) -> None:
     """The hook checks the policy and the scheme; the address is the connect's to check."""
-    await HttpClientBroker()._async_validate_request(httpx2.Request("GET", "https://example.com/"))
+    await aveto_request(httpx2.Request("GET", "https://example.com/"))
 
     assert dns.lookups == []
 
@@ -607,15 +607,14 @@ async def test_the_broker_async_hook_makes_no_lookup(dns: DnsFake) -> None:
 def test_a_private_level_connection_is_never_reused_by_a_public_level_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The broker keeps a client, so a pool, per level, and the shared pool keys carry the level."""
+    """The shared pool keys carry the level, so a key names one client, so a pool, per level."""
     scripted_resolver(monkeypatch, {"example.com": [["10.0.0.1"]]})
     recorder = record_connects(monkeypatch, [http_response(200, "private")])
 
-    with HttpClientBroker() as broker:
-        private_status = broker.request("GET", "http://example.com/", level=PRIVATE).status_code
-        with pytest.raises(SSRFBlockedError) as raised:
-            broker.request("GET", "http://example.com/", level=PUBLIC)
-        assert raised.value.error_code == "SSRF_BLOCKED"
+    private_status = http_client(PRIVATE, key="profile").get("http://example.com/").status_code
+    with pytest.raises(SSRFBlockedError) as raised:
+        http_client(PUBLIC, key="profile").get("http://example.com/")
+    assert raised.value.error_code == "SSRF_BLOCKED"
 
     assert (
         private_status,

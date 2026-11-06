@@ -9,6 +9,9 @@ moves it fails the suite instead of dropping the check.
 
 A factory client ignores HTTP_PROXY, HTTPS_PROXY and ALL_PROXY. httpx2 reads them only for a
 client without `transport=`, and a proxy would become the vetted peer in place of the destination.
+
+Every factory client takes its transport from one place: the transport that a test
+installed with `devops_cli.http.entry.install_transport`, else the egress transport of its level.
 """
 
 from __future__ import annotations
@@ -45,6 +48,40 @@ class ClientOptions(TypedDict, total=False):
     max_redirects: int
     event_hooks: Mapping[str, list[Callable[..., Any]]]
     base_url: str
+
+
+TransportFactory = Callable[[EgressLevel], httpx2.BaseTransport | httpx2.AsyncBaseTransport]
+"""What a test installs to replace the egress transport: it gets a client's level and gives the
+transport that client uses, which may vet the destination at that level."""
+
+_TRANSPORT_HOOK: TransportFactory | None = None
+
+
+def set_transport_hook(factory: TransportFactory | None) -> None:
+    """Install, or with None remove, the transport that every factory client uses.
+
+    Callers go through `devops_cli.http.entry.install_transport`, which closes the pooled clients
+    first: a client built earlier keeps the transport it was built with.
+    """
+    global _TRANSPORT_HOOK
+    _TRANSPORT_HOOK = factory
+
+
+def _hooked_transport[T: (httpx2.BaseTransport, httpx2.AsyncBaseTransport)](
+    level: EgressLevel, kind: type[T]
+) -> T | None:
+    """The installed transport for a client at `level`, or None when none is installed.
+
+    An installed transport that does not serve the kind of client asked for is a bug in the test.
+    """
+    if _TRANSPORT_HOOK is None:
+        return None
+    transport = _TRANSPORT_HOOK(level)
+    if not isinstance(transport, kind):
+        raise TypeError(
+            f"The installed transport is a {type(transport).__name__}, not a {kind.__name__}"
+        )
+    return transport
 
 
 def user_agent() -> str:
@@ -166,6 +203,8 @@ def new_http_client(
     and connect failures, so only a caller built for those semantics, as the AI clients are,
     passes it. A refusal (SSRFBlockedError) is not an httpx2 error and is never retried.
     """
+    if transport is None:
+        transport = _hooked_transport(level, httpx2.BaseTransport)
     effective_transport: httpx2.BaseTransport = (
         transport
         if transport is not None
@@ -198,6 +237,8 @@ def new_async_http_client(
     **options: Unpack[ClientOptions],
 ) -> httpx2.AsyncClient:
     """Create an httpx2.AsyncClient that dials only what `level` allows, with HTTP/2."""
+    if transport is None:
+        transport = _hooked_transport(level, httpx2.AsyncBaseTransport)
     effective_transport: httpx2.AsyncBaseTransport = (
         transport
         if transport is not None
@@ -213,11 +254,13 @@ def new_async_http_client(
 __all__ = [
     "ClientOptions",
     "HTTPTimeoutTypeError",
+    "TransportFactory",
     "async_egress_transport",
     "connection_limits",
     "egress_transport",
     "new_async_http_client",
     "new_http_client",
     "request_timeout",
+    "set_transport_hook",
     "user_agent",
 ]

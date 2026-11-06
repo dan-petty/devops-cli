@@ -69,7 +69,6 @@ def stub_web(monkeypatch: pytest.MonkeyPatch, public_dns: str) -> Iterator[StubW
     """Answer every httpx2 client from canned pages, so a fetch never leaves the process."""
     import httpx2
 
-    from devops_cli.http import broker
     from tests.web_fakes import StubWeb, egress_level_of, install_async_client_fake
 
     web = StubWeb()
@@ -91,9 +90,4 @@ def stub_web(monkeypatch: pytest.MonkeyPatch, public_dns: str) -> Iterator[StubW
 
     install_async_client_fake(monkeypatch, StubAsyncClient)
     monkeypatch.setattr(httpx2, "Client", StubClient)
-    stub_broker = broker.HttpClientBroker()
-    monkeypatch.setattr(broker, "DEFAULT_HTTP_BROKER", stub_broker)
-    try:
-        yield web
-    finally:
-        stub_broker.close()
+    yield web

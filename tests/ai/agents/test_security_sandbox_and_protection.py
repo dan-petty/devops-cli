@@ -2,7 +2,6 @@
 
 TDD specifications covering:
 
-- Ground-truth importability of DEFAULT_HTTP_BROKER
 - Path traversal and symlink prevention across prompt_eval, ssh_keys, complexity, tflint, sandbox
 - Secret redaction across agent memory summaries, telemetry error samples, CLI failures, tool errors, helm diff
 - URL and reference validation in difftastic, ollama provider, and create_pydantic_ai_provider
@@ -38,16 +37,6 @@ class _DummySpan:
 
     def add_event(self, name: str, attributes: Any = None) -> None:
         self.events.append((name, attributes))
-
-
-# 1. Ground truth verification for Finding 1
-def test_default_http_broker_is_defined_and_importable() -> None:
-    """Verify DEFAULT_HTTP_BROKER exists, is defined in broker.py, and imports cleanly."""
-    from devops_cli.http import DEFAULT_HTTP_BROKER, HttpClientBroker
-    from devops_cli.http.broker import DEFAULT_HTTP_BROKER as BROKER_FROM_MODULE
-
-    assert isinstance(DEFAULT_HTTP_BROKER, HttpClientBroker)
-    assert DEFAULT_HTTP_BROKER is BROKER_FROM_MODULE
 
 
 # 3. Path traversal prevention in evaluate_persona_prompts (Finding 3)

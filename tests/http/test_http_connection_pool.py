@@ -15,7 +15,6 @@ from devops_cli.config.defaults import (
     DEFAULT_HTTP_MAX_CONNECTIONS,
     DEFAULT_HTTP_MAX_KEEPALIVE_CONNECTIONS,
 )
-from devops_cli.http.broker import HttpClientBroker
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.pool import (
     close_shared_clients,
@@ -202,23 +201,6 @@ def test_llm_providers_share_a_client_per_provider() -> None:
 
     provider = Provider()
     assert provider._shared_client() is provider._shared_client()
-
-
-def test_http_client_broker_close_resets_client_references() -> None:
-    """Verify HttpClientBroker forgets and closes its per-level clients on close/aclose."""
-    broker = HttpClientBroker()
-    mock_sync = MagicMock(is_closed=False)
-    mock_async = MagicMock(is_closed=False)
-    mock_async.aclose = MagicMock(return_value=asyncio.sleep(0))
-
-    broker._sync_clients[EgressLevel.PUBLIC] = mock_sync
-    broker._async_clients[EgressLevel.PRIVATE] = mock_async
-
-    broker.close()
-    assert (broker._sync_clients, mock_sync.close.call_count) == ({}, 1)
-
-    asyncio.run(broker.aclose())
-    assert (broker._async_clients, mock_async.aclose.call_count) == ({}, 1)
 
 
 def test_aclose_shared_clients_releases_async_pool() -> None:

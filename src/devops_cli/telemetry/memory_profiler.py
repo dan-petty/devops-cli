@@ -237,8 +237,8 @@ async def _exercise_http_pool(iterations: int) -> None:
     """Perform deterministic async HTTP connection pool requests against in-memory transport."""
     import httpx2
 
-    from devops_cli.http.broker import HttpClientBroker
     from devops_cli.http.egress import EgressLevel
+    from devops_cli.http.entry import async_http_client
 
     async def _dummy_app(scope: Any, receive: Any, send: Any) -> None:
         await send(
@@ -250,19 +250,11 @@ async def _exercise_http_pool(iterations: int) -> None:
         )
         await send({"type": "http.response.body", "body": b"OK"})
 
-    broker = HttpClientBroker()
-    try:
-        client = await broker.get_async_client(EgressLevel.PRIVATE)
-        client._transport = httpx2.ASGITransport(app=cast(Any, _dummy_app))
-
+    transport = httpx2.ASGITransport(app=cast(Any, _dummy_app))
+    async with async_http_client(EgressLevel.PRIVATE, transport=transport) as client:
         for _ in range(iterations):
-            resp = await broker.arequest(
-                "GET", "http://localhost:8080/health", level=EgressLevel.PRIVATE
-            )
+            resp = await client.get("http://localhost:8080/health")
             _ = resp.status_code
-    finally:
-        await broker.aclose()
-        broker.close()
 
 
 def profile_http_pool_workload(
@@ -270,7 +262,7 @@ def profile_http_pool_workload(
     top_n: int = 10,
     max_peak_mb: float = 100.0,
 ) -> MemoryProfileReport:
-    """Profile HttpClientBroker connection pool lifecycle and socket recycling."""
+    """Profile the lifecycle of an entry-point HTTP client and its socket recycling."""
     profiler = MemoryProfiler(target="http-pool")
     profiler.start()
 

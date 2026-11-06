@@ -55,7 +55,8 @@ import pytest
 from devops_cli.config.constants import CONST_GITHUB_DIFF_MEDIA_TYPE
 from devops_cli.github.rate_limiter import GitHubRateLimiter
 from devops_cli.http.egress import EgressLevel
-from tests.web_fakes import egress_level_of, install_async_client_fake, vetted_handler
+from tests.support.fakes.http import vetted_handler
+from tests.web_fakes import egress_level_of, install_async_client_fake
 
 _ORIGINAL_REFRESH_FROM_GITHUB = GitHubRateLimiter._refresh_from_github
 

@@ -18,7 +18,7 @@ tags:
 | **Official Documentation** | [github.com/john-kurkowski/tldextract](https://github.com/john-kurkowski/tldextract) |
 | **Public Git Repository** | [github.com/john-kurkowski/tldextract](https://github.com/john-kurkowski/tldextract) |
 | **Official PyPI Package** | [pypi.org/project/tldextract](https://pypi.org/project/tldextract/) (`5.3.2`) |
-| **DevOps CLI Integration** | [`src/devops_cli/security/`](../../../../../../src/devops_cli/security/) • [`src/devops_cli/http/broker.py`](../../../../../../src/devops_cli/http/broker.py) |
+| **DevOps CLI Integration** | [`src/devops_cli/security/`](../../../../../../src/devops_cli/security/) • [`src/devops_cli/http/egress.py`](../../../../../../src/devops_cli/http/egress.py) |
 
 ---
 
@@ -27,7 +27,7 @@ tags:
 **TLDExtract** accurately separates the subdomain, domain, and public suffix of a URL using the Public Suffix List (PSL). Unlike naive string-split operations (`url.split(".")`), `tldextract` understands complex multi-part suffixes like `.co.uk`, `.github.io`, and `.org.au`.
 
 In `devops-cli`:
-- **Network Reference Extraction**: `security/reference_extractor.py` reports only hosts that the URL parser (`urllib.parse`) and `ipaddress` recognise, and uses a snapshot-only `TLDExtract(suffix_list_urls=(), fallback_to_snapshot=True)` for the public-suffix and RFC 2606 / special-use checks on those hosts; HTTP egress validation (`http/broker.py`) uses `ipaddress`-based checks.
+- **Network Reference Extraction**: `security/reference_extractor.py` reports only hosts that the URL parser (`urllib.parse`) and `ipaddress` recognise, and uses a snapshot-only `TLDExtract(suffix_list_urls=(), fallback_to_snapshot=True)` for the public-suffix and RFC 2606 / special-use checks on those hosts; HTTP egress validation (`http/egress.py`) uses `ipaddress`-based checks.
 - **Endpoint Classification**: Identifies internal homelab addresses versus public cloud endpoints.
 
 ---

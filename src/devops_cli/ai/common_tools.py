@@ -13,8 +13,8 @@ from devops_cli.config.defaults import (
     DEFAULT_FIRECRAWL_SEARCH_URL,
     DEFAULT_FIRECRAWL_TIMEOUT_SECONDS,
 )
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.telemetry.instruments import FIRECRAWL_SEARCHES_TOTAL, emit
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ def firecrawl_search(
 
 def _search(query: str, api_key: str, limit: int) -> list[dict[str, Any]]:
     """One search request and its web results."""
-    client = new_http_client(level=EgressLevel.PUBLIC)
+    client = http_client(level=EgressLevel.PUBLIC)
     resp = client.post(
         DEFAULT_FIRECRAWL_SEARCH_URL,
         json={"query": query, "limit": limit},
