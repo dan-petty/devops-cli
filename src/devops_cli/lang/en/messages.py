@@ -623,13 +623,12 @@ class K8sMessages:
     proxy_service_check_failed: str = (
         "Did not write {key}: the check of {address} through the API server failed: {error}"
     )
-    start_minikube_tip: str = (
-        "Start it with: [cyan]minikube start --driver=docker --cni=calico[/cyan]"
-    )
+    start_minikube_tip: str = "Start it with: [cyan]minikube start --driver=docker --cni=calico --addons=storage-provisioner-rancher[/cyan]"
     starting_minikube: str = "[bold cyan]Starting minikube cluster...[/bold cyan]"
     failed_start_minikube: str = "Failed to start minikube cluster."
     minikube_not_running: str = (
-        "minikube is not running. Start with: minikube start --driver=docker --cni=calico"
+        "minikube is not running. Start with: "
+        "minikube start --driver=docker --cni=calico --addons=storage-provisioner-rancher"
     )
     adding_helm_repos: str = "[bold]Adding Helm repositories...[/bold]"
     removing_stack_namespaces: str = "[bold]Removing all stack namespaces...[/bold]"
