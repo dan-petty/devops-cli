@@ -1,0 +1,6 @@
+@app.command("{{ name }}", help=HELP.{{ group }}.{{ field }})
+@dry_run_class("no-external-request")
+@trace_span("{{ group }}.{{ name }}")
+def {{ field }}() -> None:
+    """Run `devops {{ group }} {{ name }}`."""
+    print_success(MESSAGES.{{ group }}.{{ field }}_done)

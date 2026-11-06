@@ -17,8 +17,6 @@ from typing import Any, Final
 import pytest
 
 from devops_cli.config.constants import (
-    CONST_DOCS_CLASS_HAND_WRITTEN,
-    CONST_DOCS_INVENTORY,
     CONST_PYTHON_FILE_SUFFIX,
     CONST_SOURCE_ROOT_DIR,
 )
@@ -29,6 +27,7 @@ from devops_cli.core.import_graph import (
     verify_acyclic_imports,
 )
 from devops_cli.core.repo import list_repo_files
+from devops_cli.docs.inventory import hand_written_documents
 from devops_cli.exceptions.base import DevOpsCLIError
 from tests.gate.ruff_selection import ruff_enforces
 from tests.support.paths import FIXTURES, GOLDEN, REPO_ROOT, TESTS_ROOT
@@ -556,13 +555,12 @@ _TASK_FILES_SCAN_ROOTS = ("src", "tests", "k8s", ".github")
 def _files_that_name_the_task_files(root: Path) -> list[str]:
     """Each file of the code, the tests, the manifests, the GitHub files and the hand-written
     documents under `root` that names the task files' directory, by repository path."""
-    hand_written = CONST_DOCS_INVENTORY[CONST_DOCS_CLASS_HAND_WRITTEN]
+    hand_written = {
+        PurePosixPath(path.relative_to(root).as_posix()) for path in hand_written_documents(root)
+    }
     paths = [PurePosixPath(path.relative_to(root).as_posix()) for path in list_repo_files(root)]
     scanned = [
-        path
-        for path in paths
-        if path.parts[0] in _TASK_FILES_SCAN_ROOTS
-        or any(path.full_match(glob) for glob in hand_written)
+        path for path in paths if path.parts[0] in _TASK_FILES_SCAN_ROOTS or path in hand_written
     ]
     return sorted(
         path.as_posix()

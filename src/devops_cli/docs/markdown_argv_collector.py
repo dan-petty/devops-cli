@@ -16,16 +16,15 @@ from pathlib import Path
 
 from devops_cli.config.constants import (
     CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS,
-    CONST_DOCS_INVENTORY,
     CONST_DOCS_NAME_CHECKED_CLASSES,
 )
 from devops_cli.core.command_resolver import ArgvPlaceholder, ArgvToken
 from devops_cli.core.repo import find_repo_root
+from devops_cli.docs.inventory import documents_of_class
 from devops_cli.docs.source_argv_collector import (
     DevopsArgvReference,
     describe_unresolved_references,
 )
-from devops_cli.lang import MESSAGES
 
 _PREFIX_RE = re.compile(r"^\s*\$?\s*(?:uv\s+run\s+)?devops(?:\s+(.*)|$)")
 _INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
@@ -186,21 +185,16 @@ def is_pattern_entry(entry: str) -> bool:
     return glob.escape(entry) != entry
 
 
-def _listed_documents(root: Path) -> dict[str, list[Path]]:
-    """The files each entry of the name-checked inventory classes matches, by entry."""
-    return {
-        entry: sorted(root.glob(entry))
-        for name in CONST_DOCS_NAME_CHECKED_CLASSES
-        for entry in CONST_DOCS_INVENTORY[name]
-    }
-
-
 def collect_documented_argv_references(
     root_dir: Path | None = None,
 ) -> list[DevopsArgvReference]:
     """Collect devops command invocations across every hand-written and prompt document."""
     resolved_root = find_repo_root(root_dir)
-    documents = {path for paths in _listed_documents(resolved_root).values() for path in paths}
+    documents = {
+        path
+        for name in CONST_DOCS_NAME_CHECKED_CLASSES
+        for path in documents_of_class(resolved_root, name)
+    }
     references = [
         reference
         for path in documents
@@ -212,15 +206,6 @@ def collect_documented_argv_references(
 
 
 def check_documented_argv(root_dir: Path | None = None) -> list[str]:
-    """Describe every inventory entry naming a document that has no file, and every documented
-    command line that fails CLI resolution. A pattern entry may match no file."""
+    """Describe every documented command line that fails CLI resolution."""
     resolved_root = find_repo_root(root_dir)
-    unmatched = [
-        MESSAGES.docs.inventory_entry_missing.format(entry=entry)
-        for entry, paths in _listed_documents(resolved_root).items()
-        if not paths and not is_pattern_entry(entry)
-    ]
-    return [
-        *unmatched,
-        *describe_unresolved_references(collect_documented_argv_references(resolved_root)),
-    ]
+    return describe_unresolved_references(collect_documented_argv_references(resolved_root))

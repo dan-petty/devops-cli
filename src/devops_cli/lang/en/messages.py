@@ -382,6 +382,48 @@ class InstallMessages:
 
 
 @dataclass(frozen=True)
+class NewMessages:
+    bad_name: str = (
+        "'{group}' or '{name}' is not a name: use a group module name, and a command name in "
+        "lower case with hyphens."
+    )
+    group_missing: str = (
+        "The group '{group}' has no module at {path}. A person adds a new group by hand: then "
+        "run this command for each command of it."
+    )
+    catalog_missing: str = "{path} has no entry '{group}' in {catalog}."
+    function_exists: str = "{path} already defines the function {function}."
+    entry_exists: str = "{path} already holds the entry {entry}."
+    file_exists: str = "{path} exists. The scaffold writes over no file."
+    not_source_module: str = (
+        "{path} is not a module of src/devops_cli. A test sits at the mirror path of its source "
+        "module: tests/<package path>/test_<module>.py. {hint}"
+    )
+    mirror_hint: str = "The mirror path of that module is {path}."
+    module_missing: str = "{path} is not a file."
+    module_has_no_mirror: str = (
+        "{path} has no mirror folder: a module at the top of the package, and an __init__.py, "
+        "have no test file of their own."
+    )
+    help_summary: str = "Describe what `devops {group} {name}` does in one sentence."
+    help_page: str = "The page {page} holds the full description."
+    message_text: str = "Write the message of `devops {group} {name}`."
+    would_write: str = "Would write {path}"
+    would_edit: str = "Would edit {path}"
+    wrote: str = "Wrote {path}"
+    edited: str = "Edited {path}"
+    steps_title: str = "Steps that stay manual:"
+    step_write_help: str = (
+        "Write the help in {help_path} and the message in {messages_path}: the scaffold left "
+        "a placeholder."
+    )
+    step_write_tests: str = "Replace the failing tests in {path} with the behaviour you build."
+    step_regenerate_docs: str = (
+        "Run `uv run devops docs generate --sync-readme` to regenerate the pages of the commands."
+    )
+
+
+@dataclass(frozen=True)
 class OpenSpecMessages:
     missing_hint: str = (
         "OpenSpec is a pinned Node tool: install it with "
@@ -994,10 +1036,6 @@ class DocsMessages:
         "Documentation check failed. Run 'devops docs generate' to refresh documentation."
     )
     argv_unresolved: str = "{location} {owner}: 'devops {command_line}': {problem}."
-    inventory_entry_missing: str = (
-        "{entry}: the document inventory lists it, but no file matches, so its command lines "
-        "cannot be checked."
-    )
     argv_unknown_command: str = "unknown command '{token}' under '{command_path}'"
     argv_unknown_option: str = "unknown option '{token}' for '{command_path}'"
     argv_unexpected_argument: str = "unexpected extra argument '{token}' for '{command_path}'"
@@ -4531,6 +4569,7 @@ class LanguageCatalog:
     config: ConfigMessages = field(default_factory=ConfigMessages)
     install: InstallMessages = field(default_factory=InstallMessages)
     openspec: OpenSpecMessages = field(default_factory=OpenSpecMessages)
+    new: NewMessages = field(default_factory=NewMessages)
     branches: BranchMessages = field(default_factory=BranchMessages)
     workspace: WorkspaceMessages = field(default_factory=WorkspaceMessages)
     repos: RepoMessages = field(default_factory=RepoMessages)

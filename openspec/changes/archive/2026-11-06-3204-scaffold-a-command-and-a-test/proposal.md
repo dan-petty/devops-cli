@@ -9,7 +9,7 @@ A new `devops` command or a new test touches several places whose rules are scat
 - Add the `devops new` group with the `command` and `test` subcommands, registered in the command specs of the CLI.
 - The command scaffold writes the command function in the group module, the help and message entries, the mirror-path test with a failing first test and `match=`, and prints the manual steps that remain.
 - The test scaffold writes a test module at the mirror path of a source module, asks for the shared fake of the edge that the module reaches, and refuses a path that is not a source module.
-- The scaffold refuses to write over an existing file and writes nothing under `--dry-run`.
+- The command scaffold adds a command to a group that exists and refuses an unknown group. The scaffold refuses to write over an existing file and writes nothing under `--dry-run`.
 - The MCP coverage test derives its excluded commands from the command tree, so a new command needs no hand entry.
 - The hand-written class of the docs inventory becomes the complement of its other classes, so a new page needs no hand entry.
 - The layout section of `docs/TESTING.md` states the mirror path as the one test-location rule and drops the flat-file fallback.
@@ -29,9 +29,9 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/config/constants.py`, `src/devops_cli/docs/markdown_argv_collector.py`, `src/devops_cli/commands/new.py`, `src/devops_cli/main.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/scaffold/__init__.py`, `src/devops_cli/scaffold/templates.py`
-- Documents: `docs/TESTING.md`, `.claude/skills/new-scaffold/SKILL.md`, `.agents/skills/new-scaffold/SKILL.md`
-- Tests: `tests/docs/test_docs_inventory.py`, `tests/ai/mcp/test_mcp.py`, `tests/commands/test_new.py`, `tests/invariants/test_skills.py`
+- Code: `src/devops_cli/config/constants.py`, `src/devops_cli/docs/inventory.py` (new), `src/devops_cli/docs/markdown_argv_collector.py`, `src/devops_cli/commands/new.py`, `src/devops_cli/main.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/scaffold/` (new: `edges.py`, `edits.py`, `plan.py`), `src/devops_cli/templates/scaffold_*.j2` (new)
+- Documents: `docs/TESTING.md`, `CONTRIBUTING.md`, `.claude/skills/new-scaffold/SKILL.md`, `.agents/skills/new-scaffold/SKILL.md`, `.gitignore`
+- Tests: `tests/docs/test_docs_inventory.py`, `tests/invariants/test_architectural_invariants.py`, `tests/invariants/test_agents_md_claims.py`, `tests/ai/mcp/test_mcp.py`, `tests/commands/test_new.py`, `tests/scaffold/` (new), `tests/invariants/test_skills.py`
 
 ## Feasibility
 
@@ -43,6 +43,8 @@ None.
 - The three-sentence help rule is real: capability `roadmap-command-help` holds "The help of a job command is a short summary that names its page".
 - The dry-run class of a command is real: capability `command-dry-run-class` holds the requirement "command-declares-dry-run-class", and `context` lists `tests/invariants/test_dry_run_class_ratchet.py` as a test of that class. The scaffold group declares the class of each new command with the decorator that the ratchet reads, and no table of dry-run classes exists.
 - The premise holds, so the plan compensates for nothing. First checks against the real system: `uv run devops new --help` must list `command` and `test`; `uv run devops ci test tests/ai/mcp/test_mcp.py` must pass with no hand list; `uv run devops ci docs` must pass on the new `docs/TESTING.md`; `uv run devops openspec check` must accept this change.
+
+- Checked again at the implement stage, against the code of `origin/main`: `docs/TESTING.md` no longer holds the flat-file fallback, so the change adds the one sentence that states the mirror rule for a new file. `CONST_DOCS_INVENTORY` has five readers beside the collector (the inventory test, the task-file scan, the two-link test, the OpenSpec scaffold test and the TUI config test), and only three of them read the hand-written class. `jinja2` is a dependency and `devops_cli.core.templating.render_template` renders packaged templates, so the scaffold uses them and builds no template engine. `.gitignore` ignores every `.claude/skills/*` folder but the OpenSpec ones, so the Claude copy of the skill needs one negation line.
 
 ## Existing Tool Considered
 

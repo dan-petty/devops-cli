@@ -1963,6 +1963,24 @@ class OpenSpecCommandHelp:
 
 
 @dataclass(frozen=True)
+class NewCommandHelp:
+    app: str = "Write the files of a new command or a new test in project form."
+    command: str = (
+        "Add a command to a group that exists: its function, its help and message entries, and a "
+        "failing test. The command writes over no file and prints the steps that stay manual. "
+        "The page of the group is docs/commands/<group>.md."
+    )
+    command_group: str = "Name of the group module under src/devops_cli/commands."
+    command_name: str = "Name of the new command, in lower case with hyphens."
+    test: str = (
+        "Write the test file of a module of src/devops_cli at its mirror path under tests, with "
+        "the fixtures of the edges the module reaches. The command writes over no file. The page "
+        "is docs/TESTING.md."
+    )
+    test_module: str = "Path of the source module, such as src/devops_cli/config/constants.py."
+
+
+@dataclass(frozen=True)
 class BenchmarkCommandHelp:
     app: str = "Benchmark, evaluate, and peer-grade candidate AI models across engineering tasks."
     models: str = (
@@ -2207,6 +2225,7 @@ class HelpCatalog:
     config: ConfigCommandHelp = field(default_factory=ConfigCommandHelp)
     install: InstallCommandHelp = field(default_factory=InstallCommandHelp)
     openspec: OpenSpecCommandHelp = field(default_factory=OpenSpecCommandHelp)
+    new: NewCommandHelp = field(default_factory=NewCommandHelp)
     benchmark: BenchmarkCommandHelp = field(default_factory=BenchmarkCommandHelp)
     analyze: AnalyzeCommandHelp = field(default_factory=AnalyzeCommandHelp)
     prometheus: PrometheusCommandHelp = field(default_factory=PrometheusCommandHelp)

@@ -1,6 +1,6 @@
 """The documentation inventory: every committed Markdown file is in exactly one class, the
 generated class is what the generator writes, and every hand-written and prompt document names
-only real commands (#1103)."""
+only real commands (#1103). A file that no other class claims is hand-written (#3204)."""
 
 from __future__ import annotations
 
@@ -17,17 +17,20 @@ from devops_cli.ai.instruction_generator import (
 from devops_cli.config.constants import (
     CONST_DOCS_CLASS_GENERATED,
     CONST_DOCS_CLASS_HAND_WRITTEN,
+    CONST_DOCS_CLASS_PROMPT,
+    CONST_DOCS_CLASS_RECORD,
+    CONST_DOCS_CLASS_TOOL_GENERATED,
+    CONST_DOCS_CLASS_TOOL_OWNED,
     CONST_DOCS_INVENTORY,
-    CONST_DOCS_NAME_CHECKED_CLASSES,
 )
 from devops_cli.core.repo import list_repo_files
 from devops_cli.docs.generator import DocGenerator
+from devops_cli.docs.inventory import document_class, hand_written_documents
 from devops_cli.docs.markdown_argv_collector import (
     check_documented_argv,
     collect_documented_argv_references,
     is_pattern_entry,
 )
-from devops_cli.lang import MESSAGES
 from tests.support.paths import REPO_ROOT
 
 
@@ -46,16 +49,15 @@ def _committed_markdown_files() -> list[str]:
 
 def _inventory_problems(
     files: Iterable[str],
-) -> tuple[list[str], dict[str, list[str]], list[str]]:
-    """The files in no class, the files in several, and the entries naming one document that no
-    file is. A pattern entry may match no file."""
+) -> tuple[dict[str, list[str]], list[str]]:
+    """The files in several explicit classes, and the entries naming one document that no file
+    is. A pattern entry may match no file, and a file no explicit class claims is hand-written."""
     files = list(files)
     present = set(files)
     classes_by_file = {
         path: sorted(name for name, globs in CONST_DOCS_INVENTORY.items() if _matches(path, globs))
         for path in files
     }
-    unclassified = [path for path, names in classes_by_file.items() if not names]
     ambiguous = {path: names for path, names in classes_by_file.items() if len(names) > 1}
     matching_no_file = [
         glob
@@ -63,30 +65,65 @@ def _inventory_problems(
         for glob in globs
         if not is_pattern_entry(glob) and glob not in present
     ]
-    return unclassified, ambiguous, matching_no_file
+    return ambiguous, matching_no_file
 
 
 def test_every_committed_markdown_file_has_exactly_one_class() -> None:
-    """Verify each Markdown file is in one class, and each inventory entry matches a file, so
-    a new document is classified in the pull request that adds it and a deleted one leaves no
-    entry behind."""
-    assert _inventory_problems(_committed_markdown_files()) == ([], {}, [])
+    """Verify no Markdown file is in two explicit classes, and each inventory entry matches a
+    file, so a deleted document leaves no entry behind. A new document that no explicit class
+    claims is hand-written."""
+    assert _inventory_problems(_committed_markdown_files()) == ({}, [])
 
 
 def test_a_listed_document_with_no_file_fails_the_inventory() -> None:
     """Verify an entry naming one document that is not committed is reported, so deleting a
     document leaves no entry behind."""
-    files = [path for path in _committed_markdown_files() if path != "docs/SDLC.md"]
+    files = [path for path in _committed_markdown_files() if path != "CHANGELOG.md"]
 
-    assert _inventory_problems(files) == ([], {}, ["docs/SDLC.md"])
+    assert _inventory_problems(files) == ({}, ["CHANGELOG.md"])
 
 
-def test_a_pattern_entry_with_no_file_still_leaves_a_stray_file_unclassified() -> None:
-    """Verify a pattern entry that matches no file is not an error, while a file beside it that
-    no entry covers is still unclassified: `openspec/specs/**/*.md` matches no file here."""
-    files = ["openspec/notes.md"]
+def test_a_page_that_no_other_class_matches_is_hand_written() -> None:
+    """Verify a Markdown file at a path that no explicit class matches is hand-written with no
+    entry of its own, so a new page, or a committed skill, needs no edit of the inventory."""
+    paths = ["docs/example.md", "openspec/notes.md", ".claude/skills/new-scaffold/SKILL.md"]
 
-    assert _inventory_problems(files)[0] == ["openspec/notes.md"]
+    assert [document_class(path) for path in paths] == [CONST_DOCS_CLASS_HAND_WRITTEN] * 3
+
+
+def test_a_page_that_another_class_claims_is_not_hand_written() -> None:
+    """Verify a page that an explicit class matches keeps that class, so the complement hides no
+    generated, record, prompt or tool page."""
+    paths = [
+        "docs/commands/ci.md",
+        "CHANGELOG.md",
+        "docs/adr/0001-example.md",
+        "src/devops_cli/ai/tasks/example.md",
+        ".claude/skills/openspec-explore/SKILL.md",
+    ]
+
+    assert [document_class(path) for path in paths] == [
+        CONST_DOCS_CLASS_GENERATED,
+        CONST_DOCS_CLASS_TOOL_OWNED,
+        CONST_DOCS_CLASS_RECORD,
+        CONST_DOCS_CLASS_PROMPT,
+        CONST_DOCS_CLASS_TOOL_GENERATED,
+    ]
+
+
+def test_the_hand_written_documents_of_a_root_are_the_pages_no_other_class_claims(
+    tmp_path: Path,
+) -> None:
+    """Verify the listing of a root holds a page that no explicit class claims, and holds none
+    that one does."""
+    (tmp_path / "pyproject.toml").touch()
+    for name in ("README.md", "docs/example.md", "docs/adr/0001-example.md", "CHANGELOG.md"):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("Text.\n", encoding="utf-8")
+
+    listed = [path.relative_to(tmp_path).as_posix() for path in hand_written_documents(tmp_path)]
+
+    assert listed == ["README.md", "docs/example.md"]
 
 
 @pytest.mark.parametrize(
@@ -125,8 +162,8 @@ def test_the_generated_class_is_what_the_generator_writes() -> None:
 
     assert (
         sorted(generated_in_the_inventory ^ generated_by_the_generator),
-        _matches("README.md", CONST_DOCS_INVENTORY[CONST_DOCS_CLASS_HAND_WRITTEN]),
-    ) == ([], True)
+        document_class("README.md"),
+    ) == ([], CONST_DOCS_CLASS_HAND_WRITTEN)
 
 
 def test_every_hand_written_document_names_only_real_commands() -> None:
@@ -145,21 +182,3 @@ def test_every_hand_written_document_names_only_real_commands() -> None:
         <= documents_read,
         cli_reference_lines >= 60,
     ) == ([], True, True)
-
-
-def test_a_listed_document_that_is_missing_fails_the_name_gate(tmp_path: Path) -> None:
-    """Verify a document the inventory lists by path that has no file fails the gate, naming the
-    entry, instead of being skipped; that a listed document that exists is not reported; and
-    that a pattern entry matching no file is not."""
-    (tmp_path / "pyproject.toml").touch()
-    (tmp_path / "README.md").write_text("Run `devops docs check` to verify.\n", encoding="utf-8")
-
-    problems = check_documented_argv(tmp_path)
-
-    expected = [
-        MESSAGES.docs.inventory_entry_missing.format(entry=entry)
-        for name in CONST_DOCS_NAME_CHECKED_CLASSES
-        for entry in CONST_DOCS_INVENTORY[name]
-        if entry != "README.md" and not is_pattern_entry(entry)
-    ]
-    assert problems == expected

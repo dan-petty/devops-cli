@@ -1,0 +1,13 @@
+"""Tests for the behaviour of `{{ module }}`."""
+
+from __future__ import annotations
+
+import pytest
+
+
+{% if fixtures %}
+@pytest.mark.usefixtures({{ fixtures|map("tojson")|join(", ") }})
+{% endif %}
+def test_{{ stem }}_does_what_the_module_promises() -> None:
+    """Replace this failing test with the first behaviour of `{{ module }}`."""
+    pytest.fail("Write the first test of {{ module }}.")

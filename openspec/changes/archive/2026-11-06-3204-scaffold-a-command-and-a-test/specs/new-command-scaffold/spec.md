@@ -14,15 +14,19 @@ The `devops new` command group SHALL list the `command` and `test` subcommands.
 `devops new command <group> <name>` SHALL write the command function in the group module and its help and message entries in `lang/en/`.
 
 #### Scenario: The command function and the language entries are written
-- **WHEN** A user runs `devops new command sample hello` in a temporary repository.
+- **WHEN** A user runs `devops new command sample hello` in a temporary repository whose `sample` group exists.
 - **THEN** The `sample` group module holds the `hello` function, and `lang/en/` holds its help and message entries.
 
+#### Scenario: An unknown group is refused
+- **WHEN** A user runs `devops new command missing hello` and no `missing` group module exists.
+- **THEN** The command exits nonzero, names the group module it looked for, and writes no file.
+
 ### Requirement: The command scaffold writes the test at the mirror path
-`devops new command` SHALL write a test module at the mirror path of the group module, holding a failing first test and `match=` in its error check.
+`devops new command` SHALL write a test module in the mirror folder of the group module, named `test_<group>_<command>.py`, holding a failing first test and `match=` in its error check.
 
 #### Scenario: The command test sits at the mirror path and uses match
 - **WHEN** A user runs `devops new command sample hello`.
-- **THEN** The test module sits at the mirror path of the `sample` module and holds a failing first test and `pytest.raises` with `match=`.
+- **THEN** The test module `tests/commands/test_sample_hello.py` sits in the mirror folder of the `sample` module and holds a failing first test and `pytest.raises` with `match=`.
 
 ### Requirement: The help that the scaffold writes is short and names its page
 The help entry that the scaffold writes SHALL hold at most three sentences and SHALL name the documentation page of its command.
@@ -60,7 +64,7 @@ The test module that the scaffold writes SHALL ask for the shared fake fixture o
 - **THEN** The test asks for the `github_api` fixture.
 
 ### Requirement: The scaffold refuses to write over a file
-The scaffold SHALL write no file when any target path exists, SHALL name each existing path, and SHALL exit nonzero.
+The scaffold SHALL write no file when a file that it creates exists, or when the group module or a language class already holds the function or the entry that it adds. It SHALL name each path, and SHALL exit nonzero.
 
 #### Scenario: An existing target is refused
 - **WHEN** A user runs the same scaffold command twice.

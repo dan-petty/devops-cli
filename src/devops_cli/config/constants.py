@@ -434,7 +434,7 @@ CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
     {"...", "COMMAND", "ARGS", "OPTIONS", "SUBCOMMAND", "PARAMS"}
 )
 # The documentation inventory (#1103): every Markdown file in the repository matches the globs of
-# exactly one class, so a new document is classified in the pull request that adds it. The classes
+# at most one class, so a new document is classified in the pull request that adds it. The classes
 # differ in how a document stays true:
 # - generated: written by `DocGenerator` or the instruction generator and checked against them.
 # - tool-owned: written only by one tool's own step, release-please for `CHANGELOG.md` in its
@@ -444,7 +444,9 @@ CONST_DOCS_ARGV_KNOWN_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
 # - prompt: loaded by code at run time.
 # - tool-generated: written by a pinned tool, `devops openspec regenerate` for OpenSpec's skills, and
 #   checked by regenerating them, never named-checked.
-# - hand-written: everything else, listed by path (README.md also holds a generated command matrix).
+# - hand-written: every Markdown file that no other class lists, so a new page needs no entry
+#   (README.md also holds a generated command matrix). `devops_cli.docs.inventory` computes it, and
+#   the inventory holds no entry for it.
 # An entry with a glob wildcard is a pattern and may match no file (`openspec/specs/**/*.md`
 # matches none until the first change is archived); an entry without one names a document and
 # must match its file.
@@ -487,30 +489,6 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
         ".claude/skills/openspec-*/SKILL.md",
         ".agents/skills/openspec-*/SKILL.md",
         ".kilocode/skills/openspec-*/SKILL.md",
-    ),
-    CONST_DOCS_CLASS_HAND_WRITTEN: (
-        ".github/pull_request_template.md",
-        "AGENTS.md",
-        "ARCHITECTURE.md",
-        "CONTEXT.md",
-        "CONTRIBUTING.md",
-        "README.md",
-        "RELEASE_CYCLE.md",
-        "SECURITY.md",
-        "docs/DEVCONTAINER_USAGE.md",
-        "docs/KNOWN_ISSUES.md",
-        "docs/ROADMAP_WORKFLOW.md",
-        "docs/ROUTINE_TASKS.md",
-        "docs/SDLC.md",
-        "docs/SELF_IMPROVEMENT.md",
-        "docs/TESTING.md",
-        "docs/VISION.md",
-        "docs/agent/README.md",
-        "docs/index.md",
-        "docs/roadmap/*.md",
-        "k8s/**/README.md",
-        "src/devops_cli/ai/knowledge_base/**/*.md",
-        "tf/README.md",
     ),
 }
 # The classes whose `devops` command lines `devops docs check` resolves against the live command

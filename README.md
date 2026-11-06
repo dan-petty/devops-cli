@@ -198,6 +198,8 @@ The roadmap lives on GitHub: the issues are its items, their labels hold their S
 | [**openspec**](docs/commands/openspec.md) | `devops openspec check` | Run the OpenSpec gate: validate every change and archived change, check the committed skills against a regeneration, render the instructions every agent reads, and find a requirement that two changes rewrite. Exits 1 on any problem. |
 |  | `devops openspec regenerate` | Rewrite the committed OpenSpec skills with `openspec update --force` under an isolated configuration, so no developer's own profile decides what is written. |
 |  | `devops openspec archive <change>` | Archive a change with `openspec archive <change> --yes`, then run `openspec validate --all --strict`. Both runs use an isolated configuration with telemetry off. The command exits 1 when a run fails. A failed archive skips the validation. |
+| [**new**](docs/commands/new.md) | `devops new command [OPTIONS] <group> <name>` | Add a command to a group that exists: its function, its help and message entries, and a failing test. The command writes over no file and prints the steps that stay manual. The page of the group is docs/commands/\<group\>.md. |
+|  | `devops new test [OPTIONS] <module>` | Write the test file of a module of src/devops_cli at its mirror path under tests, with the fixtures of the edges the module reaches. The command writes over no file. The page is docs/TESTING.md. |
 | [**k8s**](docs/commands/k8s.md) | `devops k8s contexts [OPTIONS]` | List kubeconfig contexts and mark the active one. |
 |  | `devops k8s switch-context [OPTIONS] <name>` | Switch active kubeconfig context and ensure cluster is running. |
 |  | `devops k8s status [OPTIONS]` | Show node and pod summary for the current context. |
