@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.70.0](https://github.com/dan-petty/devops-cli/compare/v0.69.1...v0.70.0) (2026-11-06)
+
+
+### Features
+
+* **review:** name the repository in a tool run and the SARIF export ([#3798](https://github.com/dan-petty/devops-cli/issues/3798)) ([6d12548](https://github.com/dan-petty/devops-cli/commit/6d12548c7451e4d5703c6c6cbeee71732ad60b93))
+
+
+### Bug Fixes
+
+* **k8s:** a log query dials the loki.url setting ([#3802](https://github.com/dan-petty/devops-cli/issues/3802)) ([98686f4](https://github.com/dan-petty/devops-cli/commit/98686f4238a59406b187ce0301e1c8482c203da2))
+* **k8s:** loki values name the Monolithic deployment mode ([#3800](https://github.com/dan-petty/devops-cli/issues/3800)) ([cf4ac8f](https://github.com/dan-petty/devops-cli/commit/cf4ac8fdfcb7a9d93e6486811ca42d576a8ba060))
+
+
+### Code Refactoring
+
+* **ai:** ai callers use the HTTP entry point ([#3801](https://github.com/dan-petty/devops-cli/issues/3801)) ([2f2548b](https://github.com/dan-petty/devops-cli/commit/2f2548b5f383c5939239065413a56913469dcfc7)), closes [#3791](https://github.com/dan-petty/devops-cli/issues/3791)
+
 ## [0.69.1](https://github.com/dan-petty/devops-cli/compare/v0.69.0...v0.69.1) (2026-11-06)
 
 
