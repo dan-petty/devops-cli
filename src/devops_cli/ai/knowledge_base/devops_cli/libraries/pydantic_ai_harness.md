@@ -2,7 +2,7 @@
 applies_to:
   - "pkg:pypi/pydantic-ai-harness@0.59.*"
 sources:
-  - "https://github.com/pydantic/pydantic-ai-harness"
+  - "https://github.com/pydantic/pydantic-ai"
   - "https://pydantic.dev/docs/ai/harness/"
 reviewed: "2026-10-29"
 tags:
@@ -19,7 +19,7 @@ tags:
 | Resource | Endpoint / URL |
 | :--- | :--- |
 | **Official Documentation** | [pydantic.dev/docs/ai/harness](https://pydantic.dev/docs/ai/harness/) |
-| **Public Git Repository** | [github.com/pydantic/pydantic-ai-harness](https://github.com/pydantic/pydantic-ai-harness) |
+| **Public Git Repository** | [github.com/pydantic/pydantic-ai](https://github.com/pydantic/pydantic-ai), in the path `src/pydantic_ai_harness` |
 | **Official PyPI Package** | [pypi.org/project/pydantic-ai-harness](https://pypi.org/project/pydantic-ai-harness/) (`0.59.0`) |
 | **DevOps CLI Integration** | [`src/devops_cli/roadmap/implement_step.py`](../../../../../../src/devops_cli/roadmap/implement_step.py) |
 
