@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.70.2](https://github.com/dan-petty/devops-cli/compare/v0.70.1...v0.70.2) (2026-11-06)
+
+
+### Performance Improvements
+
+* **ci:** each test shard collects only its own test files ([#3810](https://github.com/dan-petty/devops-cli/issues/3810)) ([cc189ed](https://github.com/dan-petty/devops-cli/commit/cc189edd37f9f5604f466d2ef319b34a5eb5ec35))
+
 ## [0.70.1](https://github.com/dan-petty/devops-cli/compare/v0.70.0...v0.70.1) (2026-11-06)
 
 
