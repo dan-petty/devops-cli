@@ -51,11 +51,15 @@ The table test of the classifier SHALL use the stop texts of the issues #2175, #
 - **THEN** the `mypy` stop of #2175 is `types`, the tool retries of #2735 are `refused_tool`, the Ollama error of #2747 is `parser`, the failed tests of #2924 are `test`, and each synthetic stop has the class of its pattern
 
 ### Requirement: One default action for each class
-`ACTION_BY_CLASS` SHALL give each class exactly one default action: `provider`, `timeout`, `ci_infra`, `tests_lost` and `head_moved` `retry`; `parser` `change_tier`; `test`, `lint` and `types` `repair`; `plan_defect` `amend`; `premise_false` `return`; `oom`, `output_cap` and `limit_reached` `raise_limit`; `refused_tool`, `conflict`, `no_change_in_fix` and `read_only_path` `wait`.
+`ACTION_BY_CLASS` SHALL give each class exactly one default action: `provider`, `timeout`, `ci_infra` and `head_moved` `retry`; `parser` `change_tier`; `test`, `lint` and `types` `repair`; `plan_defect` `amend`; `premise_false` `return`; `oom`, `output_cap` and `limit_reached` `raise_limit`; `refused_tool`, `conflict`, `no_change_in_fix`, `read_only_path` and `tests_lost` `wait`.
 
 #### Scenario: The table
 - **WHEN** a test reads the table
 - **THEN** its keys are the 18 classes and each value is the action above
+
+#### Scenario: A new runner image and a lost test
+- **WHEN** an item stopped with the class `tests_lost`, and the digest in the template differs from the digest of its Job
+- **THEN** the rule `digest` does not clear the stop
 
 ### Requirement: The action left
 `left_action` SHALL give the default action of the class, or `wait` when the action taken is that default.

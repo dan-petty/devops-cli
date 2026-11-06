@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The property tests_kept finds a lost or weakened test
-`tests_kept` SHALL fail when the diff deletes a Python file under `tests/`, removes a test name that no added line of the same file defines, takes assertion lines from a test on balance, or adds a skip or xfail to a test whose `def` stays, unless the fixture allows that `path::name`. A fixture allows each `path::name` of its `allow_lost_tests`, and `load_case` adds each `path::name` that the `## Weakened checks` section of its plan names. A diff shows no class, so an entry `path::Class.test_x` allows the name `test_x` of that path. `run_case` SHALL give the same list to the step.
+`tests_kept` SHALL fail when the diff deletes a Python file under `tests/`, removes a test name that no added line of the same file defines, takes assertion lines from a test on balance, or adds a skip or xfail to a test whose `def` stays, unless `allow_lost_tests` of the fixture allows that `path::name`. `load_case` SHALL add each `path::name` that the `## Weakened checks` section of the plan names to that list, and `run_case` SHALL give the same list to the step.
 
 #### Scenario: A deleted test
 - **WHEN** the diff deletes `tests/test_sample.py`, which defined `test_a`
