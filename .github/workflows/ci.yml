@@ -91,10 +91,11 @@ jobs:
   # The test row runs in four shards on four runners (#3050). On one runner the suite took 355 s
   # to 528 s for the same tests, depending on the speed of the runner that GitHub gave: more than
   # the 300 s of AGENTS.md rule 5, and growing with the suite. Each shard runs a quarter of the
-  # tests with `pytest-split`, keeps its coverage data, and checks no floor, since it measures a
-  # part of the tree. The job `Tests & Coverage` below joins the data and checks the floor. The
-  # matrix lists the shards and `strategy.job-total` gives their number, so a fifth shard is one
-  # more entry. The shard jobs are no required check: ADR 0004 binds the ruleset to the aggregate.
+  # tests, keeps its coverage data, and checks no floor, since it measures a part of the tree. It
+  # passes the paths of its own test files to pytest, so no worker collects the whole suite (#2371).
+  # The job `Tests & Coverage` below joins the data and checks the floor. The matrix lists the
+  # shards and `strategy.job-total` gives their number, so a fifth shard is one more entry. The
+  # shard jobs are no required check: ADR 0004 binds the ruleset to the aggregate.
   #
   # A pull request that only adds a plan under openspec/changes/<issue>-<slug>/ changes no line the
   # suite tests, so shard 1 runs tests/invariants, which read the change folders, and no shard

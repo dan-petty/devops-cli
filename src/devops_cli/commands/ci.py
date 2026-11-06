@@ -650,12 +650,12 @@ def _resolve_pytest_cmd(*, shard: int = 1, shards: int = 1) -> list[str]:
     The row prints the term report and writes no XML report: only CI's changed-line coverage
     step reads `coverage.xml`, and it writes the file from the combined data (#1743).
 
-    With `shards` above 1 the row runs the part `shard` of the suite (#3050). `pytest-split`
-    deals the tests one after the other to the group with the fewest tests so far
-    (`least_duration` with no stored durations), so the heavy tests of a directory spread over the
-    shards. A shard measures a part of the tree: it checks no floor and prints no report, and the
-    job that combines the data of every shard does both. A shard also warns on, and does not fail
-    on, an unused snapshot: the snapshots of the tests in the other shards are unused in it.
+    With `shards` above 1 the row runs the part `shard` of the suite (#3050). It passes the paths
+    of the test files of that part to pytest, so pytest collects no file of another shard: a plugin
+    that deselects after collection makes every xdist worker collect the whole suite (#2371). A
+    shard measures a part of the tree: it checks no floor and prints no report, and the job that
+    combines the data of every shard does both. A shard also warns on, and does not fail on, an
+    unused snapshot: the snapshots of the tests in the other shards are unused in it.
     """
     cmd = [
         "uv",
@@ -671,13 +671,33 @@ def _resolve_pytest_cmd(*, shard: int = 1, shards: int = 1) -> list[str]:
         "--cov-report=",
         "--cov-fail-under=0",
         "--snapshot-warn-unused",
-        "--splits",
-        str(shards),
-        "--group",
-        str(shard),
-        "--splitting-algorithm",
-        "least_duration",
+        *_shard_test_files(shard, shards, _get_project_root()),
     ]
+
+
+def _shard_test_files(shard: int, shards: int, root: Path) -> list[str]:
+    """The sorted repo-relative paths of the test modules of shard `shard` of `shards` (#2371).
+
+    The modules go one by one, heaviest first (most lines, then path), to the shard with the fewest
+    lines so far, and a tie goes to the lower shard. The split reads only the tree, so every runner
+    computes the same lists and no stored data can go out of date.
+    """
+
+    def line_count(module: str) -> int:
+        with (root / module).open("rb") as handle:
+            return sum(1 for _ in handle)
+
+    weighted = sorted(
+        ((line_count(module), module) for module in _directory_modules("tests", root)),
+        key=lambda item: (-item[0], item[1]),
+    )
+    weights = [0] * shards
+    parts: list[list[str]] = [[] for _ in range(shards)]
+    for lines, module in weighted:
+        lightest = weights.index(min(weights))
+        weights[lightest] += lines
+        parts[lightest].append(module)
+    return sorted(parts[shard - 1])
 
 
 def _with_test_shard(specs: Sequence[CheckSpec], *, shard: int, shards: int) -> list[CheckSpec]:

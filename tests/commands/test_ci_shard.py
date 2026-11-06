@@ -1,21 +1,33 @@
 """Tests for `devops ci --shard` and `--shards`: the test row runs one part of the suite (#3050).
 
 The `Tests & Coverage` job of CI runs the test row in shards on separate runners, so each shard
-takes a part of the suite with `pytest-split`, and a job that waits for all of them joins their
-coverage data and checks the floor. A shard measures a part of the tree, so it checks no floor.
+takes the test files of one part of the suite, and a job that waits for all of them joins their
+coverage data and checks the floor. A shard measures a part of the tree, so it checks no floor. A
+shard passes the paths of its own files to pytest, so it collects no file of another shard (#2371).
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands import ci as ci_module
-from devops_cli.commands.ci import CheckResult, _resolve_pytest_cmd, app, get_check_specs
+from devops_cli.commands.ci import (
+    CheckResult,
+    _directory_modules,
+    _resolve_pytest_cmd,
+    _shard_test_files,
+    app,
+    get_check_specs,
+)
+from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
+
+_SPLIT_OPTIONS = ("--splits", "--group", "--splitting-algorithm")
 
 
 def _said(output: str) -> str:
@@ -42,47 +54,85 @@ def test_one_shard_of_one_is_the_unsharded_row() -> None:
     assert _resolve_pytest_cmd(shard=1, shards=1) == _resolve_pytest_cmd()
 
 
-def test_a_shard_splits_the_suite_and_checks_no_floor() -> None:
-    """Shard 2 of 4 runs its quarter of the tests, keeps the coverage data, prints no report and
+def test_a_shard_runs_its_own_test_files_and_checks_no_floor() -> None:
+    """Shard 2 of 4 runs the files of its quarter, keeps the coverage data, prints no report and
     leaves the floor to the job that combines the data of all shards. The snapshots of the other
     shards are unused in this one, and syrupy would fail the run on them."""
     cmd = _resolve_pytest_cmd(shard=2, shards=4)
 
+    own_files = _shard_test_files(2, 4, REPO_ROOT)
     assert (
-        cmd[cmd.index("--splits") + 1],
-        cmd[cmd.index("--group") + 1],
-        cmd[cmd.index("--splitting-algorithm") + 1],
+        cmd[-len(own_files) :],
+        [option in cmd for option in _SPLIT_OPTIONS],
         "--cov=src" in cmd,
         "--cov-fail-under=0" in cmd,
         "--cov-report=" in cmd,
         "--cov-report=term-missing" in cmd,
         "--snapshot-warn-unused" in cmd,
-    ) == ("4", "2", "least_duration", True, True, True, False, True)
+    ) == (own_files, [False, False, False], True, True, True, False, True)
 
 
-def test_the_dry_run_of_a_shard_lists_its_split_and_starts_nothing() -> None:
-    """The planned command of `--only test --shard 2 --shards 4` holds the split options."""
+@pytest.mark.parametrize("shards", [2, 3, 4])
+def test_the_shards_cover_every_test_module_once(shards: int) -> None:
+    """Each test module is in exactly one shard, and no shard is empty."""
+    every_module = _directory_modules("tests", REPO_ROOT)
+    lists = [_shard_test_files(shard, shards, REPO_ROOT) for shard in range(1, shards + 1)]
+
+    assert (
+        sorted(module for files in lists for module in files),
+        all(lists),
+    ) == (every_module, True)
+
+
+def test_the_split_is_the_same_in_every_call_and_in_any_order_of_asking() -> None:
+    """Every runner computes its own shard, so the split must not depend on the call: two calls
+    give one list, and asking for shard 4 first changes no list."""
+    first = [_shard_test_files(shard, 4, REPO_ROOT) for shard in (1, 2, 3, 4)]
+    reversed_order = {shard: _shard_test_files(shard, 4, REPO_ROOT) for shard in (4, 3, 2, 1)}
+
+    assert first == [reversed_order[shard] for shard in (1, 2, 3, 4)]
+
+
+def test_the_split_deals_the_heaviest_file_to_the_lightest_shard(tmp_path: Path) -> None:
+    """Files go heaviest first to the shard with the fewest lines so far, and a tie goes to the
+    lower shard. Lines of the files stand for the cost, so no stored data can go out of date."""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    for name, lines in {"test_a.py": 5, "test_b.py": 4, "test_c.py": 3, "test_d.py": 3}.items():
+        (tests / name).write_text("x = 1\n" * lines)
+    (tests / "helper.py").write_text("x = 1\n" * 99)
+
+    assert [_shard_test_files(shard, 2, tmp_path) for shard in (1, 2)] == [
+        ["tests/test_a.py", "tests/test_d.py"],
+        ["tests/test_b.py", "tests/test_c.py"],
+    ]
+
+
+def test_the_dry_run_of_a_shard_lists_its_files_and_starts_nothing() -> None:
+    """The planned command of `--only test --shard 2 --shards 4` holds the files of shard 2 and
+    none of the split options of the old plugin."""
     result = runner.invoke(app, ["--dry-run", "--only", "test", "--shard", "2", "--shards", "4"])
+
+    said = _said(result.output)
+    own_files = _shard_test_files(2, 4, REPO_ROOT)
+    assert (
+        result.exit_code,
+        all(path in said for path in own_files),
+        any(option in said for option in _SPLIT_OPTIONS),
+    ) == (0, True, False)
+
+
+def test_the_dry_run_of_an_unsharded_run_lists_no_split() -> None:
+    """Without the options the planned command holds no split option and no test file."""
+    result = runner.invoke(app, ["--dry-run", "--only", "test"])
 
     said = _said(result.output)
     assert (
         result.exit_code,
-        "--splits 4" in said,
-        "--group 2" in said,
-        "--splitting-algorithm least_duration" in said,
-    ) == (0, True, True, True)
-
-
-def test_the_dry_run_of_an_unsharded_run_lists_no_split() -> None:
-    """Without the options the planned command holds none of the split options."""
-    result = runner.invoke(app, ["--dry-run", "--only", "test"])
-
-    said = _said(result.output)
-    assert (result.exit_code, "--splits" in said, "--cov-report=term-missing" in said) == (
-        0,
-        False,
-        True,
-    )
+        "--splits" in said,
+        "tests/commands/test_ci_shard.py" in said,
+        "--cov-report=term-missing" in said,
+    ) == (0, False, False, True)
 
 
 @pytest.mark.parametrize(
