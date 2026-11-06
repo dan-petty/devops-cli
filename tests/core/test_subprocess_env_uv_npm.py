@@ -22,11 +22,16 @@ pytestmark = pytest.mark.live("python")
 # starts the program of `git` for a git dependency, the program of `editor` for `npm config edit`,
 # the shell of `shell` for `npm explore`, and loads the module of `init-module` for `npm init`.
 # node-gyp, which `npm install` runs for a package with a binding.gyp, starts the interpreter of
-# `python` and of PYTHON.
+# `python` and of PYTHON. A probe with uv 0.11.32 (#2750) ran the marker for UV_TOOL_DIR:
+# `uv tool run` and `uvx` start the executable of a tool environment in that directory. UV_ENV_FILE
+# does not run a file: uv loads the keys of the file into the program that `uv run` starts, so a
+# file with LD_PRELOAD, NODE_OPTIONS or PYTHONSTARTUP skips the refusal of those keys.
 REFUSED_UV_NPM_KEYS: tuple[str, ...] = (
     "UV_PYTHON",
     "UV_PYTHON_INSTALL_DIR",
     "UV_PROJECT_ENVIRONMENT",
+    "UV_TOOL_DIR",
+    "UV_ENV_FILE",
     "VIRTUAL_ENV",
     "npm_config_script_shell",
     "npm_config_node_options",
@@ -148,6 +153,26 @@ def test_an_isolated_child_gets_no_uv_project_environment_from_the_environment(
         sorted(k for k in isolated if k.upper() == "UV_PROJECT_ENVIRONMENT"),
         "UV_PROJECT_ENVIRONMENT" in not_isolated,
     ) == ([], True)
+
+
+def test_an_isolated_child_gets_no_uv_tool_dir_or_env_file_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No file of the repository sets `UV_TOOL_DIR` or `UV_ENV_FILE`, and a probe showed that uv
+    starts a program from the first and loads refused keys from the second, so the `UV_` prefix
+    does not pass them, in upper or lower case, while it passes `UV_CACHE_DIR`. With isolation off,
+    the child gets all of them (#2750)."""
+    keys = ("UV_TOOL_DIR", "UV_ENV_FILE", "uv_tool_dir", "uv_env_file", "UV_CACHE_DIR")
+    for key in keys:
+        monkeypatch.setenv(key, "/example/path")
+
+    isolated = build_subprocess_env()
+    not_isolated = build_subprocess_env(isolate_env=False)
+
+    assert (sorted(set(keys) & set(isolated)), set(keys) <= set(not_isolated)) == (
+        ["UV_CACHE_DIR"],
+        True,
+    )
 
 
 @pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])

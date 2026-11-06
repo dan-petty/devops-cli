@@ -133,6 +133,10 @@ DEFAULT_DENIED_ENV_PATTERNS: tuple[str, ...] = (
     # Names the environment whose bin/python uv starts. No file of the repository sets it, so the
     # prefix of DEFAULT_ALLOWED_ENV_PREFIXES does not pass it (#2673).
     "UV_PROJECT_ENVIRONMENT",
+    # Name a directory of tools that uv starts, and a file of keys that uv puts into the program of
+    # `uv run`. No file of the repository sets either key (#2750).
+    "UV_TOOL_DIR",
+    "UV_ENV_FILE",
 )
 
 

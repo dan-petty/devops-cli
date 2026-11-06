@@ -1745,6 +1745,21 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     "NODE_REDIRECT_WARNINGS",
     "PYTEST_ADDOPTS",
     "NPM_CONFIG_LOGS[_-]DIR",
+    # The probes of #2750. go 1.24.7: GOFLAGS carries `-toolexec=<program>`, and go ran the program
+    # for each compile step. Yarn 4 reads the setting yarnPath from YARN_YARN_PATH and runs the file
+    # (read in the bundle of 4.9.2, no live run); Yarn 1.22.22 ignored the key. uv 0.11.32:
+    # `uv tool run` and `uvx` start the executable of a tool environment in the directory of
+    # UV_TOOL_DIR, as for UV_PROJECT_ENVIRONMENT. UV_ENV_FILE runs no file, but uv puts the keys of
+    # the file into the program that `uv run` starts, among them LD_PRELOAD, NODE_OPTIONS and
+    # PYTHONSTARTUP, which this tuple refuses from a caller. Exact entries: a pattern such as
+    # YARN_* would refuse YARN_ENABLE_TELEMETRY, and no probe made that key dangerous.
+    # npm_config_cache stays accepted: the probe showed that `npx` starts the bin script of a
+    # package from a cache that the caller prepared, but `devops install-tools` sets the key for
+    # `npm ci`, and devops-cli runs no `npx`.
+    "GOFLAGS",
+    "YARN_YARN_PATH",
+    "UV_TOOL_DIR",
+    "UV_ENV_FILE",
     # python(1)
     "PYTHONPATH",
     "PYTHONHOME",
