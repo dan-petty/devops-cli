@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
-from typer.testing import CliRunner
 
 from devops_cli.config.constants import (
     CONST_X11_SOCKET_DIR,
 )
+from devops_cli.config.defaults import DEFAULT_SANDBOX_IMAGE
 from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
 from devops_cli.exceptions.docker import DockerSandboxError
 from devops_cli.exceptions.sandbox import (
@@ -22,6 +22,7 @@ from devops_cli.sandbox.models import (
     SandboxDeployConfig,
 )
 from devops_cli.sandbox.registry import SandboxRegistry
+from tests.support.fakes.docker_engine import DockerEngineFake
 from tests.web_fakes import scripted_resolver
 
 
@@ -62,6 +63,12 @@ def test_sandbox_workspace_validation_forbidden_roots(
         engine.validate_workspace_dir(cfg_git.workspace_dir)
 
 
+def _mounted_volumes(docker_daemon: DockerEngineFake) -> list[str]:
+    """The host directories the one container that was created mounts."""
+    (created,) = (call for call in docker_daemon.calls if call.name == "containers.create")
+    return list(created.kwargs["volumes"])
+
+
 def _run_docker_sandbox(workspace: Path, tmp_path: Path) -> None:
     """Run a workload as `devops docker sandbox` and `devops test sandbox` do."""
 
@@ -82,22 +89,14 @@ _SANDBOX_RUNNERS: dict[str, tuple[Any, type[Exception]]] = {
 }
 
 
-def _run_docker_sandbox_dry_run(workspace: Path, tmp_path: Path) -> Any:
+def _run_docker_sandbox_dry_run(cli: Callable[..., Any], workspace: Path) -> Any:
     """Run `devops docker sandbox --dry-run` and return its result."""
-    from devops_cli.commands.docker import app as docker_app
-
-    return CliRunner().invoke(
-        docker_app, ["sandbox", "--dry-run", "--workspace", str(workspace), "true"]
-    )
+    return cli("docker", "sandbox", "--dry-run", "--workspace", workspace, "true")
 
 
-def _run_test_sandbox_dry_run(workspace: Path, tmp_path: Path) -> Any:
+def _run_test_sandbox_dry_run(cli: Callable[..., Any], workspace: Path) -> Any:
     """Run `devops test sandbox --dry-run` and return its result."""
-    from devops_cli.commands.test_cmd import app as test_app
-
-    return CliRunner().invoke(
-        test_app, ["sandbox", "--dry-run", "--workspace", str(workspace), "true"]
-    )
+    return cli("test", "sandbox", "--dry-run", "--workspace", workspace, "true")
 
 
 _SANDBOX_DRY_RUNNERS: dict[str, tuple[Any, type[Exception]]] = {
@@ -190,11 +189,12 @@ _REFUSED_WORKSPACES: dict[str, Any] = {
         {"SSH_AUTH_SOCK": f"{tmp}/vscode-ssh-auth-x.sock"},
     ),
     "x11-dir": lambda tmp, rt: (CONST_X11_SOCKET_DIR, CONST_X11_SOCKET_DIR, {}),
-    # The test's runtime directory lies under /tmp, so it is cleared for the X11 rule to answer.
+    # The test's runtime directory and engine socket lie under /tmp, so both are cleared for the X11
+    # rule to answer.
     "holds-x11-dir": lambda tmp, rt: (
         CONST_X11_SOCKET_DIR.parent,
         CONST_X11_SOCKET_DIR,
-        {"XDG_RUNTIME_DIR": ""},
+        {"XDG_RUNTIME_DIR": "", "DOCKER_HOST": "tcp://192.0.2.1:2375"},
     ),
 }
 
@@ -207,7 +207,7 @@ def test_a_workspace_overlapping_a_socket_directory_is_refused_before_any_engine
     tmp_path: Path,
     tmp_path_factory: pytest.TempPathFactory,
     monkeypatch: pytest.MonkeyPatch,
-    docker_engine: Any,
+    docker_daemon: DockerEngineFake,
 ) -> None:
     """Both runners refuse /run, the runtime directory and the engine socket's directory when the
     workspace is, holds or sits under one (#1115), and the SSH agent's directory and
@@ -219,13 +219,12 @@ def test_a_workspace_overlapping_a_socket_directory_is_refused_before_any_engine
     workspace, protected, env = _REFUSED_WORKSPACES[case](tmp_path, runtime_dir)
     for name, value in env.items():
         monkeypatch.setenv(name, value)
-    client = MagicMock()
 
-    with docker_engine(client), pytest.raises(refusal) as refused:
+    with pytest.raises(refusal) as refused:
         run(workspace, tmp_path)
 
     message = str(refused.value)
-    assert (str(workspace) in message, str(protected) in message, client.mock_calls) == (
+    assert (str(workspace) in message, str(protected) in message, docker_daemon.calls) == (
         True,
         True,
         [],
@@ -239,20 +238,19 @@ def test_a_workspace_beside_the_socket_directories_is_mounted(
     docker_host: str | None,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    docker_engine: Any,
+    docker_daemon: DockerEngineFake,
 ) -> None:
     """A tcp endpoint names no socket, so only /run and the runtime directory stay protected."""
     run, _refusal = _SANDBOX_RUNNERS[runner_name]
     if docker_host:
         monkeypatch.setenv("DOCKER_HOST", docker_host)
+    docker_daemon.add_image(DEFAULT_SANDBOX_IMAGE)
     workspace = tmp_path / "ws"
     workspace.mkdir()
-    client = MagicMock()
 
-    with docker_engine(client):
-        run(workspace, tmp_path)
+    run(workspace, tmp_path)
 
-    assert list(client.containers.create.call_args.kwargs["volumes"]) == [str(workspace)]
+    assert _mounted_volumes(docker_daemon) == [str(workspace)]
 
 
 @pytest.mark.parametrize("runner_name", sorted(_SANDBOX_RUNNERS))
@@ -266,12 +264,13 @@ def test_a_workspace_beside_the_ssh_agent_directory_is_mounted(
     agent_socket: str | None,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    docker_engine: Any,
+    docker_daemon: DockerEngineFake,
 ) -> None:
     """The SSH agent rule is one-way, so a workspace under the agent's directory is mounted, and an
     unset, empty or relative SSH_AUTH_SOCK adds no rule (#1384). Resolving `agent.1` would make the
     working directory, here the workspace, the agent's directory."""
     run, _refusal = _SANDBOX_RUNNERS[runner_name]
+    docker_daemon.add_image(DEFAULT_SANDBOX_IMAGE)
     workspace = tmp_path / "ws"
     workspace.mkdir()
     monkeypatch.chdir(workspace)
@@ -279,12 +278,10 @@ def test_a_workspace_beside_the_ssh_agent_directory_is_mounted(
         monkeypatch.delenv("SSH_AUTH_SOCK", raising=False)
     else:
         monkeypatch.setenv("SSH_AUTH_SOCK", agent_socket.format(tmp=tmp_path))
-    client = MagicMock()
 
-    with docker_engine(client):
-        run(workspace, tmp_path)
+    run(workspace, tmp_path)
 
-    assert list(client.containers.create.call_args.kwargs["volumes"]) == [str(workspace)]
+    assert _mounted_volumes(docker_daemon) == [str(workspace)]
 
 
 @pytest.mark.parametrize("tool_name", ["docker_sandbox", "sandbox_deploy"])
@@ -292,7 +289,11 @@ def test_a_workspace_beside_the_ssh_agent_directory_is_mounted(
     "case", ["unsupported-engine-endpoint", "unparseable-engine-endpoint", "ssh-agent-dir"]
 )
 def test_mcp_sandbox_tools_refuse_the_workspace_before_any_command_runs(
-    tool_name: str, case: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tool_name: str,
+    case: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    docker_daemon: DockerEngineFake,
 ) -> None:
     """The tool raises the shared check's refusal, so the client gets it and no command runs.
 
@@ -306,28 +307,23 @@ def test_mcp_sandbox_tools_refuse_the_workspace_before_any_command_runs(
         monkeypatch.setenv(name, value)
     tool = getattr(server, tool_name)
 
-    with (
-        patch("devops_cli.ai.mcp.server._run_mcp_cmd") as run_command,
-        pytest.raises(SandboxValidationError) as raised,
-    ):
+    with pytest.raises(SandboxValidationError) as raised:
         tool(command=["true"], workspace=str(workspace))
     assert raised.value.error_code == "SANDBOX_VALIDATION_ERROR"
 
-    assert run_command.called is False
+    assert docker_daemon.calls == []
 
 
 def test_sandbox_deploy_dry_run_looks_up_no_engine_host(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Callable[..., Any]
 ) -> None:
     """The workspace check reads DOCKER_HOST without the engine's egress check, so a dry run
     neither resolves a tcp engine's host nor refuses it as private (#1115)."""
-    from devops_cli.commands.sandbox import app as sandbox_app
-
     monkeypatch.setenv("DOCKER_HOST", "tcp://example.com:2375")
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
     resolver = scripted_resolver(monkeypatch, {"example.com": [["93.184.216.34"]]})
 
-    res = CliRunner().invoke(sandbox_app, ["deploy", "--workspace", str(tmp_path), "--dry-run"])
+    res = cli("sandbox", "deploy", "--workspace", tmp_path, "--dry-run")
 
     assert (res.exit_code, resolver.lookups.get("example.com", 0)) == (0, 0)
 
@@ -340,7 +336,8 @@ def test_sandbox_dry_runs_refuse_invalid_workspaces(
     tmp_path: Path,
     tmp_path_factory: pytest.TempPathFactory,
     monkeypatch: pytest.MonkeyPatch,
-    docker_engine: Any,
+    docker_daemon: DockerEngineFake,
+    cli: Callable[..., Any],
 ) -> None:
     """Both devops docker sandbox --dry-run and devops test sandbox --dry-run refuse invalid
     workspaces before making any engine calls (#1383). The command reports the refusal, which
@@ -351,42 +348,40 @@ def test_sandbox_dry_runs_refuse_invalid_workspaces(
     workspace, protected, env = _REFUSED_WORKSPACES[case](tmp_path, runtime_dir)
     for name, value in env.items():
         monkeypatch.setenv(name, value)
-    client = MagicMock()
 
-    with docker_engine(client):
-        result = run(workspace, tmp_path)
+    result = run(cli, workspace)
 
     assert (
         result.exit_code,
         type(result.exception),
         str(workspace) in result.output,
         str(protected) in result.output,
-        client.mock_calls,
+        docker_daemon.calls,
     ) == (refusal("").exit_code, SystemExit, True, True, [])
 
 
-@pytest.mark.parametrize("subcommand", ["docker-sandbox", "test-sandbox"])
+@pytest.mark.parametrize("subcommand", ["docker", "test"])
 def test_docker_and_test_sandbox_dry_runs_make_no_request(
     subcommand: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    docker_engine: Any,
+    docker_daemon: DockerEngineFake,
+    cli: Callable[..., Any],
 ) -> None:
     """A dry run with tcp DOCKER_HOST and private networks disallowed records no host lookup and no client call (#1383)."""
-    from devops_cli.commands.docker import app as docker_app
-    from devops_cli.commands.test_cmd import app as test_app
-
-    app = docker_app if subcommand == "docker-sandbox" else test_app
-    args = ["sandbox", "--dry-run", "--workspace", str(tmp_path), "true"]
     monkeypatch.setenv("DOCKER_HOST", "tcp://example.com:2375")
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
     resolver = scripted_resolver(monkeypatch, {"example.com": [["93.184.216.34"]]})
-    client = MagicMock()
 
-    with docker_engine(client):
-        res = CliRunner().invoke(app, args, catch_exceptions=False)
+    res = cli(
+        subcommand, "sandbox", "--dry-run", "--workspace", tmp_path, "true", catch_exceptions=False
+    )
 
-    assert (res.exit_code, resolver.lookups.get("example.com", 0), client.mock_calls) == (0, 0, [])
+    assert (res.exit_code, resolver.lookups.get("example.com", 0), docker_daemon.calls) == (
+        0,
+        0,
+        [],
+    )
 
 
 def test_sandbox_workspace_validation_user_home(tmp_path: Path) -> None:

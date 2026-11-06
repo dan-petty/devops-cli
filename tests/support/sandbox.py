@@ -33,6 +33,7 @@ def register_sandbox(
         running: bool = True,
         metadata: dict[str, str] | None = None,
         log_frames: Sequence[tuple[str, bytes]] | None = None,
+        created_at: str = CREATED_AT,
     ) -> SandboxInstance:
         container_id = docker_daemon.add_container(instance_id, "alpine:3", running=running)
         if log_frames is not None:
@@ -48,7 +49,7 @@ def register_sandbox(
                 for port in host_ports
             ],
             workspace_dir=str(tmp_path / "workspace"),
-            created_at=CREATED_AT,
+            created_at=created_at,
             metadata=dict(metadata or {}),
         )
         SandboxRegistry().register_instance(instance)

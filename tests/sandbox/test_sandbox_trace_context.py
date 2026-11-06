@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 from devops_cli.config.constants import (
     CONST_TRACEPARENT_ENV_VAR,
     CONST_TRACESTATE_ENV_VAR,
 )
-from devops_cli.config.settings import TelemetryConfig
 from devops_cli.sandbox.engine import WorkloadSandboxEngine
 from devops_cli.sandbox.models import (
     SandboxDeployConfig,
@@ -18,36 +17,37 @@ from devops_cli.sandbox.models import (
     SandboxNetworkConfig,
 )
 from devops_cli.sandbox.registry import SandboxRegistry
-from devops_cli.telemetry import (
-    extract_env,
-    get_recent_spans,
-    reset_tracer,
-)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Trace context in sandbox containers and execs (#702)
-# ─────────────────────────────────────────────────────────────────────────────
+from devops_cli.telemetry import extract_env, get_recent_spans
+from tests.support.fakes.docker_engine import DockerEngineFake
 
 _TRACE_ENV_VARS = (CONST_TRACEPARENT_ENV_VAR, CONST_TRACESTATE_ENV_VAR)
 
 
-def _deploy_with_mock_engine(
-    tmp_path: Path, docker_engine: Any, **config: Any
-) -> tuple[WorkloadSandboxEngine, SandboxDeployConfig, SandboxInstance, MagicMock]:
-    """Deploy a sandbox through a mocked Engine API client and return what it was handed."""
+def _deploy(
+    tmp_path: Path, docker_daemon: DockerEngineFake, **config: Any
+) -> tuple[WorkloadSandboxEngine, SandboxDeployConfig, SandboxInstance]:
+    """Deploy a sandbox on the Docker fake and return the engine, the config and the instance."""
     workspace = tmp_path / "workspace"
     workspace.mkdir(exist_ok=True)
     engine = WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json"))
-    container = MagicMock()
-    container.id = "cont-trace-1"
-    container.exec_run.return_value = (0, b"")
-    client = MagicMock()
-    client.containers.create.return_value = container
-    client.containers.get.return_value = container
     cfg = SandboxDeployConfig(workspace_dir=workspace, **config)
-    with docker_engine(client):
-        instance = engine.deploy(cfg)
-    return engine, cfg, instance, client
+    return engine, cfg, engine.deploy(cfg)
+
+
+def _created_environment(docker_daemon: DockerEngineFake) -> dict[str, str]:
+    """The environment the one container was created with."""
+    (created,) = (call for call in docker_daemon.calls if call.name == "containers.create")
+    environment: dict[str, str] = created.kwargs["environment"]
+    return environment
+
+
+def _exec_environments(docker_daemon: DockerEngineFake) -> list[Any]:
+    """The environment of each exec, oldest first."""
+    return [
+        call.kwargs["environment"]
+        for call in docker_daemon.calls
+        if call.name == "container.exec_run"
+    ]
 
 
 def _span_ids(name: str) -> list[str]:
@@ -56,13 +56,12 @@ def _span_ids(name: str) -> list[str]:
 
 
 def test_a_deployed_sandbox_is_parented_to_its_deploy_span(
-    tmp_path: Path, docker_engine: Any, tracer: Any
+    tmp_path: Path, docker_daemon: DockerEngineFake, tracer: Any
 ) -> None:
     """The container's TRACEPARENT names the deploy span; the config's env is left as it was."""
-    _engine, cfg, _instance, client = _deploy_with_mock_engine(
-        tmp_path, docker_engine, env={"APP_MODE": "test"}
-    )
-    environment = client.containers.create.call_args.kwargs["environment"]
+    docker_daemon.add_image("python:3.14-slim")
+    _engine, cfg, _instance = _deploy(tmp_path, docker_daemon, env={"APP_MODE": "test"})
+    environment = _created_environment(docker_daemon)
     child = extract_env(environment)
     assert (
         child.span_id if child else None,
@@ -72,17 +71,16 @@ def test_a_deployed_sandbox_is_parented_to_its_deploy_span(
 
 
 def test_a_proxied_sandbox_keeps_its_proxy_variables_beside_the_trace_context(
-    tmp_path: Path, docker_engine: Any, tracer: Any
+    tmp_path: Path, docker_daemon: DockerEngineFake, tracer: Any
 ) -> None:
     """In a proxy mode the proxy variables are still set when the trace context is added."""
+    docker_daemon.add_image("python:3.14-slim")
     proxy = "http://example.com:3128"
     network = SandboxNetworkConfig(
         mode="public_whitelist", public_whitelist=["93.184.216.34"], egress_proxy=proxy
     )
-    _engine, _cfg, _instance, client = _deploy_with_mock_engine(
-        tmp_path, docker_engine, network_config=network, env={"APP_MODE": "test"}
-    )
-    environment = client.containers.create.call_args.kwargs["environment"]
+    _deploy(tmp_path, docker_daemon, network_config=network, env={"APP_MODE": "test"})
+    environment = _created_environment(docker_daemon)
     child = extract_env(environment)
     assert (
         child.span_id if child else None,
@@ -94,33 +92,28 @@ def test_a_proxied_sandbox_keeps_its_proxy_variables_beside_the_trace_context(
 
 
 def test_a_sandbox_deployed_with_tracing_off_gets_exactly_its_configured_env(
-    tmp_path: Path, docker_engine: Any
+    tmp_path: Path, docker_daemon: DockerEngineFake, config: Callable[..., Path]
 ) -> None:
     """With tracing disabled the container's environment is the config's env and nothing else."""
-    with patch(
-        "devops_cli.telemetry.tracer._resolve_telemetry_settings",
-        return_value=TelemetryConfig(enabled=False),
-    ):
-        reset_tracer()
-        _engine, _cfg, _instance, client = _deploy_with_mock_engine(
-            tmp_path, docker_engine, env={"APP_MODE": "test"}
-        )
-        reset_tracer()
-    assert client.containers.create.call_args.kwargs["environment"] == {"APP_MODE": "test"}
+    docker_daemon.add_image("python:3.14-slim")
+    config(telemetry={"enabled": False})
+
+    _deploy(tmp_path, docker_daemon, env={"APP_MODE": "test"})
+
+    assert _created_environment(docker_daemon) == {"APP_MODE": "test"}
 
 
 def test_each_exec_is_parented_to_its_own_exec_span(
-    tmp_path: Path, docker_engine: Any, tracer: Any
+    tmp_path: Path, docker_daemon: DockerEngineFake, tracer: Any
 ) -> None:
     """Two execs carry different parents, each its own `sandbox.exec` span, never the deploy span."""
-    engine, _cfg, instance, client = _deploy_with_mock_engine(tmp_path, docker_engine)
-    with docker_engine(client):
-        engine.exec(instance.instance_id, ["env"])
-        engine.exec(instance.instance_id, ["env"])
-    contexts = [
-        extract_env(exec_call.kwargs["environment"])
-        for exec_call in client.containers.get.return_value.exec_run.call_args_list
-    ]
+    docker_daemon.add_image("python:3.14-slim")
+    engine, _cfg, instance = _deploy(tmp_path, docker_daemon)
+
+    engine.exec(instance.instance_id, ["env"])
+    engine.exec(instance.instance_id, ["env"])
+
+    contexts = [extract_env(environment) for environment in _exec_environments(docker_daemon)]
     parents = [context.span_id if context else None for context in contexts]
     assert (parents, len(set(parents)), _span_ids("sandbox.deploy")[0] in parents) == (
         _span_ids("sandbox.exec"),
@@ -129,16 +122,14 @@ def test_each_exec_is_parented_to_its_own_exec_span(
     )
 
 
-def test_an_exec_with_tracing_off_sends_no_environment(tmp_path: Path, docker_engine: Any) -> None:
+def test_an_exec_with_tracing_off_sends_no_environment(
+    tmp_path: Path, docker_daemon: DockerEngineFake, config: Callable[..., Path]
+) -> None:
     """With tracing disabled an exec passes no environment, as before."""
-    with patch(
-        "devops_cli.telemetry.tracer._resolve_telemetry_settings",
-        return_value=TelemetryConfig(enabled=False),
-    ):
-        reset_tracer()
-        engine, _cfg, instance, client = _deploy_with_mock_engine(tmp_path, docker_engine)
-        with docker_engine(client):
-            engine.exec(instance.instance_id, ["env"])
-        reset_tracer()
-    exec_run = client.containers.get.return_value.exec_run
-    assert exec_run.call_args.kwargs["environment"] is None
+    docker_daemon.add_image("python:3.14-slim")
+    config(telemetry={"enabled": False})
+    engine, _cfg, instance = _deploy(tmp_path, docker_daemon)
+
+    engine.exec(instance.instance_id, ["env"])
+
+    assert _exec_environments(docker_daemon) == [None]

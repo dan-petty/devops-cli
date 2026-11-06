@@ -635,10 +635,10 @@ def test_a_controller_file_that_holds_no_number_reads_as_no_value(tmp_path: Path
     assert (metrics.memory_current_bytes, metrics.memory_limit_bytes) == (0, None)
 
 
-def test_engine_stats_become_cgroup_metrics_and_an_unreachable_engine_gives_none(
+def test_engine_stats_become_cgroup_metrics(
     docker_daemon: DockerEngineFake, tmp_path: Path
 ) -> None:
-    """Engine API resource samples project into cgroup metrics, and failures return None."""
+    """Engine API resource samples project into cgroup metrics."""
     container_id = docker_daemon.add_container("cont-valid")
     docker_daemon.script_stats("cont-valid", [_engine_stats_frame(), _engine_stats_frame()])
 
@@ -654,8 +654,13 @@ def test_engine_stats_become_cgroup_metrics_and_an_unreachable_engine_gives_none
         res.network_tx_bytes,
     ) == (25.0, 52_428_800, 209_715_200, 4, 1_500_000, 3_200_000)
 
-    # An unreachable daemon degrades to None rather than propagating.
+
+def test_an_unreachable_engine_gives_no_cgroup_metrics(
+    docker_daemon: DockerEngineFake, tmp_path: Path
+) -> None:
+    """An unreachable daemon degrades to None rather than propagating."""
     docker_daemon.fail("containers.get", RuntimeError("daemon offline"))
+
     assert read_cgroup_v2_metrics(container_id="cont-failed", cgroup_root=tmp_path) is None
 
 
@@ -824,7 +829,7 @@ def test_a_scrape_looks_up_its_host_once(monkeypatch: pytest.MonkeyPatch) -> Non
     ) == (None, ["up"], {"example.com": 1}, [(PUBLIC_ADDRESS, 9100)])
 
 
-def test_preserve_scrape_error_state_and_unhealthy(prom_server: str) -> None:
+def test_a_failed_scrape_leaves_the_snapshot_unhealthy_with_its_error(prom_server: str) -> None:
     """Test that failed metrics scrapes preserve error details and mark snapshot unhealthy."""
     snapshot = collect_sandbox_metrics(prom_server, prom_endpoint="/error")
 
@@ -893,23 +898,28 @@ def test_evaluate_threshold_warnings_histogram_latency_degradation() -> None:
     assert "1200.0ms >= 500.0ms" in warnings[0]
 
 
-def test_parse_cgroup_v2_network_stat_and_engine_net_io(
-    tmp_path: Path, docker_daemon: DockerEngineFake
-) -> None:
-    """Test parsing network stats from a cgroup directory and a typed Engine API sample."""
-    # From cgroup network.stat file
+def test_parse_cgroup_v2_network_stat(tmp_path: Path) -> None:
+    """The network counters come from the network.stat file of a cgroup directory."""
     cgroup_dir = tmp_path / "cgroup" / "net-test"
     cgroup_dir.mkdir(parents=True)
     (cgroup_dir / "network.stat").write_text("rx_bytes 10485760\ntx_bytes 20971520\n")
+
     cgroup_metrics = parse_cgroup_v2_directory(cgroup_dir)
+
     assert cgroup_metrics is not None
     assert cgroup_metrics.network_rx_bytes == 10485760
     assert cgroup_metrics.network_tx_bytes == 20971520
 
-    # From the Engine API stats of a container
+
+def test_engine_stats_report_the_network_io_of_a_container(
+    tmp_path: Path, docker_daemon: DockerEngineFake
+) -> None:
+    """The network counters come from the Engine API stats of a container with no cgroup tree."""
     container_id = docker_daemon.add_container("net-test")
     docker_daemon.script_stats("net-test", [_engine_stats_frame(), _engine_stats_frame()])
+
     engine_metrics = read_cgroup_v2_metrics(container_id=container_id, cgroup_root=tmp_path)
+
     assert engine_metrics is not None
     assert (engine_metrics.network_rx_bytes, engine_metrics.network_tx_bytes) == (
         1_500_000,

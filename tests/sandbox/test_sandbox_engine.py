@@ -3,38 +3,53 @@
 from __future__ import annotations
 
 import datetime
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from devops_cli.exceptions.docker import DockerEngineError
-from devops_cli.exceptions.sandbox import (
-    SandboxError,
-    SandboxNotFoundError,
-)
+from devops_cli.exceptions.sandbox import SandboxError, SandboxNotFoundError
 from devops_cli.sandbox.engine import WorkloadSandboxEngine
 from devops_cli.sandbox.models import (
     SandboxDeployConfig,
     SandboxInstance,
+    SandboxNetworkMode,
     SandboxStatus,
 )
 from devops_cli.sandbox.registry import SandboxRegistry
+from tests.support.fakes.docker_engine import DockerEngineFake
+from tests.web_fakes import http_response, record_connects
+
+_IMAGE = "python:3.14-slim"
+
+
+def _workspace(tmp_path: Path) -> Path:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    return workspace
+
+
+def _a_minute_ago() -> str:
+    """The time 60 seconds ago, as a sandbox that was created then records it."""
+    return (datetime.datetime.now(datetime.UTC) - datetime.timedelta(seconds=60)).isoformat()
+
+
+def _call(docker_daemon: DockerEngineFake, name: str) -> list:
+    """The calls the Docker fake answered with this name, oldest first."""
+    return [call for call in docker_daemon.calls if call.name == name]
 
 
 def test_engine_deploy_dry_run(tmp_path: Path) -> None:
     """Engine deploy in dry-run mode constructs instance without spawning container."""
-    ws = tmp_path / "workspace"
-    ws.mkdir()
     reg = SandboxRegistry(tmp_path / "reg.json")
     engine = WorkloadSandboxEngine(registry=reg)
 
     cfg = SandboxDeployConfig(
-        image="python:3.14-slim",
+        image=_IMAGE,
         name="test-dry-run",
         ports=[8000],
-        workspace_dir=ws,
+        workspace_dir=_workspace(tmp_path),
         env={"TEST_VAR": "true"},
     )
 
@@ -47,107 +62,65 @@ def test_engine_deploy_dry_run(tmp_path: Path) -> None:
     assert reg.list_instances() == []
 
 
-def test_engine_deploy_docker_sdk(tmp_path: Path, docker_engine: Any) -> None:
+def test_engine_deploy_docker_sdk(tmp_path: Path, docker_daemon: DockerEngineFake) -> None:
     """Engine deploy provisions container with security opts and records to registry."""
-    ws = tmp_path / "workspace"
-    ws.mkdir()
+    docker_daemon.add_image("nginx:alpine")
     reg = SandboxRegistry(tmp_path / "reg.json")
-    engine = WorkloadSandboxEngine(registry=reg)
+    cfg = SandboxDeployConfig(
+        image="nginx:alpine",
+        name="web-svc",
+        ports=[80],
+        workspace_dir=_workspace(tmp_path),
+        memory_limit="1g",
+        cpu_limit=1.5,
+    )
 
-    mock_container = MagicMock()
-    mock_container.id = "cont-sdk-1234567890"
-    mock_client = MagicMock()
-    mock_client.containers.create.return_value = mock_container
+    instance = WorkloadSandboxEngine(registry=reg).deploy(cfg)
 
-    with docker_engine(mock_client):
-        cfg = SandboxDeployConfig(
-            image="nginx:alpine",
-            name="web-svc",
-            ports=[80],
-            workspace_dir=ws,
-            memory_limit="1g",
-            cpu_limit=1.5,
-        )
-        instance = engine.deploy(cfg)
-
-        assert instance.container_id == "cont-sdk-1234567890"
-        assert instance.status == SandboxStatus.RUNNING
-        assert instance.name == "web-svc"
-        mock_container.start.assert_called_once()
-
-        # Check container creation kwargs for security settings
-        create_kwargs = mock_client.containers.create.call_args[1]
-        assert create_kwargs["cap_drop"] == ["ALL"]
-        assert create_kwargs["security_opt"] == ["no-new-privileges:true"]
-        assert create_kwargs["pids_limit"] == 256
-        assert create_kwargs["read_only"] is True
-        assert "/tmp" in create_kwargs["tmpfs"]  # nosec B108  # the in-container mount, under test
-        # Explicit loopback binding
-        assert create_kwargs["ports"]["80/tcp"][0] == "127.0.0.1"
-
-        # Check registry persistence
-        stored = reg.get_instance(instance.instance_id)
-        assert stored is not None
-        assert stored.status == SandboxStatus.RUNNING
+    (created,) = _call(docker_daemon, "containers.create")
+    assert (instance.status, instance.name) == (SandboxStatus.RUNNING, "web-svc")
+    assert docker_daemon.container_state[instance.container_id]["State"]["Running"] is True
+    # Check container creation kwargs for security settings
+    assert created.kwargs["cap_drop"] == ["ALL"]
+    assert created.kwargs["security_opt"] == ["no-new-privileges:true"]
+    assert created.kwargs["pids_limit"] == 256
+    assert created.kwargs["read_only"] is True
+    assert "/tmp" in created.kwargs["tmpfs"]  # nosec B108  # the in-container mount, under test
+    # Explicit loopback binding
+    assert created.kwargs["ports"]["80/tcp"][0] == "127.0.0.1"
+    # Check registry persistence
+    stored = reg.get_instance(instance.instance_id)
+    assert stored is not None
+    assert stored.status == SandboxStatus.RUNNING
 
 
-def test_engine_status_reconciliation(tmp_path: Path, docker_engine: Any) -> None:
+def test_engine_status_reconciliation(
+    docker_daemon: DockerEngineFake, register_sandbox: Callable[..., SandboxInstance]
+) -> None:
     """Engine status reconciles live container state against Docker daemon."""
-    reg = SandboxRegistry(tmp_path / "reg.json")
-    engine = WorkloadSandboxEngine(registry=reg)
+    inst = register_sandbox("sb-live-1", name="live-svc")
+    engine = WorkloadSandboxEngine()
 
-    inst = SandboxInstance(
-        instance_id="sb-live-1",
-        container_id="cid-live-1",
-        name="live-svc",
-        image="alpine:latest",
-        status=SandboxStatus.RUNNING,
-        workspace_dir=str(tmp_path),
-        created_at="2026-09-11T20:00:00Z",
-    )
-    reg.register_instance(inst)
-
-    mock_container = MagicMock()
-    mock_container.attrs = {"Id": "cid-live-1", "State": {"Status": "running", "Running": True}}
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
-
-    with docker_engine(mock_client):
-        statuses = engine.status("sb-live-1")
-        assert (len(statuses), statuses[0].status) == (1, SandboxStatus.RUNNING)
-
+    running = engine.status("sb-live-1")[0].status
     # When the container has exited
-    mock_container.attrs = {"Id": "cid-live-1", "State": {"Status": "exited", "Running": False}}
-    with docker_engine(mock_client):
-        statuses = engine.status("sb-live-1")
-        assert statuses[0].status == SandboxStatus.STOPPED
+    docker_daemon.stop(inst.container_id)
+    exited = engine.status("sb-live-1")[0].status
+
+    assert (running, exited) == (SandboxStatus.RUNNING, SandboxStatus.STOPPED)
 
 
-def test_engine_stop(tmp_path: Path, docker_engine: Any) -> None:
+def test_engine_stop(
+    docker_daemon: DockerEngineFake, register_sandbox: Callable[..., SandboxInstance]
+) -> None:
     """Engine stop gracefully terminates container and updates status."""
-    reg = SandboxRegistry(tmp_path / "reg.json")
-    engine = WorkloadSandboxEngine(registry=reg)
+    inst = register_sandbox("sb-stop-1", name="stop-svc")
+    engine = WorkloadSandboxEngine()
 
-    inst = SandboxInstance(
-        instance_id="sb-stop-1",
-        container_id="cid-stop-1",
-        name="stop-svc",
-        image="alpine:latest",
-        status=SandboxStatus.RUNNING,
-        workspace_dir=str(tmp_path),
-        created_at="2026-09-11T20:00:00Z",
-    )
-    reg.register_instance(inst)
+    stopped = engine.stop("sb-stop-1", timeout=5)
 
-    mock_container = MagicMock()
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
-
-    with docker_engine(mock_client):
-        stopped = engine.stop("sb-stop-1", timeout=5)
-        assert stopped.status == SandboxStatus.STOPPED
-        mock_client.api.stop.assert_called_once_with("cid-stop-1", timeout=5)
-        mock_client.api.remove_container.assert_called_once_with("cid-stop-1", force=True)
+    assert stopped.status == SandboxStatus.STOPPED
+    assert [call.kwargs["timeout"] for call in _call(docker_daemon, "api.stop")] == [5]
+    assert inst.container_id not in docker_daemon.container_state
 
     # Stop non-existent instance raises SandboxNotFoundError
     with pytest.raises(SandboxNotFoundError) as raised:
@@ -155,242 +128,181 @@ def test_engine_stop(tmp_path: Path, docker_engine: Any) -> None:
     assert raised.value.error_code == "SANDBOX_NOT_FOUND_ERROR"
 
 
-def test_engine_exec(tmp_path: Path, docker_engine: Any) -> None:
+def test_engine_exec(
+    docker_daemon: DockerEngineFake, register_sandbox: Callable[..., SandboxInstance]
+) -> None:
     """Engine exec executes commands inside running container."""
-    reg = SandboxRegistry(tmp_path / "reg.json")
-    engine = WorkloadSandboxEngine(registry=reg)
+    register_sandbox("sb-exec-1", name="exec-svc")
+    docker_daemon.script_exec("sb-exec-1", ["echo", "hello"], output=b"hello from sandbox\n")
 
-    inst = SandboxInstance(
-        instance_id="sb-exec-1",
-        container_id="cid-exec-1",
-        name="exec-svc",
-        image="alpine:latest",
-        status=SandboxStatus.RUNNING,
-        workspace_dir=str(tmp_path),
-        created_at="2026-09-11T20:00:00Z",
-    )
-    reg.register_instance(inst)
+    res = WorkloadSandboxEngine().exec("sb-exec-1", ["echo", "hello"])
 
-    mock_container = MagicMock()
-    mock_container.exec_run.return_value = (0, b"hello from sandbox\n")
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
-
-    with docker_engine(mock_client):
-        res = engine.exec("sb-exec-1", ["echo", "hello"])
-        assert res.exit_code == 0
-        assert "hello from sandbox" in res.stdout
+    assert (res.exit_code, res.stdout) == (0, "hello from sandbox\n")
 
 
-def test_engine_deploy_surfaces_engine_failure(tmp_path: Path, docker_engine: Any) -> None:
+def test_engine_deploy_surfaces_engine_failure(
+    tmp_path: Path, docker_daemon: DockerEngineFake
+) -> None:
     """Engine deploy surfaces daemon creation failures instead of degrading to the CLI."""
-    ws = tmp_path / "workspace"
-    ws.mkdir()
+    docker_daemon.add_image(_IMAGE)
+    docker_daemon.fail("containers.create", RuntimeError("daemon offline"))
     reg = SandboxRegistry(tmp_path / "reg.json")
-    engine = WorkloadSandboxEngine(registry=reg)
-
     cfg = SandboxDeployConfig(
-        image="python:3.14-slim",
-        name="subp-app",
-        ports=[8080],
-        workspace_dir=ws,
+        image=_IMAGE, name="subp-app", ports=[8080], workspace_dir=_workspace(tmp_path)
     )
 
-    mock_client = MagicMock()
-    mock_client.containers.create.side_effect = RuntimeError("daemon offline")
-
-    with docker_engine(mock_client):
-        with pytest.raises(SandboxError, match="Failed deploying sandbox container"):
-            engine.deploy(cfg)
+    with pytest.raises(SandboxError, match="Failed deploying sandbox container"):
+        WorkloadSandboxEngine(registry=reg).deploy(cfg)
 
     assert reg.list_instances() == []
 
 
-def test_engine_status_not_found_and_client_error(tmp_path: Path, docker_engine: Any) -> None:
-    """Engine status raises SandboxNotFoundError for a missing instance and tolerates an unreachable daemon."""
-    reg = SandboxRegistry(tmp_path / "reg.json")
-    engine = WorkloadSandboxEngine(registry=reg)
-
+def test_engine_status_raises_not_found_for_a_missing_instance() -> None:
+    """Engine status raises SandboxNotFoundError for an instance the registry does not hold."""
     with pytest.raises(SandboxNotFoundError) as raised:
-        engine.status("non-existent-instance")
+        WorkloadSandboxEngine().status("non-existent-instance")
     assert raised.value.error_code == "SANDBOX_NOT_FOUND_ERROR"
 
-    inst = SandboxInstance(
-        instance_id="sb-stat-err",
-        container_id="cid-stat-err",
-        name="stat-err",
-        image="alpine:latest",
-        status=SandboxStatus.RUNNING,
-        workspace_dir=str(tmp_path),
-        created_at="2026-09-11T20:00:00Z",
-    )
-    reg.register_instance(inst)
 
-    mock_client = MagicMock()
-    mock_client.ping.side_effect = RuntimeError("Docker dead")
+def test_engine_status_keeps_the_registry_view_when_the_daemon_is_unreachable(
+    docker_daemon: DockerEngineFake, register_sandbox: Callable[..., SandboxInstance]
+) -> None:
+    """An unreachable daemon leaves each instance with the status the registry holds."""
+    register_sandbox("sb-stat-err", name="stat-err")
+    docker_daemon.unreachable = True
 
-    with docker_engine(mock_client):
-        statuses = engine.status()
-        assert (len(statuses), statuses[0].status) == (1, SandboxStatus.RUNNING)
+    statuses = WorkloadSandboxEngine().status()
+
+    assert [(s.instance_id, s.status) for s in statuses] == [("sb-stat-err", SandboxStatus.RUNNING)]
 
 
 def test_engine_stop_forces_removal_when_graceful_stop_fails(
-    tmp_path: Path, docker_engine: Any
+    docker_daemon: DockerEngineFake, register_sandbox: Callable[..., SandboxInstance]
 ) -> None:
     """A rejected graceful stop escalates to a forced Engine API container removal."""
-    reg = SandboxRegistry(tmp_path / "reg.json")
-    engine = WorkloadSandboxEngine(registry=reg)
+    inst = register_sandbox("sb-stop-subp", name="stop-subp")
+    docker_daemon.fail("api.stop", RuntimeError("container unresponsive"))
 
-    inst = SandboxInstance(
-        instance_id="sb-stop-subp",
-        container_id="cid-stop-subp",
-        name="stop-subp",
-        image="alpine:latest",
-        status=SandboxStatus.RUNNING,
-        workspace_dir=str(tmp_path),
-        created_at="2026-09-11T20:00:00Z",
-    )
-    reg.register_instance(inst)
-
-    mock_client = MagicMock()
-    mock_client.api.stop.side_effect = RuntimeError("container unresponsive")
-
-    with docker_engine(mock_client):
-        stopped = engine.stop("sb-stop-subp", timeout=5)
+    stopped = WorkloadSandboxEngine().stop("sb-stop-subp", timeout=5)
 
     assert stopped.status == SandboxStatus.STOPPED
-    mock_client.api.remove_container.assert_called_once_with("cid-stop-subp", force=True)
+    assert [call.kwargs["force"] for call in _call(docker_daemon, "api.remove_container")] == [True]
+    assert inst.container_id not in docker_daemon.container_state
 
 
-def test_engine_exec_non_running_and_engine_failure(tmp_path: Path, docker_engine: Any) -> None:
-    """Engine exec rejects non-running sandboxes and propagates Engine API failures."""
-    reg = SandboxRegistry(tmp_path / "reg.json")
-    engine = WorkloadSandboxEngine(registry=reg)
+def test_engine_exec_refuses_a_sandbox_that_is_not_running(
+    register_sandbox: Callable[..., SandboxInstance],
+) -> None:
+    """Engine exec rejects a sandbox whose status is not running."""
+    register_sandbox("sb-stopped", name="exec-stopped", running=False)
 
-    inst = SandboxInstance(
-        instance_id="sb-exec-subp",
-        container_id="cid-exec-subp",
-        name="exec-subp",
-        image="alpine:latest",
-        status=SandboxStatus.STOPPED,
-        workspace_dir=str(tmp_path),
-        created_at="2026-09-11T20:00:00Z",
-    )
-    reg.register_instance(inst)
-
-    # Calling exec on a non-running sandbox raises SandboxError.
     with pytest.raises(SandboxError, match="status is"):
-        engine.exec("sb-exec-subp", ["ls"])
-
-    inst.status = SandboxStatus.RUNNING
-    reg.register_instance(inst)
-
-    mock_container = MagicMock()
-    mock_container.exec_run.side_effect = RuntimeError("exec rejected")
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
-
-    with docker_engine(mock_client):
-        with pytest.raises(DockerEngineError, match="Container exec failed"):
-            engine.exec("sb-exec-subp", ["echo", "test"], workdir="/workspace")
+        WorkloadSandboxEngine().exec("sb-stopped", ["ls"])
 
 
-def test_generate_instance_id_uniqueness() -> None:
+def test_engine_exec_propagates_an_engine_failure(
+    docker_daemon: DockerEngineFake, register_sandbox: Callable[..., SandboxInstance]
+) -> None:
+    """Engine exec raises the Engine API failure of a command that the engine rejects."""
+    register_sandbox("sb-exec-subp", name="exec-subp")
+    docker_daemon.fail("container.exec_run", RuntimeError("exec rejected"))
+
+    with pytest.raises(DockerEngineError, match="Container exec failed"):
+        WorkloadSandboxEngine().exec("sb-exec-subp", ["echo", "test"], workdir="/workspace")
+
+
+def test_every_deploy_gets_its_own_instance_id(tmp_path: Path) -> None:
     """Instance IDs include a random nonce preventing same-second collisions."""
-    engine = WorkloadSandboxEngine()
-    id1 = engine._generate_instance_id("test")
-    id2 = engine._generate_instance_id("test")
+    engine = WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json"))
+    cfg = SandboxDeployConfig(name="test", workspace_dir=_workspace(tmp_path))
+
+    id1 = engine.deploy(cfg, dry_run=True).instance_id
+    id2 = engine.deploy(cfg, dry_run=True).instance_id
+
     assert id1 != id2
     assert id1.startswith("sandbox-test-")
     assert id2.startswith("sandbox-test-")
 
 
 def test_engine_spawn_cleans_created_container_on_start_failure(
-    tmp_path: Path, docker_engine: Any
+    tmp_path: Path, docker_daemon: DockerEngineFake
 ) -> None:
     """A failed container start removes the created container and raises SandboxError."""
-    ws = tmp_path / "ws"
-    ws.mkdir()
-    engine = WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json"))
+    docker_daemon.add_image("alpine")
+    docker_daemon.fail("container.start", RuntimeError("Failed starting container"))
+    cfg = SandboxDeployConfig(image="alpine", workspace_dir=_workspace(tmp_path))
 
-    mock_container = MagicMock()
-    mock_container.id = "cid-start-failed"
-    mock_container.start.side_effect = RuntimeError("Failed starting container")
-    mock_client = MagicMock()
-    mock_client.containers.create.return_value = mock_container
+    with pytest.raises(SandboxError, match="Failed starting sandbox container"):
+        WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json")).deploy(cfg)
 
-    with docker_engine(mock_client):
-        cfg = SandboxDeployConfig(image="alpine", workspace_dir=ws)
-        with pytest.raises(SandboxError, match="Failed starting sandbox container"):
-            engine._spawn_container(cfg, ws, [])
-
-    mock_client.api.remove_container.assert_called_once_with("cid-start-failed", force=True)
+    assert [call.kwargs["force"] for call in _call(docker_daemon, "api.remove_container")] == [True]
+    assert docker_daemon.container_state == {}
 
 
-def test_engine_deploy_rollback_on_failure(tmp_path: Path) -> None:
+def test_engine_deploy_rollback_on_failure(tmp_path: Path, docker_daemon: DockerEngineFake) -> None:
     """Failed deployment cleans up pre-registered record and terminates container."""
-    ws = tmp_path / "ws"
-    ws.mkdir()
+    docker_daemon.fail("networks.create", RuntimeError("Docker fatal"))
     reg = SandboxRegistry(tmp_path / "reg.json")
-    engine = WorkloadSandboxEngine(registry=reg)
+    cfg = SandboxDeployConfig(
+        image="alpine",
+        network_mode=SandboxNetworkMode.SANDBOX_NAMESPACE.value,
+        workspace_dir=_workspace(tmp_path),
+    )
 
-    with patch.object(engine, "_spawn_container", side_effect=RuntimeError("Docker fatal")):
-        cfg = SandboxDeployConfig(image="alpine", workspace_dir=ws)
-        with pytest.raises(SandboxError, match="Failed deploying sandbox container"):
-            engine.deploy(cfg)
+    with pytest.raises(SandboxError, match="Cannot provision internal sandbox network"):
+        WorkloadSandboxEngine(registry=reg).deploy(cfg)
 
     # Registry must not contain any leaked instance records
     assert len(reg.list_instances()) == 0
+    assert docker_daemon.container_state == {}
 
 
-def test_engine_uptime_calculation_and_stop_persistence(tmp_path: Path, docker_engine: Any) -> None:
-    """Reconciliation computes uptime_seconds and stop persists final uptime."""
-    reg = SandboxRegistry(tmp_path / "reg.json")
-    engine = WorkloadSandboxEngine(registry=reg)
+def test_engine_status_computes_the_uptime_of_a_running_sandbox(
+    register_sandbox: Callable[..., SandboxInstance],
+) -> None:
+    """Reconciliation computes uptime_seconds from the creation time."""
+    register_sandbox("sb-uptime-test", name="uptime-test", created_at=_a_minute_ago())
 
-    # Instance created 60 seconds ago
-    past_ts = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(seconds=60)).isoformat()
-    inst = SandboxInstance(
-        instance_id="sb-uptime-test",
-        container_id="cid-uptime-test",
-        name="uptime-test",
-        image="alpine:latest",
-        status=SandboxStatus.RUNNING,
-        workspace_dir=str(tmp_path),
-        created_at=past_ts,
-    )
-    reg.register_instance(inst)
+    statuses = WorkloadSandboxEngine().status("sb-uptime-test")
 
-    mock_container = MagicMock()
-    mock_container.attrs = {
-        "Id": "cid-uptime-test",
-        "State": {"Status": "running", "Running": True},
-    }
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
-
-    with docker_engine(mock_client):
-        statuses = engine.status("sb-uptime-test")
-        assert len(statuses) == 1
-        assert statuses[0].uptime_seconds >= 59.0
-
-        stopped = engine.stop("sb-uptime-test")
-        assert stopped.status == SandboxStatus.STOPPED
-        assert stopped.uptime_seconds >= 59.0
-
-        # Persisted in registry
-        stored = reg.get_instance("sb-uptime-test")
-        assert stored is not None
-        assert stored.status == SandboxStatus.STOPPED
-        assert stored.uptime_seconds >= 59.0
+    assert [s.uptime_seconds >= 59.0 for s in statuses] == [True]
 
 
-def test_workload_sandbox_engine_prior_samples_instance_isolation(tmp_path: Path) -> None:
-    """Verify that _prior_samples is isolated per WorkloadSandboxEngine instance (#420)."""
-    reg1 = SandboxRegistry(tmp_path / "reg1.json")
-    reg2 = SandboxRegistry(tmp_path / "reg2.json")
-    engine1 = WorkloadSandboxEngine(registry=reg1)
-    engine2 = WorkloadSandboxEngine(registry=reg2)
+def test_engine_stop_persists_the_final_uptime(
+    register_sandbox: Callable[..., SandboxInstance],
+) -> None:
+    """Stop records the stopped status and the uptime in the registry."""
+    register_sandbox("sb-uptime-test", name="uptime-test", created_at=_a_minute_ago())
+    engine = WorkloadSandboxEngine()
 
-    engine1._prior_samples["test-key"] = (100.0, None)  # type: ignore[assignment]
-    assert "test-key" not in engine2._prior_samples
+    stopped = engine.stop("sb-uptime-test")
+    stored = engine.registry.get_instance("sb-uptime-test")
+
+    assert stopped.status == SandboxStatus.STOPPED
+    assert stopped.uptime_seconds >= 59.0
+    assert stored is not None
+    assert (stored.status, stored.uptime_seconds >= 59.0) == (SandboxStatus.STOPPED, True)
+
+
+def test_each_engine_keeps_its_own_previous_cpu_sample(
+    monkeypatch: pytest.MonkeyPatch,
+    register_sandbox: Callable[..., SandboxInstance],
+    tmp_path: Path,
+) -> None:
+    """The CPU percent of a reading comes from the same engine's previous reading (#420)."""
+    record_connects(monkeypatch, [http_response(200, "up 1\n")] * 4)
+    instance = register_sandbox("sb-isolated")
+    scope = tmp_path / "cgroup" / "system.slice" / f"docker-{instance.container_id}.scope"
+    scope.mkdir(parents=True)
+    (scope / "cpu.stat").write_text("usage_usec 1000000\n")
+    first_engine = WorkloadSandboxEngine(cgroup_root=tmp_path / "cgroup")
+    second_engine = WorkloadSandboxEngine(cgroup_root=tmp_path / "cgroup")
+
+    first_engine.metrics("sb-isolated")
+    (scope / "cpu.stat").write_text("usage_usec 1500000\n")
+    first_again = first_engine.metrics("sb-isolated").cgroup
+    other_first = second_engine.metrics("sb-isolated").cgroup
+
+    assert first_again is not None
+    assert other_first is not None
+    assert (first_again.cpu_percent is not None, other_first.cpu_percent) == (True, None)

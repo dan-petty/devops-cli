@@ -6,7 +6,6 @@ import json
 import os
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 from pydantic import ValidationError
@@ -14,7 +13,12 @@ from pydantic import ValidationError
 from devops_cli.config.constants import (
     CONST_SANDBOX_DOCKER_INTERNAL_NET,
 )
-from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
+from devops_cli.config.defaults import DEFAULT_SANDBOX_IMAGE
+from devops_cli.docker.sandbox import (
+    WorkloadSandboxConfig,
+    WorkloadSandboxRunner,
+    resolve_sandbox_user,
+)
 from devops_cli.exceptions.docker import DockerSandboxError
 from devops_cli.exceptions.sandbox import (
     SandboxValidationError,
@@ -25,6 +29,7 @@ from devops_cli.sandbox.models import (
     SandboxPolicy,
 )
 from devops_cli.sandbox.registry import SandboxRegistry
+from tests.support.fakes.docker_engine import DockerEngineFake
 
 
 def test_sandbox_policy_frozen_immutability_and_kwargs() -> None:
@@ -71,33 +76,31 @@ def test_sandbox_policy_frozen_immutability_and_kwargs() -> None:
 
 
 def test_sandbox_policy_identical_security_kwargs_across_builders(
-    tmp_path: Path, docker_engine: Any
+    tmp_path: Path, docker_daemon: DockerEngineFake
 ) -> None:
     """Verify that WorkloadSandboxEngine and WorkloadSandboxRunner produce identical security kwargs."""
-    from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
-
+    docker_daemon.add_image(DEFAULT_SANDBOX_IMAGE)
     policy = SandboxPolicy(read_only=True)
-    deploy_cfg = SandboxDeployConfig(read_only=True, policy=policy)
-    with docker_engine(MagicMock()):
-        engine = WorkloadSandboxEngine()
-        engine_kwargs = engine._build_create_kwargs(deploy_cfg, tmp_path, [])
-
-        workload_cfg = WorkloadSandboxConfig(command=["sleep", "1"], read_only=True, policy=policy)
-        runner = WorkloadSandboxRunner(workload_cfg)
-        docker_kwargs = runner._build_create_kwargs(tmp_path)
-
-    security_keys = ("cap_drop", "security_opt", "pids_limit", "read_only", "tmpfs")
-    engine_security = {k: engine_kwargs[k] for k in security_keys}
-    docker_security = {k: docker_kwargs[k] for k in security_keys}
-    expected_security = policy.to_docker_security_kwargs(read_only=True)
-
-    assert (
-        engine_security,
-        docker_security,
-    ) == (
-        expected_security,
-        expected_security,
+    deploy_cfg = SandboxDeployConfig(
+        workspace_dir=_workspace(tmp_path), read_only=True, policy=policy
     )
+    workload_cfg = WorkloadSandboxConfig(
+        workspace_dir=_workspace(tmp_path / "workload"),
+        command=["sleep", "1"],
+        read_only=True,
+        policy=policy,
+    )
+
+    WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json")).deploy(deploy_cfg)
+    WorkloadSandboxRunner(workload_cfg).run()
+
+    engine_kwargs, docker_kwargs = _create_kwargs(docker_daemon)
+    security_keys = ("cap_drop", "security_opt", "pids_limit", "read_only", "tmpfs")
+    expected_security = policy.to_docker_security_kwargs(read_only=True)
+    assert (
+        {k: engine_kwargs[k] for k in security_keys},
+        {k: docker_kwargs[k] for k in security_keys},
+    ) == (expected_security, expected_security)
 
 
 # Each case is a policy, a network mode, and the Docker network that mode runs on.
@@ -110,6 +113,19 @@ _DECLARED_CONTROL_CASES = {
         CONST_SANDBOX_DOCKER_INTERNAL_NET,
     ),
 }
+
+
+def _workspace(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _create_kwargs(docker_daemon: DockerEngineFake) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The arguments of the two create calls: the engine's deploy, then the runner's run."""
+    deploy, workload = (
+        dict(call.kwargs) for call in docker_daemon.calls if call.name == "containers.create"
+    )
+    return deploy, workload
 
 
 def _declared_pair(
@@ -199,7 +215,7 @@ def _controls_sent(create_kwargs: dict[str, Any], declared: dict[str, Any]) -> d
 )
 def test_each_runner_creates_its_container_with_the_controls_it_declares(
     tmp_path: Path,
-    docker_engine: Any,
+    docker_daemon: DockerEngineFake,
     policy: SandboxPolicy,
     network_mode: str,
     docker_network: str,
@@ -207,22 +223,15 @@ def test_each_runner_creates_its_container_with_the_controls_it_declares(
 ) -> None:
     """The create call each runner sends the engine carries every declared control unchanged,
     the workspace mount mode among them, and no control the engine would reject."""
-    deploy_cfg, workload_cfg = _declared_pair(tmp_path, policy, network_mode, workload_read_only)
-    container = MagicMock()
-    container.id = "c-declared"
-    container.wait.return_value = {"StatusCode": 0}
-    container.logs.side_effect = [b"", b""]
-    deploy_client, workload_client = MagicMock(), MagicMock()
-    deploy_client.containers.create.return_value = container
-    workload_client.containers.create.return_value = container
+    docker_daemon.add_image(DEFAULT_SANDBOX_IMAGE)
+    deploy_cfg, workload_cfg = _declared_pair(
+        _workspace(tmp_path), policy, network_mode, workload_read_only
+    )
 
-    with docker_engine(deploy_client):
-        WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json")).deploy(deploy_cfg)
-    with docker_engine(workload_client):
-        WorkloadSandboxRunner(workload_cfg).run()
+    WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json")).deploy(deploy_cfg)
+    WorkloadSandboxRunner(workload_cfg).run()
 
-    deploy_sent = deploy_client.containers.create.call_args.kwargs
-    workload_sent = workload_client.containers.create.call_args.kwargs
+    deploy_sent, workload_sent = _create_kwargs(docker_daemon)
     deploy_declared = WorkloadSandboxEngine.declared_controls(deploy_cfg)
     workload_declared = WorkloadSandboxRunner(workload_cfg).declared_controls()
     assert _controls_sent(deploy_sent, deploy_declared) == deploy_declared
@@ -234,19 +243,19 @@ def test_each_runner_creates_its_container_with_the_controls_it_declares(
     assert "workspace_mount_mode" not in workload_sent
 
 
-def test_declared_controls_ask_the_engine_nothing(tmp_path: Path, docker_engine: Any) -> None:
+def test_declared_controls_ask_the_engine_nothing(
+    tmp_path: Path, docker_daemon: DockerEngineFake
+) -> None:
     """Declaring the controls looks up no rootless user, provisions no network and injects no
     trace, so the audit and the dry runs make no engine request."""
     deploy_cfg, workload_cfg = _declared_pair(tmp_path, SandboxPolicy(), "sandbox_namespace")
-    client = MagicMock()
 
-    with docker_engine(client):
-        controls = (
-            WorkloadSandboxEngine.declared_controls(deploy_cfg),
-            WorkloadSandboxRunner(workload_cfg).declared_controls(),
-        )
+    controls = (
+        WorkloadSandboxEngine.declared_controls(deploy_cfg),
+        WorkloadSandboxRunner(workload_cfg).declared_controls(),
+    )
 
-    assert client.mock_calls == []
+    assert docker_daemon.calls == []
     assert all("environment" not in declared and "user" not in declared for declared in controls)
 
 
@@ -259,30 +268,27 @@ def test_declared_controls_ask_the_engine_nothing(tmp_path: Path, docker_engine:
     ],
 )
 def test_a_whitelist_without_an_egress_proxy_declares_its_network_and_refuses_to_run(
-    tmp_path: Path, docker_engine: Any, mode: str, whitelist: dict[str, list[str]]
+    tmp_path: Path, docker_daemon: DockerEngineFake, mode: str, whitelist: dict[str, list[str]]
 ) -> None:
     """Declaring is not running: the declared network of a whitelist mode is reported, while
     creating the container still needs the proxy that enforces the whitelist."""
-    deploy_cfg = SandboxDeployConfig(workspace_dir=tmp_path, network_mode=mode, **whitelist)
+    workspace = _workspace(tmp_path)
+    deploy_cfg = SandboxDeployConfig(workspace_dir=workspace, network_mode=mode, **whitelist)
     workload_cfg = WorkloadSandboxConfig(
-        workspace_dir=tmp_path, command=["true"], network_mode=mode, **whitelist
+        workspace_dir=workspace, command=["true"], network_mode=mode, **whitelist
     )
-    client = MagicMock()
 
-    with docker_engine(client):
-        declared = (
-            WorkloadSandboxEngine.declared_controls(deploy_cfg)["network_mode"],
-            WorkloadSandboxRunner(workload_cfg).declared_controls()["network_mode"],
-        )
-        with pytest.raises(SandboxValidationError, match="egress proxy"):
-            WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json")).deploy(
-                deploy_cfg
-            )
-        with pytest.raises(DockerSandboxError, match="egress proxy"):
-            WorkloadSandboxRunner(workload_cfg).run()
+    declared = (
+        WorkloadSandboxEngine.declared_controls(deploy_cfg)["network_mode"],
+        WorkloadSandboxRunner(workload_cfg).declared_controls()["network_mode"],
+    )
+    with pytest.raises(SandboxValidationError, match="egress proxy"):
+        WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json")).deploy(deploy_cfg)
+    with pytest.raises(DockerSandboxError, match="egress proxy"):
+        WorkloadSandboxRunner(workload_cfg).run()
 
     assert declared == (CONST_SANDBOX_DOCKER_INTERNAL_NET, CONST_SANDBOX_DOCKER_INTERNAL_NET)
-    assert client.containers.create.called is False
+    assert "containers.create" not in docker_daemon.call_names()
 
 
 def _printed_declared_controls(response: Any) -> dict[str, Any]:
@@ -306,65 +312,56 @@ def _printed_declared_controls(response: Any) -> dict[str, Any]:
 
 
 def test_both_dry_runs_print_the_controls_without_asking_the_engine(
-    tmp_path: Path, docker_engine: Any, cli: Any
+    tmp_path: Path, docker_daemon: DockerEngineFake, cli: Any
 ) -> None:
     """`devops sandbox deploy --dry-run` and `devops docker sandbox --dry-run` print the same
     declared controls for the same flags and make no engine request."""
-    client = MagicMock()
-
-    with docker_engine(client):
-        deploy = cli("sandbox", "deploy", "--workspace", tmp_path, "--read-only", "--dry-run")
-        workload = cli(
-            "docker", "sandbox", "--workspace", tmp_path, "--read-only", "--dry-run", "true"
-        )
+    deploy = cli("sandbox", "deploy", "--workspace", tmp_path, "--read-only", "--dry-run")
+    workload = cli("docker", "sandbox", "--workspace", tmp_path, "--read-only", "--dry-run", "true")
 
     deploy_controls = _printed_declared_controls(deploy)
     assert (deploy.exit_code, workload.exit_code) == (0, 0)
     assert deploy_controls == _printed_declared_controls(workload)
     assert (deploy_controls["pids_limit"], deploy_controls["network_mode"]) == (256, "none")
-    assert client.mock_calls == []
+    assert docker_daemon.calls == []
 
 
-def test_resolve_sandbox_user_rootless_and_rootful(docker_engine: Any) -> None:
-    """resolve_sandbox_user maps to 0:0 for rootless engine, uid:gid for rootful, None for root flag."""
-    from devops_cli.docker.engine import DockerEngineService
-    from devops_cli.docker.sandbox import resolve_sandbox_user
+@pytest.mark.parametrize(
+    ("security_options", "rootless_user"),
+    [(["name=rootless"], "0:0"), ([], f"{os.getuid()}:{os.getgid()}")],
+    ids=["rootless-engine", "rootful-engine"],
+)
+def test_the_sandbox_user_follows_the_engine_mode(
+    docker_daemon: DockerEngineFake, security_options: list[str], rootless_user: str
+) -> None:
+    """The user is 0:0 on a rootless engine and uid:gid on a rootful one, and none for --root."""
+    docker_daemon.info_data["SecurityOptions"] = security_options
 
-    mock_client_rootless = MagicMock()
-    mock_client_rootless.info.return_value = {"SecurityOptions": ["name=rootless"]}
-
-    with docker_engine(mock_client_rootless):
-        assert (
-            resolve_sandbox_user(rootless=True),
-            resolve_sandbox_user(rootless=False),
-        ) == ("0:0", None)
-
-    DockerEngineService.reset_instance()
-    mock_client_rootful = MagicMock()
-    mock_client_rootful.info.return_value = {"SecurityOptions": []}
-
-    with docker_engine(mock_client_rootful):
-        assert (
-            resolve_sandbox_user(rootless=True),
-            resolve_sandbox_user(rootless=False),
-        ) == (f"{os.getuid()}:{os.getgid()}", None)
+    assert (resolve_sandbox_user(rootless=True), resolve_sandbox_user(rootless=False)) == (
+        rootless_user,
+        None,
+    )
 
 
 def test_sandbox_create_kwargs_omits_user_when_running_as_root(
-    tmp_path: Path, docker_engine: Any
+    tmp_path: Path, docker_daemon: DockerEngineFake
 ) -> None:
     """When rootless=False (--root), create kwargs omits the 'user' key."""
-    from devops_cli.docker.sandbox import WorkloadSandboxConfig, WorkloadSandboxRunner
-
+    docker_daemon.add_image(DEFAULT_SANDBOX_IMAGE)
     policy = SandboxPolicy(read_only=True)
-    deploy_cfg = SandboxDeployConfig(read_only=True, policy=policy, rootless=False)
-    engine = WorkloadSandboxEngine()
-    engine_kwargs = engine._build_create_kwargs(deploy_cfg, tmp_path, [])
-
-    workload_cfg = WorkloadSandboxConfig(
-        command=["sleep", "1"], read_only=True, policy=policy, rootless=False
+    deploy_cfg = SandboxDeployConfig(
+        workspace_dir=_workspace(tmp_path), read_only=True, policy=policy, rootless=False
     )
-    runner = WorkloadSandboxRunner(workload_cfg)
-    docker_kwargs = runner._build_create_kwargs(tmp_path)
+    workload_cfg = WorkloadSandboxConfig(
+        workspace_dir=_workspace(tmp_path / "workload"),
+        command=["sleep", "1"],
+        read_only=True,
+        policy=policy,
+        rootless=False,
+    )
 
+    WorkloadSandboxEngine(registry=SandboxRegistry(tmp_path / "reg.json")).deploy(deploy_cfg)
+    WorkloadSandboxRunner(workload_cfg).run()
+
+    engine_kwargs, docker_kwargs = _create_kwargs(docker_daemon)
     assert ("user" in engine_kwargs, "user" in docker_kwargs) == (False, False)

@@ -257,12 +257,13 @@ def test_sandbox_network_config_sandbox_namespace_mode() -> None:
     assert has_dns, "Sandbox namespace policy must allow CoreDNS egress on port 53"
 
 
-def test_sandbox_network_config_public_whitelist_validation_and_policy(public_dns: str) -> None:
-    """Verify public whitelist validates domain names, rejects private/metadata IPs, and generates egress policy."""
+def test_a_public_whitelist_policy_opens_one_rule_for_each_entry(public_dns: str) -> None:
+    """The policy is the kube-dns rule, then one rule per entry: each name resolves to the
+    `public_dns` address."""
     cfg = SandboxNetworkConfig(**_WHITELIST_POLICIES["public names and an address"])
 
     policy = cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
-    # The kube-dns rule, then one rule per entry: each name resolves to the `public_dns` address.
+
     assert (policy["kind"], policy["spec"]["egress"]) == (
         "NetworkPolicy",
         [
@@ -273,37 +274,27 @@ def test_sandbox_network_config_public_whitelist_validation_and_policy(public_dn
         ],
     )
 
-    # Empty whitelist should raise ValueError
+
+def test_a_public_whitelist_needs_at_least_one_entry() -> None:
+    """An empty public whitelist fails the config."""
     with pytest.raises(ValueError, match="at least one public domain or IP"):
         SandboxNetworkConfig(mode=SandboxNetworkMode.PUBLIC_WHITELIST, public_whitelist=[])
 
-    # Private IP or cloud metadata in public whitelist should raise ValueError
+
+@pytest.mark.parametrize("entry", ["169.254.169.254", "192.168.1.10", "localhost"])
+def test_a_public_whitelist_refuses_a_private_loopback_or_metadata_entry(entry: str) -> None:
+    """A private address, a loopback name and cloud metadata are no public destinations."""
     with pytest.raises(ValueError, match="private, loopback, or metadata"):
-        SandboxNetworkConfig(
-            mode=SandboxNetworkMode.PUBLIC_WHITELIST,
-            public_whitelist=["169.254.169.254"],
-        )
-    with pytest.raises(ValueError, match="private, loopback, or metadata"):
-        SandboxNetworkConfig(
-            mode=SandboxNetworkMode.PUBLIC_WHITELIST,
-            public_whitelist=["192.168.1.10"],
-        )
-    with pytest.raises(ValueError, match="private, loopback, or metadata"):
-        SandboxNetworkConfig(
-            mode=SandboxNetworkMode.PUBLIC_WHITELIST,
-            public_whitelist=["localhost"],
-        )
+        SandboxNetworkConfig(mode=SandboxNetworkMode.PUBLIC_WHITELIST, public_whitelist=[entry])
 
 
 @pytest.mark.usefixtures("failed_lookups")
-def test_sandbox_network_config_local_whitelist_validation_and_routing() -> None:
-    """Verify local whitelist validates endpoints, rejects cloud metadata, and configures routing.
-
-    The `localhost` entry opens no rule: NetworkPolicy never polices a pod's loopback.
-    """
+def test_a_local_whitelist_policy_opens_one_rule_for_each_entry_but_loopback() -> None:
+    """The `localhost` entry opens no rule: NetworkPolicy never polices a pod's loopback."""
     cfg = SandboxNetworkConfig(**_WHITELIST_POLICIES["local urls and addresses"])
 
     policy = cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
+
     assert (policy["kind"], policy["spec"]["egress"]) == (
         "NetworkPolicy",
         [
@@ -313,11 +304,15 @@ def test_sandbox_network_config_local_whitelist_validation_and_routing() -> None
         ],
     )
 
-    # Empty local whitelist should raise ValueError
+
+def test_a_local_whitelist_needs_at_least_one_entry() -> None:
+    """An empty local whitelist fails the config."""
     with pytest.raises(ValueError, match="at least one local URL or IP"):
         SandboxNetworkConfig(mode=SandboxNetworkMode.LOCAL_WHITELIST, local_whitelist=[])
 
-    # Cloud metadata in local whitelist should raise ValueError
+
+def test_a_local_whitelist_refuses_cloud_metadata() -> None:
+    """Cloud metadata is no local destination."""
     with pytest.raises(ValueError, match=r"Cloud metadata .* is forbidden"):
         SandboxNetworkConfig(
             mode=SandboxNetworkMode.LOCAL_WHITELIST,
@@ -325,17 +320,20 @@ def test_sandbox_network_config_local_whitelist_validation_and_routing() -> None
         )
 
 
-def test_sandbox_local_whitelist_accepts_private_suffix_and_rejects_public_dns_answer(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """local_whitelist accepts node1.example.internal at build time and refuses a public DNS answer on policy generation (#887)."""
-    cfg = SandboxNetworkConfig(
-        mode="local_whitelist",
-        local_whitelist=["node1.example.internal"],
-    )
+def test_a_local_whitelist_accepts_a_private_suffix_name_at_build_time() -> None:
+    """local_whitelist accepts node1.example.internal when the config is built (#887)."""
+    cfg = SandboxNetworkConfig(mode="local_whitelist", local_whitelist=["node1.example.internal"])
+
     assert cfg.local_whitelist == ["node1.example.internal"]
 
+
+def test_a_local_whitelist_name_with_a_public_dns_answer_is_refused_when_the_policy_is_built(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A private suffix name that answers a public address gets no policy (#887)."""
+    cfg = SandboxNetworkConfig(mode="local_whitelist", local_whitelist=["node1.example.internal"])
     scripted_resolver(monkeypatch, {"node1.example.internal": [["8.8.8.8"]]})
+
     with pytest.raises(ValueError, match=r"non-private address"):
         cfg.to_k8s_network_policy()
 
