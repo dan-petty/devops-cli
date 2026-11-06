@@ -45,6 +45,19 @@ def test_classify_scanner_files_classifies_go_files(tmp_path: Path) -> None:
     assert buckets.as_kind_map()["go"] == buckets.go
 
 
+def test_classify_scanner_files_keeps_unknown_lock_names_out(tmp_path: Path) -> None:
+    """classify_scanner_files keeps a file out of the lockfile bucket by any other name (#3536)."""
+    uv_lock = tmp_path / "uv.lock"
+    rules_lock = tmp_path / "rules.lock"
+    tools_lock = tmp_path / "tools.lock"
+    for lock in (uv_lock, rules_lock, tools_lock):
+        lock.write_text("version = 1\n", encoding="utf-8")
+
+    buckets = classify_scanner_files([uv_lock, rules_lock, tools_lock])
+
+    assert buckets.lockfiles == [uv_lock]
+
+
 def test_match_static_findings_to_files_filters_go_findings() -> None:
     """Findings are mapped to reviewed files and unreviewed files are filtered."""
     f1 = SavedFinding(

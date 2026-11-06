@@ -355,7 +355,12 @@ def _lockfiles_beside(paths: list[Path]) -> list[Path]:
     """
     dirs = {path.parent for path in paths}
     return sorted(
-        {d / name for d in dirs for name in CONST_REVIEW_GENERATED_FILES if (d / name).is_file()}
+        {
+            d / name
+            for d in dirs
+            for name in CONST_REVIEW_GENERATED_FILES
+            if name in CONST_LOCKFILE_NAMES and (d / name).is_file()
+        }
     )
 
 
@@ -1643,8 +1648,7 @@ def classify_scanner_files(
         {
             p
             for p in all_resolved
-            if (p.name in CONST_LOCKFILE_NAMES or p.suffix in (".lock", ".lockb"))
-            and not is_fixture_path(p, path_classes)
+            if p.name in CONST_LOCKFILE_NAMES and not is_fixture_path(p, path_classes)
         }
         | {p for p in lockfiles if not is_fixture_path(p, path_classes)}
     )

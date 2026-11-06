@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/ai/review/pipeline.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/security/osv_scanner.py`, `tests/security/test_review_pipeline_go.py`. Changes: `src/devops_cli/ai/review/pipeline.py`, `tests/security/test_review_pipeline_go.py`.
 
-- [ ] 1.1 Add `test_classify_scanner_files_keeps_unknown_lock_names_out` to `tests/security/test_review_pipeline_go.py`: write `uv.lock`, `rules.lock` and `tools.lock` under `tmp_path`, call `classify_scanner_files` with them, and assert that the bucket holds `uv.lock` and holds neither `rules.lock` nor `tools.lock`. It fails against the suffix rule
+- [x] 1.1 Add `test_classify_scanner_files_keeps_unknown_lock_names_out` to `tests/security/test_review_pipeline_go.py`: write `uv.lock`, `rules.lock` and `tools.lock` under `tmp_path`, call `classify_scanner_files` with them, and assert that the bucket holds `uv.lock` and holds neither `rules.lock` nor `tools.lock`. It fails against the suffix rule
   - Verification: `uv run devops ci test tests/security/test_review_pipeline_go.py` fails on the base
-- [ ] 1.2 In `classify_scanner_files`, build the lockfile bucket from files whose name is in `CONST_LOCKFILE_NAMES`, and drop the `.lock` and `.lockb` suffix branch. In `_lockfiles_beside`, keep a file only when its name is in `CONST_LOCKFILE_NAMES`. Keep the fixture-path exclusion
+- [x] 1.2 In `classify_scanner_files`, build the lockfile bucket from files whose name is in `CONST_LOCKFILE_NAMES`, and drop the `.lock` and `.lockb` suffix branch. In `_lockfiles_beside`, keep a file only when its name is in `CONST_LOCKFILE_NAMES`. Keep the fixture-path exclusion
   - Verification: `uv run devops ci test tests/security/test_review_pipeline_go.py` passes
 
 ## Criteria
