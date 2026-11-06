@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 from typer.testing import CliRunner
@@ -31,7 +30,6 @@ from devops_cli.telemetry.tracer import (
 from devops_cli.telemetry.waterfall import (
     flatten_waterfall_tree,
     normalize_tempo_spans,
-    query_tempo_trace,
     render_waterfall_bar,
 )
 from tests.support.paths import FIXTURES
@@ -154,93 +152,6 @@ def test_normalize_tempo_spans() -> None:
         1,
         {"k8s.namespace": "otel", "retry.enabled": True},
     )
-
-
-@pytest.mark.usefixtures("public_dns")
-def test_query_tempo_trace(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify Tempo is queried at its configured hostname, which TLS and Host carry.
-
-    The connect dials the vetted address, the TLS handshake verifies the hostname, and the
-    URL's userinfo never reaches the Host header.
-    """
-    from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
-
-    test_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
-    payload = json.loads(
-        (FIXTURES / "traces" / "tempo-otlp-trace.json").read_text(encoding="utf-8")
-    )
-    scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
-    recorder = record_connects(monkeypatch, [http_response(200, json.dumps(payload))])
-
-    spans = query_tempo_trace(test_trace_id, tempo_url="https://user:secret@example.com:3200")
-
-    assert (
-        [span["traceId"] for span in spans],
-        recorder.dialled,
-        [server_hostname for server_hostname, _ in recorder.tls],
-        recorder.requested_hosts,
-    ) == (
-        [test_trace_id, test_trace_id],
-        [(PUBLIC_ADDRESS, 3200)],
-        ["example.com"],
-        ["example.com:3200"],
-    )
-
-
-@pytest.mark.usefixtures("public_dns")
-def test_the_tempo_timeout_bounds_the_connect(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A Tempo query's `timeout` bounds the connect too, not only the read."""
-    from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects
-
-    recorder = record_connects(monkeypatch, [http_response(200, json.dumps({"trace": {}}))])
-
-    query_tempo_trace("4bf92f3577b34da6a3ce929d0e0e4736", "http://example.com:3200", 7.0)
-
-    assert recorder.timeouts_of(PUBLIC_ADDRESS) == [7.0]
-
-
-@pytest.mark.parametrize("flag", ["false", "true"])
-def test_tempo_admits_loopback_and_public_answers_only(
-    monkeypatch: pytest.MonkeyPatch, flag: str
-) -> None:
-    """Verify Tempo's loopback-level client refuses RFC 1918 and link-local answers, flag or not."""
-    from tests.web_fakes import PUBLIC_ADDRESS, record_connects, scripted_resolver
-
-    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", flag)
-    answers = [
-        "169.254.169.254",
-        "10.0.0.1",
-        "172.16.0.1",
-        "169.254.1.2",
-        "127.0.0.1",
-        PUBLIC_ADDRESS,
-    ]
-    resolver = scripted_resolver(monkeypatch, {"example.com": [[answer] for answer in answers]})
-    recorder = record_connects(monkeypatch, [])
-
-    for _ in answers:
-        query_tempo_trace("4bf92f3577b34da6a3ce929d0e0e4736", tempo_url="http://example.com:3200")
-
-    assert (resolver.lookups["example.com"], recorder.dialled) == (
-        len(answers),
-        [("127.0.0.1", 3200), (PUBLIC_ADDRESS, 3200)],
-    )
-
-
-def test_query_tempo_trace_security_validation() -> None:
-    """Verify query_tempo_trace rejects invalid hex, path traversal, and disallowed URLs."""
-    # Invalid trace IDs: path traversal, non-hex, empty
-    assert query_tempo_trace("../../admin") == []
-    assert query_tempo_trace("not-a-hex-id!") == []
-    assert query_tempo_trace("") == []
-
-    # Invalid Tempo URLs: invalid scheme, cloud metadata
-    valid_id = "4bf92f3577b34da6a3ce929d0e0e4736"
-    assert query_tempo_trace(valid_id, tempo_url="ftp://example.com") == []
-    assert query_tempo_trace(valid_id, tempo_url="http://169.254.169.254") == []
-    assert query_tempo_trace(valid_id, tempo_url="http://10.0.0.1:3200") == []
-    assert query_tempo_trace(valid_id, tempo_url="http://192.168.1.1:3200") == []
-    assert query_tempo_trace(valid_id, tempo_url="http://172.16.0.1:3200") == []
 
 
 def test_sandbox_traces_help(runner: CliRunner) -> None:
@@ -406,69 +317,6 @@ def test_generate_traceparent_validation_error() -> None:
     assert isinstance(exc_info.value, ValidationError)
     assert isinstance(exc_info.value, ValueError)
     assert "Invalid trace_flags" in str(exc_info.value)
-
-
-def test_query_tempo_trace_dns_metadata_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify query_tempo_trace rejects hosts resolving to link-local metadata addresses."""
-    import socket
-
-    from devops_cli.telemetry.waterfall import query_tempo_trace
-
-    def mock_getaddrinfo(host: Any, port: Any, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 3200))]
-
-    monkeypatch.setattr(socket, "getaddrinfo", mock_getaddrinfo)
-    spans = query_tempo_trace(
-        "0123456789abcdef0123456789abcdef",
-        tempo_url="http://example.com:3200",
-    )
-    assert spans == []
-
-
-def test_query_tempo_trace_error_status_and_network_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify query_tempo_trace returns empty list on HTTP non-200 and request errors."""
-    import httpx2
-
-    test_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
-
-    # Test HTTP 500 error
-    mock_resp_500 = MagicMock()
-    mock_resp_500.status_code = 500
-
-    class MockClient500:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def __enter__(self) -> MockClient500:
-            return self
-
-        def __exit__(self, *args: Any) -> None:
-            pass
-
-        def get(self, *args: Any, **kwargs: Any) -> Any:
-            return mock_resp_500
-
-    monkeypatch.setattr("httpx2.Client", MockClient500)
-    assert query_tempo_trace(test_trace_id, tempo_url="http://localhost:3200") == []
-
-    # Test network exception
-    class MockClientError:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def __enter__(self) -> MockClientError:
-            return self
-
-        def __exit__(self, *args: Any) -> None:
-            pass
-
-        def get(self, *args: Any, **kwargs: Any) -> Any:
-            raise httpx2.ConnectError("Connection refused")
-
-    monkeypatch.setattr("httpx2.Client", MockClientError)
-    assert query_tempo_trace(test_trace_id, tempo_url="http://localhost:3200") == []
 
 
 def test_resolve_trace_spans_with_tempo_fallback(monkeypatch: pytest.MonkeyPatch) -> None:

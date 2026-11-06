@@ -38,8 +38,8 @@ from devops_cli.security.vault_lease import (
     login_kubernetes,
     read_service_account_token,
 )
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.keyring import FakeKeyring
-from tests.web_fakes import StubWeb
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -155,24 +155,24 @@ def test_cached_resolver_never_serves_a_stale_settings_snapshot(
 
 
 def test_vault_provider_without_a_token_makes_no_request(
-    stub_web: StubWeb, keyring_store: FakeKeyring
+    web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     """With no usable token, the chain's Vault provider asks nothing of Vault or the keyring."""
     assert VaultProvider().get(_ref()) is None
-    assert stub_web.sent == []
+    assert web.sent == []
     assert "test_secret" not in keyring_store.reads
 
 
 def test_vault_provider_with_a_rejected_token_answers_none(
-    monkeypatch: pytest.MonkeyPatch, stub_web: StubWeb, keyring_store: FakeKeyring
+    monkeypatch: pytest.MonkeyPatch, web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     """A 403 leaves the provider unable to supply, and the keyring is not read in its place."""
     monkeypatch.setenv("VAULT_ADDR", "http://127.0.0.1:8200")
     monkeypatch.setenv("VAULT_TOKEN", "s.expired")
-    stub_web.respond("GET", "http://127.0.0.1:8200/v1/secret/data/test", 403, {})
+    web.respond("GET", "http://127.0.0.1:8200/v1/secret/data/test", 403, {})
 
     assert VaultProvider().get(_ref()) is None
-    assert len(stub_web.sent) == 1
+    assert len(web.sent) == 1
     assert "test_secret" not in keyring_store.reads
 
 
@@ -415,9 +415,9 @@ def _auth_response(**overrides: Any) -> dict[str, Any]:
     return {"auth": auth}
 
 
-def test_approle_login_projects_typed_result(stub_web: StubWeb) -> None:
+def test_approle_login_projects_typed_result(web: WebFake) -> None:
     """A successful AppRole login yields a typed result with its lease metadata."""
-    stub_web.respond("POST", "http://example.com:8200/v1/auth/approle/login", 200, _auth_response())
+    web.respond("POST", "http://example.com:8200/v1/auth/approle/login", 200, _auth_response())
     result = login_approle("http://example.com:8200", "role", "secret")
 
     assert (result.method, result.lease_duration, result.renewable, result.policies) == (
@@ -434,27 +434,23 @@ def test_approle_login_requires_both_credentials() -> None:
         login_approle("http://example.com:8200", "", "secret")
 
 
-def test_login_without_client_token_is_an_error(stub_web: StubWeb) -> None:
+def test_login_without_client_token_is_an_error(web: WebFake) -> None:
     """A login response carrying no token is a failure, not a silent success."""
-    stub_web.respond("POST", "http://example.com:8200/v1/auth/approle/login", 200, {"auth": {}})
+    web.respond("POST", "http://example.com:8200/v1/auth/approle/login", 200, {"auth": {}})
     with pytest.raises(VaultAuthenticationError, match="no client token"):
         login_approle("http://example.com:8200", "role", "secret")
 
 
-def test_kubernetes_login_uses_projected_service_account_token(
-    stub_web: StubWeb, tmp_path: Any
-) -> None:
+def test_kubernetes_login_uses_projected_service_account_token(web: WebFake, tmp_path: Any) -> None:
     """The in-cluster ServiceAccount token is read from its projected path."""
     token_file = tmp_path / "token"
     token_file.write_text("sa-jwt-token\n", encoding="utf-8")
 
-    stub_web.respond(
-        "POST", "http://example.com:8200/v1/auth/kubernetes/login", 200, _auth_response()
-    )
+    web.respond("POST", "http://example.com:8200/v1/auth/kubernetes/login", 200, _auth_response())
     result = login_kubernetes("http://example.com:8200", "my-role", token_path=str(token_file))
 
     assert result.method == "kubernetes"
-    assert json.loads(stub_web.sent[0].content) == {"role": "my-role", "jwt": "sa-jwt-token"}
+    assert json.loads(web.sent[0].content) == {"role": "my-role", "jwt": "sa-jwt-token"}
 
 
 def test_kubernetes_login_without_a_token_is_rejected(tmp_path: Any) -> None:
@@ -547,11 +543,11 @@ def test_non_renewable_leases_are_never_renewed() -> None:
     assert registry.needs_renewal(lease, now=time.time() + 99) is False
 
 
-def test_renew_extends_the_lease_and_counts_renewals(stub_web: StubWeb) -> None:
+def test_renew_extends_the_lease_and_counts_renewals(web: WebFake) -> None:
     """A renewed lease records its new lifetime and increments the renewal count."""
     registry = _registry()
     registry.track("lease-1", 100, renewable=True)
-    stub_web.respond(
+    web.respond(
         "POST", "http://example.com:8200/v1/sys/leases/renew", 200, {"lease_duration": 3600}
     )
 
@@ -571,7 +567,7 @@ def test_renewing_an_untracked_or_fixed_lease_is_an_error() -> None:
         registry.renew("fixed")
 
 
-def test_renew_expiring_sweeps_every_lease_despite_a_failure(stub_web: StubWeb) -> None:
+def test_renew_expiring_sweeps_every_lease_despite_a_failure(web: WebFake) -> None:
     """One failed renewal does not deny the remaining leases their chance."""
     registry = _registry()
     issued = time.time() - 90
@@ -588,18 +584,18 @@ def test_renew_expiring_sweeps_every_lease_despite_a_failure(stub_web: StubWeb) 
             return httpx2.Response(400, json={"errors": ["renewal rejected"]})
         return httpx2.Response(200, json={"lease_duration": 3600})
 
-    stub_web.serve(handle_renew)
+    web.serve(handle_renew)
     report = registry.renew_expiring()
 
     assert (sorted(report.renewed), report.failed, report.skipped) == (["a", "c"], ["b"], ["fresh"])
     assert report.all_renewed is False
 
 
-def test_revoke_reports_the_refusal_and_stops_tracking(stub_web: StubWeb) -> None:
+def test_revoke_reports_the_refusal_and_stops_tracking(web: WebFake) -> None:
     """A refused revocation raises with Vault's status; the lease is dropped from tracking."""
     registry = _registry()
     registry.track("lease-1", 100, renewable=True)
-    stub_web.respond(
+    web.respond(
         "POST", "http://example.com:8200/v1/sys/leases/revoke", 400, {"errors": ["bad request"]}
     )
 
@@ -609,7 +605,7 @@ def test_revoke_reports_the_refusal_and_stops_tracking(stub_web: StubWeb) -> Non
     assert (raised.value.status_code, registry.leases()) == (400, [])
 
 
-def test_revoke_all_clears_the_registry_and_names_the_refusals(stub_web: StubWeb) -> None:
+def test_revoke_all_clears_the_registry_and_names_the_refusals(web: WebFake) -> None:
     """Every tracked lease is revoked in one sweep; the ones Vault refused are returned."""
     registry = _registry()
     for lease_id in ("a", "b"):
@@ -621,16 +617,16 @@ def test_revoke_all_clears_the_registry_and_names_the_refusals(stub_web: StubWeb
             return httpx2.Response(403, json={"errors": ["refused"]})
         return httpx2.Response(204)
 
-    stub_web.serve(handle_revoke)
+    web.serve(handle_revoke)
     refused = registry.revoke_all()
 
     assert (refused, registry.leases()) == (["b"], [])
 
 
-def test_renew_token_returns_new_lifetime(stub_web: StubWeb) -> None:
+def test_renew_token_returns_new_lifetime(web: WebFake) -> None:
     """Renewing the client token reports its refreshed lifetime."""
     registry = _registry()
-    stub_web.respond(
+    web.respond(
         "POST",
         "http://example.com:8200/v1/auth/token/renew-self",
         200,
@@ -644,15 +640,15 @@ def test_renew_token_returns_new_lifetime(stub_web: StubWeb) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_post_routes_through_the_egress_validated_broker(stub_web: StubWeb) -> None:
+def test_post_routes_through_the_egress_validated_broker(web: WebFake) -> None:
     """Vault calls go through the shared broker, which enforces egress validation."""
     from devops_cli.security.vault_lease import _post
 
-    stub_web.respond("POST", "http://example.com:8200/v1/sys/leases/renew", 200, {"ok": True})
+    web.respond("POST", "http://example.com:8200/v1/sys/leases/renew", 200, {"ok": True})
     result = _post("http://example.com:8200/", "sys/leases/renew", {"a": 1}, {})
 
     assert result == {"ok": True}
-    sent = stub_web.sent[0]
+    sent = web.sent[0]
     assert (sent.method, str(sent.url)) == ("POST", "http://example.com:8200/v1/sys/leases/renew")
     policy = sent.extensions[CONST_HTTP_EGRESS_POLICY_EXTENSION]
     policy("http://example.com:8200/v1/sys/leases/renew")
@@ -660,38 +656,38 @@ def test_post_routes_through_the_egress_validated_broker(stub_web: StubWeb) -> N
         policy("https://example.com/v1/sys/leases/renew")
 
 
-def test_post_reports_an_unreachable_vault(stub_web: StubWeb) -> None:
+def test_post_reports_an_unreachable_vault(web: WebFake) -> None:
     """A transport failure becomes a typed error rather than a raw httpx2 exception."""
     from devops_cli.security.vault_lease import _post
 
-    stub_web.fail("http://example.com:8200/v1/sys/leases/renew", httpx2.ConnectTimeout("timed out"))
+    web.fail("http://example.com:8200/v1/sys/leases/renew", httpx2.ConnectTimeout("timed out"))
     with pytest.raises(VaultUnreachableError, match="did not answer: ConnectTimeout"):
         _post("http://example.com:8200", "sys/leases/renew", {}, {})
 
 
-def test_post_raises_on_error_status(stub_web: StubWeb) -> None:
+def test_post_raises_on_error_status(web: WebFake) -> None:
     """A Vault error status becomes a typed lease error naming the path."""
     from devops_cli.security.vault_lease import _post
 
-    stub_web.respond("POST", "http://example.com:8200/v1/sys/leases/renew", 403, {})
+    web.respond("POST", "http://example.com:8200/v1/sys/leases/renew", 403, {})
     with pytest.raises(VaultLeaseError, match="status 403") as raised:
         _post("http://example.com:8200", "sys/leases/renew", {}, {})
     assert raised.value.status_code == 403
 
 
-def test_post_tolerates_an_empty_body(stub_web: StubWeb) -> None:
+def test_post_tolerates_an_empty_body(web: WebFake) -> None:
     """A successful call with no body yields an empty mapping, not an error."""
     from devops_cli.security.vault_lease import _post
 
-    stub_web.respond("POST", "http://example.com:8200/v1/sys/leases/revoke", 204)
+    web.respond("POST", "http://example.com:8200/v1/sys/leases/revoke", 204)
     assert _post("http://example.com:8200", "sys/leases/revoke", {}, {}) == {}
 
 
-def test_post_ignores_a_non_mapping_body(stub_web: StubWeb) -> None:
+def test_post_ignores_a_non_mapping_body(web: WebFake) -> None:
     """A response body that is not a JSON object is treated as empty."""
     from devops_cli.security.vault_lease import _post
 
-    stub_web.page(
+    web.page(
         "http://example.com:8200/v1/sys/leases/renew",
         '["unexpected"]',
         headers={"content-type": "application/json"},
@@ -715,18 +711,18 @@ def test_registry_headers_always_carry_the_token() -> None:
     assert (headers["X-Vault-Token"], "X-Vault-Namespace" in headers) == ("s.token", False)
 
 
-def test_revoke_self_sends_the_token_to_its_own_vault(stub_web: StubWeb) -> None:
+def test_revoke_self_sends_the_token_to_its_own_vault(web: WebFake) -> None:
     """Logout's revoke-self call carries the stored token and namespace."""
     from devops_cli.security.vault_lease import revoke_self
 
-    stub_web.respond("POST", "http://example.com:8200/v1/auth/token/revoke-self", 204)
+    web.respond("POST", "http://example.com:8200/v1/auth/token/revoke-self", 204)
     revoke_self("http://example.com:8200", "s.token", "team-a")
 
-    assert len(stub_web.sent) == 1
+    assert len(web.sent) == 1
     assert (
-        str(stub_web.sent[0].url),
-        stub_web.sent[0].headers.get("X-Vault-Token"),
-        stub_web.sent[0].headers.get("X-Vault-Namespace"),
+        str(web.sent[0].url),
+        web.sent[0].headers.get("X-Vault-Token"),
+        web.sent[0].headers.get("X-Vault-Namespace"),
     ) == (
         "http://example.com:8200/v1/auth/token/revoke-self",
         "s.token",

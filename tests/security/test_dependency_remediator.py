@@ -19,10 +19,10 @@ from devops_cli.security.dependency_remediator import (
     DependencyRemediator,
     detect_lockfile_ecosystem,
 )
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
-from tests.web_fakes import StubWeb
 
 
 def _upgrades(call: ProcessCall) -> bool:
@@ -170,10 +170,10 @@ def test_remediate_with_git_branch(tmp_path: Path, process_fake: ProcessFake) ->
     ) == (1, branch, True)
 
 
-def test_cli_scan_fix_dry_run(tmp_path: Path, cli: Callable[..., Any], stub_web: StubWeb) -> None:
+def test_cli_scan_fix_dry_run(tmp_path: Path, cli: Callable[..., Any], web: WebFake) -> None:
     """Test devops scan fix CLI command in dry-run mode."""
     (tmp_path / "uv.lock").write_text("", encoding="utf-8")
-    stub_web.respond(
+    web.respond(
         "POST",
         "https://api.osv.dev/v1/query",
         200,
@@ -277,11 +277,11 @@ def test_an_upgrade_command_that_raises_fails_the_action_with_the_error(
     )
 
 
-def test_scan_and_plan_with_osv(tmp_path: Path, stub_web: StubWeb) -> None:
+def test_scan_and_plan_with_osv(tmp_path: Path, web: WebFake) -> None:
     """Test scan_and_plan calling OSVClient."""
     remediator = DependencyRemediator(target_dir=tmp_path)
 
-    stub_web.respond(
+    web.respond(
         "POST",
         "https://api.osv.dev/v1/query",
         200,
@@ -302,12 +302,12 @@ def test_scan_and_plan_with_osv(tmp_path: Path, stub_web: StubWeb) -> None:
     assert result.actions[0].severity == "HIGH"
 
 
-def test_scan_and_plan_fails_when_the_osv_lookup_fails(tmp_path: Path, stub_web: StubWeb) -> None:
+def test_scan_and_plan_fails_when_the_osv_lookup_fails(tmp_path: Path, web: WebFake) -> None:
     """A lookup that failed is not a package with nothing to fix: planning stops with the reason
     rather than offering an empty plan (#956)."""
     remediator = DependencyRemediator(target_dir=tmp_path)
 
-    stub_web.respond(
+    web.respond(
         "POST",
         "https://api.osv.dev/v1/query",
         503,

@@ -29,8 +29,8 @@ from devops_cli.security.vault_broker import (
     parse_vault_uri,
 )
 from devops_cli.security.vault_lease import login_approle
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.keyring import FakeKeyring
-from tests.web_fakes import StubWeb
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -77,23 +77,23 @@ def kv(fields: dict[str, Any]) -> httpx2.Response:
     return reply(200, {"data": {"data": fields, "metadata": {"version": 1}}})
 
 
-def vault_hops(stub_web: StubWeb) -> list[str]:
+def vault_hops(web: WebFake) -> list[str]:
     """The requests the stub received for the Vault host, leaving out telemetry exports."""
-    return [url for url in stub_web.requested if httpx2.URL(url).host == "example.com"]
+    return [url for url in web.requested if httpx2.URL(url).host == "example.com"]
 
 
-def vault_reads(stub_web: StubWeb) -> list[tuple[str, str, str | None]]:
+def vault_reads(web: WebFake) -> list[tuple[str, str, str | None]]:
     """The method, URL and X-Vault-Token of each request the stub received for the Vault host."""
     return [
         (request.method, str(request.url), request.headers.get("X-Vault-Token"))
-        for request in stub_web.sent
+        for request in web.sent
         if request.url.host == "example.com"
     ]
 
 
-def sent_vault_tokens(stub_web: StubWeb) -> list[str | None]:
+def sent_vault_tokens(web: WebFake) -> list[str | None]:
     """The X-Vault-Token header of every request the stub received for the Vault host."""
-    return [r.headers.get("X-Vault-Token") for r in stub_web.sent if r.url.host == "example.com"]
+    return [r.headers.get("X-Vault-Token") for r in web.sent if r.url.host == "example.com"]
 
 
 def test_parse_vault_uri() -> None:
@@ -111,14 +111,14 @@ def test_parse_vault_uri() -> None:
     )
 
 
-def test_vault_broker_get_secret_api_success(stub_web: StubWeb) -> None:
+def test_vault_broker_get_secret_api_success(web: WebFake) -> None:
     """A token-carrying read returns Vault's field, or the whole secret, and names Vault.
 
     Vault answers at the HTTP edge, so the read goes through the real broker, URL and headers.
     """
     fields = {"api_key": "vault-secret-value-xyz", "username": "admin"}
     secret_url = f"{VAULT_ADDR}/v1/secret/data/myapp"
-    stub_web.page(
+    web.page(
         secret_url,
         json.dumps({"data": {"data": fields, "metadata": {"version": 1}}}),
         headers={"content-type": "application/json"},
@@ -134,21 +134,21 @@ def test_vault_broker_get_secret_api_success(stub_web: StubWeb) -> None:
         ["vault"],
         fields,
     )
-    assert vault_reads(stub_web) == [("GET", secret_url, "s.test-token")] * 2
+    assert vault_reads(web) == [("GET", secret_url, "s.test-token")] * 2
 
 
-def test_vault_broker_set_secret_success(stub_web: StubWeb) -> None:
+def test_vault_broker_set_secret_success(web: WebFake) -> None:
     """A write posts the KV-v2 envelope with the token and returns without error."""
     secret_url = f"{VAULT_ADDR}/v1/secret/data/myapp"
-    stub_web.respond("POST", secret_url, 200, {"data": {"version": 2}})
+    web.respond("POST", secret_url, 200, {"data": {"version": 2}})
     broker = VaultSecretBroker(vault_addr=VAULT_ADDR, vault_token="s.test-token")
 
     broker.set_secret("secret/data/myapp", {"token": "new-secret"})
 
     assert (
-        vault_reads(stub_web),
-        json.loads(stub_web.sent[0].content),
-        sent_vault_tokens(stub_web),
+        vault_reads(web),
+        json.loads(web.sent[0].content),
+        sent_vault_tokens(web),
     ) == (
         [("POST", secret_url, "s.test-token")],
         {"data": {"token": "new-secret"}},
@@ -156,11 +156,11 @@ def test_vault_broker_set_secret_success(stub_web: StubWeb) -> None:
     )
 
 
-def test_vault_broker_get_status(stub_web: StubWeb) -> None:
+def test_vault_broker_get_status(web: WebFake) -> None:
     """Test querying Vault health status endpoint."""
     broker = VaultSecretBroker(vault_addr=VAULT_ADDR)
     health = {"initialized": True, "sealed": False, "version": "1.15.0", "cluster_name": "main"}
-    stub_web.respond("GET", f"{VAULT_ADDR}/v1/sys/health", 200, health)
+    web.respond("GET", f"{VAULT_ADDR}/v1/sys/health", 200, health)
 
     status = broker.get_status()
 
@@ -172,10 +172,10 @@ def test_vault_broker_get_status(stub_web: StubWeb) -> None:
     )
 
 
-def test_get_status_reports_an_unreachable_vault(stub_web: StubWeb) -> None:
+def test_get_status_reports_an_unreachable_vault(web: WebFake) -> None:
     """A health check that gets no answer becomes a sealed status naming the failure."""
     broker = VaultSecretBroker(vault_addr=VAULT_ADDR)
-    stub_web.fail(f"{VAULT_ADDR}/v1/sys/health", httpx2.ConnectError("Connection refused"))
+    web.fail(f"{VAULT_ADDR}/v1/sys/health", httpx2.ConnectError("Connection refused"))
 
     status = broker.get_status()
 
@@ -221,12 +221,12 @@ def test_vault_broker_refuses_an_address_that_changes_the_request_path(vault_add
 
 
 def test_stored_login_supplies_the_token_when_the_environment_has_none(
-    monkeypatch: pytest.MonkeyPatch, stub_web: StubWeb
+    monkeypatch: pytest.MonkeyPatch, web: WebFake
 ) -> None:
     """With no environment token, the stored login for this address is sent and reported."""
     store_login(monkeypatch)
     broker = VaultSecretBroker()
-    stub_web.respond(
+    web.respond(
         "GET",
         f"{VAULT_ADDR}/v1/secret/data/app",
         200,
@@ -235,7 +235,7 @@ def test_stored_login_supplies_the_token_when_the_environment_has_none(
 
     broker.get_secret("secret/data/app", key="k")
 
-    assert (broker.token_source.source, sent_vault_tokens(stub_web)) == ("keyring", [STORED_TOKEN])
+    assert (broker.token_source.source, sent_vault_tokens(web)) == ("keyring", [STORED_TOKEN])
 
 
 def test_keyring_outranks_the_environment_and_the_argument_outranks_both(
@@ -268,7 +268,7 @@ def test_devops_cli_vault_token_is_the_last_source(monkeypatch: pytest.MonkeyPat
 )
 def test_stored_login_for_another_vault_is_never_sent(
     monkeypatch: pytest.MonkeyPatch,
-    stub_web: StubWeb,
+    web: WebFake,
     stored_addr: str,
     stored_namespace: str | None,
     issuer: str,
@@ -283,7 +283,7 @@ def test_stored_login_for_another_vault_is_never_sent(
     monkeypatch.setenv("VAULT_TOKEN", ENV_TOKEN)
     reset_resolver()
     with_env = VaultSecretBroker()
-    stub_web.respond(
+    web.respond(
         "GET",
         f"{VAULT_ADDR}/v1/secret/data/app",
         200,
@@ -293,7 +293,7 @@ def test_stored_login_for_another_vault_is_never_sent(
 
     assert (without_env.vault_token, without_env.token_source.source) == (None, "none")
     assert f"issued for {issuer}" in no_token.value.message
-    assert (with_env.token_source.source, sent_vault_tokens(stub_web)) == (
+    assert (with_env.token_source.source, sent_vault_tokens(web)) == (
         "environment",
         [ENV_TOKEN],
     )
@@ -358,26 +358,26 @@ def test_stored_login_never_reprs_its_token() -> None:
 
 @pytest.mark.parametrize("source", ["stored", "environment"])
 def test_status_never_sends_a_token(
-    monkeypatch: pytest.MonkeyPatch, stub_web: StubWeb, source: str, cli: Callable[..., Any]
+    monkeypatch: pytest.MonkeyPatch, web: WebFake, source: str, cli: Callable[..., Any]
 ) -> None:
     """`sys/health` needs no token, so status sends none, whatever address it is given."""
     store_login(monkeypatch, vault_addr="https://example.com")
     if source == "environment":
         monkeypatch.setenv("VAULT_TOKEN", ENV_TOKEN)
 
-    stub_web.respond("GET", "https://example.com/v1/sys/health", 200, {"initialized": True})
+    web.respond("GET", "https://example.com/v1/sys/health", 200, {"initialized": True})
     res = cli(["vault", "status", "--addr", "https://example.com"])
 
     assert (
         res.exit_code,
-        [r.headers.get("X-Vault-Token") for r in stub_web.sent if r.url.host == "example.com"],
+        [r.headers.get("X-Vault-Token") for r in web.sent if r.url.host == "example.com"],
     ) == (0, [None])
 
 
-def test_every_vault_request_carries_the_same_origin_policy(stub_web: StubWeb) -> None:
+def test_every_vault_request_carries_the_same_origin_policy(web: WebFake) -> None:
     """The broker hands each request an egress policy for its own Vault origin."""
     broker = VaultSecretBroker(vault_addr=VAULT_ADDR, vault_token="s.t")
-    stub_web.respond(
+    web.respond(
         "GET",
         f"{VAULT_ADDR}/v1/secret/data/app",
         200,
@@ -386,17 +386,15 @@ def test_every_vault_request_carries_the_same_origin_policy(stub_web: StubWeb) -
 
     broker.get_secret("secret/data/app", key="k")
 
-    policy = stub_web.sent[0].extensions[CONST_HTTP_EGRESS_POLICY_EXTENSION]
+    policy = web.sent[0].extensions[CONST_HTTP_EGRESS_POLICY_EXTENSION]
     policy(f"{VAULT_ADDR}/v1/other")
     with pytest.raises(VaultOperationError, match=re.escape("https://example.com:8443")):
         policy("https://example.com:8443/v1/secret/data/app")
 
 
-def test_a_redirect_to_another_origin_is_refused(
-    stub_web: StubWeb, keyring_store: FakeKeyring
-) -> None:
+def test_a_redirect_to_another_origin_is_refused(web: WebFake, keyring_store: FakeKeyring) -> None:
     """A 307 to another port is refused before the token reaches it."""
-    stub_web.redirect(
+    web.redirect(
         f"{VAULT_ADDR}/v1/secret/data/app",
         "https://example.com:8443/v1/secret/data/app",
         status=307,
@@ -406,14 +404,14 @@ def test_a_redirect_to_another_origin_is_refused(
     with pytest.raises(VaultOperationError, match=re.escape("https://example.com:8443")) as refused:
         broker.get_secret("secret/data/app", key="k")
 
-    assert vault_hops(stub_web) == [f"{VAULT_ADDR}/v1/secret/data/app"]
+    assert vault_hops(web) == [f"{VAULT_ADDR}/v1/secret/data/app"]
     assert "nothing was sent there" in refused.value.message
     assert keyring_store.reads == []
 
 
-def test_a_login_body_never_follows_a_redirect_to_another_origin(stub_web: StubWeb) -> None:
+def test_a_login_body_never_follows_a_redirect_to_another_origin(web: WebFake) -> None:
     """A 307 keeps the POST body, so an AppRole login redirected elsewhere is refused."""
-    stub_web.redirect(
+    web.redirect(
         f"{VAULT_ADDR}/v1/auth/approle/login",
         "https://example.com:8443/v1/auth/approle/login",
         status=307,
@@ -422,13 +420,13 @@ def test_a_login_body_never_follows_a_redirect_to_another_origin(stub_web: StubW
     with pytest.raises(VaultOperationError, match=re.escape("https://example.com:8443")):
         login_approle(VAULT_ADDR, "role", "secret-id")
 
-    assert vault_hops(stub_web) == [f"{VAULT_ADDR}/v1/auth/approle/login"]
+    assert vault_hops(web) == [f"{VAULT_ADDR}/v1/auth/approle/login"]
 
 
-def test_a_same_origin_redirect_is_followed(stub_web: StubWeb) -> None:
+def test_a_same_origin_redirect_is_followed(web: WebFake) -> None:
     """A redirect within the Vault origin is still followed."""
-    stub_web.redirect(f"{VAULT_ADDR}/v1/secret/data/old", f"{VAULT_ADDR}/v1/secret/data/new", 307)
-    stub_web.page(
+    web.redirect(f"{VAULT_ADDR}/v1/secret/data/old", f"{VAULT_ADDR}/v1/secret/data/new", 307)
+    web.page(
         f"{VAULT_ADDR}/v1/secret/data/new",
         '{"data": {"data": {"k": "moved"}}}',
         headers={"content-type": "application/json"},
@@ -437,7 +435,7 @@ def test_a_same_origin_redirect_is_followed(stub_web: StubWeb) -> None:
 
     lookup = broker.get_secret("secret/data/old", key="k")
 
-    assert (lookup.value, lookup.source, vault_hops(stub_web)) == (
+    assert (lookup.value, lookup.source, vault_hops(web)) == (
         "moved",
         "vault",
         [f"{VAULT_ADDR}/v1/secret/data/old", f"{VAULT_ADDR}/v1/secret/data/new"],
@@ -449,7 +447,7 @@ def test_a_same_origin_redirect_is_followed(stub_web: StubWeb) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_writes_and_syncs_without_a_token_make_no_request(stub_web: StubWeb) -> None:
+def test_writes_and_syncs_without_a_token_make_no_request(web: WebFake) -> None:
     """With no usable token, set and sync raise before any request."""
     broker = VaultSecretBroker()
 
@@ -460,16 +458,16 @@ def test_writes_and_syncs_without_a_token_make_no_request(stub_web: StubWeb) -> 
         broker.sync_to_keyring("secret/data/app")
     assert raised.value.error_code == "VAULT_AUTH_ERROR"
 
-    assert stub_web.sent == []
+    assert web.sent == []
 
 
 @pytest.mark.parametrize("status", [401, 403])
 def test_a_rejected_token_raises_and_never_falls_back(
-    stub_web: StubWeb, status: int, keyring_store: FakeKeyring
+    web: WebFake, status: int, keyring_store: FakeKeyring
 ) -> None:
     """Vault refusing the token is an error naming its source and status, not a keyring read."""
     broker = VaultSecretBroker(vault_token="s.expired")
-    stub_web.respond("GET", f"{VAULT_ADDR}/v1/secret/data/app", status, {})
+    web.respond("GET", f"{VAULT_ADDR}/v1/secret/data/app", status, {})
 
     with pytest.raises(VaultAuthenticationError) as rejected:
         broker.get_secret("secret/data/app", key="k")
@@ -480,13 +478,11 @@ def test_a_rejected_token_raises_and_never_falls_back(
     assert keyring_store.reads == []
 
 
-def test_other_refusals_raise_with_the_status(
-    stub_web: StubWeb, keyring_store: FakeKeyring
-) -> None:
+def test_other_refusals_raise_with_the_status(web: WebFake, keyring_store: FakeKeyring) -> None:
     """A sealed or failing Vault answers with an error, never a keyring fallback."""
     broker = VaultSecretBroker(vault_token="s.t")
-    stub_web.respond("GET", f"{VAULT_ADDR}/v1/secret/data/app", 503, {})
-    stub_web.respond("POST", f"{VAULT_ADDR}/v1/secret/data/app", 503, {})
+    web.respond("GET", f"{VAULT_ADDR}/v1/secret/data/app", 503, {})
+    web.respond("POST", f"{VAULT_ADDR}/v1/secret/data/app", 503, {})
 
     with pytest.raises(VaultOperationError, match="HTTP 503"):
         broker.get_secret("secret/data/app", key="k")
@@ -496,14 +492,14 @@ def test_other_refusals_raise_with_the_status(
     assert keyring_store.reads == []
 
 
-def test_a_body_without_secret_data_is_an_error(stub_web: StubWeb) -> None:
+def test_a_body_without_secret_data_is_an_error(web: WebFake) -> None:
     """A 200 reply that holds no secret data is refused rather than read as empty."""
     broker = VaultSecretBroker(vault_token="s.t")
 
-    stub_web.content(f"{VAULT_ADDR}/v1/secret/data/app", b"not json")
+    web.content(f"{VAULT_ADDR}/v1/secret/data/app", b"not json")
     with pytest.raises(VaultOperationError, match="not JSON"):
         broker.read_secret("secret/data/app")
-    stub_web.respond("GET", f"{VAULT_ADDR}/v1/secret/data/flat", 200, {"data": "flat"})
+    web.respond("GET", f"{VAULT_ADDR}/v1/secret/data/flat", 200, {"data": "flat"})
     with pytest.raises(VaultOperationError, match="without secret data"):
         broker.read_secret("secret/data/flat")
 
@@ -516,11 +512,11 @@ def test_a_body_without_secret_data_is_an_error(stub_web: StubWeb) -> None:
     ],
 )
 def test_no_value_in_vault_falls_back_to_the_keyring(
-    stub_web: StubWeb, keyring_store: FakeKeyring, vault_reply: httpx2.Response, reason: str
+    web: WebFake, keyring_store: FakeKeyring, vault_reply: httpx2.Response, reason: str
 ) -> None:
     """With a token, a path or field Vault lacks is answered from the keyring, which is named."""
     keyring_store.values["k"] = "cached"
-    stub_web.serve(lambda req: vault_reply)
+    web.serve(lambda req: vault_reply)
     broker = VaultSecretBroker(vault_token="s.t")
 
     lookup = broker.get_secret("secret/data/app", key="k")
@@ -534,11 +530,11 @@ def test_no_value_in_vault_falls_back_to_the_keyring(
 
 
 def test_an_unreachable_vault_falls_back_to_the_keyring(
-    stub_web: StubWeb, keyring_store: FakeKeyring
+    web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     """A Vault that does not answer leaves the keyring to answer, saying why."""
     keyring_store.values["k"] = "cached"
-    stub_web.fail(f"{VAULT_ADDR}/v1/secret/data/app", httpx2.ConnectError("refused"))
+    web.fail(f"{VAULT_ADDR}/v1/secret/data/app", httpx2.ConnectError("refused"))
     broker = VaultSecretBroker(vault_token="s.t")
 
     lookup = broker.get_secret("secret/data/app", key="k")
@@ -549,7 +545,7 @@ def test_an_unreachable_vault_falls_back_to_the_keyring(
     )
 
 
-def test_without_a_token_only_the_keyring_is_checked(stub_web: StubWeb) -> None:
+def test_without_a_token_only_the_keyring_is_checked(web: WebFake) -> None:
     """No usable token means Vault is not consulted, and the lookup says so."""
     broker = VaultSecretBroker()
 
@@ -560,11 +556,11 @@ def test_without_a_token_only_the_keyring_is_checked(stub_web: StubWeb) -> None:
         ["keyring"],
         "Vault was not consulted: no usable token",
     )
-    assert stub_web.sent == []
+    assert web.sent == []
 
 
 def test_sync_reads_vault_alone_and_never_writes_the_login_key(
-    monkeypatch: pytest.MonkeyPatch, stub_web: StubWeb, keyring_store: FakeKeyring
+    monkeypatch: pytest.MonkeyPatch, web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     """Sync stores Vault's fields, skips the login record's name, and reports what it lacks."""
     store_login(monkeypatch)
@@ -572,7 +568,7 @@ def test_sync_reads_vault_alone_and_never_writes_the_login_key(
     broker = VaultSecretBroker(vault_namespace=None)
     fields = {"api_key": "v1", "db_pass": "v2", CONST_VAULT_LOGIN_KEYRING_KEY: "s.attacker"}
 
-    stub_web.respond(
+    web.respond(
         "GET",
         f"{VAULT_ADDR}/v1/secret/data/app",
         200,
@@ -592,19 +588,19 @@ def test_sync_reads_vault_alone_and_never_writes_the_login_key(
     assert get_keyring_secret(CONST_VAULT_LOGIN_KEYRING_KEY) == stored_record
 
 
-def test_sync_of_a_path_with_no_secret_is_an_error(stub_web: StubWeb) -> None:
+def test_sync_of_a_path_with_no_secret_is_an_error(web: WebFake) -> None:
     """Syncing a path Vault has nothing at fails instead of reporting zero secrets."""
     broker = VaultSecretBroker(vault_token="s.t")
-    stub_web.respond("GET", f"{VAULT_ADDR}/v1/secret/data/app", 404, {})
+    web.respond("GET", f"{VAULT_ADDR}/v1/secret/data/app", 404, {})
 
     with pytest.raises(VaultKeyError, match="no secret at 'secret/data/app'"):
         broker.sync_to_keyring("secret/data/app")
 
 
-def test_namespace_header_travels_with_the_token(stub_web: StubWeb) -> None:
+def test_namespace_header_travels_with_the_token(web: WebFake) -> None:
     """A namespaced broker sends its namespace beside the token."""
     broker = VaultSecretBroker(vault_token="s.t", vault_namespace="admin/ns")
-    stub_web.respond(
+    web.respond(
         "GET",
         f"{VAULT_ADDR}/v1/secret/data/app",
         200,
@@ -612,4 +608,4 @@ def test_namespace_header_travels_with_the_token(stub_web: StubWeb) -> None:
     )
 
     broker.read_secret("secret/data/app", key="k")
-    assert stub_web.sent[0].headers.get("X-Vault-Namespace") == "admin/ns"
+    assert web.sent[0].headers.get("X-Vault-Namespace") == "admin/ns"

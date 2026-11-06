@@ -12,7 +12,7 @@ from devops_cli.exceptions.vault import VaultAuthenticationError, VaultLeaseErro
 from devops_cli.security.secrets import reset_resolver
 from devops_cli.security.vault_broker import VaultSecretBroker
 from devops_cli.security.vault_lease import reset_lease_registry, revoke_lease
-from tests.web_fakes import StubWeb
+from tests.support.fakes.http import WebFake
 
 VAULT_ADDR = "https://example.com:8200"
 REVOKE_URL = f"{VAULT_ADDR}/v1/sys/leases/revoke"
@@ -36,13 +36,13 @@ def broker(monkeypatch: pytest.MonkeyPatch) -> Iterator[VaultSecretBroker]:
 
 
 def test_a_revoke_sends_the_lease_id_with_the_token(
-    stub_web: StubWeb, broker: VaultSecretBroker
+    web: WebFake, broker: VaultSecretBroker
 ) -> None:
-    stub_web.respond("POST", REVOKE_URL, 204)
+    web.respond("POST", REVOKE_URL, 204)
 
     revoke_lease(broker, "database/creds/app/lease-1")
 
-    sent = stub_web.sent[-1]
+    sent = web.sent[-1]
     assert (
         sent.method,
         str(sent.url),
@@ -57,9 +57,9 @@ def test_a_revoke_sends_the_lease_id_with_the_token(
 
 
 def test_a_rejected_token_names_its_source_and_the_login_command(
-    stub_web: StubWeb, broker: VaultSecretBroker
+    web: WebFake, broker: VaultSecretBroker
 ) -> None:
-    stub_web.respond("POST", REVOKE_URL, 403, {"errors": ["permission denied"]})
+    web.respond("POST", REVOKE_URL, 403, {"errors": ["permission denied"]})
 
     with pytest.raises(VaultAuthenticationError) as caught:
         revoke_lease(broker, "lease-1")
@@ -72,10 +72,10 @@ def test_a_rejected_token_names_its_source_and_the_login_command(
 
 
 def test_another_refusal_names_the_masked_lease_and_the_status(
-    stub_web: StubWeb, broker: VaultSecretBroker
+    web: WebFake, broker: VaultSecretBroker
 ) -> None:
     secret = "ghp_" + "a1B2c3D4e5" * 4
-    stub_web.respond("POST", REVOKE_URL, 400, {"errors": ["invalid lease"]})
+    web.respond("POST", REVOKE_URL, 400, {"errors": ["invalid lease"]})
 
     with pytest.raises(VaultLeaseError) as caught:
         revoke_lease(broker, f"auth/token/{secret}")

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import socket
 
 import pytest
 
@@ -15,25 +14,18 @@ from devops_cli.telemetry.logging_bridge import (
     TraceCorrelationFilter,
     get_current_trace_correlation,
 )
+from tests.support.fakes.dns import DnsFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 # ── Finding #8: SSRF DNS Resolution in Manifest URL ──────────────────────────
 
 
-def test_k8s_apply_manifest_ssrf_rejects_hostname_resolving_to_private_ip(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_k8s_apply_manifest_ssrf_rejects_hostname_resolving_to_private_ip(dns: DnsFake) -> None:
     """k8s apply rejects manifest URLs whose hostname resolves to private/loopback/link-local IP."""
 
     for fake_ip in ("10.0.1.5", "169.254.169.254", "127.0.0.1"):
-        monkeypatch.setattr(
-            socket,
-            "getaddrinfo",
-            lambda host, port, *args, fake_ip=fake_ip, **kwargs: [
-                (socket.AF_INET, socket.SOCK_STREAM, 6, "", (fake_ip, 80))
-            ],
-        )
+        dns.add("example.com", fake_ip)
         with pytest.raises(
             (ValueError, KubernetesContextError),
             match=r"(Manifest URL resolves to private or reserved IP|Access to link-local or cloud metadata services|Manifest URL egress check failed)",

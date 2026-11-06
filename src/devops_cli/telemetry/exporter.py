@@ -3,7 +3,7 @@
 The tracer builds each signal's OTLP export request and queues it on its own executor. An
 `OtlpExporter` sends the encoded request to the collector and probes whether the collector
 answers. `HttpOtlpExporter` is the one real exporter: it posts to the collector's OTLP/HTTP
-paths through the egress-checked client (`devops_cli.http.client`) at the private level, as
+paths through the egress-checked client (`devops_cli.http.entry`) at the private level, as
 internal infrastructure. The `devops_cli.http` imports sit in the functions that use them:
 that package imports the tracer, which imports this module. devops-cli sends no OTLP over gRPC: `otlp_exporter` refuses a gRPC
 protocol or endpoint with an error that names the setting, instead of posting HTTP to a gRPC
@@ -158,11 +158,11 @@ class RefusedExporter:
 def _collector_client(read_timeout: float) -> httpx2.Client:
     """An egress-checked client for the collector, with a short connect and pool wait, so an
     absent collector costs the command at most a second."""
-    from devops_cli.http.client import new_http_client
     from devops_cli.http.egress import EgressLevel
+    from devops_cli.http.entry import http_client
 
-    return new_http_client(
-        level=EgressLevel.PRIVATE,
+    return http_client(
+        EgressLevel.PRIVATE,
         timeout=httpx2.Timeout(connect=1.0, read=read_timeout, write=read_timeout, pool=1.0),
     )
 

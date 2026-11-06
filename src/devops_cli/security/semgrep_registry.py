@@ -47,8 +47,8 @@ from devops_cli.core.repo import user_data_root
 from devops_cli.core.serialization import YAML_SAFE_LOADER
 from devops_cli.exceptions import ToolDownloadError
 from devops_cli.exceptions.validation import ValidationError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_warning
 from devops_cli.output.file_writer import write_bytes_file, write_text_file
@@ -168,8 +168,8 @@ def _download(url: str, max_bytes: int, cached_etag: str | None) -> _RegistryAns
     body = bytearray()
     try:
         with (
-            new_http_client(
-                level=EgressLevel.PUBLIC, read_timeout=DEFAULT_SEMGREP_REGISTRY_TIMEOUT_SECONDS
+            http_client(
+                EgressLevel.PUBLIC, read_timeout=DEFAULT_SEMGREP_REGISTRY_TIMEOUT_SECONDS
             ) as client,
             client.stream("GET", url, headers=conditional) as response,
         ):
