@@ -72,6 +72,14 @@ The run SHALL make the claim `<claim>-move` and the pod `<claim>-dst` on the tar
 - **WHEN** the first copy fails with `connection reset by peer`
 - **THEN** the run empties `/dst`, copies one more time, and goes on
 
+### Requirement: The copy of a volume move keeps its source open until the destination has ended
+The source side of the copy SHALL run `cat` after GNU tar succeeds, and a named pipe SHALL join the stdout of the destination side to the stdin of the source side. So the stdout of the source stays open until the destination has ended, and a slower destination loses no data. Bash SHALL make the named pipe and remove it on exit.
+
+#### Scenario: The source holds until the destination ended
+- **WHEN** a move runs its copy
+- **THEN** the source side runs `tar -C /src --numeric-owner --sparse -cpf - . && exec cat` with `kubectl exec -i`, and reads its stdin from the named pipe
+- **AND** the destination side writes its stdout to the same named pipe
+
 ### Requirement: A volume move binds the claim to the new volume
 After the two sides are equal, the run SHALL set the two volumes to `Retain`, save the old claim to a file, delete it, delete `<claim>-move`, reserve its volume for the claim name, and make the claim again with `spec.volumeName`. The create SHALL leave out the last-applied annotation and the annotations of the volume controllers, and the run SHALL then put the saved last-applied value back.
 
