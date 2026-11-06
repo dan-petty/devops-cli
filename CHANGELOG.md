@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.73.0](https://github.com/dan-petty/devops-cli/compare/v0.72.1...v0.73.0) (2026-11-06)
+
+
+### Features
+
+* **pr:** check-readiness blocks a body that breaks the form ([#3849](https://github.com/dan-petty/devops-cli/issues/3849)) ([6c973a5](https://github.com/dan-petty/devops-cli/commit/6c973a58fcfc09c1b9bb097338a804220a1b7d3b)), closes [#3259](https://github.com/dan-petty/devops-cli/issues/3259)
+* **roadmap:** Allow read pipes to a table of allowed programs ([#3838](https://github.com/dan-petty/devops-cli/issues/3838)) ([89daf41](https://github.com/dan-petty/devops-cli/commit/89daf414f019d9ca66269f5eaa95353baff08ca2)), closes [#3520](https://github.com/dan-petty/devops-cli/issues/3520)
+* **roadmap:** size the runner Job resources from the plan ([#3848](https://github.com/dan-petty/devops-cli/issues/3848)) ([32328b1](https://github.com/dan-petty/devops-cli/commit/32328b1f8d902637aa2432ea2c01809fb939f75a))
+
+
+### Bug Fixes
+
+* **ai:** fix MCP ai_benchmark models description ([#3840](https://github.com/dan-petty/devops-cli/issues/3840)) ([26a0ef4](https://github.com/dan-petty/devops-cli/commit/26a0ef469b6b27f8cda22641b8c20ed6998e3730))
+* **review:** catch findings.json validation errors ([#3841](https://github.com/dan-petty/devops-cli/issues/3841)) ([bc5f241](https://github.com/dan-petty/devops-cli/commit/bc5f24125e46aa465f563c7b7a2120857a2869ae))
+* **security:** Refuse Go, Yarn and uv env keys ([#3845](https://github.com/dan-petty/devops-cli/issues/3845)) ([235a807](https://github.com/dan-petty/devops-cli/commit/235a807c44865fef0bdcf078a6e1c96224adb64c))
+
+
+### Performance Improvements
+
+* **k8s:** use tag_digest HEAD for image pins ([#3843](https://github.com/dan-petty/devops-cli/issues/3843)) ([a61d671](https://github.com/dan-petty/devops-cli/commit/a61d6717993f7f7829db84a270466be365efed2b))
+
+
+### Code Refactoring
+
+* **roadmap:** the in-memory store leaves src ([#3839](https://github.com/dan-petty/devops-cli/issues/3839)) ([558c5e0](https://github.com/dan-petty/devops-cli/commit/558c5e0ac1257b63dceceeb20867f9d278cd11ab))
+
 ## [0.72.1](https://github.com/dan-petty/devops-cli/compare/v0.72.0...v0.72.1) (2026-11-06)
 
 
