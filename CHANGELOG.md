@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.69.0](https://github.com/dan-petty/devops-cli/compare/v0.68.0...v0.69.0) (2026-11-06)
+
+
+### Features
+
+* **k8s:** post a GitHub deployment for each Argo CD deploy ([#3783](https://github.com/dan-petty/devops-cli/issues/3783)) ([5515975](https://github.com/dan-petty/devops-cli/commit/5515975ad777da10ba51e0fa9740790ee8c7b0c7))
+
+
+### Bug Fixes
+
+* **k8s:** the ebpf profiler skips the node hawk ([#3788](https://github.com/dan-petty/devops-cli/issues/3788)) ([bd65ef6](https://github.com/dan-petty/devops-cli/commit/bd65ef637c25a1404240a1f4a6fd34d657b5ff4b))
+
+
+### Code Refactoring
+
+* **cli:** one HTTP entry point with a shared fake ([#3786](https://github.com/dan-petty/devops-cli/issues/3786)) ([0feeb8b](https://github.com/dan-petty/devops-cli/commit/0feeb8be5c56ea2315a081eba5facafb9818c442)), closes [#3755](https://github.com/dan-petty/devops-cli/issues/3755)
+
 ## [0.68.0](https://github.com/dan-petty/devops-cli/compare/v0.67.2...v0.68.0) (2026-11-06)
 
 
