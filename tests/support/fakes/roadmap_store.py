@@ -105,6 +105,7 @@ class Fault:
     applied: bool = False
     write: str | None = None
     item: int | None = None
+    error: Exception | None = None
 
 
 def _number(args: tuple[object, ...]) -> int | None:
@@ -213,14 +214,15 @@ class InMemoryRoadmapStore(RoadmapStore):
         applied: bool = False,
         write: str | None = None,
         item: int | None = None,
+        error: Exception | None = None,
     ) -> None:
         """Fail one write of this view as a gh call fails: the `at`-th, counted from 1, of the
-        writes named `write` on issue `item` (any write, on any item, when None) raises
-        `GitHubOperationError` once. With `applied`, GitHub applied the write and the call
+        writes named `write` on issue `item` (any write, on any item, when None) raises `error`,
+        else `GitHubOperationError`, once. With `applied`, GitHub applied the write and the call
         still reports a failure, so the change stays in place; else nothing changes."""
         if write is not None and write not in WRITES:
             raise ValueError(f"{write} is no write of the store.")
-        self._fault = Fault(at=at, applied=applied, write=write, item=item)
+        self._fault = Fault(at=at, applied=applied, write=write, item=item, error=error)
         self._counted_writes = 0
 
     def fail_listing(self, error: Exception) -> None:
@@ -239,10 +241,10 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._counted_writes += counted
         failing = counted and self._counted_writes == fault.at
         if failing and not fault.applied:
-            raise GitHubOperationError("HTTP 502", operation="roadmap.write")
+            raise fault.error or GitHubOperationError("HTTP 502", operation="roadmap.write")
         done = apply()
         if failing:
-            raise GitHubOperationError(
+            raise fault.error or GitHubOperationError(
                 "HTTP 502 after the write applied", operation="roadmap.write"
             )
         return done

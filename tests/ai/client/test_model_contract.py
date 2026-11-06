@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import httpx2
 import pytest
+from pydantic import BaseModel
 from pydantic_ai.direct import model_request_stream_sync, model_request_sync
 from pydantic_ai.messages import ModelRequest, TextPart, ThinkingPart, UserPromptPart
 from pydantic_ai.models.test import TestModel
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
     from devops_cli.ai.spend.ledger import SpendLedger
 
 from devops_cli.ai.client import AIClientError, LLMClient
+from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, serve_llm
@@ -209,6 +211,32 @@ def test_sequential_answering_contract() -> None:
     assert fake.chat("System", "Query 2").content == "Second step"
     assert fake.chat("System", "Query 3").content == "Second step"
     assert fake.requested == ["Query 1", "Query 2", "Query 3"]
+
+
+def test_a_callable_answer_is_given_the_prompt() -> None:
+    """`fake.answer(function)` answers each request with what `function` returns for its prompt."""
+    fake = ModelFake()
+    fake.answer(lambda prompt: prompt.upper())
+
+    assert (fake.chat("System", "one").content, fake.chat("System", "two").content) == (
+        "ONE",
+        "TWO",
+    )
+
+
+class _Reply(BaseModel):
+    count: int
+
+
+def test_a_reply_that_fits_no_schema_raises_the_clients_validation_error() -> None:
+    """`chat_structured` raises `StructuredOutputValidationError` for a reply the schema refuses,
+    as the real client does once its tries are spent, and parses a reply that fits."""
+    fake = ModelFake()
+    fake.answer('{"count": "many"}', '{"count": 3}')
+
+    with pytest.raises(StructuredOutputValidationError, match="does not fit _Reply"):
+        fake.chat_structured("System", "Query 1", _Reply)
+    assert fake.chat_structured("System", "Query 2", _Reply) == _Reply(count=3)
 
 
 def test_pattern_routing_contract() -> None:

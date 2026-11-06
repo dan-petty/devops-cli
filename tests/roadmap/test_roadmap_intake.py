@@ -12,13 +12,12 @@ import asyncio
 import json
 import subprocess
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from itertools import groupby
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import httpx2
 import pytest
@@ -31,8 +30,8 @@ from typer.testing import CliRunner
 from devops_cli import entry
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.ai.mcp import server as mcp_server
-from devops_cli.ai.rag.embeddings import EmbeddingsEngine
-from devops_cli.commands import roadmap as roadmap_command
+from devops_cli.ai.mcp.dispatcher import get_mcp_dispatcher, install_mcp_dispatcher
+from devops_cli.ai.rag.embeddings import EmbeddingsEngine, install_embedder
 from devops_cli.commands.roadmap import app
 from devops_cli.config.constants import CONST_ROADMAP_INTAKE_REASON_MARKER
 from devops_cli.config.settings import AIConfig
@@ -47,9 +46,9 @@ from devops_cli.exceptions.git import (
 )
 from devops_cli.exceptions.roadmap import RoadmapIntakeError
 from devops_cli.exceptions.security import SecurityError
+from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.duplicate_eval import DUPLICATE_CASES
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.intake import (
@@ -66,6 +65,7 @@ from devops_cli.roadmap.intake import (
 from devops_cli.roadmap.intake_model import (
     GatewayIntakeModel,
     ModelProposal,
+    Neighbour,
     ProposalRequest,
     intake_system_prompt,
 )
@@ -78,14 +78,20 @@ from devops_cli.roadmap.store import (
     Item,
     ItemField,
     family_prefix,
+    install_roadmap_store,
     item_of,
     split_record,
 )
-from devops_cli.telemetry.tracer import OTelTelemetryClient, get_tracer
+from devops_cli.telemetry.exporter import OtlpSignal
+from devops_cli.telemetry.tracer import get_tracer
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
 from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.http import WebFake
+from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.model import ModelFake
+from tests.support.fakes.otlp import FakeCollector
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore, JobWrite
 from tests.support.fakes.valkey import valkey_client_on
 
@@ -131,6 +137,14 @@ class FakeModel:
         shared = {"shared_change": original} if duplicate is not None else {}
         fields = DEFAULT_PROPOSAL | shared | self.proposals.get(request.title, {})
         return ModelProposal.model_validate({"duplicate_of": duplicate, **fields})
+
+
+class GhLabelStore(InMemoryRoadmapStore):
+    """The in-memory roadmap whose label write goes through the real `run_gh`, as the GitHub
+    store's does, so each write waits its turn on the identity's ledger."""
+
+    def label_issue(self, number: int, label: str) -> None:
+        run_gh(["api", "--method", "POST", f"repos/{REPO}/issues/{number}/labels"])
 
 
 class Roadmap:
@@ -1006,15 +1020,9 @@ def test_a_run_that_stops_after_the_status_write_is_finished_by_the_next_run(
     """A run that wrote Status and stopped leaves a candidate: the next run decides it again,
     writes only what it holds no label for, and leaves one reason comment."""
     number = roadmap.issue("feat: resumable")
-    set_field = roadmap.store.set_field
-
-    def write_then_fail(*args: Any, **kwargs: Any) -> None:
-        set_field(*args, **kwargs)
-        raise GitHubOperationError("HTTP 502", operation="roadmap.item.set_field")
-
-    with patch.object(roadmap.store, "set_field", side_effect=write_then_fail):
-        with pytest.raises(RoadmapIntakeError, match=f"#{number} \\(GitHubOperationError\\)"):
-            roadmap.run(FakeModel())
+    roadmap.store.fail_write(write="set_field", applied=True)
+    with pytest.raises(RoadmapIntakeError, match=f"#{number} \\(GitHubOperationError\\)"):
+        roadmap.run(FakeModel())
     stopped = roadmap.fields(number)
     writes = roadmap.run(FakeModel())
     assert (
@@ -1044,16 +1052,9 @@ def test_a_candidate_whose_write_fails_is_named_and_the_others_are_still_placed(
     (#1443)."""
     first, refused, last = (roadmap.issue(f"feat: candidate {n}") for n in range(3))
     placed = ("New", "P2-Medium", "Medium", "Low", None)
-    label_issue = roadmap.store.label_issue
-
-    def refuse_one(number: int, label: str) -> None:
-        if number == refused:
-            raise GitHubOperationError("HTTP 502: Bad Gateway", operation="roadmap.write")
-        label_issue(number, label)
-
-    with patch.object(roadmap.store, "label_issue", side_effect=refuse_one):
-        with pytest.raises(RoadmapIntakeError) as raised:
-            roadmap.run(FakeModel())
+    roadmap.store.fail_write(write="label_issue", item=refused)
+    with pytest.raises(RoadmapIntakeError) as raised:
+        roadmap.run(FakeModel())
     assert (
         raised.value.failed_items,
         f"#{refused} (GitHubOperationError)" in str(raised.value),
@@ -1078,18 +1079,17 @@ def test_a_rate_limit_or_a_refused_token_stops_the_round_with_no_further_writes(
 ) -> None:
     """Every later write would be refused too, so the round stops at the first (#1400): a rate
     limit or a token GitHub refuses (#983)."""
-    first, second = (roadmap.issue(f"feat: candidate {n}") for n in range(2))
-    tried: list[int] = []
-
-    def refuse(number: int, label: str) -> None:
-        tried.append(number)
-        raise refusal
-
-    with patch.object(roadmap.store, "label_issue", side_effect=refuse):
-        with pytest.raises(type(refusal)) as raised:
-            roadmap.run(FakeModel())
-        assert raised.value is not None
-    assert (tried, roadmap.store.item(second), _labels(roadmap, second)) == ([first], None, ())
+    roadmap.issue("feat: candidate 0")
+    second = roadmap.issue("feat: candidate 1")
+    roadmap.store.fail_write(write="label_issue", error=refusal)
+    with pytest.raises(type(refusal)) as raised:
+        roadmap.run(FakeModel())
+    assert raised.value is refusal
+    assert (roadmap.store.writes, roadmap.store.item(second), _labels(roadmap, second)) == (
+        ["label_issue"],
+        None,
+        (),
+    )
 
 
 def test_a_quota_that_could_not_be_read_skips_the_candidate_and_writes_the_next(
@@ -1098,19 +1098,16 @@ def test_a_quota_that_could_not_be_read_skips_the_candidate_and_writes_the_next(
     """An unread quota may be an outage that passes before the next candidate, so it skips the
     candidate, names it, and writes the next (#983)."""
     first, second = (roadmap.issue(f"feat: candidate {n}") for n in range(2))
-    label_issue = roadmap.store.label_issue
-
-    def unread_first(number: int, label: str) -> None:
-        if number == first:
-            raise GitHubUnreadError(
-                "Failed to refresh rate limits from GitHub API: HTTP 502: Bad Gateway",
-                operation="refresh_quota",
-            )
-        label_issue(number, label)
-
-    with patch.object(roadmap.store, "label_issue", side_effect=unread_first):
-        with pytest.raises(RoadmapIntakeError) as raised:
-            roadmap.run(FakeModel())
+    roadmap.store.fail_write(
+        write="label_issue",
+        item=first,
+        error=GitHubUnreadError(
+            "Failed to refresh rate limits from GitHub API: HTTP 502: Bad Gateway",
+            operation="refresh_quota",
+        ),
+    )
+    with pytest.raises(RoadmapIntakeError) as raised:
+        roadmap.run(FakeModel())
     assert (raised.value.failed_items, roadmap.store.item(second) is not None) == ((first,), True)
 
 
@@ -1126,30 +1123,21 @@ def test_a_quota_that_could_not_be_read_skips_the_candidate_and_writes_the_next(
     ],
 )
 def test_a_quota_refresh_github_refuses_stops_the_round_after_one_refresh(
-    roadmap: Roadmap, refused: str, error: type[GitHubOperationError]
+    process_fake: ProcessFake, clock: ClockFake, refused: str, error: type[GitHubOperationError]
 ) -> None:
     """Each write goes through the real `run_gh`, whose ledger has no quota yet, and `gh api
     rate_limit` is refused: a refused token or a rate limit stops the round at the first
     candidate, so the refresh runs once (#983)."""
-    from devops_cli.github import rate_limiter
-
-    _, second = (roadmap.issue(f"feat: candidate {n}") for n in range(2))
-
-    def write_through_gh(number: int, label: str) -> None:
-        rate_limiter.run_gh(["api", "--method", "POST", f"repos/{REPO}/issues/{number}/labels"])
-
-    refusal = subprocess.CompletedProcess(["gh", "api", "rate_limit"], 1, "", refused)
-    with (
-        patch.object(roadmap.store, "label_issue", side_effect=write_through_gh),
-        patch.object(rate_limiter, "run_subprocess", return_value=refusal) as gh,
-        patch("time.sleep"),
-        pytest.raises(GitHubOperationError) as raised,
-    ):
-        roadmap.run(FakeModel())
+    process_fake.answer(("gh", "api", "rate_limit"), ProcessAnswer(returncode=1, stderr=refused))
+    gh_roadmap = Roadmap(GhLabelStore())
+    gh_roadmap.issue("feat: candidate 0")
+    second = gh_roadmap.issue("feat: candidate 1")
+    with pytest.raises(GitHubOperationError) as raised:
+        gh_roadmap.run(FakeModel())
     assert (
         type(raised.value),
-        [call.args[0] for call in gh.call_args_list],
-        roadmap.store.item(second),
+        [list(call.argv) for call in process_fake.calls],
+        gh_roadmap.store.item(second),
     ) == (error, [["gh", "api", "rate_limit"]], None)
 
 
@@ -1293,11 +1281,34 @@ def opened(roadmap_store: InMemoryRoadmapStore) -> Roadmap:
     return Roadmap(roadmap_store)
 
 
+class _TopicEmbedder:
+    """The embedder of every model a command builds: it embeds as `model` does."""
+
+    def __init__(self, model: FakeModel) -> None:
+        self._model = model
+
+    def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
+        return self._model.embed(texts)
+
+
 @pytest.fixture
-def fake_model(monkeypatch: pytest.MonkeyPatch) -> FakeModel:
-    """The model every command builds."""
+def fake_model(model_fake: ModelFake, keyring_store: FakeKeyring) -> FakeModel:
+    """The model every command builds: its embeddings come from the installed embedder, and its
+    proposals from the model fake, which answers each request as `FakeModel.propose` does."""
     model = FakeModel()
-    monkeypatch.setattr(roadmap_command, "build_intake_model", lambda: model)
+    install_embedder(_TopicEmbedder(model))
+
+    def propose(prompt: str) -> str:
+        sent = json.loads(prompt)
+        request = ProposalRequest(
+            title=sent["title"],
+            body=sent["body"],
+            shortlist=tuple(Neighbour(**near) for near in sent["shortlist"]),
+            types=tuple(sent["types"]),
+        )
+        return model.propose(request).model_dump_json()
+
+    model_fake.answer(propose)
     return model
 
 
@@ -1342,20 +1353,16 @@ def test_intake_plan_reports_a_possible_duplicate_with_the_writes_that_place_it(
 
 
 def test_a_quota_refresh_that_times_out_ends_the_plan_with_its_error_and_no_traceback(
-    opened: Roadmap, fake_model: FakeModel, monkeypatch: pytest.MonkeyPatch
+    fake_model: FakeModel, process_fake: ProcessFake
 ) -> None:
     """2026-10-18: `gh api rate_limit` ran past its timeout while intake read GitHub, and
     `devops roadmap intake --plan` ended in a `TimeoutExpired` traceback. The read of every
     issue goes through the real ledger here, with gh faked: the plan names the timed-out
     refresh and exits 1 (#983)."""
-    from devops_cli.github import rate_limiter
-
-    opened.issue("feat: previewed")
-    github = GitHubRoadmapStore(REPO)
-    monkeypatch.setattr(opened.store, "issues", github.issues)
+    install_roadmap_store(lambda repo, **_: GitHubRoadmapStore(repo))
     timed_out = subprocess.TimeoutExpired(["gh", "api", "rate_limit"], 10.0)
-    with patch.object(rate_limiter, "run_subprocess", side_effect=timed_out):
-        result = runner.invoke(app, ["intake", "--repo", REPO, "--plan"])
+    process_fake.answer(("gh", "api", "rate_limit"), ProcessAnswer(side_effect=timed_out))
+    result = runner.invoke(app, ["intake", "--repo", REPO, "--plan"])
     output = " ".join(result.output.split())
     assert (
         result.exit_code,
@@ -1372,15 +1379,8 @@ def test_confirm_reports_what_it_placed_names_what_it_skipped_and_exits_one(
 ) -> None:
     """The person running it sees the placements, then which candidate failed and why (#1443)."""
     placed, refused = opened.issue("feat: placed"), opened.issue("feat: refused")
-    label_issue = opened.store.label_issue
-
-    def refuse_one(number: int, label: str) -> None:
-        if number == refused:
-            raise GitHubOperationError("HTTP 502: Bad Gateway", operation="roadmap.write")
-        label_issue(number, label)
-
-    with patch.object(opened.store, "label_issue", side_effect=refuse_one):
-        output = _intake("--confirm", exit_code=1)
+    opened.store.fail_write(write="label_issue", item=refused)
+    output = _intake("--confirm", exit_code=1)
     assert (
         "Intake placed 1 item(s)." in output,
         "Intake finished with candidates it could not write: the writes failed for 1 "
@@ -1406,22 +1406,18 @@ def test_plain_intake_previews_as_plan_does_and_says_what_it_spends(
 
 
 @pytest.fixture
-def no_requests(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A roadmap store, an intake model and a process (`gh` or any other) that fail the test when
-    a command opens, builds or starts one; the session's socket guard covers connections."""
+def no_requests(
+    process_fake: ProcessFake, model_fake: ModelFake, fake_model: FakeModel
+) -> Iterator[None]:
+    """A roadmap store, a model call and a process (`gh` or any other) that fail the test when a
+    command opens, makes or starts one; the session's socket guard covers connections."""
 
     def no_store(*_: object, **__: object) -> InMemoryRoadmapStore:
         raise AssertionError("the dry run opened the roadmap store")
 
-    def no_model() -> GatewayIntakeModel:
-        raise AssertionError("the dry run built the intake model")
-
-    def no_process(*args: object, **_: object) -> subprocess.Popen[str]:
-        raise AssertionError(f"the dry run started a process: {args[:1]}")
-
-    monkeypatch.setattr(roadmap_store_module, "get_roadmap_store", no_store)
-    monkeypatch.setattr(roadmap_command, "build_intake_model", no_model)
-    monkeypatch.setattr(subprocess, "Popen", no_process)
+    install_roadmap_store(no_store)
+    yield
+    assert (process_fake.calls, model_fake.call_count, fake_model.embedded) == ([], 0, [])
 
 
 def test_dry_run_makes_no_request_and_prints_the_requests_a_run_makes_in_order(
@@ -1642,7 +1638,7 @@ def test_the_mode_flags_exclude_each_other(no_requests: None, flags: tuple[str, 
 
 
 def test_the_spend_meter_counts_every_request_the_ledger_paces_and_each_model_call(
-    github_api: GitHubApiFake,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
 ) -> None:
     """Every GitHub request a run makes waits its turn on the identity's ledger: a gh command
     through `run_gh` and a request the GitHub session sends alike (#983). The meter reports the
@@ -1655,11 +1651,11 @@ def test_the_spend_meter_counts_every_request_the_ledger_paces_and_each_model_ca
         limiter.update_quota(resource, remaining=5000, limit=5000, reset_epoch=time.time() + 600)
     limiter.acquire(subcommand="core")
     meter = SpendMeter()
-    answered = subprocess.CompletedProcess(["gh"], 0, "[]", "")
-    with patch.object(rate_limiter, "run_subprocess", return_value=answered):
-        rate_limiter.run_gh(["api", "repos/example/roadmap/issues/1"])
-        rate_limiter.run_gh(["api", "-X", "GET", "search/issues", "-f", "q=x", "-F", "per_page=1"])
-        rate_limiter.run_gh(["api", "graphql", "-f", "query=query { viewer { login } }"])
+    github_api, process_fake = github_api_and_gh
+    process_fake.answer("gh", ProcessAnswer(stdout="[]"))
+    rate_limiter.run_gh(["api", "repos/example/roadmap/issues/1"])
+    rate_limiter.run_gh(["api", "-X", "GET", "search/issues", "-f", "q=x", "-F", "per_page=1"])
+    rate_limiter.run_gh(["api", "graphql", "-f", "query=query { viewer { login } }"])
     listing = "/repos/example/roadmap/milestones?state=all&per_page=100"
     github_api.route("GET", listing, github_json([]))
     list(get_github_session().paginate(listing))
@@ -1672,17 +1668,15 @@ def test_the_spend_meter_counts_every_request_the_ledger_paces_and_each_model_ca
 
 
 def test_an_unreachable_gateway_exits_non_zero_names_it_and_writes_nothing(
-    opened: Roadmap, monkeypatch: pytest.MonkeyPatch
+    opened: Roadmap, config: Callable[..., Path], keyring_store: FakeKeyring
 ) -> None:
     class Unreachable:
         def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
             raise ConnectionError("connection refused")
 
     gateway = "http://example.com:4000/v1"
-    model = GatewayIntakeModel(
-        AIConfig(gateway_url=gateway, gateway_enabled=True), embedder=Unreachable()
-    )
-    monkeypatch.setattr(roadmap_command, "build_intake_model", lambda: model)
+    config(ai={"gateway_url": gateway, "gateway_enabled": True})
+    install_embedder(Unreachable())
     opened.issue("feat: waits")
     before = opened.store.job_writes()
     output = _intake("--confirm", exit_code=1)
@@ -1716,17 +1710,23 @@ def test_title_and_body_file_go_together(opened: Roadmap, fake_model: FakeModel)
     assert "--body-file" in _intake("--title", "lonely", exit_code=1)
 
 
-def _in_process(exits: list[int], body_files: list[Path]) -> Callable[..., str]:
-    """Run the command line an MCP tool builds through the command, in this process."""
+class _RecordingDispatcher:
+    """The MCP dispatcher, in this process, that notes each exit code and each body file the
+    command line names while the file exists."""
 
-    def run(cmd: list[str], **_: object) -> str:
+    def __init__(self, exits: list[int], body_files: list[Path]) -> None:
+        self._real = get_mcp_dispatcher()
+        self._exits = exits
+        self._body_files = body_files
+
+    def dispatch(
+        self, cmd: list[str], timeout: float = 30.0, env: dict[str, str] | None = None
+    ) -> tuple[int, str]:
         if "--body-file" in cmd:
-            body_files.append(Path(cmd[cmd.index("--body-file") + 1]))
-        result = runner.invoke(app, cmd[4:])
-        exits.append(result.exit_code)
-        return result.output
-
-    return run
+            self._body_files.append(Path(cmd[cmd.index("--body-file") + 1]))
+        code, output = self._real.dispatch(cmd, timeout=timeout, env=env)
+        self._exits.append(code)
+        return code, output
 
 
 def test_the_mcp_mirror_plans_by_default_and_builds_a_command_line_the_cli_accepts(
@@ -1741,17 +1741,17 @@ def test_the_mcp_mirror_plans_by_default_and_builds_a_command_line_the_cli_accep
     before = len(opened.store.job_writes())
     temp_body = tmp_path / "body.txt"
     temp_body.write_text("text", encoding="utf-8")
-    with patch.object(mcp_server, "_run_mcp_cmd", side_effect=_in_process(exits, body_files)):
-        planned = mcp_server.roadmap_intake(repo=REPO)
-        mcp_server.roadmap_intake(repo=REPO, issue=[1])
-        mcp_server.roadmap_intake(
-            repo=REPO,
-            title="feat: via mcp",
-            body_file=temp_body,
-            source=PARENT,
-        )
-        previewed = len(opened.store.job_writes())
-        mcp_server.roadmap_intake(repo=REPO, confirm=True)
+    install_mcp_dispatcher(_RecordingDispatcher(exits, body_files))
+    planned = mcp_server.roadmap_intake(repo=REPO)
+    mcp_server.roadmap_intake(repo=REPO, issue=[1])
+    mcp_server.roadmap_intake(
+        repo=REPO,
+        title="feat: via mcp",
+        body_file=temp_body,
+        source=PARENT,
+    )
+    previewed = len(opened.store.job_writes())
+    mcp_server.roadmap_intake(repo=REPO, confirm=True)
     properties = tool.parameters["properties"] if tool else {}
     assert (
         "roadmap_intake" in names,
@@ -1766,40 +1766,38 @@ def test_the_mcp_mirror_plans_by_default_and_builds_a_command_line_the_cli_accep
 
 def test_the_mcp_mirror_dry_run_makes_no_request(no_requests: None) -> None:
     exits: list[int] = []
-    with patch.object(mcp_server, "_run_mcp_cmd", side_effect=_in_process(exits, [])):
-        output = mcp_server.roadmap_intake(repo=REPO, dry_run=True, issue=[3])
+    install_mcp_dispatcher(_RecordingDispatcher(exits, []))
+    output = mcp_server.roadmap_intake(repo=REPO, dry_run=True, issue=[3])
     assert (exits, "Dry run: no request was made" in output) == ([0], True)
 
 
 @pytest.fixture
-def exports(monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]) -> list[str]:
-    """The telemetry exports a command makes, recorded instead of sent, with telemetry on."""
+def collector(otlp: FakeCollector, config: Callable[..., Path]) -> FakeCollector:
+    """The OTLP fake that receives the telemetry a command exports, with telemetry on."""
     config(telemetry={"enabled": True})
-    sent: list[str] = []
-
-    def record(self: OTelTelemetryClient, path: str, payload: dict[str, Any]) -> None:
-        sent.append(path)
-
-    monkeypatch.setattr(OTelTelemetryClient, "_send_payload_sync", record)
-    return sent
+    return otlp
 
 
 def test_a_dry_run_through_the_entry_point_exports_no_telemetry(
-    no_requests: None, exports: list[str], capsys: pytest.CaptureFixture[str]
+    no_requests: None, collector: FakeCollector, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with pytest.raises(SystemExit) as exited:
         entry.main(["roadmap", "intake", "--repo", REPO, "--dry-run", "--issue", "7"])
     get_tracer().shutdown()
     output = capsys.readouterr().out
-    assert (exited.value.code, "Dry run: no request was made" in output, exports) == (0, True, [])
+    assert (exited.value.code, "Dry run: no request was made" in output, collector.exports) == (
+        0,
+        True,
+        [],
+    )
 
 
 def test_the_mcp_mirror_dry_run_dispatched_in_process_exports_no_telemetry(
-    no_requests: None, exports: list[str]
+    no_requests: None, collector: FakeCollector
 ) -> None:
     output = mcp_server.roadmap_intake(repo=REPO, dry_run=True, issue=[3])
     get_tracer().shutdown()
-    after_dry_run = list(exports)
+    after_dry_run = list(collector.exports)
     with pytest.raises(ToolError) as raised:
         mcp_server.roadmap_intake(repo=REPO, plan_only=True)
     assert raised.value is not None
@@ -1807,7 +1805,7 @@ def test_the_mcp_mirror_dry_run_dispatched_in_process_exports_no_telemetry(
     assert (
         "Dry run: no request was made" in output,
         after_dry_run,
-        "/v1/traces" in exports,
+        OtlpSignal.TRACES in [export.signal for export in collector.exports],
         in_dry_run_invocation(),
     ) == (True, [], True, False)
 
@@ -2001,34 +1999,29 @@ def test_an_off_list_proposal_skips_its_candidate_after_one_model_call(roadmap: 
 
 
 def test_intake_proposal_uses_triage_task_model_or_falls_back_to_ai_model(
-    monkeypatch: pytest.MonkeyPatch,
+    model_fake: ModelFake,
 ) -> None:
     """Intake uses ai.tasks.triage model when set; when unset, it falls back to ai.model."""
     from devops_cli.config.settings import AIConfig, AITaskOverride, AITasksConfig
     from devops_cli.roadmap.intake_model import GatewayIntakeModel
 
-    captured_configs: list[tuple[str, str]] = []
-
-    def fake_get_llm_client(*, task: str, config: Any, api_key: Any = None) -> Any:
-        captured_configs.append((task, config.model))
-        return None
-
-    monkeypatch.setattr("devops_cli.ai.client.get_llm_client", fake_get_llm_client)
+    request = ProposalRequest(title="t", body="b", shortlist=(), types=("type/feature",))
+    model_fake.answer(json.dumps(DEFAULT_PROPOSAL))
 
     # 1. Unset triage task: falls back to ai.model
     ai_unset = AIConfig(model="base-chat-model")
-    model_unset = GatewayIntakeModel(ai_unset, embedder=_Embedder())
-    _ = model_unset._client
-    assert captured_configs[-1] == ("triage", "base-chat-model")
-
+    GatewayIntakeModel(ai_unset, embedder=_Embedder()).propose(request)
     # 2. Set triage task: uses triage.model
     ai_set = AIConfig(
         model="base-chat-model",
         tasks=AITasksConfig(triage=AITaskOverride(model="devops-triage")),
     )
-    model_set = GatewayIntakeModel(ai_set, embedder=_Embedder())
-    _ = model_set._client
-    assert captured_configs[-1] == ("triage", "devops-triage")
+    GatewayIntakeModel(ai_set, embedder=_Embedder()).propose(request)
+
+    assert [(call["task"], call["config"].model) for call in model_fake.factory_calls] == [
+        ("triage", "base-chat-model"),
+        ("triage", "devops-triage"),
+    ]
 
 
 def test_intake_title_confirm_exits_non_zero_when_candidate_is_skipped(
