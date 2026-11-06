@@ -258,7 +258,7 @@ This session produced 301 findings across the repository, marking 182 as `VERIFI
 Four systemic updates harden the loop against recurrence:
 1. **Catalog Entries Added**: `HALLUCINATION-GOLDEN-TEST-FIXTURE-EXEMPLAR`, `HALLUCINATION-K8S-CLUSTER-OVERLAY-HTTP`, and `HALLUCINATION-LOCAL-DEV-NODEPORT-EXPOSURE` in `common_hallucinations.json`.
 2. **Verifier Falsification Rules**: Added explicit invalidation for synthetic test fixtures, cluster overlay networking, local NodePorts, preceding scope guards, and white-box test inspections to `src/devops_cli/ai/tasks/verify_finding_system.md`.
-3. **Repository Conventions**: Documented settled claims in `.devops/review.md` and phase grounding in `src/devops_cli/ai/tasks/review.md`.
+3. **Repository Conventions**: Documented settled claims in `.devops/review.md` (#1916 retired that file; suppressions and severity caps now sit in `.devops/review.toml`) and phase grounding in `src/devops_cli/ai/tasks/review.md`.
 4. **Targeted Security Hardening**: Validated Prometheus queries, host sandbox process termination, and MCP domain gating with regression tests.
 
 #### Calibration Record: Session `20260928-040906`

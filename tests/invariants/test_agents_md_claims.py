@@ -12,6 +12,7 @@ from typing import Final
 from urllib.parse import unquote, urlsplit
 
 from markdown_it import MarkdownIt
+from markdown_it.token import Token
 from mdit_py_plugins.anchors import anchors_plugin
 
 from devops_cli.ai.instruction_generator import (
@@ -51,6 +52,9 @@ CONST_DELETED_PROCESS_TERMS: Final[tuple[str, ...]] = (
     "filing quota",
     "budget/borrowed",
     "#1153",
+    # #1916 retired the review guards file. Suppressions and severity caps sit in
+    # `.devops/review.toml`.
+    ".devops/review.md",
     # A branch is `<type>/<issue>-<slug>`, stated once in CONTRIBUTING.md (#2292).
     "topic branch prefixes",
     "feat/<",
@@ -461,6 +465,72 @@ def test_a_text_that_names_a_deleted_process_is_reported() -> None:
         "new.md": "Open the pull request into `main`. release-please makes the release.",
     }
     assert _deleted_process_names(texts) == {"old.md": ["release branch", "the cut"]}
+
+
+# ── The test files that the test rules name exist (#3508) ────────────────────────────────────
+
+
+def _marked_target(following: list[Token]) -> bool:
+    """Whether an emphasis that starts with `(target` follows, with only spaces between."""
+    rest = [t for t in following if not (t.type in {"text", "softbreak"} and not t.content.strip())]
+    return len(rest) > 1 and rest[0].type == "em_open" and rest[1].content.startswith("(target")
+
+
+def _missing_test_paths(document: Path, root: Path) -> list[str]:
+    """Each backticked `tests/` path of the document that is absent under `root`.
+
+    A path with a `<placeholder>` is checked up to the placeholder. A path that an
+    `*(target ...)*` mark follows names a file that is planned, so it needs no file.
+    """
+    missing: list[str] = []
+    for block in _MARKDOWN.parse(document.read_text(encoding="utf-8")):
+        children = block.children or []
+        for index, token in enumerate(children):
+            if token.type != "code_inline" or not re.fullmatch(r"tests/\S*", token.content):
+                continue
+            if _marked_target(children[index + 1 :]):
+                continue
+            if not (root / token.content.split("<")[0]).exists():
+                missing.append(token.content)
+    return missing
+
+
+def test_the_test_rules_name_only_test_files_that_exist() -> None:
+    """A test path in docs/TESTING.md that is gone or moved sends an agent to the wrong place.
+    Each backticked `tests/` path of the test rules exists, or is a placeholder or a target."""
+    assert _missing_test_paths(_TESTING_MD, REPO_ROOT) == []
+
+
+def test_a_test_path_that_is_gone_is_reported(tmp_path: Path) -> None:
+    """Negative control: a path to a file that is not there is named, and a directory or a file
+    that is there passes."""
+    (tmp_path / "tests" / "ai").mkdir(parents=True)
+    (tmp_path / "tests" / "ai" / "test_here.py").write_text("", encoding="utf-8")
+    document = tmp_path / "TESTING.md"
+    document.write_text(
+        "See `tests/ai/test_here.py`, `tests/ai/` and `tests/test_gone.py`.\n", encoding="utf-8"
+    )
+
+    assert _missing_test_paths(document, tmp_path) == ["tests/test_gone.py"]
+
+
+def test_a_placeholder_and_a_target_test_path_pass(tmp_path: Path) -> None:
+    """A planned fake (`<edge>`) and a planned test marked `*(target)*` need no file, but a
+    placeholder under a directory that is not there, or a path with another mark, is named."""
+    (tmp_path / "tests" / "support" / "fakes").mkdir(parents=True)
+    document = tmp_path / "TESTING.md"
+    document.write_text(
+        "Fakes sit in `tests/support/fakes/<edge>.py`. A planned test is\n"
+        "`tests/roadmap/test_duplicate_candidates.py` *(target)* and\n"
+        "`tests/commands/` *(target: a few do today)*.\n"
+        "Not planned: `tests/nowhere/<edge>.py` and `tests/old/test_a.py` *(see below)*.\n",
+        encoding="utf-8",
+    )
+
+    assert _missing_test_paths(document, tmp_path) == [
+        "tests/nowhere/<edge>.py",
+        "tests/old/test_a.py",
+    ]
 
 
 # ── The release page and the changelog types the contributor guide names ────────────────────
