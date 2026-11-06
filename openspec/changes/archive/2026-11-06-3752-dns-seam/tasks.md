@@ -14,7 +14,7 @@
 
 ## 3. Archive
 
-- [ ] 3.1 Archive the change
+- [x] 3.1 Archive the change
   - Verification: `uv run devops openspec archive 3752-dns-seam`
 
 ## Workflow follow-up
