@@ -262,7 +262,8 @@ class ToolCallLog:
     only when the checkout holds that path. A log with no root shows no path. With a `trace`, each call is also an event of it (#3032):
     this log is the one place that knows a refusal by policy from another retry. `before_request` runs
     before each model request, when the tool calls of the last reply have all returned and the
-    agent is paused: the step uses it to keep the work in progress (#3054)."""
+    agent is paused: the step uses it to keep the work in progress (#3054). `parser_failures` counts
+    the turns of the step that ended on a tool call that the provider could not parse (#3053)."""
 
     root: Path | None = None
     refused: Counter[str] = field(default_factory=Counter[str])
@@ -275,6 +276,7 @@ class ToolCallLog:
     before_request: Callable[[], None] | None = None
     fail_to_pass: BaseReplay | None = None
     verified: list[VerifiedCommand] = field(default_factory=list[VerifiedCommand])
+    parser_failures: int = 0
 
     def refuse(self, tool_call_id: str | None) -> None:
         """Note that the shell refused the call with this id and returned the refusal as a result.

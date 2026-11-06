@@ -39,7 +39,9 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
 )
 from devops_cli.exceptions.roadmap import RoadmapImplementError
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import implement_step
+from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement_limits import StepBudget
 from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_ALLOWED_PROGRAMS,
@@ -1768,6 +1770,19 @@ def _history(messages: Sequence[Any]) -> list[Any]:
     return [message.parts for message in messages]
 
 
+def _asks_for_a_smaller_edit(sent: Sequence[Any], failed: Sequence[Any]) -> bool:
+    """Whether `sent` is the request of `failed` with one more part at its end: the text that asks
+    for a smaller edit. A tool call that the provider cannot parse fails again for the same
+    conversation, so the request that follows it must differ (#3053)."""
+    *earlier, last = _history(sent)
+    *before, failed_last = _history(failed)
+    return (
+        earlier == before
+        and last[:-1] == failed_last
+        and last[-1].content == MESSAGES.roadmap.implement_parser_smaller_edit
+    )
+
+
 def test_a_400_inside_a_stream_is_sent_again_with_the_same_history_and_the_step_ends_done(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
@@ -1783,7 +1798,7 @@ def test_a_400_inside_a_stream_is_sent_again_with_the_same_history_and_the_step_
         "The group is done.",
     )
     assert len(script.seen) == 3
-    assert _history(script.seen[2]) == _history(script.seen[1])
+    assert _asks_for_a_smaller_edit(script.seen[2], script.seen[1])
 
 
 def test_a_400_inside_a_stream_at_the_first_request_is_sent_again(
@@ -1794,7 +1809,7 @@ def test_a_400_inside_a_stream_at_the_first_request_is_sent_again(
     outcome = _step(store, checkout, script)
 
     assert (outcome.status, len(script.seen)) == (StepStatus.DONE, 3)
-    assert _history(script.seen[1]) == _history(script.seen[0])
+    assert _asks_for_a_smaller_edit(script.seen[1], script.seen[0])
 
 
 def test_a_400_inside_a_stream_on_every_send_stops_the_step_with_the_body(
@@ -1813,6 +1828,7 @@ def test_a_400_inside_a_stream_on_every_send_stops_the_step_with_the_body(
     )
     assert "tool call parsing failed" in named
     assert len(script.seen) == 1 + 1 + constants.CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
+    assert outcome.failure_class is FailureClass.PARSER
     assert "diff --git a/src/sample.py b/src/sample.py" in outcome.diff
 
 
@@ -1860,29 +1876,26 @@ def test_a_400_inside_a_stream_in_the_repair_turn_is_sent_again(
     outcome = _step(store, checkout, script)
 
     assert (outcome.status, outcome.last_message) == (StepStatus.DONE, "Ticked.")
-    assert _history(script.seen[3]) == _history(script.seen[2])
+    assert _asks_for_a_smaller_edit(script.seen[3], script.seen[2])
 
 
-def test_two_separate_failures_in_one_step_are_each_sent_again(
+def test_a_second_parser_failure_in_one_step_stops_it_after_a_good_reply(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    """The budget of a resend is for one call. A good reply between two failures gives the second
-    failure its own resend."""
+    """The smaller edit is asked once in a step (#3053). A parser failure after a good reply is the
+    second one, so the step stops and sends no request again."""
     script = ModelScript(
-        _in_stream_400(),
-        tool_calls(*the_whole_group()),
-        _in_stream_400(),
-        say("Done."),
+        _in_stream_400(), tool_calls(*the_whole_group()), _in_stream_400(), say("Done.")
     )
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.reason) == (StepStatus.DONE, "")
-    assert _history(script.seen[1]) == _history(script.seen[0])
-    assert _history(script.seen[3]) == _history(script.seen[2])
+    assert (outcome.status, outcome.failure_class) == (StepStatus.STOPPED, FailureClass.PARSER)
+    assert len(script.seen) == 3
+    assert _asks_for_a_smaller_edit(script.seen[1], script.seen[0])
 
 
-def test_a_failure_after_a_good_reply_stops_when_its_own_resend_fails(
+def test_a_failure_after_a_good_reply_stops_without_a_second_smaller_edit(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     read = tool_call("read_file", path="docs/SAMPLE.md")
@@ -1892,7 +1905,7 @@ def test_a_failure_after_a_good_reply_stops_when_its_own_resend_fails(
 
     assert outcome.status == StepStatus.STOPPED
     assert f"body: {XML_ERROR}" in outcome.reason
-    assert len(script.seen) == 4
+    assert len(script.seen) == 3
 
 
 def test_the_replies_before_a_send_again_count_against_the_request_limit(

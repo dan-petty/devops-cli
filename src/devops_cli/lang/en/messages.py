@@ -2454,6 +2454,11 @@ class RoadmapMessages:
         "Ollama refuses a tool call of the model when the XML of the call is not whole "
         "(ollama/ollama issue 18563)."
     )
+    implement_parser_smaller_edit: str = (
+        "The provider could not read your last tool call, for it ended before it was whole. "
+        "The same call fails again. Send a smaller edit: write one file, or one small part of a "
+        "file, in each tool call."
+    )
     implement_stop_counts: str = "Refused commands: {refused}. Other retries: {retried}."
     implement_model_call_deadline: str = "{detail}, no complete reply in {seconds:g} seconds"
     implement_stop_limit: str = "The step spent its budget `{setting}={value}`."
