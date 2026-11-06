@@ -1040,7 +1040,7 @@ def _branch_base_revision(
     )
 
 
-def _prepare_branch_content(
+def prepare_branch_content(
     branch_name: str | None, base: str, repo_path: Path, *, working_directory: Path
 ) -> tuple[list[str], str, str, BaseRevision]:
     """Prepare diff blocks, title, resolved target_branch, and the base
@@ -1274,7 +1274,7 @@ def _name_intake_hand_off(session_dir: Path) -> None:
         print_info(hint, prefix=False)
 
 
-def _write_review_profile(
+def write_review_profile(
     profiler: ReviewProfiler,
     orchestrator: ReviewPipelineOrchestrator,
     target: str,
@@ -1321,7 +1321,7 @@ def _finding_producer(finding: Finding) -> str:
     return "unknown"
 
 
-def _record_review_metrics(
+def record_review_metrics(
     results: list[tuple[PersonaDefinition, ReviewResult | str]],
     seconds: float,
     target_type: str,
@@ -1365,7 +1365,7 @@ def _run_profiled_session(
             )
         if not all_files:
             return None
-        results = _run_orchestrator_review(
+        results = run_orchestrator_review(
             orchestrator,
             all_files,
             metadata_by_path,
@@ -1373,15 +1373,15 @@ def _run_profiled_session(
             stage_flags=stage_flags,
         )
         if not is_dry_run():
-            profile = _write_review_profile(
+            profile = write_review_profile(
                 profiler, orchestrator, target_ref, len(all_files), kept=_reports(stage_flags)
             )
             _close_session(orchestrator, stage_flags)
-            _record_review_metrics(results, profile.total_wall_seconds, target_type)
+            record_review_metrics(results, profile.total_wall_seconds, target_type)
         return results
 
 
-def _run_orchestrator_review(
+def run_orchestrator_review(
     orchestrator: ReviewPipelineOrchestrator,
     all_files: list[str],
     metadata_by_path: dict[str, FileAnalysisMeta],
@@ -1506,7 +1506,7 @@ def _review_routed_files_only(
     return results
 
 
-def _check_and_warn_perimeter_changes(
+def check_and_warn_perimeter_changes(
     target_type: str,
     changed_files: Sequence[str],
     *,
@@ -1550,7 +1550,7 @@ def _report_sandbox_refusal(executor: SandboxToolExecutor) -> None:
         )
 
 
-def _execute_review_workflow(
+def execute_review_workflow(
     pages: list[str],
     title: str,
     summary_only: bool,
@@ -1597,7 +1597,7 @@ def _execute_review_workflow(
         _print_analysis_metadata(analysis_metas, title)
         return []
 
-    _check_and_warn_perimeter_changes(
+    check_and_warn_perimeter_changes(
         target_type, all_files, base_revision=base_revision, target_dir=target_dir
     )
     from devops_cli.security.tool_executor import SandboxToolExecutor

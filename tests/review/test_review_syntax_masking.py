@@ -6,7 +6,7 @@ from pathlib import Path
 
 from devops_cli.ai.analyze.scanner import detect_syntax, syntax_from_language
 from devops_cli.ai.review.cited_code import record_cited_code
-from devops_cli.review.analysis import _build_anchor_excerpt
+from devops_cli.review.analysis import build_anchor_excerpt
 from devops_cli.review.anchors import ToolAnchor
 from devops_cli.review.finding import Finding
 from tests.support.builders import make_finding
@@ -111,8 +111,8 @@ def test_anchor_excerpts_mask_by_file_syntax() -> None:
         fingerprint_v2="env-1",
     )
 
-    excerpt_py = _build_anchor_excerpt(f_py, "password = cfg.db_password\n", context_lines=0)
-    excerpt_env = _build_anchor_excerpt(f_env, "password = settings.Hunter22\n", context_lines=0)
+    excerpt_py = build_anchor_excerpt(f_py, "password = cfg.db_password\n", context_lines=0)
+    excerpt_env = build_anchor_excerpt(f_env, "password = settings.Hunter22\n", context_lines=0)
 
     assert excerpt_py is not None
     assert excerpt_py.excerpt == "password = cfg.db_password"
@@ -123,7 +123,7 @@ def test_anchor_excerpts_mask_by_file_syntax() -> None:
 
 def test_outlines_masking_preserves_code_syntax(monkeypatch) -> None:
     """Outline metadata enhancement and pseudocode generation pass code syntax for programming languages."""
-    from devops_cli.ai.analyze.outlines import _enhance_file_metadata_with_ai
+    from devops_cli.ai.analyze.outlines import enhance_file_metadata_with_ai
 
     captured_prompt = None
 
@@ -133,7 +133,7 @@ def test_outlines_masking_preserves_code_syntax(monkeypatch) -> None:
             captured_prompt = messages[0].content
             return '{"overview": "test", "domain_concepts": []}'
 
-    _enhance_file_metadata_with_ai(
+    enhance_file_metadata_with_ai(
         rel_path="src/main.py",
         content="password = cfg.db_password\n",
         lang="python",

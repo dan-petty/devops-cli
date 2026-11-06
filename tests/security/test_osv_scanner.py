@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from devops_cli.ai.review.pipeline import _STATIC_ANALYZERS, ReviewPipelineOrchestrator
+from devops_cli.ai.review.pipeline import STATIC_ANALYZERS, ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.config.commands import BIN_OSV_SCANNER, build_osv_scan_cmd
 from devops_cli.config.constants import CONST_OSV_OFFLINE_DB_TTL_SECONDS
@@ -23,8 +23,8 @@ from devops_cli.review.analysis import default_environment_facts
 from devops_cli.review.anchors import AdvisoryAnchor
 from devops_cli.security.osv_scanner import (
     OsvScanner,
-    _extract_osv_severity,
     detect_manifest_coverage_gaps,
+    extract_osv_severity,
     get_or_compute_snapshot_digest,
     parse_osv_scanner_output,
     run_osv_scan,
@@ -60,18 +60,18 @@ def test_osv_scanner_command_builder(tmp_path: Path) -> None:
 def test_osv_severity_extraction_never_defaults_to_high() -> None:
     """Severities map directly from advisory database/ecosystem fields, falling back to UNKNOWN."""
     # Database specific severity
-    assert _extract_osv_severity({"database_specific": {"severity": "MODERATE"}}) == "MEDIUM"
-    assert _extract_osv_severity({"database_specific": {"severity": "CRITICAL"}}) == "CRITICAL"
-    assert _extract_osv_severity({"database_specific": {"severity": "LOW"}}) == "LOW"
+    assert extract_osv_severity({"database_specific": {"severity": "MODERATE"}}) == "MEDIUM"
+    assert extract_osv_severity({"database_specific": {"severity": "CRITICAL"}}) == "CRITICAL"
+    assert extract_osv_severity({"database_specific": {"severity": "LOW"}}) == "LOW"
 
     # Ecosystem specific severity
-    assert _extract_osv_severity({"ecosystem_specific": {"severity": "HIGH"}}) == "HIGH"
+    assert extract_osv_severity({"ecosystem_specific": {"severity": "HIGH"}}) == "HIGH"
 
     # Missing severity never defaults to HIGH
-    assert _extract_osv_severity({}) == "UNKNOWN"
-    assert _extract_osv_severity({"database_specific": {}}) == "UNKNOWN"
+    assert extract_osv_severity({}) == "UNKNOWN"
+    assert extract_osv_severity({"database_specific": {}}) == "UNKNOWN"
     assert (
-        _extract_osv_severity(
+        extract_osv_severity(
             {"severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N"}]}
         )
         == "UNKNOWN"
@@ -324,10 +324,10 @@ def test_environment_facts_carries_cyclonedx_inventory() -> None:
 
 
 def test_review_pipeline_has_osv_scanner_in_static_analyzers() -> None:
-    """_STATIC_ANALYZERS includes osv-scanner targeting lockfiles."""
-    scanner_names = [name for name, _, _ in _STATIC_ANALYZERS]
+    """STATIC_ANALYZERS includes osv-scanner targeting lockfiles."""
+    scanner_names = [name for name, _, _ in STATIC_ANALYZERS]
     assert "osv-scanner" in scanner_names
-    lock_analyzer = next(entry for entry in _STATIC_ANALYZERS if entry[0] == "osv-scanner")
+    lock_analyzer = next(entry for entry in STATIC_ANALYZERS if entry[0] == "osv-scanner")
     assert lock_analyzer == ("osv-scanner", BIN_OSV_SCANNER, "lockfiles")
 
 

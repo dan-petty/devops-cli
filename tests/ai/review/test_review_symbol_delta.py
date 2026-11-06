@@ -21,8 +21,8 @@ from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator, _record_sy
 from devops_cli.ai.review.runner import (
     ReviewClients,
     _branch_base_revision,
-    _execute_review_workflow,
-    _prepare_branch_content,
+    execute_review_workflow,
+    prepare_branch_content,
 )
 from devops_cli.ai.review_schema import FileReviewPayload
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta, ProjectAnalysisMeta
@@ -184,9 +184,7 @@ def _branch_review_metadata(
         patch("devops_cli.git.operations.list_changed_files", side_effect=list_changes),
         patch("devops_cli.git.operations.read_file_at_revision", side_effect=read),
     ):
-        *_, base_revision = _prepare_branch_content(
-            targets[0], "main", repo, working_directory=repo
-        )
+        *_, base_revision = prepare_branch_content(targets[0], "main", repo, working_directory=repo)
         metadata = _pre_analysis(_orchestrator(repo, _NoModel()), repo, base_revision)
     return asked, metadata
 
@@ -317,7 +315,7 @@ def test_a_review_hands_its_base_to_pre_analysis_and_its_diff_to_persona_review(
     with patch(
         "devops_cli.ai.review.pipeline.ReviewPipelineOrchestrator", return_value=orchestrator
     ):
-        _execute_review_workflow(
+        execute_review_workflow(
             [_MOD_DIFF],
             "Branch `feature` vs `main`",
             summary_only=False,

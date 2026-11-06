@@ -36,7 +36,7 @@ flowchart TD
 ### A Review
 
 `devops review path`, `branch` and `pr` (`commands/review.py`) all run
-`_execute_review_workflow` (`ai/review/runner.py`). The analysis client is constructed
+`execute_review_workflow` (`ai/review/runner.py`). The analysis client is constructed
 only when model stages are enabled (`ReviewStageFlags.needs_model()`), under a profiler,
 through four stages:
 

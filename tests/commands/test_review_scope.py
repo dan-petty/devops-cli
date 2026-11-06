@@ -15,15 +15,15 @@ from devops_cli.ai.review.pipeline import (
     ReviewPipelineOrchestrator,
     _evaluate_session_complexity_deltas,
     _lockfiles_beside,
-    _match_static_findings_to_files,
     _populate_gomod_for_dir,
     _write_base_revision_files,
-    _write_base_revision_lockfiles,
+    match_static_findings_to_files,
+    write_base_revision_lockfiles,
 )
 from devops_cli.ai.review.runner import (
     _materialize_pr_head,
     _prepare_pr_content,
-    _run_orchestrator_review,
+    run_orchestrator_review,
 )
 from devops_cli.ai.review_schema import SavedFinding
 from devops_cli.github.client import CommitRef, PullRequest, PullRequestFile
@@ -141,7 +141,7 @@ def test_the_pr_command_reviews_against_the_pr_head(tmp_path: Path) -> None:
     with (
         patch("devops_cli.commands.review._make_review_clients", return_value=MagicMock()),
         patch("devops_cli.commands.review._prepare_pr_content", side_effect=prepare),
-        patch("devops_cli.commands.review._execute_review_workflow", side_effect=run),
+        patch("devops_cli.commands.review.execute_review_workflow", side_effect=run),
     ):
         result = CliRunner().invoke(app, ["review", "pr", "7", "--repo", "base/app"])
 
@@ -383,7 +383,7 @@ def test_each_file_is_reviewed_with_its_own_pages_only() -> None:
     orchestrator.generate_consolidated_report.return_value = ({}, "report")
     pages = ["### File: data.py\n```python\nx = 1\n```", "### File: a.py\n```python\ny = 2\n```"]
 
-    _run_orchestrator_review(orchestrator, ["a.py", "data.py"], {}, pages)
+    run_orchestrator_review(orchestrator, ["a.py", "data.py"], {}, pages)
 
     diff_map = orchestrator.init_per_file_payloads.call_args.kwargs["diff_text_by_file"]
     assert (diff_map["a.py"], diff_map["data.py"]) == (pages[1], pages[0])
@@ -399,7 +399,7 @@ def test_lockfiles_beside_reviewed_files_reach_the_scanners(tmp_path: Path) -> N
     )
 
     lockfiles = _lockfiles_beside([tmp_path / "app.py", tmp_path / "pyproject.toml"])
-    attached = _match_static_findings_to_files([finding], ["svc/app.py", "svc/pyproject.toml"])
+    attached = match_static_findings_to_files([finding], ["svc/app.py", "svc/pyproject.toml"])
 
     assert ([p.name for p in lockfiles], list(attached)) == (["uv.lock"], ["svc/pyproject.toml"])
 
@@ -450,7 +450,7 @@ def test_a_base_revision_file_read_failure_records_a_coverage_gap(
         f"/repos/base/app/contents/uv.lock?ref={_MERGE_BASE}",
         github_json({"message": "Server Error"}, status=500),
     )
-    _write_base_revision_lockfiles(
+    write_base_revision_lockfiles(
         base_revision, tmp_path / "base", ["mod.py"], coverage_gaps=lockfile_gaps
     )
     assert (

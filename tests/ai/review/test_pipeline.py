@@ -15,8 +15,8 @@ import pytest
 
 from devops_cli.ai.review.pipeline import (
     ReviewPipelineOrchestrator,
-    _admit_scanner_findings,
-    _wrap_static_findings,
+    admit_scanner_findings,
+    wrap_static_findings,
 )
 from devops_cli.ai.review_schema import Finding, SavedFinding
 from devops_cli.security.gitleaks import parse_gitleaks_json
@@ -108,11 +108,11 @@ def _candidates() -> list[SavedFinding]:
         severity="HIGH",
     )
     return [
-        *_wrap_static_findings([bandit, hardcoded_password], tool="bandit"),
-        *_wrap_static_findings([credential_logged], tool="semgrep"),
-        *_wrap_static_findings(gitleaks, tool="gitleaks"),
-        *_wrap_static_findings(trivy, tool="trivy"),
-        *_wrap_static_findings([semgrep], tool="semgrep"),
+        *wrap_static_findings([bandit, hardcoded_password], tool="bandit"),
+        *wrap_static_findings([credential_logged], tool="semgrep"),
+        *wrap_static_findings(gitleaks, tool="gitleaks"),
+        *wrap_static_findings(trivy, tool="trivy"),
+        *wrap_static_findings([semgrep], tool="semgrep"),
     ]
 
 
@@ -127,7 +127,7 @@ def test_review_toml_severity_caps_apply_at_admission_and_spare_secret_findings(
     orchestrator = ReviewPipelineOrchestrator(session_id="s1301-caps", target_dir=root)
     candidates = _candidates()
 
-    admitted, reported = _admit_scanner_findings(
+    admitted, reported = admit_scanner_findings(
         candidates,
         session_id="s1301-caps",
         worktree_root=root,
@@ -323,12 +323,12 @@ def test_scanner_finding_citing_absent_kubernetes_object_is_rejected(tmp_path: P
     )
 
     candidates = [
-        *_wrap_static_findings([finding_valid, finding_ghost], tool="kube-linter"),
-        *_wrap_static_findings([finding_empty_path_valid, finding_empty_path_ghost], tool="pluto"),
+        *wrap_static_findings([finding_valid, finding_ghost], tool="kube-linter"),
+        *wrap_static_findings([finding_empty_path_valid, finding_empty_path_ghost], tool="pluto"),
     ]
 
     rejection_counts: dict[str, int] = {}
-    admitted, reported = _admit_scanner_findings(
+    admitted, reported = admit_scanner_findings(
         candidates,
         session_id="s1352-manifests",
         worktree_root=tmp_path,

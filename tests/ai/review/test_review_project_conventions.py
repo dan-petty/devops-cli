@@ -14,7 +14,7 @@ import typer
 
 from devops_cli.ai.review.review_environment import nearest_conventions
 from devops_cli.ai.review.runner import (
-    _prepare_branch_content,
+    prepare_branch_content,
 )
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.paths import REPO_ROOT
@@ -321,7 +321,7 @@ def test_a_branch_cannot_loosen_its_own_review(
         conventions_file.write(_EXEMPTION + "\n")
     (root / "app.go").write_text("package main\n\nfunc main() {}\n", encoding="utf-8")
     git(root, "commit", "-qam", "exempt the branch")
-    _pages, _title, _target, base_revision = _prepare_branch_content(
+    _pages, _title, _target, base_revision = prepare_branch_content(
         "feature", "main", root, working_directory=root
     )
     conventions = nearest_conventions(root, base_revision.revision)
@@ -360,7 +360,7 @@ def test_a_ci_checkout_reviews_the_branch_under_its_origins_conventions(
     git(root, "update-ref", "refs/remotes/origin/main", "main")
     git(root, "branch", "-qD", "main")
 
-    pages, title, _target, base_revision = _prepare_branch_content(
+    pages, title, _target, base_revision = prepare_branch_content(
         None, "main", root, working_directory=root
     )
     conventions = nearest_conventions(root, base_revision.revision)
@@ -383,7 +383,7 @@ def test_a_checkout_with_no_base_at_all_is_not_reviewed_against_itself(
     git(root, "branch", "-qD", "main")
 
     with pytest.raises(typer.Exit) as exited:
-        _prepare_branch_content(None, "main", root, working_directory=root)
+        prepare_branch_content(None, "main", root, working_directory=root)
 
     assert exited.value.exit_code == 1
 
@@ -412,7 +412,7 @@ def test_a_manifest_the_branch_adds_does_not_hide_its_bases_conventions(
     git(root, "add", ".")
     git(root, "commit", "-qm", "corpus manifest")
 
-    _pages, _title, _target, base_revision = _prepare_branch_content(
+    _pages, _title, _target, base_revision = prepare_branch_content(
         "feature", "main", root / "sub", working_directory=root
     )
     conventions = nearest_conventions(root / "sub", base_revision.revision)

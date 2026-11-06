@@ -32,8 +32,8 @@ from devops_cli.ai.review.profile import (
 )
 from devops_cli.ai.review.runner import (
     _corpus_digest,
-    _run_orchestrator_review,
-    _write_review_profile,
+    run_orchestrator_review,
+    write_review_profile,
 )
 from devops_cli.ai.spend.ledger import SpendLedger, observe_llm_calls, track_request_spend
 from devops_cli.commands import review as review_commands
@@ -205,7 +205,7 @@ def test_the_profile_summary_says_how_many_replies_hit_the_cap(
         with review_stage("persona_review"):
             for reason in reasons:
                 _observed(profiler, REMOTE, reason)
-        _write_review_profile(profiler, orchestrator, "playbooks", 2)
+        write_review_profile(profiler, orchestrator, "playbooks", 2)
 
     assert lines == [
         f"[dim]Profile: 1s, {summary} -> {tmp_path / 'session' / 'profile.json'}[/dim]"
@@ -258,7 +258,7 @@ def test_the_profile_summary_shows_replayed_count_and_includes_replayed_only_sta
             with review_stage("group_analysis"):
                 profiler.observe({"cached": True})
                 profiler.observe({"cached": True})
-        _write_review_profile(profiler, orchestrator, "target", 1)
+        write_review_profile(profiler, orchestrator, "target", 1)
 
     assert lines == [
         f"[dim]Profile: 1s, 1 LLM calls; report 1s (1 calls), group_analysis 1s (0 calls, 2 replayed) -> {tmp_path / 'session' / 'profile.json'}[/dim]"
@@ -300,7 +300,7 @@ def test_orchestrated_review_profiles_each_stage_and_its_findings() -> None:
     orchestrator.generate_consolidated_report.return_value = ({}, "report")
 
     with profiling() as profiler:
-        _run_orchestrator_review(orchestrator, ["a.yaml"], {}, ["a.yaml"])
+        run_orchestrator_review(orchestrator, ["a.yaml"], {}, ["a.yaml"])
         profile = profiler.build(session_id="s", target="t")
 
     assert (
@@ -343,7 +343,7 @@ def test_written_profiles_reach_the_collecting_benchmark(tmp_path: Path) -> None
 
     with collect_profiles() as profiles:
         with profiling() as profiler:
-            _write_review_profile(profiler, orchestrator, "playbooks", 15)
+            write_review_profile(profiler, orchestrator, "playbooks", 15)
     report_profile(_profile(1, 1, 1, 1))
 
     assert (
@@ -378,7 +378,7 @@ def test_the_profile_records_a_digest_of_the_conventions_the_review_used(
             conventions = nearest_conventions(project)
             if conventions:
                 profiler.set_conventions(conventions)
-            _write_review_profile(profiler, orchestrator, str(project), 1)
+            write_review_profile(profiler, orchestrator, str(project), 1)
         saved = ReviewProfile.load(orchestrator.session.publish())
         recorded.append((saved.conventions_digest if saved else None, conventions))
     digests = [kept for kept, _ in recorded]
@@ -593,7 +593,7 @@ def test_a_review_warns_when_prompts_change_during_the_run(
             (tasks / "review.md").write_text("modified prompt\n", encoding="utf-8")
         elif mutation == "added":
             (tasks / "untracked.md").write_text("untracked prompt\n", encoding="utf-8")
-        profile = _write_review_profile(profiler, orchestrator, "playbooks", 1)
+        profile = write_review_profile(profiler, orchestrator, "playbooks", 1)
 
     saved = ReviewProfile.load(session.publish())
     assert (
@@ -644,7 +644,7 @@ def test_a_review_warns_when_its_own_source_changes_during_the_run(
     orchestrator = MagicMock(session_id="s1", session=session)
 
     with profiling() as profiler:
-        profile = _write_review_profile(profiler, orchestrator, "playbooks", 1)
+        profile = write_review_profile(profiler, orchestrator, "playbooks", 1)
     saved = ReviewProfile.load(session.publish())
 
     assert (

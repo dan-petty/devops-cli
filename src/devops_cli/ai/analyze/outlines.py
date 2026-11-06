@@ -82,7 +82,7 @@ def _mask_sensitive_data(text: str, syntax: str = "data") -> str:
     return mask_secrets(text, syntax=syntax)
 
 
-def _enhance_file_metadata_with_ai(
+def enhance_file_metadata_with_ai(
     rel_path: str,
     content: str,
     lang: str,
@@ -415,7 +415,7 @@ def analyze_single_file(  # noqa: C901
 
     ai_enhanced: EnhancedMetadataOutput | None = None
     if enhanced and ai_client is not None and content.strip():
-        ai_enhanced = _enhance_file_metadata_with_ai(
+        ai_enhanced = enhance_file_metadata_with_ai(
             rel_path, content, lang, symbols, ai_client=ai_client
         )
 

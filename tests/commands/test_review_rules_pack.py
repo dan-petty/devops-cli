@@ -30,7 +30,7 @@ from devops_cli.review.rules_pack import (
     validate_rule_pair,
     verify_rules_lock,
 )
-from devops_cli.security.semgrep import _files_command, parse_semgrep_json
+from devops_cli.security.semgrep import files_command, parse_semgrep_json
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import FIXTURES, REPO_ROOT
 
@@ -184,7 +184,7 @@ def test_rules_test_fails_when_semgrep_test_fails_and_dry_run_is_pure(
     set_dry_run(False)
     with pytest.raises(ValidationError, match="semgrep --test failed"):
         run_rule_pack_tests(pack_copy)
-    cmd = _files_command(["a.yaml"], DEFAULT_SEMGREP_CONFIG) or []
+    cmd = files_command(["a.yaml"], DEFAULT_SEMGREP_CONFIG) or []
     parsed = parse_semgrep_json(
         {
             "results": [

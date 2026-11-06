@@ -1506,7 +1506,7 @@ def test_routed_files_only_with_admitted_gitleaks_finding_runs_group_analysis(
     """A review whose every file is routed to secret scan alone, with 1 admitted Gitleaks finding, calls fake client once and writes analysis.json."""
     from unittest.mock import patch
 
-    from devops_cli.ai.review.runner import ReviewClients, _execute_review_workflow
+    from devops_cli.ai.review.runner import ReviewClients, execute_review_workflow
     from devops_cli.security.gitleaks import ScanOutcome
 
     reviews_dir = review_store.root()
@@ -1552,7 +1552,7 @@ def test_routed_files_only_with_admitted_gitleaks_finding_runs_group_analysis(
             "devops_cli.security.bandit.run_bandit_scan", return_value=ScanOutcome("skipped", [])
         ),
     ):
-        result = _execute_review_workflow(
+        result = execute_review_workflow(
             pages=[],
             title="Routed files review",
             summary_only=False,

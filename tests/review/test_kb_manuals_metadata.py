@@ -24,7 +24,7 @@ from devops_cli.review.analysis import (
     FindingGroup,
     RatioRecord,
     SamplingRecord,
-    _collect_reference_candidates,
+    collect_reference_candidates,
     render_model_analysis_markdown,
     run_group_analysis,
 )
@@ -262,7 +262,7 @@ def test_official_rule_docs_rank_first_before_kb_manuals() -> None:
     rule_docs = {"rule:bandit:B101@1.9.4": "Official Bandit B101 rule documentation."}
     kb_manuals = {"kb:it_domains/tools/bandit.md@1234": "General Bandit tool guide."}
 
-    candidates = _collect_reference_candidates(
+    candidates = collect_reference_candidates(
         g,
         rule_docs=rule_docs,
         kb_manuals=kb_manuals,

@@ -15,11 +15,11 @@ from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review.protocol import ReviewLLMClient
 from devops_cli.ai.review.runner import (
     ReviewClients,
-    _check_and_warn_perimeter_changes,
-    _execute_review_workflow,
-    _record_review_metrics,
-    _run_orchestrator_review,
+    check_and_warn_perimeter_changes,
+    execute_review_workflow,
     format_pr_review_comment,
+    record_review_metrics,
+    run_orchestrator_review,
 )
 from devops_cli.ai.review_schema import (
     FileReviewPayload,
@@ -75,7 +75,7 @@ def test_a_change_review_names_the_unexpired_suppressions_it_touches(
     base revision, and not the expired one on src/b.py."""
     (tmp_path / ".git").mkdir()
 
-    _check_and_warn_perimeter_changes(
+    check_and_warn_perimeter_changes(
         target_type,
         ["src/a.py", "src/b.py"],
         base_revision=_base_revision(),
@@ -98,7 +98,7 @@ def test_a_path_review_lists_no_suppressions(
     """A path review has no change to compare, so it prints nothing."""
     (tmp_path / ".git").mkdir()
 
-    _check_and_warn_perimeter_changes(
+    check_and_warn_perimeter_changes(
         "path", ["src/a.py"], base_revision=_base_revision(), target_dir=tmp_path
     )
 
@@ -179,7 +179,7 @@ def test_no_review_layer_falls_back_to_the_working_directory_for_its_target() ->
     type-check and review the working directory's files, one layer above the fix. The
     orchestrator takes the target through its constructor alone: no stage takes another (#2098)."""
     layers = {
-        "_execute_review_workflow": _execute_review_workflow,
+        "execute_review_workflow": execute_review_workflow,
         "ReviewPipelineOrchestrator": ReviewPipelineOrchestrator.__init__,
     }
     targets = {name: inspect.signature(fn).parameters["target_dir"] for name, fn in layers.items()}
@@ -215,7 +215,7 @@ def test_a_review_outside_the_working_directory_reads_its_targets_analysis_metad
         patch("devops_cli.ai.review.runner._load_file_analysis_metas", side_effect=metas),
         patch("devops_cli.ai.review.runner._print_analysis_metadata"),
     ):
-        _execute_review_workflow(
+        execute_review_workflow(
             [f"### File: runner.py\n{_RUNNER}"],
             "Path review",
             True,
@@ -238,7 +238,7 @@ def test_summary_only_exits_before_orchestrator_construction(tmp_path: Path) -> 
         patch("devops_cli.ai.review.pipeline.ReviewPipelineOrchestrator") as mock_orchestrator,
         patch("devops_cli.ai.review.runner._print_analysis_metadata"),
     ):
-        result = _execute_review_workflow(
+        result = execute_review_workflow(
             ["### File: app.py\ndef foo(): pass\n"],
             "Path review",
             True,
@@ -265,7 +265,7 @@ def test_routed_files_only_branch_diff_makes_no_model_calls(tmp_path: Path) -> N
     mock_client = MagicMock(spec=ReviewLLMClient)
     mock_client.backend_info = "mock-llm"
 
-    result = _execute_review_workflow(
+    result = execute_review_workflow(
         [],
         "Branch `feature` vs `main`",
         False,
@@ -293,7 +293,7 @@ def test_a_routed_files_only_review_publishes_its_session_without_a_profile(
     mock_client = MagicMock(spec=ReviewLLMClient)
     mock_client.backend_info = "mock-llm"
 
-    _execute_review_workflow(
+    execute_review_workflow(
         [],
         "Branch `feature` vs `main`",
         False,
@@ -328,7 +328,7 @@ def test_a_review_publishes_its_session_after_it_writes_the_profile(
     mock_client = MagicMock(spec=ReviewLLMClient)
     mock_client.backend_info = "mock-llm"
 
-    _execute_review_workflow(
+    execute_review_workflow(
         [f"### File: runner.py\n{_RUNNER}"],
         "Path review",
         False,
@@ -372,7 +372,7 @@ def test_a_review_without_a_report_keeps_no_session(
     mock_client = MagicMock(spec=ReviewLLMClient)
     mock_client.backend_info = "mock-llm"
 
-    _execute_review_workflow(
+    execute_review_workflow(
         pages,
         "Path review",
         False,
@@ -440,7 +440,7 @@ def test_unverified_high_findings_stay_in_report_with_request_changes(tmp_path: 
 def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reporting(
     tmp_path: Path,
 ) -> None:
-    """Verify #791: real _run_orchestrator_review output feeds PR comment and metrics
+    """Verify #791: real run_orchestrator_review output feeds PR comment and metrics
     with and without --no-reporting, preserving persona labels."""
     repo = _checkout(tmp_path / "repo", {"app.py": "import os\nprint('hello')\n"})
     mock_client = MagicMock(spec=ReviewLLMClient)
@@ -479,7 +479,7 @@ def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reportin
 
     flags_no_rep = resolve_stage_flags(no_reporting=True, no_static_scan=True)
     with patch.object(orchestrator, "_collect_and_deduplicate_findings", return_value=[qa_finding]):
-        results_no_rep = _run_orchestrator_review(
+        results_no_rep = run_orchestrator_review(
             orchestrator,
             ["app.py"],
             {},
@@ -489,7 +489,7 @@ def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reportin
 
     comment_no_rep = format_pr_review_comment(results_no_rep, files=["app.py"])
     with patch("devops_cli.telemetry.instruments.emit") as mock_emit:
-        _record_review_metrics(results_no_rep, 12.0, "pr")
+        record_review_metrics(results_no_rep, 12.0, "pr")
         metrics_no_rep = [
             (call.args[1], call.args[2])
             for call in mock_emit.call_args_list
@@ -498,7 +498,7 @@ def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reportin
 
     flags_rep = resolve_stage_flags(no_reporting=False, no_static_scan=True)
     with patch.object(orchestrator, "_collect_and_deduplicate_findings", return_value=[qa_finding]):
-        results_rep = _run_orchestrator_review(
+        results_rep = run_orchestrator_review(
             orchestrator,
             ["app.py"],
             {},
@@ -508,7 +508,7 @@ def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reportin
 
     comment_rep = format_pr_review_comment(results_rep, files=["app.py"])
     with patch("devops_cli.telemetry.instruments.emit") as mock_emit:
-        _record_review_metrics(results_rep, 15.0, "pr")
+        record_review_metrics(results_rep, 15.0, "pr")
         metrics_rep = [
             (call.args[1], call.args[2])
             for call in mock_emit.call_args_list
@@ -540,7 +540,7 @@ def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reportin
 def test_orchestrator_review_no_static_scan_reports_analyzers_none_when_empty(
     tmp_path: Path,
 ) -> None:
-    """Verify #657 constraint via real _run_orchestrator_review: --no-static-scan with zero
+    """Verify #657 constraint via real run_orchestrator_review: --no-static-scan with zero
     findings emits Analyzers: None."""
     repo = _checkout(tmp_path / "repo", {"app.py": "x = 1\n"})
     mock_client = MagicMock(spec=ReviewLLMClient)
@@ -552,7 +552,7 @@ def test_orchestrator_review_no_static_scan_reports_analyzers_none_when_empty(
         target_dir=repo,
     )
     flags = resolve_stage_flags(no_static_scan=True, no_reporting=True)
-    results = _run_orchestrator_review(
+    results = run_orchestrator_review(
         orchestrator,
         ["app.py"],
         {},
@@ -569,7 +569,7 @@ def test_orchestrator_review_no_static_scan_reports_analyzers_none_when_empty(
 
 def test_branch_review_excludes_deleted_files_from_pages_and_targets(tmp_path: Path) -> None:
     """A branch review leaves the files it deletes out of persona pages and scanners (#1140)."""
-    from devops_cli.ai.review.runner import _prepare_branch_content
+    from devops_cli.ai.review.runner import prepare_branch_content
     from devops_cli.review.diff import diff_file_names
 
     repo = tmp_path / "repo"
@@ -579,7 +579,7 @@ def test_branch_review_excludes_deleted_files_from_pages_and_targets(tmp_path: P
         "apiVersion: v1\nkind: ConfigMap\ndata:\n  key: val\n", encoding="utf-8"
     )
 
-    pages, _title, _target_branch, _base_rev = _prepare_branch_content(
+    pages, _title, _target_branch, _base_rev = prepare_branch_content(
         "feat/delete-manifest", "main", repo, working_directory=repo
     )
 

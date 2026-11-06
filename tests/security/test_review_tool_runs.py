@@ -23,7 +23,7 @@ import pytest
 from devops_cli.ai.review import ReviewPipelineOrchestrator
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.profile import ReviewProfile, profiling
-from devops_cli.ai.review.runner import _write_review_profile
+from devops_cli.ai.review.runner import write_review_profile
 from devops_cli.ai.review.tool_runs import TOOL_RUNS_COLUMNS, tool_runs_section
 from devops_cli.ai.review_schema import ReviewSessionPayload
 from devops_cli.ai.run_store import digest, file_digest
@@ -668,7 +668,7 @@ def test_a_review_profile_holds_one_row_per_tool_run_with_every_field(
     a fixture of its own and scans nothing of the review, so it has no row."""
     with profiling() as profiler:
         orchestrator.init_per_file_payloads(["app.py", "deploy.yaml", "Dockerfile", "uv.lock"], {})
-        profile = _write_review_profile(profiler, orchestrator, "tree", 4, kept=False)
+        profile = write_review_profile(profiler, orchestrator, "tree", 4, kept=False)
 
     rows = profile.tool_runs
     empty = [

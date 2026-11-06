@@ -160,10 +160,10 @@ def test_outline_validation_and_enhancement_retries(tmp_path: Path) -> None:
 
     from devops_cli.ai.analyze.outlines import (
         _calculate_complexity_score,
-        _enhance_file_metadata_with_ai,
         _extract_json_pseudocode,
         _get_last_updated,
         _validate_enhanced_metadata,
+        enhance_file_metadata_with_ai,
     )
 
     # 1. _validate_enhanced_metadata error cases
@@ -211,13 +211,13 @@ def test_outline_validation_and_enhancement_retries(tmp_path: Path) -> None:
     assert arr_pseudo is not None
     assert len(arr_pseudo) == 2
 
-    # 5. _enhance_file_metadata_with_ai retry loop
+    # 5. enhance_file_metadata_with_ai retry loop
     mock_retry_ai = MagicMock()
     mock_retry_ai.chat_messages.side_effect = [
         "not json",
         '{"primary_purpose": "Recovered Purpose after retry", "key_symbols": ["Valid"]}',
     ]
-    enhanced_res = _enhance_file_metadata_with_ai(
+    enhanced_res = enhance_file_metadata_with_ai(
         "service.py", "def foo(): pass", "python", ["foo"], mock_retry_ai, max_retries=2
     )
     assert enhanced_res is not None
@@ -278,15 +278,15 @@ def test_outline_extended_branches(tmp_path: Path, git_fake: GitFake) -> None:
     from unittest.mock import MagicMock, patch
 
     from devops_cli.ai.analyze.outlines import (
-        _enhance_file_metadata_with_ai,
         _extract_class_pseudocode,
         _extract_function_pseudocode,
         _generate_ai_pseudocode,
         _generate_pseudocode,
         _get_last_updated,
+        enhance_file_metadata_with_ai,
     )
 
-    # 1. _enhance_file_metadata_with_ai with RAG investigation success
+    # 1. enhance_file_metadata_with_ai with RAG investigation success
     mock_rag_ctx = MagicMock()
     mock_rag_ctx.retrieved_chunks = [MagicMock(text="Chunk 1", similarity=0.9)]
     mock_ai = MagicMock()
@@ -301,7 +301,7 @@ def test_outline_extended_branches(tmp_path: Path, git_fake: GitFake) -> None:
             return_value="[RAG Context]",
         ),
     ):
-        res_rag = _enhance_file_metadata_with_ai(
+        res_rag = enhance_file_metadata_with_ai(
             "rag_file.py", "class RagSym: pass", "python", ["RagSym"], mock_ai
         )
         assert res_rag is not None

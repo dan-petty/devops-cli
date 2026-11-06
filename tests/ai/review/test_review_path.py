@@ -103,7 +103,7 @@ def test_review_path_append_cache_flag(
         "devops_cli.ai.review.runner._is_allowed_review_boundary", lambda *a, **kw: True
     )
     monkeypatch.setattr("devops_cli.commands.review._make_review_clients", mock_make_clients)
-    monkeypatch.setattr("devops_cli.commands.review._execute_review_workflow", lambda *a, **kw: [])
+    monkeypatch.setattr("devops_cli.commands.review.execute_review_workflow", lambda *a, **kw: [])
 
     res = runner.invoke(
         review_app,
@@ -140,7 +140,7 @@ def test_run_review_dry_run_skips_client_calls(
             call_count += 1
             return "should-not-be-called"
 
-    results = review_runner._execute_review_workflow(
+    results = review_runner.execute_review_workflow(
         ["### File: app.py\n```py\n   1 | print('hello')\n```\n"],
         "Dry Run Review",
         False,
@@ -178,7 +178,7 @@ def test_dry_run_routed_files_only_leaves_reviews_dir_empty(
 
     monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
 
-    results = review_runner._execute_review_workflow(
+    results = review_runner.execute_review_workflow(
         [],
         "Routed Dry Run",
         False,

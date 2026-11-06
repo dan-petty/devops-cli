@@ -13,8 +13,8 @@ from devops_cli.config.constants import (
 )
 from devops_cli.core.code_metrics import FunctionComplexity
 from devops_cli.security.complexity import (
-    _evaluate_single_function_delta,
     compute_complexity_deltas,
+    evaluate_single_function_delta,
 )
 from devops_cli.security.mypy import (
     parse_mypy_output,
@@ -50,7 +50,7 @@ def test_complexity_delta_hardcoded_function_going_from_3_to_12_and_unchanged() 
         end_line_number=35,
     )
 
-    delta_changed, finding_changed = _evaluate_single_function_delta(
+    delta_changed, finding_changed = evaluate_single_function_delta(
         rel_path="src/metrics.py",
         name="calculate_metrics",
         base_fn=fn_changing_base,
@@ -73,7 +73,7 @@ def test_complexity_delta_hardcoded_function_going_from_3_to_12_and_unchanged() 
         end_line_number=50,
     )
 
-    delta_unchanged, finding_unchanged = _evaluate_single_function_delta(
+    delta_unchanged, finding_unchanged = evaluate_single_function_delta(
         rel_path="src/metrics.py",
         name="helper_func",
         base_fn=fn_unchanged_base,

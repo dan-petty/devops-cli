@@ -8,15 +8,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from devops_cli.ai.review.pipeline import (
-    _STATIC_ANALYZERS,
     ANALYZER_FAILED,
     ANALYZER_NOT_INSTALLED,
     ANALYZER_RAN,
+    STATIC_ANALYZERS,
     ReviewPipelineOrchestrator,
-    _classify_scanner_files,
-    _match_static_findings_to_files,
-    _static_analyzer_states,
-    _write_base_revision_lockfiles,
+    classify_scanner_files,
+    match_static_findings_to_files,
+    static_analyzer_states,
+    write_base_revision_lockfiles,
 )
 from devops_cli.ai.review_schema import Finding, SavedFinding
 from devops_cli.config.commands import BIN_GOLANGCI_LINT
@@ -25,20 +25,20 @@ from tests.support.fakes.scanners import ScannerFake
 
 
 def test_static_analyzers_contains_golangci_lint() -> None:
-    """_STATIC_ANALYZERS includes golangci-lint with kind 'go'."""
-    names = {name: (bin_name, kind) for name, bin_name, kind in _STATIC_ANALYZERS}
+    """STATIC_ANALYZERS includes golangci-lint with kind 'go'."""
+    names = {name: (bin_name, kind) for name, bin_name, kind in STATIC_ANALYZERS}
     assert "golangci-lint" in names
     assert names["golangci-lint"] == (BIN_GOLANGCI_LINT, "go")
 
 
 def test_classify_scanner_files_classifies_go_files(tmp_path: Path) -> None:
-    """_classify_scanner_files puts .go files into buckets.go and as_kind_map."""
+    """classify_scanner_files puts .go files into buckets.go and as_kind_map."""
     go_file = tmp_path / "main.go"
     py_file = tmp_path / "app.py"
     go_file.write_text("package main\n", encoding="utf-8")
     py_file.write_text("print(1)\n", encoding="utf-8")
 
-    buckets = _classify_scanner_files([go_file, py_file])
+    buckets = classify_scanner_files([go_file, py_file])
     assert go_file in buckets.go
     assert py_file not in buckets.go
     assert buckets.as_kind_map()["go"] == buckets.go
@@ -62,14 +62,14 @@ def test_match_static_findings_to_files_filters_go_findings() -> None:
     )
 
     reviewed_files = ["pkg/handler/handler.go"]
-    matched = _match_static_findings_to_files([f1, f2], reviewed_files)
+    matched = match_static_findings_to_files([f1, f2], reviewed_files)
     assert "pkg/handler/handler.go" in matched
     assert len(matched["pkg/handler/handler.go"]) == 1
     assert "pkg/other/unreviewed.go" not in matched
 
 
 def test_write_base_revision_lockfiles_preserves_gomod(tmp_path: Path) -> None:
-    """_write_base_revision_lockfiles copies go.mod for base revision Go files."""
+    """write_base_revision_lockfiles copies go.mod for base revision Go files."""
     base_rev = MagicMock()
 
     def fake_read(rel_path: str) -> str | None:
@@ -80,29 +80,29 @@ def test_write_base_revision_lockfiles_preserves_gomod(tmp_path: Path) -> None:
     base_rev.read.side_effect = fake_read
 
     written_paths = ["pkg/server/server.go"]
-    extra = _write_base_revision_lockfiles(base_rev, tmp_path, written_paths)
+    extra = write_base_revision_lockfiles(base_rev, tmp_path, written_paths)
     assert "go.mod" in extra
     assert (tmp_path / "go.mod").is_file()
     assert "example.com/repo" in (tmp_path / "go.mod").read_text(encoding="utf-8")
 
 
 def test_static_analyzer_states_for_golangci_lint() -> None:
-    """_static_analyzer_states maps observed outcomes for golangci-lint."""
+    """static_analyzer_states maps observed outcomes for golangci-lint."""
     go_path = Path("main.go")
     files_by_kind = {"go": [go_path]}
 
     outcomes_ran = {"golangci-lint": ScanOutcome("ran", [])}
-    states_ran = _static_analyzer_states(files_by_kind, outcomes_ran)
+    states_ran = static_analyzer_states(files_by_kind, outcomes_ran)
     assert states_ran["golangci-lint"] == ANALYZER_RAN
 
     outcomes_failed = {"golangci-lint": ScanOutcome("failed", [], "typecheck error")}
-    states_failed = _static_analyzer_states(files_by_kind, outcomes_failed)
+    states_failed = static_analyzer_states(files_by_kind, outcomes_failed)
     assert states_failed["golangci-lint"] == ANALYZER_FAILED
 
     outcomes_unavail = {
         "golangci-lint": ScanOutcome("unavailable", [], "Binary 'golangci-lint' not found")
     }
-    states_unavail = _static_analyzer_states(files_by_kind, outcomes_unavail)
+    states_unavail = static_analyzer_states(files_by_kind, outcomes_unavail)
     assert states_unavail["golangci-lint"] == ANALYZER_NOT_INSTALLED
 
 

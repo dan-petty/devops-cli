@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _extract_osv_severity(v: dict[str, Any]) -> str:
+def extract_osv_severity(v: dict[str, Any]) -> str:
     """Extract and normalize severity from OSV record, never inferring from CVSS vectors (#1146)."""
     db_spec = v.get("database_specific")
     if isinstance(db_spec, dict):
@@ -173,7 +173,7 @@ def parse_osv_scanner_output(
             for vuln in pkg_entry.get("vulnerabilities") or []:
                 vid = vuln.get("id") or "UNKNOWN"
                 summary = vuln.get("summary") or vuln.get("details", "")[:120]
-                severity = _extract_osv_severity(vuln)
+                severity = extract_osv_severity(vuln)
                 fixed_versions = _extract_fixed_versions(vuln)
 
                 anchor = AdvisoryAnchor(
