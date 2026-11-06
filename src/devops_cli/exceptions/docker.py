@@ -63,9 +63,15 @@ class DockerDaemonUnavailableError(DockerEngineError):
 
 
 class RegistryReadError(DockerError):
-    """Raised when an image registry gives no digest for a tag: no anonymous pull, or no tag."""
+    """Raised when an image registry gives no digest for a tag: no anonymous pull, or a reply with no digest."""
 
     error_code = "DOCKER_REGISTRY_READ_ERROR"
+
+
+class RegistryTagNotFoundError(RegistryReadError):
+    """Raised when an image registry answers HTTP 404 for a tag: the tag is not there (yet)."""
+
+    error_code = "DOCKER_REGISTRY_TAG_NOT_FOUND"
 
 
 class CosignError(DockerError):

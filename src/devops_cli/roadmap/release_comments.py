@@ -7,7 +7,9 @@ in the cluster: the newest release of the list whose two digests run, and each o
 live. The marker line of a comment is the record that it exists. The ledger only saves requests:
 it holds two flags for each release of the window, set after every issue holds its comment, and a
 missing ledger reads as empty. A failed read of the cluster or the registry stops no comment of
-the `Released in` pass, and fails the row after both passes, naming the releases.
+the `Released in` pass, and fails the row after both passes, naming the releases. A release that
+is newer than `CONST_ROADMAP_RELEASE_IMAGE_GRACE_MINUTES` and whose image tag is not in the
+registry yet (HTTP 404) is no fault: the pass skips it and tries again in a later round (#3507).
 """
 
 from __future__ import annotations
@@ -173,7 +175,7 @@ def _live_pass(
     if not waiting:
         return []
     try:
-        live = live_release(waiting, roll(), client)
+        live = live_release(waiting, roll(), client, now=now)
     except (ClusterJobError, RegistryReadError) as exc:
         logger.warning("The release_comments row could not check the images: %s", exc)
         return [release.tag for release in waiting]

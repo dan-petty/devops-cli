@@ -3007,3 +3007,61 @@ def test_a_scoped_update_that_raises_counts_under_the_result_of_its_error(
         )
 
     assert (ended.value, _job_count(CONST_SERVICE_LANE_TRIAGE, "intake", result)) == (raised, 1)
+
+
+def test_three_rounds_with_a_404_on_a_new_release_suspend_no_row(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cluster: FakeCluster,
+    stub_web: StubWeb,
+    seeded_store: InMemoryRoadmapStore,
+) -> None:
+    """A release of 5 minutes ago has no image yet, so the registry answers HTTP 404. The row
+    `release_comments` fails no round, and its record in the ledger of failed rounds stays empty
+    (#3507)."""
+    github = GitHubFake(REPO)
+    github.seed_release("v1.0.0", "* x\n", NOW - timedelta(minutes=5))
+    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    prefix = "ghcr.io/dan-petty/devops-cli"
+    stub_web.serve(RegistryFake({}))
+    template = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
+    template["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["image"] = (
+        f"{prefix}/runner@sha256:{'2' * 64}"
+    )
+    cluster.custom_objects.objects[("batch", "v1", "cronjobs")] = [template]
+    cluster.custom_objects.objects[("apps", "v1", "deployments")] = [
+        {
+            "metadata": {"name": "roadmap-service", "namespace": "devops"},
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {"name": "service", "image": f"{prefix}/service@sha256:{'1' * 64}"}
+                        ]
+                    }
+                }
+            },
+        }
+    ]
+    failures = FailureLedger()
+    store = GitHubRoadmapStore(REPO, runner=github, session=RunnerSession(github))
+    ran: list[tuple[str, ...]] = []
+
+    # A data directory per round has no schedule, so the row is due in each round.
+    for step in range(failures.limit):
+        ran.append(
+            run_due_jobs(
+                REPO,
+                store,
+                batch={POLL_KEY: 1},
+                table=_lane(STATUS_LANE_ROWS, release_comments=_run_release_comments_adapter),
+                data_dir=tmp_path / str(step),
+                now=NOW + timedelta(minutes=step),
+                failures=failures,
+            )
+        )
+
+    assert (
+        failures.holds_failure(REPO, "release_comments"),
+        [names.count("release_comments") for names in ran],
+    ) == (False, [1, 1, 1])

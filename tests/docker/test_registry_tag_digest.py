@@ -7,7 +7,7 @@ from urllib.parse import parse_qs
 import pytest
 
 from devops_cli.docker.registry import TaggedImage, tag_digest, tagged_image
-from devops_cli.exceptions.docker import RegistryReadError
+from devops_cli.exceptions.docker import RegistryReadError, RegistryTagNotFoundError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
 from tests.support.fakes.oci_registry import RegistryFake
@@ -71,34 +71,54 @@ def test_the_tag_digest_comes_from_the_registry_with_an_anonymous_token(
     assert "application/vnd.oci.image.index.v1+json" in stub_web.sent[-1].headers["accept"]
 
 
-@pytest.mark.parametrize(
-    ("registry", "reference", "message"),
-    [
-        (
-            RegistryFake({}, anonymous=False),
-            f"{IMAGE}:latest",
-            f"The registry of {IMAGE}:latest gives no anonymous pull token, so reading it needs "
-            "credentials (HTTP 401).",
-        ),
-        (
-            RegistryFake({}),
-            f"{IMAGE}:missing",
-            f"The registry gives no manifest for {IMAGE}:missing (HTTP 404).",
-        ),
-    ],
-    ids=["no-anonymous-pull", "unknown-tag"],
-)
-def test_a_registry_that_gives_no_digest_raises_a_registry_read_error(
-    stub_web: StubWeb, registry: RegistryFake, reference: str, message: str
+def test_a_registry_that_needs_credentials_raises_a_registry_read_error(
+    stub_web: StubWeb,
 ) -> None:
-    """A private image or an unknown tag is a RegistryReadError that says why."""
-    stub_web.serve(registry)
+    """A private image is a RegistryReadError that says why, and not a missing tag."""
+    stub_web.serve(RegistryFake({}, anonymous=False))
 
     with (
         new_http_client(level=EgressLevel.PUBLIC) as client,
         pytest.raises(RegistryReadError) as caught,
     ):
-        tag_digest(reference, client, timeout=5.0)
+        tag_digest(f"{IMAGE}:latest", client, timeout=5.0)
 
-    assert str(caught.value) == message
+    assert not isinstance(caught.value, RegistryTagNotFoundError)
+    assert str(caught.value) == (
+        f"The registry of {IMAGE}:latest gives no anonymous pull token, so reading it needs "
+        "credentials (HTTP 401)."
+    )
+    assert caught.value.error_code == "DOCKER_REGISTRY_READ_ERROR"
+
+
+def test_a_tag_that_the_registry_does_not_hold_raises_the_missing_tag_error(
+    stub_web: StubWeb,
+) -> None:
+    """HTTP 404 is a RegistryTagNotFoundError. It is also a RegistryReadError, so a caller that
+    catches the base keeps its handling."""
+    stub_web.serve(RegistryFake({}))
+
+    with (
+        new_http_client(level=EgressLevel.PUBLIC) as client,
+        pytest.raises(RegistryReadError) as caught,
+    ):
+        tag_digest(f"{IMAGE}:missing", client, timeout=5.0)
+
+    assert isinstance(caught.value, RegistryTagNotFoundError)
+    assert str(caught.value) == f"The registry gives no manifest for {IMAGE}:missing (HTTP 404)."
+    assert caught.value.error_code == "DOCKER_REGISTRY_TAG_NOT_FOUND"
+
+
+def test_a_registry_status_other_than_404_is_not_a_missing_tag(stub_web: StubWeb) -> None:
+    """HTTP 500 raises the base error: the tag may exist, so the caller cannot wait for it."""
+    stub_web.respond("HEAD", "https://ghcr.io/v2/example/devops-cli/service/manifests/v1", 500)
+
+    with (
+        new_http_client(level=EgressLevel.PUBLIC) as client,
+        pytest.raises(RegistryReadError) as caught,
+    ):
+        tag_digest(f"{IMAGE}:v1", client, timeout=5.0)
+
+    assert not isinstance(caught.value, RegistryTagNotFoundError)
+    assert str(caught.value) == f"The registry gives no manifest for {IMAGE}:v1 (HTTP 500)."
     assert caught.value.error_code == "DOCKER_REGISTRY_READ_ERROR"

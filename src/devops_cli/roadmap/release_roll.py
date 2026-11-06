@@ -8,21 +8,27 @@ so a newer release that runs also means that an older one ran.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 import httpx2
 
 from devops_cli.config.constants import (
+    CONST_ROADMAP_RELEASE_IMAGE_GRACE_MINUTES,
     CONST_ROADMAP_RELEASE_IMAGE_PREFIX,
     CONST_ROADMAP_SERVICE_CONTAINER,
     CONST_ROADMAP_SERVICE_DEPLOYMENT,
 )
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.docker.registry import tag_digest
+from devops_cli.exceptions.docker import RegistryTagNotFoundError
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE
 from devops_cli.k8s.cluster_job_api import ClusterJobs
 from devops_cli.roadmap.release_feed import ReleaseInfo
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -45,16 +51,33 @@ def cluster_digests(jobs: ClusterJobs) -> RolledDigests:
 
 
 def live_release(
-    releases: Sequence[ReleaseInfo], cluster: RolledDigests, client: httpx2.Client
+    releases: Sequence[ReleaseInfo],
+    cluster: RolledDigests,
+    client: httpx2.Client,
+    *,
+    now: datetime,
 ) -> ReleaseInfo | None:
     """The first of `releases`, newest first, whose two tags name the digests of `cluster`, or
-    None. It reads no tag of a release older than the one it returns. Raises RegistryReadError
-    when the registry gives no digest."""
+    None. It reads no tag of a release older than the one it returns. A tag that the registry does
+    not hold (HTTP 404) on a release published less than `CONST_ROADMAP_RELEASE_IMAGE_GRACE_MINUTES`
+    before `now` means that the build has not ended: the walk skips that release and goes on to
+    the older ones (#3507). Raises RegistryTagNotFoundError for a missing tag of an older release,
+    and RegistryReadError when the registry gives no digest for another reason."""
     if cluster.service is None or cluster.runner is None:
         return None
+    grace = timedelta(minutes=CONST_ROADMAP_RELEASE_IMAGE_GRACE_MINUTES)
     for release in releases:
-        service = _digest("service", release.tag, client)
-        runner = _digest("runner", release.tag, client)
+        try:
+            service = _digest("service", release.tag, client)
+            runner = _digest("runner", release.tag, client)
+        except RegistryTagNotFoundError:
+            if now - release.published_at >= grace:
+                raise
+            logger.info(
+                "Release %s has no image tag in the registry yet; the build may still run.",
+                release.tag,
+            )
+            continue
         if (service, runner) == (cluster.service, cluster.runner):
             return release
     return None

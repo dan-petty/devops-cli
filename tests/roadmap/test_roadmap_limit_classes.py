@@ -431,6 +431,11 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "the releases that the first run of the release_comments row comments on",
     ),
     "CONST_ROADMAP_RELEASE_COMMENTS_LIST": ("kept", "the releases of one read"),
+    "CONST_ROADMAP_RELEASE_IMAGE_GRACE_MINUTES": (
+        "kept",
+        "the time a release may lack an image tag: the image build of the release workflow "
+        "ends in about 6 minutes",
+    ),
     "DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES": ("other", "a schedule"),
 }
 
