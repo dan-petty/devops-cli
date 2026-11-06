@@ -30,7 +30,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-refine`: Refine neutralizes the model text that GitHub hides, links or cross-references
+- `roadmap-refine`: Refine neutralizes the model text that GitHub hides, links or cross-references; Refine shows a tag of the model's text as text; Refine shows no raw HTML in the model's text
 - `roadmap-stage`: A title shows a tag as text
 
 ## Impact
