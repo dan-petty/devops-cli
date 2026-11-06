@@ -57,19 +57,8 @@ The command SHALL print each problem with its file, its rule and the message of 
 - **WHEN** the change folder passes `check_proposal` and `validate_change`
 - **THEN** stdout holds no problem line and the exit code is 0.
 
-### Requirement: Plan-check judges a plan pull request
-The command SHALL judge a pull request whose title is of the form `docs(openspec): plan #<issue> <summary>` or whose body holds the line `Plans #<issue>`, and it SHALL report no problem and exit 0 for a pull request that holds neither. The implement job writes the delivery title and the delivery body of the plan draft in one edit, so a run that starts before that edit reads a delivery pull request.
-
-#### Scenario: A delivery pull request is not judged
-- **WHEN** the pull request title is `fix(review): limit the lockfile bucket` and its body holds `Closes #3536` and no `Plans #` line
-- **THEN** the command reports no problem and the exit code is 0.
-
-#### Scenario: A body that plans an issue is judged whatever the title
-- **WHEN** the pull request title is `feat(roadmap): add plan-check` and its body holds `Plans #3201`
-- **THEN** the command judges the pull request and reports the title problem.
-
 ### Requirement: Plan-check checks the title of the pull request
-The command SHALL report a problem when the title of a plan pull request that it judges is not of the form `docs(openspec): plan #<issue> <summary>`, or when the text after the colon is longer than `SUMMARY_MAX_CHARS`.
+The command SHALL report a problem when the pull request title is not of the form `docs(openspec): plan #<issue> <summary>`, or when the text after the colon is longer than `SUMMARY_MAX_CHARS`.
 
 #### Scenario: A wrong title is reported
 - **WHEN** the pull request title is `feat(roadmap): add plan-check`
@@ -80,7 +69,7 @@ The command SHALL report a problem when the title of a plan pull request that it
 - **THEN** the command reports no title problem.
 
 ### Requirement: Plan-check checks the body of the pull request
-The command SHALL report a problem when the body of a plan pull request that it judges is longer than `BODY_MAX_CHARS`, holds no `Plans #<issue>` reference, or holds a closing keyword before an issue reference.
+The command SHALL report a problem when the body is longer than `BODY_MAX_CHARS`, holds no `Plans #<issue>` reference, or holds a closing keyword before an issue reference.
 
 #### Scenario: A missing plan reference is reported
 - **WHEN** the pull request body holds no `Plans #` line

@@ -204,26 +204,6 @@ def test_a_body_with_a_closing_keyword_is_reported(stage_repo: StageRepo) -> Non
     assert [p.rule for p in result.problems] == ["body-closing"]
 
 
-def test_a_delivery_pull_request_is_not_judged(stage_repo: StageRepo) -> None:
-    """A pull request that holds neither plan mark is no plan, so the command judges it not
-    (#3536). The implement job turns the plan draft into the delivery pull request in one edit, and
-    a run of the command that starts before that edit reads the delivery form."""
-    sha = _push(stage_repo, _change())
-
-    result = _run(
-        stage_repo,
-        _facts(
-            stage_repo,
-            sha=sha,
-            title="fix(review): limit the lockfile bucket",
-            body="Closes #3536",
-        ),
-        checks=_checks(conclusion="failure"),
-    )
-
-    assert result.problems == ()
-
-
 def test_a_failed_semantic_title_check_is_reported(stage_repo: StageRepo) -> None:
     sha = _push(stage_repo, _change())
 
