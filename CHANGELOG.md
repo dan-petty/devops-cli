@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.74.0](https://github.com/dan-petty/devops-cli/compare/v0.73.0...v0.74.0) (2026-11-06)
+
+
+### Features
+
+* **roadmap:** Add reason and queries to the alternatives comment ([#3846](https://github.com/dan-petty/devops-cli/issues/3846)) ([86b6ed7](https://github.com/dan-petty/devops-cli/commit/86b6ed77c09c0558365a88ada35b8fdf2e73a06c)), closes [#2944](https://github.com/dan-petty/devops-cli/issues/2944)
+* **roadmap:** build job pull request text with pull_form ([#3847](https://github.com/dan-petty/devops-cli/issues/3847)) ([a7aacea](https://github.com/dan-petty/devops-cli/commit/a7aacea858f815ebc6e6f56f652ad396a2c77d56)), closes [#3215](https://github.com/dan-petty/devops-cli/issues/3215)
+
+
+### Code Refactoring
+
+* **ai:** RAG components are wired once in ai/rag ([#3856](https://github.com/dan-petty/devops-cli/issues/3856)) ([d175616](https://github.com/dan-petty/devops-cli/commit/d1756165e401bfb5942e9a6918ac809239732dc5))
+
 ## [0.73.0](https://github.com/dan-petty/devops-cli/compare/v0.72.1...v0.73.0) (2026-11-06)
 
 
