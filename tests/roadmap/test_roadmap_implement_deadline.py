@@ -493,6 +493,7 @@ def test_a_later_round_extends_the_deadline_of_the_job_it_created(
     assert 0 <= _deadline(kube) - EXTENSION - (seen - int(started.timestamp())) <= 1
 
 
+@pytest.mark.usefixtures("no_continuation")
 def test_the_report_of_a_stalled_job_names_the_silence(
     store: InMemoryRoadmapStore,
     staged_repo: StageRepo,
@@ -520,6 +521,7 @@ def test_the_report_of_a_stalled_job_names_the_silence(
     ) == (True, "timeout")
 
 
+@pytest.mark.usefixtures("no_continuation")
 def test_the_report_of_a_job_that_did_not_stall_does_not_mention_a_stall(
     store: InMemoryRoadmapStore,
     staged_repo: StageRepo,

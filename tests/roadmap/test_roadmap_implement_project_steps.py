@@ -16,7 +16,7 @@ from pydantic_ai.messages import ModelResponse
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureAction, FailureClass
 from devops_cli.roadmap.planned import PlannedChanges
-from devops_cli.roadmap.stop_clear import DigestLimits, clear_stops
+from devops_cli.roadmap.stop_clear import ClearLimits, clear_stops
 from devops_cli.roadmap.store import ImplementRecordKey, Item
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.implement_step import command_text
@@ -43,7 +43,7 @@ DIGEST_A = "sha256:" + "a" * 64
 DIGEST_B = "sha256:" + "b" * 64
 NO_PLANS = PlannedChanges("main", {}, {})
 NOW = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
-LIMITS = DigestLimits(per_class=1, per_item=3)
+LIMITS = ClearLimits(per_class=1, per_item=3, continuations=2)
 HOOKS = "repos:\n  - repo: local\n    hooks: []\n"
 
 

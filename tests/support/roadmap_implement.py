@@ -224,6 +224,13 @@ def app_slug(config: Callable[..., Path]) -> None:
 
 
 @pytest.fixture
+def no_continuation(config: Callable[..., Path]) -> None:
+    """The Service does not continue a Job that ended without a result (#3721). A test that reads
+    the stop of such a Job uses this fixture, so the stop stays Blocked."""
+    config(roadmap={"implement": {"continuations_per_item": 0}})
+
+
+@pytest.fixture
 def staged_tasks() -> str:
     """The `tasks.md` of the staged branch. A test module overrides it for a change of its own."""
     return TASKS

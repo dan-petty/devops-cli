@@ -97,6 +97,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
     DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
+    DEFAULT_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS,
@@ -970,6 +971,11 @@ class RoadmapImplementConfig(BaseModel):
     digest_clears_per_item: Annotated[int, Variable()] = Field(
         description="The most stops of all classes that a new runner image clears for one item. A stop at the limit stays Blocked until a trusted `implement: retry` comment. 0 turns the clear by digest off",
         default=DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_ITEM,
+        ge=0,
+    )
+    continuations_per_item: Annotated[int, Variable()] = Field(
+        description="The most Jobs that the Service starts to continue the run of one item whose runner Job ended without a result: a pod that the kernel killed or evicted, a Job that the Service ended by its stall, or a Job that no longer exists. Only a stop whose failure class has the default action `retry` is continued. The new Job takes the branch from `origin` with the groups that passed and the work in progress that the run kept. A stop at the limit stays Blocked until a trusted `implement: retry` comment. 0 turns the continuation off",
+        default=DEFAULT_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM,
         ge=0,
     )
     ladder: Annotated[dict[str, list[str]], Variable()] = Field(
