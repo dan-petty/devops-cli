@@ -21,7 +21,7 @@ from devops_cli.ai.benchmark.runner import BenchmarkRunner
 from devops_cli.ai.gateway import DEFAULT_GATEWAY_ROUTES, GatewayRoute, GatewayRouter
 from devops_cli.ai.gateway_render import load_service_context_lengths, load_tier_context_lengths
 from devops_cli.ai.harness.slots import ModelSlot, SubAgentSlot
-from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK, _MANIFESTS_BY_STACK
+from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK, MANIFESTS_BY_STACK
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
     CONST_K8S_OLLAMA_PROVIDER_LABEL,
@@ -1148,7 +1148,7 @@ class TestK8sLLMGatewayManifests:
         """Verify every manifest under k8s/llm is applied by something (#953).
 
         A file counts when a k8s/llm kustomization lists it (a listed directory lists its
-        files), when deploy-stack applies it (`_MANIFESTS_BY_STACK["llm"]`), or when it is the
+        files), when deploy-stack applies it (`MANIFESTS_BY_STACK["llm"]`), or when it is the
         values file of an `llm` Helm release. `ollama-host-service.yaml` and `values-ollama.yaml`
         had none: nothing applied them once the Ollama tiers replaced the single `ollama` workload.
         The thresholds and the tier templates are inputs of `devops ai gateway render`: what it
@@ -1162,8 +1162,8 @@ class TestK8sLLMGatewayManifests:
                 for kustomization in llm_dir.rglob("kustomization.yaml")
                 for path in _kustomized_files(kustomization.parent)
             }
-            | set(_MANIFESTS_BY_STACK["llm"])
-            | {Path(release["values"]) for release in _HELM_RELEASES_BY_STACK["llm"]}
+            | set(MANIFESTS_BY_STACK["llm"])
+            | {Path(release["values"]) for release in HELM_RELEASES_BY_STACK["llm"]}
             | {DEFAULT_LLM_GPU_THRESHOLDS_PATH, *DEFAULT_LLM_TIER_TEMPLATES_PATH.glob("*.yaml")}
         )
 

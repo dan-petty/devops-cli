@@ -72,34 +72,34 @@ def check_prometheus_operator_crds_install_before_every_service_monitor() -> Non
 
     k8s-monitoring 4.x and dcgm-exporter ship no ServiceMonitor CRD, so on a cluster without it
     Helm refused both releases and the infra stack came up without Alloy (#819). Pre-Helm
-    `_MANIFESTS_BY_STACK` paths apply before any chart, so no pre-Helm file or kustomization may
-    hold a ServiceMonitor and `k8s/llm/gateway/servicemonitor.yaml` lives in `_POST_HELM_BY_STACK`
+    `MANIFESTS_BY_STACK` paths apply before any chart, so no pre-Helm file or kustomization may
+    hold a ServiceMonitor and `k8s/llm/gateway/servicemonitor.yaml` lives in `POST_HELM_BY_STACK`
     (#1367).
     """
     from devops_cli.commands.k8s.stack_lifecycle import (
-        _HELM_RELEASES_BY_STACK,
         _HELM_REPOS_BY_STACK,
-        _MANIFESTS_BY_STACK,
-        _POST_HELM_BY_STACK,
         DEFAULT_K8S_DIR,
+        HELM_RELEASES_BY_STACK,
+        MANIFESTS_BY_STACK,
+        POST_HELM_BY_STACK,
     )
 
-    crds = _HELM_RELEASES_BY_STACK["infra"][0]
+    crds = HELM_RELEASES_BY_STACK["infra"][0]
     monitor_releases = [
         (stack, release["name"])
-        for stack, releases in _HELM_RELEASES_BY_STACK.items()
+        for stack, releases in HELM_RELEASES_BY_STACK.items()
         for release in releases
         if _renders_service_monitor(yaml.safe_load(Path(release["values"]).read_text("utf-8")))
     ]
     pre_helm_monitors = [
         (stack, path.as_posix())
-        for stack, paths in _MANIFESTS_BY_STACK.items()
+        for stack, paths in MANIFESTS_BY_STACK.items()
         for path in paths
         if any(doc.get("kind") == "ServiceMonitor" for doc in applied_documents(path))
     ]
     post_helm_monitors = [
         (stack, path.as_posix())
-        for stack, paths in _POST_HELM_BY_STACK.items()
+        for stack, paths in POST_HELM_BY_STACK.items()
         for path in paths
         if (DEFAULT_K8S_DIR / path).is_file()
         and any(

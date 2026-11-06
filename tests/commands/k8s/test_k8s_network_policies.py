@@ -387,11 +387,11 @@ def test_loki_otel_peer_names_the_collector_release_the_stack_installs() -> None
     (#1100). The chart labels its pods `app.kubernetes.io/instance` with the release name and
     `app.kubernetes.io/name` with the chart name unless the values override it, so renaming the
     release or overriding the name would cut the collector off from Loki without a failure."""
-    from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
+    from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
 
     collectors = [
         release
-        for releases in _HELM_RELEASES_BY_STACK.values()
+        for releases in HELM_RELEASES_BY_STACK.values()
         for release in releases
         if release["chart"] == "open-telemetry/opentelemetry-collector"
     ]

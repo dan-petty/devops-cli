@@ -694,11 +694,11 @@ def test_pod_logs_not_shipped_alerts_with_node_from_pod_info() -> None:
 def test_telemetry_pipeline_rules_use_metrics_in_the_alloy_integration_allow_list() -> None:
     """Every Alloy metric in `homelab-telemetry-pipeline` is kept by the Alloy integration's
     default allow list, whose fixture matches the `k8s-monitoring` chart pin (#1131)."""
-    from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
+    from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
 
     (k8s_monitoring,) = [
         release
-        for release in _HELM_RELEASES_BY_STACK["infra"]
+        for release in HELM_RELEASES_BY_STACK["infra"]
         if release["name"] == "k8s-monitoring"
     ]
     fixture_version, allow_list = _allow_list(ALLOY_ALLOW_LIST)

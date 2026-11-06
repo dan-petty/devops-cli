@@ -390,11 +390,11 @@ def test_deploy_stack_installs_each_chart_at_the_version_that_its_application_pi
     """`deploy-stack` installs on a cluster without Argo CD the charts that the Applications
     install with Argo CD. Renovate's `argocd` manager moves only the Application pins (#1659), so
     a chart update moves the version here too, or the two paths run different releases."""
-    from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
+    from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
 
     installed = {
         (release["chart"].rsplit("/", 1)[-1], release["version"])
-        for releases in _HELM_RELEASES_BY_STACK.values()
+        for releases in HELM_RELEASES_BY_STACK.values()
         for release in releases
     }
 
@@ -482,9 +482,9 @@ def test_teardown_stack_keeps_the_prometheus_operator_crds() -> None:
     """teardown-stack uninstalls every other infra release but never the CRD release, whose
     uninstall would delete every ServiceMonitor in the cluster; the CRDs also carry Helm's keep
     policy against an uninstall by hand (#819)."""
-    from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
+    from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
 
-    infra_names = [r["name"] for r in _HELM_RELEASES_BY_STACK["infra"]]
+    infra_names = [r["name"] for r in HELM_RELEASES_BY_STACK["infra"]]
     crd_values = yaml.safe_load(
         Path("k8s/monitoring/prometheus-operator-crds-values.yaml").read_text("utf-8")
     )
@@ -1709,12 +1709,12 @@ def test_extract_service_url_ingress_and_nodeport() -> None:
 def test_pyroscope_helm_release_and_grafana_datasource() -> None:
     """Verify Pyroscope is configured as an infra Helm release and provisioned in Grafana."""
     from devops_cli.commands.k8s.stack_lifecycle import (
-        _HELM_RELEASES_BY_STACK,
         _HELM_REPOS_BY_STACK,
+        HELM_RELEASES_BY_STACK,
     )
 
     pyro_release = next(
-        (r for r in _HELM_RELEASES_BY_STACK["infra"] if r["name"] == "pyroscope"), None
+        (r for r in HELM_RELEASES_BY_STACK["infra"] if r["name"] == "pyroscope"), None
     )
     assert pyro_release is not None
 

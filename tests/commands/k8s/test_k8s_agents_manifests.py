@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from devops_cli.commands.k8s.stack_lifecycle import _MANIFESTS_BY_STACK, DEFAULT_K8S_DIR
+from devops_cli.commands.k8s.stack_lifecycle import DEFAULT_K8S_DIR, MANIFESTS_BY_STACK
 from devops_cli.k8s.rbac import RbacBinding, RbacRole, audit_rbac
 from tests.support.paths import REPO_ROOT
 
@@ -157,8 +157,8 @@ def test_audit_rbac_reports_zero_violations_for_agents_binding() -> None:
 
 
 def test_manifests_by_stack_includes_agents_manifests() -> None:
-    """Verify _MANIFESTS_BY_STACK['devops'] contains both agents manifests in proper order."""
-    devops_manifests = _MANIFESTS_BY_STACK.get("devops", [])
+    """Verify MANIFESTS_BY_STACK['devops'] contains both agents manifests in proper order."""
+    devops_manifests = MANIFESTS_BY_STACK.get("devops", [])
     expected_sa = DEFAULT_K8S_DIR / "agents" / "serviceaccount.yaml"
     expected_crb = DEFAULT_K8S_DIR / "agents" / "clusterrolebinding.yaml"
 
