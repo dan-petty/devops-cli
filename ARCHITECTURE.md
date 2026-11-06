@@ -169,6 +169,7 @@ Every command is registered on a `new_typer()` app (`OTelTyper`, `devops_cli/cor
 ### 2. End-to-End Pydantic Resource Model Interoperability
 Domain results are modelled with Pydantic in `devops_cli.models`. The REST routes define their own response models in `server/routes/`, and MCP tools return the CLI's text output:
 - **Strict Typing**: Mandatory field descriptions, `Field(default_factory=...)` mutable defaults, and zero hardcoded synthetic scoring floats.
+- **No Clean Default on a Result**: The result model of a lookup or a check has a field that names how the lookup ended, and that field has no default that reads as clean, such as `ok`, `Safe` or `Clean`. A producer that omits the field gets a `ValidationError`, so a result that no lookup marked never reads as verified. `NetworkReputationRecord.outcome` (`ok`, `unavailable` or `failed`) follows the rule (#2504). So do `NetworkReference.security_status` and `PackageLookupResult.status` (#2636). `test_reputation_record_needs_a_known_outcome` and `test_vulnerability_result_fields_are_required` fail if a clean default returns.
 - **Bi-Directional JSON Schema Generation**: Clean schema generation for IDE completions and LLM tool calling.
 - **Closed Tool Schemas**: An MCP tool and an agent schema refuse unknown arguments: `extra="forbid"` in Pydantic, `additionalProperties: false` in JSON Schema. The validation error names the arguments that the tool accepts.
 
