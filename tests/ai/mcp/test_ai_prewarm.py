@@ -20,7 +20,7 @@ from devops_cli.commands.ai import render_prewarm_results
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions import ValidationError
 from devops_cli.telemetry.instruments import AI_PREWARMS_TOTAL
-from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
+from tests.support.fakes.http import WebFake
 
 
 class DummyOllamaProvider(OllamaProviderMixin):
@@ -396,7 +396,10 @@ PREWARM_TOOL_PARAMETERS = [
 ]
 """The parameters that the MCP tool of `devops ai prewarm` publishes: no URL."""
 
-_PREWARM_REQUEST_LINE = b"POST /api/generate HTTP/1.1"
+
+def _prewarm_ok(request: httpx2.Request) -> httpx2.Response:
+    """The answer of an Ollama server to a prewarm request."""
+    return httpx2.Response(200, json={})
 
 
 async def _call_prewarm_tool(arguments: dict[str, object]) -> tuple[bool, str]:
@@ -431,7 +434,7 @@ class TestPrewarmToolTakesNoUrlFromTheModel:
         } == {"ai_prewarm": PREWARM_TOOL_PARAMETERS}
 
     async def test_a_url_argument_is_refused_and_reaches_no_socket(
-        self, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any]
+        self, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any], web: WebFake
     ) -> None:
         """A call that gives a URL fails and sends no request.
 
@@ -440,8 +443,7 @@ class TestPrewarmToolTakesNoUrlFromTheModel:
         """
         monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
         config(ai={"provider": "ollama", "ollama_urls": ["http://example.com:11434"]})
-        scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
-        recorder = record_connects(monkeypatch, [http_response(200, "{}")] * 2)
+        web.serve(_prewarm_ok)
 
         failed, reply = await _call_prewarm_tool(
             {"url": "http://127.0.0.1:8200/v1/sys/seal-status?x="}
@@ -450,12 +452,11 @@ class TestPrewarmToolTakesNoUrlFromTheModel:
         assert (
             failed,
             "1. Parameter: `url`\n   Kind: HALLUCINATED_PARAM\n" in reply,
-            recorder.dialled,
-            recorder.written,
-        ) == (True, True, [], [])
+            web.sent,
+        ) == (True, True, [])
 
     async def test_the_tool_prewarms_each_configured_server(
-        self, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any]
+        self, config: Callable[..., Any], web: WebFake
     ) -> None:
         """With no URL, the tool posts the model and the keep-alive value to every configured server."""
         config(
@@ -465,24 +466,20 @@ class TestPrewarmToolTakesNoUrlFromTheModel:
                 "ollama_urls": ["http://example.com:11434", "http://example.org:11434"],
             }
         )
-        scripted_resolver(
-            monkeypatch,
-            {"example.com": [[PUBLIC_ADDRESS]], "example.org": [[PUBLIC_ADDRESS]]},
-        )
-        recorder = record_connects(monkeypatch, [http_response(200, "{}")] * 2)
+        web.serve(_prewarm_ok)
 
         failed, reply = await _call_prewarm_tool({"keep_alive": "24h"})
 
         assert (
             failed,
-            sorted(recorder.requested_hosts),
-            [bytes(written).split(b"\r\n")[0] for written in recorder.written],
-            [json.loads(bytes(written).partition(b"\r\n\r\n")[2]) for written in recorder.written],
+            sorted(f"{request.url.host}:{request.url.port}" for request in web.sent),
+            [(request.method, request.url.path) for request in web.sent],
+            [request.json for request in web.recorded],
             reply.count("confirmed HTTP 200 (keep_alive=24h)"),
         ) == (
             False,
             ["example.com:11434", "example.org:11434"],
-            [_PREWARM_REQUEST_LINE] * 2,
+            [("POST", "/api/generate")] * 2,
             [{"model": "gemma4:26b", "prompt": "", "keep_alive": "24h"}] * 2,
             2,
         )
@@ -503,6 +500,7 @@ class TestPrewarmToolTakesNoUrlFromTheModel:
         address: str,
         flag: bool,
         dialled: bool,
+        web: WebFake,
     ) -> None:
         """Loopback, and private addresses with `ai.allow_private_network`, as for the CLI.
 
@@ -511,31 +509,30 @@ class TestPrewarmToolTakesNoUrlFromTheModel:
         """
         monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", str(flag).lower())
         config(ai={"provider": "ollama", "ollama_urls": [f"http://{address}:11434"]})
-        recorder = record_connects(monkeypatch, [http_response(200, "{}")] * 2)
+        web.serve(_prewarm_ok)
 
         await _call_prewarm_tool({})
 
-        assert [dial for dial in recorder.dialled if dial[0] == address] == (
-            [(address, 11434)] if dialled else []
+        assert {str(request.url) for request in web.sent} == (
+            {f"http://{address}:11434/api/generate"} if dialled else set()
         )
 
     def test_the_url_option_of_the_command_prewarms_the_host_that_a_person_types(
         self,
-        monkeypatch: pytest.MonkeyPatch,
         config: Callable[..., Any],
         cli: Callable[..., Any],
+        web: WebFake,
     ) -> None:
         """A person types `--url`, and no model gives it, so the command posts to that host."""
         config(ai={"provider": "ollama", "ollama_urls": ["http://example.org:11434"]})
-        scripted_resolver(
-            monkeypatch,
-            {"example.com": [[PUBLIC_ADDRESS]], "example.org": [[PUBLIC_ADDRESS]]},
-        )
-        recorder = record_connects(monkeypatch, [http_response(200, "{}")] * 2)
+        web.serve(_prewarm_ok)
 
         result = cli("ai", "prewarm", "--url", "http://example.com:11434")
 
-        assert (result.exit_code, recorder.requested_hosts) == (0, ["example.com:11434"])
+        assert (
+            result.exit_code,
+            [f"{request.url.host}:{request.url.port}" for request in web.sent],
+        ) == (0, ["example.com:11434"])
 
 
 _SERVER_URL_WITH_SECRETS = "http://FAKE-2676-user@example.com:11434/?x=FAKE-2676-query"
@@ -547,11 +544,10 @@ class TestPrewarmNamesEachServerByHostAndPort:
     """A reply names a server as `host[:port]`, never as the URL in `ai.ollama_urls` (#2676)."""
 
     @pytest.fixture
-    def served(self, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any]) -> None:
+    def served(self, config: Callable[..., Any], web: WebFake) -> None:
         """One configured server whose URL holds a user name and a query value, and a 200 reply."""
         config(ai={"provider": "ollama", "ollama_urls": [_SERVER_URL_WITH_SECRETS]})
-        scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
-        record_connects(monkeypatch, [http_response(200, "{}")] * 2)
+        web.serve(_prewarm_ok)
 
     @pytest.mark.usefixtures("served")
     @pytest.mark.parametrize("json_output", [False, True], ids=["table", "json"])

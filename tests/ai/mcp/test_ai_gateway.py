@@ -32,9 +32,10 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.ai import CapabilityDegradationError
 from tests.support.config_writes import written_keys
-from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
+from tests.support.fakes.dns import DnsFake
+from tests.support.fakes.http import WebFake
 
-pytestmark = pytest.mark.usefixtures("keyring_store", "public_dns")
+pytestmark = pytest.mark.usefixtures("keyring_store", "web")
 
 runner = CliRunner()
 
@@ -73,13 +74,9 @@ def _default_route_file() -> dict[str, Any]:
     }
 
 
-def _answer_every_get(monkeypatch: pytest.MonkeyPatch, status: int) -> None:
-    """Make every GET of the gateway health probe receive `status`."""
-
-    def fake_get(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
-        return httpx2.Response(status, request=httpx2.Request("GET", url))
-
-    monkeypatch.setattr(httpx2.Client, "get", fake_get)
+def _answer_every_get(web: WebFake, status: int) -> None:
+    """Make every request of the gateway health probe receive `status`."""
+    web.serve(lambda request: httpx2.Response(status))
 
 
 class TestGatewayRouter:
@@ -159,15 +156,13 @@ class TestGatewayRouter:
             "ollama",
         )
 
-    @pytest.mark.usefixtures("public_dns")
-    def test_probe_gateway_success(self) -> None:
+    def test_probe_gateway_success(self, web: WebFake) -> None:
         """Verify probe_gateway returns healthy status when gateway responds with 200."""
         router = GatewayRouter(AIConfig(gateway_url="http://example.com/v1"))
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
+        mock_resp = httpx2.Response(200)
 
-        with patch.object(httpx2.Client, "get", return_value=mock_resp):
-            status = router.probe_gateway()
+        web.serve(lambda request: mock_resp)
+        status = router.probe_gateway()
 
         assert (
             status.healthy,
@@ -181,30 +176,23 @@ class TestGatewayRouter:
             4,
         )
 
-    @pytest.mark.usefixtures("public_dns")
-    def test_probe_gateway_degraded_http_status(self) -> None:
+    def test_probe_gateway_degraded_http_status(self, web: WebFake) -> None:
         """Verify probe_gateway marks status degraded when gateway returns 503."""
         router = GatewayRouter(AIConfig(gateway_url="http://example.com/v1"))
-        mock_resp = MagicMock()
-        mock_resp.status_code = 503
+        mock_resp = httpx2.Response(503)
 
-        with patch.object(httpx2.Client, "get", return_value=mock_resp):
-            status = router.probe_gateway()
+        web.serve(lambda request: mock_resp)
+        status = router.probe_gateway()
 
         assert (status.healthy, status.details.get("status_code")) == (False, 503)
 
-    @pytest.mark.usefixtures("public_dns")
-    def test_probe_gateway_connection_failure(self) -> None:
+    def test_probe_gateway_connection_failure(self, web: WebFake) -> None:
         """Verify probe_gateway gracefully handles network connection errors with bounded details."""
         router = GatewayRouter(AIConfig(gateway_url="http://example.com/v1"))
         long_err = "Connection refused by peer " + "x" * 500
 
-        with patch.object(
-            httpx2.Client,
-            "get",
-            side_effect=httpx2.ConnectError(long_err),
-        ):
-            status = router.probe_gateway()
+        web.fail("http://example.com/health/readiness", httpx2.ConnectError(long_err))
+        status = router.probe_gateway()
 
         err_detail = status.details.get("error", "")
         assert (
@@ -291,7 +279,7 @@ class TestGatewayRouter:
         )
 
     def test_a_healthy_probe_keeps_a_failover_route_and_the_status_reports_it(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, web: WebFake
     ) -> None:
         """Verify a healthy probe keeps the failover route and the tripped breaker, and the status
         names the virtual model in failover (#1986).
@@ -301,7 +289,7 @@ class TestGatewayRouter:
         """
         state_file = tmp_path / "gateway_state.json"
         GatewayRouter(state_file=state_file).trigger_failover("devops-chat", simulate=False)
-        _answer_every_get(monkeypatch, 200)
+        _answer_every_get(web, 200)
 
         status = GatewayRouter(
             AIConfig(gateway_url="http://example.com/v1"), state_file=state_file
@@ -351,20 +339,16 @@ class TestGatewayRouter:
         with pytest.raises(ValueError, match="Unknown virtual model 'unknown-model'"):
             router.trigger_failover("unknown-model")
 
-    @pytest.mark.usefixtures("public_dns")
-    def test_probe_backend_ollama(self) -> None:
+    def test_probe_backend_ollama(self, web: WebFake) -> None:
         """Verify probe_backend supports Ollama inference endpoints."""
         config = AIConfig(
             ollama_urls=["http://example.com:11434"],
         )
         router = GatewayRouter(config)
-        mock_ollama = MagicMock(
-            status_code=200,
-            json=lambda: {"models": [{"name": "qwen2.5-coder:14b"}]},
-        )
+        mock_ollama = httpx2.Response(200, json={"models": [{"name": "qwen2.5-coder:14b"}]})
 
-        with patch.object(httpx2.Client, "get", return_value=mock_ollama):
-            res_ollama = router.probe_backend("ollama")
+        web.serve(lambda request: mock_ollama)
+        res_ollama = router.probe_backend("ollama")
 
         assert (
             res_ollama["backend"],
@@ -410,14 +394,13 @@ class TestAIGatewayCLI:
             "devops-chat",
         )
 
-    def test_status_command_table_and_json(self) -> None:
+    def test_status_command_table_and_json(self, web: WebFake) -> None:
         """Verify 'devops ai gateway status' outputs health and metrics."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
+        mock_resp = httpx2.Response(200)
 
-        with patch.object(httpx2.Client, "get", return_value=mock_resp):
-            res_table = runner.invoke(gateway_cli_app, ["status"])
-            res_json = runner.invoke(gateway_cli_app, ["status", "--format", "json"])
+        web.serve(lambda request: mock_resp)
+        res_table = runner.invoke(gateway_cli_app, ["status"])
+        res_json = runner.invoke(gateway_cli_app, ["status", "--format", "json"])
 
         parsed = json.loads(res_json.output)
         assert (
@@ -472,12 +455,12 @@ class TestAIGatewayCLI:
         )
 
     def test_status_reports_the_routes_in_failover(
-        self, isolate_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+        self, isolate_data_dir: Path, web: WebFake
     ) -> None:
         """Verify `status` names the routes in failover after a healthy probe, and names the reset
         (#1986)."""
         res_failover = runner.invoke(gateway_cli_app, ["failover", "devops-chat", "--no-simulate"])
-        _answer_every_get(monkeypatch, 200)
+        _answer_every_get(web, 200)
 
         res_table = runner.invoke(gateway_cli_app, ["status"])
         res_json = runner.invoke(gateway_cli_app, ["status", "--format", "json"])
@@ -528,29 +511,26 @@ class TestAIGatewayCLI:
             2,
         )
 
-    def test_probe_backend_command(self) -> None:
+    def test_probe_backend_command(self, web: WebFake) -> None:
         """Verify 'devops ai gateway probe-backend' prints backend health status."""
-        mock_ollama = MagicMock(
-            status_code=200,
-            json=lambda: {"models": [{"name": "qwen2.5-coder:14b"}]},
-        )
+        mock_ollama = httpx2.Response(200, json={"models": [{"name": "qwen2.5-coder:14b"}]})
 
-        with patch.object(httpx2.Client, "get", return_value=mock_ollama):
-            res_table = runner.invoke(
-                gateway_cli_app,
-                ["probe-backend", "ollama", "--backend-url", "http://example.com:11434"],
-            )
-            res_json = runner.invoke(
-                gateway_cli_app,
-                [
-                    "probe-backend",
-                    "ollama",
-                    "--backend-url",
-                    "http://example.com:11434",
-                    "--format",
-                    "json",
-                ],
-            )
+        web.serve(lambda request: mock_ollama)
+        res_table = runner.invoke(
+            gateway_cli_app,
+            ["probe-backend", "ollama", "--backend-url", "http://example.com:11434"],
+        )
+        res_json = runner.invoke(
+            gateway_cli_app,
+            [
+                "probe-backend",
+                "ollama",
+                "--backend-url",
+                "http://example.com:11434",
+                "--format",
+                "json",
+            ],
+        )
 
         parsed = json.loads(res_json.output)
         assert (
@@ -693,6 +673,7 @@ class TestGatewayToolsTakeNoUrlFromTheModel:
         tool: str,
         arguments: dict[str, object],
         parameter: str,
+        web: WebFake,
     ) -> None:
         """A call that gives a URL fails, no request is sent, and the AI API key is not on the wire.
 
@@ -700,18 +681,15 @@ class TestGatewayToolsTakeNoUrlFromTheModel:
         call sent `Authorization: Bearer <key>` to the public host.
         """
         monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", "sk-secret")
-        scripted_resolver(monkeypatch, {"example.org": [[PUBLIC_ADDRESS]]})
-        recorder = record_connects(monkeypatch, [http_response(200, "{}")] * 4)
+        web.serve(lambda request: httpx2.Response(200, json={}))
 
         failed, reply = await _call_gateway_tool(tool, arguments)
 
-        reached = {(PUBLIC_ADDRESS, 443), ("127.0.0.1", 8200)}
         assert (
             failed,
             f"1. Parameter: `{parameter}`\n   Kind: HALLUCINATED_PARAM\n" in reply,
-            [dial for dial in recorder.dialled if dial in reached],
-            b"sk-secret" in b"".join(recorder.written),
-        ) == (True, True, [], False)
+            web.sent,
+        ) == (True, True, [])
 
     @pytest.mark.parametrize(
         ("answer", "flag", "dialled"),
@@ -731,6 +709,8 @@ class TestGatewayToolsTakeNoUrlFromTheModel:
         answer: str,
         flag: bool,
         dialled: bool,
+        dns: DnsFake,
+        web: WebFake,
     ) -> None:
         """Loopback, and private addresses with `ai.allow_private_network`, as for the CLI.
 
@@ -740,31 +720,30 @@ class TestGatewayToolsTakeNoUrlFromTheModel:
         tool, arguments, setting, port = CONFIGURED_TOOL_CALLS[call]
         monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", str(flag).lower())
         config(ai=setting)
-        scripted_resolver(monkeypatch, {"example.com": [[answer]]})
-        recorder = record_connects(monkeypatch, [http_response(200, "{}")] * 4)
+        dns.add("example.com", answer)
+        web.serve(lambda request: httpx2.Response(200, json={}))
 
         await _call_gateway_tool(tool, arguments)
 
-        assert [dial for dial in recorder.dialled if dial[0] == answer] == (
-            [(answer, port)] if dialled else []
+        assert {(request.url.host, request.url.port or 80) for request in web.sent} == (
+            {("example.com", port)} if dialled else set()
         )
 
     async def test_the_routes_tool_sends_the_key_to_the_configured_gateway(
-        self, monkeypatch: pytest.MonkeyPatch, config: Any
+        self, monkeypatch: pytest.MonkeyPatch, config: Any, web: WebFake
     ) -> None:
         """The key still reaches the gateway that the configuration names."""
         monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", "sk-secret")
         config(ai={"gateway_url": "http://example.com/v1"})
-        scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
-        recorder = record_connects(monkeypatch, [http_response(200, '{"data": []}')])
+        web.serve(lambda request: httpx2.Response(200, json={"data": []}))
 
         failed, _reply = await _call_gateway_tool("ai_gateway_routes", {})
 
-        assert (failed, recorder.requested_hosts, b"Bearer sk-secret" in recorder.written[0]) == (
-            False,
-            ["example.com"],
-            True,
-        )
+        assert (
+            failed,
+            [request.url.host for request in web.sent],
+            [request.headers.get("authorization") for request in web.sent],
+        ) == (False, ["example.com"], ["Bearer sk-secret"])
 
 
 class TestRouterAndClientGatewayIntegration:
@@ -793,16 +772,17 @@ class TestRouterAndClientGatewayIntegration:
             "example.com",
         )
 
-    @pytest.mark.usefixtures("public_dns")
-    def test_probe_gateway_strips_v1_and_updates_circuit_breaker(self, tmp_path: Path) -> None:
+    def test_probe_gateway_strips_v1_and_updates_circuit_breaker(
+        self, tmp_path: Path, web: WebFake
+    ) -> None:
         """Verify health probe strips /v1 and updates circuit breaker on failure."""
         state_file = tmp_path / "gw_state.json"
         router = GatewayRouter(AIConfig(gateway_url="http://example.com/v1"), state_file=state_file)
 
-        mock_resp_fail = MagicMock(status_code=502)
-        with patch.object(httpx2.Client, "get", return_value=mock_resp_fail) as mock_get:
-            status = router.probe_gateway()
-            initial_probe_url = mock_get.call_args_list[0][0][0]
+        mock_resp_fail = httpx2.Response(502)
+        web.serve(lambda request: mock_resp_fail)
+        status = router.probe_gateway()
+        initial_probe_url = web.requested[0]
 
         assert (
             initial_probe_url,
@@ -853,23 +833,21 @@ def _model_info(status: int = 200) -> tuple[list[dict[str, str]], Any]:
         *wildcard,
     ]
 
-    def fake_get(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
-        requests.append({"url": url, **(kwargs.get("headers") or {})})
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        requests.append({"url": str(request.url), **dict(request.headers)})
         body = {"data": data} if status == 200 else {"error": {"message": "No api key"}}
-        return httpx2.Response(status, json=body, request=httpx2.Request("GET", url))
+        return httpx2.Response(status, json=body)
 
-    return requests, fake_get
+    return requests, answer
 
 
 class TestGatewayRouteDiscovery:
     """Live route discovery authenticates and reports the gateway's real deployments."""
 
-    def test_discovery_authenticates_and_collapses_wildcard_expansions(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_discovery_authenticates_and_collapses_wildcard_expansions(self, web: WebFake) -> None:
         """Verify /model/info is read with the key and a wildcard's expansions become one route."""
         requests, fake_get = _model_info()
-        monkeypatch.setattr(httpx2.Client, "get", fake_get)
+        web.serve(fake_get)
         router = GatewayRouter(
             AIConfig(gateway_url=GATEWAY_URL, allow_private_network=True), api_key="sk-gateway"
         )
@@ -878,7 +856,7 @@ class TestGatewayRouteDiscovery:
 
         assert (
             [(r.virtual_model, r.target_model) for r in routes],
-            [(r["url"], r.get("Authorization")) for r in requests],
+            [(r["url"], r.get("authorization")) for r in requests],
         ) == (
             [
                 ("devops-review", "openai/qwen2.5-coder-32b-instruct"),
@@ -893,11 +871,11 @@ class TestGatewayRouteDiscovery:
         [(None, "no API key is configured"), ("sk-wrong", "rejected the configured API key")],
     )
     def test_rejected_discovery_names_the_key_instead_of_showing_defaults(
-        self, monkeypatch: pytest.MonkeyPatch, api_key: str | None, expected: str
+        self, api_key: str | None, expected: str, web: WebFake
     ) -> None:
         """Verify a 401 raises a credentials error rather than falling back to default routes."""
         requests, fake_get = _model_info(status=401)
-        monkeypatch.setattr(httpx2.Client, "get", fake_get)
+        web.serve(fake_get)
         router = GatewayRouter(
             AIConfig(gateway_url=GATEWAY_URL, allow_private_network=True), api_key=api_key
         )
@@ -908,15 +886,15 @@ class TestGatewayRouteDiscovery:
         assert (
             expected in str(exc_info.value),
             "DEVOPS_CLI_AI_API_KEY" in str(exc_info.value),
-            [r.get("Authorization") for r in requests],
+            [r.get("authorization") for r in requests],
         ) == (True, True, [f"Bearer {api_key}" if api_key else None])
 
     def test_routes_command_queries_the_configured_gateway(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, web: WebFake
     ) -> None:
         """Verify `routes` reads the configured gateway, with its key, without --gateway-url."""
         requests, fake_get = _model_info()
-        monkeypatch.setattr(httpx2.Client, "get", fake_get)
+        web.serve(fake_get)
         settings = MagicMock()
         settings.ai = AIConfig(gateway_url=GATEWAY_URL, allow_private_network=True)
         monkeypatch.setattr("devops_cli.commands.ai_gateway.load_settings", lambda: settings)
@@ -927,17 +905,19 @@ class TestGatewayRouteDiscovery:
         assert (
             result.exit_code,
             [r["target_model"] for r in json.loads(result.output)],
-            [r.get("Authorization") for r in requests],
+            [r.get("authorization") for r in requests],
         ) == (
             0,
             ["openai/qwen2.5-coder-32b-instruct", "ollama_chat/gpt-oss:20b", "ollama/*"],
             ["Bearer sk-gw"],
         )
 
-    def test_routes_command_reports_missing_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_routes_command_reports_missing_key(
+        self, monkeypatch: pytest.MonkeyPatch, web: WebFake
+    ) -> None:
         """Verify `routes` exits non-zero and names the key when the gateway rejects it."""
         _requests, fake_get = _model_info(status=401)
-        monkeypatch.setattr(httpx2.Client, "get", fake_get)
+        web.serve(fake_get)
         settings = MagicMock()
         settings.ai = AIConfig(gateway_url=GATEWAY_URL, allow_private_network=True)
         monkeypatch.setattr("devops_cli.commands.ai_gateway.load_settings", lambda: settings)
@@ -948,11 +928,11 @@ class TestGatewayRouteDiscovery:
         assert (result.exit_code, "DEVOPS_CLI_AI_API_KEY" in result.output) == (1, True)
 
     def test_list_routes_401_with_agent_grant_names_grant_and_omits_api_key_hint(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, web: WebFake
     ) -> None:
         """Verify a 401 with DEVOPS_CLI_AGENT_GRANT set names the grant ID, cuts long IDs, and omits the generic key hint."""
         _requests, fake_get = _model_info(status=401)
-        monkeypatch.setattr(httpx2.Client, "get", fake_get)
+        web.serve(fake_get)
         router = GatewayRouter(
             AIConfig(gateway_url=GATEWAY_URL, allow_private_network=True), api_key="stale-key"
         )
@@ -987,7 +967,7 @@ class TestGatewayRouteDiscovery:
         assert ("DEVOPS_CLI_AI_API_KEY" in msg_orig, "g-123" not in msg_orig) == (True, True)
 
     def test_use_lan_brackets_ipv6_host(
-        self, monkeypatch: pytest.MonkeyPatch, config: Any, isolate_data_dir: Path
+        self, monkeypatch: pytest.MonkeyPatch, config: Any, isolate_data_dir: Path, web: WebFake
     ) -> None:
         """Verify devops ai gateway use-lan properly brackets IPv6 addresses when building base_url,
         and writes only `ai.gateway_url` and `ai.allow_private_network` into the config file."""
@@ -997,15 +977,14 @@ class TestGatewayRouteDiscovery:
             "devops_cli.commands.ai_gateway.node_port_address",
             lambda *args, **kwargs: ("2001:db8::1", 30400),
         )
-        probed_urls: list[str] = []
-        monkeypatch.setattr(
-            "devops_cli.commands.ai_gateway._probe_gateway_liveliness_and_models",
-            lambda url, *args, **kwargs: probed_urls.append(url),
-        )
+        web.serve(lambda request: httpx2.Response(200, json={"data": []}))
 
         res = runner.invoke(gateway_cli_app, ["connect"])
         assert res.exit_code == 0
-        assert probed_urls == ["http://[2001:db8::1]:30400"]
+        assert web.requested == [
+            "http://[2001:db8::1]:30400/health/liveliness",
+            "http://[2001:db8::1]:30400/model/info",
+        ]
         assert written_keys(isolate_data_dir) == [["ai.allow_private_network", "ai.gateway_url"]]
 
 
@@ -1049,16 +1028,12 @@ class TestTheKeyGoesOnlyToTheConfiguredGateway:
             cls._sweep(url)
 
     @staticmethod
-    def _wire_of(monkeypatch: pytest.MonkeyPatch, call: Callable[[], None]) -> list[bytes]:
-        """Run `call` against two hosts that answer a public address; return the bytes that each
-        connection received."""
-        scripted_resolver(
-            monkeypatch,
-            {"example.com": [[PUBLIC_ADDRESS]], "example.org": [[PUBLIC_ADDRESS]]},
-        )
-        recorder = record_connects(monkeypatch, [http_response(200, '{"data": []}')] * 2)
+    def _wire_of(web: WebFake, call: Callable[[], None]) -> list[httpx2.Request]:
+        """Run `call` against two hosts that answer a public address; return the requests that
+        they received."""
+        web.serve(lambda request: httpx2.Response(200, json={"data": []}))
         call()
-        return [bytes(written) for written in recorder.written]
+        return web.sent
 
     @pytest.mark.parametrize("caller", ["_routes", "_model_info", "_tune"])
     @pytest.mark.parametrize(
@@ -1083,17 +1058,24 @@ class TestTheKeyGoesOnlyToTheConfiguredGateway:
         ],
     )
     def test_a_request_carries_the_key_only_for_the_configured_origin(
-        self, monkeypatch: pytest.MonkeyPatch, config: Any, caller: str, url: str, gets_key: bool
+        self,
+        config: Any,
+        caller: str,
+        url: str,
+        gets_key: bool,
+        web: WebFake,
     ) -> None:
         config(ai={"gateway_url": CONFIGURED_GATEWAY})
 
-        wire = self._wire_of(monkeypatch, lambda: getattr(self, caller)(url))
+        wire = self._wire_of(web, lambda: getattr(self, caller)(url))
 
-        assert [b"Bearer sk-gateway" in request for request in wire] == [gets_key]
+        assert [
+            request.headers.get("authorization") == "Bearer sk-gateway" for request in wire
+        ] == [gets_key]
 
     @pytest.mark.parametrize("caller", ["_routes", "_model_info"])
     def test_no_url_gets_the_key_when_no_gateway_is_configured(
-        self, monkeypatch: pytest.MonkeyPatch, config: Any, caller: str
+        self, config: Any, caller: str, web: WebFake
     ) -> None:
         config(ai={"gateway_url": None})
 
@@ -1103,35 +1085,33 @@ class TestTheKeyGoesOnlyToTheConfiguredGateway:
             else:
                 self._model_info(CONFIGURED_GATEWAY)
 
-        wire = self._wire_of(monkeypatch, call)
+        wire = self._wire_of(web, call)
 
-        assert [b"Bearer sk-gateway" in request for request in wire] == [False]
+        assert [request.headers.get("authorization") for request in wire] == [None]
 
     def test_the_routes_command_sends_no_key_to_another_gateway(
-        self, monkeypatch: pytest.MonkeyPatch, config: Any, cli: Any
+        self, monkeypatch: pytest.MonkeyPatch, config: Any, cli: Any, web: WebFake
     ) -> None:
         monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", "sk-gateway")
         config(ai={"gateway_url": CONFIGURED_GATEWAY})
-        scripted_resolver(monkeypatch, {"example.org": [[PUBLIC_ADDRESS]]})
-        recorder = record_connects(monkeypatch, [http_response(401, "{}")])
+        web.serve(lambda request: httpx2.Response(401, json={}))
 
         result = cli("ai", "gateway", "routes", "--gateway-url", "http://example.org/v1")
 
         assert (
             result.exit_code,
             "so this gateway got none" in result.output,
-            recorder.requested_hosts,
-            b"sk-gateway" in b"".join(recorder.written),
-        ) == (1, True, ["example.org"], False)
+            [request.url.host for request in web.sent],
+            [request.headers.get("authorization") for request in web.sent],
+        ) == (1, True, ["example.org"], [None])
 
     @pytest.mark.parametrize("caller", ["_model_info", "_tune"])
     def test_a_refusal_by_another_gateway_says_that_it_got_no_key(
-        self, monkeypatch: pytest.MonkeyPatch, config: Any, caller: str
+        self, config: Any, caller: str, web: WebFake
     ) -> None:
         """The AI API key is set, so a message that asks for a key would mislead."""
         config(ai={"gateway_url": CONFIGURED_GATEWAY})
-        scripted_resolver(monkeypatch, {"example.org": [[PUBLIC_ADDRESS]]})
-        record_connects(monkeypatch, [http_response(401, "{}")])
+        web.serve(lambda request: httpx2.Response(401, json={}))
 
         with pytest.raises(AICredentialsError) as refused:
             getattr(self, "_model_info" if caller == "_model_info" else "_sweep")(

@@ -8,10 +8,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
 
 from devops_cli.lang import ERRORS
-from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
+from tests.support.fakes.http import WebFake
 
 BENCHMARK_TOOL_PARAMETERS = [
     "models",
@@ -28,7 +29,6 @@ BENCHMARK_TOOL_PARAMETERS = [
 no `document` and no `code`."""
 
 _LOOPBACK_URL = "http://127.0.0.1:8200/v1/sys/seal-status?x="
-_CHAT_REQUEST_LINE = b"POST /api/chat HTTP/1.1"
 _GRADE = {
     "accuracy_score": 9.0,
     "security_score": 9.5,
@@ -42,9 +42,9 @@ _GRADE = {
 }
 
 
-def _chat_answers(count: int = 40) -> list[bytes]:
-    """Canned Ollama chat answers, each a valid peer grade."""
-    return [http_response(200, json.dumps({"message": {"content": json.dumps(_GRADE)}}))] * count
+def _graded_chat(request: httpx2.Request) -> httpx2.Response:
+    """A canned Ollama chat answer that is a valid peer grade."""
+    return httpx2.Response(200, json={"message": {"content": json.dumps(_GRADE)}})
 
 
 async def _call_benchmark_tool(arguments: dict[str, object]) -> tuple[bool, str]:
@@ -79,7 +79,7 @@ class TestBenchmarkToolTakesNoServerUrlFromTheModel:
         } == {"ai_benchmark": BENCHMARK_TOOL_PARAMETERS}
 
     async def test_a_servers_argument_is_refused_and_reaches_no_socket(
-        self, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any]
+        self, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any], web: WebFake
     ) -> None:
         """A call that gives `servers` fails and sends no request.
 
@@ -88,8 +88,7 @@ class TestBenchmarkToolTakesNoServerUrlFromTheModel:
         """
         monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
         config(ai={"provider": "ollama", "ollama_urls": ["http://example.com:11434"]})
-        scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
-        recorder = record_connects(monkeypatch, _chat_answers())
+        web.serve(_graded_chat)
 
         failed, reply = await _call_benchmark_tool(
             {"servers": _LOOPBACK_URL, "models": "qwen3:0.6b"}
@@ -98,9 +97,8 @@ class TestBenchmarkToolTakesNoServerUrlFromTheModel:
         assert (
             failed,
             "1. Parameter: `servers`\n   Kind: HALLUCINATED_PARAM\n" in reply,
-            recorder.dialled,
-            recorder.written,
-        ) == (True, True, [], [])
+            web.sent,
+        ) == (True, True, [])
 
     @pytest.mark.parametrize(
         "models",
@@ -108,7 +106,7 @@ class TestBenchmarkToolTakesNoServerUrlFromTheModel:
         ids=["one entry", "second entry"],
     )
     async def test_a_model_endpoint_is_refused_and_reaches_no_socket(
-        self, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any], models: str
+        self, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any], models: str, web: WebFake
     ) -> None:
         """A `model@url` entry fails the call and sends no request.
 
@@ -117,30 +115,27 @@ class TestBenchmarkToolTakesNoServerUrlFromTheModel:
         """
         monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
         config(ai={"provider": "ollama", "ollama_urls": ["http://example.com:11434"]})
-        scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
-        recorder = record_connects(monkeypatch, _chat_answers())
+        web.serve(_graded_chat)
 
         failed, reply = await _call_benchmark_tool({"models": models})
 
         assert (
             failed,
             ERRORS.mcp.model_names_endpoint in reply,
-            recorder.dialled,
-            recorder.written,
+            web.sent,
         ) == (
             True,
             True,
-            [],
             [],
         )
 
     @pytest.mark.parametrize("option", ["output", "document", "code"])
     async def test_a_path_argument_is_refused_and_touches_no_file_and_no_socket(
         self,
-        monkeypatch: pytest.MonkeyPatch,
         config: Callable[..., Any],
         tmp_path: Path,
         option: str,
+        web: WebFake,
     ) -> None:
         """A call that gives `output`, `document` or `code` fails before the command runs.
 
@@ -148,8 +143,7 @@ class TestBenchmarkToolTakesNoServerUrlFromTheModel:
         `document` or `code` read the file and sent its text to the model server.
         """
         config(ai={"provider": "ollama", "ollama_urls": ["http://example.com:11434"]})
-        scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
-        recorder = record_connects(monkeypatch, _chat_answers())
+        web.serve(_graded_chat)
         target = tmp_path / "target"
         target.mkdir()
         (target / "secret.py").write_text("SECRET_MARKER = 1\n")
@@ -163,17 +157,15 @@ class TestBenchmarkToolTakesNoServerUrlFromTheModel:
             failed,
             f"1. Parameter: `{option}`\n   Kind: HALLUCINATED_PARAM\n" in reply,
             sorted(path.name for path in target.iterdir()),
-            recorder.dialled,
-            recorder.written,
-        ) == (True, True, ["secret.py"], [], [])
+            web.sent,
+        ) == (True, True, ["secret.py"], [])
 
     async def test_the_tool_benchmarks_each_model_on_the_configured_server(
-        self, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any]
+        self, config: Callable[..., Any], web: WebFake
     ) -> None:
         """With plain model names, the tool posts its chat requests to the configured server only."""
         config(ai={"provider": "ollama", "ollama_urls": ["http://example.com:11434"]})
-        scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
-        recorder = record_connects(monkeypatch, _chat_answers())
+        web.serve(_graded_chat)
 
         failed, _ = await _call_benchmark_tool(
             {"models": "m1,m2", "tasks_filter": "sec-ssrf-remediation"}
@@ -181,9 +173,9 @@ class TestBenchmarkToolTakesNoServerUrlFromTheModel:
 
         assert (
             failed,
-            set(recorder.requested_hosts),
-            {bytes(written).split(b"\r\n")[0] for written in recorder.written if written},
-        ) == (False, {"example.com:11434"}, {_CHAT_REQUEST_LINE})
+            {f"{request.url.host}:{request.url.port}" for request in web.sent},
+            {(request.method, request.url.path) for request in web.sent},
+        ) == (False, {"example.com:11434"}, {("POST", "/api/chat")})
 
     @pytest.mark.parametrize(
         ("address", "flag", "dialled"),
@@ -201,6 +193,7 @@ class TestBenchmarkToolTakesNoServerUrlFromTheModel:
         address: str,
         flag: bool,
         dialled: bool,
+        web: WebFake,
     ) -> None:
         """Loopback, and private addresses with `ai.allow_private_network`, as for the CLI.
 
@@ -209,12 +202,12 @@ class TestBenchmarkToolTakesNoServerUrlFromTheModel:
         """
         monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", str(flag).lower())
         config(ai={"provider": "ollama", "ollama_urls": [f"http://{address}:11434"]})
-        recorder = record_connects(monkeypatch, _chat_answers())
+        web.serve(_graded_chat)
 
         await _call_benchmark_tool({"models": "m1", "tasks_filter": "sec-ssrf-remediation"})
 
-        assert {dial for dial in recorder.dialled if dial[0] == address} == (
-            {(address, 11434)} if dialled else set()
+        assert {str(request.url) for request in web.sent} == (
+            {f"http://{address}:11434/api/chat"} if dialled else set()
         )
 
     @pytest.mark.parametrize(
@@ -227,23 +220,22 @@ class TestBenchmarkToolTakesNoServerUrlFromTheModel:
     )
     def test_the_command_runs_on_the_server_that_a_person_types(
         self,
-        monkeypatch: pytest.MonkeyPatch,
         config: Callable[..., Any],
         cli: Callable[..., Any],
         option: str,
         value: str,
+        web: WebFake,
     ) -> None:
         """A person types the URL, and no model gives it, so the command posts to that host."""
         config(ai={"provider": "ollama", "ollama_urls": ["http://example.org:11434"]})
-        scripted_resolver(
-            monkeypatch,
-            {"example.com": [[PUBLIC_ADDRESS]], "example.org": [[PUBLIC_ADDRESS]]},
-        )
-        recorder = record_connects(monkeypatch, _chat_answers())
+        web.serve(_graded_chat)
         arguments = ["ai", "benchmark", "--tasks", "sec-ssrf-remediation", option, value]
         if option == "--servers":
             arguments += ["--models", "m1"]
 
         result = cli(*arguments)
 
-        assert (result.exit_code, set(recorder.requested_hosts)) == (0, {"example.com:11435"})
+        assert (
+            result.exit_code,
+            {f"{request.url.host}:{request.url.port}" for request in web.sent},
+        ) == (0, {"example.com:11435"})
