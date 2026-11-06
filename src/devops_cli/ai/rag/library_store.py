@@ -59,9 +59,6 @@ def load_local_contracts(contracts_dir: Path) -> list[LibraryContract]:
     return contracts
 
 
-_load_local_contracts = load_local_contracts
-
-
 def _format_fn_signature(fn: FunctionSignature) -> str:
     """Format a FunctionSignature model into Pythonic signature string."""
     params = [f"{p.name}: {p.annotation}" if p.annotation else p.name for p in fn.parameters]
@@ -449,3 +446,45 @@ class LibraryVectorStore:
                 )
             )
         return results
+
+
+def build_library_vector_store(
+    contracts_dir: Path,
+    *,
+    semantic_needed: bool = True,
+    dry_run: bool = False,
+) -> LibraryVectorStore:
+    """Construct a LibraryVectorStore wired with Qdrant, the embedder and the Valkey tier.
+
+    A dry run has no Valkey tier, no Qdrant client and no embedder, so it sends no request.
+    When `semantic_needed` is false, or Qdrant is not configured or does not answer, the store
+    has no semantic tier and reads the local contracts only.
+    """
+    from devops_cli.valkey.cache import shared_cache_tier
+
+    if dry_run:
+        return LibraryVectorStore(local_contracts_dir=contracts_dir)
+
+    qdrant_client, embedder = _semantic_tier() if semantic_needed else (None, None)
+    return LibraryVectorStore(
+        qdrant_client=qdrant_client,
+        symbol_cache=shared_cache_tier(),
+        embedder=embedder,
+        local_contracts_dir=contracts_dir,
+    )
+
+
+def _semantic_tier() -> tuple[Any, Any]:
+    """The Qdrant client and the embedder when Qdrant answers, else (None, None)."""
+    from devops_cli.ai.rag.indexer import resolve_rag_components
+    from devops_cli.exceptions import DevOpsCLIError
+
+    try:
+        components = resolve_rag_components()
+    except DevOpsCLIError as exc:
+        logger.debug("Qdrant or embedder unavailable for library vector tier: %s", exc)
+        return None, None
+    if not components.qdrant.is_alive():
+        logger.debug("Qdrant does not answer: library vector tier reads local contracts only")
+        return None, None
+    return components.qdrant, components.embedder

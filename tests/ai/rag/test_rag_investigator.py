@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devops_cli.ai.rag.embeddings import EmbeddingsError
+from devops_cli.ai.rag.embeddings import EmbeddingsError, install_embedder
 from devops_cli.ai.rag.investigator import (
     _PROBE_COORDINATOR,
     _RAG_STOPPED,
@@ -18,6 +18,7 @@ from devops_cli.ai.rag.investigator import (
     investigate_rag_context,
 )
 from devops_cli.ai.rag.models import CodeChunk, RAGContext, SearchResult
+from devops_cli.ai.rag.qdrant import install_qdrant_client
 from devops_cli.config.settings import Settings
 from tests.support.fakes.clock import ClockFake
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
@@ -38,19 +39,17 @@ def test_investigate_rag_context_rag_disabled() -> None:
     assert investigate_rag_context("architecture design", settings=st) is None
 
 
-def test_investigate_rag_context_qdrant_unreachable() -> None:
+def test_investigate_rag_context_qdrant_unreachable(qdrant: Any, embedder: Any) -> None:
     """Unreachable Qdrant server safely returns None without raising."""
     st = Settings()
     st.ai.rag.enabled = True
     st.qdrant.url = "http://192.0.2.10:6333"
-    st.qdrant.url = "http://192.0.2.10:6333"
-    with patch("devops_cli.ai.rag.investigator.QdrantClient") as mock_qdrant_cls:
-        mock_instance = MagicMock()
-        mock_instance.is_alive.return_value = False
-        mock_qdrant_cls.return_value = mock_instance
+    qdrant.refusing = True
 
-        res = investigate_rag_context("architecture design", settings=st)
-        assert res is None
+    with patch("devops_cli.ai.rag.investigator.SemanticRetriever") as retriever_cls:
+        result = investigate_rag_context("architecture design", settings=st)
+
+    assert (result, retriever_cls.called) == (None, False)
 
 
 def test_a_refused_rag_backend_is_reported_once(
@@ -96,16 +95,14 @@ def test_investigate_rag_context_success() -> None:
     search_result = SearchResult(chunk=chunk, score=0.88)
 
     with (
-        patch("devops_cli.ai.rag.investigator.QdrantClient") as mock_qdrant_cls,
-        patch("devops_cli.ai.rag.investigator.EmbeddingsEngine") as mock_emb_cls,
         patch("devops_cli.ai.rag.investigator.SemanticRetriever") as mock_retriever_cls,
     ):
         mock_qdrant = MagicMock()
         mock_qdrant.is_alive.return_value = True
-        mock_qdrant_cls.return_value = mock_qdrant
+        install_qdrant_client(mock_qdrant)
 
         mock_emb = MagicMock()
-        mock_emb_cls.return_value = mock_emb
+        install_embedder(mock_emb)
 
         mock_retriever = MagicMock()
         mock_retriever.retrieve_context.return_value = RAGContext(
@@ -116,6 +113,13 @@ def test_investigate_rag_context_success() -> None:
         mock_retriever_cls.return_value = mock_retriever
 
         ctx = investigate_rag_context("LLM client architecture", settings=st)
+        wired = mock_retriever_cls.call_args.kwargs
+        assert (
+            wired["qdrant"] is mock_qdrant,
+            wired["embedder"] is mock_emb,
+            wired["code_collection"],
+            wired["docs_collection"],
+        ) == (True, True, "devops_code", "devops_docs")
         assert ctx is not None
         assert ctx.has_results is True
         assert len(ctx.results) == 1
@@ -130,13 +134,11 @@ def test_investigate_rag_context_persona_expansion() -> None:
     st.qdrant.url = "http://192.0.2.10:6333"
 
     with (
-        patch("devops_cli.ai.rag.investigator.QdrantClient") as mock_qdrant_cls,
-        patch("devops_cli.ai.rag.investigator.EmbeddingsEngine"),
         patch("devops_cli.ai.rag.investigator.SemanticRetriever") as mock_retriever_cls,
     ):
         mock_qdrant = MagicMock()
         mock_qdrant.is_alive.return_value = True
-        mock_qdrant_cls.return_value = mock_qdrant
+        install_qdrant_client(mock_qdrant)
 
         mock_retriever = MagicMock()
         mock_retriever.retrieve_context_for_persona.return_value = RAGContext(
@@ -218,19 +220,17 @@ def test_concurrent_lookups_wait_for_probe_outcome(
         raise EmbeddingsError("Timeout hanging query", is_transient=True)
 
     with (
-        patch("devops_cli.ai.rag.investigator.QdrantClient") as mock_qdrant_cls,
-        patch("devops_cli.ai.rag.investigator.EmbeddingsEngine") as mock_emb_cls,
         patch("devops_cli.config.settings.get_qdrant_api_key", return_value="test-key"),
         patch("devops_cli.config.settings.get_ai_api_key", return_value="test-key"),
     ):
         mock_qdrant = MagicMock()
         mock_qdrant.is_alive.return_value = True
-        mock_qdrant_cls.return_value = mock_qdrant
+        install_qdrant_client(mock_qdrant)
 
         mock_emb = MagicMock()
         mock_emb.model = "test-embed"
         mock_emb.embed_query.side_effect = hanging_embed_query
-        mock_emb_cls.return_value = mock_emb
+        install_embedder(mock_emb)
 
         with ThreadPoolExecutor(max_workers=20) as executor:
             futures = [
@@ -263,17 +263,15 @@ def test_concurrent_lookups_healthy_stub_all_get_context() -> None:
     search_result = SearchResult(chunk=chunk, score=0.95)
 
     with (
-        patch("devops_cli.ai.rag.investigator.QdrantClient") as mock_qdrant_cls,
-        patch("devops_cli.ai.rag.investigator.EmbeddingsEngine") as mock_emb_cls,
         patch("devops_cli.ai.rag.investigator.SemanticRetriever") as mock_retriever_cls,
     ):
         mock_qdrant = MagicMock()
         mock_qdrant.is_alive.return_value = True
-        mock_qdrant_cls.return_value = mock_qdrant
+        install_qdrant_client(mock_qdrant)
 
         mock_emb = MagicMock()
         mock_emb.model = "test-embed"
-        mock_emb_cls.return_value = mock_emb
+        install_embedder(mock_emb)
 
         mock_retriever = MagicMock()
         mock_retriever.retrieve_context.return_value = RAGContext(
@@ -322,18 +320,16 @@ def test_circuit_breaker_pause_and_resume(clock: ClockFake) -> None:
     search_result = SearchResult(chunk=chunk, score=0.95)
 
     with (
-        patch("devops_cli.ai.rag.investigator.QdrantClient") as mock_qdrant_cls,
-        patch("devops_cli.ai.rag.investigator.EmbeddingsEngine") as mock_emb_cls,
         patch("devops_cli.ai.rag.investigator.SemanticRetriever") as mock_retriever_cls,
     ):
         mock_qdrant = MagicMock()
         mock_qdrant.is_alive.return_value = True
-        mock_qdrant_cls.return_value = mock_qdrant
+        install_qdrant_client(mock_qdrant)
 
         mock_emb = MagicMock()
         mock_emb.model = "test-embed"
         mock_emb.embed_query.side_effect = stub_embed_query
-        mock_emb_cls.return_value = mock_emb
+        install_embedder(mock_emb)
 
         def fake_retrieve_context(q: str, **kwargs: Any) -> RAGContext | None:
             stub_embed_query(q)
@@ -402,13 +398,11 @@ def test_a_failed_probe_pauses_rag_lookups_for_60_seconds_more(
         )
 
     with (
-        patch("devops_cli.ai.rag.investigator.QdrantClient") as mock_qdrant_cls,
-        patch("devops_cli.ai.rag.investigator.EmbeddingsEngine") as mock_emb_cls,
         patch("devops_cli.ai.rag.investigator.SemanticRetriever") as mock_retriever_cls,
         caplog.at_level(logging.WARNING, logger="devops_cli.ai.rag.investigator"),
     ):
-        mock_qdrant_cls.return_value.is_alive.return_value = True
-        mock_emb_cls.return_value.model = "test-embed"
+        install_qdrant_client(MagicMock())
+        install_embedder(MagicMock(model="test-embed"))
         mock_retriever_cls.return_value.retrieve_context.side_effect = retrieve_context
 
         failures = [investigate_rag_context(f"query {i}", settings=st) for i in (1, 2, 3)]
@@ -450,17 +444,15 @@ def test_settings_score_threshold_reaches_qdrant_search() -> None:
     st.ai.rag.score_threshold = 0.5
 
     with (
-        patch("devops_cli.ai.rag.investigator.QdrantClient") as mock_qdrant_cls,
-        patch("devops_cli.ai.rag.investigator.EmbeddingsEngine") as mock_emb_cls,
         patch("devops_cli.ai.rag.investigator.SemanticRetriever") as mock_retriever_cls,
     ):
         mock_qdrant = MagicMock()
         mock_qdrant.is_alive.return_value = True
-        mock_qdrant_cls.return_value = mock_qdrant
+        install_qdrant_client(mock_qdrant)
 
         mock_emb = MagicMock()
         mock_emb.model = "test-embed"
-        mock_emb_cls.return_value = mock_emb
+        install_embedder(mock_emb)
 
         mock_retriever = MagicMock()
         mock_retriever.retrieve_context.return_value = None
@@ -497,12 +489,10 @@ def test_transient_lookup_failure_is_not_cached_and_empty_lookup_is_served_from_
         )
 
     with (
-        patch("devops_cli.ai.rag.investigator.QdrantClient") as mock_qdrant_cls,
-        patch("devops_cli.ai.rag.investigator.EmbeddingsEngine") as mock_emb_cls,
         patch("devops_cli.ai.rag.investigator.SemanticRetriever") as mock_retriever_cls,
     ):
-        mock_qdrant_cls.return_value.is_alive.return_value = True
-        mock_emb_cls.return_value.model = "test-embed"
+        install_qdrant_client(MagicMock())
+        install_embedder(MagicMock(model="test-embed"))
         mock_retriever_cls.return_value.retrieve_context.side_effect = retrieve_context
 
         r1 = investigate_rag_context("transient query", settings=st)

@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from devops_cli.ai.rag.chunker import SemanticChunker
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
@@ -16,6 +16,7 @@ from devops_cli.ai.rag.models import CodeChunk, IndexStats
 
 if TYPE_CHECKING:
     from devops_cli.ai.rag.qdrant import QdrantClient
+    from devops_cli.config.settings import Settings
 from devops_cli.ai.kb import knowledge_base_digest
 from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
@@ -442,9 +443,12 @@ def resolve_qdrant_client(
     api_key: str | None = None,
     *,
     allow_private_network: bool | None = None,
+    settings: Settings | None = None,
 ) -> QdrantClient:
     """Resolve authenticated QdrantClient using OS Keyring when api_key is not explicitly provided.
 
+    The URL, the key, the private-network choice and the timeout come from `settings`, which
+    defaults to the loaded settings, unless the caller gives one of them.
     Indexing's upserts and deletes go through this client, so each waits `qdrant.timeout` per
     attempt, as a RAG search does.
     """
@@ -456,7 +460,7 @@ def resolve_qdrant_client(
 
     from devops_cli.config.settings import get_qdrant_api_key, load_settings
 
-    settings = load_settings()
+    settings = settings or load_settings()
     url = base_url or settings.qdrant.url
     if not url:
         raise ConfigurationError(
@@ -476,6 +480,39 @@ def resolve_qdrant_client(
         api_key=resolved_api_key,
         allow_private_network=private_net,
         timeout=settings.qdrant.timeout,
+    )
+
+
+class RagComponents(NamedTuple):
+    """The Qdrant client, the embedder and the two collection names that settings configure."""
+
+    qdrant: QdrantClient
+    embedder: EmbeddingsEngine
+    code_collection: str
+    docs_collection: str
+
+
+def resolve_rag_components(settings: Settings | None = None) -> RagComponents:
+    """Build the configured Qdrant client, embedder and collection names, once for every caller.
+
+    The settings default to the loaded settings. The Qdrant client and the embedder come from
+    their seams, so an installed override replaces each. Raises `ConfigurationError` when
+    `qdrant.url` is not set and no Qdrant client is installed.
+    """
+    from devops_cli.ai.rag.embeddings import create_embedder
+    from devops_cli.config.settings import get_ai_api_key, load_settings
+
+    settings = settings or load_settings()
+    qdrant = resolve_qdrant_client(settings=settings)
+    embedder = cast(
+        "EmbeddingsEngine", create_embedder(settings.ai, api_key=get_ai_api_key(settings))
+    )
+    prefix = settings.qdrant.collection_prefix or "devops"
+    return RagComponents(
+        qdrant=qdrant,
+        embedder=embedder,
+        code_collection=f"{prefix}_code",
+        docs_collection=f"{prefix}_docs",
     )
 
 

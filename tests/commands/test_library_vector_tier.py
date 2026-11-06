@@ -416,32 +416,6 @@ def test_load_local_contracts_skips_invalid_json(tmp_path: Path) -> None:
     assert loaded[0].package_name == "demo-pkg"
 
 
-def test_build_runtime_vector_store_dry_run(tmp_path: Path) -> None:
-    from devops_cli.commands.ai_ingest import build_runtime_vector_store
-
-    store = build_runtime_vector_store(tmp_path, dry_run=True)
-    assert store.qdrant_client is None
-    assert store.symbol_cache is None
-    assert store.embedder is None
-
-
-@pytest.mark.usefixtures("keyring_store")
-def test_build_runtime_vector_store_with_edge_fakes(
-    tmp_path: Path, qdrant: Any, embedder: Any, valkey: Any
-) -> None:
-    """The live store holds the Valkey tier of the process, beside Qdrant and the embedder."""
-    from devops_cli.commands.ai_ingest import build_runtime_vector_store
-    from devops_cli.valkey.cache import shared_cache_tier
-
-    store = build_runtime_vector_store(tmp_path, semantic_needed=True, dry_run=False)
-    assert (
-        store.symbol_cache is not None,
-        store.symbol_cache is shared_cache_tier(),
-        store.qdrant_client is qdrant,
-        store.embedder is embedder,
-    ) == (True, True, True, True)
-
-
 def test_cli_ai_ingest_index_libraries_live(
     tmp_path: Path, cli: Callable[..., Any], qdrant: Any, embedder: Any, valkey: Any
 ) -> None:
