@@ -1167,7 +1167,7 @@ def test_profiling_runs_on_k8s_monitoring_alloy_profiles() -> None:
         pyroscope["alloy"],
         (destination["type"], endpoint.hostname, endpoint.port),
         (profiling["enabled"], profiling["collector"], profiling["ebpf"], profiling["pprof"]),
-        (collector["presets"], collector["controller"]),
+        (collector["presets"], collector["controller"]["hostPID"]),
     ) == (
         {"enabled": False},
         ("pyroscope", "pyroscope.monitoring.svc.cluster.local", 4040),
@@ -1177,8 +1177,44 @@ def test_profiling_runs_on_k8s_monitoring_alloy_profiles() -> None:
             {"enabled": True, "targetingScheme": "all"},
             {"enabled": True},
         ),
-        (["daemonset", "root"], {"hostPID": True}),
+        (["daemonset", "root"], True),
     )
+
+
+def test_the_ebpf_profiler_runs_on_every_node_except_hawk() -> None:
+    """The `alloy-profiles` DaemonSet keeps off the node `hawk` (#3784). That node reboots on its
+    own, and its kernel log of 2026-11-05 names the eBPF map free of the profiler before the
+    reboot. The profiler is the only eBPF loader on the nodes. The affinity stays until the cause
+    of the crashes is found (#3785). The other nodes keep the profiler, and no other collector
+    carries the exclusion."""
+    collectors = _k8s_monitoring_values()["collectors"]
+    required = "requiredDuringSchedulingIgnoredDuringExecution"
+
+    assert {
+        name: collector.get("controller", {}).get("affinity")
+        for name, collector in collectors.items()
+        if name != "alloy-metrics"
+    } == {
+        "alloy-singleton": None,
+        "alloy-logs": None,
+        "alloy-profiles": {
+            "nodeAffinity": {
+                required: {
+                    "nodeSelectorTerms": [
+                        {
+                            "matchExpressions": [
+                                {
+                                    "key": "kubernetes.io/hostname",
+                                    "operator": "NotIn",
+                                    "values": ["hawk"],
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        },
+    }
 
 
 def test_the_profiler_limit_leaves_room_above_the_spikes_that_killed_it() -> None:
