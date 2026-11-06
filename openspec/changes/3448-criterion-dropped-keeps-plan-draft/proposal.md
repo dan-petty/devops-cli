@@ -4,16 +4,17 @@
 
 The model review of a plan can report that an acceptance criterion of the issue is not delivered, with the finding type `criterion_dropped`. That type is advice: `OPEN_TYPES` in `src/devops_cli/roadmap/stage_verify.py` holds the return types and `spec_delta_wrong`, so the finding does not keep the plan in draft. A later round can then stage the plan as clean, and the criterion stays unmet (#3448).
 
-The first example of the issue does not hold. The merged plan of #3410 is correct: its last group changes only fixture files and a test file, and it delivers its criterion, because an earlier group adds the field `CaseFacts.search_evidence` that the case needs. A rule that flags every group that changes only test files would refuse that plan. So the rule is narrow. A `criterion_dropped` finding with a quote that is in the input keeps the plan in draft, and the prompt tells the model that a test-only group delivers its criterion when an earlier group changes the code that the criterion needs.
+The first example of the issue does not hold. The merged plan of #3410 is correct: the group that adds the case of a move of the stage modules changes only fixture files and a test file, and it delivers its criterion, because an earlier group adds the field `CaseFacts.search_evidence` that the case needs. A rule that flags every group that changes only test files would refuse that plan. So the rule is narrow. A `criterion_dropped` finding with a quote that is in the input keeps the plan in draft, and the prompt tells the model that a test-only group delivers its criterion when an earlier group changes the code that the criterion needs.
 
 ## What Changes
 
+- The change fits one pull request.
 - Add `criterion_dropped` to `OPEN_TYPES` in `src/devops_cli/roadmap/stage_verify.py`. The existing rule stays: a finding with no quote that is in the input is advice, and the finding does not return the plan to the planner.
 - Keep a `criterion_dropped` finding as advice in the review of refine (`JUDGE_OPEN_TYPES` in `src/devops_cli/roadmap/refine_judge.py`), because a proposal of refine holds no task group. The review of refine keeps its open types.
 - Define in `src/devops_cli/ai/tasks/roadmap_stage_verify.md` the criterion whose group changes only test files while no group changes the code that it needs, and say that a test-only group which tests code of an earlier group is no `criterion_dropped`.
 - List `criterion_dropped` as an open finding type in `docs/roadmap/stage.md` and in the module text of `src/devops_cli/roadmap/stage.py`.
 - Add two cases to the stage eval golden set: the merged plan of #3410, which stays good, and the same plan without the group that adds the field of the case, which stays bad with one `criterion_dropped` defect and the gate `none`.
-- Remove the count of the good plans from `docs/ROADMAP_WORKFLOW.md` and from the test of that document, so that a new good case changes no sentence.
+- Remove the count of the good plans and the count of the cases from `docs/ROADMAP_WORKFLOW.md`, and read the words and not the number in the test of that document, so that a new case changes no sentence.
 
 ## Capabilities
 
