@@ -2348,15 +2348,14 @@ class RoadmapMessages:
     alternatives_reason_job_verdict: str = (
         "the reply gives the verdict {verdict}, which the job sets and the model cannot give"
     )
-    alternatives_reason_adr_unknown: str = (
-        "the reply cites ADR {number}, which the repository does not hold"
-    )
-    alternatives_reason_adr_tool: str = (
-        "the reply says ADR {number} rejected {name}, and the ADR does not name it"
-    )
     alternatives_retry_search: str = (
         "Call search_web at least once before you reply. The job refuses a verdict that follows "
         "no search. Give the verdict none when the search finds no tool."
+    )
+    alternatives_retry_verdict: str = (
+        "The verdict {verdict} is set by the job. Give the verdict covers, partly or none. "
+        "To say that an ADR rejected the tool, set adr. To say that the item names the tool, "
+        "set in_use."
     )
     alternatives_reason_markers: str = "the body holds a marker of the check with no partner"
     # What the tools of the check answer.

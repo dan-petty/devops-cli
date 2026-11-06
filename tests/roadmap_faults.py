@@ -88,3 +88,26 @@ class StoppingStore:
                 "HTTP 502 after the write applied", operation="roadmap.write"
             )
         return done
+
+
+@dataclass
+class ListingStore:
+    """The store, with each listing of a repository directory counted, and failing with `error`
+    when one is set (#3505). `listed` names every directory that a job listed, in order."""
+
+    store: InMemoryRoadmapStore
+    error: Exception | None = None
+    listed: list[str] = field(default_factory=list)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.store, name)
+
+    def repository_files(self, directory: str, *, ref: str | None = None) -> list[str]:
+        self.listed.append(directory)
+        if self.error is not None:
+            raise self.error
+        return self.store.repository_files(directory, ref=ref)
+
+    def as_store(self) -> RoadmapStore:
+        """The wrapper, as the job takes a store."""
+        return cast(RoadmapStore, self)

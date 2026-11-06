@@ -171,8 +171,9 @@ class Verdict(StrEnum):
     `PARTLY` one covers a part, `NONE` the search found no tool, `NOT_APPLICABLE` the item is in a
     skip class, such as a `docs` item, and the job made no search (#2946), `REJECTED` an ADR of the
     repository rejected the tool that the model found, and `IN_USE` the item already names it
-    (#3505). The model cannot give `NOT_APPLICABLE`, `REJECTED` or `IN_USE`: the job sets them.
-    The job records the verdict, and refine reads it (#2652)."""
+    (#3505). The model cannot give `NOT_APPLICABLE`, `REJECTED` or `IN_USE` as its verdict. The job
+    sets `NOT_APPLICABLE` for a skip class, and it sets the other two when the text confirms what
+    the model proposes. The job records the verdict, and refine reads it (#2652)."""
 
     COVERS = "covers"
     PARTLY = "partly"

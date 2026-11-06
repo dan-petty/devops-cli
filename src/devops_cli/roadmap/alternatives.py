@@ -26,12 +26,18 @@ written. The run fails, naming each skipped item, only when it tried items and c
 Rejected credentials stop the run at the first item.
 
 **The ADRs and the item (#3505).** Once for a run that checks an item of no skip class, the job
-reads the number, the title and the `Considered Options` section of each ADR of `docs/adr/`, and
-the request holds them as `decisions`, cut to a token cap. The reply may name the ADR that rejected
-its tool in `adr`. The job confirms that the repository holds the ADR and that its text names the
-tool, else it refuses the reply, and then gives the verdict `rejected`. Else it gives `in-use` for a
-tool that the title or the body of the item names, outside the job's block and refine's section.
-The model cannot give `rejected` or `in-use`. Refine asks no question for either.
+reads each ADR of `docs/adr/` that is in force: its number, its title, its status lines and its
+`Considered Options` section. An ADR that a later ADR supersedes is left out. The request holds the
+entries as `decisions`, newest first, cut by whole entries to a token cap. A warning names each ADR
+that the cut leaves out. The model proposes the verdict `rejected` with `adr`, the number of the
+ADR that rejected the tool. It proposes the verdict `in-use` with `in_use`, when the item already
+names the tool. Both go with the tool of a `covers` or `partly` verdict and with `tool_name`, the
+name that the ADR or the item writes for it. The job gives `rejected` when the ADR is one that the
+model saw and its title or options name the tool. It gives `in-use` when the title or the body of
+the item, outside the job's block and refine's section, names the tool. A name of one word counts
+only in a code span, a link or strong emphasis. The job drops a proposal that it cannot confirm,
+and the verdict of the reply stays. The model cannot give `rejected` or `in-use` as its verdict:
+it gets one more turn, and then the job refuses the reply. Refine asks no question for either.
 
 **Writes.** With `--confirm` a check replaces the job's block in the body, records
 `alternatives.*` in the job record, and posts one comment that carries
@@ -92,7 +98,7 @@ from devops_cli.exceptions.roadmap import RoadmapAlternativesError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.adr import Adr, names, read_adrs
+from devops_cli.roadmap.adr import Adr, fit_to_budget, names, read_adrs
 from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.refine import (
@@ -134,18 +140,24 @@ _FIX_TYPE = "fix"
 
 
 _TOOL_VERDICTS = frozenset({Verdict.COVERS, Verdict.PARTLY})
-# The verdicts that only the job gives, from the ADRs and the text of the item (#3505).
-_JOB_VERDICTS = frozenset({Verdict.REJECTED, Verdict.IN_USE})
+# The verdicts that the model cannot give. The job sets `not-applicable` for a skip class, and it
+# sets `rejected` and `in-use` when it confirms what the model says in `adr` and `in_use` (#3505).
+_JOB_VERDICTS = frozenset({Verdict.NOT_APPLICABLE, Verdict.REJECTED, Verdict.IN_USE})
 
 
 class AlternativesReply(BaseModel):
     """The model's reply. The license, the dates, whether the tool is maintained and the searches
-    that ran are the job's to write, so the reply holds none of them. `adr` is the number of the
-    ADR that rejected the tool of a `covers` or `partly` verdict; the job confirms it (#3505)."""
+    that ran are the job's to write, so the reply holds none of them. The model proposes the verdict
+    `rejected` with `adr`, the number of the ADR that rejected the tool of a `covers` or `partly`
+    verdict, and the verdict `in-use` with `in_use`, when the item already names that tool.
+    `tool_name` is the name that the ADR or the item writes for the tool. The job confirms each
+    proposal against the text, and keeps the verdict of the reply when it cannot (#3505)."""
 
     verdict: Verdict
     tool_url: str | None = None
+    tool_name: str | None = None
     adr: int | None = None
+    in_use: bool = False
     covers: list[str] = Field(default_factory=list)
     lacks: list[str] = Field(default_factory=list)
     sources: list[str] = Field(default_factory=list)
@@ -555,10 +567,9 @@ def select_items(
 
 def _request(item: Item, comments: Sequence[IssueComment], adrs: Sequence[Adr]) -> str:
     """The JSON document the model reads: the item without the job's block, the replies since the
-    job's last comment (every comment when it left none), the number, title and options of each
-    ADR (#3505), and the budget. `comments` holds the comments of trusted authors only, so text of
-    an outside account does not reach the model. The `decisions` key is left out when the
-    repository has no ADR; the text is cut at its end, so the oldest ADRs go first."""
+    job's last comment (every comment when it left none), the entries of the ADRs in force (#3505),
+    and the budget. `comments` holds the comments of trusted authors only, so text of an outside
+    account does not reach the model. The `decisions` key is left out when there is no ADR."""
     outside, _ = extract_section_and_outside(
         item.body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
     )
@@ -574,7 +585,7 @@ def _request(item: Item, comments: Sequence[IssueComment], adrs: Sequence[Adr]) 
             truncate_to_token_limit(reply.body, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
             for reply in replies
         ],
-        **({"decisions": _decisions_text(adrs)} if adrs else {}),
+        **({"decisions": "\n\n".join(adr.entry for adr in adrs)} if adrs else {}),
         "search_budget": {
             "searches": CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
             "results_per_search": CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS,
@@ -582,13 +593,6 @@ def _request(item: Item, comments: Sequence[IssueComment], adrs: Sequence[Adr]) 
         },
     }
     return json.dumps(document, ensure_ascii=False, indent=1)
-
-
-def _decisions_text(adrs: Sequence[Adr]) -> str:
-    """The entries of `adrs` in a blank-line-separated text, cut to the token cap."""
-    return truncate_to_token_limit(
-        "\n\n".join(adr.entry for adr in adrs), max_tokens=CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS
-    )
 
 
 def skip_class_of(item: Item) -> str | None:
@@ -607,24 +611,28 @@ def _search_missing(tools: AlternativesTools) -> str | None:
     return None if tools.queries else MESSAGES.roadmap.alternatives_retry_search
 
 
-def _adr_refusal(number: int, facts: ToolFacts, adrs: Sequence[Adr]) -> str | None:
-    """Why the job cannot confirm that ADR `number` rejected the tool of `facts`, or None: the
-    repository holds no such ADR, or its title and options do not name the tool (#3505)."""
+def _retry_message(reply: AlternativesReply, tools: AlternativesTools) -> str | None:
+    """The message that sends `reply` back to the model once, or None. Another turn can mend a
+    verdict that only the job sets, and a reply that follows no search (#3505)."""
     texts = MESSAGES.roadmap
-    adr = next((candidate for candidate in adrs if candidate.number == number), None)
-    if adr is None:
-        return texts.alternatives_reason_adr_unknown.format(number=number)
-    if not names(f"{adr.title}\n{adr.options}", facts.name):
-        return texts.alternatives_reason_adr_tool.format(number=number, name=facts.name)
-    return None
+    messages = [
+        message
+        for message in (
+            texts.alternatives_retry_verdict.format(verdict=reply.verdict.value)
+            if reply.verdict in _JOB_VERDICTS
+            else None,
+            _search_missing(tools),
+        )
+        if message is not None
+    ]
+    return " ".join(messages) or None
 
 
-def _refusal(reply: AlternativesReply, tools: AlternativesTools, adrs: Sequence[Adr]) -> str | None:
+def _refusal(reply: AlternativesReply, tools: AlternativesTools) -> str | None:
     """Why the job refuses `reply`, or None. The model cannot give `not-applicable`, since the job
-    sets it for a skip class only, nor `rejected` or `in-use`, which the job sets from the ADRs and
-    the item; every verdict must follow a search; a tool verdict needs a tool whose facts a tool
-    read, and an ADR it names that the job confirms; and every source must be a URL that a tool
-    returned."""
+    sets it for a skip class only, nor `rejected` or `in-use`, which the job gives when it
+    confirms `adr` and `in_use`; every verdict must follow a search; a tool verdict needs a tool
+    whose facts a tool read; and every source must be a URL that a tool returned."""
     texts = MESSAGES.roadmap
     if reply.verdict is Verdict.NOT_APPLICABLE:
         return texts.alternatives_reason_skip_only
@@ -637,10 +645,6 @@ def _refusal(reply: AlternativesReply, tools: AlternativesTools, adrs: Sequence[
             return texts.alternatives_reason_no_tool.format(verdict=reply.verdict.value)
         if _key(reply.tool_url) not in tools.facts:
             return texts.alternatives_reason_no_facts.format(url=reply.tool_url)
-        if reply.adr is not None:
-            problem = _adr_refusal(reply.adr, tools.facts[_key(reply.tool_url)], adrs)
-            if problem is not None:
-                return problem
     unknown = next((url for url in reply.sources if _key(url) not in tools.allowed_urls), None)
     return texts.alternatives_reason_url.format(url=unknown) if unknown is not None else None
 
@@ -818,18 +822,41 @@ def _skip_check(item: Item, skip_class: str, now: datetime) -> Check | CheckFail
     )
 
 
+def _confirmed_adr(number: int, tool_names: tuple[str, ...], adrs: Sequence[Adr]) -> bool:
+    """Whether `adrs`, the ADRs in force that the model saw, hold ADR `number` and its title or
+    its options name the tool."""
+    adr = next((candidate for candidate in adrs if candidate.number == number), None)
+    return adr is not None and names(f"{adr.title}\n\n{adr.options}", *tool_names)
+
+
 def _verdict_of(
-    item: Item, reply: AlternativesReply, tool: CheckedTool | None
+    item: Item, reply: AlternativesReply, tool: CheckedTool | None, adrs: Sequence[Adr]
 ) -> tuple[Verdict, int | None]:
-    """The verdict of the check, and the ADR that rejected its tool (#3505). A reply with a tool
-    and an ADR (which `_refusal` confirmed) is `rejected`. Else a tool that the title or the body
-    of the item names is `in-use`, whatever the model said. Else the verdict is the reply's."""
+    """The verdict of the check, and the ADR that rejected its tool (#3505). The model proposes
+    `rejected` with `adr` and `in-use` with `in_use`, and the job gives one only when the text
+    confirms it: an ADR in force that holds the number and names the tool, or a title or a body of
+    the item, outside both blocks of a job, that names the tool. `rejected` comes first. The job
+    drops a proposal that it cannot confirm, and the verdict of the reply stays."""
     if tool is None:
         return reply.verdict, None
+    tool_names = (tool.name, reply.tool_name or "")
     if reply.adr is not None:
-        return Verdict.REJECTED, reply.adr
-    if names(f"{item.title}\n{_person_text(item.body)}", tool.name):
-        return Verdict.IN_USE, None
+        if _confirmed_adr(reply.adr, tool_names, adrs):
+            return Verdict.REJECTED, reply.adr
+        logger.info(
+            "The alternatives check of #%d dropped ADR %d: no ADR in force holds that number and "
+            "names the tool.",
+            item.number,
+            reply.adr,
+        )
+    if reply.in_use:
+        if any(names(text, *tool_names) for text in (item.title, _person_text(item.body))):
+            return Verdict.IN_USE, None
+        logger.info(
+            "The alternatives check of #%d dropped the flag in_use: the item does not name the "
+            "tool.",
+            item.number,
+        )
     return reply.verdict, None
 
 
@@ -841,13 +868,13 @@ def validate_reply(
     adrs: Sequence[Adr],
 ) -> Check | CheckFailure:
     """The check that `reply` makes, or the failure when the job refuses it. `adrs` are the ADRs
-    of the repository, which confirm the ADR that the reply names."""
-    refusal = _refusal(reply, tools, adrs) or _marker_problem(item.body)
+    in force that the model saw, which confirm the ADR that the reply names."""
+    refusal = _refusal(reply, tools) or _marker_problem(item.body)
     if refusal is not None:
         return CheckFailure(item, refusal, CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR, now)
     allowed = tools.allowed_urls
     tool = _checked_tool(reply, tools, now)
-    verdict, adr = _verdict_of(item, reply, tool)
+    verdict, adr = _verdict_of(item, reply, tool, adrs)
     return _completed(
         Check(
             item=item,
@@ -895,7 +922,7 @@ def _check_one(
             request,
             tools,
             AlternativesReply,
-            output_check=lambda _reply: _search_missing(tools),
+            output_check=lambda answer: _retry_message(answer, tools),
             window=analysis_window(),
         )
     except AICredentialsError:
@@ -951,8 +978,13 @@ def plan_alternatives(
     if not selection.selected:
         return AlternativesPlan(repo=repo, current=selection.current)
     model = investigator or get_task_model("analysis")
-    # The ADRs are the same for each item, and a skip-class item makes no model call (#3505).
-    adrs = read_adrs(store) if any(skip_class_of(it) is None for it in selection.selected) else ()
+    # The ADRs are the same for each item, and a skip-class item makes no model call (#3505). The
+    # model sees only the entries that fit the cap, so only they can be confirmed.
+    adrs = (
+        fit_to_budget(read_adrs(store), max_tokens=CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS)
+        if any(skip_class_of(it) is None for it in selection.selected)
+        else ()
+    )
     checks: list[Check] = []
     failures: list[CheckFailure] = []
     for item in selection.selected:
