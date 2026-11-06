@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: pr-commands-request-plans
-The eighteen external-request commands in `pr check-readiness`, `pr checks`, `pr close`, `pr create`, `pr diff`, `pr edit`, `pr evidence`, `pr hardening-report`, `pr list`, `pr monitor`, `pr ready`, `pr threads list`, `pr threads reply`, `pr threads resolve`, `pr threads resolve-all`, `pr threads unresolve`, `pr view`, and `pr wait` SHALL carry the `request-plan` dry-run class. Each command SHALL expose `--dry-run`, make zero external requests during a dry run, and output its planned requests.
+Each external-request command of `devops pr`, such as `pr checks`, `pr create`, `pr evidence`, `pr list`, `pr threads reply` and `pr wait`, SHALL carry the `request-plan` dry-run class. Each command SHALL expose `--dry-run`, make zero external requests during a dry run, and output its planned requests.
 
 #### Scenario: Dry run on pr list
 - **WHEN** user executes `devops pr list --dry-run`

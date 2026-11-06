@@ -22,6 +22,7 @@ from devops_cli.commands.pr import (
     describe_pr,
     diff_pr,
     edit_pr,
+    evidence_pr,
     hardening_report_cmd,
     list_prs,
     list_threads,
@@ -61,6 +62,7 @@ PR_COMMAND_CALLBACKS = [
     ),
     ("pr diff", diff_pr, ["pr", "diff", "42", "-R", "owner/repo"]),
     ("pr edit", edit_pr, ["pr", "edit", "42", "-t", "new title", "-R", "owner/repo"]),
+    ("pr evidence", evidence_pr, ["pr", "evidence", "42", "-R", "owner/repo"]),
     (
         "pr hardening-report",
         hardening_report_cmd,

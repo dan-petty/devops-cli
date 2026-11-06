@@ -69,6 +69,7 @@ from devops_cli.github.pr_plans import (
     plan_pr_create,
     plan_pr_diff,
     plan_pr_edit,
+    plan_pr_evidence,
     plan_pr_hardening_report,
     plan_pr_list,
     plan_pr_monitor,
@@ -457,6 +458,51 @@ def pr_checks(
     _render_check_verdict_table(number, verdict)
     if verdict.exit_code != 0:
         raise typer.Exit(verdict.exit_code)
+
+
+# =============================================================================
+# Command: devops pr evidence
+# =============================================================================
+
+
+@app.command("evidence", help=HELP.pr.evidence)
+@dry_run_class("request-plan")
+def evidence_pr(
+    number: Annotated[int, typer.Argument(min=1, help=HELP.pr.number)],
+    attribution: Annotated[
+        list[str] | None, typer.Option("--attribution", help=HELP.pr.evidence_attribution)
+    ] = None,
+    repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.pr.target_repo)] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Write the check results of the head commit of a pull request as its one evidence comment.
+
+    The command takes no text of its own: the table, the links and the skipped checks all come
+    from the check runs that GitHub returns. It updates its comment when one exists, never posts a
+    second one, and posts nothing when it cannot read the checks."""
+    if dry_run or is_dry_run():
+        render_request_plan(MESSAGES.pr.evidence_dry_run_heading, plan_pr_evidence(number, repo))
+        return
+    from devops_cli.github.pr_evidence import EvidenceAction, publish_pr_evidence
+    from devops_cli.github.session import get_github_session
+
+    target = _target_repo(repo)
+    if not target or "/" not in target:
+        print_error(MESSAGES.pr.describe_no_repo, safe=True, to_stderr=True)
+        raise typer.Exit(1)
+    try:
+        outcome = publish_pr_evidence(
+            get_github_session(), target, number, attribution=attribution or ()
+        )
+    except GitHubOperationError as exc:
+        print_error(str(exc), safe=True, to_stderr=True)
+        raise typer.Exit(1) from exc
+    said = (
+        MESSAGES.pr.evidence_created
+        if outcome.action == EvidenceAction.CREATED
+        else MESSAGES.pr.evidence_updated
+    )
+    print_success(said.format(number=number))
 
 
 # =============================================================================

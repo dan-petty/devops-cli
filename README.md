@@ -391,6 +391,7 @@ and excessive permissions fail it, and every other finding is shown. |
 | [**pr**](docs/commands/pr.md) | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |
+|  | `devops pr evidence [OPTIONS] <number>` | Post the check results of a pull request as one comment: the head commit, a table of the checks with their conclusion and link, the fail-to-pass run of a fix, and the skipped checks. Every number comes from GitHub. A new head commit updates the comment. |
 |  | `devops pr wait [OPTIONS] <number>` | Wait until the checks of a PR settle, then name every blocker of its merge. |
 |  | `devops pr monitor [OPTIONS] <number>` | Wait until the checks of a PR settle, then name every blocker of its merge. |
 |  | `devops pr edit [OPTIONS] <number>` | Edit pull request base branch, title, body, or milestone. |

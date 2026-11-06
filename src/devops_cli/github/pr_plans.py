@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from devops_cli.config.constants import CONST_GH_CLI, CONST_ROADMAP_LABELS_PATH
+from devops_cli.config.constants import (
+    CONST_GH_CLI,
+    CONST_PR_EVIDENCE_MARKER,
+    CONST_ROADMAP_LABELS_PATH,
+)
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.github.check_verdict import pr_checks_args
 from devops_cli.github.pr_threads import (
@@ -518,5 +522,41 @@ def plan_pr_threads_resolve_all(
             target="resolveReviewThread",
             condition="threads have replies" if only_replied else "all open threads",
             repeat="for each unresolved thread",
+        ),
+    ]
+
+
+def plan_pr_evidence(number: int | str, repo: str | None = None) -> list[PlannedRequest]:
+    """Generate planned requests for devops pr evidence (#3199): the session reads the pull
+    request, the check runs of its head commit and its comments, then updates the comment that
+    opens with the marker line or posts one. The requests go through the GitHub session, not gh,
+    so they hold no argv."""
+    target = repo or ":owner/:repo"
+    return [
+        PlannedRequest(method="GET", target=f"repos/{target}/pulls/{number}"),
+        PlannedRequest(
+            method="GET",
+            target=f"repos/{target}/commits/<head-sha>/check-runs",
+            repeat="for each page",
+        ),
+        PlannedRequest(
+            method="GET", target=f"repos/{target}/issues/{number}/comments", repeat="for each page"
+        ),
+        PlannedRequest(
+            method="GET",
+            target="user",
+            condition="a comment opens with the marker line and the identity has no known login",
+        ),
+        PlannedRequest(
+            method="PATCH",
+            target=f"repos/{target}/issues/comments/<comment-id>",
+            stdin='{"body": "<check results comment>"}',
+            condition=f"a comment of this identity opens with {CONST_PR_EVIDENCE_MARKER}",
+        ),
+        PlannedRequest(
+            method="POST",
+            target=f"repos/{target}/issues/{number}/comments",
+            stdin='{"body": "<check results comment>"}',
+            condition="no comment of this identity opens with the marker line",
         ),
     ]

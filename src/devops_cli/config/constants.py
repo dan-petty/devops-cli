@@ -4102,6 +4102,10 @@ CONST_PR_CLOSING_ISSUE_LABELS_PAGE: Final[int] = 100
 # The `gh pr list --author` value `devops pr update --all` lists with: the account gh runs as,
 # so a pull request that a bot or another person owns is never updated.
 CONST_PR_UPDATE_AUTHOR: Final[str] = "@me"
+# The first line of the comment that `devops pr evidence` keeps on a pull request (#3199), and the
+# name of the check run of .github/workflows/fail-to-pass.yml whose link a fix comment holds.
+CONST_PR_EVIDENCE_MARKER: Final[str] = "<!-- devops-cli:pr-evidence -->"
+CONST_FAIL_TO_PASS_CHECK_NAME: Final[str] = "Fail-to-Pass Check"
 # Conventional commit title pattern identifying a bug fix pull request (#697).
 CONST_DEFECT_TITLE_PATTERN: Final[str] = r"^fix(?:\([^()]*\))?!?:\s*"
 

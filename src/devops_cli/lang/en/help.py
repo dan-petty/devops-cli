@@ -976,6 +976,14 @@ class PRCommandHelp:
     describe_attribution: str = (
         "A paragraph for the end of the body, after the Change line. Repeat the option for more."
     )
+    evidence: str = (
+        "Post the check results of a pull request as one comment: the head commit, a table of the "
+        "checks with their conclusion and link, the fail-to-pass run of a fix, and the skipped "
+        "checks. Every number comes from GitHub. A new head commit updates the comment."
+    )
+    evidence_attribution: str = (
+        "A paragraph for the end of the comment. Repeat the option for more."
+    )
     checks: str = "View status of remote CI checks on a pull request."
     view: str = "View details of a pull request."
     diff: str = "View diff of a pull request."

@@ -196,6 +196,17 @@ class _CommentText(BaseModel):
     body: str = ""
 
 
+class IssueComment(BaseModel):
+    """One comment on an issue or pull request: its ID, its text and the login of its author, which
+    is empty when GitHub reports the author as null (a deleted account) (#3199)."""
+
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
+
+    id: int
+    body: str = ""
+    author: str = Field(default="", validation_alias=AliasPath("user", "login"))
+
+
 class _IssueEvent(BaseModel):
     event: str
     commit_id: str | None = None
@@ -590,6 +601,16 @@ class GitHubClient:
         """Post `body` as a comment on the issue or pull request `number`."""
         path = _repo_path(repo, f"issues/{number}/comments")
         self._session.rest("POST", path, body={"body": body})
+
+    def list_issue_comments(self, repo: str, number: int) -> list[IssueComment]:
+        """Every comment on the issue or pull request `number`, oldest first, all pages read."""
+        path = _repo_path(repo, f"issues/{number}/comments?per_page={DEFAULT_GH_REST_PER_PAGE}")
+        return [_read_as(IssueComment, item, path=path) for item in self._session.paginate(path)]
+
+    def update_issue_comment(self, repo: str, comment_id: int, body: str) -> None:
+        """Replace the text of the comment `comment_id` with `body`."""
+        path = _repo_path(repo, f"issues/comments/{comment_id}")
+        self._session.rest("PATCH", path, body={"body": body})
 
     def get_pr_diff(self, repo: str, number: int) -> str:
         """The pull request's unified diff, read through the GitHub session.
