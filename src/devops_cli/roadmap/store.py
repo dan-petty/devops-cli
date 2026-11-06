@@ -358,7 +358,8 @@ class IssueRecord(BaseModel):
     author's login, such as `devops-cli-service[bot]`. `updated_at` is when the issue
     last changed: any write to it, a comment included, moves it. `sub_issues` is how many
     sub-issues GitHub records for the issue, open or closed. `parent` is the number of the issue
-    of the same repository that has the issue as a sub-issue.
+    of the same repository that has the issue as a sub-issue. `blocked_by` is how many issues
+    GitHub records as blocking the issue, open or closed (#1127).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -380,6 +381,7 @@ class IssueRecord(BaseModel):
     closed_at: datetime | None = None
     sub_issues: int = 0
     parent: int | None = None
+    blocked_by: int = 0
     job_record: JobRecord = Field(default_factory=dict)
 
 
@@ -849,6 +851,10 @@ class RoadmapStore(Protocol):
 
     def create_issue(self, title: str, body: str, *, labels: Sequence[str] = ()) -> IssueRecord:
         """Open an issue with `title`, `body` and `labels`, returning it."""
+
+    def blocked_by(self, number: int) -> list[int]:
+        """The numbers of the issues of this repository that block issue `number`, in the order
+        GitHub lists them (#1127). An issue of another repository that blocks it is left out."""
 
     def add_sub_issue(self, parent: int, child: int) -> None:
         """Add issue `child` as a sub-issue of issue `parent`."""

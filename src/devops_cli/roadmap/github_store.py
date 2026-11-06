@@ -166,6 +166,9 @@ class _IssuePayload(BaseModel):
     updated_at: datetime | None = None
     closed_at: datetime | None = None
     sub_issues: int = Field(default=0, validation_alias=AliasPath("sub_issues_summary", "total"))
+    blocked_by: int = Field(
+        default=0, validation_alias=AliasPath("issue_dependencies_summary", "total_blocked_by")
+    )
     repository_url: str | None = None
     parent_issue_url: str | None = None
 
@@ -207,8 +210,17 @@ class _IssuePayload(BaseModel):
             closed_at=self.closed_at,
             sub_issues=self.sub_issues,
             parent=self.parent,
+            blocked_by=self.blocked_by,
             job_record=decode_job_record(held, issue=f"#{self.number}"),
         )
+
+
+class _BlockerPayload(BaseModel):
+    """One issue of the listing of the issues that block an issue: its number, and the
+    repository it belongs to."""
+
+    number: int
+    repository_url: str | None = None
 
 
 class _PullPayload(BaseModel):
@@ -387,6 +399,7 @@ _PULL = TypeAdapter(_PullPayload)
 _LABEL = TypeAdapter(_LabelPayload)
 _EVENT = TypeAdapter(_EventPayload)
 _ISSUE_EVENT = TypeAdapter(_IssueEventPayload)
+_BLOCKER = TypeAdapter(_BlockerPayload)
 _DIRECTORY = TypeAdapter(list[_DirectoryEntryPayload])
 _IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
 _REPOSITORY_PAYLOAD = TypeAdapter(_RepositoryPayload)
@@ -522,6 +535,11 @@ def issue_close(reason: CloseReason) -> str:
 def repository_issue_events_endpoint(repo: str) -> str:
     """The REST listing of every issue event of `repo`, newest first."""
     return f"repos/{repo}/issues/events"
+
+
+def blocked_by_endpoint(repo: str, number: int) -> str:
+    """The REST listing of the issues that block issue `number` of `repo` (#1127)."""
+    return f"repos/{repo}/issues/{number}/dependencies/blocked_by"
 
 
 def issue_events_endpoint(repo: str, number: int) -> str:
@@ -803,6 +821,20 @@ class GitHubRoadmapStore(RoadmapStore):
             create_issue_args(self._repo, title, body, labels), f"open the issue {title[:64]!r}"
         )
         return self._kept(self._validate(written, _ISSUE, "issue after it was opened"))
+
+    def blocked_by(self, number: int) -> list[int]:
+        """The numbers of the issues of this repository that block issue `number`, from its
+        listing of blockers (#1127). A blocker of another repository is left out: its number
+        names another issue."""
+        listing = self._listing(
+            blocked_by_endpoint(self._repo, number), _BLOCKER, f"the blockers of #{number}"
+        )
+        here = f"/repos/{self._repo}"
+        return [
+            blocker.number
+            for blocker in listing
+            if blocker.repository_url is None or blocker.repository_url.endswith(here)
+        ]
 
     def add_sub_issue(self, parent: int, child: int) -> None:
         """Add issue `child` as a sub-issue of issue `parent`."""
