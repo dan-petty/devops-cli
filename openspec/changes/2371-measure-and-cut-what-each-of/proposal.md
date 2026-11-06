@@ -2,48 +2,52 @@
 
 ## Why
 
-Issue #2371 asks for two things. First, measure what each of the xdist workers repeats before and between its tests. Second, remove the largest share of that work. A full run on 16 workers took 287 s on 2026-10-27, and its tests added up to 151 s of that. The issue says the other 136 s is worker start, collection that each worker repeats, the tail of the longest tests and the coverage report.
+Issue #2371 asks to cut the work that each xdist worker repeats. The test row runs in four shards, and each shard runs `-n logical` workers, 16 in all. `pytest-split` picks the tests of a shard in `pytest_collection_modifyitems`, after collection. So each of the 16 workers collects the whole suite (19,514 tests in 830 files) and then drops three quarters of it.
 
-Those figures are old. The suite now has 15,801 tests, not 11,285, and #2764 cut other repeated work after the measurement. The change measures again before it picks a lever.
+One full run on a 16-CPU host (2026-11-05, 19,074 tests) spent 31.8 s of CPU in the collection of each worker. Over 16 workers that is 508.9 s, which is 13.5% of the 3,769.5 s of CPU of the run. Worker start was 2.8% of the CPU, and a preload fixture gave 0%. So the first plan of this change, a preload fixture, cannot be built, and the largest repeated cost is collection.
 
 ## What Changes
 
-- The change measures one full run on an idle host three times, and splits the CPU time of each worker into start, collection and busy time.
-- The change ranks the heavy modules that a test body imports for the first time.
-- The change applies the one candidate that removes the largest share of CPU time, and measures three runs again.
-- The change adds no module that does not already exist, and no product code.
-- The change alters no behavior that a consumer observes: it is a change to the test suite and to its settings. So it carries no spec delta and sets `skip_specs: true` in `.openspec.yaml`.
-- The change fits one pull request.
-- The coverage report is out of scope. Issue #2373 owns it. The startup-import tests are out of scope. Issue #2369 owns them.
+- `devops ci --shard <n> --shards <total>` passes the paths of the test modules of its own shard to pytest, so a worker collects no file of another shard.
+- A function in `src/devops_cli/commands/ci.py` deals the test modules to the shards, heaviest file first (by lines), to the shard with the fewest lines so far. A tie goes to the lower shard. It stores no data.
+- The test row no longer passes `--splits`, `--group` and `--splitting-algorithm`.
+- `pytest-split` is removed from `pyproject.toml` and `uv.lock`.
+- The spec `ci-test-shards` changes through a delta: one MODIFIED and one ADDED requirement. The command is observable, so the change carries a delta.
+- `docs/TESTING.md`, `docs/SDLC.md` and the comment of the `test-shard` job in `ci.yml` stop naming `pytest-split` as the tool that splits the shards.
+- The change fits one pull request and depends on no other item.
+- The coverage report (#2373) and the startup-import tests (#2369) are out of scope.
 
 ## Acceptance
 
-- Criterion 1, three-run CPU split per worker: group 1.
-- Criterion 2, ranked list of first imports: group 1.
-- Criterion 3, the change with the largest share, and the reason: groups 2 and 3.
-- Criterion 4, at least 5% less CPU time in a full run on an idle host: group 3.
-- Criterion 5, the median of `Tests & Coverage` does not rise: group 1 records the median before. Pending a person: the median after the merge, because only runs of `main` show it (see Workflow follow-up in `tasks.md`).
+- Partition, same split everywhere, and the command: tests in `tests/commands/test_ci_shard.py`, groups 1 and 2.
+- Same tests as before, shorter collection, lower CPU, shard time and runner time: measured and recorded in a comment of the pull request, as the issue lists. See "Workflow follow-up" in `tasks.md`.
+- `pytest-split` is gone from `pyproject.toml` and `uv.lock`, and `openspec validate` passes: group 3.
 
 ## Impact
 
-- Files that group 3 can change, by candidate: `pyproject.toml`, `.github/workflows/ci.yml`, `tests/conftest.py`, `tests/support/`, or the top-level imports of the test modules. `design.md` lists the candidates.
-- Existing code and tests that must stay green: `tests/commands/test_test_selection.py` pins the `addopts` and the pytest command of the `test` gate. `tests/invariants/test_hermetic_floor.py` pins the hermetic floor, so a fixture of the floor stays. `tests/support/check_test_settings.py` checks the timeout settings and the conftest environment. `tests/support/typer_commands.py` and the garbage collector threshold in `tests/conftest.py` are earlier cuts of repeated work (#1725, #2764): keep them.
-- The scratch plugin that measures is not committed. It lives in `.data/agent/scratch/`.
+- Code: `src/devops_cli/commands/ci.py` (`_resolve_pytest_cmd`, new `_shard_test_files`).
+- Tests: `tests/commands/test_ci_shard.py`.
+- Dependencies: `pyproject.toml`, `uv.lock`.
+- Documents and workflow comment: `docs/TESTING.md`, `docs/SDLC.md`, `.github/workflows/ci.yml`.
+- Spec: `openspec/specs/ci-test-shards/spec.md`, through the delta in this folder.
 
 ## Feasibility
 
-All commands ran on 2026-11-01 in a worktree of `origin/main` (1c20865a) on a 16-CPU host. The host was not idle (see the last item), so the numbers below show the mechanism and not the final figures.
+Checked on 2026-11-06 at `origin/main` ffaea530, and against the measurements of the issue (origin/main 4a2d958e).
 
-- The suite size changed. `uv run pytest --collect-only -q -n 0 tests` printed `15756/15801 tests collected (45 deselected) in 28.62s`. The issue says 11,282 tests and 9 s.
-- The premise "a test body pays the first import of the heavy libraries" is false for the four libraries that the first plan named. A script that runs the collection and then lists `sys.modules` printed `pydantic_ai True`, `anthropic True`, `kubernetes True` and `textual True` after collection and before any test. `git grep -lE "^(import|from) (pydantic_ai|anthropic|kubernetes|textual)\b" -- tests` lists 43 test modules, so every worker imports them while it collects. The libraries `google.genai`, `openai`, `agentops`, `litellm` and `libtmux` were not in `sys.modules` after collection. Group 1 finds out whether a test body imports them.
-- A fixture that imports a module once per worker cannot lower the total CPU time. The worker imports the module once in both cases. It only moves the cost to another place. So the preload fixture cannot meet criterion 4. `design.md` rejects it with this evidence.
-- Collection is repeated work. A worker collects the whole suite. In one process, `python -I -X importtime` over the collection printed `collect wall 19.0 cpu 19.0` and `cProfile` printed `41.084 seconds` with profile overhead. In that profile, `_pytest/fixtures.py:2155(_matchfactories)` had 853,589 calls and `process_argname` 1,564,991 calls. `grep -c "autouse" tests/conftest.py` prints 29. Imports are about 3 s of the 19 s (`importtime` self times, sum 2.7 s). So the cost of collection is mostly in building the fixture closure of 15,801 tests, and not in imports.
-- Nothing newer removed the work. `git log origin/main` shows #2764 (`perf(ci): cut test job time and guard its mean`), which cut the cache build, the garbage collector, the shutdown polls and the Typer command build. It touched none of collection, the worker count or the first imports. Issue #2809 (`fix(k8s): bound the test workers`, commit 2314ef98) sets `PYTEST_XDIST_AUTO_NUM_WORKERS=2` in the runner pod (`k8s/devops/cronjob-runner.yaml:72`). A Job that implements this plan therefore runs 2 workers on 2 CPUs. It cannot measure the split of 16 workers. Task 1.3 stops in that case and names it as an open point. The open issues #2369 (startup-import tests) and #2373 (coverage cost) are separate work.
-- The worker setting is `addopts = "-n logical --dist worksteal ..."` at `pyproject.toml:199`. The `Tests & Coverage` job runs `uv run devops ci --check --no-cache --only test` (`.github/workflows/ci.yml:146`) and so uses `-n logical` on the 4-CPU runner.
-- The method works. A scratch plugin with the hooks `pytest_sessionstart`, `pytest_collection_finish`, `pytest_runtest_logstart` and `pytest_runtest_logreport` wrote one line for each of four workers: `{"worker": "gw2", "collection_wall_s": 0.15, "start_to_first_test_wall_s": 0.28, "busy_s": 1.81, "cpu_total_s": 2.02}`. The shell `time` of the controller counts the CPU time of the workers: `real 15.874s user 38.393s sys 3.931s`.
-- The runner baseline moved. `uv run devops ci job-time` printed `the last 10 runs of Tests & Coverage took 376 s on average, and the limit is 300 s`. The issue says a median of 291 s. Criterion 5 therefore compares with the median that group 1 records now, and not with 291 s.
-- The host is not idle. `uptime` printed `load average: 14.51, 23.42, 23.29` and, later, `5.36, 17.92, 21.34`. Criterion 1 needs a load under 2 before each run. Group 1 waits for that load, and the pull request stays a draft when the host never reaches it.
+- `pytest-split` 0.11.0 selects after collection. `pytest_split/plugin.py` defines `pytest_collection_modifyitems` with `@hookimpl(trylast=True)`, printed with `inspect.getsource` from the locked environment. A worker has collected every file by then.
+- The files that pytest collects and the files that `_directory_modules("tests", root)` returns are the same set: the symmetric difference is empty (issue, 2026-11-06).
+- A quarter of the files collects in 19.1 s of CPU against 29.0 s for the whole suite (66%; 12 runs of a quarter, 3 of the whole, pinned with `taskset -c 0-3`, loaded host). So the saving is about 158 s of CPU in a run, which is about 4%, and 10 s to 15 s of wall time in each shard.
+- Split by lines gave 4,834, 5,181, 4,971 and 4,528 tests per shard, the largest 6.2% above the mean. A split by file size gave 14.4%.
+- The earlier plan of this folder (a preload fixture and a measurement of worker start) is false: `pydantic_ai`, `anthropic`, `kubernetes` and `textual` are in `sys.modules` after collection, and a fixture moves an import and cannot lower the total CPU time. The issue of 2026-11-05 measured worker start at 2.8% of the CPU.
+- The CI speed on the runner cannot be tested on this host. The pull request measures it, as the acceptance criteria say.
 
 ## Existing Tool Considered
 
-`pytest-xdist` is in use and has the options `-n` and `--maxprocesses`. `pytest --durations=0` and `pytest -v` give the seconds and the worker of each test. `python -X importtime` lists the cost of each import. `cProfile` from the standard library shows where a collection spends its time. The shell `time` gives user and system CPU time of a process and its children. The plugin hooks of pytest give the start, collection and busy time of a worker, in a scratch file of about 40 lines that is not committed. The change builds no tool. The change deletes no internal code.
+- **`pytest`** takes file paths as arguments and then collects only those files. This open tool does the work.
+- **`pytest-split` 0.11.0** is in use. It selects after collection and has no file-level option. This change removes it.
+- **`pytest-xdist`** stays (`-n logical --dist worksteal`). `--dist loadfile` and `loadgroup` change how collected tests go to workers, and every worker still collects all tests.
+- **`pytest-test-groups` and `pytest-shard`** are rejected: the first runs a subset of the collected tests by its README (the source was not read), and the second splits by test case only.
+- **A `pytest_ignore_collect` hook** also skips files before collection, but it needs a conftest plugin and a `--shard` option. A list of paths does the same with no plugin.
+- Cost if built: about 30,000 tokens to build, about 2,000 tokens a year to keep, and about half a day elapsed. The new function is about 25 lines and replaces a dependency, so the net code is small.
+- Internal code deleted: the three split options in `_resolve_pytest_cmd`, and the `pytest-split` dependency.
