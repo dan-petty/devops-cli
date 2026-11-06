@@ -1,11 +1,14 @@
 ## MODIFIED Requirements
 
 ### Requirement: Plan-recheck reports a plan that a rewrite can fix
-`devops roadmap plan-recheck` SHALL apply the mechanical rewrite to each live folder in memory and judge the rewritten plan with `read_change`, `check_proposal` and `openspec validate`. A folder SHALL get the result `rewrite` only when the rewrite changes it and the rewritten plan passes all three. A folder that the rewrite does not fix SHALL get `new-plan`, with the first refusal of the rewritten plan as its reason. A folder with no `Verification:` line SHALL count in the folders with no such line.
+`devops roadmap plan-recheck` SHALL apply the mechanical rewrite to each live folder in memory and judge the rewritten plan with `read_change`, `check_proposal` and `openspec validate`. A folder SHALL get the result `rewrite` only when the rewrite changes it and the rewritten plan passes all three. A folder with no `Verification:` line SHALL count in the folders with no such line.
 
 #### Scenario: A plan with no Verification line
 - **WHEN** a plan has a group with no `Verification:` line and the group changes a test file
 - **THEN** the folder gets `rewrite`, and the report counts it among the folders with no `Verification:` line.
+
+### Requirement: Plan-recheck reports a plan that a rewrite does not fix
+A folder that the rewrite does not fix SHALL get `new-plan`, with the first refusal of the rewritten plan as its reason.
 
 #### Scenario: A plan that the rewrite does not fix
 - **WHEN** a plan has a group with no `Verification:` line, and the group changes no test file and no document
