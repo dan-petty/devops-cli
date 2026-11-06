@@ -7,6 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import pytest
 import yaml
@@ -894,6 +895,117 @@ def test_argocd_notifications_subscriptions_split() -> None:
         data = _load_yaml(p)
         other_annos = data.get("metadata", {}).get("annotations", {})
         assert "notifications.argoproj.io/subscribe.on-deployed.mattermost" not in other_annos
+
+
+_GITHUB_DEPLOYED = "notifications.argoproj.io/subscribe.on-deployed.github"
+_NOTIFICATIONS_SECRET = "argocd-notifications-secret"
+
+
+def _github_deployment_subscribers(applications: dict[str, dict[str, Any]]) -> set[str]:
+    """Applications with the `on-deployed.github` subscription annotation."""
+    return {
+        name
+        for name, app in applications.items()
+        if _GITHUB_DEPLOYED in app.get("metadata", {}).get("annotations", {})
+    }
+
+
+def _single_source_github_applications(applications: dict[str, dict[str, Any]]) -> set[str]:
+    """Applications with one `spec.source` whose repository is on github.com.
+
+    The GitHub notifier reads `.app.spec.source.repoURL` and the `syncResult.revision` of the
+    operation, and a multi-source Application sets neither.
+    """
+    return {
+        name
+        for name, app in applications.items()
+        if "source" in app["spec"]
+        and urlparse(app["spec"]["source"]["repoURL"]).hostname == "github.com"
+    }
+
+
+def _leaf_applications() -> dict[str, dict[str, Any]]:
+    """The Applications of `k8s/argocd/apps/`, with no `bootstrap` and no `cluster`."""
+    return {
+        name: app
+        for name, app in _all_applications().items()
+        if name not in ("bootstrap", "cluster")
+    }
+
+
+def test_argocd_github_notifier_reads_the_keys_of_the_secret_push() -> None:
+    """Each `$key` of a notifier is a key that the push writes and the README lists (#3779)."""
+    notifiers = _load_yaml(K8S_DIR / "argocd" / "values.yaml")["notifications"]["notifiers"]
+    assert notifiers["service.github"] == {
+        "appID": "$github-appID",
+        "installationID": "$github-installationID",
+        "privateKey": "$github-privateKey",
+    }
+    read = set(re.findall(r"\$([\w-]+)", yaml.safe_dump(notifiers)))
+    pushed = {
+        entry.key
+        for secret in CLUSTER_SECRETS
+        if (secret.namespace, secret.name) == ("argocd", _NOTIFICATIONS_SECRET)
+        for entry in secret.entries
+    }
+    readme = (K8S_DIR / "README.md").read_text(encoding="utf-8")
+    listed = set(re.findall(rf"\| `argocd/{_NOTIFICATIONS_SECRET}` \| `([\w-]+)` \|", readme))
+    assert read == {
+        "mattermost-deploys-url",
+        "github-appID",
+        "github-installationID",
+        "github-privateKey",
+    }
+    assert read <= pushed
+    assert read <= listed
+
+
+def test_argocd_deployed_template_posts_a_github_deployment() -> None:
+    """The template of `on-deployed` writes a deployment with no merge and no required check (#3779).
+
+    The notifier needs only the Deployments permission: a required context or an auto merge
+    would make GitHub read commit statuses or write the default branch. The notifications
+    ConfigMap has no `argocdUrl` of this cluster, so no `logURL` is set.
+    """
+    templates = _load_yaml(K8S_DIR / "argocd" / "values.yaml")["notifications"]["templates"]
+    template = yaml.safe_load(templates["template.app-deployed"])
+    assert template["github"] == {
+        "deployment": {
+            "state": "success",
+            "environment": "{{.app.metadata.name}}",
+            "autoMerge": False,
+            "requiredContexts": [],
+        }
+    }
+    assert "mattermost" in template["webhook"]
+    assert "context" not in templates["template.app-deployed"]
+    assert "github" not in templates["template.app-sync-failed"]
+
+
+def test_argocd_github_subscription_is_the_single_source_github_applications() -> None:
+    """`on-deployed.github` sits on each leaf Application with one GitHub source, and no other (#3779)."""
+    values = _load_yaml(K8S_DIR / "argocd" / "values.yaml")
+    assert all(
+        "github" not in sub["recipients"] for sub in values["notifications"]["subscriptions"]
+    )
+    applications = _leaf_applications()
+    subscribed = _github_deployment_subscribers(applications)
+    assert subscribed == _single_source_github_applications(applications)
+    assert {"devops", "monitoring"} <= subscribed
+    assert not subscribed & {"argocd", "gitea", "grafana", "traefik"}
+    for name in subscribed:
+        assert applications[name]["metadata"]["annotations"][_GITHUB_DEPLOYED] == ""
+
+
+def test_the_single_source_rule_leaves_out_a_multi_source_and_another_host() -> None:
+    """Pin the rule on a Gitea source, a multi-source Application and a chart repository."""
+    applications = {
+        "github": {"spec": {"source": {"repoURL": "https://github.com/example/repo"}}},
+        "gitea": {"spec": {"source": {"repoURL": "https://gitea.example.com/example/repo"}}},
+        "chart": {"spec": {"source": {"repoURL": "https://example.github.io/charts"}}},
+        "multi": {"spec": {"sources": [{"repoURL": "https://github.com/example/repo"}]}},
+    }
+    assert _single_source_github_applications(applications) == {"github"}
 
 
 def test_argocd_notifications_no_leaked_identities() -> None:

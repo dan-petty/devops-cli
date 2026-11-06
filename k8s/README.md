@@ -1153,7 +1153,7 @@ Every Application sets `enabled: true` under `spec.syncPolicy.automated` in git,
 
 ### Notifications
 
-Argo CD delivers notifications to Mattermost when the `devops` application deploys successfully and when any application sync fails.
+Argo CD delivers notifications to Mattermost when the `devops` application deploys successfully and when any application sync fails. It also writes a GitHub deployment for each deploy of an Application that has one GitHub source.
 
 1. **Create an Incoming Webhook in Mattermost**:
    - In Mattermost, open Main Menu > Integrations > Incoming Webhooks > Add Incoming Webhook.
@@ -1174,7 +1174,7 @@ The notifications controller reads the derived URL from `argocd/argocd-notificat
 - **Application deploys**: When the `devops` application finishes a sync and reaches Healthy status (`on-deployed`), a notification posts to the deploys channel. Other applications do not trigger deploy posts to prevent notification clutter.
 - **Application sync failures**: When any application sync fails (`on-sync-failed`), a failure notification posts to the deploys channel with the error message.
 - **Persistent OutOfSync or Degraded states**: Not handled by this webhook; issue #551 monitors lasting conditions through Prometheus metrics and Alertmanager alerts.
-- **GitHub deployment status tracking**: Owned separately by issue #1387.
+- **GitHub deployments**: Each Application under `k8s/argocd/apps/` that has one `spec.source` on github.com carries the annotation `notifications.argoproj.io/subscribe.on-deployed.github: ""`. When such an Application finishes a sync and reaches Healthy status (`on-deployed`), Argo CD's notifier `service.github` writes a GitHub deployment for the synced commit, with the environment set to the Application name, and a `success` status. The notifier acts as the GitHub App `devops-cli-argocd`, with the keys `$github-appID`, `$github-installationID` and `$github-privateKey` of `argocd/argocd-notifications-secret` (see Cluster Secrets). The App needs only the repository permission Deployments (read and write). The deployment sets `autoMerge: false` and no required check, so GitHub reads no commit status and writes no branch. A multi-source Application sets neither `spec.source` nor `syncResult.revision`, which the notifier reads, so it carries no annotation. The notification posts to `api.github.com` on TCP port 443, which the perimeter network policy allows. List the deployments with `devops gh api "repos/<owner>/<name>/deployments?environment=<application>"`. A sync that fails writes no GitHub deployment.
 
 ### Replaced Hand Steps
 

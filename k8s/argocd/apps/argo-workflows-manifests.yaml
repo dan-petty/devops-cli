@@ -7,6 +7,7 @@ metadata:
     # Syncs after the argo-workflows chart, whose CRDs the WorkflowTemplate needs. The dry run is
     # skipped as well, for the first sync before the CRDs exist.
     argocd.argoproj.io/sync-wave: "1"
+    notifications.argoproj.io/subscribe.on-deployed.github: ""
   finalizers:
   - resources-finalizer.argocd.argoproj.io
 spec:

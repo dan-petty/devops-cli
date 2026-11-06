@@ -129,6 +129,13 @@ notifications:
       cpu: 200m
       memory: 128Mi
   notifiers:
+    # The GitHub App `devops-cli-argocd` (Deployments: read and write). The values come from
+    # argocd-notifications-secret (README, Cluster Secrets). The Applications that carry the
+    # annotation `notifications.argoproj.io/subscribe.on-deployed.github` use it (k8s/argocd/apps/).
+    service.github:
+      appID: $github-appID
+      installationID: $github-installationID
+      privateKey: $github-privateKey
     service.webhook.mattermost:
       url: $mattermost-deploys-url
       headers:
@@ -154,6 +161,13 @@ notifications:
         when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']
   templates:
     template.app-deployed: |
+      message: 'Deployed revision {{ dig "status" "sync" "revision" "" .app | trunc 7 }}'
+      github:
+        deployment:
+          state: success
+          environment: "{{.app.metadata.name}}"
+          autoMerge: false
+          requiredContexts: []
       webhook:
         mattermost:
           method: POST
