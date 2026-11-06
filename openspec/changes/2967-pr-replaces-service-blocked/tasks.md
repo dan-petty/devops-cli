@@ -17,7 +17,7 @@ Kind: documents
 
 Reads: `docs/ROADMAP_WORKFLOW.md`. Changes: `docs/ROADMAP_WORKFLOW.md`.
 
-- [ ] 2.1 In `docs/ROADMAP_WORKFLOW.md`, add the rows of the state table for `devops pr create` and `devops pr ready` on a `status/blocked` Item with `implement.stopped`
+- [x] 2.1 In `docs/ROADMAP_WORKFLOW.md`, add the rows of the state table for `devops pr create` and `devops pr ready` on a `status/blocked` Item with `implement.stopped`
   - Verification: `uv run devops ci docs`
 
 ## Criteria
