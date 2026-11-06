@@ -18,7 +18,6 @@ from devops_cli.config.constants import (
 from devops_cli.exceptions import GitHubUnauthenticatedError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import body_hashes
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import (
     StagePlan,
     StageSelection,
@@ -36,6 +35,7 @@ from devops_cli.roadmap.stage_rejected import (
 from devops_cli.roadmap.store import ItemField, StageRecordKey
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import (
     STAGE_NAME,
     STAGE_REPO,

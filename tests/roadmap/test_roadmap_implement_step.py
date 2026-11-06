@@ -58,9 +58,9 @@ from devops_cli.roadmap.implement_step import (
     shell_environment,
 )
 from devops_cli.roadmap.implement_tool_log import ToolCallLog, logged_program
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
     CHECK,
     DOCS,

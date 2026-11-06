@@ -13,8 +13,8 @@ import pytest
 
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
 from devops_cli.roadmap.implement_wip import WipCommit, kept_commits, wip_base
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
     CHECK,
     DOCS,

@@ -31,6 +31,11 @@ PROJECT_WORDS = ("projectV2", "ProjectV2", "roadmap.toml")
 file, names; a `gh project` command is one too."""
 
 
+def _writes(args: list[str]) -> bool:
+    """Whether the request writes: a `-X` other than GET."""
+    return "-X" in args and args[args.index("-X") + 1] != "GET"
+
+
 def gh_variables(args: list[str]) -> dict[str, str]:
     """The `-f`/`-F` fields of a `gh api graphql` argv, by name."""
     pairs = (args[i + 1] for i, arg in enumerate(args) if arg in ("-f", "-F"))
@@ -74,6 +79,8 @@ class GitHubFake:
         self.repositories: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {}
         self.calls: list[list[str]] = []
         self.stdins: list[str | None] = []
+        self._fault_at = 0
+        self._fault_applied = False
 
     # ── Seeding ──
 
@@ -231,14 +238,28 @@ class GitHubFake:
 
     def writes(self) -> list[list[str]]:
         """Every request sent that writes: a `-X` other than GET."""
-        return [args for args in self.calls if "-X" in args and args[args.index("-X") + 1] != "GET"]
+        return [args for args in self.calls if _writes(args)]
+
+    def fail_write(self, *, at: int = 1, applied: bool = False) -> None:
+        """Fail one request that writes, as `gh` fails part-way through a run: the `at`-th write
+        from now, counted from 1, answers a 502 once. With `applied`, GitHub applied the write
+        and the answer still reports the failure, so the change stays in place."""
+        self._fault_at = len(self.writes()) + at
+        self._fault_applied = applied
 
     # ── The process edge ──
 
     def __call__(self, args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         self.calls.append(args)
         self.stdins.append(kwargs.get("input"))
-        reply = self._answer(args, kwargs.get("input"))
+        reply: Any
+        if _writes(args) and len(self.writes()) == self._fault_at:
+            self._fault_at = 0
+            if self._fault_applied:
+                self._answer(args, kwargs.get("input"))
+            reply = (1, "gh: HTTP 502 (HTTP 502)")
+        else:
+            reply = self._answer(args, kwargs.get("input"))
         returncode, output = reply if isinstance(reply, tuple) else (0, reply)
         text = output if isinstance(output, str) else json.dumps(output)
         return subprocess.CompletedProcess(args, returncode, text, "" if returncode == 0 else text)

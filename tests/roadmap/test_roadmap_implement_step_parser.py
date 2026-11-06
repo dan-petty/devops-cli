@@ -20,8 +20,8 @@ from pydantic_ai.messages import UserPromptPart
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
     SHOUT_CODE,
     TASKS,

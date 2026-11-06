@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from devops_cli.ai.client import factory
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import dry_run_stage
 from devops_cli.roadmap.stage_verify import Verification
 from devops_cli.roadmap.store import StageRecordKey
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,

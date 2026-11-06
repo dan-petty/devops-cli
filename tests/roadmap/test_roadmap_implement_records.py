@@ -10,10 +10,10 @@ from pathlib import Path
 import pytest
 
 from devops_cli.config.settings import load_settings
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import parse_filters
 from devops_cli.roadmap.store import ImplementRecordKey, ItemField, decode_job_record
 from tests.support.builders import make_item
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 
 def test_the_job_keeps_seven_keys_in_the_record_of_an_item() -> None:

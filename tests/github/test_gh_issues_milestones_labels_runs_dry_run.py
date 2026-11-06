@@ -35,8 +35,8 @@ from devops_cli.commands.gh import (
 from devops_cli.commands.roadmap import run_cmd as roadmap_run_cmd
 from devops_cli.commands.survey import survey_main
 from devops_cli.dry_run import get_dry_run_class
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REQUEST_PLAN_COMMANDS = [
     ("issues_create", issues_create_cmd, ["gh", "issues", "create", "--title", "test"]),

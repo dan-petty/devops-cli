@@ -20,8 +20,8 @@ from devops_cli.commands.pr import app
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.merge_readiness import ClosingRead
 from devops_cli.roadmap.grounding import ClosingIssue
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, ItemField
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 

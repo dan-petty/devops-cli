@@ -12,9 +12,9 @@ from unittest.mock import patch
 
 import pytest
 
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, ItemField
 from tests.support.fakes.cluster_jobs import FakeJobs, listed_job
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 REPO_ENV = "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"

@@ -24,7 +24,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
     CONST_ROADMAP_REFINE_OUTSIDE_MARKER,
 )
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
     NextStep,
@@ -39,6 +38,7 @@ from devops_cli.roadmap.stage_verify import Finding, Verification
 from devops_cli.roadmap.store import ItemField, JudgeVerdict, RefineRecordKey
 from devops_cli.roadmap.trust import is_approved
 from tests.support.fakes.model import ModelFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 

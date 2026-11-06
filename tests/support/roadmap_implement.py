@@ -24,11 +24,11 @@ from pydantic_ai.messages import ModelResponse
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.implement import parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement_run import ImplementApplied, apply_implement
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ItemField, StageRecordKey
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import API, GitHubApiFake, github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import WINDOW, command_text, git_for_real
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo

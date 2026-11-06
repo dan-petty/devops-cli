@@ -25,12 +25,12 @@ from devops_cli.roadmap.implement_pull import (
     kind_of,
     read_draft,
 )
-from devops_cli.roadmap.memory_store import (
+from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField, StageRecordKey
+from tests.support.fakes.roadmap_store import (
     InMemoryRoadmapStore,
     encode_job_record,
     with_record,
 )
-from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField, StageRecordKey
 
 _PASSING = CheckVerdictSummary(items=[PRCheckItem(name="Lint", bucket=CheckBucket.PASS)])
 _FAILING = CheckVerdictSummary(items=[PRCheckItem(name="Lint", bucket=CheckBucket.FAIL)])

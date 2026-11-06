@@ -22,8 +22,8 @@ from devops_cli.roadmap import implement_pull
 from devops_cli.roadmap.implement_pull import WatchKind, watch_pull
 from devops_cli.roadmap.implement_scoped_ci import run_scoped_checks, scoped_checks
 from devops_cli.roadmap.implement_step import StepOutcome, run_step
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import WINDOW
 from tests.support.model_script import ModelScript, say
 

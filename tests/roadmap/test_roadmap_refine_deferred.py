@@ -19,7 +19,6 @@ from pydantic import ValidationError
 
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.roadmap.intake_model import ModelProposal, ProposalRequest, UnusableProposalError
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
     DeferredPart,
@@ -30,6 +29,7 @@ from devops_cli.roadmap.refine import (
     plan_refine,
 )
 from devops_cli.roadmap.store import IssueRecord, ItemField, RefineRecordKey
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 

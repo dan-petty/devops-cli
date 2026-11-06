@@ -19,8 +19,8 @@ from devops_cli.commands.pr import app
 from devops_cli.core.process import PlannedProcessResult
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.exceptions.git import GitHubOperationError
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ChangeKind
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 LABELS_PATH = ".github/labels.yml"

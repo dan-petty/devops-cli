@@ -28,7 +28,6 @@ from devops_cli.exceptions.git import (
 from devops_cli.exceptions.roadmap import RoadmapItemChangedError
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import (
     ChangeKind,
     CloseReason,
@@ -46,6 +45,7 @@ from devops_cli.roadmap.store import (
 )
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 RECORD = "<!-- devops-roadmap-record"
@@ -92,6 +92,8 @@ class World(Protocol):
     def raw_body(self, number: int) -> str: ...
 
     def writes(self) -> int: ...
+
+    def fail_next_label(self, *, applied: bool) -> None: ...
 
 
 class MemoryWorld:
@@ -162,6 +164,9 @@ class MemoryWorld:
 
     def writes(self) -> int:
         return len(self._roadmap.job_writes())
+
+    def fail_next_label(self, *, applied: bool) -> None:
+        self._roadmap.fail_write(write="label_issue", applied=applied)
 
 
 class GitHubWorld:
@@ -241,6 +246,9 @@ class GitHubWorld:
 
     def writes(self) -> int:
         return len(self.github.writes())
+
+    def fail_next_label(self, *, applied: bool) -> None:
+        self.github.fail_write(applied=applied)
 
 
 @pytest.fixture(params=["memory", "github"])
@@ -553,6 +561,27 @@ def test_a_write_to_a_pull_request_or_an_issue_that_does_not_exist_raises(world:
         with pytest.raises(GitHubOperationError, match="is not an issue"):
             world.store.write_issue_body(number, "no")
     assert world.writes() == 0
+
+
+# ── A write that fails part-way through a run (#3744) ─────────────────────────
+
+
+def test_a_write_that_fails_before_it_applies_changes_nothing(world: World) -> None:
+    number = world.seed("An issue", labels=("bug",))
+    world.fail_next_label(applied=False)
+    with pytest.raises(GitHubOperationError, match="502"):
+        world.store.label_issue(number, "type/bug")
+    assert world.labels(number) == ["bug"]
+    world.store.label_issue(number, "type/bug")
+    assert world.labels(number) == ["bug", "type/bug"]
+
+
+def test_a_write_that_fails_after_it_applies_leaves_the_change_in_place(world: World) -> None:
+    number = world.seed("An issue", labels=("bug",))
+    world.fail_next_label(applied=True)
+    with pytest.raises(GitHubOperationError, match="502"):
+        world.store.label_issue(number, "type/bug")
+    assert world.labels(number) == ["bug", "type/bug"]
 
 
 # ── Closing an issue with a reason (#1658) ────────────────────────────────────

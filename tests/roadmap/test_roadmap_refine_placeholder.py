@@ -22,7 +22,6 @@ from pydantic import ValidationError
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.exceptions import RoadmapRefineError
 from devops_cli.roadmap import run
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.pull_form import PLACEHOLDER_ERROR_TYPE
 from devops_cli.roadmap.refine import (
     RefineFailure,
@@ -34,6 +33,7 @@ from devops_cli.roadmap.refine import (
 )
 from devops_cli.roadmap.run import FailureLedger, _count_failure, _run_refine_adapter
 from devops_cli.roadmap.store import ItemField, RefineRecordKey
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 if TYPE_CHECKING:
     from tests.support.fakes.model import ModelFake

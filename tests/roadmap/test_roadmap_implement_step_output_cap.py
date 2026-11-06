@@ -28,11 +28,11 @@ from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.roadmap import implement_step
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, output_cap, run_step
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.llm_stream_fakes import OPENAI_DONE, SSE, sse_data
 from tests.support.fakes.dns import DnsFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.process import ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import WINDOW, git, is_clean_at, the_whole_group
 from tests.support.model_script import Hang, ModelScript, say
 

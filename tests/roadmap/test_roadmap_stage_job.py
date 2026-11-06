@@ -15,7 +15,6 @@ from devops_cli.config.constants import CONST_ROADMAP_STATUS_NEW
 from devops_cli.exceptions import GitOperationError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap import run
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.refine import NextStep
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, FailureLedger, JobOutcome, run_due_jobs
 from devops_cli.roadmap.stage_change import StageSplit
@@ -24,6 +23,7 @@ from devops_cli.roadmap.store import ItemField, RefineRecordKey, StageRecordKey
 from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_implement import merge_plan
 from tests.support.roadmap_stage import (
     STAGE_REPO,

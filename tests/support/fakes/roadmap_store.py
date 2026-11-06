@@ -1,4 +1,4 @@
-"""The in-memory roadmap store: the roadmap held in process, with no I/O, for tests.
+"""The roadmap store faked for tests: the roadmap held in process, with no I/O (#3744).
 
 It keeps the promises the GitHub adapter keeps, so the contract suite runs against it. A test
 seeds milestones with `seed_milestone`, issues with `seed_issue`, pull requests with `seed_pull`
@@ -17,21 +17,25 @@ that a preview wrote nothing.
 A job's write of a field compares the issue's value with the value the store last wrote to
 that field, else with the value of the Item the caller passes, as the GitHub adapter does: a
 person's change since raises before anything changes.
+
+`tests/roadmap/test_roadmap_store_contract.py` holds the fake to `GitHubRoadmapStore`, so a test
+can rely on it for the promises the GitHub adapter keeps.
+
+A test makes a job's write fail as a `gh` call fails part-way through a run with `fail_write`: a
+502, a timeout or a secondary rate limit, before GitHub applies the write or after it. `writes`
+names every write the job made or tried, in order. `fail_listing` makes the next listing of a
+repository directory fail, and `listed` names every directory that was listed.
 """
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, Concatenate, cast
 
 from devops_cli.config.constants import CONST_GH_ISSUE_STATE_REASON_REOPENED
-from devops_cli.config.defaults import (
-    DEFAULT_ROADMAP_MEMORY_ACTOR,
-    DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION,
-    DEFAULT_ROADMAP_MEMORY_REPO,
-)
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
 from devops_cli.roadmap.store import (
     Candidate,
@@ -68,6 +72,58 @@ from devops_cli.roadmap.store import (
     split_record,
     with_record,
 )
+
+DEFAULT_ROADMAP_MEMORY_REPO = "example/roadmap"
+DEFAULT_ROADMAP_MEMORY_ACTOR = "devops-cli"
+# The author of an issue the fake opens: GitHub gives every issue an association.
+DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION = "OWNER"
+
+# The store's writes, any of which a gh call can fail part-way through a run. `label_issue` is
+# intake's first write (#1360).
+WRITES = frozenset(
+    {
+        "comment",
+        "create_issue",
+        "label_issue",
+        "set_field",
+        "set_marks",
+        "unlabel_issue",
+        "write_issue_body",
+    }
+)
+
+
+@dataclass(frozen=True)
+class Fault:
+    """The write that fails: the `at`-th, counted from 1, of the writes named `write` on issue
+    `item` (any write, on any item, when None); none when `at` is 0. With `applied`, it applies
+    and then reports the failure."""
+
+    at: int = 0
+    applied: bool = False
+    write: str | None = None
+    item: int | None = None
+
+
+def _number(args: tuple[object, ...]) -> int | None:
+    """The issue a write touches: its Item's number, or the number it is given."""
+    first = args[0] if args else None
+    if isinstance(first, Item):
+        return first.number
+    return first if isinstance(first, int) else None
+
+
+def _write[**P, R](
+    method: Callable[Concatenate[InMemoryRoadmapStore, P], R],
+) -> Callable[Concatenate[InMemoryRoadmapStore, P], R]:
+    """Mark a method as a write a gh call can fail: the view counts it, and the fault it holds
+    may fail it."""
+
+    @functools.wraps(method)
+    def attempt(self: InMemoryRoadmapStore, *args: P.args, **kwargs: P.kwargs) -> R:
+        return self._attempt(method.__name__, _number(args), lambda: method(self, *args, **kwargs))
+
+    return cast("Callable[Concatenate[InMemoryRoadmapStore, P], R]", attempt)
 
 
 def _utc_now() -> datetime:
@@ -132,12 +188,55 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._writes_job_record = True
         # The value this view last wrote to each field of each issue.
         self._written: dict[tuple[int, ItemField], str | None] = {}
+        self._fault = Fault()
+        self._counted_writes = 0
+        self._listing_error: Exception | None = None
+        # Every write this view made or tried, and every directory it listed, in order.
+        self.writes: list[str] = []
+        self.listed: list[str] = []
 
     def as_actor(self, actor: str) -> InMemoryRoadmapStore:
         """The same roadmap, written by a person: changes carry their name, and no job record."""
         person = InMemoryRoadmapStore(actor=actor)
         person._roadmap, person._writes_job_record = self._roadmap, False
         return person
+
+    def fail_write(
+        self,
+        *,
+        at: int = 1,
+        applied: bool = False,
+        write: str | None = None,
+        item: int | None = None,
+    ) -> None:
+        """Fail one write of this view as a gh call fails: the `at`-th, counted from 1, of the
+        writes named `write` on issue `item` (any write, on any item, when None) raises
+        `GitHubOperationError` once. With `applied`, GitHub applied the write and the call
+        still reports a failure, so the change stays in place; else nothing changes."""
+        if write is not None and write not in WRITES:
+            raise ValueError(f"{write} is no write of the store.")
+        self._fault = Fault(at=at, applied=applied, write=write, item=item)
+        self._counted_writes = 0
+
+    def fail_listing(self, error: Exception) -> None:
+        """Make the next listing of a repository directory raise `error`."""
+        self._listing_error = error
+
+    def _attempt[R](self, name: str, number: int | None, apply: Callable[[], R]) -> R:
+        """Make a write, or fail it as the fault says."""
+        self.writes.append(name)
+        fault = self._fault
+        counted = fault.write in (None, name) and fault.item in (None, number)
+        self._counted_writes += counted
+        failing = counted and self._counted_writes == fault.at
+        if failing and not fault.applied:
+            raise GitHubOperationError("HTTP 502", operation="roadmap.write")
+        done = apply()
+        if failing:
+            raise GitHubOperationError(
+                "HTTP 502 after the write applied", operation="roadmap.write"
+            )
+        return done
 
     # ── Seeding ──
 
@@ -382,6 +481,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             self._read(issue) for issue in self._roadmap.issues.values() if not issue.pull_request
         ]
 
+    @_write
     def create_issue(self, title: str, body: str, *, labels: Sequence[str] = ()) -> IssueRecord:
         """Open an issue with `title`, `body` and `labels`, returning it."""
         number = self.seed_issue(title, body=body, labels=labels)
@@ -419,6 +519,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Every close and reopen of issue `number`, oldest first."""
         return list(self._roadmap.closures.get(number, []))
 
+    @_write
     def label_issue(self, number: int, label: str) -> None:
         """Add `label` to issue or pull request `number`, keeping its other labels; a label it
         holds stays one. GitHub labels a pull request through the issues endpoint (#2748)."""
@@ -427,6 +528,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             self._relabel(issue, (*issue.labels, label))
         self._log("label_issue", number, value=label)
 
+    @_write
     def unlabel_issue(self, number: int, label: str) -> None:
         """Remove `label` from issue or pull request `number`, keeping its other labels."""
         issue = self._require_issue(number, "roadmap.issue.unlabel", pull_request=True)
@@ -443,8 +545,12 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Whether the evidence was seeded as one GitHub confirms."""
         return evidence in self._roadmap.evidence
 
+    @_write
     def comment(self, number: int, body: str) -> None:
         """Comment `body` on issue `number`."""
+        self._comment(number, body)
+
+    def _comment(self, number: int, body: str) -> None:
         issue = self._require_issue(number, "roadmap.issue.comment")
         self._update_issue(issue)
         made = IssueComment(
@@ -497,7 +603,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         if issue.state is GitHubState.CLOSED:
             raise already_closed(number, {"number": number})
         if comment is not None:
-            self.comment(number, comment)
+            self._comment(number, comment)
         self._close(self._roadmap.issues[number], reason)
         self._log("close", number, value=reason.value)
 
@@ -519,6 +625,10 @@ class InMemoryRoadmapStore(RoadmapStore):
     def repository_files(self, directory: str, *, ref: str | None = None) -> list[str]:
         """The sorted paths of the files committed directly in `directory` on `ref`, raising when
         none is."""
+        self.listed.append(directory)
+        if self._listing_error is not None:
+            error, self._listing_error = self._listing_error, None
+            raise error
         found = sorted(
             path
             for path, at in self._roadmap.files
@@ -545,6 +655,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         this repository."""
         return self._read(self._require_issue(number, "roadmap.issue.read_body")).body
 
+    @_write
     def write_issue_body(self, number: int, body: str) -> None:
         """Write `body` as the body of issue `number`, keeping its record block, raising if it
         is not an issue of this repository."""
@@ -635,6 +746,7 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     # ── Item writes ──
 
+    @_write
     def set_field(
         self,
         item: Item,
@@ -660,6 +772,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         for mark, marked in (marks or {}).items():
             self._log("set_mark", item.number, mark.value, marked)
 
+    @_write
     def set_marks(self, item: Item, marks: Mapping[Any, str | None]) -> None:
         """Set or clear a job's marks in the Item's job record; a person's view keeps no record.
         `job_writes` keeps one entry for each mark."""

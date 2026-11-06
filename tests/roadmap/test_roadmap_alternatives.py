@@ -47,7 +47,6 @@ from devops_cli.roadmap.alternatives import (
     select_items,
 )
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.refine import covers_question, recorded_check
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, run_due_jobs
 from devops_cli.roadmap.store import (
@@ -58,11 +57,11 @@ from devops_cli.roadmap.store import (
     RoadmapStore,
 )
 from devops_cli.telemetry.instruments import FIRECRAWL_SEARCHES_TOTAL, ROADMAP_ALTERNATIVES_TOTAL
-from tests.roadmap_faults import ListingStore
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.otlp import FakeCollector
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.scripted_model import Script, call
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -888,29 +887,26 @@ def test_a_repository_with_no_adr_directory_sends_no_decisions(
 def test_a_run_reads_the_adrs_once_and_only_for_an_item_that_is_no_skip_class(
     store: InMemoryRoadmapStore, web_key: None
 ) -> None:
-    listing = ListingStore(store)
     _item(store, "docs(roadmap): explain the check")
-    _plan(listing.as_store(), Script(AlternativesReply(verdict=Verdict.NONE)))
-    skip_only = list(listing.listed)
+    _plan(store, Script(AlternativesReply(verdict=Verdict.NONE)))
+    skip_only = list(store.listed)
     _item(store, "First change")
     _item(store, "Second change")
 
-    _plan(listing.as_store(), _searching(AlternativesReply(verdict=Verdict.NONE)))
+    _plan(store, _searching(AlternativesReply(verdict=Verdict.NONE)))
 
-    assert (skip_only, listing.listed) == ([], ["docs/adr"])
+    assert (skip_only, store.listed) == ([], ["docs/adr"])
 
 
 def test_a_failed_read_of_the_adrs_stops_the_run_before_any_model_call(
     store: InMemoryRoadmapStore, web_key: None
 ) -> None:
-    broken = ListingStore(
-        store, error=GitHubOperationError("GitHub answered 502.", operation="roadmap.read")
-    )
+    store.fail_listing(GitHubOperationError("GitHub answered 502.", operation="roadmap.read"))
     _item(store)
     script = _searching(AlternativesReply(verdict=Verdict.NONE))
 
     with pytest.raises(GitHubOperationError, match="502"):
-        _plan(broken.as_store(), script)
+        _plan(store, script)
 
     assert script.seen == []
 

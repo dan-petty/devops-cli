@@ -155,6 +155,7 @@ from devops_cli.roadmap.store import (
     Evidence,
     EvidenceKind,
     GitHubState,
+    IntakeReads,
     IssueRecord,
     Item,
     ItemField,
@@ -488,7 +489,7 @@ class _InvalidProposal(ValueError):
 class _Run:
     """What one run reads once, from `repo`'s `store`: every issue, and the items by number."""
 
-    store: RoadmapStore
+    store: IntakeReads
     repo: str
     model: IntakeModel
     ref: str | None
@@ -914,7 +915,7 @@ def _kind_name(evidence: Evidence) -> str:
     return evidence.kind.value.replace("_", " ")
 
 
-def _p0_refusal(store: RoadmapStore, subject: Subject, evidence: Evidence) -> str | None:
+def _p0_refusal(store: IntakeReads, subject: Subject, evidence: Evidence) -> str | None:
     """Why the evidence does not set P0, or None when it does."""
     attached = subject.new is not None and evidence in subject.new.evidence
     if not attached and not subject.cites(evidence.value):
@@ -926,7 +927,7 @@ def _p0_refusal(store: RoadmapStore, subject: Subject, evidence: Evidence) -> st
     return None
 
 
-def _priority(store: RoadmapStore, subject: Subject, proposal: Proposal) -> tuple[str, str]:
+def _priority(store: IntakeReads, subject: Subject, proposal: Proposal) -> tuple[str, str]:
     """The Priority intake sets, and its reason."""
     evidence = proposal.evidence
     if evidence is None:
@@ -1014,7 +1015,7 @@ def _comment(placement: Placement, lines: Sequence[tuple[str, str, str]]) -> str
     )
 
 
-def _has_comment(store: RoadmapStore, subject: Subject, marker: str) -> bool:
+def _has_comment(store: IntakeReads, subject: Subject, marker: str) -> bool:
     """Whether intake already left the comment `marker` marks on the candidate."""
     return subject.number is not None and any(
         marker in comment.body for comment in store.comments_on(subject.number)
@@ -1177,7 +1178,7 @@ class _Planner:
 
 
 def plan_intake(
-    store: RoadmapStore,
+    store: IntakeReads,
     *,
     repo: str,
     model: IntakeModel,

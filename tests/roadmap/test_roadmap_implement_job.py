@@ -26,7 +26,6 @@ from devops_cli.git.worktree_add import worktree_directory
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.roadmap.implement import ImplementPlan, parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement_run import apply_implement, raise_for_failed
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage_change import closing_keyword_in
 from devops_cli.roadmap.store import ImplementRecordKey
 from tests.support.base_replay import (
@@ -39,6 +38,7 @@ from tests.support.base_replay import (
 )
 from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import TEST_BODY, WINDOW, command_text, write_call
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (

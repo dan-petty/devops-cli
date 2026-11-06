@@ -13,7 +13,6 @@ import pytest
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
 from devops_cli.exceptions.git import GitHubFileNotFoundError
 from devops_cli.roadmap.inbox import Inbox, InboxKind, InboxLine, read_inbox, render_inbox
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import (
     GitHubState,
     ImplementRecordKey,
@@ -23,6 +22,7 @@ from devops_cli.roadmap.store import (
     encode_job_record,
     with_record,
 )
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 NOW = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)

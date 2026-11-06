@@ -17,8 +17,8 @@ import pytest
 from devops_cli.roadmap.explain import render_trace
 from devops_cli.roadmap.implement_step import run_step
 from devops_cli.roadmap.implement_trace import ImplementTrace, TraceEvent, TraceEventKind, decode
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
     CHECK,
     SHOUT_CODE,

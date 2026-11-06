@@ -11,9 +11,9 @@ Reads: `src/devops_cli/roadmap/stage_change.py`, `tests/roadmap/test_roadmap_lim
 
 ## 2. Declare what each registry test counts
 
-Reads: `tests/roadmap/test_roadmap_limit_classes.py`, `tests/roadmap_faults.py`, `tests/telemetry/test_telemetry_instruments.py`, `tests/roadmap/test_roadmap_dry_runs.py`. Changes: `tests/roadmap/test_roadmap_limit_classes.py`, `tests/roadmap_faults.py`, `tests/telemetry/test_telemetry_instruments.py`, `tests/roadmap/test_roadmap_dry_runs.py`.
+Reads: `tests/roadmap/test_roadmap_limit_classes.py`, `tests/support/fakes/roadmap_store.py`, `tests/telemetry/test_telemetry_instruments.py`, `tests/roadmap/test_roadmap_dry_runs.py`. Changes: `tests/roadmap/test_roadmap_limit_classes.py`, `tests/support/fakes/roadmap_store.py`, `tests/telemetry/test_telemetry_instruments.py`, `tests/roadmap/test_roadmap_dry_runs.py`.
 
-- [ ] 2.1 Add a module-level `REGISTRY_COUNTS` tuple to each of the four test modules. `tests/roadmap/test_roadmap_limit_classes.py` declares the `CONST_ROADMAP_` and `DEFAULT_ROADMAP_` constant prefixes. `tests/roadmap_faults.py` declares the `WRITES` table. `tests/telemetry/test_telemetry_instruments.py` declares the `INSTRUMENTS` table and the `devops_cli_` metric prefix. `tests/roadmap/test_roadmap_dry_runs.py` declares `stage_requests` and `implement_requests`. Each entry names the path that must carry the entry: the declaring test, `src/devops_cli/telemetry/instruments.py`, `src/devops_cli/roadmap/request_plan.py`
+- [ ] 2.1 Add a module-level `REGISTRY_COUNTS` tuple to each of the four test modules. `tests/roadmap/test_roadmap_limit_classes.py` declares the `CONST_ROADMAP_` and `DEFAULT_ROADMAP_` constant prefixes. `tests/support/fakes/roadmap_store.py` declares the `WRITES` table. `tests/telemetry/test_telemetry_instruments.py` declares the `INSTRUMENTS` table and the `devops_cli_` metric prefix. `tests/roadmap/test_roadmap_dry_runs.py` declares `stage_requests` and `implement_requests`. Each entry names the path that must carry the entry: the declaring test, `src/devops_cli/telemetry/instruments.py`, `src/devops_cli/roadmap/request_plan.py`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_limit_classes.py tests/telemetry/test_telemetry_instruments.py` passes
 
 ## 3. List the matching places in the plan context

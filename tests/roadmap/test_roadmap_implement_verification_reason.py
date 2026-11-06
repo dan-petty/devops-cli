@@ -19,11 +19,11 @@ from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS
 from devops_cli.roadmap.implement_shell_policy import fill_prompt, verification_problem
 from devops_cli.roadmap.implement_step import StepStatus, commands_failure, run_step
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage_change import StageGroup
 from devops_cli.roadmap.stage_form import form_problems
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
     DOCS,
     TASKS,

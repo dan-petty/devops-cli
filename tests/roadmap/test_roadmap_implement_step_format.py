@@ -20,8 +20,8 @@ from devops_cli.roadmap.implement_step import (
     build_step_inputs,
     run_step,
 )
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
     SHOUT_CODE,
     TASKS,

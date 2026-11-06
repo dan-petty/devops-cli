@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.pull_labels import add_pull_labels, remove_pull_labels, stale_labels
 from devops_cli.roadmap.title_labels import TitleLabels
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 
 def test_add_pull_labels_adds_each_label() -> None:

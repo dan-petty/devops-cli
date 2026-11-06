@@ -15,9 +15,9 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.pr import app
 from devops_cli.dry_run.state import set_dry_run
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.pull_form import body_problems, title_problems
 from devops_cli.roadmap.store import ItemField
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 ISSUE_TITLE = "feat(pr): build and check the title and body of a pull request"

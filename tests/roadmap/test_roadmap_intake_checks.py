@@ -10,8 +10,8 @@ import pytest
 from devops_cli.exceptions.roadmap import RoadmapIntakeError
 from devops_cli.roadmap import intake
 from devops_cli.roadmap.intake import IntakeDecision, Outcome, Placement, Subject
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import item_of
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 _BACKLOG = Placement(milestone=None, text="the backlog")
 

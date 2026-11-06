@@ -70,7 +70,6 @@ from devops_cli.roadmap.intake_model import (
     intake_system_prompt,
 )
 from devops_cli.roadmap.intake_requests import Spend, SpendMeter
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
 from devops_cli.roadmap.store import (
     CloseReason,
     Evidence,
@@ -87,6 +86,7 @@ from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.model import ModelFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore, JobWrite
 from tests.support.fakes.valkey import valkey_client_on
 
 REPO = "example/roadmap"

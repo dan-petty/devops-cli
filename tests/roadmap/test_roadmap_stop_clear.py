@@ -23,10 +23,10 @@ from devops_cli.roadmap.digest_clears import (
     recorded_clears,
 )
 from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureAction, FailureClass
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stop_clear import ClearLimits, StopsCleared, clear_stops
 from devops_cli.roadmap.store import ImplementRecordKey, IssueComment, Item, ItemField
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import STAGE_REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store")

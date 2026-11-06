@@ -28,8 +28,8 @@ from devops_cli.roadmap.implement_shell_policy import (
     pipe_refusal,
 )
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import WINDOW, git, is_clean_at
 from tests.support.model_script import ModelScript, say, tool_call
 

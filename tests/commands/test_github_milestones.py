@@ -12,9 +12,9 @@ from typer.testing import CliRunner
 from devops_cli.commands.gh import milestones_app
 from devops_cli.exceptions.git import GitHubUnreadError
 from devops_cli.github.milestones import calculate_milestone_progress
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, Milestone, RoadmapStore
 from tests.support.fakes.github import API, GitHubApiFake, github_json
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 runner = CliRunner()
 # Not this checkout's origin, so a command that ignored `--repo` would open the wrong store.

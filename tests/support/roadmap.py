@@ -10,8 +10,8 @@ from unittest.mock import patch
 import pytest
 
 if TYPE_CHECKING:
-    from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
     from devops_cli.roadmap.store import RoadmapStore
+    from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -52,7 +52,7 @@ def roadmap_store(
     which repository a command reads and writes.
     """
     from devops_cli.roadmap import store as roadmap_module
-    from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+    from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
     roadmap = InMemoryRoadmapStore()
 

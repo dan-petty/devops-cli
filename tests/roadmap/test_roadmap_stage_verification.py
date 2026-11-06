@@ -11,7 +11,6 @@ import yaml
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.config import settings
 from devops_cli.github.client import CreatedPull
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import (
     StagePlan,
     _label_needs_fix,
@@ -26,6 +25,7 @@ from devops_cli.roadmap.stage_verify import PLAN_NEEDS_FIX_LABEL, Finding, Verif
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import API, github_json
 from tests.support.fakes.model import ModelFake, ModelFakeReplies
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,

@@ -10,13 +10,13 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli.exceptions import GitOperationError
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.planned import open_plan_creates, read_planned_changes
 from devops_cli.roadmap.stage import StagePlan, parse_filters, plan_stage
 from devops_cli.roadmap.store import GitHubState, ItemField, StageRecordKey
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import git_for_real
 from tests.support.roadmap_implement import branch_of, merge_plan
 from tests.support.roadmap_stage import (

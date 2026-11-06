@@ -21,8 +21,8 @@ from devops_cli.roadmap.digest_clears import (
     recorded_clears,
 )
 from devops_cli.roadmap.failure import FailureClass
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import STAGE_REPO
 
 NOON = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)

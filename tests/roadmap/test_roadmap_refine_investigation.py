@@ -52,7 +52,6 @@ from devops_cli.roadmap.agent_run import (
     error_answer,
     ok_answer,
 )
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
     JobCheck,
@@ -70,6 +69,7 @@ from devops_cli.roadmap.refine_investigation import (
 )
 from devops_cli.roadmap.store import ItemField
 from tests.support.fakes.http import WebFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.scripted_model import Script, call
 
 pytestmark = pytest.mark.usefixtures("keyring_store")

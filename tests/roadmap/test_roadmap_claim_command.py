@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from devops_cli.roadmap.claim import dry_run_claim
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 ITEM = ("priority/p2-medium",)

@@ -22,10 +22,10 @@ from devops_cli.roadmap.claim import (
     render_claim_plan,
 )
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, Item, ItemField, RoadmapStore
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 ITEM = ("priority/p2-medium",)

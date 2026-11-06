@@ -24,7 +24,6 @@ from devops_cli.config.constants import (
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.alternatives import select_items
 from devops_cli.roadmap.implement import retry_asked
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.refine import select_candidates
 from devops_cli.roadmap.stage import StageSelection, parse_filters, select_stageable
@@ -36,6 +35,7 @@ from devops_cli.roadmap.store import (
     RefineRecordKey,
 )
 from devops_cli.roadmap.trust import is_approved, is_bot_filed, is_trusted, trusted_replies
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import STAGE_REPO
 from tests.support.roadmap_trust import approval_of, approve
 

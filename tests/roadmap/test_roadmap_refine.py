@@ -60,7 +60,6 @@ from devops_cli.exceptions import RoadmapRefineError, RoadmapRunError, ended_by_
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.roadmap import store as roadmap_store_module
 from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
     DeferredPart,
@@ -109,6 +108,7 @@ from tests.support.fakes.git import GitFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore, JobWrite
 from tests.support.service_stop import stop_error
 
 pytestmark = pytest.mark.usefixtures("keyring_store")

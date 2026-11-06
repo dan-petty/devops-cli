@@ -19,8 +19,8 @@ from devops_cli.config.settings import load_settings
 from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureAction, FailureClass
 from devops_cli.roadmap.implement_limits import ItemSpend
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
     SHOUT_CODE,
     TASKS_PATH,

@@ -16,12 +16,12 @@ from typing import Any
 import pytest
 import yaml
 
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import STATUS_LANE_ROWS
 from devops_cli.roadmap.store import CloseReason, ImplementRecordKey, Item, ItemField
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import git_for_real
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import PASS, PULL, merge_plan, seed_staged

@@ -7,7 +7,7 @@
 ## What Changes
 
 - Move all 47 modules whose name starts with `intake`, `refine`, `stage` or `implement` into `intake/`, `refine/`, `stage/` or `implement/` with `git mv`, with no edit to the body of a moved module.
-- Move `store.py`, `github_store.py` and `memory_store.py` into `src/devops_cli/roadmap/stores/`.
+- Move `store.py` and `github_store.py` into `src/devops_cli/roadmap/stores/`.
 - Add a subpackage `__init__.py` with a one-line docstring and no import. Update the module docstring of `src/devops_cli/roadmap/__init__.py` to name the new store path.
 - Rewrite every import of a moved module in `src/` and in `tests/` to its new module path. Rewrite the string targets of the tests, such as a `monkeypatch.setattr` path and a logger name, because a string does not follow an import.
 - Add invariant tests that hold the subpackages, the store folder, the import paths and the docstring-only package module.

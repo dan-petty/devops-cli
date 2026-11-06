@@ -20,8 +20,8 @@ from devops_cli.roadmap.implement_shell_policy import IMPLEMENT_SHELL_REPLACEMEN
 from devops_cli.roadmap.implement_shell_refusal import ShellRefusal
 from devops_cli.roadmap.implement_step import StepOutcome, run_step
 from devops_cli.roadmap.implement_tool_log import ToolCallLog, logged_program
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import TEST_BODY, WINDOW, write_call
 from tests.support.model_script import ModelScript, say, tool_call, tool_calls
 

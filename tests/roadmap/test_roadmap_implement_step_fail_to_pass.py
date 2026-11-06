@@ -19,9 +19,9 @@ import pytest
 
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.base_replay import answer_pytest_on_base, junit
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
     SHOUT_CODE,
     TASKS_PATH,
