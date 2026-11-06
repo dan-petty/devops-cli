@@ -117,6 +117,7 @@ from devops_cli.exceptions import (
     RoadmapStageError,
     ServiceStoppingError,
     ToolExecutionError,
+    ValidationError,
 )
 from devops_cli.git.branch_form import branch_name
 from devops_cli.git.worktree_add import (
@@ -1085,6 +1086,20 @@ class _Planner:
             max_retries=_REPLY_RETURNS,
         )
 
+    def _plan_body(
+        self, target: StageTarget, title: str, proposal: StageProposal
+    ) -> str | _Refused:
+        """The body of the draft, built and checked by `build_plan_body`. A text with a closing
+        keyword stops the item. A body that breaks the plan form goes back to the model."""
+        keyword = closing_keyword_in(f"{title}\n{safe_text(proposal.pull_request_body)}")
+        if keyword is not None:
+            raise _stage_error(MESSAGES.roadmap.stage_closing.format(keyword=keyword), target)
+        try:
+            return pull_request_body(target.item.number, target.change, proposal)
+        except ValidationError as exc:
+            lines = (line.removeprefix("- ") for line in str(exc).splitlines())
+            return _Refused(" ".join(lines), proposal)
+
     def _settle(
         self, target: StageTarget, proposal: StageProposal
     ) -> StagedChange | OverBudget | _Refused:
@@ -1112,10 +1127,9 @@ class _Planner:
         title = staging_title(target.item.number, proposal.summary)
         if problems := title_problems(title):
             return _Refused(" ".join(problems), proposal)
-        body = pull_request_body(target.item.number, target.change, proposal)
-        keyword = closing_keyword_in(f"{title}\n{body}")
-        if keyword is not None:
-            raise _stage_error(MESSAGES.roadmap.stage_closing.format(keyword=keyword), target)
+        body = self._plan_body(target, title, proposal)
+        if isinstance(body, _Refused):
+            return body
         asked, files, measured = self._fit(target, proposal)
         if asked is not proposal:
             # The split gave new groups, and the model can bring old paths back with them.

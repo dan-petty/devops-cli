@@ -26,6 +26,7 @@ from devops_cli.git.worktree_add import worktree_directory
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.roadmap.implement import ImplementPlan, parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement_run import apply_implement, raise_for_failed
+from devops_cli.roadmap.pull_form import body_problems
 from devops_cli.roadmap.stage_change import closing_keyword_in
 from devops_cli.roadmap.store import ImplementRecordKey
 from tests.support.base_replay import (
@@ -251,8 +252,8 @@ def test_two_groups_end_in_commits_a_pushed_branch_a_closing_body_and_a_ready_pu
     assert job_world.sent("PATCH", f"pulls/{PULL}") == [
         {
             "title": "fix(roadmap): the job drops a comment",
-            "body": "Closes #1\n\nThe job drops the last comment of a thread (#1). It must keep it."
-            f"\n\nChange: `openspec/changes/archive/2026-10-29-{CHANGE}/`",
+            "body": "The job drops the last comment of a thread (#1). It must keep it."
+            f"\n\nCloses #1\n\nChange: `openspec/changes/archive/2026-10-29-{CHANGE}/`",
         }
     ]
     assert job_world.pull.ready_calls == [("pr", "ready", str(PULL), "--repo", STAGE_REPO)]
@@ -262,6 +263,70 @@ def test_two_groups_end_in_commits_a_pushed_branch_a_closing_body_and_a_ready_pu
         str(PULL),
         None,
     )
+
+
+def _rewrite_why(job_world: JobWorld, why: str) -> None:
+    """Make the archive step leave `why` as the "Why" of the archived proposal."""
+
+    def archive_with_why(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        done = archive_effect(call)
+        assert call.cwd is not None
+        change = command_text(call).split()[-1]
+        proposal = call.cwd / "openspec/changes/archive" / f"2026-10-29-{change}" / "proposal.md"
+        text = proposal.read_text(encoding="utf-8")
+        proposal.write_text(
+            text.replace("The job drops the last comment of a thread (#1). It must keep it.", why),
+            encoding="utf-8",
+        )
+        return done
+
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops openspec archive"),
+        ProcessAnswer(side_effect=archive_with_why),
+    )
+
+
+def test_the_body_of_the_pull_request_passes_the_form_check(job_world: JobWorld) -> None:
+    """The body is the text, `Closes`, then the `Change:` line (#3215)."""
+    job_world.run(two_groups())
+
+    (patched,) = job_world.sent("PATCH", f"pulls/{PULL}")
+    assert body_problems(patched["body"]) == []
+    assert patched["body"].index("Closes #1") < patched["body"].index("Change:")
+
+
+def test_a_why_that_does_not_fit_the_body_limit_gives_way_to_the_issue_title_and_is_not_cut(
+    job_world: JobWorld,
+) -> None:
+    _rewrite_why(job_world, "The job keeps a long reason. " * 60)
+
+    job_world.run(two_groups())
+
+    (patched,) = job_world.sent("PATCH", f"pulls/{PULL}")
+    assert patched["body"].startswith("fix(roadmap): the job drops a comment\n\nCloses #1")
+    assert "..." not in patched["body"]
+    assert body_problems(patched["body"]) == []
+
+
+def test_a_body_that_the_form_check_refuses_stops_the_item_before_the_job_writes_it(
+    job_world: JobWorld,
+) -> None:
+    """A why that holds a closing keyword gives way to the title of the issue. A title that is a
+    placeholder then fails `build_body`, and the job writes no body."""
+    _rewrite_why(job_world, "This work closes #9 when it merges.")
+    issue = job_world.store._roadmap.issues[1]
+    job_world.store._roadmap.issues[1] = issue.model_copy(update={"title": "fix(roadmap): x"})
+
+    applied = job_world.run(two_groups())
+
+    status, record = _item(job_world)
+    assert (applied.stopped, status, record.get("implement.stopped")) == (
+        (1,),
+        "Blocked",
+        "pull request",
+    )
+    assert job_world.sent("PATCH", f"pulls/{PULL}") == []
+    assert "does not pass the form check" in job_world.issue_comments()[0]
 
 
 def test_the_title_of_the_pull_request_has_no_scope_that_the_labels_file_lacks(

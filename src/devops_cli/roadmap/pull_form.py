@@ -381,3 +381,15 @@ def build_body(*, why: str, issue: int, change: str, attribution: Sequence[str] 
     full = f"{body}\n\n{trailer}" if trailer else body
     _refuse(body_problems(full), "body")
     return full
+
+
+def build_plan_body(*, why: str, issue: int, change: str) -> str:
+    """The body of the pull request that plans `issue`: the line `Plans #<issue>`, `why`, and the
+    line `Change:` with the folder `change` (a path under `openspec/changes/`, with no slash at its
+    end). A plan closes no issue and has no attribution lines.
+
+    Nothing is cut. A body that breaks a rule of `plan_body_problems` raises `ValidationError` that
+    names every problem, and the caller writes a better `why`."""
+    body = f"Plans #{issue}\n\n{why.strip()}\n\nChange: `{change}/`"
+    _refuse(plan_body_problems(body, issue), "body")
+    return body

@@ -9,7 +9,7 @@ For each item that a label filter names, the job does these things in order:
 1. It makes the branch `<type>/<issue>-<slug>` at the fetched default branch. The branch keeps the type of the issue.
 2. It reads the open pull requests that change a path the issue cites, and the other files that hold a metric name the issue cites. It writes the OpenSpec change of the item. The tasks are in task groups, and each group fits the step budget.
 3. It makes one commit, as the identity of the session, and pushes it.
-4. It opens a draft pull request. The title is `docs(openspec): plan #<issue> <summary>`. The body starts with `Plans #<issue>` and holds no closing keyword. It adds the `type/*` and `scope/*` labels of the title to the draft.
+4. It opens a draft pull request. The title is `docs(openspec): plan #<issue> <summary>`. The body starts with `Plans #<issue>` and holds no closing keyword. `build_plan_body` of `pull_form` builds it, and a body that breaks the plan form goes back to the model once, as a refused plan does. It adds the `type/*` and `scope/*` labels of the title to the draft.
 5. It writes one comment on the issue. The comment names the branch, the pull request, and the task groups with their measures. A label that GitHub refuses becomes a note in the comment.
 
 The Status of the item stays Ready. The job does not mark the pull request ready. The Service does it, in its row `stage_ready`, when all checks of the draft have passed.

@@ -3025,15 +3025,15 @@ class RoadmapMessages:
     )
     implement_scoped_passed: str = "passed"
     implement_scoped_failed: str = "failed"
-    implement_pull_body: str = (
-        "Closes #{number}\n\n{why}\n\nChange: `openspec/changes/archive/{archived}/`"
-    )
     implement_pull_body_draft: str = (
         "Closes #{number}\n\nThe job is not finished. It replaces this body when it finishes."
     )
     implement_stop_draft_failed: str = (
         "GitHub did not open the draft pull request of `{branch}`: {output}. The job removed the "
         "branch from origin."
+    )
+    implement_stop_body_refused: str = (
+        "The body of the pull request does not pass the form check: {problems}"
     )
     implement_stop_title_refused: str = (
         "The title of the pull request does not pass the check `Semantic PR title`: {problems} "
@@ -3662,9 +3662,6 @@ class RoadmapMessages:
         "The summary has {length} characters in the title, and the limit is {limit}. "
         "A handle or a link gets a code span in the title, and an emoji counts as two. "
         "Write a shorter summary."
-    )
-    stage_pull_request_body: str = (
-        "Plans #{number}\n\n{body}\n\nChange: `openspec/changes/{change}/`"
     )
     # The plan check of a plan pull request (#3201): the reader of the change folder and the
     # problems that the command reports.

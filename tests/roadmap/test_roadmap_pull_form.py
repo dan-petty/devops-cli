@@ -19,8 +19,10 @@ from devops_cli.roadmap.pull_form import (
     ReplyText,
     body_problems,
     build_body,
+    build_plan_body,
     build_title,
     is_placeholder,
+    plan_body_problems,
     summary_length,
     title_problems,
 )
@@ -379,3 +381,39 @@ def test_a_placeholder_why_is_refused() -> None:
 def test_a_why_that_closes_another_issue_is_refused() -> None:
     with pytest.raises(ValidationError, match="closes 2 issues"):
         build_body(why=f"{WHY} This fixes #1.", issue=3198, change=CHANGE)
+
+
+PLAN_CHANGE = "openspec/changes/3215-pull-form-in-jobs"
+
+
+def test_the_plan_body_is_plans_the_text_and_change() -> None:
+    body = build_plan_body(why=WHY, issue=3215, change=PLAN_CHANGE)
+
+    assert body == f"Plans #3215\n\n{WHY}\n\nChange: `{PLAN_CHANGE}/`"
+    assert plan_body_problems(body, 3215) == []
+
+
+def test_the_plan_body_is_not_a_delivery_body() -> None:
+    body = build_plan_body(why=WHY, issue=3215, change=PLAN_CHANGE)
+
+    assert "The body has no line `Closes #<issue>`." in body_problems(body)
+
+
+def test_a_placeholder_plan_text_is_refused() -> None:
+    with pytest.raises(ValidationError, match="placeholder"):
+        build_plan_body(why="placeholder", issue=3215, change=PLAN_CHANGE)
+
+
+def test_a_short_plan_text_is_refused() -> None:
+    with pytest.raises(ValidationError, match="characters"):
+        build_plan_body(why="Short.", issue=3215, change=PLAN_CHANGE)
+
+
+def test_a_plan_text_that_closes_an_issue_is_refused() -> None:
+    with pytest.raises(ValidationError, match="closes no issue"):
+        build_plan_body(why=f"{WHY} This closes #7.", issue=3215, change=PLAN_CHANGE)
+
+
+def test_a_plan_text_over_the_limit_is_refused_and_not_cut() -> None:
+    with pytest.raises(ValidationError, match="Shorten the text above `Closes`"):
+        build_plan_body(why="A reason that is long. " * 50, issue=3215, change=PLAN_CHANGE)

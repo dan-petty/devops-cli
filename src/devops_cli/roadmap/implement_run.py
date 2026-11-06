@@ -66,7 +66,6 @@ from devops_cli.config.commands import BIN_DEVOPS, BIN_GIT, BIN_UV
 from devops_cli.config.constants import (
     CONST_OPENSPEC_ARCHIVE_DIR,
     CONST_OPENSPEC_CHANGES_DIR,
-    CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS,
     CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS,
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
     CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
@@ -86,6 +85,7 @@ from devops_cli.exceptions import (
     GitHubUnauthenticatedError,
     GitOperationError,
     RoadmapImplementError,
+    ValidationError,
 )
 from devops_cli.exceptions.roadmap import OverWindowError
 from devops_cli.git.worktree_add import add_worktree
@@ -152,7 +152,7 @@ from devops_cli.roadmap.implement_trace import (
 from devops_cli.roadmap.implement_wip import WipCommit, kept_commits, wip_base
 from devops_cli.roadmap.plan_read import PlanReadError, merged_recorded_tests
 from devops_cli.roadmap.premise import false_premises
-from devops_cli.roadmap.pull_form import title_problems
+from devops_cli.roadmap.pull_form import BODY_MAX_CHARS, build_body, title_problems
 from devops_cli.roadmap.pull_labels import (
     add_pull_labels,
     declared_labels,
@@ -1150,28 +1150,47 @@ class _ItemRun:
         pattern = f"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-{self.number}-*"
         return next((p.name for p in sorted(folder.glob(pattern)) if p.is_dir()), "")
 
-    def _why(self, archived: str) -> str:
-        """The "why" of the proposal on one line, at most `CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS`
-        long. The title of the item stands in when the proposal has none, or when its text holds a
-        closing keyword for an issue, which would close that issue when the pull request merges."""
+    def _why(self, archived: str, room: int) -> str:
+        """The "why" of the proposal on one line, at most `room` characters long. The title of the
+        item stands in when the proposal has none, when its text is longer than `room`, or when it
+        holds a closing keyword for an issue, which would close that issue when the pull request
+        merges. The text is never cut: a cut text ends with `...` and reads as a mistake."""
         proposal = self.path / CONST_OPENSPEC_ARCHIVE_DIR / archived / "proposal.md"
         text = ""
         if proposal.is_file():
             section = section_text(proposal.read_text(encoding="utf-8"), _WHY_HEADINGS)
             text = safe_text(section.partition("\n")[2])
-        if not text or closing_keyword_in(text) is not None:
+        if not text or len(text) > room or closing_keyword_in(text) is not None:
             text = safe_text(self.target.item.title)
-        return textwrap.shorten(text, CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS, placeholder="...")
+        return text
+
+    def _body(self, archived: str) -> str:
+        """The body of the pull request, in the form of `pull_form`: the why, `Closes #<issue>` and
+        the `Change:` line. A body that breaks the form stops the item before the job writes it."""
+        change = f"{CONST_OPENSPEC_ARCHIVE_DIR}/{archived}"
+        room = BODY_MAX_CHARS - len(f"\n\nCloses #{self.number}\n\nChange: `{change}/`")
+        try:
+            return build_body(why=self._why(archived, room), issue=self.number, change=change)
+        except ValidationError as exc:
+            problems = " ".join(line.removeprefix("- ") for line in str(exc).splitlines())
+            raise _StopError(
+                self.step,
+                MESSAGES.roadmap.implement_stop_body_refused.format(problems=problems),
+                push=False,
+            ) from exc
 
     def _pull_request(self, pull: int) -> None:
         """Set the title and the body of the pull request. The title is the one of the issue: the
-        staging pull request of a Staged item has the type `docs(openspec)` (#2714)."""
+        staging pull request of a Staged item has the type `docs(openspec)` (#2714). The body is
+        built with `build_body`, so a body that breaks the form stops the item (#3215)."""
         self.step = MESSAGES.roadmap.implement_step_names["pull_request"]
         texts = MESSAGES.roadmap
         archived = self._archived_name()
-        body = texts.implement_pull_body.format(
-            number=self.number, why=self._why(archived), archived=archived
-        )
+        if not archived:
+            # No archive folder: the body has no `Change:` line to name, and the step `ready`
+            # stops the item and says that the change is not archived.
+            return
+        body = self._body(archived)
         client = get_github_session().client
         before = client.get_pull(self.repo, pull)
         delivery_title = self._delivery_title()
