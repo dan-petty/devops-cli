@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.69.1](https://github.com/dan-petty/devops-cli/compare/v0.69.0...v0.69.1) (2026-11-06)
+
+
+### Code Refactoring
+
+* **k8s:** k8s and argo callers use the HTTP entry point ([#3792](https://github.com/dan-petty/devops-cli/issues/3792)) ([ae881d6](https://github.com/dan-petty/devops-cli/commit/ae881d6441b787f18087d299eb92f5335eaf9ebd))
+* **security:** security and telemetry callers use the HTTP entry point ([#3795](https://github.com/dan-petty/devops-cli/issues/3795)) ([a18965c](https://github.com/dan-petty/devops-cli/commit/a18965c7430994ea7d3d4af2e4a1bce4d30b8299))
+
 ## [0.69.0](https://github.com/dan-petty/devops-cli/compare/v0.68.0...v0.69.0) (2026-11-06)
 
 
