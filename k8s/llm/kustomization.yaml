@@ -7,6 +7,7 @@ resources:
   - valkey-runs.yaml
   - valkey-devops.yaml
   - profiles
+  - gateway-db.yaml
   - gateway
   - gateway/servicemonitor.yaml
   - portkey/deployment.yaml

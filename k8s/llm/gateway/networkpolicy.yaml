@@ -35,6 +35,15 @@ spec:
       ports:
         - protocol: TCP
           port: 11434
+    # The database of the virtual keys (gateway-db.yaml), named by the label that CloudNativePG
+    # puts on its pods.
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: llm-gateway-db
+      ports:
+        - protocol: TCP
+          port: 5432
     # The hosted model groups (#3113) call the providers over HTTPS. A NetworkPolicy cannot name
     # a host, so the rule admits TCP 443 to any public address. It excludes every private range,
     # which kube-router matches against pod addresses (#795), and the cloud metadata address.

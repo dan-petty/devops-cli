@@ -2717,6 +2717,7 @@ def test_llm_stack_applies_gateway_servicemonitor_after_helm_and_deletes_before_
     """deploy-stack --stack llm applies k8s/llm/gateway/servicemonitor.yaml after Helm releases,
     teardown-stack deletes it before Helm uninstalls, and both dry runs list it (#1367)."""
     monitor = str(Path("k8s", "llm", "gateway", "servicemonitor.yaml"))
+    database = str(Path("k8s", "llm", "gateway-db.yaml"))
     with (
         patch("devops_cli.commands.k8s._cluster_reachable") as mock_reach,
         patch("devops_cli.commands.k8s.stack_lifecycle._is_cluster_argo_managed") as mock_argo,
@@ -2738,7 +2739,7 @@ def test_llm_stack_applies_gateway_servicemonitor_after_helm_and_deletes_before_
             mock_argo.called,
             mock_cmd.called,
             mock_sub.called,
-        ) == (0, 0, [monitor], [monitor], False, False, False, False)
+        ) == (0, 0, [database, monitor], [monitor, database], False, False, False, False)
 
     def _llm_proc(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
         if len(cmd) > 1 and cmd[1] == "api-resources":
