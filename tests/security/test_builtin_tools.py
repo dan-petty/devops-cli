@@ -491,6 +491,55 @@ def test_rag_search_replies_with_the_chunks_the_store_holds(
     ) == (True, True, False, [("where is the retry policy", True)])
 
 
+def test_rag_search_rebuilds_a_knowledge_base_that_the_store_lacks(
+    qdrant: FakeQdrantClient, embedder: FakeEmbedder, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A store that holds no knowledge base is rebuilt before the search, and the search says so."""
+    rag_search("where is the retry policy")
+
+    assert "Rebuilding knowledge base" in capsys.readouterr().out
+
+
+def test_rag_search_passes_the_language_and_the_limit_to_the_store(
+    qdrant: FakeQdrantClient, embedder: FakeEmbedder
+) -> None:
+    """Two chunks match the query equally. The `language` filter keeps the chunk in that language,
+    and `top_k` caps the count of chunks."""
+    query = "where is the retry policy"
+    seed_knowledge_base(qdrant)
+    for chunk_id, file_path, language in (
+        ("py", "src/retry.py", "python"),
+        ("go", "src/retry.go", "go"),
+        ("go2", "src/backoff.go", "go"),
+    ):
+        qdrant.upsert_points(
+            "devops_code",
+            [
+                {
+                    "id": chunk_id,
+                    "vector": embedder.embed_query(query),
+                    "payload": {
+                        "file_path": file_path,
+                        "start_line": 1,
+                        "end_line": 2,
+                        "content": f"retry in {language}\n",
+                        "language": language,
+                        "embedding_model": embedder.model,
+                    },
+                }
+            ],
+        )
+
+    by_language = rag_search(query, language="go")
+    by_limit = rag_search(query, top_k=1)
+
+    assert (
+        "src/retry.py" in by_language,
+        "src/retry.go" in by_language,
+        by_limit.count("<chunk"),
+    ) == (False, True, 1)
+
+
 def test_rag_search_reports_an_empty_result(
     qdrant: FakeQdrantClient, embedder: FakeEmbedder
 ) -> None:
