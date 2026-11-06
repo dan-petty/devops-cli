@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import copy
 import logging
+from collections.abc import Callable
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -33,6 +35,7 @@ from tests.support.fakes.kubernetes import FakeCluster, pod
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import (
     PULL,
+    TASKS,
     merge_plan,
     push_staged_branch,
     route_pull_status,
@@ -199,6 +202,99 @@ def test_a_round_creates_one_job_for_a_planned_item_whose_branch_is_gone(
         "--confirm",
     ]
     assert _record(store, number)["implement.job"] == job["metadata"]["name"]
+
+
+def _plan_of(pages: int) -> str:
+    """The `tasks.md` of the tests, with `pages` more new files in the changes of group 1. It names
+    3 files without a page and 3 + `pages` with them."""
+    extra = "".join(f", `docs/page{n}.md` (new)" for n in range(1, pages + 1))
+    return TASKS.replace("`tests/test_shout.py` (new).", f"`tests/test_shout.py` (new){extra}.", 1)
+
+
+def _sized(job: dict[str, Any]) -> tuple[Any, ...]:
+    """The CPU request, the CPU limit, the worker count, the memory request and the memory limit
+    of the Job's container."""
+    (container,) = job["spec"]["template"]["spec"]["containers"]
+    env = {entry["name"]: entry.get("value") for entry in container["env"]}
+    resources = container["resources"]
+    return (
+        resources["requests"]["cpu"],
+        resources["limits"]["cpu"],
+        env["PYTEST_XDIST_AUTO_NUM_WORKERS"],
+        resources["requests"]["memory"],
+        resources["limits"]["memory"],
+    )
+
+
+@pytest.mark.usefixtures("no_continuation")
+def test_a_plan_with_few_files_gets_a_smaller_job_than_a_plan_with_many(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    push_staged_branch(stage_repo, tasks=_plan_of(0))
+    seed_staged(store)
+    _round(store, stage_repo)
+    _end(kube, "Complete")
+    push_staged_branch(stage_repo, tasks=_plan_of(9), number=2)
+    seed_staged(store, pull=SECOND_PULL)
+
+    _round(store, stage_repo)
+
+    small, large = (_sized(job) for job in _jobs(kube))
+    assert (small, large) == (
+        ("1", "1", "1", "2Gi", "8Gi"),
+        ("4", "4", "4", "6Gi", "8Gi"),
+    )
+
+
+def test_a_planned_item_is_sized_from_the_plan_on_the_default_branch(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+    merge_plan(stage_repo, number, tasks=_plan_of(8))
+
+    _round(store, stage_repo)
+
+    (job,) = _jobs(kube)
+    assert _sized(job) == ("4", "4", "4", "6Gi", "8Gi")
+
+
+def test_the_job_keeps_the_storage_and_the_other_values_of_the_template(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    template: dict[str, Any],
+) -> None:
+    seed_staged(store)
+
+    _round(store, staged_repo)
+
+    (job,) = _jobs(kube)
+    (container,) = job["spec"]["template"]["spec"]["containers"]
+    (kept,) = template["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"]
+    assert (
+        container["resources"]["requests"]["ephemeral-storage"],
+        container["resources"]["limits"]["ephemeral-storage"],
+    ) == (
+        kept["resources"]["requests"]["ephemeral-storage"],
+        kept["resources"]["limits"]["ephemeral-storage"],
+    )
+
+
+def test_the_setting_raises_the_memory_limit_of_the_job(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    config: Callable[..., Path],
+) -> None:
+    config(roadmap={"implement": {"max_memory_limit": "12Gi"}})
+    seed_staged(store)
+
+    _round(store, staged_repo)
+
+    (job,) = _jobs(kube)
+    assert _sized(job)[4] == "12Gi"
 
 
 def test_no_second_job_is_created_while_the_first_runs_also_for_another_staged_item(

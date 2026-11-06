@@ -546,6 +546,17 @@ def merged_recorded_tests(source: Path, rev: str, issue: int, *, operation: str)
     return recorded_tests(weakened_checks(text))
 
 
+def tasks_at(source: Path, rev: str, issue: int, *, operation: str) -> str:
+    """The text of `tasks.md` of the active change of `issue` at commit `rev`. A commit with no
+    active change of `issue`, such as one that holds the change archived, gives an empty text."""
+    files = tree_files(source, rev, operation=operation)
+    root, _ = change_root(files, issue)
+    path = f"{root}/{_TASKS}"
+    if root is None or path not in files:
+        return ""
+    return files_at(source, rev, [path], operation=operation)[path]
+
+
 def specs_at(
     source: Path, rev: str, *, operation: str, files: Sequence[str] | None = None
 ) -> tuple[frozenset[str], dict[str, tuple[str, ...]]]:
