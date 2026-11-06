@@ -364,6 +364,61 @@ def test_cli_cloudflare_dns_delete_success(mock_settings: Settings) -> None:
         ) == (0, True, 1)
 
 
+def _deleted_ids(client: MagicMock) -> list[str]:
+    """The record IDs a command passed to `delete_dns_record`, in order."""
+    return [call.args[0] for call in client.delete_dns_record.call_args_list]
+
+
+def test_cli_cloudflare_dns_delete_passes_force_to_the_matching(mock_settings: Settings) -> None:
+    """Verify --force reaches the matching: only it deletes a record devops-cli does not manage."""
+    mock_client = MagicMock()
+    mock_client.list_dns_records.return_value = [
+        CloudflareDNSRecord(
+            id="rec-unmanaged",
+            type="CNAME",
+            name="example.com",
+            content="target.cfargotunnel.com",
+            comment=None,
+        )
+    ]
+    with (
+        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
+        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
+    ):
+        safe = runner.invoke(app, ["dns", "delete", "example.com"])
+        deletes_after_safe = mock_client.delete_dns_record.call_count
+        forced = runner.invoke(app, ["dns", "delete", "--force", "example.com"])
+
+    assert (
+        safe.exit_code,
+        deletes_after_safe,
+        forced.exit_code,
+        _deleted_ids(mock_client),
+    ) == (0, 0, 0, ["rec-unmanaged"])
+
+
+def test_cli_cloudflare_dns_delete_passes_type_to_the_matching(mock_settings: Settings) -> None:
+    """Verify --type reaches the matching: only the record of that type is deleted."""
+    mock_client = MagicMock()
+    mock_client.list_dns_records.return_value = [
+        CloudflareDNSRecord(
+            id=record_id,
+            type=record_type,
+            name="example.com",
+            content="target.cfargotunnel.com",
+            comment="Managed by devops-cli",
+        )
+        for record_id, record_type in (("rec-cname", "CNAME"), ("rec-a", "A"))
+    ]
+    with (
+        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
+        patch("devops_cli.commands.cloudflare._resolve_client", return_value=mock_client),
+    ):
+        result = runner.invoke(app, ["dns", "delete", "--type", "A", "example.com"])
+
+    assert (result.exit_code, _deleted_ids(mock_client)) == (0, ["rec-a"])
+
+
 def test_cloudflare_client_list_dns_records_pagination() -> None:
     """Verify list_dns_records pages through all results when total_pages > 1."""
     client = CloudflareClient(token="test-token", zone_id="zone-1")
