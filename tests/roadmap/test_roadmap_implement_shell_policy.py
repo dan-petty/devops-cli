@@ -13,24 +13,30 @@ from pathlib import Path
 import pytest
 from pydantic_ai.workspaces import CommandResult
 from pydantic_ai.workspaces.local import LocalWorkspaceBackend
+from typer.testing import CliRunner
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
     CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS,
 )
+from devops_cli.main import app
 from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_ALLOWED_PROGRAMS,
     IMPLEMENT_SHELL_PROGRAMS,
     IMPLEMENT_SHELL_REPLACEMENTS,
+    LOCAL_COMMANDS,
+    LOCAL_COMMANDS_PLACEHOLDER,
     NEGATIVE_SEARCH_OPTION_LETTERS,
     PROGRAMS_PLACEHOLDER,
     REFUSALS_PLACEHOLDER,
     SHELL_PROGRAMS,
     SHELL_REFUSALS,
+    LocalCommand,
     NegativeSearch,
     ShellAccess,
     fill_prompt,
+    local_commands_table,
     programs_table,
     read_negative_search,
     refusals_table,
@@ -408,24 +414,26 @@ def _prompt() -> str:
     return fill_prompt(load_task_prompt("roadmap_implement_step.md"))
 
 
-def test_the_prompt_file_holds_the_two_placeholders_and_no_copy_of_the_table() -> None:
+def test_the_prompt_file_holds_the_three_placeholders_and_no_copy_of_the_table() -> None:
     raw = load_task_prompt("roadmap_implement_step.md")
 
     assert (
         raw.count(PROGRAMS_PLACEHOLDER),
+        raw.count(LOCAL_COMMANDS_PLACEHOLDER),
         raw.count(REFUSALS_PLACEHOLDER),
         [line for line in raw.splitlines() if line.startswith("| `")],
-    ) == (1, 1, [])
+    ) == (1, 1, 1, [])
 
 
-def test_the_prompt_of_the_step_holds_both_tables_and_no_placeholder() -> None:
+def test_the_prompt_of_the_step_holds_the_three_tables_and_no_placeholder() -> None:
     prompt = _prompt()
 
-    assert (programs_table() in prompt, refusals_table() in prompt, "{{" in prompt) == (
-        True,
-        True,
-        False,
-    )
+    assert (
+        programs_table() in prompt,
+        local_commands_table() in prompt,
+        refusals_table() in prompt,
+        "{{" in prompt,
+    ) == (True, True, True, False)
 
 
 def test_the_table_of_programs_has_a_row_for_each_program_in_the_order_of_the_table() -> None:
@@ -461,4 +469,58 @@ def test_each_shell_example_of_the_prompt_passes_the_shell_policy() -> None:
 def test_the_document_of_the_workflow_holds_the_same_tables() -> None:
     text = (REPO_ROOT / "docs" / "ROADMAP_WORKFLOW.md").read_text(encoding="utf-8")
 
-    assert (programs_table() in text, refusals_table() in text) == (True, True)
+    assert (programs_table() in text, local_commands_table() in text, refusals_table() in text) == (
+        True,
+        True,
+        True,
+    )
+
+
+# ── The local devops commands ─────────────────────────────────────────────────────────────
+
+
+def test_the_local_commands_are_the_five_commands_of_the_project_and_none_uses_the_network() -> (
+    None
+):
+    assert [(c.words, str(c.access)) for c in LOCAL_COMMANDS] == [
+        (("ci", "test"), "write"),
+        (("ai", "repomap"), "read"),
+        (("ai", "ast"), "read"),
+        (("docs", "generate"), "write"),
+        (("openspec", "check"), "read"),
+    ]
+
+
+def test_the_table_of_local_commands_has_a_row_for_each_command_in_the_order_of_the_table() -> None:
+    rows = [line for line in local_commands_table().splitlines() if line.startswith("| `")]
+
+    assert [row.split("`")[1] for row in rows] == [c.usage for c in LOCAL_COMMANDS]
+
+
+@pytest.mark.parametrize("command", LOCAL_COMMANDS, ids=lambda c: c.usage)
+def test_each_local_command_is_a_command_of_the_devops_app(command: LocalCommand) -> None:
+    result = CliRunner().invoke(app, [*command.words, "--help"])
+
+    assert result.exit_code == 0, result.output
+
+
+@pytest.mark.parametrize("command", LOCAL_COMMANDS, ids=lambda c: c.usage)
+def test_a_local_command_passes_the_shell_policy(command: LocalCommand) -> None:
+    assert refused_argument(command.usage) is None
+
+
+def test_a_local_command_reaches_the_process_edge_and_is_no_refusal(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    started: list[str],
+) -> None:
+    command = "uv run devops ai repomap"
+    script = ModelScript(tool_call("shell", command=command), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    (answer,) = script.tool_answers()
+    assert "not in the allowed list" not in answer
+    assert [text for text in started if command in text] != []
+    assert "Refused commands" not in outcome.reason
