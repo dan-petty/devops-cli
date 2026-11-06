@@ -3,6 +3,7 @@ on a clone with an `origin`, and GitHub is faked."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,7 @@ from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git import worktree_add
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import planned
-from devops_cli.roadmap.body_hash import hash_text
+from devops_cli.roadmap.body_hash import body_hashes, hash_text
 from devops_cli.roadmap.explain import (
     Explanation,
     JobVerdict,
@@ -29,6 +30,7 @@ from devops_cli.roadmap.explain import (
 from devops_cli.roadmap.implement import parse_implement_filters
 from devops_cli.roadmap.implement_trace import ImplementTrace
 from devops_cli.roadmap.stage import parse_filters
+from devops_cli.roadmap.stage_rejected import RejectedPlan
 from devops_cli.roadmap.store import (
     GitHubState,
     ImplementRecordKey,
@@ -221,6 +223,25 @@ def test_a_recorded_group_over_the_budget_is_the_reason_of_the_stage_job(
             detail="The first group (9000 tokens)", number=number
         ),
     )
+
+
+def test_a_rejected_plan_is_the_reason_of_the_stage_job_and_names_the_pull_request(
+    job_world: JobWorld,
+) -> None:
+    number = _seed(job_world)
+    held = job_world.store.item(number)
+    assert held is not None
+    rejected = RejectedPlan(
+        pull=7,
+        text_hash=body_hashes(held.body)[0],
+        closed_at=datetime(2026, 11, 2, 20, 22, 45, tzinfo=UTC),
+    )
+    job_world.store.set_marks(held, {StageRecordKey.REJECTED: rejected.record})
+
+    explained = _explain(job_world, number)
+
+    assert explained.stage == JobVerdict(False, TEXTS.stage_left_rejected.format(pull=7))
+    assert "#7" in explained.stage.reason
 
 
 def test_a_closed_issue_and_a_missing_issue_give_the_shared_reasons(job_world: JobWorld) -> None:

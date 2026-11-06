@@ -561,6 +561,7 @@ def stage_requests(
     req, cond, rep = texts.stage_requests, texts.stage_request_conditions, texts.plan_repeat
     clone, tree, branch, change = "<model-clone>", "<worktree>", _p("branch"), _p("change")
     each_item, each_closed = rep["stage_item"], rep["stage_closed"]
+    each_rejected = rep["stage_rejected"]
 
     def git(key: str, cwd: str, *args: str, when: str = "", repeat: str = "") -> PlannedRequest:
         return PlannedRequest(
@@ -586,6 +587,19 @@ def stage_requests(
             "origin/main",
             "openspec/changes/",
             "openspec/changes/archive/",
+        ),
+        planned_session_read(
+            f"/repos/{repo}/pulls/{_p('pull')}",
+            req["plan_state"],
+            condition=cond["plan_state"],
+            repeat=rep["stage_plan"],
+        ),
+        *within(store.comments_on(_p("pull")), cond["rejected_comments"], repeat=each_rejected),
+        git("fetch_branch", clone, "fetch", "-q", "origin", branch, repeat=each_rejected),
+        *within(
+            store.path_change(_p("path")),
+            cond["rejected_path"],
+            repeat=rep["stage_rejected_path"].format(limit=CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS),
         ),
         git(
             "move_clone",
@@ -613,6 +627,7 @@ def stage_requests(
             repeat=rep["open_plan"],
         ),
         git("fetch_branch", clone, "fetch", "-q", "origin", branch, repeat=each_closed),
+        *within(store.comments_on(_p("item")), cond["rejected_reason"], repeat=each_item),
         PlannedRequest("model", req["model_change"], repeat=each_item),
         PlannedRequest(
             "model", req["model_split"], condition=cond["model_split"], repeat=each_item
@@ -643,6 +658,18 @@ def stage_requests(
             repeat=each_closed,
         ),
         *within(store.set_marks(_p("item")), cond["close_pull"], repeat=each_closed),
+        git(
+            "delete_rejected",
+            clone,
+            "push",
+            f"--force-with-lease=refs/heads/{branch}:{_p('remote_tip')}",
+            "origin",
+            f":refs/heads/{branch}",
+            when=cond["delete_rejected"],
+            repeat=each_rejected,
+        ),
+        *within(store.comment(_p("item")), repeat=each_rejected),
+        *within(store.set_field(_p("item"), "Status"), repeat=each_rejected),
         git(
             "worktree",
             clone,

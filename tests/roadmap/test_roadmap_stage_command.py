@@ -265,3 +265,30 @@ def test_the_dry_run_returns_the_plan_marked_as_a_dry_run() -> None:
         True,
     )
     assert any("issues/7" in request.line() for request in plan.requests)
+
+
+def test_confirm_reports_the_items_it_returned_after_a_rejected_plan(
+    cli: Cli,
+    roadmap_store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    github_api: GitHubApiFake,
+) -> None:
+    number = seed_stageable(roadmap_store)
+    pull = roadmap_store.seed_pull("plan of #1", head_ref="fix/1-the-job-drops-a-comment")
+    item = roadmap_store.item(number)
+    assert item is not None
+    roadmap_store.set_marks(item, {StageRecordKey.PR: str(pull)})
+    github_api.route(
+        "GET",
+        f"/repos/{STAGE_REPO}/pulls/{pull}",
+        github_json({"state": "closed", "merged": False, "draft": False}),
+    )
+
+    result = _stage(cli, stage_repo, "--confirm")
+
+    returned = roadmap_store.item(number)
+    assert result.exit_code == 0, result.output
+    assert "Returned 1 item(s) to New after a rejected plan." in result.output
+    assert "## Plans that a person rejected" in result.output
+    assert returned is not None
+    assert returned.status == "New"

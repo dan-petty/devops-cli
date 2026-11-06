@@ -614,3 +614,29 @@ def test_the_implement_plan_lists_amendment_commit_split_and_return_with_conditi
     assert split.condition != ""
     assert return_comment.condition != ""
     assert return_status.condition != ""
+
+
+def test_the_stage_plan_lists_the_reads_and_the_writes_of_a_rejected_plan() -> None:
+    from devops_cli.roadmap.request_plan import stage_requests
+
+    reads, writes = stage_requests(REPO)
+
+    texts = MESSAGES.roadmap
+    (state,) = [r for r in reads if r.target == texts.stage_requests["plan_state"]]
+    assert state.argv == ("GET", f"{API}/repos/{REPO}/pulls/<pull request>")
+    assert state.repeat == texts.plan_repeat["stage_plan"]
+    comment_reads = [r for r in reads if "<pull request>/comments" in " ".join(r.argv)]
+    assert [r.condition for r in comment_reads] == [
+        texts.stage_request_conditions["rejected_comments"]
+    ]
+    deletes = [w for w in writes if w.target == texts.stage_requests["delete_rejected"]]
+    assert [w.argv[-4:] for w in deletes] == [
+        (
+            "push",
+            "--force-with-lease=refs/heads/<branch>:<remote tip>",
+            "origin",
+            ":refs/heads/<branch>",
+        )
+    ]
+    of_a_rejection = [w for w in writes if w.repeat == texts.plan_repeat["stage_rejected"]]
+    assert len(of_a_rejection) == 4

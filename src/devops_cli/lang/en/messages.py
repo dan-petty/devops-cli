@@ -3062,6 +3062,25 @@ class RoadmapMessages:
     stage_left_secret: str = (
         "The title or the body looks like a secret, so the model does not read it."
     )
+    stage_left_rejected: str = (
+        "A person closed plan pull request #{pull} with no merge. The job plans the item again "
+        "after a person edits its text, or after a commit changes a file that the reason names. "
+        "The comment of the stage job on the issue holds the reason."
+    )
+    stage_rejected_comment: str = (
+        "{marker}\n{rejected_marker}\n\n"
+        "Plan pull request #{pull} closed with no merge. The job waits for an edit of the text of "
+        "this item, or for a commit that changes a file that the reason names.\n\n{reason}"
+    )
+    stage_rejected_reason: str = (
+        "The reason, from the last comment of {author} on the pull request:\n\n{quote}"
+    )
+    stage_rejected_no_reason: str = (
+        "No comment of a person with write access on the pull request gives a reason."
+    )
+    stage_heading_rejected: str = "## Plans that a person rejected"
+    stage_rejected_line: str = "- #{number}: pull request #{pull} closed with no merge{note}"
+    stage_rejected_deletes: str = ", and the job deletes the branch `{branch}`"
     stage_left_planned: str = "Its plan is on {branch}: the change folder `{folder}` is there."
     stage_left_archived: str = "Its change is archived on {branch}: the folder `{folder}` is there."
     # The files of the change that the stage job writes, and what its checks find wrong (#2654).
@@ -3198,6 +3217,7 @@ class RoadmapMessages:
         "Staged {staged} item(s), stopped {stopped} on the budget, removed {removed} staged "
         "branch(es)."
     )
+    stage_applied_rejected: str = "Returned {rejected} item(s) to New after a rejected plan."
     stage_failed: str = "the stage job failed for {count} item(s): {items}"
     stage_failed_item: str = "#{number} ({error}{reason})"
     stage_ready_failed: str = "the stage_ready row failed for {count} pull request(s): {items}"
@@ -3237,11 +3257,15 @@ class RoadmapMessages:
             "model_correction": "the stage model corrects a change that fails its checks",
             "validate": "validate the change with OpenSpec in a scratch directory",
             "fetch_branch": "the staged branch of a closed item",
+            "plan_state": "the state of the plan pull request of the item, to find a rejected plan",
+            "rejected_path": "the newest commit that changed a file that the reason of a rejection names",
+            "rejected_reason": "the comment that holds the reason of a rejected plan, for the request",
             "worktree": "the worktree of the item's branch at the staged commit",
             "commit": "commit the change as the identity of the session",
             "push": "push the branch of the item",
             "pull": "open the draft pull request of the item",
             "delete_failed": "delete the pushed branch when the pull request cannot open",
+            "delete_rejected": "delete the staged branch of a rejected plan",
             "close_pull": "close the draft pull request of a closed item",
             "delete_branch": "delete the staged branch of a closed item",
         }
@@ -3258,6 +3282,14 @@ class RoadmapMessages:
             "delete_failed": "GitHub refuses the pull request",
             "close_pull": "only the identity of the session wrote to the branch",
             "delete_branch": "only the identity of the session wrote to the branch",
+            "plan_state": "the record of an open New or Ready item holds a staged pull request",
+            "rejected_comments": "the pull request closed with no merge",
+            "rejected_path": "the item holds a rejected plan whose text did not change",
+            "rejected_reason": "the item holds a rejected plan and the round selects it",
+            "delete_rejected": (
+                "the pull request closed with no merge and only the identity of the session "
+                "wrote to the branch"
+            ),
         }
     )
     implement_requests: dict[str, str] = field(
@@ -3882,6 +3914,9 @@ class RoadmapMessages:
             "fact": "for each fact read the model asks for, at most {limit} for an item",
             "stage_item": "for each item the run stages, up to the limit",
             "stage_closed": "for each closed item whose record holds a staged branch",
+            "stage_plan": "for each open New or Ready item whose record holds a staged pull request",
+            "stage_rejected": "for each item whose plan pull request closed with no merge",
+            "stage_rejected_path": "for each file that the reason of a rejected plan names, at most {limit}",
             "open_plan": "for each open item with a change folder, once a run",
             "implement_item": "for each item the run implements, up to the limit",
             "implement_group": "for each task group that has an unticked task",

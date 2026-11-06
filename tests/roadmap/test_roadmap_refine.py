@@ -92,10 +92,12 @@ from devops_cli.roadmap.run import (
     build_stub_table,
     run_due_jobs,
 )
+from devops_cli.roadmap.stage_rejected import comment_text
 from devops_cli.roadmap.store import (
     AlternativesRecordKey,
     CloseReason,
     GitHubState,
+    IssueComment,
     Item,
     ItemField,
     RefineRecordKey,
@@ -3900,6 +3902,36 @@ def test_the_model_reads_the_evidence_of_the_stage_return_and_the_comment_has_no
         True,
         False,
     )
+    assert request["replies"] == []
+
+
+def test_the_model_reads_the_reason_of_a_rejected_plan_as_the_stage_return_with_no_marker(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """The stage job copies the reason of a rejected plan in a comment of its own (#3503): refine
+    reads it as `stage_return` and gives the item one new look, with no reply."""
+    store.seed_visibility(is_private=True)
+    number = _seed_item(store, "New", "P1-High")
+    model_fake.answer(_READY)
+    _refine_round(store, git_repo)
+    reason = IssueComment(
+        body="The plan cannot hold: the runner has no sandbox.",
+        created_at=datetime.now(UTC),
+        author_login="alice",
+    )
+    store.comment(number, comment_text(7, reason))
+    store.set_field(_require_item(store, number), ItemField.STATUS, "New")
+    calls = model_fake.call_count
+
+    again = plan_refine(store, repo=REPO, source=git_repo)
+
+    request = json.loads(model_fake.calls[-1].prompt)
+    assert model_fake.call_count - calls == 1
+    assert [r.item.number for r in again.refined_items] == [number]
+    assert "The plan cannot hold: the runner has no sandbox." in request["stage_return"]
+    assert "#7" in request["stage_return"]
+    assert _STAGE_MARKER not in request["stage_return"]
+    assert constants.CONST_ROADMAP_STAGE_REJECTED_MARKER not in request["stage_return"]
     assert request["replies"] == []
 
 
