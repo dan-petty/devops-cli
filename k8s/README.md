@@ -367,7 +367,7 @@ affinity:
 
 Kubernetes puts the label `node-role.kubernetes.io/control-plane` on each control-plane node, so the rule needs no label of its own. The affinity has an effect on a new volume and on a moved volume. A bound volume keeps its pod on its node.
 
-`tests/core/test_k8s_local_path_placement.py` fails when a pod that mounts a claim has no such affinity, in a chart values file or in a manifest under `k8s/`. It also fails when an Argo CD Application installs a chart that the test does not know, because each chart keeps its claims and its affinity at different values.
+`tests/core/test_k8s_local_path_placement.py` fails when a pod that mounts a claim has no such affinity, in a chart values file or in a manifest under `k8s/`. It also fails when an Argo CD Application installs a chart, or pins a chart version, that the claim table `CHART_CLAIMS` does not name, because each chart keeps its claims and its affinity at different values and a chart release can move them. A person who bumps a chart reads the claim values of the new version again and changes the key of its entry.
 
 The table `_CONTROL_PLANE_CLAIM_EXEMPTIONS` of the test is empty, because each pod that mounts a claim has the affinity. A pod that must stay on the control-plane node gets an entry with its reason. An example is a pod whose volume is still on the control-plane node. With the affinity, that pod cannot start. Move the volume as below. Then remove its entry and add the affinity to its values in one pull request.
 
