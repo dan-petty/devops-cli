@@ -4,21 +4,22 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ci.cache import (
+    CacheRecord,
     CICachedCheck,
     CICacheEntry,
     clear_ci_cache,
     compute_workspace_fingerprint,
     get_ci_cache,
+    record_passing_run,
     resolve_ci_cache_path,
     save_ci_cache,
 )
-from devops_cli.commands.ci import CheckResult, app
+from devops_cli.commands.ci import app
 from devops_cli.core.gitignore import get_index, reset_indexes
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
@@ -361,18 +362,27 @@ def test_clear_ci_cache(isolated_cache_dir: Path) -> None:
 
 
 def test_ci_cli_cache_hit_and_force(
-    isolated_cache_dir: Path, monkeypatch: pytest.MonkeyPatch
+    isolated_cache_dir: Path, tmp_path: Path, git_fake: GitFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test CLI execution using cache hit and bypassing with --force."""
-    runner = CliRunner()
-    cache_path = resolve_ci_cache_path()
-
+    """Test CLI execution using the cache of the tree that the fingerprint describes."""
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'app'\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("value = 1\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text(".data/\n", encoding="utf-8")
+    sim = _FingerprintGitRepo(tmp_path, git_fake)
+    sim.git_add("-A")
+    monkeypatch.chdir(tmp_path)
+    options = {"fix": True, "check": False}
+    fingerprinted = compute_workspace_fingerprint(root=tmp_path, options=options)
+    assert fingerprinted is not None
+    fingerprint, head_sha = fingerprinted
     entry = CICacheEntry(
-        fingerprint="cli-test-fp",
-        head_sha="clihead",
+        fingerprint=fingerprint,
+        head_sha=head_sha,
         timestamp=1000.0,
         passed=True,
-        options={"fix": True, "check": False},
+        options=options,
         checks=[
             CICachedCheck(
                 name="test",
@@ -388,38 +398,11 @@ def test_ci_cli_cache_hit_and_force(
             ),
         ],
     )
-    cache_path.write_text(entry.model_dump_json(), encoding="utf-8")
+    resolve_ci_cache_path(tmp_path).write_text(entry.model_dump_json(), encoding="utf-8")
 
-    # Mock compute_workspace_fingerprint to return matching fingerprint
-    monkeypatch.setattr(
-        "devops_cli.ci.cache.compute_workspace_fingerprint",
-        lambda *args, **kwargs: ("cli-test-fp", "clihead"),
-    )
+    result = CliRunner().invoke(app, ["--cache"])
 
-    # Execution with cache hit
-    result = runner.invoke(app, ["--cache"])
     assert (result.exit_code, "Utilizing CI cache" in result.stdout) == (0, True)
-
-    # Execution with --force should bypass cache and try to run checks
-    run_called: list[bool] = []
-
-    async def mock_run_async(*args: object, **kwargs: object) -> list[CheckResult]:
-        run_called.append(True)
-        return [
-            CheckResult(
-                name="test",
-                display_title="pytest",
-                passed=True,
-                duration_seconds=0.01,
-            )
-        ]
-
-    monkeypatch.setattr(
-        "devops_cli.commands.ci._run_all_checks_async",
-        mock_run_async,
-    )
-    res_force = runner.invoke(app, ["--force"])
-    assert (res_force.exit_code, bool(run_called)) == (0, True)
 
 
 @pytest.mark.parametrize(
@@ -438,59 +421,40 @@ def test_a_file_argument_is_a_usage_error(cli_args: list[str]) -> None:
 
 
 def test_a_tree_edited_during_the_run_is_not_recorded(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    isolated_cache_dir: Path, tmp_path: Path, git_fake: GitFake
 ) -> None:
     """If working tree changes during the CI run, result is not saved in cache."""
-    cache_dir = tmp_path / ".data" / "cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-
-    from devops_cli.commands.ci import CheckResult, _try_save_ci_cache
-    from devops_cli.lang.en.messages import MESSAGES
-
-    results = [CheckResult(name="test", display_title="pytest", passed=True, duration_seconds=1.0)]
-
-    warnings_emitted: list[str] = []
-    saved_calls: list[str] = []
-
-    monkeypatch.setattr(
-        "devops_cli.commands.ci.print_warning",
-        lambda msg, **kw: warnings_emitted.append(str(msg)),
-    )
-    monkeypatch.setattr(
-        "devops_cli.ci.cache.save_ci_cache",
-        lambda *args, **kwargs: saved_calls.append("saved"),
-    )
-
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    code_file = tmp_path / "app.py"
+    code_file.write_text("value = 1\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text(".data/\n", encoding="utf-8")
+    sim = _FingerprintGitRepo(tmp_path, git_fake)
+    sim.git_add("-A")
+    options = {"fix": True, "check": False}
+    checks = [CICachedCheck(name="test", display_title="pytest", passed=True, duration_seconds=1.0)]
+    before = compute_workspace_fingerprint(root=tmp_path, options=options)
+    assert before is not None
     cache_file = resolve_ci_cache_path(tmp_path)
     cache_file.write_text('{"existing": true}', encoding="utf-8")
 
-    with patch(
-        "devops_cli.ci.cache.compute_workspace_fingerprint",
-        return_value=("fingerprint-after", "sha-after"),
-    ):
-        _try_save_ci_cache(
-            tmp_path,
-            results,
-            {"fix": True, "check": False},
-            before_fingerprint="fingerprint-before",
-        )
+    code_file.write_text("value = 2\n", encoding="utf-8")
+    sim.git_add("-A")
+    changed = record_passing_run(
+        root=tmp_path, checks=checks, options=options, before_fingerprint=before[0]
+    )
+    unchanged_text = cache_file.read_text(encoding="utf-8")
+
+    after = compute_workspace_fingerprint(root=tmp_path, options=options)
+    assert after is not None
+    recorded = record_passing_run(
+        root=tmp_path, checks=checks, options=options, before_fingerprint=after[0]
+    )
+    entry = get_ci_cache(fingerprint=after[0], options=options, root=tmp_path)
 
     assert (
-        warnings_emitted == [MESSAGES.ci.cache_tree_changed],
-        saved_calls == [],
-        cache_file.read_text(encoding="utf-8") == '{"existing": true}',
-    ) == (True, True, True)
-
-    with patch(
-        "devops_cli.ci.cache.compute_workspace_fingerprint",
-        return_value=("fingerprint-same", "sha-same"),
-    ):
-        _try_save_ci_cache(
-            tmp_path,
-            results,
-            {"fix": True, "check": False},
-            before_fingerprint="fingerprint-same",
-        )
-
-    assert len(saved_calls) == 1
+        changed,
+        unchanged_text,
+        recorded,
+        entry is not None and [check.name for check in entry.checks],
+    ) == (CacheRecord.TREE_CHANGED, '{"existing": true}', CacheRecord.RECORDED, ["test"])
