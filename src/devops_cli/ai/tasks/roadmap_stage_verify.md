@@ -11,7 +11,7 @@ The nine types are `missing_path`, `false_premise`, `spec_delta_wrong`, `verify_
 - `spec_delta_wrong`: the spec delta changes a requirement that does not exist, adds one that duplicates another, or has a scenario that no test can assert.
 - `verify_form`: the verification command of a group does not run the work of the group, or gives a different answer on each run.
 - `task_order`: a task needs the result of a later task, or a test comes after the code it tests in a group of new behavior.
-- `criterion_dropped`: an acceptance criterion of the issue has no task in the plan.
+- `criterion_dropped`: an acceptance criterion of the issue has no task in the plan, or the group that holds its task changes only test files while no group of the plan changes the code or the data that the criterion needs. A group that changes only test files delivers its criterion when an earlier group changes that code or data. That group is no `criterion_dropped`. Quote the text of the criterion.
 - `ignores_existing_code`: the plan builds code that `files` already hold, or that a library of the project already covers.
 - `contrived_test`: a test only repeats the code, tests a mock, or passes whatever the code does.
 - `other`: a defect that fits no other type.

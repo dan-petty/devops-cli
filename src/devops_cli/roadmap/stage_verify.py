@@ -68,8 +68,13 @@ RETURN_TYPES: Final[frozenset[DefectType]] = frozenset(
     }
 )
 # The types that keep the plan in draft when a finding quotes its evidence. `spec_delta_wrong`
-# joins the return types, and a finding that reports a placeholder joins them all (#3264).
-OPEN_TYPES: Final[frozenset[DefectType]] = RETURN_TYPES | {DefectType.SPEC_DELTA_WRONG}
+# joins the return types, and a finding that reports a placeholder joins them all (#3264). So does
+# `criterion_dropped` (#3448): a plan that leaves an acceptance criterion undelivered must not
+# become ready.
+OPEN_TYPES: Final[frozenset[DefectType]] = RETURN_TYPES | {
+    DefectType.SPEC_DELTA_WRONG,
+    DefectType.CRITERION_DROPPED,
+}
 # The label of a plan pull request with an open finding (#3264).
 PLAN_NEEDS_FIX_LABEL: Final[str] = "plan/needs-fix"
 # The keys of a group of the plan that name files.
