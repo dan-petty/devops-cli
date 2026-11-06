@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.71.0](https://github.com/dan-petty/devops-cli/compare/v0.70.2...v0.71.0) (2026-11-06)
+
+
+### Features
+
+* **roadmap:** a Service row runs the retitle job ([#3811](https://github.com/dan-petty/devops-cli/issues/3811)) ([f1130d3](https://github.com/dan-petty/devops-cli/commit/f1130d318dc06b2046ff6746ffb202d3f2cf2a96))
+* **roadmap:** list moved plan paths in the stage comment ([#3805](https://github.com/dan-petty/devops-cli/issues/3805)) ([b550b07](https://github.com/dan-petty/devops-cli/commit/b550b0731881fcd7cbd554ac49a65153151e0014))
+
+
+### Bug Fixes
+
+* **review:** Limit lockfile bucket to CONST_LOCKFILE_NAMES ([#3808](https://github.com/dan-petty/devops-cli/issues/3808)) ([0b2909a](https://github.com/dan-petty/devops-cli/commit/0b2909afdc87ece8c6930c7006e3c85ea8066daa))
+* **security:** make clean-default model fields required ([#3807](https://github.com/dan-petty/devops-cli/issues/3807)) ([dcc22b0](https://github.com/dan-petty/devops-cli/commit/dcc22b0ee253d391b348b5e7a0df4c7f986997d7))
+
+
+### Code Refactoring
+
+* **ci:** record keep-port decision ([#3816](https://github.com/dan-petty/devops-cli/issues/3816)) ([7ca3afd](https://github.com/dan-petty/devops-cli/commit/7ca3afda56aff0a7f1938872ca242ba082d99168))
+* **mcp:** delete the outbound MCP code that nothing reaches ([#3817](https://github.com/dan-petty/devops-cli/issues/3817)) ([b28fd4d](https://github.com/dan-petty/devops-cli/commit/b28fd4d2dfaeeb3f8a7b52c7d9f696e3e367da18))
+
 ## [0.70.2](https://github.com/dan-petty/devops-cli/compare/v0.70.1...v0.70.2) (2026-11-06)
 
 
