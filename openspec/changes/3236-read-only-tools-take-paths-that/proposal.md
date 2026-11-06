@@ -29,7 +29,7 @@ None.
 
 - Code: `src/devops_cli/ai/mcp/path_confinement.py`, `src/devops_cli/ai/mcp/generator.py`
 - Documents: `docs/MCP_TOOLS.md`
-- Tests: `tests/ai/mcp/test_path_confinement.py`, `tests/ai/mcp/test_mcp.py`, `tests/ai/mcp/test_fastmcp_contracts.py`
+- Tests: `tests/ai/mcp/test_path_confinement.py`, `tests/ai/mcp/test_path_confinement.py`, `tests/ai/mcp/test_mcp_tool_registry.py`
 
 ## Feasibility
 
