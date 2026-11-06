@@ -243,7 +243,7 @@ stateDiagram-v2
 
 ## The shell of a step
 
-The agent of a step has a shell that runs only the programs of the first table. The access column is the most that a program does by itself. The shell refuses a command that chains a second command, and it refuses a redirect to a file (`>`, `>>`) for a program with access `read`, so that access means no file changes. `2>&1` and `>/dev/null` run. It refuses `find` with an argument that runs a program or writes a file, and with a word that holds `$`, because the shell expands such a word after the check. Any program that is not in the first table gets a refusal, and the refusal names what to run instead. A refusal comes back to the model as a tool result, so it adds no tool retry. The step stops when the shell refuses more than `CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS` commands in the step. The tables below are the text of `SHELL_PROGRAMS` and `SHELL_REFUSALS` in `src/devops_cli/roadmap/implement_shell_policy.py`, which the shell, the refusal hint and the prompt of the step also read. A test fails when this document differs from them.
+The agent of a step has a shell that runs only the programs of the first table. The access column is the most that a program does by itself. The shell refuses a command that chains a second command, and it refuses a redirect to a file (`>`, `>>`) for a program with access `read`, so that access means no file changes. `2>&1` and `>/dev/null` run. It refuses `find` with an argument that runs a program or writes a file, and with a word that holds `$`, because the shell expands such a word after the check. Any program that is not in the first table gets a refusal, and the refusal names what to run instead. A refusal comes back to the model as a tool result, so it adds no tool retry. The step stops when the shell refuses more than `CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS` commands in the step. The tables below are the text of `SHELL_PROGRAMS`, `LOCAL_COMMANDS` and `SHELL_REFUSALS` in `src/devops_cli/roadmap/implement_shell_policy.py`. The prompt of the step reads all three. The shell and the refusal hint read `SHELL_PROGRAMS` and `SHELL_REFUSALS` only. A test fails when this document differs from them.
 
 | Program | Access | Use |
 | :--- | :--- | :--- |
@@ -257,6 +257,16 @@ The agent of a step has a shell that runs only the programs of the first table. 
 | `head` | read | Print the start of a file. |
 | `tail` | read | Print the end of a file. |
 | `find` | read | List paths. The arguments `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete`, `-fprint`, `-fprint0`, `-fprintf` and `-fls` are refused. |
+
+The shell holds no key, and `uv` is allowed, so the agent runs the commands of the project through `uv run`. The prompt lists the commands below, and a call of one is no refusal because `uv` is in the first table. The shell does not read this table. None of these commands needs a key or makes a request to a service. Each one is a command of the `devops` app, and a test fails when one is not. A command that needs a key or a cluster is not in the table (`devops review` and the RAG query: [#3563](https://github.com/dan-petty/devops-cli/issues/3563); `kubectl` and `kube-linter`: [#3562](https://github.com/dan-petty/devops-cli/issues/3562)). The table is the text of `LOCAL_COMMANDS`.
+
+| Command | Access | Use |
+| :--- | :--- | :--- |
+| `uv run devops ci test` | write | Run the tests of one file: `uv run devops ci test <file>`. It writes cache files in the checkout. |
+| `uv run devops ai repomap` | read | Print a compact map of the symbols of the repository. |
+| `uv run devops ai ast` | write | Parse one source file (`parse`) or build the symbol graph of the repository (`graph`). `graph --output <path>` writes a file: give it a path in the checkout. |
+| `uv run devops docs generate` | write | Write the generated documents in the docs directory of the checkout: pass no `--output-dir`. Run it with `--sync-readme` after a change to a command or a setting. |
+| `uv run devops openspec check` | read | Check the changes and the specs of OpenSpec. |
 
 The programs that the shell refuses, and what to run instead:
 

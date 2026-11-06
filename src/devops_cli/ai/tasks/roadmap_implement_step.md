@@ -45,6 +45,10 @@ The shell runs only the programs of this table. A program with access `read` cha
 
 {{shell_programs}}
 
+The shell holds no key, and none of these commands needs one. Use these commands of the project through `uv run`, in place of a guess. A command with access `write` changes files: give it only paths in the checkout.
+
+{{local_commands}}
+
 The shell refuses any other program, and each refusal counts against a limit. If you use the limit up, the step stops and the work after your last kept task is lost. Use this table in place of the program that you want:
 
 {{shell_refusals}}

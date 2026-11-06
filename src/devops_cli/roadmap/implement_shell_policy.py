@@ -4,9 +4,11 @@
 `SHELL_PROGRAMS` lists the programs that the shell of the agent runs. Each one has an access class
 (`read`, `write` or `network`: the most the program does by itself), what the agent uses it for,
 and the arguments that the shell refuses. `SHELL_REFUSALS` lists the programs that the shell
-refuses, with what to run instead. The allowlist of the shell, the hint that a refusal adds, the
-prompt of the step and `docs/ROADMAP_WORKFLOW.md` all read these two tables, and a test fails when
-one of them differs.
+refuses, with what to run instead. `LOCAL_COMMANDS` lists the commands of `devops` that the agent
+runs through `uv run` (#3041). The allowlist of the shell and the hint that a refusal adds read
+`SHELL_PROGRAMS` and `SHELL_REFUSALS`. The prompt of the step and `docs/ROADMAP_WORKFLOW.md` read
+all three tables, and a test fails when one of them differs. The shell does not read
+`LOCAL_COMMANDS`: it passes a call of `uv run devops ...` because `uv` is a program of the table.
 
 The shell of the harness reads the first word of a command only. `refused_argument` reads the
 words of a command that starts a program of the table. A program with access `read` changes no
@@ -60,6 +62,22 @@ class ShellProgram:
     use: str
     refused_arguments: tuple[str, ...] = ()
     argument_instead: str = ""
+
+
+@dataclass(frozen=True)
+class LocalCommand:
+    """One command of `devops` that the agent runs through `uv run`. `words` are the words after
+    `devops`. `access` is the most that the command does by itself, with the flags that the use
+    text allows. No command of the table makes a request to a service: none needs a key."""
+
+    words: tuple[str, ...]
+    access: ShellAccess
+    use: str
+
+    @property
+    def usage(self) -> str:
+        """The command as the agent types it."""
+        return " ".join([BIN_UV, "run", BIN_DEVOPS, *self.words])
 
 
 @dataclass(frozen=True)
@@ -122,6 +140,39 @@ SHELL_PROGRAMS: tuple[ShellProgram, ...] = (
     ),
 )
 
+# The commands of `devops` that the shell runs through `uv`, which it allows. A call of one passes
+# the policy and is no refusal. A command that needs a key or a cluster is not here (#3562, #3563).
+LOCAL_COMMANDS: tuple[LocalCommand, ...] = (
+    LocalCommand(
+        ("ci", "test"),
+        ShellAccess.WRITE,
+        "Run the tests of one file: `uv run devops ci test <file>`. It writes cache files in the "
+        "checkout.",
+    ),
+    LocalCommand(
+        ("ai", "repomap"),
+        ShellAccess.READ,
+        "Print a compact map of the symbols of the repository.",
+    ),
+    LocalCommand(
+        ("ai", "ast"),
+        ShellAccess.WRITE,
+        "Parse one source file (`parse`) or build the symbol graph of the repository (`graph`). "
+        "`graph --output <path>` writes a file: give it a path in the checkout.",
+    ),
+    LocalCommand(
+        ("docs", "generate"),
+        ShellAccess.WRITE,
+        "Write the generated documents in the docs directory of the checkout: pass no "
+        "`--output-dir`. Run it with `--sync-readme` after a change to a command or a setting.",
+    ),
+    LocalCommand(
+        ("openspec", "check"),
+        ShellAccess.READ,
+        "Check the changes and the specs of OpenSpec.",
+    ),
+)
+
 # The programs that the step runs for the verification commands of a group, on top of the shell's.
 # The agent cannot start them: `devops` can write to GitHub, and `openspec` can change the change.
 VERIFICATION_PROGRAMS: tuple[str, ...] = (BIN_OPENSPEC, BIN_DEVOPS)
@@ -161,6 +212,7 @@ _PATHS_MARK = "--"
 _SHOWN_CHARS = 60
 
 PROGRAMS_PLACEHOLDER = "{{shell_programs}}"
+LOCAL_COMMANDS_PLACEHOLDER = "{{local_commands}}"
 REFUSALS_PLACEHOLDER = "{{shell_refusals}}"
 
 
@@ -387,6 +439,14 @@ def programs_table() -> str:
     return "\n".join(["| Program | Access | Use |", "| :--- | :--- | :--- |", *rows])
 
 
+def local_commands_table() -> str:
+    """The Markdown table of the `devops` commands that the shell runs through `uv`."""
+    rows = [
+        f"| `{command.usage}` | {command.access} | {command.use} |" for command in LOCAL_COMMANDS
+    ]
+    return "\n".join(["| Command | Access | Use |", "| :--- | :--- | :--- |", *rows])
+
+
 def refusals_table() -> str:
     """The Markdown table of the programs that the shell refuses, with what to run instead."""
     rows = [f"| `{refusal.program}` | {refusal.instead} |" for refusal in SHELL_REFUSALS]
@@ -394,7 +454,9 @@ def refusals_table() -> str:
 
 
 def fill_prompt(prompt: str) -> str:
-    """The prompt with its two placeholders replaced by the two tables."""
-    return prompt.replace(PROGRAMS_PLACEHOLDER, programs_table()).replace(
-        REFUSALS_PLACEHOLDER, refusals_table()
+    """The prompt with its three placeholders replaced by the three tables."""
+    return (
+        prompt.replace(PROGRAMS_PLACEHOLDER, programs_table())
+        .replace(LOCAL_COMMANDS_PLACEHOLDER, local_commands_table())
+        .replace(REFUSALS_PLACEHOLDER, refusals_table())
     )
