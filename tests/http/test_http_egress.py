@@ -1,6 +1,7 @@
 """The connect-time egress policy: the vetting backends, the client factory and their seams.
 
-Each test stubs `socket.getaddrinfo` and httpcore2's dial (`tests/web_fakes.py`), so it sees the
+A test fakes the lookup with the `dns` fixture, or with `scripted_resolver` until its package moves
+to that fixture, and httpcore2's dial with `record_connects` (`tests/web_fakes.py`). It sees the
 lookups a client made and the address it dialled, with no socket opened and no DNS query made.
 """
 
@@ -75,6 +76,7 @@ from devops_cli.security.vulnerability_lookup import (
 from devops_cli.telemetry.memory_profiler import _exercise_http_pool
 from devops_cli.telemetry.service_status import fetch_statuspage_summary
 from devops_cli.telemetry.waterfall import query_tempo_trace
+from tests.support.fakes.dns import DnsFake
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.web_fakes import (
     PUBLIC_ADDRESS,
@@ -255,7 +257,7 @@ def test_an_ip_literal_is_classified_without_a_dns_query() -> None:
 
 @pytest.mark.unreachable("fe80::1%eth0", "fe80::1%25eth0")
 def test_a_scoped_ipv6_address_fails_closed_at_every_level(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake
 ) -> None:
     """A zone in the URL, or a scope id in an answer, is never dialled at any level."""
     recorder = record_connects(monkeypatch, [])
@@ -267,12 +269,10 @@ def test_a_scoped_ipv6_address_fails_closed_at_every_level(
             client.get("http://[fe80::1%25eth0]/")
         assert raised.value is not None
 
-    def scoped(host: Any, port: Any, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
-        return [
-            (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("fe80::1", port, 0, 2))
-        ]
-
-    monkeypatch.setattr(socket, "getaddrinfo", scoped)
+    dns.add(
+        "example.com",
+        (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("fe80::1", 443, 0, 2)),
+    )
 
     assert (_admitted_levels("example.com"), recorder.dialled) == (set(), [])
 
@@ -516,26 +516,12 @@ async def test_the_async_lookup_runs_off_the_event_loop(
     assert (addresses, ticks >= 3) == ([PUBLIC_ADDRESS], True)
 
 
-async def test_a_slow_async_lookup_times_out_as_a_connect_timeout(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_a_slow_async_lookup_times_out_as_a_connect_timeout(dns: DnsFake) -> None:
     """The connect timeout bounds the lookup, as it bounded anyio's own resolve-and-connect."""
-    import threading
+    dns.stall("example.com")
 
-    blocker = threading.Event()
-
-    def slow_lookup(host: Any, port: Any, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
-        blocker.wait(timeout=1.0)
-        return []
-
-    monkeypatch.setattr(socket, "getaddrinfo", slow_lookup)
-
-    try:
-        with pytest.raises(httpcore2.ConnectTimeout) as raised:
-            await avet_addresses("example.com", 443, PUBLIC, timeout=0.05)
-        assert not blocker.is_set() or str(raised.value) != ""
-    finally:
-        blocker.set()
+    with pytest.raises(httpcore2.ConnectTimeout, match="timed out"):
+        await avet_addresses("example.com", 443, PUBLIC, timeout=0.05)
 
 
 async def test_the_async_client_dials_only_vetted_addresses(
@@ -598,26 +584,19 @@ async def test_async_unix_sockets_and_sleep_are_delegated() -> None:
     assert await stream.read(2) == b"ok"
 
 
-def test_a_lookup_with_no_answer_is_a_connect_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_lookup_with_no_answer_is_a_connect_error(dns: DnsFake) -> None:
     """An empty answer is no address to dial, never an empty list that dials nothing silently."""
-    monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [])
+    dns.add("example.com")
 
     with pytest.raises(httpcore2.ConnectError, match="No address"):
         vet_addresses("example.com", 443, PUBLIC)
 
 
-async def test_the_broker_async_hook_makes_no_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_the_broker_async_hook_makes_no_lookup(dns: DnsFake) -> None:
     """The hook checks the policy and the scheme; the address is the connect's to check."""
-    lookups: list[Any] = []
-
-    def recording(*args: Any, **kwargs: Any) -> list[Any]:
-        lookups.append(args)
-        return []
-
-    monkeypatch.setattr(socket, "getaddrinfo", recording)
     await HttpClientBroker()._async_validate_request(httpx2.Request("GET", "https://example.com/"))
 
-    assert lookups == []
+    assert dns.lookups == []
 
 
 # =============================================================================
