@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.75.0](https://github.com/dan-petty/devops-cli/compare/v0.74.0...v0.75.0) (2026-11-06)
+
+
+### Features
+
+* **pr:** post the check results of a pull request as a comment ([#3864](https://github.com/dan-petty/devops-cli/issues/3864)) ([ad1e4b8](https://github.com/dan-petty/devops-cli/commit/ad1e4b83eca6b8aa41ba6be5358053a3fd9f80b0))
+
 ## [0.74.0](https://github.com/dan-petty/devops-cli/compare/v0.73.0...v0.74.0) (2026-11-06)
 
 
