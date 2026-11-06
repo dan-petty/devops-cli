@@ -21,6 +21,13 @@ To measure the groups, the command makes a detached worktree of the head commit 
 folder and removes it when the measure ends. The files that the tasks name are the files of the head
 commit, whatever the working tree of the checkout holds.
 
+A pull request is a plan pull request when its title is `docs(openspec): plan #<issue> <summary>` or
+its body holds the line `Plans #<issue>`. The command judges no other pull request: it reports no
+problem and exits 0. The implement job turns the plan draft of the Service into the delivery pull
+request, and it writes the delivery title and the delivery body in one edit. A run of `Plan Check`
+that starts before that edit reads the pull request after it, so the command reports no problem for
+a delivery pull request (#3536).
+
 ## What it checks
 
 - The stage gates: `check_proposal` and `validate_change`. The command reports each problem with

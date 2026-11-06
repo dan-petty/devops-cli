@@ -131,6 +131,18 @@ def issue_number(body: str) -> int | None:
     return None
 
 
+def is_plan_pull(facts: PullFacts) -> bool:
+    """Whether the pull request is a plan pull request (#3536): its title is the staging form, or
+    its body holds the line `Plans #<issue>`.
+
+    The implement job turns the plan draft of the Service into the delivery pull request, and it
+    writes the delivery title and body at once. A run of `Plan Check` that starts before that edit
+    reads the pull request after it, so it reads a delivery title and a delivery body. A pull
+    request that holds neither mark is no plan, so the command judges none.
+    """
+    return _TITLE.fullmatch(facts.title.strip()) is not None or issue_number(facts.body) is not None
+
+
 def read_pull(client: PlanReads, repo: str, number: int) -> PullFacts:
     """The title, body and commits of pull request `number`."""
     pull = client.get_pull(repo, number)
@@ -416,6 +428,8 @@ def plan_check(
     """The problems of plan pull request `number` of `repo`, read in the checkout `source`."""
     reads = client or _session_client()
     facts = read_pull(reads, repo, number)
+    if not is_plan_pull(facts):
+        return PlanCheckResult(())
     owner, name = repo.split("/", 1)
     checks = check_reader(owner, name, facts.head_sha)
     problems = _pull_problems(facts, checks)
