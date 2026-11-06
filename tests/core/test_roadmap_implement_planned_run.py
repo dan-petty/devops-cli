@@ -67,7 +67,7 @@ def test_two_groups_make_a_new_branch_a_draft_a_closing_body_and_a_ready_pull_re
         "main",
         TITLE,
     )
-    assert "Closes" not in created["body"]
+    assert created["body"].startswith("Closes #1")
     assert planned_world.sent("PATCH", f"pulls/{PULL}") == [
         {
             "title": TITLE,
@@ -140,7 +140,7 @@ def test_a_stop_before_the_first_commit_pushes_nothing_and_opens_no_pull_request
     assert "Stopped at group 1." in planned_world.issue_comments()[0]
 
 
-def test_a_stop_after_a_commit_pushes_the_branch_and_opens_a_draft_that_closes_nothing(
+def test_a_stop_after_a_commit_pushes_the_branch_and_opens_a_draft_that_closes_its_issue(
     planned_world: JobWorld,
 ) -> None:
     script = ModelScript(tool_calls(*group_one_calls()), say("Done."), say("Stuck."))
@@ -150,7 +150,7 @@ def test_a_stop_after_a_commit_pushes_the_branch_and_opens_a_draft_that_closes_n
     (created,) = planned_world.sent("POST", "pulls")
     status, record = _item(planned_world)
     assert planned_world.origin_log() == ["fix(roadmap): The first group (#1)"]
-    assert (created["draft"], "Closes" in created["body"]) == (True, False)
+    assert (created["draft"], created["body"].startswith("Closes #1")) == (True, True)
     assert (status, record["implement.stopped"], record["implement.pr"]) == (
         "Blocked",
         "group 2",
