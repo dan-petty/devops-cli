@@ -29,7 +29,7 @@ Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`. Changes: `src/devops_c
 
 Reads: `tests/roadmap/test_roadmap_stage_prompt_rules.py`, `src/devops_cli/ai/tasks/roadmap_stage_change.md`. Changes: `tests/roadmap/test_roadmap_stage_prompt_rules.py`.
 
-- [ ] 4.1 Add a test to `tests/roadmap/test_roadmap_stage_prompt_rules.py` that loads `src/devops_cli/ai/tasks/roadmap_stage_change.md` and asserts that its text names a checkout, a client and a network as preconditions of `feasibility`
+- [x] 4.1 Add a test to `tests/roadmap/test_roadmap_stage_prompt_rules.py` that loads `src/devops_cli/ai/tasks/roadmap_stage_change.md` and asserts that its text names a checkout, a client and a network as preconditions of `feasibility`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_prompt_rules.py` passes
 
 ## Workflow follow-up
