@@ -86,6 +86,32 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
         "allowed": frozenset({"target", "format_type"}),
         "required": frozenset(),
     },
+    # No `sarif`: the command prints its findings, so the model needs no file (#3235).
+    ("scan", "injection"): {
+        "allowed": frozenset(
+            {
+                "target",
+                "min_severity",
+                "suppress",
+                "show_suppressed",
+                "fail_on",
+                "output_format",
+                "json_output",
+            }
+        ),
+        "required": frozenset(),
+    },
+    # No `output`: the command appends to the configured feedback dataset, so a path that the
+    # model gives would make it write a file (#3480).
+    ("review", "export-feedback"): {
+        "allowed": frozenset({"reviews_dir", "status", "dry_run"}),
+        "required": frozenset(),
+    },
+    # No `out`: a path that the model gives would make the command write a file (#3235).
+    ("tf", "plan"): {
+        "allowed": frozenset({"directory", "var_file", "destroy", "dry_run"}),
+        "required": frozenset(),
+    },
     # No `output`: the command prints the stream, so the model needs no file.
     ("k8s", "security-stream"): {
         "allowed": frozenset(
@@ -462,10 +488,11 @@ def _create_tool_function(
 
         bound = sig.bind(*args, **kwargs)
         bound.apply_defaults()
+        # Confinement runs first, so the sandbox check reads the resolved workspace (#3480).
+        _check_path_confinement(tool_name, bound.arguments)
         _check_sandbox_preconditions(path, bound.arguments)
         _check_model_endpoints(path, bound.arguments)
         _check_oidc_token_reference(path, bound.arguments)
-        _check_path_confinement(tool_name, bound.arguments)
         argv = _build_command_argv(path, click_cmd, format_json, bound.arguments)
         return _run_mcp_cmd(["uv", "run", "devops", *argv], timeout=timeout)
 

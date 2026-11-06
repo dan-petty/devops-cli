@@ -1,0 +1,113 @@
+{
+  "about": "The answer of `gh pr view 3467 --json number,title,labels,files,state,mergedAt` for pull request 3467 of this repository, read on 2026-11-05. It is the payload that `devops pr hardening-report` audits, with every field as gh sent it.",
+  "files": [
+    {
+      "path": "docs/MCP_TOOLS.md",
+      "additions": 0,
+      "deletions": 10,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "openspec/changes/archive/2026-11-04-3300-the-ops-role-publishes-60-tools/.openspec.yaml",
+      "additions": 2,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "openspec/changes/archive/2026-11-04-3300-the-ops-role-publishes-60-tools/design.md",
+      "additions": 22,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "openspec/changes/archive/2026-11-04-3300-the-ops-role-publishes-60-tools/proposal.md",
+      "additions": 43,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "openspec/changes/archive/2026-11-04-3300-the-ops-role-publishes-60-tools/specs/mcp-tool-path-confinement/spec.md",
+      "additions": 59,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "openspec/changes/archive/2026-11-04-3300-the-ops-role-publishes-60-tools/tasks.md",
+      "additions": 50,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "openspec/specs/mcp-tool-path-confinement/spec.md",
+      "additions": 64,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "src/devops_cli/ai/mcp/generator.py",
+      "additions": 61,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "src/devops_cli/ai/mcp/path_confinement.py",
+      "additions": 132,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "src/devops_cli/ai/mcp/server.py",
+      "additions": 2,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "src/devops_cli/lang/en/errors.py",
+      "additions": 3,
+      "deletions": 0,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "tests/ai/mcp/test_fastmcp_contracts.py",
+      "additions": 7,
+      "deletions": 5,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "tests/ai/mcp/test_path_confinement.py",
+      "additions": 174,
+      "deletions": 0,
+      "changeType": "ADDED"
+    },
+    {
+      "path": "tests/roadmap/test_roadmap_intake.py",
+      "additions": 2,
+      "deletions": 1,
+      "changeType": "MODIFIED"
+    },
+    {
+      "path": "tests/tf/test_tf_cost.py",
+      "additions": 3,
+      "deletions": 2,
+      "changeType": "MODIFIED"
+    }
+  ],
+  "labels": [
+    {
+      "id": "LA_kwDOThbRVc8AAAAC0GfVsA",
+      "name": "type/bug",
+      "description": "Defect, regression, or incorrect runtime behavior",
+      "color": "D73A4A"
+    },
+    {
+      "id": "LA_kwDOThbRVc8AAAAC0GfZDg",
+      "name": "scope/mcp",
+      "description": "Model Context Protocol tools, system resources, and prompts",
+      "color": "F9D0C4"
+    }
+  ],
+  "mergedAt": "2026-11-04T15:28:32Z",
+  "number": 3467,
+  "state": "MERGED",
+  "title": "fix(mcp): confine every MCP path parameter to the work tree"
+}

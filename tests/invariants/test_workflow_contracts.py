@@ -390,8 +390,8 @@ def test_every_trivy_scan_runs_the_trivy_tools_lock_pins() -> None:
     ]
 
 
-def assert_audit_workflow_contract(workflow: dict[str, Any]) -> None:
-    """Assert that the defect PR hardening audit workflow satisfies structural contract invariants."""
+def assert_audit_workflow_contract(workflow: dict[str, Any], text: str) -> None:
+    """Assert that the defect PR hardening audit workflow, parsed and as text, keeps its contract."""
     triggers = workflow.get("on", {})
     pr_trigger = triggers.get("pull_request", {})
     pr_types = pr_trigger.get("types", []) if isinstance(pr_trigger, dict) else []
@@ -399,12 +399,9 @@ def assert_audit_workflow_contract(workflow: dict[str, Any]) -> None:
 
     perms = workflow.get("permissions", {})
     assert isinstance(perms, dict), "Workflow permissions must be a mapping"
-    assert (
-        perms.get("contents"),
-        perms.get("pull-requests"),
-        perms.get("issues"),
-        "actions" in perms,
-    ) == ("read", "read", "write", False)
+    assert perms == {"contents": "read", "pull-requests": "read"}, (
+        "Workflow permissions must be contents: read and pull-requests: read, with no issues entry (#3479)"
+    )
 
     env_vars = workflow.get("env", {})
     assert env_vars.get("UV_MANAGED_PYTHON") == "1", "Workflow must set UV_MANAGED_PYTHON: '1'"
@@ -429,59 +426,74 @@ def assert_audit_workflow_contract(workflow: dict[str, Any]) -> None:
         for s, run in zip(steps, step_runs, strict=False)
     ), "Workflow must include fork handling (skip-not-fail)"
 
-    has_hardening_report = any(
-        "devops pr hardening-report" in run and "--fail-on-missing" in run for run in step_runs
+    report_runs = [run for run in step_runs if "devops pr hardening-report" in run]
+    assert report_runs, "Workflow must execute 'devops pr hardening-report'"
+    assert all("GITHUB_STEP_SUMMARY" in run for run in report_runs), (
+        "The report step must append its output to GITHUB_STEP_SUMMARY (#3479)"
     )
-    assert has_hardening_report, (
-        "Workflow must execute 'devops pr hardening-report' with '--fail-on-missing'"
+    assert not any("--fail-on-missing" in run for run in step_runs), (
+        "Workflow must not pass --fail-on-missing: the audit runs after the merge and cannot block it (#3479)"
+    )
+    assert not any("issues create" in run or "devops roadmap intake" in run for run in step_runs), (
+        "Workflow must not file an issue: the text has no root cause and uses an intake round (#3479)"
     )
 
-    files_issue = any(
-        "devops gh issues create" in run and "source/agent" in run for run in step_runs
-    )
-    assert files_issue, (
-        "Workflow failure path must file the finding with 'devops gh issues create' and the 'source/agent' label"
-    )
-    assert not any("devops roadmap intake" in run or "priority/" in run for run in step_runs), (
-        "Workflow failure path must not run 'devops roadmap intake' or set a priority/ label: the runner has no model"
+    assert "AGENTS.md" not in text, "Workflow text must not cite AGENTS.md: it holds no such rule"
+    assert "docs/SELF_IMPROVEMENT.md" in text, (
+        "Workflow text must cite docs/SELF_IMPROVEMENT.md, which owns the hardening rule"
     )
 
 
 def test_defect_pr_hardening_audit_workflow_contract() -> None:
     """Validate that defect-pr-hardening-audit.yml satisfies its structural contract."""
     workflow = _load_workflow(AUDIT_PATH)
-    assert_audit_workflow_contract(workflow)
+    assert_audit_workflow_contract(workflow, AUDIT_PATH.read_text(encoding="utf-8"))
 
 
 def test_defect_pr_hardening_audit_workflow_mutation() -> None:
     """Validate that mutating audit workflow contract invariants raises an AssertionError."""
     workflow = _load_workflow(AUDIT_PATH)
+    text = AUDIT_PATH.read_text(encoding="utf-8")
 
     mutated1 = copy.deepcopy(workflow)
     mutated1["on"]["pull_request"]["types"] = ["opened"]
     with pytest.raises(AssertionError, match="pull_request types"):
-        assert_audit_workflow_contract(mutated1)
+        assert_audit_workflow_contract(mutated1, text)
 
     mutated2 = copy.deepcopy(workflow)
     for step in mutated2["jobs"]["audit-hardening"]["steps"]:
         if "hardening-report" in step.get("run", ""):
-            step["run"] = step["run"].replace("--fail-on-missing", "")
+            step["run"] += " --fail-on-missing\n"
     with pytest.raises(AssertionError, match="--fail-on-missing"):
-        assert_audit_workflow_contract(mutated2)
+        assert_audit_workflow_contract(mutated2, text)
 
     mutated3 = copy.deepcopy(workflow)
     for step in mutated3["jobs"]["audit-hardening"]["steps"]:
-        if "gh issues create" in step.get("run", ""):
-            step["run"] = step["run"].replace("gh issues create", "create_repository_issue")
-    with pytest.raises(AssertionError, match="gh issues create"):
-        assert_audit_workflow_contract(mutated3)
+        if "hardening-report" in step.get("run", ""):
+            step["run"] = step["run"].replace("GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT")
+    with pytest.raises(AssertionError, match="GITHUB_STEP_SUMMARY"):
+        assert_audit_workflow_contract(mutated3, text)
 
     mutated4 = copy.deepcopy(workflow)
-    for step in mutated4["jobs"]["audit-hardening"]["steps"]:
-        if "gh issues create" in step.get("run", ""):
-            step["run"] += "devops roadmap intake\n"
-    with pytest.raises(AssertionError, match="no model"):
-        assert_audit_workflow_contract(mutated4)
+    mutated4["jobs"]["audit-hardening"]["steps"].append({"run": "uv run devops gh issues create"})
+    with pytest.raises(AssertionError, match="must not file an issue"):
+        assert_audit_workflow_contract(mutated4, text)
+
+    mutated5 = copy.deepcopy(workflow)
+    mutated5["jobs"]["audit-hardening"]["steps"].append({"run": "uv run devops roadmap intake"})
+    with pytest.raises(AssertionError, match="must not file an issue"):
+        assert_audit_workflow_contract(mutated5, text)
+
+    mutated6 = copy.deepcopy(workflow)
+    mutated6["permissions"]["issues"] = "write"
+    with pytest.raises(AssertionError, match="permissions"):
+        assert_audit_workflow_contract(mutated6, text)
+
+    with pytest.raises(AssertionError, match=r"must not cite AGENTS\.md"):
+        assert_audit_workflow_contract(workflow, text + "# See AGENTS.md\n")
+
+    with pytest.raises(AssertionError, match=r"must cite docs/SELF_IMPROVEMENT\.md"):
+        assert_audit_workflow_contract(workflow, text.replace("docs/SELF_IMPROVEMENT.md", "docs"))
 
 
 # ── Every `devops` command the automation runs (#861) ─────────────────────────

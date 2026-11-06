@@ -572,14 +572,14 @@ def test_at_the_planned_limit_the_job_takes_no_item_and_gives_the_limit_as_the_r
     store: InMemoryRoadmapStore,
 ) -> None:
     _seed_planned(store, 2)
-    ready = _seed(store)
+    ready = _seed(store, priority="P2-Medium")
 
     selection = _select(store, *DEFAULT_ROADMAP_STAGE_FILTER, planned_limit=2)
 
     assert selection.selected == ()
     assert _reasons(selection) == {
         ready: MESSAGES.roadmap.stage_left_planned_limit.format(
-            count=2, limit=2, priority="P0-Critical"
+            count=2, limit=2, priorities="P0-Critical or P1-High"
         )
     }
     assert "roadmap.stage.planned_limit" in _reasons(selection)[ready]
@@ -587,7 +587,7 @@ def test_at_the_planned_limit_the_job_takes_no_item_and_gives_the_limit_as_the_r
 
 def test_over_the_planned_limit_the_job_takes_no_item(store: InMemoryRoadmapStore) -> None:
     _seed_planned(store, 3)
-    _seed(store)
+    _seed(store, priority="P2-Medium")
 
     assert _select(store, *DEFAULT_ROADMAP_STAGE_FILTER, planned_limit=2).selected == ()
 
@@ -605,17 +605,19 @@ def test_under_the_planned_limit_the_job_takes_items_as_before(
     assert selection.left_out == ()
 
 
-def test_an_item_of_the_highest_priority_gets_a_plan_at_the_planned_limit(
+def test_a_p0_item_and_a_p1_item_get_a_plan_at_the_planned_limit(
     store: InMemoryRoadmapStore,
 ) -> None:
     _seed_planned(store, 2)
     critical = _seed(store, "fix(roadmap): the job drops a label", priority="P0-Critical")
     high = _seed(store, "fix(roadmap): the job drops a comment", priority="P1-High")
+    medium = _seed(store, "fix(roadmap): the job drops a branch", priority="P2-Medium")
+    low = _seed(store, "fix(roadmap): the job drops a record", priority="P3-Low")
 
     selection = _select(store, *DEFAULT_ROADMAP_STAGE_FILTER, planned_limit=2)
 
-    assert _numbers(selection) == [critical]
-    assert set(_reasons(selection)) == {high}
+    assert _numbers(selection) == [critical, high]
+    assert set(_reasons(selection)) == {medium, low}
 
 
 def test_the_planned_count_holds_only_open_planned_items(store: InMemoryRoadmapStore) -> None:
@@ -631,7 +633,7 @@ def test_the_planned_count_holds_only_open_planned_items(store: InMemoryRoadmapS
 
 def test_a_named_item_passes_the_planned_limit(store: InMemoryRoadmapStore) -> None:
     _seed_planned(store, 2)
-    ready = _seed(store)
+    ready = _seed(store, priority="P2-Medium")
 
     assert _numbers(_select(store, item=ready, planned_limit=2)) == [ready]
 
@@ -640,7 +642,7 @@ def test_an_item_that_fails_another_rule_keeps_that_reason_at_the_planned_limit(
     store: InMemoryRoadmapStore,
 ) -> None:
     _seed_planned(store, 2)
-    claimed = _seed(store, labels=(*BUG, "owner/human"))
+    claimed = _seed(store, priority="P2-Medium", labels=(*BUG, "owner/human"))
 
     reason = _reasons(_select(store, *DEFAULT_ROADMAP_STAGE_FILTER, planned_limit=2))[claimed]
 

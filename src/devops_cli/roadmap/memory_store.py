@@ -21,7 +21,7 @@ person's change since raises before anything changes.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any
@@ -172,6 +172,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         milestone: str | None = None,
         pull_request: bool = False,
         author_association: str | None = DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION,
+        author_login: str | None = None,
         sub_issues: int = 0,
         parent: int | None = None,
         updated_at: datetime | None = None,
@@ -181,7 +182,8 @@ class InMemoryRoadmapStore(RoadmapStore):
         `fields` adds the label of each field's value to `labels`, as a person sets them, with
         no job record; a Priority makes the issue an Item. `milestone` is the title of a seeded
         milestone. Seeding records no change. `author_association` is the author's relation to
-        the repository, the owner's unless given, since GitHub gives one for every issue.
+        the repository, the owner's unless given, since GitHub gives one for every issue, and
+        `author_login` is the author's login.
         `sub_issues` is how many sub-issues GitHub records for it, and `parent` is the issue
         that has it as a sub-issue. The issue is created now by the store's clock, and closed
         now when seeded closed, and last changed at `updated_at` when that is given. `body` is
@@ -205,6 +207,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             milestone=milestone,
             pull_request=pull_request,
             author_association=author_association,
+            author_login=author_login,
             created_at=now,
             updated_at=as_utc(updated_at) if updated_at is not None else now,
             closed_at=now if state is GitHubState.CLOSED else None,
@@ -427,26 +430,48 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Comment `body` on issue `number`."""
         issue = self._require_issue(number, "roadmap.issue.comment")
         self._update_issue(issue)
-        made = IssueComment(body=body, created_at=as_utc(self._roadmap.clock()))
+        made = IssueComment(
+            body=body,
+            created_at=as_utc(self._roadmap.clock()),
+            author_association=DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION,
+            author_login=self._actor,
+        )
         self._roadmap.comments.setdefault(number, []).append(made)
         self._log("comment", number, value=body)
 
     def seed_comment(
-        self, number: int, body: str, *, author_association: str | None = None
+        self,
+        number: int,
+        body: str,
+        *,
+        author_association: str | None = DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION,
+        author_login: str | None = None,
     ) -> None:
-        """Add a comment as another commenter made it, with their relation to the repository,
-        as GitHub gives it. Seeding records no change and no write."""
-        self._require_issue(number, "roadmap.issue.seed_comment")
+        """Add a comment as another commenter made it, with their relation to the repository and
+        their login, as GitHub gives them: the owner's relation unless given, since GitHub gives
+        one for every comment. Seeding records no change and no write. A pull request takes a
+        comment as it does on GitHub, and the comment says so (#2754)."""
+        issue = self._require_issue(number, "roadmap.issue.seed_comment", pull_request=True)
         made = IssueComment(
             body=body,
             created_at=as_utc(self._roadmap.clock()),
             author_association=author_association,
+            author_login=author_login,
+            on_pull_request=issue.pull_request,
         )
         self._roadmap.comments.setdefault(number, []).append(made)
 
     def comments_on(self, number: int) -> list[IssueComment]:
         """Every comment on issue `number`, oldest first."""
         return list(self._roadmap.comments.get(number, []))
+
+    def comments_since(self, since: datetime | None) -> Iterator[IssueComment]:
+        """The comments of every issue, newest first, made at or after `since` (all of them when
+        None). A comment here is never edited, so its creation time is the time it changed."""
+        cutoff = None if since is None else as_utc(since)
+        made = (comment for comments in self._roadmap.comments.values() for comment in comments)
+        wanted = (c for c in made if cutoff is None or c.created_at >= cutoff)
+        return reversed(sorted(wanted, key=lambda comment: comment.created_at))
 
     def close(self, number: int, reason: CloseReason, *, comment: str | None = None) -> None:
         """Post `comment` on issue `number` when given, then close it for `reason`. A pull
@@ -473,6 +498,22 @@ class InMemoryRoadmapStore(RoadmapStore):
                 details={"path": path[:256], "ref": (ref or "")[:256]},
             )
         return text
+
+    def repository_files(self, directory: str, *, ref: str | None = None) -> list[str]:
+        """The sorted paths of the files committed directly in `directory` on `ref`, raising when
+        none is."""
+        found = sorted(
+            path
+            for path, at in self._roadmap.files
+            if at == ref and path.rpartition("/")[0] == directory
+        )
+        if not found:
+            raise GitHubFileNotFoundError(
+                f"{self._roadmap.repo} has no {directory} on {ref or 'its default branch'}.",
+                operation="roadmap.read",
+                details={"path": directory[:256], "ref": (ref or "")[:256]},
+            )
+        return found
 
     def repository_is_private(self) -> bool:
         """Whether the repository is private."""

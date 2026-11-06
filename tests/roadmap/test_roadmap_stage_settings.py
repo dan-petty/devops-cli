@@ -256,7 +256,7 @@ def test_the_limit_of_the_settings_caps_the_command_and_the_option_replaces_it(
     assert ("#1 " in both, "#2 " in both) == (True, True)
 
 
-@pytest.mark.usefixtures("keyring_store", "two_kinds", "config_file")
+@pytest.mark.usefixtures("keyring_store", "config_file")
 def test_the_command_plans_no_item_at_the_planned_limit_and_gives_the_limit_as_the_reason(
     cli: Cli,
     roadmap_store: InMemoryRoadmapStore,
@@ -269,11 +269,17 @@ def test_the_command_plans_no_item_at_the_planned_limit_and_gives_the_limit_as_t
         "fix(roadmap): a plan waits for its delivery",
         fields={ItemField.STATUS: "Planned", ItemField.PRIORITY: "P1-High"},
     )
+    roadmap_store.seed_issue(
+        "fix(roadmap): the job drops a comment",
+        body="The job drops a comment.",
+        labels=("type/bug",),
+        fields={ItemField.STATUS: "Ready", ItemField.PRIORITY: "P2-Medium"},
+    )
 
     output = _plan(cli, stage_repo)
 
     assert "branch `" not in output
-    assert "- #1 fix(roadmap): the job drops a comment: The count of Planned items is 1" in output
+    assert "- #2 fix(roadmap): the job drops a comment: The count of Planned items is 1" in output
     assert "roadmap.stage.planned_limit" in output
 
 

@@ -461,6 +461,7 @@ def test_the_inbox_states_the_planned_limit_when_it_holds(store: InMemoryRoadmap
     ]
     assert "The count of Planned items is 2" in text
     assert "roadmap.stage.planned_limit is 2" in text
+    assert "The stage job plans only items with the priority P0-Critical or P1-High." in text
     assert "devops roadmap implement --repo example/roadmap" in text
 
 

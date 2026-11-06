@@ -33,6 +33,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic.json_schema import SkipJsonSchema
 
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.constants import CONST_ROADMAP_SCOPE_LABEL_PREFIX
@@ -129,6 +130,28 @@ _SELF_ACCEPTANCE_MARKS: Final[tuple[str, ...]] = (
 )
 _SENTENCE_END: Final[str] = f"{string.whitespace}."
 REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
+# The stage prompt and each module that holds a check of `check_proposal` or of the gates it
+# calls. A plan that changes one of these paths must measure the stage job (#3331).
+STAGE_EVAL_TRIGGER_PATHS: Final[tuple[str, ...]] = (
+    "src/devops_cli/ai/tasks/roadmap_stage_change.md",
+    "src/devops_cli/roadmap/stage_change.py",
+    "src/devops_cli/roadmap/stage_form.py",
+    "src/devops_cli/roadmap/stage_paths.py",
+    "src/devops_cli/roadmap/stage_criteria.py",
+    "src/devops_cli/roadmap/stage_eval_gates.py",
+)
+# The command that replays the golden set through the gates of the stage job.
+STAGE_EVAL_REPLAY: Final[str] = "uv run devops roadmap eval stage --replay"
+# The words that show that the replay task states the score before and after the change.
+_STAGE_EVAL_SCORE_WORDS: Final[tuple[str, ...]] = ("score", "before", "after")
+# The texts of a group that a task holds: the title and each part of the work.
+_GROUP_TASK_FIELDS: Final[tuple[str, ...]] = (
+    "title",
+    "test",
+    "implementation",
+    "documentation",
+    "verify",
+)
 
 # ── The reply ─────────────────────────────────────────────────────────────────
 
@@ -390,6 +413,16 @@ def _change_folder_problems(group: StageGroup) -> list[str]:
     ]
 
 
+class WeakenedCheck(_Reply):
+    """One guard check that a plan gives up: the check, what it stopped and the safeguard that takes
+    its place. AGENTS.md rule 5 lets only the owner lower a threshold, and a person allows the entry
+    when that person merges the plan. `check` names a test as `path::name`."""
+
+    check: Text
+    stopped: Text
+    safeguard: Text
+
+
 class StageProposal(_Reply):
     """The model's plan of the change. `summary` is the summary of the pull request title, and
     `pull_request_body` the what and why of its body. The scope and the type of the title are not
@@ -415,17 +448,20 @@ class StageProposal(_Reply):
     groups: list[StageGroup] = Field(min_length=1)
     criteria: list[StageCriterion] = Field(default_factory=list)
     dependencies: list[Line] = Field(default_factory=list)
+    # The plan reader fills this list from `## Weakened checks` of `proposal.md` (#3490). The reply
+    # schema does not show it: `render_change` writes no such section, so a key in a reply is lost.
+    weakened_checks: SkipJsonSchema[list[WeakenedCheck]] = Field(default_factory=list)
 
     @field_validator("summary")
     @classmethod
     def _summary_fits_the_title(cls, summary: str) -> str:
-        """The title shows the summary as `safe_text` writes it: on one line, and with a code span
+        """The title shows the summary as `safe_title` writes it: on one line, and with a code span
         for a handle or a link. The limit counts that text in the units of the check `Semantic PR
         title` (`summary_length`), so spare whitespace costs nothing, a handle costs its code span
         and an emoji costs two. A summary with no text left is refused too. The reply that breaks
         it goes back to the model with the count and the limit, and `staging_title` cuts no summary
         that the schema accepts."""
-        text = safe_text(summary)
+        text = safe_title(summary)
         shown = summary_length(text)
         if not any(_shows_something(char) for char in text):
             raise ValueError(MESSAGES.roadmap.stage_summary_blank)
@@ -602,6 +638,48 @@ def _what_changes_problems(proposal: StageProposal, tree: StagedTree) -> list[st
     ]
 
 
+def _group_task_texts(group: StageGroup) -> list[str]:
+    """The texts of `group` that a task holds: the title and each part of the work."""
+    return [text for field in _GROUP_TASK_FIELDS if (text := getattr(group, field)) is not None]
+
+
+def eval_replay_problems(groups: Sequence[StageGroup]) -> list[str]:
+    """One problem when a group changes a path of `STAGE_EVAL_TRIGGER_PATHS` and no group task
+    runs the replay with the score before and after the change (#3331). A plan that changes no
+    trigger path adds no problem. The check reads the first changed trigger path and the group
+    that holds the replay command, so one plan gets one problem."""
+    texts = MESSAGES.roadmap
+    triggers = [
+        (number, path)
+        for number, group in enumerate(groups, start=1)
+        for path in group.changes
+        if path in STAGE_EVAL_TRIGGER_PATHS
+    ]
+    if not triggers:
+        return []
+    number, path = triggers[0]
+    replays = [
+        (number, text)
+        for number, group in enumerate(groups, start=1)
+        for text in _group_task_texts(group)
+        if STAGE_EVAL_REPLAY in text
+    ]
+    if not replays:
+        return [
+            texts.stage_problem_eval_replay.format(
+                group=number, path=path, command=STAGE_EVAL_REPLAY
+            )
+        ]
+    if any(all(word in text.casefold() for word in _STAGE_EVAL_SCORE_WORDS) for _, text in replays):
+        return []
+    replay_number = replays[0][0]
+    return [
+        texts.stage_problem_eval_score.format(
+            group=replay_number, path=path, command=STAGE_EVAL_REPLAY
+        )
+    ]
+
+
 def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> list[str]:
     """What is wrong with the text of `proposal` that no schema says (#3200): a text that is too
     short or a placeholder word (`is_placeholder` of the pull request form), a `feasibility` that
@@ -653,6 +731,7 @@ def check_proposal(
     problems = _delta_problems(proposal, known, requirements or {})
     problems.extend(content_problems(proposal, probes))
     problems.extend(form_problems(proposal.groups))
+    problems.extend(eval_replay_problems(proposal.groups))
     problems.extend(path_problems(proposal.groups, tree))
     problems.extend(_what_changes_problems(proposal, tree))
     problems.extend(move_prefix_problems(proposal.groups, tree))
@@ -935,7 +1014,7 @@ def staging_title(number: int, summary: str) -> str:
     digits or fewer. The title is never cut, because a cut text ends with `...` and the form check
     refuses it (#3249): a summary that does not fit stops the item with `RoadmapStageError`."""
     lead = MESSAGES.roadmap.stage_title_lead.format(number=number)
-    shown = safe_text(summary)
+    shown = safe_title(summary)
     length = summary_length(lead + shown)
     if length > SUMMARY_MAX_CHARS:
         raise RoadmapStageError(
@@ -960,7 +1039,7 @@ def delivery_title(issue_title: str, declared: Collection[str]) -> str:
     scope = commit_scope(issue_title)
     if scope and f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" not in declared:
         head = head.partition("(")[0]
-    return f"{head}: {safe_text(summary)}"
+    return f"{head}: {safe_title(summary)}"
 
 
 def pull_request_body(number: int, change: str, proposal: StageProposal) -> str:
@@ -972,8 +1051,17 @@ def pull_request_body(number: int, change: str, proposal: StageProposal) -> str:
 
 def safe_text(text: str) -> str:
     """The model's `text` on one line, with a handle, a link or a reference to another repository
-    in a code span, so it pings no one and links nothing in a pull request or a comment."""
+    in a code span, so it pings no one and links nothing in a pull request or a comment, and with
+    the `<` of each tag outside code as an entity, so it shows as text and acts as no tag."""
     return sanitize_text(" ".join(text.split()), set())
+
+
+def safe_title(text: str) -> str:
+    """The model's `text` as `safe_text` writes it, but with each tag as it is. A title is plain
+    text: GitHub shows `<section>` as text and counts its characters, and the squash commit takes
+    the title as it is, so an entity would show as the text `&lt;` (#3504). The `<` of a comment
+    opener is still an entity, since the job puts a title in a comment too."""
+    return sanitize_text(" ".join(text.split()), set(), escape_tags=False)
 
 
 # ── The measure ───────────────────────────────────────────────────────────────
@@ -981,22 +1069,34 @@ def safe_text(text: str) -> str:
 
 @dataclass(frozen=True)
 class MeasuredGroup:
-    """A task group and the tokens of the inputs of its step."""
+    """A task group, the tokens of the inputs of its step, and the number of files that the step
+    packs for it (#3499)."""
 
     group: StageGroup
     tokens: int
+    files: int
 
 
-def _read_tokens(root: Path, text: str) -> int:
-    """The tokens of what the step of the group `text` reads under `root`: the files that its
-    tasks name, each packed as the step packs it (`step_files`), and the rules of the checkout
-    that the step adds (`step_rules`). The step ignores a file that only the `Reads:` line lists,
-    and a name that holds no file is a file the step creates."""
-    return sum(
-        sum(count_tokens(packed_file(path)) for path in named_files(root, group))
-        + sum(count_tokens(section) for section in rules_sections(root, group))
-        for group in parse_task_groups(text)
-    )
+def _reads(root: Path, text: str) -> tuple[int, int]:
+    """The tokens and the count of what the step of the group `text` reads under `root`: the files
+    that its tasks name, each packed as the step packs it (`step_files`), and the rules of the
+    checkout that the step adds (`step_rules`). The count is the count of files, and the tokens
+    include the rules. The step ignores a file that only the `Reads:` line lists, and a name that
+    holds no file is a file the step creates."""
+    tokens = files = 0
+    for group in parse_task_groups(text):
+        paths = named_files(root, group)
+        files += len(paths)
+        tokens += sum(count_tokens(packed_file(path)) for path in paths)
+        tokens += sum(count_tokens(section) for section in rules_sections(root, group))
+    return tokens, files
+
+
+def shared_texts(title: str, body: str, files: Mapping[str, str]) -> list[str]:
+    """The text that all groups of a change share in their measure: the item, and the files of the
+    change folder by path. The stage job and `plan-check` both build it here, so their figures for
+    one plan stay equal (#3499)."""
+    return [f"{title}\n{body}", *files.values()]
 
 
 def measure_groups(
@@ -1007,19 +1107,21 @@ def measure_groups(
 ) -> list[MeasuredGroup]:
     """The measure of each group: the tokens of `shared` (the item and the files of the change
     folder), of the group's own text, of the files and the rules that its step reads under `root`,
-    and of the estimated lines of each file that it creates."""
+    and of the estimated lines of each file that it creates. It also counts the files that the
+    step packs."""
     shared_tokens = sum(count_tokens(text) for text in shared)
-    texts = [group_text(index, group) for index, group in enumerate(groups, start=1)]
-    return [
-        MeasuredGroup(
-            group,
+    measured: list[MeasuredGroup] = []
+    for index, group in enumerate(groups, start=1):
+        text = group_text(index, group)
+        read_tokens, files = _reads(root, text)
+        tokens = (
             shared_tokens
             + count_tokens(text)
-            + _read_tokens(root, text)
-            + sum(group.creates_lines.values()) * CREATED_LINE_TOKENS,
+            + read_tokens
+            + sum(group.creates_lines.values()) * CREATED_LINE_TOKENS
         )
-        for group, text in zip(groups, texts, strict=True)
-    ]
+        measured.append(MeasuredGroup(group, tokens, files))
+    return measured
 
 
 def write_change_files(root: Path, files: Mapping[str, str]) -> None:

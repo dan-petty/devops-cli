@@ -15,6 +15,7 @@ from devops_cli.roadmap.planned import open_plan_creates, read_planned_changes
 from devops_cli.roadmap.stage import StagePlan, parse_filters, plan_stage
 from devops_cli.roadmap.store import GitHubState, ItemField, StageRecordKey
 from tests.support.builders import make_stage_proposal
+from tests.support.fakes.github import github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import git_for_real
 from tests.support.roadmap_implement import branch_of, merge_plan
@@ -26,6 +27,7 @@ from tests.support.roadmap_stage import (
 )
 
 if TYPE_CHECKING:
+    from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.model import ModelFake
     from tests.support.fakes.openspec import OpenSpecFake
 
@@ -203,13 +205,22 @@ def test_a_round_reads_the_tree_once_for_many_items(
 
 
 def test_a_stale_stage_record_with_no_plan_on_main_stages_the_item_again(
-    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
 ) -> None:
     """A merged staging pull request was reverted: the record names a merged pull request and a
     branch that is gone, and the change folder is not on the default branch. The plan is lost, so
-    staging the item again is correct (#2656 after the revert of #2697)."""
+    staging the item again is correct (#2656 after the revert of #2697). The merged pull request
+    is no rejected plan (#3503)."""
     number = seed_stageable(store)
     _merged_stage_record(store, number)
+    github_api.route(
+        "GET",
+        f"/repos/{STAGE_REPO}/pulls/7",
+        github_json({"state": "closed", "merged": True, "draft": False}),
+    )
 
     plan = _plan(store, stage_repo)
 

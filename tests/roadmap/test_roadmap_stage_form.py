@@ -9,7 +9,13 @@ from typing import Any
 import pytest
 
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.roadmap.stage_change import StageGroup, StageProposal, check_proposal
+from devops_cli.roadmap.stage_change import (
+    STAGE_EVAL_REPLAY,
+    STAGE_EVAL_TRIGGER_PATHS,
+    StageGroup,
+    StageProposal,
+    check_proposal,
+)
 from devops_cli.roadmap.stage_form import (
     form_problems,
     negative_search_parts,
@@ -31,6 +37,9 @@ VERIFY_PROBLEM = (
     "Give a command of one of these forms."
 )
 
+PLAN_CHECK_FILE = "src/devops_cli/roadmap/stage_change.py"
+SELF_ACCEPTANCE = "`StageProposal` gets no problem from `content_problems`"
+
 
 def _plan(*changes: str, creates: tuple[str, ...] = (), verify: str | None = None) -> StageProposal:
     """The sample proposal, with one group that changes `changes` and creates `creates`."""
@@ -44,6 +53,9 @@ def _plan(*changes: str, creates: tuple[str, ...] = (), verify: str | None = Non
     sourced = any(path.startswith("src/") for path in changes)
     if not sourced:
         update |= {"kind": "other", "test": None}
+    elif PLAN_CHECK_FILE in changes:
+        # A plan that changes the plan check gives the test that accepts its own plan (#3404).
+        update["test"] = f"{base['test']}, and the plan's own {SELF_ACCEPTANCE}"
     if verify is not None:
         update["verify"] = verify
     group = StageGroup.model_validate({**base, **update})
@@ -256,7 +268,7 @@ def test_negative_search_parts_reads_the_literal_and_the_paths() -> None:
     found = negative_search_parts(DOTTED)
 
     assert found is not None
-    assert (found.literal, found.paths) == ("devops_cli.roadmap.stage_", ("src/", "tests/"))
+    assert (found.literals, found.paths) == (("devops_cli.roadmap.stage_",), ("src/", "tests/"))
 
 
 @pytest.mark.parametrize("command", ["uv run devops ci", "! git grep -n", "!"])
@@ -309,6 +321,36 @@ def test_search_problems_records_no_hit_only_when_the_caller_gives_evidence() ->
     groups = [_search_group(NO_HIT)]
 
     assert search_problems(groups) == []
+
+
+E_TWO = (
+    "! git grep -n -e devops_cli.roadmap.stage_ -e devops_cli.roadmap.stage_missing -- src/ tests/"
+)
+
+
+def test_each_e_literal_has_its_own_hit_check() -> None:
+    evidence = {"devops_cli.roadmap.stage_": ("src/a.py",), "devops_cli.roadmap.stage_missing": ()}
+
+    (problem,) = search_problems([_search_group(E_TWO)], evidence)
+
+    assert "already passes before the change and proves nothing" in problem
+    assert "devops_cli.roadmap.stage_missing" in problem
+
+
+def test_record_search_evidence_records_each_e_literal() -> None:
+    seen: list[str] = []
+
+    def search(literal: str) -> tuple[str, ...]:
+        seen.append(literal)
+        return ("src/a.py",) if literal == "devops_cli.roadmap.stage_" else ()
+
+    evidence = record_search_evidence([_search_group(E_TWO)], search)
+
+    assert seen == ["devops_cli.roadmap.stage_", "devops_cli.roadmap.stage_missing"]
+    assert evidence == {
+        "devops_cli.roadmap.stage_": ("src/a.py",),
+        "devops_cli.roadmap.stage_missing": (),
+    }
 
 
 # ── The examples of the prompt and of the rules ───────────────────────────────
@@ -377,3 +419,59 @@ def test_a_dependency_that_names_the_overlap_is_accepted() -> None:
     )
 
     assert _overlap_problems(plan) == []
+
+
+# ── A plan that changes a stage trigger path runs the eval replay (#3331) ─────
+
+_REPLAY_SCORE = "the score before and after the change"
+
+
+def _with_task(plan: StageProposal, text: str) -> StageProposal:
+    """The plan, with its one group task written as `text`."""
+    group = plan.groups[0].model_copy(update={"implementation": text})
+    return plan.model_copy(update={"groups": [group]})
+
+
+@pytest.mark.parametrize("path", STAGE_EVAL_TRIGGER_PATHS)
+def test_a_plan_that_changes_a_trigger_path_with_no_replay_task_is_refused(path: str) -> None:
+    (problem,) = _problems(_plan(path))
+
+    assert f"`{path}`" in problem
+    assert STAGE_EVAL_REPLAY in problem
+
+
+def test_a_plan_that_changes_the_prompt_with_no_replay_task_is_refused() -> None:
+    prompt = "src/devops_cli/ai/tasks/roadmap_stage_change.md"
+
+    (problem,) = _problems(_plan(prompt))
+
+    assert f"`{prompt}`" in problem
+    assert "must run" in problem
+
+
+def test_a_replay_task_without_the_score_is_refused() -> None:
+    plan = _with_task(
+        _plan("src/devops_cli/roadmap/stage_change.py"),
+        f"Run `{STAGE_EVAL_REPLAY}` before the merge.",
+    )
+
+    (problem,) = _problems(plan)
+
+    assert "score" in problem
+    assert "before and after" in problem
+
+
+def test_a_replay_task_with_the_score_passes() -> None:
+    path = "src/devops_cli/ai/tasks/roadmap_stage_change.md"
+    plan = _with_task(
+        _plan(path),
+        f"Run `{STAGE_EVAL_REPLAY}` and state {_REPLAY_SCORE}.",
+    )
+
+    assert _problems(plan) == []
+
+
+def test_a_plan_that_changes_no_trigger_path_has_no_replay_problem() -> None:
+    plan = _plan(CODE)
+
+    assert _problems(plan) == []

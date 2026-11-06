@@ -18,6 +18,13 @@ Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/test_ro
 - [x] 2.2 Add the self-acceptance test rule to `src/devops_cli/ai/tasks/roadmap_stage_change.md` beside the other checks of a plan: a behavior group that changes `src/devops_cli/roadmap/stage_change.py` needs a group test that builds the plan's own `StageProposal` and asserts that `content_problems` returns no problem for it
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_prompt_rules.py` passes
 
+## 3. Keep the recorded plans of the golden set accepted
+
+Reads: `tests/fixtures/roadmap_eval/stage/good-3410-the-stage-gate-proves-a-negative/plan.json`. Changes: `tests/fixtures/roadmap_eval/stage/3410-the-eval-field-group-is-dropped/plan.json`, `tests/fixtures/roadmap_eval/stage/3410-the-eval-field-group-is-dropped/case.json`, `tests/fixtures/roadmap_eval/stage/good-3410-the-stage-gate-proves-a-negative/plan.json`, `tests/fixtures/roadmap_eval/stage/good-3410-the-stage-gate-proves-a-negative/case.json`.
+
+- [x] 3.1 Add the self-acceptance test to the group that changes `src/devops_cli/roadmap/stage_change.py` in both recorded plans of #3410, and note it in both cases, so that the replay of the good plan stays accepted and the dropped plan stays judged by no gate
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_criterion_dropped.py` passes
+
 ## Workflow follow-up
 
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

@@ -1008,6 +1008,31 @@ def test_gh_api_basic() -> None:
         assert args == ["api", "repos/test/repo"]
 
 
+def test_gh_api_masks_a_token_of_a_json_reply_and_keeps_the_reply_valid_json() -> None:
+    """The contents reply of a private repository has a `download_url` with a `token=` query
+    parameter. The printed reply hides the token, and a caller still parses it (#2569)."""
+    from devops_cli.github.rate_limiter import get_github_rate_limiter
+
+    get_github_rate_limiter().update_quota(
+        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
+    )
+    url = "https://raw.example.com/octo/private/main/f.txt"
+    reply = json.dumps({"name": "f.txt", "download_url": f"{url}?token=AGJ4EXAMPLE1234567890"})
+    calls: list[list[str]] = []
+    with (
+        patch("shutil.which", return_value="/usr/bin/gh"),
+        patch("subprocess.run", side_effect=_fake_gh_rate_limit_edge(reply + "\n", calls)),
+    ):
+        result = runner.invoke(app, ["api", "repos/octo/private/contents/f.txt"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {
+        "name": "f.txt",
+        "download_url": f"{url}?token=<masked-token>",
+    }
+    assert calls == [["api", "repos/octo/private/contents/f.txt"]]
+
+
 def test_gh_api_options_and_cache() -> None:
     """devops gh api forwards HTTP method, pagination, jq, templates, and caching flags."""
     with (

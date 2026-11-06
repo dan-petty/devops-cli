@@ -280,6 +280,8 @@ def run_case(loaded: LoadedCase, *, repo: Path, model: Any, window: int) -> Resu
                 window=window,
                 # The evaluation judges the whole attempt, so a stopped step keeps no part of it.
                 keep=False,
+                # A clone has no remote, so the fixture holds the record that the step reads.
+                recorded_tests=frozenset(case.allow_lost_tests),
             )
         except RoadmapImplementError as refusal:
             reason = str(refusal)

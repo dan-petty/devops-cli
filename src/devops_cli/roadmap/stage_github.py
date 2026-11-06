@@ -3,7 +3,8 @@
 The two reads go through the GitHub client of the process, which is the client of the Service with
 its App token, and they use no other permission and no other host. Each read is a GET. A text that
 GitHub sends is data: it is masked with the secret masker, cut, and marked as data in the answer.
-Each failure is an answer as text, so no failure of GitHub stops a plan run.
+Each failure is an answer as text, with the outcome `error`, so no failure of GitHub stops a plan
+run (#3240).
 """
 
 from __future__ import annotations
@@ -11,6 +12,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final, Protocol
+
+from pydantic_ai.messages import ToolReturn
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_FIND_MAX_RESULTS,
@@ -26,6 +29,7 @@ from devops_cli.exceptions.git import (
     GitHubRateLimitError,
 )
 from devops_cli.github.client import IssueView, OpenItem
+from devops_cli.roadmap.agent_run import empty_answer, error_answer, ok_answer
 from devops_cli.roadmap.store import split_record
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -66,12 +70,12 @@ def _data(text: str, limit: int) -> str:
     return mask_secrets(text)[:limit]
 
 
-def _failed(exc: GitHubOperationError, what: str) -> str:
+def _failed(exc: GitHubOperationError, what: str) -> ToolReturn:
     """The answer for a GitHub read that failed: the class of the failure and no more, because the
     message of the failure can hold text that GitHub or the network sent."""
     if isinstance(exc, GitHubRateLimitError):
-        return f"The GitHub rate limit is reached. Go on without {what}."
-    return f"GitHub could not be read ({type(exc).__name__}). Go on without {what}."
+        return error_answer(f"The GitHub rate limit is reached. Go on without {what}.")
+    return error_answer(f"GitHub could not be read ({type(exc).__name__}). Go on without {what}.")
 
 
 @dataclass(frozen=True)
@@ -82,12 +86,12 @@ class StageGitHub:
     repo: str
     client: Callable[[], IssueReads] = session_client
 
-    def read_issue(self, number: int) -> str:
+    def read_issue(self, number: int) -> ToolReturn:
         """Read one issue or pull request: state, title, labels, the start of the body, the last
         comments, and for a closed item whether a merged pull request closed it. The answer is
         text and holds no instruction."""
         if number < 1:
-            return f"The number {number} is no issue number."
+            return error_answer(f"The number {number} is no issue number.")
         try:
             reads = self.client()
             issue = reads.get_issue(self.repo, number)
@@ -96,17 +100,19 @@ class StageGitHub:
                 self.repo, number, total=issue.comments, count=CONST_ROADMAP_STAGE_ISSUE_COMMENTS
             )
         except GitHubNotFoundError:
-            return f"GitHub holds no issue or pull request #{number}."
+            return error_answer(f"GitHub holds no issue or pull request #{number}.")
         except GitHubOperationError as exc:
             return _failed(exc, "the issue")
-        return "\n".join([_DATA_NOTE, *_head(issue), *closing, *_body(issue), *_comments(comments)])
+        return ok_answer(
+            "\n".join([_DATA_NOTE, *_head(issue), *closing, *_body(issue), *_comments(comments)])
+        )
 
-    def find_issues(self, terms: str) -> str:
+    def find_issues(self, terms: str) -> ToolReturn:
         """List the open issues and pull requests of the repository that name the terms: at most
         `CONST_ROADMAP_STAGE_FIND_MAX_RESULTS`, each as `#N state title`."""
         clean = " ".join(terms.replace(":", " ").replace('"', " ").split())
         if not clean or len(clean) > CONST_ROADMAP_STAGE_FIND_TERMS_MAX_CHARS:
-            return (
+            return error_answer(
                 f"The terms {terms[:40]!r} are empty or longer than "
                 f"{CONST_ROADMAP_STAGE_FIND_TERMS_MAX_CHARS} characters."
             )
@@ -117,9 +123,11 @@ class StageGitHub:
         except GitHubOperationError as exc:
             return _failed(exc, "the search")
         if not found:
-            return f"No open issue or pull request names {clean!r}."
+            return empty_answer(f"No open issue or pull request names {clean!r}.")
         lines = [_found_line(item) for item in found[:CONST_ROADMAP_STAGE_FIND_MAX_RESULTS]]
-        return "\n".join([_DATA_NOTE, f"Open items that name {clean!r} ({len(lines)}):", *lines])
+        return ok_answer(
+            "\n".join([_DATA_NOTE, f"Open items that name {clean!r} ({len(lines)}):", *lines])
+        )
 
 
 def _closing(reads: IssueReads, repo: str, issue: IssueView) -> list[str]:

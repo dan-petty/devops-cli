@@ -28,6 +28,10 @@ Each pod that mounts a claim SHALL have a required node affinity in which every 
 - **WHEN** the check reads an affinity with no node affinity, with the expression only as a preference, or with a second required term without it
 - **THEN** the check reports that the pod can run on the control-plane node
 
+#### Scenario: Grafana, the Prometheus server and Loki keep off the control-plane node
+- **WHEN** a test reads `k8s/monitoring/grafana-values.yaml`, `k8s/monitoring/prometheus-values.yaml` and `k8s/logging/loki-values.yaml`, and the table of exemptions names none of their pods
+- **THEN** the pods `grafana`, `server` and `singleBinary` each have the expression in every required node selector term
+
 ### Requirement: A warning before image garbage collection on a node with local-path volumes
 The Prometheus alert rules SHALL include `LocalPathNodeDiskHigh`, severity `warning`, which fires when the root filesystem of a node that runs a pod on a `local-path` claim has been over 85% used for 15 minutes. The rule SHALL join its series with `and` only, and SHALL carry the node in its `node` label.
 
@@ -71,6 +75,14 @@ The run SHALL make the claim `<claim>-move` and the pod `<claim>-dst` on the tar
 #### Scenario: A dropped copy
 - **WHEN** the first copy fails with `connection reset by peer`
 - **THEN** the run empties `/dst`, copies one more time, and goes on
+
+### Requirement: The copy of a volume move keeps its source open until the destination has ended
+The source side of the copy SHALL run `cat` after GNU tar succeeds, and a named pipe SHALL join the stdout of the destination side to the stdin of the source side. So the stdout of the source stays open until the destination has ended, and a slower destination loses no data. Bash SHALL make the named pipe and remove it on exit.
+
+#### Scenario: The source holds until the destination ended
+- **WHEN** a move runs its copy
+- **THEN** the source side runs `tar -C /src --numeric-owner --sparse -cpf - . && exec cat` with `kubectl exec -i`, and reads its stdin from the named pipe
+- **AND** the destination side writes its stdout to the same named pipe
 
 ### Requirement: A volume move binds the claim to the new volume
 After the two sides are equal, the run SHALL set the two volumes to `Retain`, save the old claim to a file, delete it, delete `<claim>-move`, reserve its volume for the claim name, and make the claim again with `spec.volumeName`. The create SHALL leave out the last-applied annotation and the annotations of the volume controllers, and the run SHALL then put the saved last-applied value back.

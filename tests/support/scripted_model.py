@@ -9,7 +9,14 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from pydantic import BaseModel
-from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelResponse,
+    TextPart,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls, FunctionModel
 
 
@@ -29,10 +36,12 @@ class Script:
         self.without_tools = without_tools
         self.seen: list[list[ModelMessage]] = []
         self.tools_offered: list[list[str]] = []
+        self.instructions: list[str | None] = []
 
     def __call__(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         self.seen.append(list(messages))
         self.tools_offered.append([tool.name for tool in info.function_tools])
+        self.instructions.append(info.instructions)
         answer = self.responses[min(len(self.seen), len(self.responses)) - 1]
         if self.without_tools is not None and not info.function_tools:
             answer = self.without_tools
@@ -66,6 +75,15 @@ class Script:
     def model(self) -> FunctionModel:
         """A `FunctionModel` that answers through this script, streamed or not."""
         return FunctionModel(self, stream_function=self.stream)
+
+    def prompt(self, request: int = 0) -> str:
+        """The user prompt of the request at index `request`."""
+        return next(
+            part.content
+            for message in self.seen[request]
+            for part in message.parts
+            if isinstance(part, UserPromptPart) and isinstance(part.content, str)
+        )
 
     def tool_returns(self) -> list[str]:
         """The text of each tool return the model saw, in order."""

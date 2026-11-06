@@ -1,0 +1,26 @@
+{
+ "issue": 3410,
+ "pull": 3435,
+ "change": "3410-the-stage-gate-proves-a-negative",
+ "merge_commit": "48be41b4146fe3488afcfac5f7c2b7190692a44f",
+ "base_commit": "89682e41118206c680e8d2273903d00d61ae140b",
+ "title": "docs(openspec): plan #3410 Refuse a negative search that proves nothing",
+ "verdict": "good",
+ "scores": {
+  "premise_ok": 4,
+  "fidelity": 4,
+  "task_quality": 4,
+  "rule_compliance": 4,
+  "accuracy": 4
+ },
+ "state": "merged",
+ "summary": "The plan of this case is the merged plan of pull request #3435, with the replay task that the stage job asks since #3331. Its group 4 adds the case of a move of the stage modules and changes only fixture files and a test file, and it delivers its criterion: group 3 adds the `search_evidence` field to `CaseFacts` before it. It has no known defect.",
+ "twin_of": "3410-the-eval-field-group-is-dropped",
+ "notes": [
+  "Group 3, which adds the `search_evidence` field, is the group that the twin lacks.",
+  "The merged plan came before the rule of #3331. The last group has the added task to run `uv run devops roadmap eval stage --replay` with the score before and after, so that the gate `paths` accepts the plan. The twin has the same task.",
+  "Group 2 has the test that builds the plan's own `StageProposal` and asserts that `content_problems` returns no problem, which the rule of #3404 asks. The twin has the same test.",
+  "The scores are set by hand. No review scored this plan."
+ ],
+ "defects": []
+}

@@ -130,8 +130,8 @@
           "editor.defaultFormatter": "rust-lang.rust-analyzer"
         },
         "rust-analyzer.check.command": "clippy",
-        "ollama.endpoint": "http://ollama-16gib.llm.svc.cluster.local:11434",
-        "ollama.model": "gpt-oss:20b"
+        "ollama.endpoint": "http://ollama-48gib.llm.svc.cluster.local:11434",
+        "ollama.model": "qwen3.8:27b"
       }
     },
     "antigravity": {

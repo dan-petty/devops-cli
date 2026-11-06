@@ -289,6 +289,39 @@ def test_a_summary_with_a_handle_has_it_in_a_code_span_so_that_the_title_pings_n
     )
 
 
+def test_a_staging_title_shows_a_word_in_angle_brackets_as_it_is() -> None:
+    """A title is plain text: GitHub shows `<section>` as text and not as a tag, and the squash
+    commit takes the title as it is. An entity would show as the text `&lt;` (#3504)."""
+    assert staging_title(3, "Reject <section>.<option> keys") == (
+        "docs(openspec): plan #3 Reject <section>.<option> keys"
+    )
+
+
+def test_the_delivery_title_shows_a_word_in_angle_brackets_as_it_is() -> None:
+    assert delivery_title("fix(config): reject <section>.<option> keys", DECLARED) == (
+        "fix(config): reject <section>.<option> keys"
+    )
+
+
+def test_a_title_still_turns_the_opener_of_a_comment_into_an_entity() -> None:
+    """The text of an item stop puts the title in a comment, and the job finds the record block
+    in the raw text of the comment (#2478, #3504)."""
+    assert (
+        staging_title(3, "Block <!-- hidden"),
+        delivery_title("fix(config): block <!-- hidden", DECLARED),
+    ) == ("docs(openspec): plan #3 Block &lt;!-- hidden", "fix(config): block &lt;!-- hidden")
+
+
+def test_a_summary_with_words_in_angle_brackets_fits_as_the_check_counts_it() -> None:
+    """The check `Semantic PR title` counts the characters of the title that GitHub shows, so a
+    word in angle brackets costs its own length and not three more for an entity (#3504)."""
+    summary = "a" * (stage_summary_limit() - len(" <b>")) + " <b>"
+
+    title = staging_title(LARGEST_NUMBER, make_stage_proposal(summary=summary).summary)
+
+    assert (title.endswith(summary), title_problems(title, DECLARED)) == (True, [])
+
+
 @pytest.mark.parametrize(
     ("kind", "label", "branch_type"),
     [("bug", "type/bug", "fix"), ("feature", "type/feature", "feat")],

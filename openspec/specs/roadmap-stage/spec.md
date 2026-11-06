@@ -28,10 +28,10 @@ Whatever the filter says, the job SHALL stage an item only when its Status is Re
 - **THEN** the plan holds only the Ready bug, and it leaves out the other two and names their Status
 
 ### Requirement: The job leaves out the items it must not stage
-The job SHALL leave out an item that is not Ready, has the label `needs-split`, has an untrusted author, or depends on an open issue. It SHALL leave out a held item: `origin` or a worktree of the clone has a branch `<type>/<issue>-<slug>` for it. It SHALL leave out an item whose plan is on `origin/<default branch>` or whose change is archived there, matched by the issue number only. The plan SHALL name each item it leaves out and say why.
+The job SHALL leave out an item that is not Ready, has the label `needs-split`, fails the check of `roadmap-author-trust`, or depends on an open issue. It SHALL leave out a held item: `origin` or a worktree of the clone has a branch `<type>/<issue>-<slug>` for it. It SHALL leave out an item whose plan is on `origin/<default branch>` or whose change is archived there, matched by the issue number only. The plan SHALL name each item it leaves out and say why.
 
 #### Scenario: Items that are left out
-- **WHEN** the filter names a Blocked item, an item with `needs-split`, an item opened by an account with no write access, an item that depends on an open issue, and an item with a pushed branch
+- **WHEN** the filter names a Blocked item, an item with `needs-split`, an item opened by an account with no write access that the jobs do not trust, an item of a bot that no review approved, an item that depends on an open issue, and an item with a pushed branch
 - **THEN** the plan stages none of them and gives one reason for each
 
 #### Scenario: The plan is on the default branch and the branch is gone
@@ -750,11 +750,11 @@ The comment of an item that the toolbox planned SHALL report all plan runs of th
 - **THEN** the comment holds the masked text and not the secret
 
 ### Requirement: A verification pass follows the gates
-When the caller gives a verifier, the planner SHALL make one verification call for each plan after the plan passes `check_proposal` and `validate_change`, and before the job opens the draft pull request. The verifier SHALL be the client of the task slot `ai.tasks.verification`. The request SHALL hold the issue, the plan, and the capped start of each file that the plan cites. The pass SHALL NOT merge a pull request and SHALL NOT mark one ready.
+When the caller gives a verifier, the planner SHALL run one verification for each plan after the plan passes `check_proposal` and `validate_change`, and before the job opens the draft pull request. The verifier SHALL be an agent of the task slot `ai.tasks.verification` with the read-only tools of the toolset `roadmap.stage.toolset`. Its request SHALL hold the issue, the plan and the capped start of each file that the plan cites. The pass SHALL NOT merge a pull request or mark one ready.
 
 #### Scenario: A plan that passes the gates
 - **WHEN** a plan passes the gates and the verifier finds nothing
-- **THEN** the verifier gets one request with the issue, the plan and the cited files, and the job opens the draft pull request
+- **THEN** the verifier runs once with a request that holds the issue, the plan and the cited files, and no message of the planner, and the job opens the draft pull request
 
 #### Scenario: A long cited file
 - **WHEN** a plan cites a file with more tokens than `CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS`
@@ -779,20 +779,28 @@ A verification reply SHALL hold findings, and each finding SHALL have a `type` t
 - **WHEN** the prompt of the pass is read
 - **THEN** it names each of the nine types and no other type
 
-### Requirement: An evidence-backed finding returns the plan once
-A finding of type `missing_path`, `false_premise` or `ignores_existing_code` whose quote is in the issue, the plan or a cited file SHALL return the plan to the planner once, with the finding as the problem. The revised plan SHALL pass the gates and the verification again. The planner SHALL NOT return a plan for a second time.
+### Requirement: An evidence-backed finding returns the plan at most twice
+A finding of type `missing_path`, `false_premise`, `ignores_existing_code`, `task_order` or `verify_form` whose quote is in the issue, the plan, a cited file or a tool answer of the run SHALL return the plan to the planner, with each open finding of the round as the problem. The revised plan SHALL pass the gates and the verification again, at most `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times, which is two.
 
 #### Scenario: A false premise with a quote
 - **WHEN** the verifier returns a `false_premise` finding whose quote is in the issue
 - **THEN** the planner gets a second request with the finding as `problem` and the first plan as `previous`, and the job opens the draft pull request with the revised plan
 
 #### Scenario: A quote that is not in the input
-- **WHEN** the verifier returns a `false_premise` finding whose quote is in none of the issue, the plan and the cited files
+- **WHEN** the verifier returns a `false_premise` finding whose quote is in none of the issue, the plan, the cited files and the tool answers of the run
 - **THEN** the planner gets no second request and the finding goes into the comment
 
 #### Scenario: The revised plan has a finding too
-- **WHEN** the revised plan gets a `missing_path` finding with a quote
-- **THEN** the planner makes no third request and the finding goes into the comment
+- **WHEN** the first revised plan gets a `missing_path` finding with a quote
+- **THEN** the planner gets a second repair request with the finding as `problem`
+
+#### Scenario: A task order finding returns the plan
+- **WHEN** the verifier returns a `task_order` finding whose quote is in the plan
+- **THEN** the planner gets a second request with the finding as `problem`
+
+#### Scenario: A quote from a tool answer
+- **WHEN** the verifier reads a line past the cap of a cited file with a tool, and returns an `ignores_existing_code` finding that quotes that line
+- **THEN** the planner gets a repair request with the finding as `problem`
 
 ### Requirement: Other findings go into the comment
 The job SHALL list each finding that does not return the plan in the comment that names the draft pull request, with its type, place, problem and quote. The text of a finding SHALL be on one line, with a handle, a link or a reference to another repository in a code span. The job SHALL open the draft pull request.
@@ -1364,7 +1372,7 @@ The stage job SHALL refuse an item whose issue title has a Conventional Commit t
 - **THEN** The stage job leaves the item out and its reason names the missing type, not the length of the summary
 
 ### Requirement: An open finding keeps the plan in draft
-When the verification pass returns a finding that has a quote in its input and a defect type of `missing_path`, `false_premise`, `ignores_existing_code`, `spec_delta_wrong` or reports a placeholder, the stage SHALL keep the plan pull request in draft, apply the label `plan/needs-fix` to it, and put those findings at the top of the stage comment.
+When the last review of a plan returns a finding that has a quote in its input or in a tool answer of the run and a defect type of `missing_path`, `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or `criterion_dropped`, or a finding that reports a placeholder with a quote in its request, the stage SHALL keep the plan pull request in draft, apply the label `plan/needs-fix` to it, and put those findings at the top of the stage comment.
 
 #### Scenario: A placeholder finding from a fake client
 - **WHEN** The fake verification client returns a placeholder finding whose quote is in the input.
@@ -1377,6 +1385,26 @@ When the verification pass returns a finding that has a quote in its input and a
 #### Scenario: A later clean round clears the label
 - **WHEN** A stage round verifies a plan that holds `plan/needs-fix` and returns no open finding.
 - **THEN** The stage removes the label from the pull request.
+
+#### Scenario: An open task order finding
+- **WHEN** The last review returns a `task_order` finding whose quote is in the input.
+- **THEN** The plan pull request is a draft and it holds the label `plan/needs-fix`.
+
+#### Scenario: A placeholder only in a tool answer
+- **WHEN** The verifier reports a placeholder whose quote is in a tool answer and not in its request.
+- **THEN** The finding is not open.
+
+#### Scenario: A quoted dropped criterion finding is open
+- **WHEN** A verification reply holds a `criterion_dropped` finding whose quote is in the issue.
+- **THEN** `open_findings` returns the finding.
+
+#### Scenario: An unquoted dropped criterion finding is advice
+- **WHEN** A verification reply holds a `criterion_dropped` finding whose quote is in none of the issue, the plan and the cited files.
+- **THEN** `open_findings` returns no finding.
+
+#### Scenario: A test-only group with no code
+- **WHEN** A group of a plan changes only a fixture file and a test file, no group changes the code that its criterion needs, and the verification reply holds a `criterion_dropped` finding that quotes the criterion of the issue.
+- **THEN** `open_findings` returns the finding and `returning` returns none.
 
 ### Requirement: A plan with an open finding is a failed attempt
 An item whose plan carries an open finding SHALL NOT count as a staged plan in the round budget of the Service, and its result SHALL be recorded as a failed attempt of failure class `plan_defect`.
@@ -1664,7 +1692,7 @@ A test SHALL build the first request of a refine investigation at a window of 65
 - **THEN** the test prints the count and the limit, and the count is under 49152 tokens
 
 ### Requirement: A setting names the limit on Planned items
-The setting `roadmap.stage.planned_limit` SHALL be the count of open Planned items at which the stage job plans no new item. It SHALL have the variable `DEVOPS_CLI_ROADMAP_STAGE_PLANNED_LIMIT`, the default 20 and a least value of 1. The example ConfigMap of the Service SHALL hold the default.
+The setting `roadmap.stage.planned_limit` SHALL be the count of open Planned items at which the stage job plans only items with the priority `P0-Critical` or `P1-High`. It SHALL have the variable `DEVOPS_CLI_ROADMAP_STAGE_PLANNED_LIMIT`, the default 20 and a least value of 1. The example ConfigMap of the Service SHALL hold the default.
 
 #### Scenario: The default
 - **WHEN** no config file and no variable sets `roadmap.stage.planned_limit`
@@ -1678,36 +1706,40 @@ The setting `roadmap.stage.planned_limit` SHALL be the count of open Planned ite
 - **WHEN** the config file sets `roadmap.stage.planned_limit` to 0
 - **THEN** loading the settings fails
 
-### Requirement: The stage job plans no new item at the limit on Planned items
-When the count of open Planned items is at `roadmap.stage.planned_limit` or over it, the stage job SHALL take no item. It SHALL leave out each item that passes every other rule, with a reason that names the count and the setting. An item with the priority `P0-Critical` SHALL pass the limit, and so SHALL the item that `--item` names. The count SHALL hold open items with the Status Planned only. The limit SHALL NOT apply to the filing of issues.
+### Requirement: The stage job plans only P0 and P1 items at the limit on Planned items
+When the count of open Planned items is at `roadmap.stage.planned_limit` or over it, the stage job SHALL take only an item with the priority `P0-Critical` or `P1-High`. It SHALL leave out each other item that passes every other rule, with a reason that names the count, the setting and the two priorities. The item that `--item` names SHALL pass the limit. The count SHALL hold open items with the Status Planned only. The limit SHALL NOT apply to the filing of issues.
 
 #### Scenario: At the limit
-- **WHEN** 2 items are Planned, the limit is 2, and a Ready item passes every other rule
-- **THEN** the job takes no item, and the reason of the Ready item names the count 2 and the setting `roadmap.stage.planned_limit`
+- **WHEN** 2 items are Planned, the limit is 2, and a Ready `P2-Medium` item passes every other rule
+- **THEN** the job takes no item, and the reason of the Ready item names the count 2, the setting `roadmap.stage.planned_limit` and `P0-Critical or P1-High`
 
 #### Scenario: Under the limit
 - **WHEN** 1 item is Planned, the limit is 2, and two Ready items pass every other rule
 - **THEN** the job takes both items
 
 #### Scenario: An item of the highest priority
-- **WHEN** 2 items are Planned, the limit is 2, and a Ready `P0-Critical` item and a Ready `P1-High` item pass every other rule
-- **THEN** the job takes the `P0-Critical` item and leaves out the `P1-High` item with the reason of the limit
+- **WHEN** 2 items are Planned, the limit is 2, and a Ready `P0-Critical` item and a Ready `P2-Medium` item pass every other rule
+- **THEN** the job takes the `P0-Critical` item and leaves out the `P2-Medium` item with the reason of the limit
+
+#### Scenario: The priorities that pass
+- **WHEN** 2 items are Planned, the limit is 2, and a Ready `P0-Critical` item, a Ready `P1-High` item, a Ready `P2-Medium` item and a Ready `P3-Low` item pass every other rule
+- **THEN** the job takes the `P0-Critical` item and the `P1-High` item, and leaves out the other two with the reason of the limit
 
 #### Scenario: A closed item and an item of another Status
 - **WHEN** 1 open item is Planned, 1 closed item is Planned, 1 item is Staged, and the limit is 2
 - **THEN** the count is 1 and the job takes a Ready item
 
 #### Scenario: A named item
-- **WHEN** 2 items are Planned, the limit is 2, and `--item` names a Ready item
+- **WHEN** 2 items are Planned, the limit is 2, and `--item` names a Ready `P2-Medium` item
 - **THEN** the job takes that item
 
 #### Scenario: Another rule fails first
-- **WHEN** 2 items are Planned, the limit is 2, and a Ready item is claimed by a person
+- **WHEN** 2 items are Planned, the limit is 2, and a Ready `P2-Medium` item is claimed by a person
 - **THEN** the reason of that item is the claim, not the limit
 
 #### Scenario: The command at the limit
-- **WHEN** 1 item is Planned, the setting is 1, and `devops roadmap stage --plan` runs with Ready items
-- **THEN** the plan holds no branch, makes no model call, and lists each Ready item as left out with the reason of the limit
+- **WHEN** 1 item is Planned, the setting is 1, and `devops roadmap stage --plan` runs with a Ready `P2-Medium` item
+- **THEN** the plan holds no branch, makes no model call, and lists the Ready item as left out with the reason of the limit
 
 ### Requirement: The stage prompt names a sample file by a bare name
 The stage prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` SHALL tell the planner to write a sample file that a test writes at run time, and that no group creates, as a bare name with no folder.
@@ -1758,7 +1790,7 @@ The stage row SHALL fail a round with the items that failed only when the round 
 - **THEN** each round fails and the row is suspended
 
 ### Requirement: The stage reply has no return path
-The reply schema of the stage job SHALL hold no key `premise_failed`, and SHALL require the keys `summary`, `pull_request_body`, `why`, `what_changes`, `skip_specs`, `feasibility`, `existing_tool` and `groups`. A reply that breaks the schema SHALL go back to the model once, and a second such reply SHALL fail the item with no change to its Status and no comment. The job SHALL have no outcome that returns an item to New.
+The reply schema of the stage job SHALL hold no key `premise_failed`, and SHALL require the keys `summary`, `pull_request_body`, `why`, `what_changes`, `skip_specs`, `feasibility`, `existing_tool` and `groups`. A reply that breaks the schema SHALL go back to the model once, and a second such reply SHALL fail the item with no change to its Status and no comment. No reply of the model SHALL return an item to New. The job itself returns an item to New only where another requirement says so.
 
 #### Scenario: A reply with only premise_failed
 - **WHEN** a reply is `{"premise_failed": "x"}`
@@ -2021,3 +2053,324 @@ The staging prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` MUST state 
 #### Scenario: Prompt names the self-acceptance test
 - **WHEN** A test loads the prompt with `load_task_prompt`.
 - **THEN** The prompt text contains `StageProposal`, `content_problems` and the self-acceptance test rule.
+
+### Requirement: The stage job checks each literal of a negative search
+The stage job SHALL record the staged hits of each `-e` literal of a negative-search verify command, and check_proposal SHALL apply the rules of the negative search to each literal, the rule of the staged hit and the rule of the created module alike.
+
+#### Scenario: One literal has no staged hit
+- **WHEN** A group gives the verify command `! git grep -n -e old_name -e gone_name -- src/ tests/`, and the staged tree holds `old_name` but no `gone_name`.
+- **THEN** check_proposal returns one problem that names the literal `gone_name` and says that the search already passes before the change.
+
+#### Scenario: A move group names a module with a second literal
+- **WHEN** A move group for prefix `stage` gives the verify command `! git grep -n -e devops_cli.roadmap.stage_ready -e devops_cli.roadmap.stage -- src/ tests/`.
+- **THEN** check_proposal returns two problems: the problem of the move and the problem of the created module, and each names the literal `devops_cli.roadmap.stage`.
+
+### Requirement: A plan run counts each tool call by outcome
+A plan run of the toolbox SHALL add 1 to `devops_cli_roadmap_tool_calls_total` for each tool call of the toolset. The labels SHALL be `tool`, `row` (`stage`), `toolset` (`base` or `extended`) and `outcome` (`ok`, `empty` or `error`). A call that no tool answers SHALL count as `error`.
+
+#### Scenario: One call of each outcome
+- **WHEN** a plan run calls `read_file` for a file with text, calls `search_code` for a text that no file holds, and calls `read_file` for a path outside the repository
+- **THEN** the counter holds one point for each of the outcomes `ok`, `empty` and `error`, and each point has the labels `tool`, `row` `stage` and `toolset`
+
+#### Scenario: A call that no tool answers
+- **WHEN** a tool call is rejected, the run no longer offers the tool, or a limit stops the call
+- **THEN** the call counts with `outcome` `error`
+
+#### Scenario: A tool that the toolset does not offer
+- **WHEN** the model calls a name that is no tool of the toolset
+- **THEN** the counter holds no point with that name as `tool`
+
+### Requirement: The tool that answers a call sets its outcome
+Each tool of the stage planner SHALL set the `outcome` of its answer: `ok` for the result that the call asked for, `empty` for a call that ran and found nothing, and `error` for a call that could not run. A tool that sets no outcome SHALL give `ok`, or `empty` for an answer with no non-whitespace character.
+
+#### Scenario: Each tool sets its own outcome
+- **WHEN** a test calls each tool of the toolset `extended` that can find nothing with an argument that finds nothing, and each tool that can refuse with an argument that it refuses
+- **THEN** the answer of each first call has the outcome `empty` and the answer of each second call has the outcome `error`
+
+#### Scenario: A tool that sets no outcome
+- **WHEN** a tool of a run answers with text, and a tool answers with white space only, and neither sets an outcome
+- **THEN** the first call counts as `ok` and the second as `empty`
+
+### Requirement: A plan run measures the size of each answer
+A plan run SHALL observe `devops_cli_roadmap_tool_answer_chars` once for each tool call that got an answer, with the labels `tool`, `row` and `toolset`. The value SHALL be the count of characters of the answer after the cut of the tool. A call with no answer SHALL add no observation. The text of an answer with the outcome `error` is an answer.
+
+#### Scenario: A long answer is cut
+- **WHEN** a plan run reads a file of 300 long lines and the tool cuts the answer
+- **THEN** the histogram observes the length of the cut answer that the model read, and not the length of the file
+
+### Requirement: Each plan run gives every tool of its toolset a series
+A plan run SHALL add 0 to `devops_cli_roadmap_tool_calls_total` with `outcome` `ok` for each tool of its toolset, before its first model request.
+
+#### Scenario: A run that calls no tool
+- **WHEN** a plan run with the toolset `base` makes no tool call
+- **THEN** the counter holds nine points with the value 0 and `outcome` `ok`, one for each tool
+
+### Requirement: A plan run measures its calls and the limit that ended its tools
+A plan run that ends with a plan or a stop SHALL observe `devops_cli_roadmap_tool_calls_per_run` once, with its count of tool calls and the labels `row` and `toolset`. A run that raises because a model call failed SHALL observe no count of calls. A run that ends its tools on a limit SHALL add 1, once, to `devops_cli_roadmap_tool_limit_hits_total` with the labels `row`, `toolset` and `limit`. The `limit` SHALL be `calls`, `requests` or `window`.
+
+#### Scenario: The three limits
+- **WHEN** a plan run ends its tools because fewer calls are left than a turn needs, because one request is left, or because the messages fill the context window
+- **THEN** the limit counter holds one point with `limit` `calls`, `requests` or `window` in that order
+
+#### Scenario: A run stops at the call limit
+- **WHEN** a plan run makes calls until the request that offers no tool because the call budget is spent
+- **THEN** the histogram observes one run, and the limit counter holds one point with `limit` `calls`
+
+#### Scenario: A run fills the context window
+- **WHEN** a plan run reads a large file in each turn, with a context window of 12000 tokens
+- **THEN** the limit counter holds one point with `limit` `window`
+
+#### Scenario: One reply over the call limit
+- **WHEN** one reply of the model holds one more parallel tool call than `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS`
+- **THEN** the run fails, and the limit counter holds one point with `limit` `calls`
+
+#### Scenario: A run whose model call fails
+- **WHEN** the first call of a plan run is a tool call, and its second model request fails
+- **THEN** the counter of calls holds the first call, and the histogram of calls per run holds no observation
+
+### Requirement: The comment of a staged item counts the calls of each tool
+The comment of an item that the toolbox planned SHALL add one line after the list of tool calls. The line SHALL name each tool that the plan runs called, in alphabetical order, with its count of calls and its count of empty answers, as `Tool calls: read_file=3 (empty=0), search_code=2 (empty=1)`. The comment SHALL hold no such line when the plan runs made no tool call.
+
+#### Scenario: Two tools and one empty answer
+- **WHEN** a plan run calls `read_file` twice and `search_code` once for a text that no file holds
+- **THEN** the comment holds the line `Tool calls: read_file=2 (empty=0), search_code=1 (empty=1)`
+
+#### Scenario: An item with two plan runs
+- **WHEN** the first plan of an item is refused and each of the two plan runs calls `read_file` once
+- **THEN** the line of the comment holds `read_file=2 (empty=0)`
+
+#### Scenario: A run that made no tool call
+- **WHEN** a plan run makes no tool call
+- **THEN** the comment holds no line that starts with `Tool calls:`
+
+### Requirement: A git command that runs out of time is an error
+A tool of the stage planner whose git command runs out of time SHALL answer with the outcome `error` and a text that says so. It SHALL NOT answer that nothing was found.
+
+#### Scenario: Each tool that runs git
+- **WHEN** every git command of `search_code`, `list_files`, `read_file`, `git_log`, `git_show`, `callers` and `references` runs out of time
+- **THEN** each answer has the outcome `error`, and its text says that the command ran out of time
+
+### Requirement: The verification request fits the window of its task
+The request and the run of the verifier SHALL use the context window of the task `verification`. With its instructions, the request SHALL stay `CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS` tokens below the point where the run offers no more tools.
+
+#### Scenario: A request that does not fit the window
+- **WHEN** the cited files of a plan do not fit the limit of the window of the task `verification`
+- **THEN** the request keeps the cited files in plan order up to that limit, and drops the others
+
+#### Scenario: A full request gets the tools
+- **WHEN** the window of the task `verification` is 65536 tokens and a plan cites more files than fit
+- **THEN** the first request of the run is offered the read tools
+
+#### Scenario: The two tasks have different windows
+- **WHEN** the task `stage` has a window of 262144 tokens and the task `verification` a window of 12000 tokens
+- **THEN** the request of the verifier and the tool limit of its run follow the window of 12000 tokens
+
+### Requirement: The comment lists every finding of each repair round
+After the last repair round, the plan SHALL keep each open finding of the last review, and the comment SHALL list every finding of each round.
+
+#### Scenario: The second repair round still has a finding
+- **WHEN** the plan still has a return finding after the second repair round
+- **THEN** the planner makes no further request, the job keeps the draft with the label `plan/needs-fix`, and the issue receives a comment with the findings
+
+#### Scenario: The comment lists each repair round
+- **WHEN** the verifier returns a return finding on each of the first two reviews, and no finding on the third
+- **THEN** the planner makes two repair requests, and the comment of the item lists the two return findings
+
+#### Scenario: A mixed first round
+- **WHEN** the first review returns a `false_premise`, a `spec_delta_wrong` and a `contrived_test` finding with quotes, and the second review finds nothing
+- **THEN** the planner gets the `false_premise` and the `spec_delta_wrong` finding, the comment lists all three, and no finding is open
+
+### Requirement: The verifier reads the repository with the read-only tools
+The verifier SHALL check the paths, the premise, the scope against the criteria, the task order, the spec delta and the verify commands of a plan with the read-only tools of the toolset of the run. It SHALL hold no tool that writes a file or runs a shell command. Each read of a verification run SHALL be recorded in the `RunTrace` of that run, and the comment of the staged item SHALL list each read with its path.
+
+#### Scenario: The tool set of the verifier
+- **WHEN** a verification run is built for a checkout and a commit with the toolset `base`
+- **THEN** its tools are exactly the nine read tools of the toolset `base`
+
+#### Scenario: A read is listed in the comment
+- **WHEN** the verifier reads `src/devops_cli/roadmap/stage_verify.py` during a run
+- **THEN** the trace of the item holds that read, and the comment of the staged item lists the path
+
+### Requirement: A review run has its own row in the metrics of the tool calls
+A verification run SHALL send the metrics of its tool calls with the label `row` value `stage_verify`, and a plan run SHALL keep the value `stage`, so the reads of the verifier do not hide a tool that the planner does not use.
+
+#### Scenario: A verification run calls a tool
+- **WHEN** a verification run reads a file
+- **THEN** `devops_cli_roadmap_tool_calls_total` holds that call with `row` `stage_verify`, and no point with `row` `stage`
+
+### Requirement: A review run that stops names itself
+When a verification run ends with no reply, the failure of the item SHALL name the verification run and SHALL NOT say that no plan was given.
+
+#### Scenario: A verification run hits a limit
+- **WHEN** the replies of a verification run pass `CONST_ROADMAP_STAGE_TOOL_MAX_CALLS`
+- **THEN** the job raises `RoadmapStageError` with the message of a stopped verification run
+
+### Requirement: A title shows a tag as text
+`staging_title` and `delivery_title` SHALL keep each tag of the summary as it is, because a title is plain text. GitHub shows a tag word in a title as text, and the check `Semantic PR title` counts its characters. They SHALL still change the `<` of a comment opener into `&lt;`. They SHALL still put a handle or a link in a code span. The schema SHALL count the summary as the title shows it.
+
+#### Scenario: A word in angle brackets in a title
+- **WHEN** `staging_title` receives item 3 and the summary `Reject <section>.<option> keys`, and `delivery_title` receives `fix(config): reject <section>.<option> keys`
+- **THEN** the titles are `docs(openspec): plan #3 Reject <section>.<option> keys` and `fix(config): reject <section>.<option> keys`
+
+#### Scenario: A comment opener in a title
+- **WHEN** `staging_title` receives item 3 and the summary `Block <!-- hidden`
+- **THEN** the title is `docs(openspec): plan #3 Block &lt;!-- hidden`
+
+#### Scenario: A summary of the most characters with a tag
+- **WHEN** the model gives a summary of the most characters that the schema accepts, and the summary ends with ` <b>`
+- **THEN** the schema accepts the reply, and the title passes the form check
+
+### Requirement: A plan that changes the stage prompt or a stage gate gives the eval replay task
+The stage job SHALL refuse a plan whose groups change `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage_form.py`, `src/devops_cli/roadmap/stage_paths.py`, `src/devops_cli/roadmap/stage_criteria.py` or `src/devops_cli/roadmap/stage_eval_gates.py` unless one group task holds the command `uv run devops roadmap eval stage --replay` and the words `score`, `before` and `after`.
+
+#### Scenario: Prompt change without a replay task
+- **WHEN** A plan changes `src/devops_cli/ai/tasks/roadmap_stage_change.md` and no group task holds the replay command with the before and after score.
+- **THEN** `check_proposal` returns a problem that names the changed path and the replay command.
+
+#### Scenario: Gate change without a replay task
+- **WHEN** A plan changes `src/devops_cli/roadmap/stage_eval_gates.py` and no group task holds the replay command with the before and after score.
+- **THEN** `check_proposal` returns a problem that names the changed path and the replay command.
+
+#### Scenario: Check module change without a replay task
+- **WHEN** A plan changes `src/devops_cli/roadmap/stage_paths.py` and no group task holds the replay command with the before and after score.
+- **THEN** `check_proposal` returns a problem that names the changed path and the replay command.
+
+#### Scenario: Replay command without the score
+- **WHEN** A plan changes `src/devops_cli/roadmap/stage_change.py` and one group task holds `uv run devops roadmap eval stage --replay` but not the words `score`, `before` and `after`.
+- **THEN** `check_proposal` returns a problem that asks for the before and after score.
+
+#### Scenario: Trigger path with a replay task
+- **WHEN** A plan changes `src/devops_cli/roadmap/stage_change.py` and one group task holds `uv run devops roadmap eval stage --replay`, `score`, `before` and `after`.
+- **THEN** `check_proposal` returns no problem for the eval replay rule.
+
+#### Scenario: Unrelated source change
+- **WHEN** A plan changes only `src/devops_cli/roadmap/stage.py`.
+- **THEN** `check_proposal` returns no problem for the eval replay rule.
+
+### Requirement: A plan pull request closed with no merge leaves a comment on the issue
+In each run the job SHALL read the pull request that `stage.pr` names for each open New or Ready item whose plan is not on the default branch. For a pull request that is closed and not merged, the job SHALL post one comment on the issue with the marker of the stage job, the marker of a rejected plan, the number of the pull request and the reason. For an open or merged pull request it SHALL post none. With `--item` it SHALL read only the pull request of the named item.
+
+#### Scenario: The pull request is merged or open
+- **WHEN** the plan pull request of an item is merged, or is open
+- **THEN** the job posts no comment on the issue and writes no `stage.rejected`
+
+#### Scenario: The pull request closed with no merge
+- **WHEN** the plan pull request of a Ready item is closed and not merged
+- **THEN** the job posts one comment on the issue that holds both markers, the number of the pull request and the reason
+
+#### Scenario: The item is named
+- **WHEN** a person runs the job with `--item` for one item
+- **THEN** the job reads the pull request of that item and of no other item
+
+### Requirement: The reason is the last long comment of a person
+The reason SHALL be the text of the last comment on the closed pull request that has more than `EVIDENCE_MIN_CHARS` characters, that a person with write access wrote, and that the Service bot did not write. The job SHALL mask secrets in the reason and cut it to `CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS` tokens. When no comment qualifies, the comment on the issue SHALL say that no comment gives a reason, and the job SHALL still record the rejection.
+
+#### Scenario: The last comment is one word
+- **WHEN** a closed plan pull request holds a long comment of the owner and then the comment `rejected` of the owner
+- **THEN** the comment on the issue holds the long comment and not the word `rejected`
+
+#### Scenario: The newest long comment is not a reason
+- **WHEN** the newest long comment on a closed plan pull request was written by the Service bot or by an account with no write access
+- **THEN** the comment on the issue holds the newest long comment of a person with write access
+
+#### Scenario: No comment gives a reason
+- **WHEN** a closed plan pull request holds only the comment `rejected` of the owner
+- **THEN** the comment on the issue says that no comment gives a reason, and the job still records the rejection
+
+#### Scenario: The reason holds a secret
+- **WHEN** the last long comment holds a token
+- **THEN** the comment on the issue holds the masked text
+
+### Requirement: A rejected plan returns the item to New
+After the comment, the job SHALL clear every key of the stage record, write `stage.rejected` as JSON, and set a Ready item to New. An item that the same run stages again SHALL keep its Status. The job SHALL make each write for one item in the order: the delete of the branch, the comment, the Status with the record.
+
+#### Scenario: A Ready item with a rejected plan
+- **WHEN** a Ready item has a plan pull request that closed with no merge
+- **THEN** the item is New, its record holds no `stage.branch`, no `stage.pr` and no `stage.ready`, and `stage.rejected` holds the number of the pull request, the hash of the text that the plan came from, the time of the close and the files that the reason names
+
+#### Scenario: A person already returned the item
+- **WHEN** an item that is New has a plan pull request that closed with no merge
+- **THEN** the job posts the comment and writes the record, and the Status stays New
+
+#### Scenario: A named Ready item is planned again
+- **WHEN** a person runs the job with `--item` for a Ready item whose plan pull request closed with no merge, and the run stages a new plan for it
+- **THEN** the item is still Ready, the record holds the new `stage.pr`, and the record holds no `stage.rejected`
+
+### Requirement: A rejected plan loses its staged branch when only the Service wrote to it
+For a rejected plan the job SHALL delete the staged branch of the record with the rule of a closed item: every commit of the branch past `origin/<default branch>` has the identity of the session as author or is a clean merge. When any other commit exists, the job SHALL keep the branch and say so in the plan. The job SHALL delete the branch only while it ends at the commit that the plan judged. A branch that is gone needs no delete.
+
+#### Scenario: Only the Service wrote to the branch
+- **WHEN** a plan pull request closed with no merge and its branch holds one commit by the session identity
+- **THEN** the job deletes the branch from `origin`, and the item is no longer held by a pushed branch
+
+#### Scenario: A person added a commit
+- **WHEN** a plan pull request closed with no merge and its branch holds a commit by another author
+- **THEN** the job keeps the branch, the plan lists it with its reason, and the comment and the record are still written
+
+#### Scenario: A person pushed a commit after the plan
+- **WHEN** a person pushes a commit to the branch after the plan judged it and before the job deletes it
+- **THEN** the job keeps the branch, and the comment and the record are still written
+
+#### Scenario: A named run with the branch pushed
+- **WHEN** a person runs the job with `--item` for an item whose branch holds only commits of the session identity
+- **THEN** the run deletes the branch, and the same run can stage the item
+
+### Requirement: The job leaves out an item whose plan was rejected until its text or a named file changes
+The job SHALL leave out an item that holds a `stage.rejected` record, and the reason SHALL name the pull request. The leave-out SHALL end when the hash of the text outside the refine section differs from the recorded hash, or when a commit on the default branch changed a file of the record after the close. The recorded hash SHALL be `stage.text_hash`. The rule SHALL apply to the rejections that the same run finds. `--item` SHALL overrule the rule.
+
+#### Scenario: Nothing changed
+- **WHEN** an item is Ready again, holds a `stage.rejected` record, its text hashes as recorded and no named file changed
+- **THEN** the job leaves it out and the reason names the pull request
+
+#### Scenario: A person edits the text
+- **WHEN** a person edits the body of that item, and the pushed branch of the rejected plan was deleted
+- **THEN** the job takes the item and the branch of the closed pull request holds nothing
+
+#### Scenario: A named file changes
+- **WHEN** a commit on the default branch changed a file that the reason names, after the pull request closed
+- **THEN** the job takes the item
+
+#### Scenario: A person edited the text before the job read the closed pull request
+- **WHEN** a person edits the body of an item, and then closes its plan pull request, and the job reads the closed pull request in its next round
+- **THEN** the job takes the item after the rejection, and does not wait for a second edit
+
+#### Scenario: A refine round rewrites its section
+- **WHEN** refine writes its section in the body and the text outside the section is the same
+- **THEN** the job still leaves the item out
+
+#### Scenario: The item is named
+- **WHEN** a person runs the job with `--item` for that item
+- **THEN** the job takes the item
+
+#### Scenario: The same run finds the rejection
+- **WHEN** a run finds a rejected plan whose branch a person deleted before the run
+- **THEN** the run does not select the item
+
+### Requirement: The plan request holds the reason of a rejected plan
+The request of a plan call SHALL hold the key `rejected_plan` for an item whose record holds `stage.rejected`: the text of the newest comment that holds the marker of a rejected plan and that a trusted author wrote, without either marker and cut to `CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS` tokens. A request for any other item SHALL hold no such key. The prompt SHALL say that the key holds the reason of a person and that the plan must not state again the premise that the reason shows to be false.
+
+#### Scenario: An item that was rejected and then edited
+- **WHEN** the job plans an item that holds `stage.rejected` after a person edited its body
+- **THEN** the request holds `rejected_plan` with the reason and with no marker
+
+#### Scenario: A named item whose rejection the same run finds
+- **WHEN** a person runs the job with `--item` for an item whose plan pull request closed with no merge and the record has no `stage.rejected` yet
+- **THEN** the request holds `rejected_plan` with the reason that the run copies to the issue
+
+#### Scenario: An item that was never rejected
+- **WHEN** the job plans an item with no `stage.rejected` record
+- **THEN** the request holds no `rejected_plan` key
+
+### Requirement: A staged item records the hash of its text
+When the job stages an item, it SHALL record `stage.text_hash`: the hash of the text of the item outside the refine section that the plan came from. A rejected plan SHALL clear it, and a record that holds none SHALL take the hash of the text at the time of the read.
+
+#### Scenario: The job stages an item
+- **WHEN** the job stages a Ready item
+- **THEN** the record holds `stage.text_hash` with the hash of the body outside the refine section
+
+### Requirement: The verification prompt separates a dropped criterion from a test-only group that delivers its criterion
+The prompt of the verification pass SHALL define `criterion_dropped` for a criterion whose group changes only test files while no group of the plan changes the code or the data that the criterion needs, and SHALL say that a group which changes only test files and tests code of an earlier group is no `criterion_dropped`.
+
+#### Scenario: The prompt names the test-only group
+- **WHEN** The prompt of the verification pass is read.
+- **THEN** The line of `criterion_dropped` names a group that changes only test files, names the earlier group that changes the code, and says that such a group is no `criterion_dropped`.

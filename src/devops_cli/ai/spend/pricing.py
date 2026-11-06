@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 from devops_cli.ai.spend.models import ModelPricing
 from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_PROVIDER,
     CONST_GENAI_PRICES_LITELLM_PROVIDER,
     CONST_LOCAL_PROVIDER_NAMES,
     CONST_LOCAL_TRANSPORT_LABELS,
@@ -274,26 +275,34 @@ def _is_local_gateway_configured(settings: _SettingsOnce) -> bool:
 
 
 def is_local(
-    server: str | None = None, provider: str | None = None, served_by: str | None = None
+    server: str | None = None,
+    provider: str | None = None,
+    served_by: str | None = None,
+    served_model: str | None = None,
 ) -> bool:
     """Return True if the call ran on local hardware.
 
     `served_by` is the backend that served the call, as the LLM gateway names it in its reply
     (`ai/client/network.py` reads the header). When the reply names it, it decides: a hosted route
     behind a local gateway is hosted, and a local backend behind a gateway on a public host is
-    local (#1631). LiteLLM names the API base of a route only when it knows it, so a gateway
-    route sets `api_base`. When the reply names no backend, the provider and the server the call
-    was sent to decide. The call loads the settings at most once, and only for a host that its
-    address and its name do not decide (#1420).
+    local (#1631). LiteLLM names the API base of a route only when it knows it, so a local route
+    sets `api_base` and a hosted group sets none. So a gateway reply that names a deployment
+    model, `served_model`, and no backend is hosted, whatever host the gateway has (#3656). When
+    the reply names neither, the provider and the server the call was sent to decide. The call
+    loads the settings at most once, and only for a host that its address and its name do not
+    decide (#1420).
     """
     settings = _SettingsOnce()
     if served_by and served_by.strip():
         return _is_local_server(served_by, settings)
+    is_gateway = provider is not None and provider.strip().lower() == CONST_AI_GATEWAY_PROVIDER
+    if is_gateway and served_model and served_model.strip():
+        return False
     if _is_local_provider(provider):
         return True
     if _is_local_server(server, settings):
         return True
-    if provider and provider.strip().lower() == "gateway" and not server:
+    if is_gateway and not server:
         return _is_local_gateway_configured(settings)
     return False
 
@@ -584,7 +593,9 @@ class PricingRegistry:
         it and not at `model`, the route name that the client asked for, which genai-prices does
         not know. genai-prices takes the provider from the prefix of the reference (#2031).
         """
-        if is_local(server=server, provider=provider, served_by=served_by):
+        if is_local(
+            server=server, provider=provider, served_by=served_by, served_model=served_model
+        ):
             return RequestCost(0.0, CONST_PRICING_SOURCE_LOCAL)
         if served_model:
             model, provider = served_model, CONST_GENAI_PRICES_LITELLM_PROVIDER

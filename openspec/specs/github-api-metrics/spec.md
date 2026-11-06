@@ -44,7 +44,7 @@ The dashboard `devops-cli.json` SHALL have the row "GitHub API" with a panel for
 #### Scenario: The GitHub API row
 - **WHEN** `k8s/monitoring/dashboards/devops-cli.json` is read
 - **THEN** the row "GitHub API" holds the panels "GitHub Requests by Resource", "GitHub Throttles by Resource", "GitHub Throttle Wait by Resource" and "GitHub GraphQL Points"
-- **AND** they query `sum by (resource) (increase(devops_cli_github_requests_total[1h]))`, `histogram_count(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds[1h])))`, `histogram_sum(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds[1h])))` and `sum(increase(devops_cli_github_graphql_points_total[1h])) or vector(0)`
+- **AND** they query `sum by (resource) (increase(devops_cli_github_requests_total{job=~"$job"}[1h]))`, `histogram_count(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[1h])))`, `histogram_sum(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[1h])))` and `sum(increase(devops_cli_github_graphql_points_total{job=~"$job"}[1h])) or vector(0)`
 
 ### Requirement: Each paced GitHub request names its method
 Each count of `devops_cli_github_requests_total` SHALL carry the label `method`, the HTTP method of the request. A GraphQL request SHALL count as a POST, and a gh command other than `gh api` SHALL count as a POST when it writes and a GET when it reads.
@@ -71,3 +71,23 @@ Each count of `devops_cli_github_requests_total` SHALL carry the labels `repo`, 
 #### Scenario: A round of a Service worker
 - **WHEN** a worker of the repository `example-org/repo1` runs a round with the rows `intake` and `refine`
 - **THEN** the round's own requests name `example-org/repo1` and the row `other`, and each row's requests name `example-org/repo1` and that row
+
+### Requirement: Each paced GitHub request names the HTTP status of its answer
+
+The request counter SHALL name the HTTP status of the answer to each paced GitHub request in its `status` label. A request that gets no answer, and a gh command, SHALL name the status `none`.
+
+#### Scenario: A 304 answer counts with its status
+- **WHEN** the GitHub session sends a conditional GET and GitHub answers 304.
+- **THEN** the counter has one sample for that attempt with `status` `304`.
+
+#### Scenario: A gh command counts with status none
+- **WHEN** the rate limiter paces a gh command.
+- **THEN** the counter has one sample for that attempt with `status` `none`.
+
+### Requirement: The rate limiter logs its pace lines at DEBUG
+
+The rate limiter SHALL log each mandatory pause and each quota window reset at DEBUG level.
+
+#### Scenario: A mandatory pause is logged at DEBUG
+- **WHEN** the rate limiter delays a request for its quota.
+- **THEN** the pause record has level DEBUG, and no record of that pause has level INFO.

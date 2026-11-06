@@ -38,6 +38,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from itertools import islice
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -45,7 +46,6 @@ from typing import TYPE_CHECKING, Any
 from pydantic import TypeAdapter
 from pydantic import ValidationError as MalformedRecordError
 
-from devops_cli.ai.client import get_llm_client
 from devops_cli.ai.client.factory import get_task_model
 from devops_cli.config.constants import (
     CONST_GIT_CLI,
@@ -59,13 +59,18 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
     CONST_SERVICE_CAUSE_UNKNOWN,
     CONST_SERVICE_FAILURES_FILENAME,
+    CONST_SERVICE_JOB_RESULT_ERROR,
+    CONST_SERVICE_JOB_RESULT_STOPPED,
+    CONST_SERVICE_JOB_RESULT_SUCCESS,
     CONST_SERVICE_LANE_MODEL,
     CONST_SERVICE_LANE_STATUS,
     CONST_SERVICE_LANE_TRIAGE,
     CONST_SERVICE_METRIC_JOB_SUSPENDED,
+    CONST_SERVICE_METRIC_JOBS,
     CONST_SERVICE_SOURCE_POLL,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
@@ -135,6 +140,7 @@ from devops_cli.roadmap.stage_ready import mark_stage_ready
 from devops_cli.roadmap.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.status_sync import sync_statuses
 from devops_cli.roadmap.store import Change, ChangeKind, RoadmapStore
+from devops_cli.roadmap.trust import is_person_comment
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.server.service import (
     LaneJob,
@@ -570,7 +576,7 @@ def _run_stage_adapter(
         source=source,
         filters=parse_filters(()),
         model=ToolboxModel(get_task_model("stage")),
-        verifier=get_llm_client(task="verification"),
+        verifier=ToolboxModel(get_task_model("verification")),
     )
     applied = apply_stage(store, plan, source=source)
     emit_stage_results(plan, applied)
@@ -830,13 +836,19 @@ def run_scoped_update(
         CONST_ROADMAP_RUN_STATE_FILENAME,
         error_cls=GitOperationError,
     )
-    return update.runner(
-        store,
-        delivery,
-        repo_dir=schedule_path.parent,
-        now=now or datetime.now(UTC),
-        model=model,
-    )
+    try:
+        outcome = update.runner(
+            store,
+            delivery,
+            repo_dir=schedule_path.parent,
+            now=now or datetime.now(UTC),
+            model=model,
+        )
+    except Exception as exc:
+        _count_job(delivery.repo, update.lane, update.job, _failed_result(exc))
+        raise
+    _count_job(delivery.repo, update.lane, update.job, CONST_SERVICE_JOB_RESULT_SUCCESS)
+    return outcome
 
 
 def build_stub_table(
@@ -996,11 +1008,12 @@ class FailureLedger:
     """How many rounds in a row each roadmap job failed, and the input it failed on (#2161).
 
     A job that fails `limit` rounds in a row does not run again until its input is not the one it
-    failed on: a webhook trigger, or a change to an item the job reads. A poll alone brings no
-    new input, so a failing job stops costing GitHub requests at every round. A success clears
-    the job's record. With a `record`, the ledger is kept in that file at each change and read
-    back when the ledger is made, so a restart of the Service keeps it (#2474). The Service's
-    /metrics shows each job that failed its limit of rounds in a row (#2475).
+    failed on: a webhook trigger, a change to an item the job reads, or a comment of a person
+    (#2754). A poll alone brings no new input, so a failing job stops costing GitHub requests at
+    every round. A success clears the job's record. With a `record`, the ledger is kept in that
+    file at each change and read back when the ledger is made, so a restart of the Service keeps
+    it (#2474). The Service's /metrics shows each job that failed its limit of rounds in a row
+    (#2475).
 
     The ledger also holds the cause of each failed round, the class of its error, for the log
     line that suspends a job. The record keeps the causes, so a restart does not make them
@@ -1035,6 +1048,11 @@ class FailureLedger:
         with self._lock:
             rounds, failed_on = self._failed.get((repo, job), (0, None))
             return rounds >= self._limit and failed_on == current
+
+    def holds_failure(self, repo: str, job: str) -> bool:
+        """Whether `job` failed a round that no success has cleared since."""
+        with self._lock:
+            return (repo, job) in self._failed
 
     def failed(self, repo: str, job: str, current: str, cause: str) -> int:
         """Count a failed round on `current` with its `cause`; the rounds in a row, which
@@ -1094,22 +1112,103 @@ def service_state_dir(data_dir: Path | str | None = None) -> Path:
     return _resolve_data_dir(data_dir) / "roadmap"
 
 
+def _has_push(batch: Mapping[tuple[str, str, str], int]) -> bool:
+    """Whether the batch holds a trigger other than a poll, such as a webhook delivery."""
+    return any(key[0] != CONST_SERVICE_SOURCE_POLL for key in batch)
+
+
 def _round_input(
     changes: Sequence[Change],
     batch: Mapping[tuple[str, str, str], int],
     at: datetime,
     reads_changes: bool = True,
+    comment_at: datetime | None = None,
 ) -> str:
     """What the round's jobs read, as one digest a ledger record can keep: the changes since the
     oldest last success and, when the batch holds a trigger other than a poll, the time of the
     round, so such a trigger is new input to every job. A lane that reads no change has no input
     that a poll can change, so its input holds the hour of the round: a suspended row tries again
-    in a later hour, once its fault is fixed (#2757)."""
+    in a later hour, once its fault is fixed (#2757). A row that failed a round also holds
+    `comment_at`, when the newest comment of a person was made, so that person's answer is new
+    input for it (#2754). A row with no such comment has the digest it had before."""
     seen = [(change.kind.value, change.number, change.at.isoformat()) for change in changes]
-    pushed = any(key[0] != CONST_SERVICE_SOURCE_POLL for key in batch)
     hour = None if reads_changes else at.strftime("%Y-%m-%dT%H")
-    read = json.dumps([seen, at.isoformat() if pushed else None, hour])
-    return hashlib.sha256(read.encode("utf-8")).hexdigest()
+    parts: list[Any] = [seen, at.isoformat() if _has_push(batch) else None, hour]
+    if comment_at is not None:
+        parts.append(comment_at.isoformat())
+    return hashlib.sha256(json.dumps(parts).encode("utf-8")).hexdigest()
+
+
+def _row_inputs(
+    rows: Sequence[JobRow],
+    changes: Sequence[Change],
+    batch: Mapping[tuple[str, str, str], int],
+    at: datetime,
+    comment_stamps: Mapping[str, datetime],
+) -> dict[str, str]:
+    """The input of each row in the round: the input of the round, and for a row in
+    `comment_stamps` also the time of that comment of a person (#2754)."""
+    reads_changes = _lane_reads_changes(rows)
+    return {
+        row.name: _round_input(changes, batch, at, reads_changes, comment_stamps.get(row.name))
+        for row in rows
+    }
+
+
+_COMMENT_WINDOW = DEFAULT_GH_REST_PER_PAGE
+"""How many of the newest comments of a repository a round reads for a comment of a person: one
+page of the listing, so the read is one request (#2754)."""
+
+
+def _person_comment_stamps(
+    rows: Sequence[JobRow],
+    initially_due: Mapping[str, bool],
+    schedule: Mapping[str, datetime],
+    failures: FailureLedger,
+    batch: Mapping[tuple[str, str, str], int],
+    repo: str,
+    store: RoadmapStore,
+) -> dict[str, datetime]:
+    """For each row that may run in the round and failed a round before, when the newest comment
+    of a person was made, unless that comment is older than the row's last success: the new input
+    that a person's answer gives to a suspended row (#2754).
+
+    One read serves all those rows: the comments of the repository, newest first, from the oldest
+    last success among them (from the first comment when one never succeeded), up to the first
+    comment of a person. The read stops at the newest `_COMMENT_WINDOW` comments. A person's
+    comment that more comments than that have followed counts as no comment, so the row has the
+    input it had before and runs again once. A comment older than a row's own last success is no
+    input for it, so what a row holds never depends on the other rows that set the start of the
+    read.
+
+    The round reads nothing when a webhook started it, since the time of such a round is already
+    new input for every row, and when no row that may run failed a round. A read that fails
+    raises, as the read of the changes does."""
+    if _has_push(batch):
+        return {}
+    failed = [
+        row.name
+        for row in rows
+        if (initially_due[row.name] or row.cross_job_predicate is not None)
+        and failures.holds_failure(repo, row.name)
+    ]
+    if not failed:
+        return {}
+    lasts = {name: schedule.get(name) for name in failed}
+    known = [last for last in lasts.values() if last is not None]
+    since = min(known) if len(known) == len(lasts) else None
+    actor = _current_actor(store)
+    newest = next(
+        (
+            c.created_at
+            for c in islice(store.comments_since(since), _COMMENT_WINDOW)
+            if is_person_comment(c, actor)
+        ),
+        None,
+    )
+    if newest is None:
+        return {}
+    return {name: newest for name, last in lasts.items() if last is None or newest >= last}
 
 
 def _count_failure(
@@ -1146,6 +1245,23 @@ def _format_error_line(exc: BaseException) -> str:
     return mask_secrets(first)[:256]
 
 
+def _failed_result(exc: BaseException) -> str:
+    """The `result` of a job that ended with `exc`: a stop of the Service is no failure (#2753)."""
+    return (
+        CONST_SERVICE_JOB_RESULT_STOPPED if ended_by_stop(exc) else CONST_SERVICE_JOB_RESULT_ERROR
+    )
+
+
+def _count_job(repo: str, lane: str | None, row: str, result: str) -> None:
+    """Count one job that ended under its repository, lane, row and result (#3495). A run with
+    no lane, such as one of the command line, counts no job."""
+    if lane is not None:
+        GLOBAL_METRICS.increment_counter(
+            CONST_SERVICE_METRIC_JOBS,
+            labels={"repo": repo, "lane": lane, "row": row, "result": result},
+        )
+
+
 def _execute_due_rows(
     rows: Sequence[JobRow],
     initially_due: Mapping[str, bool],
@@ -1159,11 +1275,14 @@ def _execute_due_rows(
     current_time: datetime,
     clone_dirname: str,
     failures: FailureLedger,
+    lane: str | None,
+    comment_stamps: Mapping[str, datetime],
 ) -> tuple[str, ...]:
     """Execute all due jobs in order with failure tracking, the clone rows in `clone_dirname`.
     Each runner also gets the repository's data directory and the round's time. With the
     `failures` ledger, a job that failed its limit of rounds in a row on the same input does not
-    run (#2161). A refusal of the identity ends the round at once: no later job sends a
+    run (#2161). The input of a row in `comment_stamps` also holds the time of that comment of a
+    person (#2754). A refusal of the identity ends the round at once: no later job sends a
     request. Each row runs in the request scope of its name, so its GitHub requests count under
     it (#2475)."""
     succeeded_jobs: list[str] = []
@@ -1173,18 +1292,19 @@ def _execute_due_rows(
     clone_error: Exception | None = None
     clone_jobs: list[str] = []
     error_entries: list[tuple[list[str], Exception]] = []
-    current = _round_input(changes, active_batch, current_time, _lane_reads_changes(rows))
+    inputs = _row_inputs(rows, changes, active_batch, current_time, comment_stamps)
 
     for row in rows:
         is_due = initially_due[row.name] or (
             row.cross_job_predicate is not None and row.cross_job_predicate(outcomes)
         )
-        if not is_due or failures.suspended(repo, row.name, current):
+        if not is_due or failures.suspended(repo, row.name, inputs[row.name]):
             continue
 
         if row.needs_clone and clone_error is not None:
             failed_jobs.append(row.name)
             clone_jobs.append(row.name)
+            _count_job(repo, lane, row.name, _failed_result(clone_error))
             continue
 
         try:
@@ -1205,10 +1325,12 @@ def _execute_due_rows(
             succeeded_jobs.append(row.name)
             _record_success(schedule_path, row.name, current_time)
             failures.succeeded(repo, row.name)
+            _count_job(repo, lane, row.name, CONST_SERVICE_JOB_RESULT_SUCCESS)
         except Exception as exc:
             failed_jobs.append(row.name)
+            _count_job(repo, lane, row.name, _failed_result(exc))
             outcomes[row.name] = _outcome_of_failure(exc)
-            _count_failure(failures, repo, row.name, current, exc)
+            _count_failure(failures, repo, row.name, inputs[row.name], exc)
             if row.needs_clone and clone_path is None:
                 clone_error = exc
                 clone_jobs.append(row.name)
@@ -1244,12 +1366,15 @@ def run_due_jobs(
     now: datetime | None = None,
     clone_dirname: str = CONST_ROADMAP_RUN_CLONE_DIRNAME,
     failures: FailureLedger | None = None,
+    lane: str | None = None,
 ) -> tuple[str, ...]:
     """Evaluate and execute due roadmap jobs, the clone rows in `clone_dirname`.
 
     With no trigger in the batch, rows are judged on no changes, which reads nothing; a round
     whose rows are all not due reads no more than its changes. Each row is judged by
-    `schedule.json` as the round found it, and each success is written as it happens.
+    `schedule.json` as the round found it, and each success is written as it happens. When a row
+    that may run failed a round before, a round that only polls reads the newest comments of the
+    repository once, for a comment of a person is new input for such a row (#2754).
     """
     current_time = now or datetime.now(UTC)
     base_data = _resolve_data_dir(data_dir)
@@ -1275,6 +1400,10 @@ def run_due_jobs(
     if dry_run:
         return _simulate_dry_run(rows, initially_due)
 
+    ledger = failures or FailureLedger()
+    comment_stamps = _person_comment_stamps(
+        rows, initially_due, schedule, ledger, active_batch, repo, store
+    )
     return _execute_due_rows(
         rows,
         initially_due,
@@ -1287,7 +1416,9 @@ def run_due_jobs(
         schedule_path,
         current_time,
         clone_dirname,
-        failures or FailureLedger(),
+        ledger,
+        lane,
+        comment_stamps,
     )
 
 
@@ -1296,6 +1427,7 @@ def service_job(
     *,
     table: Sequence[JobRow],
     clone_dirname: str,
+    lane: str | None = None,
     failures: FailureLedger | None = None,
 ) -> None:
     """Service mode adapter that runs one lane's due roadmap jobs, `table`, in its clone
@@ -1312,6 +1444,7 @@ def service_job(
         table=table,
         clone_dirname=clone_dirname,
         failures=failures,
+        lane=lane,
     )
 
 
@@ -1325,18 +1458,21 @@ def service_jobs(state_dir: Path) -> Mapping[str, LaneJob]:
             service_job,
             table=STATUS_LANE_ROWS,
             clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME,
+            lane=CONST_SERVICE_LANE_STATUS,
             failures=failures,
         ),
         CONST_SERVICE_LANE_TRIAGE: partial(
             service_job,
             table=TRIAGE_LANE_ROWS,
             clone_dirname=CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
+            lane=CONST_SERVICE_LANE_TRIAGE,
             failures=failures,
         ),
         CONST_SERVICE_LANE_MODEL: partial(
             service_job,
             table=MODEL_LANE_ROWS,
             clone_dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
+            lane=CONST_SERVICE_LANE_MODEL,
             failures=failures,
         ),
     }

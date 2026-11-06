@@ -30,7 +30,9 @@ from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session, reset_github_session
+from devops_cli.telemetry.instruments import GITHUB_REQUESTS_TOTAL
 from tests.support.fakes.github import API, GitHubApiFake, github_json, quota_headers
+from tests.support.fakes.otlp import FakeCollector
 
 APP_SETTINGS = {"app_id": 1001, "installation_id": 42, "slug": "devops-roadmap"}
 BOT_LOGIN = "devops-roadmap[bot]"
@@ -368,3 +370,33 @@ def test_a_key_that_is_no_rsa_key_fails_before_any_request(
         "details": {"operation": "gh_auth_token"},
     }
     assert app_identity.requested == []
+
+
+def test_an_app_request_whose_token_is_refused_counts_once_with_status_none(
+    app_identity: GitHubApiFake, otlp: FakeCollector
+) -> None:
+    """The request waits its turn on the ledger before its token is minted. A refused mint still
+    counts the paced request with status none, and the refusal reaches the caller (#3497)."""
+    app_identity.route("POST", MINT, github_json({"message": "Bad credentials"}, status=401))
+
+    with pytest.raises(GitHubUnauthenticatedError) as raised:
+        get_github_session().rest("GET", "/user")
+
+    assert (
+        (type(raised.value), raised.value.error_code, raised.value.exit_code),
+        otlp.points(GITHUB_REQUESTS_TOTAL.name),
+    ) == (
+        (GitHubUnauthenticatedError, "GITHUB_UNAUTHENTICATED", 1),
+        [
+            (
+                {
+                    "resource": "core",
+                    "method": "GET",
+                    "status": "none",
+                    "repo": "other",
+                    "row": "other",
+                },
+                1.0,
+            )
+        ],
+    )

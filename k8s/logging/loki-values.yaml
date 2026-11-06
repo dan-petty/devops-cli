@@ -79,6 +79,15 @@ singleBinary:
     enabled: true
     size: 20Gi
     enableStatefulSetAutoDeletePVC: false
+  # local-path binds the volume on the node where the pod first runs, and the root disk of the
+  # control-plane node has the least free space (#1634; k8s/README.md, Local-Path Volume Placement).
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
 
 # Pipeline liveness comes from Alloy's loki_write_sent_entries_total series (#1131, #890),
 # not the chart's internal canary DaemonSet (#1133).

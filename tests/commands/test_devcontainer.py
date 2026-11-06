@@ -2497,9 +2497,9 @@ def test_devcontainer_ollama_endpoint_matches_gateway_service_and_port() -> None
         routed_svc in services,
         routed_svc.startswith(svc_name),
     ) == (
-        "http://ollama-16gib.llm.svc.cluster.local:11434",
-        "gpt-oss:20b",
-        "ollama-16gib",
+        "http://ollama-48gib.llm.svc.cluster.local:11434",
+        "qwen3.8:27b",
+        "ollama-48gib",
         11434,
         True,
         True,

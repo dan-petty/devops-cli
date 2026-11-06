@@ -36,8 +36,9 @@ import threading
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import date, datetime
 from http import HTTPStatus
+from pathlib import PurePosixPath
 from typing import Any, Protocol
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from pydantic import AliasPath, BaseModel, Field, TypeAdapter
 from pydantic import ValidationError as MalformedPayloadError
@@ -160,6 +161,7 @@ class _IssuePayload(BaseModel):
     milestone: str | None = Field(default=None, validation_alias=AliasPath("milestone", "title"))
     pull_request: dict[str, Any] | None = None
     author_association: str | None = None
+    author_login: str | None = Field(default=None, validation_alias=AliasPath("user", "login"))
     created_at: datetime | None = None
     updated_at: datetime | None = None
     closed_at: datetime | None = None
@@ -199,6 +201,7 @@ class _IssuePayload(BaseModel):
             milestone=self.milestone,
             pull_request=self.pull_request is not None,
             author_association=self.author_association,
+            author_login=self.author_login,
             created_at=self.created_at,
             updated_at=self.updated_at,
             closed_at=self.closed_at,
@@ -285,20 +288,39 @@ class _IssueEventPayload(BaseModel):
         )
 
 
+class _DirectoryEntryPayload(BaseModel):
+    """One entry of the contents answer for a directory: the path and the kind of the entry."""
+
+    path: str
+    type: str
+
+
 class _IsPrivatePayload(BaseModel):
     is_private: bool = Field(validation_alias=AliasPath("data", "repository", "isPrivate"))
+
+
+def _is_pull_request_url(url: str) -> bool:
+    """Whether `url`, the page of a comment, is on a pull request. GitHub gives
+    `https://github.com/<owner>/<repo>/pull/<number>#issuecomment-<id>` for such a comment and
+    `.../issues/<number>#issuecomment-<id>` for a comment on an issue. The `issue_url` field names
+    `issues/<number>` for both, so only this field tells them apart (#2754)."""
+    return PurePosixPath(urlsplit(url).path).parts[3:4] == ("pull",)
 
 
 class _CommentPayload(BaseModel):
     body: str = ""
     created_at: datetime
     author_association: str | None = None
+    author_login: str | None = Field(default=None, validation_alias=AliasPath("user", "login"))
+    html_url: str = ""
 
     def comment(self) -> IssueComment:
         return IssueComment(
             body=self.body,
             created_at=self.created_at,
             author_association=self.author_association,
+            author_login=self.author_login,
+            on_pull_request=_is_pull_request_url(self.html_url),
         )
 
 
@@ -365,6 +387,7 @@ _PULL = TypeAdapter(_PullPayload)
 _LABEL = TypeAdapter(_LabelPayload)
 _EVENT = TypeAdapter(_EventPayload)
 _ISSUE_EVENT = TypeAdapter(_IssueEventPayload)
+_DIRECTORY = TypeAdapter(list[_DirectoryEntryPayload])
 _IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
 _REPOSITORY_PAYLOAD = TypeAdapter(_RepositoryPayload)
 _RELEASE = TypeAdapter(_ReleasePayload)
@@ -373,6 +396,9 @@ _TIMELINE = TypeAdapter(_TimelinePayload)
 _WORKFLOW_RUN = TypeAdapter(_WorkflowRunPayload)
 _COMMITS = TypeAdapter(list[_CommitPayload])
 _ANY_OBJECT = TypeAdapter(dict[str, Any])
+# The `type` that the contents API gives an entry that is a file; a directory, a symlink and a
+# submodule have others.
+_FILE_ENTRY = "file"
 
 _REPOSITORY = (
     "query($owner: String!, $name: String!{params}) {{ "
@@ -505,6 +531,16 @@ def issue_events_endpoint(repo: str, number: int) -> str:
 
 def comments_endpoint(repo: str, number: Number) -> str:
     return f"repos/{repo}/issues/{number}/comments"
+
+
+def repository_comments_endpoint(repo: str, since: datetime | None) -> str:
+    """The REST listing of every comment on the issues and pull requests of `repo`, newest
+    created first, with only those changed at or after `since` when it is given. GitHub filters
+    `since` on the time a comment was last changed, not on the time it was created (#2754)."""
+    query = "sort=created&direction=desc"
+    if since is not None:
+        query += f"&since={as_utc(since):%Y-%m-%dT%H:%M:%SZ}"
+    return f"repos/{repo}/issues/comments?{query}"
 
 
 def milestone_edit_args(repo: str, number: Number, fields: Sequence[tuple[str, str]]) -> list[str]:
@@ -811,6 +847,14 @@ class GitHubRoadmapStore(RoadmapStore):
         )
         return [comment.comment() for comment in listing]
 
+    def comments_since(self, since: datetime | None) -> Iterator[IssueComment]:
+        """The comments of the repository, newest first, one page of 100 at a time as the caller
+        asks for them: a caller that stops at the first comment it wants reads no later page.
+        The session raises on a failed page, as it does for any listing (#2754)."""
+        path = listing_path(repository_comments_endpoint(self._repo, since))
+        for found in self._listing_session().paginate(path):
+            yield self._validate_entry(found, _COMMENT, "comments").comment()
+
     def path_changed_at(self, path: str) -> datetime | None:
         """When the newest commit on the default branch that changed `path` was made, or None
         when no commit changed it, read once for the store's life (#2005)."""
@@ -917,10 +961,22 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def repository_file(self, path: str, *, ref: str | None = None) -> str:
         """The raw text of `path` on `ref` through the contents API, raising when it cannot be read."""
+        return self._contents(path, ref)[0]
+
+    def repository_files(self, directory: str, *, ref: str | None = None) -> list[str]:
+        """The sorted paths of the files directly in `directory` on `ref`, from the same contents
+        request: GitHub answers a directory with a JSON array of its entries (#3505). A directory
+        that is not there raises as a missing file does, and a path that is a file is malformed."""
+        text, where = self._contents(directory, ref)
+        entries = self._validate(text, _DIRECTORY, where)
+        return sorted(entry.path for entry in entries if entry.type == _FILE_ENTRY)
+
+    def _contents(self, path: str, ref: str | None) -> tuple[str, str]:
+        """The raw answer of the contents request for `path` on `ref`, and where it was read."""
         proc = self._run(repository_file_args(self._repo, path, ref=ref))
         where = f"{path} at {ref or 'the default branch'}"
         if proc.returncode == 0:
-            return proc.stdout or ""
+            return proc.stdout or "", where
         if gh_http_status(proc.stderr or "") == HTTPStatus.NOT_FOUND:
             raise GitHubFileNotFoundError(
                 f"{self._repo} has no {where}.",
@@ -1149,6 +1205,7 @@ __all__ = [
     "milestone_edit_args",
     "milestones_endpoint",
     "path_commits_args",
+    "repository_comments_endpoint",
     "repository_file_args",
     "repository_issue_events_endpoint",
     "repository_query_args",

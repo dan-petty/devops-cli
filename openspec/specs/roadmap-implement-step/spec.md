@@ -610,7 +610,7 @@ The shell of a step SHALL get `PYTEST_XDIST_AUTO_NUM_WORKERS` with the value of 
 - **THEN** the environment of the shell does not hold it
 
 ### Requirement: A step keeps the tests that existed
-Every test that a `.py` file under `tests/` held at the commit where the step started SHALL be in the checkout after the run, by qualified name (`test_x` or `Class.test_x`). A test is a function named `test_*`. When a test is lost, the step SHALL stop with a reason that names the file and at most `CONST_ROADMAP_IMPLEMENT_REASON_TESTS` of its tests, and SHALL give no extra turn. A file that does not parse is skipped.
+Every test that a `.py` file under `tests/` held at the commit where the step started SHALL be in the checkout after the run, by qualified name (`test_x` or `Class.test_x`), unless `recorded_tests` gives its `path::name`. A test is a function named `test_*`. When any other test is lost, the step SHALL stop with a reason that names the file and at most `CONST_ROADMAP_IMPLEMENT_REASON_TESTS` of its tests, and SHALL give no extra turn. A file that does not parse is skipped.
 
 #### Scenario: A test file that the agent replaces
 - **WHEN** a test file holds `test_a` and `test_b` at the start, and the model writes a file that holds `test_c`
@@ -643,6 +643,26 @@ Every test that a `.py` file under `tests/` held at the commit where the step st
 #### Scenario: A long list of lost tests
 - **WHEN** the model drops more than `CONST_ROADMAP_IMPLEMENT_REASON_TESTS` tests of a file
 - **THEN** the reason names that many tests in order and gives the count of the rest
+
+#### Scenario: A removal that the record names
+- **WHEN** the model removes `test_a`, and `recorded_tests` holds `tests/test_old.py::test_a`
+- **THEN** the step reports done
+
+#### Scenario: A rename or a move that the record names
+- **WHEN** the model renames `test_a` to `test_z` or moves it to a new test file, and `recorded_tests` holds the old `path::name`
+- **THEN** the step reports done
+
+#### Scenario: A removal that the record does not name
+- **WHEN** the model removes `test_a` and `test_b`, and `recorded_tests` holds only `tests/test_old.py::test_a`
+- **THEN** the step reports stopped with the class `tests_lost`, and the reason names `test_b` and not `test_a`
+
+#### Scenario: A kept task with a recorded removal
+- **WHEN** the agent ticks a task whose verification passes, and the only test that it lost is in `recorded_tests`
+- **THEN** the keeper makes the `wip:` commit
+
+#### Scenario: The prompt of the step
+- **WHEN** a test reads `roadmap_implement_step.md`
+- **THEN** the rule of the tests names the `## Weakened checks` section, and says that an entry from the agent does not count
 
 ### Requirement: A retried tool call writes the reason that the tool returned
 After `retry`, the line of a call SHALL hold the message of the `ModelRetry` that the tool raised, in brackets, masked, escaped to one line and cut to `CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS` characters. When the message lacks the `path` argument of the call, the line SHALL add "Path: <path>" after it. A retry that is a refusal by policy, and a retry of a failed validation, SHALL have no reason.
@@ -897,7 +917,7 @@ The settings `roadmap.implement.request_timeout_seconds`, `roadmap.implement.com
 - **THEN** the watch waits at most 123 seconds, and the reason of the stop names 123 seconds
 
 ### Requirement: A negative search is a verification command in a fixed shape
-The step SHALL run a verification command that starts with `!` only as `! git grep [options] <literal> [--] <path>...`, with at least one path and with the options `-n -I -F -i -w -l -c -q` in words of those letters. The step SHALL start no process for a command outside the shape, and the reason of the stop SHALL say which rule of the shape the command breaks.
+The step SHALL run a verification command that starts with `!` only as `! git grep [options] <literal> [--] <path>...` or as `! git grep [options] -e <literal> [-e <literal>]... -- <path>...`, with at least one path and with the options `-n -I -F -i -w -l -c -q` in words of those letters. The step SHALL start no process for a command outside the shape, and the reason of the stop SHALL say which rule of the shape the command breaks.
 
 #### Scenario: A command that is not the fixed shape
 - **WHEN** a Verification line names `! rm -rf src/`, `! git grep -n name src/ | cat`, `! git grep -n name src/ ; ls`, `! git grep -n name src/ && ls`, `! git grep -n name src/ > out.txt`, `! git grep -n '$(id)' src/`, `! git grep -O name src/`, `! git grep --no-index -n name src/`, `! git grep -f patterns.txt src/`, `! git grep --open-files-in-pager=cat name src/`, `! git grep -n name /etc` or `! git grep -n name ../other`
@@ -1038,10 +1058,10 @@ When the agent ticks a task of the group, the step SHALL run the verification co
 - **THEN** the step reports stopped, and the checkout holds one `wip:` commit with the work and the ticks
 
 ### Requirement: A work-in-progress commit holds the tasks file of the job
-The `wip:` commit SHALL hold the `tasks.md` as it was before the run with the ticks that the step verified, and no stray file of the group. The step SHALL make no `wip:` commit that would lose a test that existed at the start. The agent SHALL find its own `tasks.md` in the checkout after the commit.
+The `wip:` commit SHALL hold the `tasks.md` as it was before the run with the ticks that the step verified, and no stray file of the group. The step SHALL make no `wip:` commit that would lose a test that existed at the start, unless the caller of the step gives its `path::name` in `recorded_tests`. The agent SHALL find its own `tasks.md` in the checkout after the commit.
 
 #### Scenario: A test that the work would lose
-- **WHEN** the model replaces a test file with a file that holds fewer of its tests, and ticks a task
+- **WHEN** the model replaces a test file with a file that holds fewer of its tests, and ticks a task, and `recorded_tests` does not name the lost tests
 - **THEN** the step runs no verification command at the tick and makes no `wip:` commit
 
 #### Scenario: A stray file
@@ -1256,3 +1276,29 @@ When the agent ends its run, each verification command passes, and `ruff check`,
 #### Scenario: A hook that the agent cannot fix
 - **WHEN** the `pre-commit` stage exits 1 after every turn, and `repair_rounds` is 3
 - **THEN** the step reports stopped with the reason that holds the output of the hook, the model got three extra turns, `repair_rounds` is 3, and the checkout is reset
+
+### Requirement: A negative search takes repeated -e literals
+The step SHALL read each `-e` option of a negative search as the option that takes the literal after it. Each such literal SHALL hold only the characters of a positional literal and SHALL NOT start with `-`. The step SHALL run `git grep` with each literal after its own `-e`, and SHALL pass the search when git exits 1.
+
+#### Scenario: Two names that do not occur
+- **WHEN** a Verification line names `! git grep -n -e "ImagetoolsFake" -e "inspect_command" -- src tests` and no file under `src` or `tests` holds either name
+- **THEN** the step runs `git grep -n -e ImagetoolsFake -e inspect_command -- src tests` and the verification command passes
+
+#### Scenario: One of the names occurs
+- **WHEN** a Verification line names `! git grep -n -e hello -e absent_name -- src/ tests/` and `src/sample.py` holds `hello`
+- **THEN** the step stops with the matching lines that git printed, and starts no other process
+
+#### Scenario: A value that is not a plain literal
+- **WHEN** a Verification line names `! git grep -n -e 'a|b' -- src/`, `! git grep -n -e 'a;b' -- src/` or `! git grep -n -e -- src/`
+- **THEN** the step stops with the reason that names the text, or that the `-e` option has no literal, and starts no process
+
+#### Scenario: A value that starts with -
+- **WHEN** a Verification line names `! git grep -n -e -E -- src/` or `! git grep -n -e --addons -- src/`
+- **THEN** the step stops with the reason that the text starts with `-`, and starts no process
+
+### Requirement: A negative search with -e puts -- before its paths
+A negative search with `-e` options SHALL have `--` after its last literal and before its paths. It SHALL NOT have a word between the last literal and `--`.
+
+#### Scenario: Both forms in one line
+- **WHEN** a Verification line names `! git grep -e name literal -- src/`, or `! git grep -e name src/`
+- **THEN** the step stops with the reason that names both forms of the search, and starts no process

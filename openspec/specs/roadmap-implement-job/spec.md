@@ -60,7 +60,7 @@ A run SHALL take the items that the filter names with the highest priority first
 
 ### Requirement: The job leaves out an item and says why
 
-The job SHALL leave out, with a reason in the plan, an item that the filter names and that is neither Ready nor Planned, is neither Staged nor Planned, holds `implement.stopped`, has an untrusted author, has a commit past the default branch by anyone but the App other than a clean merge, is held by a worktree, or whose pull request is not an open draft. A clean merge is a merge commit whose tree is the one that `git merge-tree --write-tree` gives for its two parents.
+The job SHALL leave out, with a reason in the plan, an item that the filter names and that is neither Ready nor Planned, is neither Staged nor Planned, holds `implement.stopped`, fails the check of `roadmap-author-trust`, has a commit past the default branch by anyone but the App other than a clean merge, is held by a worktree, or whose pull request is not an open draft. A clean merge is a merge commit whose tree is the one that `git merge-tree --write-tree` gives for its two parents.
 
 #### Scenario: An item that is not Staged
 - **WHEN** a Ready P1 bug of low effort has no `stage.pr` in its record and no change folder on `origin/main`
@@ -69,6 +69,10 @@ The job SHALL leave out, with a reason in the plan, an item that the filter name
 #### Scenario: An item with a stop on record
 - **WHEN** a Staged item holds `implement.stopped`
 - **THEN** the plan leaves it out with the reason that names the stop and the comment `implement: retry`
+
+#### Scenario: An item of a bot with no approval
+- **WHEN** a Staged item of the Service App's bot has no approval of refine's review, or its body changed after the review
+- **THEN** the plan leaves it out with the reason that no review approved its body as it is now
 
 #### Scenario: A commit by another author
 - **WHEN** the branch of a Staged item holds a commit whose author is not the App
@@ -767,15 +771,15 @@ The stop comment of the job SHALL name the failure class, the action taken and t
 - **THEN** `implement.failure` is removed with `implement.stopped`
 
 ### Requirement: The Service counts the failures by class
-When a round reports a Job that left a stop, the Service SHALL add 1 to `devops_cli_service_implement_failures_total` with the label `class`. A Job that left the item without a result SHALL get the class of the tail of its log, recorded in `implement.failure` and named, with the action left, in the report. A Job that ended with a result SHALL add nothing.
+When a round reports a Job that left a stop, the Service SHALL add 1 to `devops_cli_service_implement_failures_total` with the labels `class` and `repo`, where `repo` is the repository of the round. A Job that left the item without a result SHALL get the class of the tail of its log, recorded in `implement.failure` and named, with the action left, in the report. A Job that ended with a result SHALL add nothing.
 
 #### Scenario: A stop of the runner
-- **WHEN** a round reports a Job whose item holds the stop with the class `parser`
-- **THEN** the counter for `parser` grows by 1, the counter for `oom` does not change, and a second round adds nothing
+- **WHEN** a round of `example/app` reports a Job whose item holds the stop with the class `parser`
+- **THEN** the counter for `parser` and `example/app` grows by 1, the counter for `oom` does not change, and a second round adds nothing
 
 #### Scenario: A Job with no result
-- **WHEN** a round reports a Job that failed and left the item In Progress, and its log holds "out of memory"
-- **THEN** the item is Blocked with `implement.failure` `oom`, the report names the class and the action left `raise_limit`, and the counter for `oom` grows by 1
+- **WHEN** a round of `example/app` reports a Job that failed and left the item In Progress, and its log holds "out of memory"
+- **THEN** the item is Blocked with `implement.failure` `oom`, the report names the class and the action left `raise_limit`, and the counter for `oom` and `example/app` grows by 1
 
 #### Scenario: A Job with a result
 - **WHEN** a round reports a Job that succeeded and left the item In Review
@@ -1260,3 +1264,33 @@ The implement selection SHALL leave out a Planned item whose plan check needs th
 #### Scenario: Git fails to list the default tree
 - **WHEN** A run judges two Planned items and `git ls-tree` of `origin/<default>` fails.
 - **THEN** `plan_implement` returns no target, and each item has a left-out reason that says its plan cannot be read from git.
+
+### Requirement: The record keeps the size of the first request of each step
+The implement job SHALL record in `implement.spend`, under `steps`, the input tokens of the first model request of each step, from the usage of the first reply of the step. The job SHALL write the figure apart from the trace, so the limit of the trace never drops it.
+
+#### Scenario: A step records its first request
+- **WHEN** a step makes two model requests
+- **THEN** `implement.spend` holds for that step the input tokens of the first request, and they equal `tokens_in` of the first `model` event of the step.
+
+#### Scenario: A trace over its limit keeps the figure
+- **WHEN** a run has more events than `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` allows
+- **THEN** the trace has a `dropped` count above 0, and `implement.spend` still holds the first-request figure of each step.
+
+### Requirement: The job reads the record of a removal from the default branch
+The job SHALL give each step the tests that the `## Weakened checks` section of the plan on `origin/<default>` names as `path::name`. The job MUST NOT read that record from the checkout, because the agent can edit the checkout. A plan that is not on the default branch records no test. A section that the plan reader refuses SHALL leave the item out of the plan of a run. When the default branch gets such a section after that plan, the job SHALL stop the item with the class `plan_defect`.
+
+#### Scenario: A merged plan records the removal
+- **WHEN** the plan on the default branch names `tests/test_old.py::test_a`, and the step removes that test
+- **THEN** the step reports done, and the job goes on to the next group
+
+#### Scenario: The agent writes the record
+- **WHEN** the plan on the default branch records nothing, and the agent adds an entry to the `proposal.md` of the checkout and removes the test
+- **THEN** the item stops with the class `tests_lost` and the action `wait`
+
+#### Scenario: A section in another form at the plan of a run
+- **WHEN** the section on the default branch holds a line that the plan reader refuses
+- **THEN** the plan leaves the item out, and the reason holds the line
+
+#### Scenario: A section in another form after the plan of a run
+- **WHEN** the default branch gets such a line after the plan selected the item
+- **THEN** the item stops with the class `plan_defect` before the step calls the model

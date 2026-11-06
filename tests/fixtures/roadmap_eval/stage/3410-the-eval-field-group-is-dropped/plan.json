@@ -1,0 +1,269 @@
+{
+ "summary": "Refuse a negative search that proves nothing",
+ "pull_request_body": "The stage gate checks the form and the paths of a verify command, but not whether a negative search can pass on the tree that the plan produces. The job now records the paths that git grep matches for each negative-search literal on the staged tree. The gate refuses a literal with no hit, which proves nothing, and a literal that a created module keeps, which can never pass. A literal whose hits survive the change is accepted. The stage prompt asks the planner to search the literal and to quote the hit count in feasibility, and the replay reads the recorded evidence from its case, so it runs no git. The stage eval case of a move of the stage modules asserts both refusals and the accepted literal devops_cli.roadmap.stage_.",
+ "why": "The stage gate checks the form and the paths of a verify command, but never whether a negative search can pass on the tree that the plan produces. The move-prefix check of #3378 tests a whole-prefix negative search, and #3410 makes the gate record the staged hits and refuse a search that proves nothing or that a created module keeps.",
+ "what_changes": [
+  "Add the parser of a negative-search command, the recorder of its staged hits and the search gate to src/devops_cli/roadmap/stage_form.py.",
+  "Take the recorded evidence as a keyword of check_proposal in src/devops_cli/roadmap/stage_change.py and refuse the two faults.",
+  "Record the evidence in src/devops_cli/roadmap/stage.py before the reply is judged, and again for the groups of a split.",
+  "Read the search evidence from the eval case in the replay, with no git call.",
+  "Add the golden-set case of a move of the stage modules with the two refusals and the accepted literal devops_cli.roadmap.stage_.",
+  "Ask the planner in src/devops_cli/ai/tasks/roadmap_stage_change.md to search the literal and to quote the hit count in feasibility."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "`probes` confirms each cited file of the target subsystem, word for word: \"The path `src/devops_cli/roadmap/stage_change.py` is a file of the staging commit.\"",
+  "\"The path `src/devops_cli/roadmap/stage.py` is a file of the staging commit.\"",
+  "\"The path `src/devops_cli/roadmap/stage_form.py` is a file of the staging commit.\"",
+  "\"The path `src/devops_cli/roadmap/stage_eval_cases.py` is a file of the staging commit.\"",
+  "\"The path `src/devops_cli/roadmap/stage_eval_gates.py` is a file of the staging commit.\"",
+  "\"The path `src/devops_cli/ai/tasks/roadmap_stage_change.md` is a file of the staging commit.\"",
+  "\"The path `devops_cli.roadmap.stage` is no file of the staging commit.\" A search for it matches the old `stage.py` import and the new `stage/` package paths, so it can never pass after the move.",
+  "\"The path `devops_cli.roadmap.stage_` is no file of the staging commit.\" A search for it matches the import lines of the moved `stage_*` modules and no new package path, so its staged hit survives the move.",
+  "`CaseFacts` in src/devops_cli/roadmap/stage_eval_cases.py holds `tracked` and `capabilities` and no search evidence, so the replay has no field to read.",
+  "The code of `check_proposal` in the context calls form_problems, path_problems, move_prefix_problems and move_verify_problems, and no check of the hits of a negative search, so the premise holds.",
+  "The first check the implementation runs against the real system: `uv run devops ci test tests/roadmap/test_roadmap_stage_form.py`.",
+  "Then `uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py`, `uv run devops ci test tests/roadmap/test_roadmap_stage_eval_cases.py tests/roadmap/test_roadmap_stage_eval_gates.py` and `uv run devops ci test tests/roadmap/test_roadmap_stage_negative_search.py`."
+ ],
+ "existing_tool": "The existing git grep, search_code and references stage tools cover the search need: about 10k tokens and 1 hour to build the gate, and nothing to keep.",
+ "builds_own": false,
+ "decisions": [
+  {
+   "decision": "Record the matching paths of each negative-search literal in a CaseFacts mapping that check_proposal takes as a keyword with a default of no record.",
+   "reason": "It follows the probes input: the job records it once, the replay reads it from its case, and a caller with no checkout still gets the created-module check."
+  },
+  {
+   "decision": "Carry the mapping in CaseFacts with an empty default.",
+   "reason": "The 37 recorded cases keep their shape, and only the new case names evidence."
+  },
+  {
+   "decision": "Read the literal and the relative paths with one parser in the form gate, which reuses the option list of the shell policy.",
+   "reason": "A second git grep parser would drift from the form check that already refuses pipes, redirects and unsupported options."
+  },
+  {
+   "decision": "Compare the literal with the import path of each created source path under src/devops_cli/.",
+   "reason": "It catches a move of the stage modules, such as the one in the #3378 scenarios, without reading the content of a file that the plan creates."
+  },
+  {
+   "decision": "Ask the planner to call search_code with the literal and to quote the hit count in feasibility.",
+   "reason": "The planner can correct the plan before the gate refuses it, and the quote ties the plan to the staged commit."
+  },
+  {
+   "decision": "Hold the case of the move of the stage modules in tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/ and assert it in tests/roadmap/test_roadmap_stage_negative_search.py.",
+   "reason": "The replay then runs the recorded plan and its recorded evidence offline, with no git call and no network."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Run git grep inside check_proposal.",
+   "evidence": "The replay calls no git, and plan_check judges a change folder with no checkout of the staged commit."
+  },
+  {
+   "alternative": "Record only the total hit count of a literal.",
+   "evidence": "A total cannot show whether a hit sits on a path that the plan creates, which is the fault of the bare prefix."
+  },
+  {
+   "alternative": "Accept every literal that has a staged hit.",
+   "evidence": "The literal devops_cli.roadmap.stage of the move has a staged hit on the old import lines and still fails after the move."
+  },
+  {
+   "alternative": "Add a new scanner beside git grep.",
+   "evidence": "The issue records git grep and the existing search_code and references tools as the covering tool, at about 10k tokens and 1 hour to build."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "roadmap-stage",
+   "purpose": null,
+   "added": [
+    {
+     "name": "The stage job records the hits of a negative search",
+     "text": "The stage job SHALL run the literal of each negative-search verify command on the staged tree with git grep and SHALL record the matching paths before it judges the reply.",
+     "scenarios": [
+      {
+       "name": "A negative search has staged hits",
+       "when": "The plan gives a negative-search verify command whose literal matches paths of the staged tree.",
+       "then": "The job records each matching path under the literal and passes the record to check_proposal."
+      }
+     ]
+    },
+    {
+     "name": "A negative search with no staged hit is refused",
+     "text": "check_proposal MUST refuse a negative-search literal that the recorded evidence gives with no matching path.",
+     "scenarios": [
+      {
+       "name": "The literal finds nothing before the change",
+       "when": "The recorded evidence for a negative-search literal holds no matching path.",
+       "then": "check_proposal returns a problem that says the search already passes before the change and proves nothing."
+      }
+     ]
+    },
+    {
+     "name": "A negative search that a created module keeps is refused",
+     "text": "check_proposal MUST refuse a negative-search literal when a source path that the plan creates has an import path that contains the literal.",
+     "scenarios": [
+      {
+       "name": "A created module matches the literal",
+       "when": "A group creates a source path under src/devops_cli/ whose import path contains the negative-search literal.",
+       "then": "check_proposal returns a problem that says the search can never pass on the produced tree."
+      }
+     ]
+    },
+    {
+     "name": "A negative search with a surviving hit is accepted",
+     "text": "check_proposal MUST accept a negative-search literal when the recorded evidence holds a matching path and no created source path has an import path that contains the literal.",
+     "scenarios": [
+      {
+       "name": "A staged hit survives the change",
+       "when": "The recorded evidence holds a matching path and no created source path has an import path that contains the literal.",
+       "then": "check_proposal returns no problem for that literal."
+      }
+     ]
+    },
+    {
+     "name": "The stage prompt asks for the hit count of a negative search",
+     "text": "The stage prompt MUST ask the planner to call search_code with the literal of each negative-search verify command and to quote the hit count in feasibility.",
+     "scenarios": [
+      {
+       "name": "The planner reads the prompt",
+       "when": "The stage job plans an item whose plan gives a negative-search verify command.",
+       "then": "The prompt tells the planner to call search_code with the literal and to quote the hit count in feasibility."
+      }
+     ]
+    }
+   ],
+   "modified": []
+  },
+  {
+   "capability": "roadmap-stage-eval",
+   "purpose": null,
+   "added": [
+    {
+     "name": "The replay reads the search evidence from its case",
+     "text": "The stage eval replay MUST read the negative-search evidence from the `search_evidence` mapping of its case and MUST run no git command.",
+     "scenarios": [
+      {
+       "name": "The replay judges a negative search",
+       "when": "The stage eval replay judges a plan with a negative-search verify command.",
+       "then": "The replay reads the evidence from the case and runs no git grep."
+      }
+     ]
+    },
+    {
+     "name": "The golden set holds the case of a refused and a kept negative search",
+     "text": "The stage eval case MUST hold the move plan of the stage modules with its recorded search evidence and MUST assert the no-hit refusal, the refusal of the bare prefix `devops_cli.roadmap.stage`, and the acceptance of the dotted prefix `devops_cli.roadmap.stage_`.",
+     "scenarios": [
+      {
+       "name": "The replay runs the case of the moved modules",
+       "when": "The stage eval replay runs the case of the move of the stage modules.",
+       "then": "The replay reports the two refusals and the acceptance for the dotted prefix `devops_cli.roadmap.stage_`."
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Read the literal and the paths of a negative search",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/implement_shell_policy.py",
+    "src/devops_cli/roadmap/stage_form.py",
+    "tests/roadmap/test_roadmap_stage_form.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/stage_form.py",
+    "tests/roadmap/test_roadmap_stage_form.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "Write tests/roadmap/test_roadmap_stage_form.py first: negative_search_parts gives the literal and the relative paths of a command that form_problems accepts, gives no literal for a command of another shape, record_search_evidence calls the search once for each literal, and search_problems refuses a literal with no hit, refuses a literal that a created source path keeps, and accepts a literal whose hit survives",
+   "implementation": "Add to src/devops_cli/roadmap/stage_form.py the parser negative_search_parts, which reads the literal and the relative paths of a command from the option list that form_problems already uses, the function record_search_evidence, which runs the given search callable once for each literal of the negative-search verify commands of a group, and the function search_problems, which refuses a literal with no recorded hit and a literal that the import path of a created source path under src/devops_cli/ contains",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_stage_form.py",
+   "process": null
+  },
+  {
+   "title": "Pass the recorded evidence to the gate",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/stage_form.py",
+    "src/devops_cli/roadmap/stage_change.py",
+    "src/devops_cli/roadmap/stage.py",
+    "src/devops_cli/roadmap/plan_check.py",
+    "tests/roadmap/test_roadmap_stage_plan.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/stage_change.py",
+    "src/devops_cli/roadmap/stage.py",
+    "tests/roadmap/test_roadmap_stage_plan.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "Write tests/roadmap/test_roadmap_stage_plan.py first: check_proposal refuses a negative-search literal with no recorded hit, refuses a literal that a created source path keeps, and accepts a literal whose recorded hit survives the change, and the plan's own `StageProposal` gets no problem from `content_problems`",
+   "implementation": "Add the keyword search_evidence to check_proposal in src/devops_cli/roadmap/stage_change.py, with no record by default so plan_check keeps its behaviour, and call search_problems with the groups and the record. In src/devops_cli/roadmap/stage.py record the evidence in _Planner._settle from the search callable before check_proposal runs, and record it again for the groups that a split gives",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py",
+   "process": null
+  },
+  {
+   "title": "Add the case of a move of the stage modules",
+   "kind": "other",
+   "reads": [
+    "src/devops_cli/roadmap/stage_change.py",
+    "src/devops_cli/roadmap/stage_form.py",
+    "src/devops_cli/roadmap/stage_eval_cases.py",
+    "src/devops_cli/roadmap/stage_eval_gates.py",
+    "tests/roadmap/test_roadmap_stage_move_prefix.py"
+   ],
+   "changes": [
+    "tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/case.json",
+    "tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/issue.txt",
+    "tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/plan.json",
+    "tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/facts.json",
+    "tests/roadmap/test_roadmap_stage_negative_search.py"
+   ],
+   "creates": [
+    "tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/case.json",
+    "tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/issue.txt",
+    "tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/plan.json",
+    "tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/facts.json",
+    "tests/roadmap/test_roadmap_stage_negative_search.py"
+   ],
+   "creates_lines": {
+    "tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/case.json": 80,
+    "tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/issue.txt": 80,
+    "tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/plan.json": 80,
+    "tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/facts.json": 80,
+    "tests/roadmap/test_roadmap_stage_negative_search.py": 80
+   },
+   "test": null,
+   "implementation": "Add the golden-set case of a move of the stage modules: plan.json holds the move group of the stage modules with a literal with no hit, the bare prefix `devops_cli.roadmap.stage` and the dotted prefix `devops_cli.roadmap.stage_`, and facts.json holds the recorded search evidence for each literal. Add tests/roadmap/test_roadmap_stage_negative_search.py, which loads the case through tests/fixtures/roadmap_eval/stage/, replays it with replay_case, and asserts the refusal of the literal with no recorded hit, the refusal of the bare prefix whose created `stage/` package keeps it, and the acceptance of the dotted prefix whose recorded hit survives the change",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_stage_negative_search.py tests/roadmap/test_roadmap_stage_eval_cases.py",
+   "process": null
+  },
+  {
+   "title": "Ask the planner for the hit count",
+   "kind": "other",
+   "reads": [
+    "src/devops_cli/ai/tasks/roadmap_stage_change.md",
+    "tests/roadmap/test_roadmap_stage_prompt_rules.py"
+   ],
+   "changes": [
+    "src/devops_cli/ai/tasks/roadmap_stage_change.md",
+    "tests/roadmap/test_roadmap_stage_prompt_rules.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": null,
+   "implementation": "Add to src/devops_cli/ai/tasks/roadmap_stage_change.md the rule that the planner calls search_code with the literal of each negative-search verify command on the staged commit and quotes the hit count in feasibility, and that a literal which a created module keeps is no whole-prefix check. Assert the rule in tests/roadmap/test_roadmap_stage_prompt_rules.py, and run `uv run devops roadmap eval stage --replay` with the score before and after the change",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_stage_prompt_rules.py",
+   "process": null
+  }
+ ],
+ "dependencies": []
+}

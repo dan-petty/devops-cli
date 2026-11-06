@@ -445,13 +445,15 @@ def test_a_planned_item_that_is_in_progress_with_no_job_is_left_out(
 def test_a_planned_item_of_an_author_who_is_not_trusted_is_left_out(
     store: InMemoryRoadmapStore, repo: StageRepo, github_api: GitHubApiFake
 ) -> None:
-    number = seed_staged(store, record=False, author_association="NONE")
+    number = seed_staged(store, record=False, author_association="NONE", author_login="a-stranger")
     merge_plan(repo, number)
 
     plan = _plan(store, repo)
 
     assert _reasons(plan) == {
-        number: "Its author is NONE, not the owner, a member or a collaborator."
+        number: MESSAGES.roadmap.implement_left_author.format(
+            author="a-stranger", association="NONE"
+        )
     }
 
 

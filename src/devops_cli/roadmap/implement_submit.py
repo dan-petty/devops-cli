@@ -35,7 +35,7 @@ round, so the plan below can take it. `implement.job_digest` is the digest in th
 time of the create, recorded with the Job.
 
 **Failure class** (#3065). Each Job that left a stop is counted once, in the counter
-`devops_cli_service_implement_failures_total` by `class`, when the round reports it. The runner
+`devops_cli_service_implement_failures_total` by `class` and `repo`, when the round reports it. The runner
 records the class of its own stop in `implement.failure`. A Job that left the item without a result
 has only its log, so the round classifies that log (`failure.py`), records the class with the stop,
 and names the class and the action left in its comment. The runner pod is not scraped, so the Service
@@ -227,7 +227,12 @@ def _log_of(jobs: ClusterJobs, name: str) -> str:
 
 
 def _report(
-    store: RoadmapStore, jobs: ClusterJobs, item: Item, name: str, ended: ClusterJob | None
+    store: RoadmapStore,
+    jobs: ClusterJobs,
+    repo: str,
+    item: Item,
+    name: str,
+    ended: ClusterJob | None,
 ) -> None:
     """Comment on the item what became of its Job, record the state, and stop the item when the
     Job left it eligible. The comment comes first, so a write that fails is reported again. The
@@ -258,19 +263,20 @@ def _report(
         )
     if failure is not None:
         GLOBAL_METRICS.increment_counter(
-            CONST_SERVICE_METRIC_IMPLEMENT_FAILURES, labels={"class": failure.value}
+            CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
+            labels={"class": failure.value, "repo": repo},
         )
 
 
 def _report_ended(
-    store: RoadmapStore, jobs: ClusterJobs, held: Mapping[str, ClusterJob]
+    store: RoadmapStore, jobs: ClusterJobs, held: Mapping[str, ClusterJob], repo: str
 ) -> tuple[str, ...]:
     reported: list[str] = []
     for item, name in _unreported(store):
         job = held.get(name)
         if job is not None and job.state is JobState.RUNNING:
             continue
-        _report(store, jobs, item, name, job)
+        _report(store, jobs, repo, item, name, job)
         reported.append(name)
     return tuple(reported)
 
@@ -333,7 +339,7 @@ def run_implement_round(
     api = jobs or ClusterJobs()
     label = repository_label(repo)
     held = {job.name: job for job in api.list_jobs({CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label})}
-    reported = _report_ended(store, api, held)
+    reported = _report_ended(store, api, held, repo)
     manage_deadlines(api, held.values())
     planned = read_planned_changes(Path(source), operation=GIT_OPERATION)
     swept = sync_statuses(store, repo=repo, planned=planned).failed

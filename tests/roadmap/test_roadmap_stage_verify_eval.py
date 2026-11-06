@@ -8,8 +8,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+import yaml
 
+from devops_cli.ai.client import factory
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
+from devops_cli.commands.roadmap_eval_verify import _review_model
+from devops_cli.config import settings
 from devops_cli.roadmap.stage_eval_cases import (
     CASES_DIRECTORY,
     Defect,
@@ -20,17 +24,26 @@ from devops_cli.roadmap.stage_eval_cases import (
     Verdict,
     load_cases,
 )
+from devops_cli.roadmap.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage_verify import Finding, Verification
-from devops_cli.roadmap.stage_verify_eval import evaluate_cases, matched_defects
+from devops_cli.roadmap.stage_verify_eval import (
+    VerifyScore,
+    evaluate_cases,
+    matched_defects,
+    planned_verify_calls,
+)
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.model import ModelFake
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_stage import StageRepo
+from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
+    from devops_cli.config.settings import AIConfig
     from devops_cli.roadmap.stage import StageClient
+    from tests.support.fakes.openspec import OpenSpecFake
 
-pytestmark = pytest.mark.usefixtures("keyring_store")
+pytestmark = pytest.mark.usefixtures("keyring_store", "openspec_fake")
 
 Cli = Callable[..., Any]
 SET = REPO_ROOT / CASES_DIRECTORY
@@ -94,6 +107,10 @@ def _client(fake: ModelFake) -> StageClient:
     return cast("StageClient", fake.checking_replies())
 
 
+def _evaluate(run: list[StageCase], fake: ModelFake, repo: StageRepo) -> VerifyScore:
+    return evaluate_cases("m-1", run, _client(fake), repo.clone, toolbox=ToolboxModel(fake))
+
+
 # ── The match ─────────────────────────────────────────────────────────────────
 
 
@@ -142,7 +159,7 @@ def test_the_score_counts_recall_by_type_and_the_findings_on_good_plans(
         Verification(findings=[_finding(DefectType.MISSING_PATH), _finding(DefectType.OTHER)]),
     )
 
-    score = evaluate_cases("m-1", [bad, good], _client(model_fake), stage_repo.clone)
+    score = _evaluate([bad, good], model_fake, stage_repo)
 
     rows = {row.type: (row.labeled, row.found) for row in score.rows}
     assert rows[DefectType.FALSE_PREMISE] == (2, 1)
@@ -158,7 +175,7 @@ def test_the_verifier_gets_the_cited_file_of_the_checkout_of_the_case(
     case = _case(cases, stage_repo, "bad", (_defect(DefectType.OTHER),))
     model_fake.answer(Verification())
 
-    evaluate_cases("m-1", [case], _client(model_fake), stage_repo.clone)
+    _evaluate([case], model_fake, stage_repo)
 
     request = json.loads(model_fake.calls[0].prompt)
     assert SAMPLE_QUOTE in request["files"]["src/devops_cli/sample.py"]
@@ -173,9 +190,8 @@ def test_a_failed_call_counts_as_no_defect_found_and_the_other_cases_run(
     model_fake.answer(
         AIClientError("The model failed."), Verification(findings=[_finding(DefectType.OTHER)])
     )
-    client = _client(model_fake)
 
-    score = evaluate_cases("m-1", [first, second], client, stage_repo.clone)
+    score = _evaluate([first, second], model_fake, stage_repo)
 
     assert (score.failed, score.labeled, score.found) == (1, 2, 1)
 
@@ -187,7 +203,7 @@ def test_rejected_credentials_stop_the_run(
     model_fake.route(lambda _: True, AICredentialsError("rejected"))
 
     with pytest.raises(AICredentialsError, match="rejected"):
-        evaluate_cases("m-1", [case], _client(model_fake), stage_repo.clone)
+        _evaluate([case], model_fake, stage_repo)
 
 
 # ── The command ───────────────────────────────────────────────────────────────
@@ -286,3 +302,128 @@ def test_an_unknown_case_exits_1_and_names_it(cli: Cli) -> None:
 
     assert result.exit_code == 1
     assert "no-such-case" in result.output
+
+
+def test_the_run_reads_the_checkout_of_each_case_with_the_read_tools(
+    cases: list[StageCase], stage_repo: StageRepo
+) -> None:
+    case = _case(cases, stage_repo, "bad", (_defect(DefectType.OTHER),))
+    script = Script(call("read_file", path="src/devops_cli/sample.py"), Verification())
+
+    score = evaluate_cases(
+        "m-1",
+        [case],
+        _client(ModelFake()),
+        stage_repo.clone,
+        toolbox=ToolboxModel(script.model()),
+    )
+
+    assert (score.failed, SAMPLE_QUOTE in script.tool_returns()[0]) == (0, True)
+
+
+def test_read_spec_of_the_run_answers_from_the_spec(
+    cases: list[StageCase], stage_repo: StageRepo, openspec_fake: OpenSpecFake
+) -> None:
+    openspec_fake.script(
+        ("list", "--specs", "--json"), 0, json.dumps({"specs": [{"id": "sample"}]})
+    )
+    case = _case(cases, stage_repo, "bad", (_defect(DefectType.OTHER),))
+    script = Script(call("read_spec"), Verification())
+
+    score = evaluate_cases(
+        "m-1",
+        [case],
+        _client(ModelFake()),
+        stage_repo.clone,
+        toolbox=ToolboxModel(script.model()),
+    )
+
+    (answer,) = script.tool_returns()
+    assert (score.failed, answer) == (0, "sample")
+
+
+def test_the_run_takes_its_window_from_the_task_verification(
+    cases: list[StageCase], stage_repo: StageRepo, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    window = 12_000
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "ai": {
+                    "tasks": {
+                        "stage": {"context_window": 262_144},
+                        "verification": {"context_window": window},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(settings, "CONFIG_PATH", config)
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(tmp_path / "no-project-config.yaml"))
+    settings.reset_settings_cache()
+    case = _case(cases, stage_repo, "bad", (_defect(DefectType.OTHER),))
+    filler = " ".join(f"word{number}" for number in range(window))
+    script = Script(call("search_code", text=filler), Verification())
+
+    evaluate_cases(
+        "m-1", [case], _client(ModelFake()), stage_repo.clone, toolbox=ToolboxModel(script.model())
+    )
+
+    request = json.loads(script.prompt())
+    assert (request["files"], bool(script.tools_offered[0]), script.tools_offered[1]) == (
+        {},
+        True,
+        [],
+    )
+
+
+def test_the_model_option_keeps_the_rest_of_the_verification_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolved: list[AIConfig] = []
+    monkeypatch.setattr(
+        factory,
+        "get_task_model",
+        lambda task, *, settings: resolved.append(settings.ai.for_task(task)),
+    )
+    base = settings.load_settings()
+    task = settings.AITaskOverride(provider="gateway", model="configured", temperature=0.25)
+    tasks = base.ai.tasks.model_copy(update={"verification": task})
+    chosen = base.model_copy(
+        update={"ai": base.ai.model_copy(update={"provider": "ollama", "tasks": tasks})}
+    )
+
+    _review_model(chosen, "m-1")
+
+    (config,) = resolved
+    assert (config.model, config.provider, config.temperature) == ("m-1", "gateway", 0.25)
+
+
+def test_a_run_states_the_recall_floor_of_the_blocker_and_major_defects(
+    cli: Cli,
+    tmp_path: Path,
+    cases: list[StageCase],
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+) -> None:
+    bad = _case(cases, stage_repo, "bad", (_defect(DefectType.FALSE_PREMISE, Severity.BLOCKER),))
+    folder = _write_set(tmp_path, bad)
+    model_fake.answer(Verification(findings=[_finding(DefectType.FALSE_PREMISE)]))
+
+    result = _verify(
+        cli, "--cases", str(folder), "--source", str(stage_repo.clone), "--model", "m-1"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "Floor of the blocker and major defects: 90%. The recall of 100% reaches it."
+        in result.output
+    )
+
+
+def test_the_dry_run_names_an_agent_run_for_each_case() -> None:
+    planned = planned_verify_calls(load_cases()[:2], "https://gateway.example.com")
+
+    assert (len(planned), all("agent run" in call.repeat for call in planned)) == (2, True)

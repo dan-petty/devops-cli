@@ -101,18 +101,22 @@ How `devops roadmap explain` tells a person or an agent, for one roadmap issue, 
 - **THEN** the output lists the read of issue 7 and no read of a branch or a change folder
 
 ### Requirement: The command names the limit on Planned items
-For the stage job, `devops roadmap explain <issue>` SHALL print `no` for an item that the limit `roadmap.stage.planned_limit` holds, and the reason SHALL name the setting and the count of open Planned items. When no `--limit` or other option names it, the limit SHALL be the setting that the Service uses.
+For the stage job, `devops roadmap explain <issue>` SHALL print `no` for an item that the limit `roadmap.stage.planned_limit` holds, and the reason SHALL name the setting, the count of open Planned items and the priorities that pass the limit. It SHALL print `yes` for an item with the priority `P1-High` that passes every other rule. When no `--limit` or other option names it, the limit SHALL be the setting that the Service uses.
 
 #### Scenario: An item that the limit holds
-- **WHEN** 2 items are Planned, the setting is 2, and a Ready item passes every other rule
-- **THEN** the stage job is `no`, and the reason names `roadmap.stage.planned_limit` and the count 2
+- **WHEN** 2 items are Planned, the setting is 2, and a Ready `P2-Medium` item passes every other rule
+- **THEN** the stage job is `no`, and the reason names `roadmap.stage.planned_limit`, the count 2, and `P0-Critical or P1-High`
+
+#### Scenario: A P1 item at the limit
+- **WHEN** 1 item is Planned, the setting is 1, and a Ready `P1-High` item passes every other rule
+- **THEN** the stage job is `yes`
 
 #### Scenario: An item under the limit
-- **WHEN** 2 items are Planned, the setting is 3, and a Ready item passes every other rule
+- **WHEN** 2 items are Planned, the setting is 3, and a Ready `P2-Medium` item passes every other rule
 - **THEN** the stage job is `yes`
 
 #### Scenario: The limit from the settings
-- **WHEN** the variable `DEVOPS_CLI_ROADMAP_STAGE_PLANNED_LIMIT` holds 1, 1 item is Planned, and a Ready item passes every other rule
+- **WHEN** the variable `DEVOPS_CLI_ROADMAP_STAGE_PLANNED_LIMIT` holds 1, 1 item is Planned, and a Ready `P2-Medium` item passes every other rule
 - **THEN** the stage job is `no` with the reason of the limit
 
 ### Requirement: The command reports an item that the stage job holds for a retry
@@ -143,3 +147,10 @@ For the stage job, `devops roadmap explain <issue>` SHALL read `stage.failed_at`
 #### Scenario: A high-effort item is outside the set
 - **WHEN** the user runs `devops roadmap explain <number>` on a Ready high-effort item
 - **THEN** the implement job is `no` and the reason names the family `effort`, the values `low or medium`, and the value `high`
+
+### Requirement: Explain names the plan pull request of a rejected item
+`devops roadmap explain <issue>` SHALL print, for the stage job, the reason that the job gives for an item that holds a `stage.rejected` record, and the reason SHALL name the plan pull request that a person closed.
+
+#### Scenario: A rejected item that is Ready again
+- **WHEN** a Ready item holds a `stage.rejected` record for pull request 7, its text hashes as recorded and no named file changed
+- **THEN** the stage job is `no` and the reason names pull request 7 and says what ends the leave-out

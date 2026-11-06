@@ -301,7 +301,8 @@ class AIMessages:
     )
     hosted_model_unpriced: str = (
         "genai-prices and the price overrides hold no price for model {model} under provider "
-        "{provider}. Its requests are recorded at $0 with the pricing source unknown."
+        "{provider}. Its requests are recorded at $0 with the pricing source unknown. To set a "
+        "price, run 'devops ai cost set-price {model} <prompt_rate> <completion_rate>'."
     )
     reference_model_unpriced: str = (
         "genai-prices and the price overrides hold no price for {model} ({setting}) under "
@@ -1954,8 +1955,9 @@ class ServeMessages:
     )
     # Logged once, when a roadmap job reaches its limit of failed rounds (#2161).
     job_suspended: str = (
-        "The roadmap job {job} of {repo} failed {rounds} rounds in a row (causes: {causes}), so "
-        "it does not run again until its input changes."
+        "The roadmap job {job} of {repo} failed {rounds} rounds in a row (causes: {causes}). "
+        "It does not run again until its input changes. New input is a webhook, a change of an "
+        "issue, or a comment of a person."
     )
     # Logged once, at the info level, when the stop of the Service ends a round (#3493).
     round_stopped: str = (
@@ -2167,6 +2169,12 @@ class RoadmapMessages:
                 "The next refine round looks at the item again when they close, or when a person "
                 "replies in a comment or edits the body."
             ),
+            "edit": (
+                "Refine cannot set this item to Ready at {sha}. A bot opened the item, so a "
+                "review of the issue and of the proposal must approve it first. The review "
+                "found the defects below. A person edits the body to answer them. The next "
+                "refine round looks at the item again only after a body edit."
+            ),
         }
     )
     # The last line of a next-step comment whose block cites code (#2005).
@@ -2217,11 +2225,20 @@ class RoadmapMessages:
         }
     )
     refine_held_closed: str = "The issue is closed: refine changes only open items."
-    # Why a refine round leaves an item that an account without write access opened (#2478).
+    # Why a refine round leaves an item that an account that the jobs do not trust opened
+    # (#2478, #3502), and the comment that tells its author once.
     refine_outside_author: str = (
-        "The author's association with the repository is {association}. A refine round "
-        "refines only the items that the owner, a member or a collaborator opened. A person "
-        "refines this item with --item {number}."
+        "The author is {author}, and its association with the repository is {association}. A "
+        "refine round refines only the items that these accounts opened: the owner, a member, "
+        "a collaborator, the Service App's bot and github-actions[bot]. A person refines this "
+        "item with --item {number}."
+    )
+    refine_outside_notice: str = (
+        "{marker}\nRefine leaves this item alone. Its author is {author}, and its association "
+        "with the repository is {association}. A refine round refines only the items that "
+        "these accounts opened: the owner, a member, a collaborator, the Service App's bot and "
+        "github-actions[bot]. A person with write access refines this item with "
+        "`devops roadmap refine --item {number}`. Refine writes no second comment about this."
     )
     refine_author_unknown: str = "unknown"
     # Why a refine round leaves an item that refine commented on too often (#2475).
@@ -2328,9 +2345,17 @@ class RoadmapMessages:
         "the reply gives the verdict not-applicable, which the job sets for a skip class only"
     )
     alternatives_reason_no_search: str = "the reply gives a verdict with no search"
+    alternatives_reason_job_verdict: str = (
+        "the reply gives the verdict {verdict}, which the job sets and the model cannot give"
+    )
     alternatives_retry_search: str = (
         "Call search_web at least once before you reply. The job refuses a verdict that follows "
         "no search. Give the verdict none when the search finds no tool."
+    )
+    alternatives_retry_verdict: str = (
+        "The verdict {verdict} is set by the job. Give the verdict covers, partly or none. "
+        "To say that an ADR rejected the tool, set adr. To say that the item names the tool, "
+        "set in_use."
     )
     alternatives_reason_markers: str = "the body holds a marker of the check with no partner"
     # What the tools of the check answer.
@@ -2357,6 +2382,12 @@ class RoadmapMessages:
     alternatives_comment_heading: str = "## Alternatives check: {verdict}"
     alternatives_comment_tool: str = "Tool: {name} ({url})"
     alternatives_comment_no_tool: str = "Tool: none found"
+    # The line that says why the job, not the model, gave the verdict `rejected` or `in-use`
+    # (#3505). The ADR number has four digits, as in the file name.
+    alternatives_basis_rejected: str = (
+        "Rejected by ADR {number:04d}. A newer fact can change an ADR."
+    )
+    alternatives_basis_in_use: str = "The item already names this tool."
     alternatives_comment_skip_class: str = (
         "Class: {skip_class}. The check makes no search and no model call for an item of this "
         "class."
@@ -2491,6 +2522,12 @@ class RoadmapMessages:
     )
     search_reason_no_path: str = "it gives no path"
     search_reason_path: str = "the word `{word}` is not a path of the checkout"
+    search_reason_e_value: str = "the option `-e` has no literal after it"
+    search_reason_e_dash: str = "the text `{word}` starts with `-`, so it is not an `-e` literal"
+    search_reason_e_forms: str = (
+        "the word `{word}` is not allowed with `-e`, so use one literal, or `-e` literals and then "
+        "`--`"
+    )
     verify_reason_unparsed: str = "it is not a valid command line"
     verify_reason_bytes: str = "a word holds a NUL byte or a character that cannot be encoded"
     verify_reason_long: str = "it is longer than {limit} characters"
@@ -2520,7 +2557,8 @@ class RoadmapMessages:
     implement_stop_tick_unreadable: str = "The job cannot tick group {group}. The tasks.md of the change has no readable group {group}."
     implement_stop_tests_lost: str = (
         "The agent removed tests that existed at the start of the step. "
-        "A step may add tests. It may not remove or rename one.\n{files}"
+        "A step may add tests. It may remove or rename a test only when the plan on the default "
+        "branch names it in `## Weakened checks`.\n{files}"
     )
     implement_tests_lost_file: str = "{path}: {tests}"
     implement_stop_head_moved: str = (
@@ -2575,6 +2613,7 @@ class RoadmapMessages:
         "Fixture {name}: the result {result} names the diff results/{file}, which is missing."
     )
     eval_implement_lost_form: str = "allow_lost_tests holds {entry}, which is not path::name."
+    eval_implement_bad_record: str = "The plan of fixture {name} cannot be read: {reason}"
     eval_implement_unknown: str = "No fixture is named {names}. The fixtures are: {known}."
     # The details of the properties.
     eval_implement_more: str = " and {count} more"
@@ -2647,7 +2686,13 @@ class RoadmapMessages:
         "A step stopped it at {stopped}. A person fixes the cause and comments `implement: retry`."
     )
     implement_left_author: str = (
-        "Its author is {association}, not the owner, a member or a collaborator."
+        "Its author is {author}, with the association {association}. The job takes only the "
+        "items that these accounts opened: the owner, a member, a collaborator, the Service "
+        "App's bot and github-actions[bot]."
+    )
+    implement_left_unjudged: str = (
+        "A bot opened the item, and no review of refine approved its body as it is now. A "
+        "refine round reviews the item again."
     )
     implement_left_no_app: str = (
         "No GitHub App slug is set in service.github_app.slug, so the author of a commit "
@@ -2986,9 +3031,14 @@ class RoadmapMessages:
         "it, so it gets no plan of its own."
     )
     stage_left_author: str = (
-        "The author's association with the repository is {association}. The model reads the "
-        "body, so the stage job takes only the items that the owner, a member or a collaborator "
-        "opened."
+        "The author is {author}, and its association with the repository is {association}. The "
+        "stage job gives the body to a model. It takes only the items that these accounts "
+        "opened: the owner, a member, a collaborator, the Service App's bot and "
+        "github-actions[bot]."
+    )
+    stage_left_unjudged: str = (
+        "A bot opened the item, and no review of refine approved its body as it is now. A "
+        "refine round reviews the item again."
     )
     stage_left_dependency: str = "The item depends on the open issue {issues}."
     stage_left_blocked: str = (
@@ -3016,8 +3066,8 @@ class RoadmapMessages:
     )
     stage_left_planned_limit: str = (
         "The count of Planned items is {count}, and the setting roadmap.stage.planned_limit is "
-        "{limit}. The job plans no new item until a delivery lowers the count. An item with the "
-        "priority {priority} passes the limit."
+        "{limit}. Until a delivery lowers the count, the job plans only an item with the priority "
+        "{priorities}."
     )
     stage_left_failed_lately: str = (
         "The last plan or write of the item failed ({error}). The job takes the item again after "
@@ -3026,6 +3076,25 @@ class RoadmapMessages:
     stage_left_secret: str = (
         "The title or the body looks like a secret, so the model does not read it."
     )
+    stage_left_rejected: str = (
+        "A person closed plan pull request #{pull} with no merge. The job plans the item again "
+        "after a person edits its text, or after a commit changes a file that the reason names. "
+        "The comment of the stage job on the issue holds the reason."
+    )
+    stage_rejected_comment: str = (
+        "{marker}\n{rejected_marker}\n\n"
+        "Plan pull request #{pull} closed with no merge. The job waits for an edit of the text of "
+        "this item, or for a commit that changes a file that the reason names.\n\n{reason}"
+    )
+    stage_rejected_reason: str = (
+        "The reason, from the last comment of {author} on the pull request:\n\n{quote}"
+    )
+    stage_rejected_no_reason: str = (
+        "No comment of a person with write access on the pull request gives a reason."
+    )
+    stage_heading_rejected: str = "## Plans that a person rejected"
+    stage_rejected_line: str = "- #{number}: pull request #{pull} closed with no merge{note}"
+    stage_rejected_deletes: str = ", and the job deletes the branch `{branch}`"
     stage_left_planned: str = "Its plan is on {branch}: the change folder `{folder}` is there."
     stage_left_archived: str = "Its change is archived on {branch}: the folder `{folder}` is there."
     # The files of the change that the stage job writes, and what its checks find wrong (#2654).
@@ -3041,6 +3110,11 @@ class RoadmapMessages:
     stage_violations: str = "{count} schema violation(s)"
     # The plan run of the toolbox stopped with no plan; `reason` is the fixed text of its stop.
     stage_run_stopped: str = "The plan run stopped before it gave a plan: {reason}."
+    # The review run of a plan that passed the gates stopped with no findings (#3039).
+    stage_verify_stopped: str = (
+        "The verification run stopped before it gave its findings: {reason}. The plan passed the "
+        "gates, and no draft opened."
+    )
     # The checkout of a plan run with tools is not the staged commit with no change (#3037).
     stage_checkout_moved: str = "The checkout is not at the staged commit {sha}."
     # A clone with a commit that origin lacks keeps its HEAD after a fast-forward (#3301).
@@ -3065,10 +3139,11 @@ class RoadmapMessages:
         "\n\nThe stage job read the open pull requests and their files in {requests} GraphQL "
         "request(s)."
     )
-    # The report of the plan run of the toolbox (#3037), after the task groups.
+    # The report of the runs of the toolbox for this plan, the planner and the review (#3037,
+    # #3039), after the task groups.
     stage_comment_run: str = (
-        "\n\nThe plan run made {requests} model request(s), and used {input_tokens} input tokens "
-        "and {output_tokens} output tokens. {calls}"
+        "\n\nThe runs of the planner and the review made {requests} model request(s), and used "
+        "{input_tokens} input tokens and {output_tokens} output tokens. {calls}"
     )
     stage_comment_calls: str = "The tool calls, in order:\n\n{calls}"
     # A run with no tool call states why (#3477): no request offered a tool, because the request
@@ -3082,6 +3157,9 @@ class RoadmapMessages:
         "tool-removal limit of the context window."
     )
     stage_comment_call: str = "{index}. `{name}({argument})`"
+    # The line after the list of calls (#3240): the calls and the empty answers of each tool.
+    stage_comment_tool_counts: str = "\n\nTool calls: {counts}"
+    stage_comment_tool_count: str = "{name}={calls} (empty={empty})"
     # The model review of the plan (#3153): a finding, its evidence, what goes back to the planner,
     # and the section of the comment.
     stage_finding: str = "- `{type}` at {where}: {problem}{quote}"
@@ -3153,6 +3231,7 @@ class RoadmapMessages:
         "Staged {staged} item(s), stopped {stopped} on the budget, removed {removed} staged "
         "branch(es)."
     )
+    stage_applied_rejected: str = "Returned {rejected} item(s) to New after a rejected plan."
     stage_failed: str = "the stage job failed for {count} item(s): {items}"
     stage_failed_item: str = "#{number} ({error}{reason})"
     stage_ready_failed: str = "the stage_ready row failed for {count} pull request(s): {items}"
@@ -3192,11 +3271,15 @@ class RoadmapMessages:
             "model_correction": "the stage model corrects a change that fails its checks",
             "validate": "validate the change with OpenSpec in a scratch directory",
             "fetch_branch": "the staged branch of a closed item",
+            "plan_state": "the state of the plan pull request of the item, to find a rejected plan",
+            "rejected_path": "the newest commit that changed a file that the reason of a rejection names",
+            "rejected_reason": "the comment that holds the reason of a rejected plan, for the request",
             "worktree": "the worktree of the item's branch at the staged commit",
             "commit": "commit the change as the identity of the session",
             "push": "push the branch of the item",
             "pull": "open the draft pull request of the item",
             "delete_failed": "delete the pushed branch when the pull request cannot open",
+            "delete_rejected": "delete the staged branch of a rejected plan",
             "close_pull": "close the draft pull request of a closed item",
             "delete_branch": "delete the staged branch of a closed item",
         }
@@ -3213,6 +3296,14 @@ class RoadmapMessages:
             "delete_failed": "GitHub refuses the pull request",
             "close_pull": "only the identity of the session wrote to the branch",
             "delete_branch": "only the identity of the session wrote to the branch",
+            "plan_state": "the record of an open New or Ready item holds a staged pull request",
+            "rejected_comments": "the pull request closed with no merge",
+            "rejected_path": "the item holds a rejected plan whose text did not change",
+            "rejected_reason": "the item holds a rejected plan and the round selects it",
+            "delete_rejected": (
+                "the pull request closed with no merge and only the identity of the session "
+                "wrote to the branch"
+            ),
         }
     )
     implement_requests: dict[str, str] = field(
@@ -3346,6 +3437,10 @@ class RoadmapMessages:
         'The criterion "{criterion}" is pending-person and has no reason.'
     )
     stage_criteria_title: str = "Criteria"
+    # The section of a proposal that records a weakened check (#3320, #3490). The plan reader reads
+    # a bullet of the section by this form, and `{check}` names a test as `path::name`.
+    stage_weakened_checks_title: str = "Weakened checks"
+    stage_weakened_entry: str = "**{check}**: Stopped: {stopped} Safeguard: {safeguard}"
     # A line starts with a fixed word, so that a criterion cannot start a block (a heading or a task).
     stage_criteria_line: str = "Group {group}: {criterion}"
     stage_criteria_pending: str = "Pending person: {criterion}, {reason}"
@@ -3387,6 +3482,15 @@ class RoadmapMessages:
         "Group {group} gives the `verify` command `{command}` for the moved prefix `{prefix}`, "
         "and its literal `{literal}` names one module of the moved prefix. Search the dotted "
         "prefix, such as `{expected}`, so the check covers every module."
+    )
+    stage_problem_eval_replay: str = (
+        "Group {group} changes `{path}`. A plan that changes the stage prompt or a check of the "
+        "stage job must run `{command}` in one group task and state the score before and after "
+        "the change. Add that task."
+    )
+    stage_problem_eval_score: str = (
+        "Group {group} runs `{command}` for `{path}`, and the task does not state the score "
+        "before and after the change. Add the words `score`, `before` and `after` to that task."
     )
     stage_problem_search_no_hit: str = (
         "Group {group} gives the `verify` command `{command}` with the literal `{literal}`, and "
@@ -3505,6 +3609,10 @@ class RoadmapMessages:
     # problems that the command reports.
     plan_read_missing_file: str = "The change folder has no `{name}`."
     plan_read_bad_proposal: str = "`proposal.md` has no `## Why` section."
+    plan_read_bad_weakened: str = (
+        "`proposal.md` holds a line in `## Weakened checks` that is no entry: {text}. The form is "
+        "`- **<check>**: Stopped: <stopped> Safeguard: <safeguard>`."
+    )
     plan_read_bad_tasks: str = "`tasks.md` holds a group with no `Reads: ... Changes: ...` line."
     plan_read_bad_task: str = "`tasks.md` holds a task that the reader cannot read: {text}"
     plan_read_bad_group: str = "Group `{title}` breaks a rule of the plan: {reason}"
@@ -3548,6 +3656,15 @@ class RoadmapMessages:
     )
     plan_check_moved_missing: str = (
         "The base spec of `{capability}` no longer holds the requirement `{requirement}`."
+    )
+    plan_check_group_over_budget: str = (
+        "Group {number}, `{title}`, measures {tokens} tokens. A step takes at most {budget} "
+        "tokens (`roadmap.stage.step_tokens`). Split the group."
+    )
+    plan_check_group_no_files: str = (
+        "Group {number}, `{title}`, packs no file. No code span in its tasks names a file of the "
+        "head commit, so the step starts with none of the files that it changes. Name each file "
+        "that the group changes in a code span of a task."
     )
     plan_check_changed: str = "The plan check could not read the pull request {number}: {reason}"
     plan_check_removed: str = "The pull request {number} has no title in GitHub."
@@ -3650,7 +3767,7 @@ class RoadmapMessages:
             "more_labels": "{names}, and {more} more",
             "queue": (
                 "The count of Planned items is {count}, and roadmap.stage.planned_limit is "
-                "{limit}. The stage job plans no new item."
+                "{limit}. The stage job plans only items with the priority {priorities}."
             ),
         }
     )
@@ -3714,6 +3831,9 @@ class RoadmapMessages:
             "query": "<search query>",
             "repository": "<owner/name>",
             "package": "<package>",
+            # No angle brackets: the contents request percent-encodes them, and the name has the
+            # form of an ADR file name.
+            "adr_file": "NNNN-name.md",
             "item": "<item>",
             "blocker": "<blocking item>",
             "path": "<cited path>",
@@ -3777,6 +3897,7 @@ class RoadmapMessages:
             "posted": "the change posts a comment",
             "job_drafts": "the pull request is an open draft of a job",
             "check_on": "the repository is public and a Firecrawl key is set",
+            "adr_read": "the run checks an item that is no skip class",
             "issues_unread": "the run has not read every issue yet",
             "labels_differ": "the labels of the repository differ from .github/labels.yml",
             "still_waiting": "no comment follows refine's last comment on the waiting item",
@@ -3787,6 +3908,11 @@ class RoadmapMessages:
                 "recorded its newest comment"
             ),
             "deferred": "the proposal defers a part of the item",
+            "outside_author": "an account that the jobs do not trust opened the item",
+            "outside_notice": (
+                "an account that the jobs do not trust opened the item, and no comment of "
+                "refine tells its author yet"
+            ),
             "planned": "the item is Planned",
             "unplanned": "the item is not Planned",
             "retitled": "a person did not change the title since the last job comment",
@@ -3796,6 +3922,7 @@ class RoadmapMessages:
         default_factory=lambda: {
             "milestone": "for each open milestone, by due date and then by number",
             "item": "for each item the run judges or changes",
+            "outside_item": "for each item that an account that the jobs do not trust opened",
             "recheck_folder": "for each change folder on the default branch",
             "blocker": "for each open item a blocked item waits on",
             "block_path": (
@@ -3807,11 +3934,15 @@ class RoadmapMessages:
             ),
             "evidence": "for each piece of evidence the model cites",
             "alternatives_item": "for each item the run checks, at most --limit",
+            "adr_file": "for each file of the directory, once a run",
             "retitle_item": "for each item with a long title, at most --limit",
             "search": "for each search the model asks for, at most {limit} for an item",
             "fact": "for each fact read the model asks for, at most {limit} for an item",
             "stage_item": "for each item the run stages, up to the limit",
             "stage_closed": "for each closed item whose record holds a staged branch",
+            "stage_plan": "for each open New or Ready item whose record holds a staged pull request",
+            "stage_rejected": "for each item whose plan pull request closed with no merge",
+            "stage_rejected_path": "for each file that the reason of a rejected plan names, at most {limit}",
             "open_plan": "for each open item with a change folder, once a run",
             "implement_item": "for each item the run implements, up to the limit",
             "implement_group": "for each task group that has an unticked task",
@@ -4005,6 +4136,16 @@ class RoadmapMessages:
     verify_eval_serious: str = (
         "Recall of the blocker and major defects: {found} of {labeled} ({rate})."
     )
+    verify_eval_floor_met: str = (
+        "Floor of the blocker and major defects: {floor}. The recall of {rate} reaches it."
+    )
+    verify_eval_floor_missed: str = (
+        "Floor of the blocker and major defects: {floor}. The recall of {rate} does not reach it."
+    )
+    verify_eval_floor_unscored: str = (
+        "Floor of the blocker and major defects: {floor}. The golden set labels no such defect, "
+        "so the floor is not scored."
+    )
     verify_eval_good: str = (
         "Findings on the good plans: {findings} on {cases} plan(s). {returning} of them would "
         "return a plan to the planner."
@@ -4015,7 +4156,9 @@ class RoadmapMessages:
         "model at {gateway}, one case at a time:"
     )
     verify_eval_dry_run_case: str = "verification of the case {name}"
-    verify_eval_dry_run_repeat: str = "one request for each case"
+    verify_eval_dry_run_repeat: str = (
+        "one agent run for each case. Each run makes one request for each model reply"
+    )
     verify_eval_failed: str = (
         "{failed} case(s) could not run. The score counts their defects as not found."
     )

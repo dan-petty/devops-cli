@@ -44,6 +44,8 @@ from devops_cli.telemetry.instruments import (
     GITHUB_THROTTLE_WAIT,
     ROADMAP_ITEM_AGE,
     ROADMAP_OLDEST_ITEM,
+    ROADMAP_TOOL_CALLS_PER_RUN,
+    ROADMAP_TOOL_CALLS_TOTAL,
 )
 from tests.support.paths import FIXTURES, REPO_ROOT
 
@@ -68,6 +70,9 @@ ROADMAP_SERVICE_ACTIVITY_RULE_TESTS = (
 ROADMAP_SERVICE_ITEMS_RULE_TESTS = (
     FIXTURES / "prometheus_rules" / "roadmap_service_items_tests.yaml"
 )
+ROADMAP_SERVICE_TOOLS_RULE_TESTS = (
+    FIXTURES / "prometheus_rules" / "roadmap_service_tools_tests.yaml"
+)
 OTEL_COLLECTOR_CAPTURE = FIXTURES / "metrics" / "otel-collector.yaml"
 OTEL_COLLECTOR_RULE_TESTS = FIXTURES / "prometheus_rules" / "otel_collector_tests.yaml"
 VALKEY_MEMORY_RULE_TESTS = FIXTURES / "prometheus_rules" / "valkey_memory_tests.yaml"
@@ -81,12 +86,15 @@ ROADMAP_SERVICE_WEBHOOKS_GROUP = "roadmap-service-webhooks"
 ROADMAP_SERVICE_ACTIVITY_GROUP = "roadmap-service-activity"
 # The age of the oldest roadmap item in each state, and its alert (#2919).
 ROADMAP_SERVICE_ITEMS_GROUP = "roadmap-service-items"
+# The tools of the stage planner that no run called (#3240).
+ROADMAP_SERVICE_TOOLS_GROUP = "roadmap-service-tools"
 # Each group of the roadmap Service, with the promtool unit tests of its rules.
 ROADMAP_SERVICE_GROUP_TESTS = (
     (ROADMAP_SERVICE_GROUP, ROADMAP_SERVICE_RULE_TESTS),
     (ROADMAP_SERVICE_WEBHOOKS_GROUP, ROADMAP_SERVICE_WEBHOOKS_RULE_TESTS),
     (ROADMAP_SERVICE_ACTIVITY_GROUP, ROADMAP_SERVICE_ACTIVITY_RULE_TESTS),
     (ROADMAP_SERVICE_ITEMS_GROUP, ROADMAP_SERVICE_ITEMS_RULE_TESTS),
+    (ROADMAP_SERVICE_TOOLS_GROUP, ROADMAP_SERVICE_TOOLS_RULE_TESTS),
 )
 ROADMAP_SERVICE_GROUPS = tuple(group for group, _ in ROADMAP_SERVICE_GROUP_TESTS)
 # The rules over the OpenTelemetry collector's own telemetry (#1642).
@@ -192,6 +200,9 @@ SERVED_SERIES = frozenset(
         # The age of each roadmap state and its number, sent by the metrics row (#2919).
         ROADMAP_ITEM_AGE.name,
         ROADMAP_OLDEST_ITEM.name,
+        # The calls of the stage planner's tools, and its plan runs (#3240).
+        ROADMAP_TOOL_CALLS_PER_RUN.name,
+        ROADMAP_TOOL_CALLS_TOTAL.name,
     }
 )
 SEVERITIES = frozenset({"critical", "warning"})
@@ -317,6 +328,7 @@ def test_the_baseline_rule_set() -> None:
         ("RoadmapServiceModelRequestsHigh", "warning"),
         ("RoadmapServiceRestarted", "warning"),
         ("RoadmapServiceSelfDeliveriesHigh", "warning"),
+        ("RoadmapServiceToolUnused", "warning"),
         ("RoadmapServiceUnavailable", "warning"),
         ("RoadmapServiceWebhooksRejected", "warning"),
         ("TargetDown", "warning"),
@@ -864,9 +876,9 @@ ROADMAP_SERVICE_RULES = [
     ),
     (
         "RoadmapServiceJobsFailing",
-        'sum by (repo, lane) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])) > 0'
-        " unless on (repo, lane)"
-        ' sum by (repo, lane) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="success"}[1h])) > 0',
+        'sum by (repo, lane, row) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])) > 0'
+        " unless on (repo, lane, row)"
+        ' sum by (repo, lane, row) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="success"}[1h])) > 0',
         "30m",
         "warning",
     ),
@@ -927,12 +939,7 @@ ROADMAP_SERVICE_ACTIVITY_RULES = [
     ),
     (
         "RoadmapServiceSelfDeliveriesHigh",
-        "sum( "
-        + _window_count(
-            'devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="self"}',
-            "1h",
-        )
-        + " ) > 150",
+        'sum(increase(devops_cli_service_webhook_deliveries_total{job="roadmap-service", outcome="self"}[1h])) > 150',
         "0m",
         "warning",
     ),
@@ -972,25 +979,30 @@ def test_the_roadmap_service_rules_watch_identity_jobs_lanes_pods_and_request_vo
     ] == ROADMAP_SERVICE_RULES
 
 
-def test_roadmap_service_jobs_failing_rule_groups_and_joins_on_repo_and_lane() -> None:
-    """The rule groups by and joins on exactly (repo, lane), and describes a Loki query."""
+def test_roadmap_service_jobs_failing_rule_groups_and_joins_on_repo_lane_and_row() -> None:
+    """The rule groups by and joins on exactly (repo, lane, row), and describes a Loki query. A
+    round counts each of its rows (#3495), so a join on the lane alone hides a row that fails
+    while another row of its lane succeeds. The log line of a failed round has the fields repo
+    and lane and names its rows in its text, so the query has no field row."""
     rule = next(r for r in _rules() if r.get("alert") == "RoadmapServiceJobsFailing")
     assert (
         rule["for"],
         rule["labels"]["severity"],
         "{{ $labels.repo }}" in rule["annotations"]["summary"],
         "{{ $labels.lane }}" in rule["annotations"]["summary"],
+        "{{ $labels.row }}" in rule["annotations"]["summary"],
         '{namespace="devops"} | json | repo="{{ $labels.repo }}" | lane="{{ $labels.lane }}" (k8s/README.md, Roadmap service)',
     ) == (
         "30m",
         "warning",
         True,
         True,
+        True,
         rule["annotations"]["description"],
     )
     expr = rule["expr"]
-    assert expr.count("sum by (repo, lane)") == 2
-    assert "unless on (repo, lane)" in expr
+    assert expr.count("sum by (repo, lane, row)") == 2
+    assert "unless on (repo, lane, row)" in expr
 
 
 def test_the_webhook_rule_warns_on_more_than_20_rejected_deliveries_in_15_minutes() -> None:
@@ -1007,7 +1019,7 @@ def test_the_webhook_rule_warns_on_more_than_20_rejected_deliveries_in_15_minute
     ] == [
         (
             "RoadmapServiceWebhooksRejected",
-            "sum( " + _window_count(rejected, "15m") + " ) > 20",
+            f"sum(increase({rejected}[15m])) > 20",
             "0m",
             "warning",
         )
@@ -1249,7 +1261,8 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
 ) -> None:
     """`promtool test rules` passes the unit tests of each rule of `roadmap-service` (#2472), of
     `roadmap-service-webhooks` (#2476), of `roadmap-service-activity` (#2475), of
-    `otel-collector` (#1642) and of `valkey-memory` (#2094).
+    `roadmap-service-items` (#2919), of `roadmap-service-tools` (#3240), of `otel-collector`
+    (#1642) and of `valkey-memory` (#2094).
 
     Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
     on a normal series, before its wait ends, and on the series it must not count.
@@ -1261,7 +1274,11 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
         yaml.safe_dump({"groups": [g for g in groups if g["name"] == group]}),
         encoding="utf-8",
     )
-    tested = {case["alertname"] for test in unit_tests["tests"] for case in test["alert_rule_test"]}
+    tested = {
+        case["alertname"]
+        for test in unit_tests["tests"]
+        for case in test.get("alert_rule_test", [])
+    }
     copy = tmp_path / rule_tests.name
     copy.write_text(rule_tests.read_text(encoding="utf-8"), encoding="utf-8")
     result = _promtool("test", "rules", copy)
@@ -1269,3 +1286,16 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
         sorted(rule["alert"] for rule in _group(group)),
         0,
     ), result.stdout + result.stderr
+
+
+def test_github_requests_high_action_does_not_lower_budget() -> None:
+    """The action of `RoadmapServiceGitHubRequestsHigh` names no lower budget. The alert follows
+    the budget, so a lower budget makes the alert fire sooner (#3495)."""
+    readme = (K8S / "README.md").read_text(encoding="utf-8")
+    row = next(
+        line
+        for line in readme.splitlines()
+        if line.startswith("| `RoadmapServiceGitHubRequestsHigh` |")
+    )
+
+    assert "lower the budget" not in row.lower()

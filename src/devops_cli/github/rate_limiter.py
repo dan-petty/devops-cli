@@ -1039,11 +1039,11 @@ class GitHubRateLimiter:
 
     def _passed_reset_delay(self, subcommand: str, reset_epoch: float, now: float) -> float:
         """The delay at a reset that has passed: until the margin past it, since GitHub's reset
-        is whole seconds and GitHub may still report the ended window. Logs one INFO record."""
+        is whole seconds and GitHub may still report the ended window. Logs one DEBUG record."""
         delay = max(
             self.min_interval, reset_epoch + CONST_GH_RATE_LIMIT_RESET_MARGIN_SECONDS - now, 0.0
         )
-        logger.info(
+        logger.debug(
             "[RateLimit] '%s' quota window reset at %s, %.2fs ago; waiting until at least %s",
             subcommand,
             _utc_text(reset_epoch),
@@ -1065,13 +1065,11 @@ class GitHubRateLimiter:
         resource: str | None = None,
         is_mutation: bool = False,
         cost: int = 1,
-        method: str = CONST_GH_API_DEFAULT_METHOD,
     ) -> float:
         """Institute mandatory pause of the request delay calculated for that subcommand.
 
-        Synchronizes global tracking across processes and serializes requests. Each request it
-        lets go adds 1 to `devops_cli_github_requests_total` for its resource, its HTTP `method`,
-        and the repository and job row of its request scope (#2475).
+        Synchronizes global tracking across processes and serializes requests. The caller counts
+        each request it lets go with `count_request` (#3497).
         """
         gate = _request_gate
         if gate is not None:
@@ -1086,10 +1084,9 @@ class GitHubRateLimiter:
                     )
             else:
                 sleep_duration = self._acquire_locked(target, is_mutation=is_mutation, cost=cost)
-        emit(GITHUB_REQUESTS_TOTAL, 1, {"resource": target, "method": method, **request_labels()})
 
         if sleep_duration > 0.0:
-            logger.info(
+            logger.debug(
                 "[RateLimit] Mandatory pause for '%s': delaying %.2fs",
                 target,
                 sleep_duration,
@@ -1702,6 +1699,18 @@ def gh_request_method(clean_args: Sequence[str], *, is_mutation: bool) -> str:
     return CONST_GH_API_PARAMS_METHOD if is_mutation else CONST_GH_API_DEFAULT_METHOD
 
 
+def count_request(resource: str, method: str, status: int | None, labels: dict[str, str]) -> None:
+    """Count one paced attempt in `devops_cli_github_requests_total` with the HTTP status of its
+    answer. An attempt with no answer, and a gh command, count with status `none` (#3497).
+    `labels` hold the repository and job row of the sender's request scope."""
+    status_label = "none" if status is None else str(status)
+    emit(
+        GITHUB_REQUESTS_TOTAL,
+        1,
+        {"resource": resource, "method": method, "status": status_label, **labels},
+    )
+
+
 def _execute_gh_single_attempt(
     full_cmd: list[str],
     input: str | None,
@@ -1719,9 +1728,8 @@ def _execute_gh_single_attempt(
 ) -> subprocess.CompletedProcess[str]:
     """Execute a single attempt of GitHub CLI command under rate limiting."""
     if not is_exempt:
-        limiter.acquire(
-            subcommand=target_resource, is_mutation=is_mutation, cost=cost, method=method
-        )
+        limiter.acquire(subcommand=target_resource, is_mutation=is_mutation, cost=cost)
+        count_request(target_resource, method, None, request_labels())
     try:
         proc = run_subprocess(
             full_cmd,
