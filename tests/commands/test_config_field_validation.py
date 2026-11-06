@@ -20,7 +20,7 @@ from devops_cli.config.settings import (
     telemetry_from_environment,
 )
 from devops_cli.exceptions import ConfigurationError
-from devops_cli.telemetry.tracer import _resolve_telemetry_settings
+from devops_cli.telemetry.tracer import get_tracer, reset_tracer
 
 runner = CliRunner()
 
@@ -342,7 +342,8 @@ def test_telemetry_stays_fail_closed_on_invalid_variables(monkeypatch: pytest.Mo
     with pytest.raises(ConfigurationError) as raised:
         load_settings()
     assert raised.value.error_code == "CONFIGURATION_ERROR"
-    assert _resolve_telemetry_settings().enabled is False
+    reset_tracer()
+    assert get_tracer().enabled is False
     assert telemetry_from_environment().enabled is False
 
     monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENABLED", "true")
@@ -350,7 +351,8 @@ def test_telemetry_stays_fail_closed_on_invalid_variables(monkeypatch: pytest.Mo
     with pytest.raises(ConfigurationError) as raised:
         load_settings()
     assert raised.value.error_code == "CONFIGURATION_ERROR"
-    assert _resolve_telemetry_settings().enabled is False
+    reset_tracer()
+    assert get_tracer().enabled is False
     assert telemetry_from_environment().enabled is False
 
 
