@@ -10,7 +10,7 @@ Issue #1323 delivers Phase E package test refactoring for Kubernetes commands (`
 - Remove all private `_`-prefixed exports from `commands/k8s/__init__.__all__`.
 - Route `kubectl`, `helm`, `minikube`, and `port-forward` through the process runner seam (`run_subprocess`); remove local `_run_cmd` and `_kubectl` wrappers.
 - Route Kubernetes client loading in `commands/k8s/` through `KubernetesService`.
-- Move stack catalogs (`_HELM_REPOS_BY_STACK`, `_HELM_RELEASES_BY_STACK`, `_MANIFESTS_BY_STACK`, `_KUSTOMIZATIONS_BY_STACK`) and URL resolution to public modules under `devops_cli.k8s`.
+- Move stack catalogs (`_HELM_REPOS_BY_STACK`, `_KUSTOMIZATIONS_BY_STACK`; `HELM_RELEASES_BY_STACK`, `MANIFESTS_BY_STACK` and `POST_HELM_BY_STACK` already have public names in `stack_lifecycle.py` since #2167) and URL resolution to public modules under `devops_cli.k8s`.
 - Move Argo CD host override derivation to `devops_cli.k8s.argocd_overrides`.
 - Delete `resolve_effective_context`; unify context resolution on `resolve_context`.
 - Delete internal patches and private imports across `tests/commands/k8s/`.
