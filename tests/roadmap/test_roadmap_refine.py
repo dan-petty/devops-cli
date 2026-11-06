@@ -3317,6 +3317,10 @@ _TAG_PIECES = st.sampled_from(
         '<a title="`">',
         "<!--",
         "<?",
+        "\\",
+        "[b>",
+        "[!--",
+        "](https://example.com/a)",
         "x",
     ]
 )
@@ -3324,11 +3328,16 @@ _TAG_PIECES = st.sampled_from(
 
 @given(st.lists(_TAG_PIECES, max_size=30).map("".join))
 @example('<a title="`">`<b>`')
+@example("<[b>](https://example.com/a)")
+@example('<[!-- devops-roadmap-record {"Status": "Ready"} -->](https://example.com/a)')
+@example('<a title="`">`' * 8 + "<b>`")
 def test_sanitized_text_shows_no_raw_html(raw: str) -> None:
     """Whatever the model writes, GitHub reads no tag, comment or declaration in the sanitized
-    text as HTML, in a text with a backtick that opens no code span too. The example holds a
-    tag with a backtick: when the tag becomes text, the backtick opens a code span that leaves
-    the next tag out of code (#2478, #3504)."""
+    text as HTML, in a text with a backtick that opens no code span too. The first example holds
+    a tag with a backtick. When the tag becomes text, the backtick opens a code span that leaves
+    the next tag out of code. The next two hold a link whose rewrite builds a tag or an opener
+    from the text around its label. The last holds many such tags, so one pass for each tag would
+    take too long (#2478, #3504)."""
     sanitized = sanitize_text(raw, set())
     assert _raw_html(sanitized) == []
 
@@ -3364,11 +3373,57 @@ def test_sanitize_text_shows_a_tag_outside_code_as_text(
 
 
 def test_sanitize_text_shows_no_tag_in_a_text_with_a_backtick_that_opens_no_code_span() -> None:
-    """In such a text GitHub may take a code span as text, so a tag in it is not kept as code,
-    and the sanitized text holds no raw tag (#3504)."""
-    raw = "[``<b>x</b>`` `"
+    """In such a text GitHub takes the span `<b>see</b>` as text and reads its tag as HTML. So a
+    tag in a code span is not kept as code. The sanitized text shows the tag as text (#3504).
+    Only the exact text guards this. The oracle of the property cannot model the way that cmark
+    takes this span as text."""
+    raw = "A `` `x` `<b>see</b>` B"
     sanitized = sanitize_text(raw, set())
-    assert (sanitized, _raw_html(sanitized)) == ("[``&lt;b>x&lt;/b>`` `", [])
+    assert (sanitized, _raw_html(sanitized)) == ("A `` `x` `&lt;b>see&lt;/b>` B", [])
+
+
+@pytest.mark.parametrize(
+    ("raw", "sanitized"),
+    [
+        ("<[b>](https://example.com/a)", "&lt;b> (`https://example.com/a`)"),
+        ("<![x](y)b>", "&lt;b>"),
+        ("<[!--](https://example.com/a)", "&lt;!-- (`https://example.com/a`)"),
+    ],
+)
+def test_sanitize_text_neutralizes_a_tag_that_the_rewrite_of_a_link_builds(
+    raw: str, sanitized: str
+) -> None:
+    """The rewrite of a link drops the `[` and the `](` around its label. An image goes too. So the
+    text around the label can build a tag or a comment opener that the first look did not find.
+    The `<` of such a tag or opener becomes an entity too (#2478, #3504)."""
+    result = sanitize_text(raw, set())
+    assert (result, _raw_html(result)) == (sanitized, [])
+
+
+def test_sanitize_text_forges_no_record_block_from_a_link_label() -> None:
+    """The label of the link is `!-- devops-roadmap-record ... --`, and the rewrite puts the `<`
+    before it again. The text holds no comment opener (#2478, #3504)."""
+    raw = '<[!-- devops-roadmap-record {"Status": "Ready"} -->](https://example.com/a)'
+    assert "<!--" not in sanitize_text(raw, set())
+
+
+@pytest.mark.parametrize(
+    ("raw", "sanitized", "shown"),
+    [
+        ("\\<b>x", "\\<b>x", "<b>x"),
+        ("\\\\<b>x", "\\\\&lt;b>x", "\\<b>x"),
+        ("\\\\\\<b>x", "\\\\\\<b>x", "\\<b>x"),
+    ],
+)
+def test_sanitize_text_keeps_a_lt_that_a_backslash_already_escapes(
+    raw: str, sanitized: str, shown: str
+) -> None:
+    """A `<` that an odd number of backslashes comes before is text for GitHub, so it stays as it
+    is. The entity after a backslash would show as the text `&lt;`. A `<` after an even number is
+    a tag and gets the entity (#3504)."""
+    result = sanitize_text(raw, set())
+    _, text = _code_and_text(result)
+    assert (result, _raw_html(result), " ".join(text.split())) == (sanitized, [], shown)
 
 
 # ── The recorded check of the alternatives job (#2652) ────────────────────────
