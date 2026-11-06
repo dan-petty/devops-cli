@@ -71,12 +71,18 @@ def test_an_unknown_name_fails_with_a_name_not_known_error(
 async def test_an_async_loopback_name_resolves_to_loopback_addresses(
     request: pytest.FixtureRequest, mode: str
 ) -> None:
-    """The async lookup of `localhost` answers what the sync lookup answers."""
+    """The async lookup of `localhost` answers the same family, address and port as the sync one.
+
+    `anyio.getaddrinfo` cuts an IPv6 socket address to its address and port, so the cases compare
+    those three and not the whole tuple.
+    """
     resolver = _resolver(request, mode)
 
     answers = await resolver.aresolve("localhost", 8080, timeout=5.0)
 
-    assert answers == resolver.resolve("localhost", 8080)
+    assert [(a[0], *a[4][:2]) for a in answers] == [
+        (a[0], *a[4][:2]) for a in resolver.resolve("localhost", 8080)
+    ]
 
 
 @pytest.mark.parametrize("mode", _MODES)
