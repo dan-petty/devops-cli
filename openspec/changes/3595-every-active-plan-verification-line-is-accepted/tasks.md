@@ -6,7 +6,7 @@ Reads: `tests/invariants/test_change_folders.py`, `src/devops_cli/roadmap/implem
 
 - [x] 1.1 In `tests/invariants/test_change_folders.py`, add a function that returns one problem for each refused code span of a `Verification:` line in the active plans of a changes directory, and add the test `test_every_verification_line_of_an_active_plan_is_accepted_by_the_step` over the repository. A problem names the path of the `tasks.md`, the line and the command. Add cases for a refused first span, a refused second span of one task, an archived plan that the test skips, two active plans that it reads, and a negative search with word boundaries
   - Verification: `uv run devops ci test tests/invariants/test_change_folders.py` fails on the base
-- [ ] 1.2 Rewrite the refused `Verification:` lines of the plans of 2610 and 3187 in the grammar of the step, as `design.md` says
+- [x] 1.2 Rewrite the refused `Verification:` lines of the plans of 2610 and 3187 in the grammar of the step, as `design.md` says
   - Verification: `uv run devops ci test tests/invariants/test_change_folders.py` passes
 
 ## 2. Archive the change
