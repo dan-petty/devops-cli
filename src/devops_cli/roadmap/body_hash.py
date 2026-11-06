@@ -45,13 +45,25 @@ def hash_text(text: str) -> str:
     return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
 
 
+def without_alternatives(body: str) -> str:
+    """`body` without the block of the alternatives job (#2650): it is not a person's text."""
+    kept, _ = extract_section_and_outside(
+        body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
+    )
+    return kept
+
+
+def text_of_a_person(body: str) -> str:
+    """`body` outside the section of the refine job and the block of the alternatives job: the
+    text that a person wrote (#1127)."""
+    outside, _ = extract_section_and_outside(without_alternatives(body))
+    return outside
+
+
 def body_hashes(body: str) -> tuple[str, str | None]:
     """The hash of `body` outside its refine section, and the section's, None when it holds none.
     The block of the alternatives job (#2650) is no part of either: it is not a person's text."""
-    body, _ = extract_section_and_outside(
-        body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
-    )
-    outside, inside = extract_section_and_outside(body)
+    outside, inside = extract_section_and_outside(without_alternatives(body))
     return hash_text(outside), (hash_text(inside) if inside else None)
 
 

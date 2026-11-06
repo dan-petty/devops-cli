@@ -3479,6 +3479,10 @@ CONST_ROADMAP_JOB_COMMENT_MARKERS: Final[tuple[str, ...]] = (
     CONST_ROADMAP_INTAKE_REASON_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
 )
+# `devops roadmap consolidate` (#1127): where its files are, under the data directory, and the name
+# of the file that holds the embeddings of the open items.
+CONST_ROADMAP_CONSOLIDATE_DIR: Final[str] = "roadmap/consolidate"
+CONST_ROADMAP_CONSOLIDATE_EMBEDDINGS_FILE: Final[str] = "embeddings.json"
 CONST_ROADMAP_LABELS_PATH: Final[str] = ".github/labels.yml"
 # `devops roadmap eval implement` (#3030). The folder of the fixtures in a checkout, and the folder
 # of the JSON reports under the data directory. The patterns are the files that a scratch file
