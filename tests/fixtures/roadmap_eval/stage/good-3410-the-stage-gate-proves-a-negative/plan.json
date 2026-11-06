@@ -283,7 +283,7 @@
    "creates": [],
    "creates_lines": {},
    "test": null,
-   "implementation": "Add to src/devops_cli/ai/tasks/roadmap_stage_change.md the rule that the planner calls search_code with the literal of each negative-search verify command on the staged commit and quotes the hit count in feasibility, and that a literal which a created module keeps is no whole-prefix check. Assert the rule in tests/roadmap/test_roadmap_stage_prompt_rules.py",
+   "implementation": "Add to src/devops_cli/ai/tasks/roadmap_stage_change.md the rule that the planner calls search_code with the literal of each negative-search verify command on the staged commit and quotes the hit count in feasibility, and that a literal which a created module keeps is no whole-prefix check. Assert the rule in tests/roadmap/test_roadmap_stage_prompt_rules.py, and run `uv run devops roadmap eval stage --replay` with the score before and after the change",
    "documentation": null,
    "verify": "uv run devops ci test tests/roadmap/test_roadmap_stage_prompt_rules.py",
    "process": null

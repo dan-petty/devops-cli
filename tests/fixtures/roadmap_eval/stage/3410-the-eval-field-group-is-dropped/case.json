@@ -17,6 +17,7 @@
  "summary": "This plan is the merged plan of pull request #3435 without its group 3, which adds the `search_evidence` mapping to `CaseFacts` and reads it in the replay. The group that adds the case of a move of the stage modules now changes only fixture files and a test file. The case file `facts.json` holds a `search_evidence` mapping, and `CaseFacts` has no such field, so the case cannot load. No group delivers the criterion that the replay reads the evidence from its case.",
  "notes": [
   "Synthetic case: the plan is the merged plan of #3435 with group 3 removed and the What Changes item of that group worded without the paths.",
+  "The last group has the task to run `uv run devops roadmap eval stage --replay` with the score before and after, which the rule of #3331 asks. The good twin has the same task.",
   "The scores are set by hand. No review scored this plan."
  ],
  "defects": [

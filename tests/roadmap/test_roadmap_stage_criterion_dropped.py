@@ -1,9 +1,9 @@
-"""The golden set holds a plan whose last group changes only test files and delivers its
+"""The golden set holds a plan with a group that changes only test files and delivers its
 criterion, and the same plan without the group that gives it the code to test (#3448).
 
-The first plan is the merged plan of #3410. Its last group adds the case of a move of the stage
-modules with fixture files and a test file, and an earlier group adds the field that the case
-needs. The second plan lacks that earlier group, so the last group delivers nothing. No gate
+The first plan is the merged plan of #3410. Its group that adds the case of a move of the stage
+modules changes fixture files and a test file, and an earlier group adds the field that the case
+needs. The second plan lacks that earlier group, so the group of the case delivers nothing. No gate
 judges the difference: the verification pass reads it. The replay lists the defect with the gate
 `none`, and the finding of a model about it keeps the plan in draft.
 """
@@ -76,7 +76,9 @@ def test_the_good_case_is_the_twin_of_the_dropped_case_and_every_gate_accepts_it
     assert replay.failures == []
 
 
-def test_the_last_group_of_both_plans_changes_only_test_files(cases: dict[str, StageCase]) -> None:
+def test_the_group_that_adds_the_case_changes_only_test_files_in_both_plans(
+    cases: dict[str, StageCase],
+) -> None:
     for name in (DROPPED, DELIVERED):
         groups = cases[name].groups
         case_group = next(g for g in groups if "move of the stage modules" in g["title"])
