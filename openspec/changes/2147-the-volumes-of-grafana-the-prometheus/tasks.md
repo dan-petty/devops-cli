@@ -22,7 +22,7 @@ This group changes a document only, so it adds no test.
 
 ## Workflow follow-up
 
-- A person moved the three volumes to worker nodes with `devops k8s volume move` before this change, one at a time (Grafana, Prometheus, Loki), and checked each one: the dashboards load, Prometheus returns samples from before the move, and Loki returns the logs of the day before. This change builds no code for the move.
-- Pending a person: check criterion 1 of the issue with `kubectl get pv -o custom-columns='NAME:.metadata.name,CLAIM:.spec.claimRef.name,POLICY:.spec.persistentVolumeReclaimPolicy,STATUS:.status.phase,NODE:.spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[0].values[0]'`. The three bound claims must show `Retain` and a node for which `kubectl get nodes -L node-role.kubernetes.io/control-plane` prints no `true`.
+- A person moved the three volumes to worker nodes with `devops k8s volume move` before this change. The person moved one volume at a time: Grafana, Prometheus, then Loki. The comment of 2026-11-06 on the issue holds the checks of each move. This change builds no code for the move.
+- Pending a person: check criterion 1 of the issue with `kubectl get pv -o custom-columns='NAME:.metadata.name,CLAIM:.spec.claimRef.name,POLICY:.spec.persistentVolumeReclaimPolicy,STATUS:.status.phase,NODE:.spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[0].values[0]'`. Each of the three bound claims must show `Retain`. Its node must have no `true` in `kubectl get nodes -L node-role.kubernetes.io/control-plane`.
 - Pending a person: after the merge, make sure that the pods of Grafana, the Prometheus server and Loki are Running. Argo CD restarts each of them one time on the node of its volume.
 - Pending a person: the old volumes stay `Released` on the control-plane node. Delete each one as `k8s/README.md` says, when its data is no longer needed.
