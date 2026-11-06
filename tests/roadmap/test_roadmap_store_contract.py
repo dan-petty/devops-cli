@@ -83,6 +83,8 @@ class World(Protocol):
 
     def seed_label(self, name: str, color: str, description: str | None = None) -> None: ...
 
+    def block(self, blocked: int, blocker: int) -> None: ...
+
     def person_adds(self, number: int, label: str) -> None: ...
 
     def labels(self, number: int) -> list[str]: ...
@@ -145,6 +147,9 @@ class MemoryWorld:
 
     def seed_label(self, name: str, color: str, description: str | None = None) -> None:
         self._roadmap.seed_label(name, color, description or "")
+
+    def block(self, blocked: int, blocker: int) -> None:
+        self._roadmap.seed_blocked_by(blocked, blocker)
 
     def person_adds(self, number: int, label: str) -> None:
         self._roadmap.as_actor("alice").add_label(number, label)
@@ -221,6 +226,9 @@ class GitHubWorld:
 
     def seed_label(self, name: str, color: str, description: str | None = None) -> None:
         self.github.seed_label(name, color, description)
+
+    def block(self, blocked: int, blocker: int) -> None:
+        self.github.block(blocked, blocker)
 
     def person_adds(self, number: int, label: str) -> None:
         self.github.issues[number]["labels"].append({"name": label})
@@ -1175,6 +1183,34 @@ def test_add_sub_issue_links_child_to_parent_with_cached_issues(world: World) ->
     parent_record = next(i for i in world.store.issues() if i.number == parent)
     child_record = next(i for i in world.store.issues() if i.number == child)
     assert (parent_record.sub_issues, child_record.parent) == (1, parent)
+
+
+def test_blocked_by_lists_the_blockers_and_the_listing_counts_them(world: World) -> None:
+    first = world.seed("first")
+    second = world.seed("second")
+    blocked = world.seed("blocked")
+    free = world.seed("free")
+    world.block(blocked, second)
+    world.block(blocked, first)
+    counts = {issue.number: issue.blocked_by for issue in world.store.issues()}
+    assert (world.store.blocked_by(blocked), world.store.blocked_by(free)) == ([second, first], [])
+    assert counts == {first: 0, second: 0, blocked: 2, free: 0}
+
+
+def test_blocked_by_leaves_out_a_blocker_of_another_repository() -> None:
+    world = GitHubWorld()
+    blocked = world.seed("blocked")
+    here = world.seed("here")
+    world.block(blocked, here)
+    world.github.issues[here]["repository_url"] = "https://api.github.com/repos/example/other"
+    other = world.seed("also here")
+    world.block(blocked, other)
+    assert world.store.blocked_by(blocked) == [other]
+
+
+def test_blocked_by_refuses_a_number_that_is_no_issue() -> None:
+    with pytest.raises(GitHubOperationError, match="not an issue"):
+        MemoryWorld().store.blocked_by(999)
 
 
 # ── The reads of the inbox (#2915) ────────────────────────────────────────────

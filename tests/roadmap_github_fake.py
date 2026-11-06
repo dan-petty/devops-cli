@@ -69,6 +69,7 @@ class GitHubFake:
         self.pulls: dict[int, dict[str, Any]] = {}
         self.label_catalog: list[dict[str, Any]] = []
         self.comments: dict[int, list[str]] = {}
+        self.blockers: dict[int, list[int]] = {}
         self.releases: list[dict[str, Any]] = []
         self.repositories: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {}
         self.calls: list[list[str]] = []
@@ -119,12 +120,26 @@ class GitHubFake:
             "created_at": "2026-10-01T00:00:00Z",
             "updated_at": _wire(updated_at or datetime(2026, 10, 2, tzinfo=UTC)),
             "sub_issues_summary": {"total": sub_issues, "completed": 0, "percent_completed": 0},
+            "issue_dependencies_summary": {
+                "blocked_by": 0,
+                "blocking": 0,
+                "total_blocked_by": 0,
+                "total_blocking": 0,
+            },
         }
         if pull_request:
             self.issues[number]["pull_request"] = {
                 "url": f"https://api.github.com/repos/{self.repo}/pulls/{number}",
                 "html_url": f"https://github.com/{self.repo}/pull/{number}",
             }
+
+    def block(self, blocked: int, blocker: int) -> None:
+        """Issue `blocker` blocks issue `blocked`. GitHub counts it in the `blocked_by` summary
+        of `blocked`, and lists it at `dependencies/blocked_by` (#1127)."""
+        held = self.blockers.setdefault(blocked, [])
+        held.append(blocker)
+        summary = self.issues[blocked]["issue_dependencies_summary"]
+        summary["blocked_by"] = summary["total_blocked_by"] = len(held)
 
     def seed_check_run(self, sha: str, name: str, *, conclusion: str) -> None:
         """A completed check run of the commit `sha` that ended with `conclusion`."""
@@ -379,6 +394,12 @@ class GitHubFake:
             return self._issues(method, query, fields | {"labels": json.dumps(labels)}, page)
         return self._issue_route(method, int(parts[1]), parts[2:], fields, page, stdin)
 
+    def _blockers_page(self, number: int, page: int) -> list[dict[str, Any]]:
+        """A page of 100 issues that block issue `number`, as GitHub lists them at
+        `dependencies/blocked_by` (#1127)."""
+        held = [self.issues[blocker] for blocker in self.blockers.get(number, [])]
+        return held[(page - 1) * 100 : page * 100]
+
     def _issue_events(self, number: int, page: int) -> list[dict[str, Any]]:
         """The events of issue `number` on its own listing, a page of 100 as the store asks for:
         the seeded events of that issue, without their `issue` key, as GitHub lists them there
@@ -432,8 +453,11 @@ class GitHubFake:
         page: int,
         stdin: str | None,
     ) -> Any:
-        if rest == ["events"]:
-            return self._issue_events(number, page)
+        listings = {"events": self._issue_events, "dependencies/blocked_by": self._blockers_page}
+        if (listing := listings.get("/".join(rest))) is not None and (
+            number in self.issues or rest == ["events"]
+        ):
+            return listing(number, page)
         if number not in self.issues:
             return (1, "gh: Not Found (HTTP 404)")
         issue = self.issues[number]

@@ -94,6 +94,8 @@ class _Roadmap:
     clock: Callable[[], datetime]
     milestones: dict[int, Milestone] = field(default_factory=dict)
     issues: dict[int, IssueRecord] = field(default_factory=dict)
+    # The numbers of the issues that block each issue, by number (#1127).
+    blockers: dict[int, list[int]] = field(default_factory=dict)
     changes: list[Change] = field(default_factory=list)
     comments: dict[int, list[IssueComment]] = field(default_factory=dict)
     files: dict[tuple[str, str | None], str] = field(default_factory=dict)
@@ -215,6 +217,16 @@ class InMemoryRoadmapStore(RoadmapStore):
             parent=parent,
         )
         return number
+
+    def seed_blocked_by(self, blocked: int, blocker: int) -> None:
+        """Record that issue `blocker` blocks issue `blocked`, as a person links them on GitHub:
+        the issue listing then counts the blocker. Seeding records no change (#1127)."""
+        issue = self._require_issue(blocked, "roadmap.issue.seed_blocked_by")
+        self._require_issue(blocker, "roadmap.issue.seed_blocked_by")
+        held = self._roadmap.blockers.setdefault(blocked, [])
+        if blocker not in held:
+            held.append(blocker)
+        self._roadmap.issues[blocked] = issue.model_copy(update={"blocked_by": len(held)})
 
     def seed_pull(
         self,
@@ -375,6 +387,11 @@ class InMemoryRoadmapStore(RoadmapStore):
         number = self.seed_issue(title, body=body, labels=labels)
         self._log("create_issue", number, value=title)
         return self._read(self._roadmap.issues[number])
+
+    def blocked_by(self, number: int) -> list[int]:
+        """The numbers of the issues that block issue `number`, in the order they were linked."""
+        self._require_issue(number, "roadmap.blocked_by")
+        return list(self._roadmap.blockers.get(number, ()))
 
     def add_sub_issue(self, parent: int, child: int) -> None:
         """Add issue `child` as a sub-issue of issue `parent`."""

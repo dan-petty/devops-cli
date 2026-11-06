@@ -406,6 +406,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "the text that intake embeds; sized with the embedding model",
     ),
+    "DEFAULT_ROADMAP_CONSOLIDATE_MEMBERS": (
+        "kept",
+        "members of a shortlist that the model of the consolidation job reads",
+    ),
+    "DEFAULT_ROADMAP_CONSOLIDATE_COMMON_CITATION": (
+        "other",
+        "open items that may cite one path before the citation shows no shared cause",
+    ),
     "DEFAULT_ROADMAP_INTAKE_EXCERPT_CHARS": (
         "kept",
         "the excerpt of a candidate that the model reads",

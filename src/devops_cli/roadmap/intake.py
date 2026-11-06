@@ -103,7 +103,6 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as InvalidLabelsError
 
-from devops_cli.ai.vector_similarity import cosine_similarity
 from devops_cli.config.constants import (
     CONST_ROADMAP_CRITICAL_PRIORITY,
     CONST_ROADMAP_EPIC_LABEL,
@@ -147,6 +146,7 @@ from devops_cli.roadmap.intake_model import (
     UnusableProposalError,
 )
 from devops_cli.roadmap.intake_requests import Spend, planned_requests
+from devops_cli.roadmap.nearest import embedding_text, nearest
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length
 from devops_cli.roadmap.store import (
     ChangeKind,
@@ -243,7 +243,7 @@ class Subject:
 
     @property
     def text(self) -> str:
-        return f"{self.title}\n\n{self.body}"[:DEFAULT_ROADMAP_INTAKE_TEXT_CHARS]
+        return embedding_text(self.title, self.body)
 
     @property
     def type_label(self) -> str | None:
@@ -667,7 +667,7 @@ class _Entry:
 
     @property
     def text(self) -> str:
-        return f"{self.title}\n\n{self.body}"[:DEFAULT_ROADMAP_INTAKE_TEXT_CHARS]
+        return embedding_text(self.title, self.body)
 
     def neighbour(self, number: int) -> Neighbour:
         """The entry as the model sees it, under `number`, the issue number the shortlist holds it
@@ -1094,17 +1094,13 @@ class _Planner:
         `DEFAULT_ROADMAP_INTAKE_SHORTLIST` of them."""
         if vector is None:
             return []
-        indexes = [
-            index
+        candidates = [
+            (index, self.vectors[index])
             for index, entry in enumerate(self.entries)
             if entry.number is not None and entry.number not in apart
         ]
-        nearest = sorted(
-            indexes,
-            key=lambda index: cosine_similarity(self.vectors[index], vector),
-            reverse=True,
-        )
-        return [self.entries[index] for index in nearest[:DEFAULT_ROADMAP_INTAKE_SHORTLIST]]
+        closest = nearest(vector, candidates, DEFAULT_ROADMAP_INTAKE_SHORTLIST)
+        return [self.entries[index] for index in closest]
 
     def _decide(self, subject: Subject, vector: list[float] | None) -> IntakeDecision:
         """The candidate's decision, compared with neither itself, nor the issue its source
