@@ -73,6 +73,35 @@ uv run pre-commit install
 
    Several agents share one host, and the full test suite starts one pytest worker for each CPU, so gates that run at once make each other several times slower (11189 tests took 247 s alone and 440 s each beside a second gate). A run that selects `test`, `security` or `typecheck`, and the full-suite `devops ci test` and `devops ci coverage`, therefore wait for a free gate slot first and say which process and worktree hold the slots. One slot exists for each 16 CPUs, and at least one; `ci.gate_slots` (or `DEVOPS_CLI_CI_GATE_SLOTS`) sets the number. The pre-push hook, a test run narrowed by paths or by `-n`, a dry run and a cached verdict never wait. The operating system frees a slot when its holder ends, also when it is killed. The wait is not part of the gate time and is recorded as the histogram `devops_cli_ci_gate_slot_wait_seconds`.
 
+### Shell notes for agents
+
+In the devcontainer, the Bash tool of an agent runs zsh. `SHELL` is `/bin/zsh`, because the `common-utils` feature in `.devcontainer/devcontainer.json` makes zsh the default shell of the user `vscode`. A machine outside the devcontainer can run bash, where `${=F}` and `${(f)...}` are errors. Three zsh behaviors cause wrong commands.
+
+1. **zsh does not split an unquoted variable at white space.** A variable that holds a file list is one argument with newlines, and `ruff` reports `io-error`. Split the list with `${=F}`, with an array, or with a `$(cmd)` in the argument list:
+
+   ```zsh
+   F=$(git diff --name-only origin/main)
+   uv run ruff check $F                                   # wrong: one argument with newlines
+   uv run ruff check ${=F}                                # right: splits at white space
+   uv run ruff check $(git diff --name-only origin/main)  # right: the output of the command splits
+   files=(${(f)"$(git diff --name-only origin/main)"})
+   uv run ruff check "${files[@]}"                        # right: splits at newlines, keeps a name with a space
+   ```
+
+2. **A word that starts with `=` is a command lookup.** `echo =========` prints `======== not found`, and the shell runs nothing else in that command. Print a separator with `printf`:
+
+   ```zsh
+   echo =========           # wrong
+   printf '%s\n' '-----'    # right
+   ```
+
+3. **`uv run devops gh api` writes two extra lines to stderr.** The Bash tool shows a `Bytecode compiled` line before the reply and an `Elapsed:` line after it. A `2>&1` pipe puts these lines in the data, and `json.load` of that output fails. Read a field with `--jq`:
+
+   ```zsh
+   uv run devops gh api repos/dan-petty/devops-cli/pulls/<n> 2>&1 | python3 -c 'import json, sys; json.load(sys.stdin)'  # wrong
+   uv run devops gh api repos/dan-petty/devops-cli/pulls/<n> --jq .title                                               # right
+   ```
+
 ---
 
 ## 4. Git Hygiene & Branch Management
