@@ -74,6 +74,9 @@ _REFINE_BLOCK: tuple[RefineRecordKey, ...] = (
     RefineRecordKey.BLOCKED_BY,
     RefineRecordKey.BLOCK_PATHS,
     RefineRecordKey.NEEDS_SPLIT,
+    RefineRecordKey.TRIES,
+    RefineRecordKey.FAILED_CHECK,
+    RefineRecordKey.FAILURE,
 )
 
 

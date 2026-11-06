@@ -2087,6 +2087,7 @@ def _job_failure(
     texts = MESSAGES.roadmap
     checks = form_checks(proposal)
     parts: list[str] = []
+    searched_text = ""
     job_open = [question for question in open_questions if not question.endswith(_A_PERSON_DECIDES)]
     if job_open:
         if stopped is not None:
@@ -2099,15 +2100,21 @@ def _job_failure(
         if any(not question.endswith(_MISSING_SOURCE) for question in job_open):
             checks.append(JobCheck.UNANSWERED_QUESTION)
         parts.append(texts.refine_failure_open.format(question=job_open[0]))
-        parts.append(
+        searched_text = _printable_line(
             texts.refine_failure_searched.format(calls="; ".join(searched))
             if searched
             else texts.refine_failure_none_searched
         )
     if not checks:
         return None
-    error = _printable_line(" ".join(parts)) or texts.refine_failure_form
-    return JobFailure(tuple(checks), error[:CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS])
+    if not parts:
+        return JobFailure(tuple(checks), texts.refine_failure_form)
+    # The searched calls are what the issue asks for: they keep half of the room at most, and the
+    # stop and the open question give way to them, so a long question cannot cut them off.
+    room = CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS
+    searched_text = searched_text[: room // 2]
+    head = _printable_line(" ".join(parts))[: room - len(searched_text) - 1]
+    return JobFailure(tuple(checks), f"{head.rstrip()} {searched_text}".strip())
 
 
 def _failed_round(

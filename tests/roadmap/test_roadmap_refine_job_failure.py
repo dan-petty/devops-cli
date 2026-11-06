@@ -17,7 +17,10 @@ from typing import Any
 import pytest
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 
-from devops_cli.config.constants import CONST_ROADMAP_REFINE_MAX_TRIES
+from devops_cli.config.constants import (
+    CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS,
+    CONST_ROADMAP_REFINE_MAX_TRIES,
+)
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
@@ -280,6 +283,22 @@ def test_a_question_that_no_read_tool_answers_is_a_job_failure_that_lists_the_se
         "Open: Where is the sample function? (missing verified source) "
         "Searched: search_code 'no_such_symbol'",
     )
+
+
+def test_a_long_open_question_does_not_cut_the_searches_from_the_failure(
+    git_repo: Path, store: InMemoryRoadmapStore
+) -> None:
+    number = _seed(store)
+    long_fact = _OPEN_FACT.model_copy(update={"question": "Where is the sample function? " * 20})
+    long_proposal = _WHOLE.model_copy(update={"key_questions": [long_fact]})
+    script = Script(call("search_code", text="no_such_symbol"), long_proposal)
+
+    _round(store, git_repo, {number: long_proposal}, script)
+
+    failure = _record(store, number)["refine.failure"]
+    assert failure is not None
+    assert len(failure) <= CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS
+    assert failure.endswith("Searched: search_code 'no_such_symbol'")
 
 
 def test_an_investigation_that_runs_out_of_output_retries_is_a_job_failure(

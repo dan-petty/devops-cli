@@ -137,6 +137,9 @@ def _stub(store: InMemoryRoadmapStore, problem: str = "x", tool: str = "x") -> i
             RefineRecordKey.BODY_HASH: hash_text(outside),
             RefineRecordKey.SECTION_HASH: hash_text(inside),
             RefineRecordKey.NEXT_STEP: NextStep.PERSON.value,
+            RefineRecordKey.TRIES: "2",
+            RefineRecordKey.FAILED_CHECK: "missing_source",
+            RefineRecordKey.FAILURE: "Searched: nothing",
         },
     )
     asked = step_comment(_item(store, number), NextStep.PERSON, [_ASKED], SHA)
