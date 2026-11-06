@@ -20,8 +20,8 @@ from devops_cli.exceptions.k8s import (
     VolumeMoveRefusedError,
     VolumeMoveStrandedError,
 )
+from devops_cli.k8s.doctor import get_k8s_client
 from devops_cli.k8s.volume import (
-    get_k8s_client,
     plan_volume_reclaim_requests,
     reclaim_volume,
     verify_volume_orphaned,
