@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 import yaml
 from pydantic import ValidationError
-from typer.testing import CliRunner
 
 from devops_cli.ai.research.analogies import (
     AnalogicalPatternRetriever,
@@ -27,11 +25,8 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_RAG_DOCS_COLLECTION,
 )
-from devops_cli.main import app
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
-
-runner = CliRunner()
 
 
 # =============================================================================
@@ -93,9 +88,9 @@ def sample_fixture_nodes() -> list[dict[str, Any]]:
 # =============================================================================
 
 
-def test_analogies_cli_help() -> None:
+def test_analogies_cli_help(cli: Any) -> None:
     """Criterion 1: Subcommand is registered under ai research and --help exits 0 with option details."""
-    result = runner.invoke(app, ["ai", "research", "analogies", "--help"])
+    result = cli(["ai", "research", "analogies", "--help"])
     assert (
         result.exit_code,
         "--query" in result.output,
@@ -154,25 +149,38 @@ def test_multi_vector_clustering_query_and_domain_constraints(
     ) == (True, True)
 
 
+def _seed_knowledge_base(qdrant: Any, nodes: list[dict[str, Any]]) -> None:
+    """Put the fixture nodes into the docs collection as points of the knowledge base."""
+    qdrant.collections[DEFAULT_RAG_DOCS_COLLECTION] = [
+        {
+            "id": f"kb-{index}",
+            "payload": {
+                "file_path": node["file_path"],
+                "category": node["category"],
+                "content": node["content"],
+                "project_name": CONST_RAG_KB_PROJECT,
+            },
+            "vector": node["vector"],
+        }
+        for index, node in enumerate(nodes)
+    ]
+
+
 # =============================================================================
 # Criterion 3: Structured Output Format (JSON, YAML, Markdown, Table)
 # =============================================================================
 
 
 def test_analogies_cli_format_json(
-    sample_fixture_nodes: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+    sample_fixture_nodes: list[dict[str, Any]], cli: Any, qdrant: Any
 ) -> None:
     """Criterion 3: The command surfaces cross-domain analogies as structured JSON output
 
     naming source, target, pattern, and score.
     """
-    monkeypatch.setattr(
-        AnalogicalPatternRetriever,
-        "retrieve_analogies",
-        lambda self, **kwargs: multi_vector_clustering(sample_fixture_nodes, min_score=0.5),
-    )
+    _seed_knowledge_base(qdrant, sample_fixture_nodes)
 
-    result = runner.invoke(app, ["ai", "research", "analogies", "--format", "json"])
+    result = cli(["ai", "research", "analogies", "--format", "json"])
     assert result.exit_code == 0
 
     data = json.loads(result.stdout)
@@ -183,17 +191,13 @@ def test_analogies_cli_format_json(
 
 
 def test_analogies_cli_format_yaml_and_markdown(
-    sample_fixture_nodes: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+    sample_fixture_nodes: list[dict[str, Any]], cli: Any, qdrant: Any
 ) -> None:
     """Verify YAML and Markdown serialization of cross-domain analogy outputs."""
-    monkeypatch.setattr(
-        AnalogicalPatternRetriever,
-        "retrieve_analogies",
-        lambda self, **kwargs: multi_vector_clustering(sample_fixture_nodes, min_score=0.5),
-    )
+    _seed_knowledge_base(qdrant, sample_fixture_nodes)
 
-    yaml_res = runner.invoke(app, ["ai", "research", "analogies", "--format", "yaml"])
-    md_res = runner.invoke(app, ["ai", "research", "analogies", "--format", "markdown"])
+    yaml_res = cli(["ai", "research", "analogies", "--format", "yaml"])
+    md_res = cli(["ai", "research", "analogies", "--format", "markdown"])
 
     yaml_data = yaml.safe_load(yaml_res.stdout)
     assert yaml_res.exit_code == 0
@@ -203,10 +207,9 @@ def test_analogies_cli_format_yaml_and_markdown(
     assert "Exponential Backoff & Retry Loop" in md_res.stdout
 
 
-def test_analogies_cli_dry_run() -> None:
+def test_analogies_cli_dry_run(cli: Any) -> None:
     """Verify dry-run mode returns structured plan without executing retrieval."""
-    result = runner.invoke(
-        app,
+    result = cli(
         [
             "ai",
             "research",
@@ -232,16 +235,16 @@ def test_analogies_cli_dry_run() -> None:
 # =============================================================================
 
 
-def test_retriever_queries_existing_qdrant_seam() -> None:
+def test_retriever_queries_existing_qdrant_seam(qdrant: Any) -> None:
     """Criterion 4: Operates on existing Knowledge Base RAG collection rather than creating new collections."""
-    mock_qdrant = MagicMock()
-    mock_qdrant.scroll_points.return_value = [
+    qdrant.collections[DEFAULT_RAG_DOCS_COLLECTION] = [
         {
             "id": "kb-1",
             "payload": {
                 "file_path": "kubernetes/reconciler.md",
                 "category": "kubernetes",
                 "content": "Reconciliation loop with exponential backoff and jitter.",
+                "project_name": CONST_RAG_KB_PROJECT,
             },
             "vector": [0.1, 0.2, 0.3],
         },
@@ -251,24 +254,26 @@ def test_retriever_queries_existing_qdrant_seam() -> None:
                 "file_path": "networking/client.md",
                 "category": "networking",
                 "content": "Network client with exponential backoff retry loop.",
+                "project_name": CONST_RAG_KB_PROJECT,
             },
             "vector": [0.15, 0.22, 0.28],
         },
     ]
 
     retriever = AnalogicalPatternRetriever(
-        qdrant=mock_qdrant, docs_collection=DEFAULT_RAG_DOCS_COLLECTION
+        qdrant=qdrant, docs_collection=DEFAULT_RAG_DOCS_COLLECTION
     )
     analogies = retriever.retrieve_analogies(min_score=0.3)
 
+    scrolls = [(args, kwargs) for name, args, kwargs in qdrant.calls if name == "scroll_points"]
+    assert len(scrolls) == 1
+    scroll_args, scroll_kwargs = scrolls[0]
     assert (
-        mock_qdrant.scroll_points.called,
-        mock_qdrant.scroll_points.call_args[0][0],
-        mock_qdrant.scroll_points.call_args[1].get("filter_payload"),
+        scroll_args[0],
+        scroll_kwargs.get("filter_payload"),
         len(analogies) == 1,
         analogies[0].pattern,
     ) == (
-        True,
         DEFAULT_RAG_DOCS_COLLECTION,
         {"project_name": CONST_RAG_KB_PROJECT},
         True,
@@ -276,12 +281,9 @@ def test_retriever_queries_existing_qdrant_seam() -> None:
     )
 
 
-def test_retriever_empty_or_offline_fallback() -> None:
+def test_retriever_empty_or_offline_fallback(qdrant: Any) -> None:
     """Verify graceful fallback to bundled knowledge base articles when Qdrant is empty."""
-    mock_qdrant = MagicMock()
-    mock_qdrant.scroll_points.return_value = []
-
-    retriever = AnalogicalPatternRetriever(qdrant=mock_qdrant)
+    retriever = AnalogicalPatternRetriever(qdrant=qdrant)
     analogies = retriever.retrieve_analogies(min_score=0.5, limit=5)
 
     assert isinstance(analogies, list)

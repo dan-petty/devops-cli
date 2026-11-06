@@ -225,13 +225,28 @@ def test_keyword_anchor_resolution(forage_fixture_repo: Path) -> None:
     assert trail.anchor == "pkg/processor.py"
 
 
-def test_clean_markdown_href_schemes_and_paths() -> None:
-    """_clean_markdown_href strips external schemes case-insensitively and keeps local paths (#1107)."""
-    from devops_cli.ai.research.edges import _clean_markdown_href
+def test_markdown_links_keep_local_paths_and_drop_external_schemes(tmp_path: Path) -> None:
+    """A markdown link to a local file is an edge; an external scheme in any case, a mail link,
+    an ftp link and an anchor are not, even when a local file has the same name (#1107)."""
+    (tmp_path / "doc").mkdir()
+    (tmp_path / "doc" / "guide.md").write_text("# Guide\n", encoding="utf-8")
+    for decoy in (
+        "HTTPS:/example.com/page.md",
+        "http:/example.com/page.md",
+        "ftp:/archive.example.com/file",
+    ):
+        decoy_path = tmp_path / decoy
+        decoy_path.parent.mkdir(parents=True, exist_ok=True)
+        decoy_path.write_text("decoy\n", encoding="utf-8")
+    (tmp_path / "MAILTO:dev@example.com").write_text("decoy\n", encoding="utf-8")
+    index = tmp_path / "index.md"
+    index.write_text(
+        "[a](HTTPS://example.com/page.md) [b](http://example.com/page.md) "
+        "[c](MAILTO:dev@example.com) [d](ftp://archive.example.com/file) "
+        "[e](#heading) [f](doc/guide.md#section?foo=bar)\n",
+        encoding="utf-8",
+    )
 
-    assert _clean_markdown_href("HTTPS://example.com/page.md") is None
-    assert _clean_markdown_href("http://example.com/page.md") is None
-    assert _clean_markdown_href("MAILTO:dev@example.com") is None
-    assert _clean_markdown_href("ftp://archive.example.com/file") is None
-    assert _clean_markdown_href("#heading") is None
-    assert _clean_markdown_href("doc/guide.md#section?foo=bar") == "doc/guide.md"
+    edges = extract_markdown_links(index, tmp_path)
+
+    assert [edge.target for edge in edges] == ["doc/guide.md"]

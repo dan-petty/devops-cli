@@ -703,19 +703,9 @@ def model_cmd(
 def _resolve_qdrant_client() -> Any | None:
     """Safely resolve configured Qdrant client without failing if unconfigured or offline."""
     try:
-        from devops_cli.ai.rag.qdrant import QdrantClient
-        from devops_cli.config.settings import get_qdrant_api_key, load_settings
+        from devops_cli.ai.rag.indexer import resolve_qdrant_client
 
-        settings = load_settings()
-        qdrant_url = settings.qdrant.url
-        if not qdrant_url:
-            return None
-        return QdrantClient(
-            base_url=qdrant_url,
-            api_key=get_qdrant_api_key(settings),
-            allow_private_network=settings.ai.allow_private_network,
-            timeout=settings.qdrant.timeout,
-        )
+        return resolve_qdrant_client()
     except DevOpsCLIError, OSError, RuntimeError, ValueError:
         return None
 
