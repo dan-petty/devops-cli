@@ -171,6 +171,7 @@
   "remoteUser": "vscode",
   "runArgs": [
     "--gpus",
-    "all"
+    "all",
+    "--pids-limit=8192"
   ]
 }
