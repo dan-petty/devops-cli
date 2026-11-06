@@ -5,13 +5,14 @@ gates need, and the defects a reviewer found in it. The files of a case director
 
 - `case.json`: the pull request and the commits, the verdict and scores of the review, and the
   defects. A plan that no merge made has `NO_COMMIT` for both commits, and a note says that the
-  case reads no commit (#3688). A defect has a type, a severity, the review text with its evidence, and the gate that
-  must refuse it: `paths` (#3010), `kind` (#3005), `pending` (a gate that does not exist yet) or
-  `none` (no gate judges it; a reviewer does). A `missing_path` defect lists the paths that the
-  gate must name. A `contrived_test` defect holds the `message` that the gate must give, and so
-  does a defect that `paths` refuses for another reason than a missing path (a spec delta that
-  the changed paths do not need, a `verify` command). A defect of a type that a gate catches,
-  which the recorded plan cannot show to the gate, has the gate `none` and a `reason` (#3208).
+  case reads no commit (#3688). A defect has a type, a severity, the review text with its
+  evidence, and the gate that must refuse it: `paths` (#3010), `kind` (#3005), `pending` (a gate
+  that does not exist yet) or `none` (no gate judges it; a reviewer does). A `missing_path`
+  defect lists the paths that the gate must name. A `contrived_test` defect holds the `message`
+  that the gate must give, and so does a defect that `paths` refuses for another reason than a
+  missing path (a spec delta that the changed paths do not need, a `verify` command). A defect
+  of a type that a gate catches, which the recorded plan cannot show to the gate, has the gate
+  `none` and a `reason` (#3208).
 - `issue.txt`: the body of the issue, as the stage job read it.
 - `plan.json`: the plan as a `StageProposal` holds it. The groups stay raw, as the model wrote
   them, so that a group the schema refuses is still a case. A plan fails the schema of the reply
