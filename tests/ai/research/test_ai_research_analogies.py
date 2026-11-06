@@ -188,6 +188,7 @@ def test_analogies_cli_format_json(
     assert len(data) >= 2
     assert all({"source", "target", "pattern", "score"}.issubset(item.keys()) for item in data)
     assert all(isinstance(item["score"], (int, float)) for item in data)
+    assert "Exponential Backoff & Retry Loop" in {item["pattern"] for item in data}
 
 
 def test_analogies_cli_format_yaml_and_markdown(
