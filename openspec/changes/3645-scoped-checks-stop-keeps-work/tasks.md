@@ -11,9 +11,9 @@
 
 ## 2. Documents (documents)
 
-- [ ] 2.1 State the new push rule in `docs/ROADMAP_WORKFLOW.md`, and in the module docstring of `implement_run.py`.
+- [x] 2.1 State the new push rule in `docs/ROADMAP_WORKFLOW.md`, and in the module docstring of `implement_run.py`.
   Verification: `uv run devops ci --check --only docs`
-- [ ] 2.2 Check that the change folder is valid.
+- [x] 2.2 Check that the change folder is valid.
   Verification: `uv run devops openspec check`
 
 ## Workflow follow-up
