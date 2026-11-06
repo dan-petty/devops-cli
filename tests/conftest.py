@@ -902,8 +902,8 @@ def pin_github_session(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     """Give every test one fake GitHub identity, so no test runs a real `gh auth token`.
 
     Every gh and git child a test starts gets `PINNED_GITHUB_TOKEN` as GH_TOKEN, never the
-    developer's login. A test of the lookup itself sets `devops_cli.core.process._github_token`
-    back to None, and `no_github_identity` makes every lookup fail. The session is dropped only
+    developer's login. A test of the lookup itself calls `devops_cli.core.process.reset_github_token`,
+    and `no_github_identity` makes every lookup fail. The session is dropped only
     once something has imported it: importing it here would load all of `devops_cli.github` in
     every worker.
     """
