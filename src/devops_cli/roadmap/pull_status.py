@@ -3,9 +3,10 @@ is ready for review (#2717).
 
 `devops pr create` sets In Progress and `devops pr ready` sets In Review on the open issue of
 this repository that the pull request closes, when that issue is an Item. A Status moves forward
-only: In Review never goes back to In Progress, and a Blocked item stays Blocked, because a
-person or a stop of the implement job set that, and only a person or a clear rule of the Service
-(`stop_clear.py`) takes it out. A pull request that closes no item changes nothing. A closed issue loses its
+only: In Review never goes back to In Progress. A Blocked item stays Blocked when a person set
+that label, because only a person takes it out. A Blocked item that a stop of the implement job
+recorded (`Item.holds_service_stop`) takes the new Status, because the pull request is the fix of the
+stop. A pull request that closes no item changes nothing. A closed issue loses its
 `status/*` labels in `.github/workflows/clear-status.yml`.
 """
 
@@ -59,7 +60,7 @@ def set_delivered_status(repo: str, pull: int, status: str) -> int | None:
     store = roadmap_store.get_roadmap_store(repo)
     for issue in closing.issues:
         item = store.item(issue.number) if issue.is_of(repo) and issue.state == "OPEN" else None
-        if item is not None and item.status in _REPLACES[status]:
+        if item is not None and (item.status in _REPLACES[status] or item.holds_service_stop()):
             store.set_field(item, ItemField.STATUS, status)
             return item.number
     return None
