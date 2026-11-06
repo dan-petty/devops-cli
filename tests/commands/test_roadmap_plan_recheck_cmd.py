@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from typer.testing import CliRunner
@@ -21,6 +21,9 @@ from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage_change import render_change
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import VALID_REPORT, StageRepo
+
+if TYPE_CHECKING:
+    from tests.support.fakes.github import GitHubApiFake
 
 REPO = "example/roadmap"
 CHANGE = "1-keep-the-last-comment"
@@ -41,7 +44,7 @@ def _accepting_openspec() -> Iterator[OpenSpecTool]:
 
 
 def test_the_dry_run_lists_the_reads_and_makes_none(
-    stage_repo: StageRepo, github_api, monkeypatch: pytest.MonkeyPatch
+    stage_repo: StageRepo, github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(stage_repo.clone)
 
@@ -76,7 +79,7 @@ def test_the_json_output_holds_the_folders_and_the_counts(
 
 
 def test_the_dry_run_of_a_branch_run_lists_the_reads_of_the_branch(
-    stage_repo: StageRepo, github_api, monkeypatch: pytest.MonkeyPatch
+    stage_repo: StageRepo, github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(stage_repo.clone)
 

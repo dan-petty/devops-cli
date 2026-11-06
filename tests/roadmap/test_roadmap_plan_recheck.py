@@ -196,6 +196,11 @@ def _branch(
     repo.git("switch", "-q", "main")
 
 
+def _branch_json(recheck: PlanRecheck) -> dict[str, object]:
+    """The part of the JSON report that holds the comparison with the branch."""
+    return cast("dict[str, object]", recheck.as_dict()["branch"])
+
+
 def _compare(repo: StageRepo, store: InMemoryRoadmapStore, branch: str) -> PlanRecheck:
     return recheck_plans(repo.clone, store, tool=cast("OpenSpecTool", _Tool()), branch=branch)
 
@@ -304,8 +309,7 @@ def test_a_refusal_that_the_branch_adds_is_a_case_to_review(stage_repo: StageRep
     report = render_recheck(recheck)
     assert "New refusals on `topic`: 1." in report
     assert f"  case to review: 2-keep-the-last-comment [paths] {added.message}" in report
-    new = recheck.as_dict()["branch"]["new_refusals"]  # type: ignore[index]
-    assert new == [{**added.as_dict(), "label": "case to review"}]
+    assert _branch_json(recheck)["new_refusals"] == [{**added.as_dict(), "label": "case to review"}]
 
 
 def test_a_refusal_that_both_sides_hold_is_not_new(stage_repo: StageRepo) -> None:
@@ -339,4 +343,4 @@ def test_a_folder_that_the_reader_refuses_is_not_read_and_the_run_goes_on(
     }
     assert recheck.branch.unread == ("2-keep-the-last-comment",)
     assert "Not read on `topic`: 2-keep-the-last-comment." in render_recheck(recheck)
-    assert recheck.as_dict()["branch"]["not_read"] == ["2-keep-the-last-comment"]  # type: ignore[index]
+    assert _branch_json(recheck)["not_read"] == ["2-keep-the-last-comment"]
