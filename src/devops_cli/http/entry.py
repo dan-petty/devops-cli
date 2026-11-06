@@ -29,6 +29,7 @@ from devops_cli.http.client import (
     TransportFactory,
     new_async_http_client,
     new_http_client,
+    reset_transport_hook,
     set_transport_hook,
     user_agent,
 )
@@ -127,7 +128,7 @@ def install_transport(factory: TransportFactory) -> None:
 def remove_transport() -> None:
     """Take the installed transport away, after closing the pooled clients that used it."""
     close_shared_clients()
-    set_transport_hook(None)
+    reset_transport_hook()
 
 
 def request_headers(headers: dict[str, str] | None = None) -> dict[str, str]:

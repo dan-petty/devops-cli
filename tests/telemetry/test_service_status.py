@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -27,6 +26,7 @@ from devops_cli.telemetry.service_status import (
     format_status_badge,
     render_statuspage_summary,
 )
+from tests.support.fakes.http import WebFake
 
 
 @pytest.fixture
@@ -188,19 +188,11 @@ def test_filter_key_components() -> None:
     )
 
 
-def test_fetch_statuspage_summary_success() -> None:
-    """Validate fetching and parsing summary payload over mocked HTTP response."""
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = _MOCK_PAYLOAD_OPERATIONAL
-    mock_resp.raise_for_status.return_value = None
+def test_fetch_statuspage_summary_success(web: WebFake) -> None:
+    """Validate fetching and parsing summary payload over the HTTP seam."""
+    web.respond("GET", "https://example.com/status", 200, _MOCK_PAYLOAD_OPERATIONAL)
 
-    mock_client = MagicMock()
-    mock_client.get.return_value = mock_resp
-    mock_client.__enter__.return_value = mock_client
-    mock_client.__exit__.return_value = None
-
-    with patch("devops_cli.telemetry.service_status.new_http_client", return_value=mock_client):
-        summary = fetch_statuspage_summary("https://example.com/status")
+    summary = fetch_statuspage_summary("https://example.com/status")
 
     assert (
         summary.page.name,
@@ -209,16 +201,12 @@ def test_fetch_statuspage_summary_success() -> None:
     ) == ("Mock Cloud", "none", 3)
 
 
-def test_fetch_statuspage_summary_http_error() -> None:
+def test_fetch_statuspage_summary_http_error(web: WebFake) -> None:
     """Validate exception handling when HTTP request fails."""
-    mock_client = MagicMock()
-    mock_client.get.side_effect = httpx2.ConnectError("Connection refused")
-    mock_client.__enter__.return_value = mock_client
-    mock_client.__exit__.return_value = None
+    web.refuse("https://example.com/status")
 
-    with patch("devops_cli.telemetry.service_status.new_http_client", return_value=mock_client):
-        with pytest.raises(ServiceStatusError, match="HTTP request failed"):
-            fetch_statuspage_summary("https://example.com/status")
+    with pytest.raises(ServiceStatusError, match="HTTP request failed"):
+        fetch_statuspage_summary("https://example.com/status")
 
 
 def test_fetch_github_and_cloudflare_status() -> None:

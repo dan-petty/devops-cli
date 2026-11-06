@@ -117,6 +117,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.github.rate_limiter": ("reset_github_rate_limiter",),
     "devops_cli.github.request_classifier": ("reset_request_classifier_cache",),
     "devops_cli.github.session": ("reset_github_session",),
+    "devops_cli.http.client": ("reset_transport_hook",),
     "devops_cli.http.egress": ("reset_resolver",),
     "devops_cli.http.entry": ("remove_transport",),
     "devops_cli.http.pool": ("close_shared_clients",),

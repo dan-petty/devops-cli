@@ -67,6 +67,12 @@ def set_transport_hook(factory: TransportFactory | None) -> None:
     _TRANSPORT_HOOK = factory
 
 
+def reset_transport_hook() -> None:
+    """Remove the installed transport, so every factory client takes its egress transport."""
+    global _TRANSPORT_HOOK
+    _TRANSPORT_HOOK = None
+
+
 def _hooked_transport[T: (httpx2.BaseTransport, httpx2.AsyncBaseTransport)](
     level: EgressLevel, kind: type[T]
 ) -> T | None:
@@ -261,6 +267,7 @@ __all__ = [
     "new_async_http_client",
     "new_http_client",
     "request_timeout",
+    "reset_transport_hook",
     "set_transport_hook",
     "user_agent",
 ]

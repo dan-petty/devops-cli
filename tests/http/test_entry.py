@@ -178,8 +178,9 @@ def test_an_installed_transport_of_the_wrong_kind_is_a_type_error() -> None:
 def test_the_pool_keeps_its_public_reset(web: WebFake) -> None:
     """`close_shared_clients` still closes every pooled client."""
     client = http_client(EgressLevel.PUBLIC, key="profile")
+    open_before = not client.is_closed
     close_shared_clients()
-    assert client.is_closed
+    assert (open_before, client.is_closed) == (True, True)
 
 
 def test_a_retrying_client_wraps_the_installed_transport(web: WebFake, clock: ClockFake) -> None:
