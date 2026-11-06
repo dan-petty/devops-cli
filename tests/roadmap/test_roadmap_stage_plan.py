@@ -987,6 +987,39 @@ def test_a_reply_with_a_closing_keyword_stops_the_item(
 
 
 @pytest.mark.usefixtures("openspec")
+def test_a_plan_body_that_breaks_the_plan_form_goes_back_to_the_model_once(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    """The body is built and checked by `build_plan_body` (#3215): a text under 20 characters is a
+    placeholder in all but name, and the second reply carries the plan."""
+    model_fake.answer(make_stage_proposal(pull_request_body="Short."), make_stage_proposal())
+
+    plan = _plan(store, stage_repo)
+
+    (change,) = plan.ready
+    assert plan.failed == ()
+    assert change.body.startswith(f"Plans #{item}\n\nThe job keeps every comment")
+    assert "characters" in _requests(model_fake)[1]["problem"]
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_second_plan_body_that_breaks_the_plan_form_stops_the_item(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(
+        make_stage_proposal(pull_request_body="Short."),
+        make_stage_proposal(pull_request_body="Short."),
+    )
+
+    plan = _plan(store, stage_repo)
+
+    (failure,) = plan.failed
+    assert plan.ready == ()
+    assert (failure.number, failure.error) == (item, "RoadmapStageError")
+    assert "also after a second try" in failure.reason
+
+
+@pytest.mark.usefixtures("openspec")
 def test_a_reply_that_holds_a_secret_stops_the_item(
     store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:

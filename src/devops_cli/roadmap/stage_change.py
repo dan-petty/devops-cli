@@ -43,7 +43,12 @@ from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope
-from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, is_placeholder, summary_length
+from devops_cli.roadmap.pull_form import (
+    SUMMARY_MAX_CHARS,
+    build_plan_body,
+    is_placeholder,
+    summary_length,
+)
 from devops_cli.roadmap.refine import sanitize_text
 from devops_cli.roadmap.stage_criteria import PENDING_PERSON, StageCriterion, criterion_problems
 from devops_cli.roadmap.stage_form import form_problems, search_problems
@@ -1261,9 +1266,13 @@ def delivery_title(issue_title: str, declared: Collection[str]) -> str:
 
 
 def pull_request_body(number: int, change: str, proposal: StageProposal) -> str:
-    """The body of the draft: `Plans #<issue>`, the what and why, and the change folder."""
-    return MESSAGES.roadmap.stage_pull_request_body.format(
-        number=number, body=safe_text(proposal.pull_request_body), change=change
+    """The body of the draft: `Plans #<issue>`, the what and why, and the change folder. It is
+    built and checked by `build_plan_body`, which raises `ValidationError` for a body that breaks
+    the plan form."""
+    return build_plan_body(
+        why=safe_text(proposal.pull_request_body),
+        issue=number,
+        change=f"openspec/changes/{change}",
     )
 
 
