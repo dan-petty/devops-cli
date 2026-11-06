@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import Any
 
 import pytest
 
@@ -63,9 +62,7 @@ class DispatcherFake:
     def __init__(self) -> None:
         self.calls: list[DispatchCall] = []
         self.subscriptions = ResourceSubscriptionManager()
-        self._answers: list[
-            tuple[Callable[[DispatchCall], bool], DispatchAnswer | Callable[[DispatchCall], Any]]
-        ] = []
+        self._answers: list[tuple[Callable[[DispatchCall], bool], DispatchAnswer]] = []
 
     @property
     def call_count(self) -> int:
