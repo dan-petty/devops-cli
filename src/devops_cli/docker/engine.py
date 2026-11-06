@@ -17,7 +17,7 @@ import struct
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Final
+from typing import TYPE_CHECKING, Any, ClassVar, Final, cast
 from urllib.parse import quote, urlsplit
 
 from packaging.version import InvalidVersion, Version
@@ -239,7 +239,8 @@ def container_log_frames(
     generator that closes the reply when it ends. A followed log has no read timeout, as the SDK's
     own followed log has none.
     """
-    from docker.errors import create_api_error_from_http_exception  # type: ignore[import-untyped]
+    from docker.errors import create_api_error_from_http_exception
+    from requests import HTTPError
 
     api = client.api
     response = api.get(
@@ -256,7 +257,7 @@ def container_log_frames(
     )
     try:
         response.raise_for_status()
-    except Exception as exc:  # the `requests` HTTPError of a refused reply, as the SDK reads it
+    except HTTPError as exc:  # the refused reply, as the SDK reads it
         response.close()
         raise create_api_error_from_http_exception(exc) from exc
     return _log_frames(response, tty=bool(_section(container.attrs, "Config").get("Tty")))
@@ -264,7 +265,7 @@ def container_log_frames(
 
 def _log_frames(response: Any, *, tty: bool) -> Iterator[tuple[bytes | None, bytes | None]]:
     """The frames of a log reply; with a TTY, each chunk of the one raw stream is stdout."""
-    from docker.utils import socket as sdk_socket  # type: ignore[import-untyped]
+    from docker.utils import socket as sdk_socket
 
     try:
         if tty:
@@ -310,10 +311,9 @@ def _check_container_connection() -> None:
 
 def _sdk_client(**params: Any) -> EngineClient:
     """Build the docker SDK client of an endpoint; it reads `GET /version` before it returns."""
-    import docker  # type: ignore[import-untyped]
+    import docker
 
-    client: EngineClient = docker.DockerClient(**params)
-    return client
+    return cast("EngineClient", docker.DockerClient(**params))
 
 
 def _with_tls(env_tls: Any) -> dict[str, Any]:
@@ -390,7 +390,7 @@ class DockerEngineService:
         """Gather the endpoint from the first winning source in priority order."""
         import docker.utils
         from docker import ContextAPI
-        from docker.context.api import get_current_context_name  # type: ignore[import-untyped]
+        from docker.context.config import get_current_context_name
 
         _check_container_connection()
 
@@ -436,7 +436,7 @@ class DockerEngineService:
     @staticmethod
     def _parse_endpoint(source: str, raw: str, params: dict[str, Any]) -> str:
         """Normalise the raw daemon endpoint via docker-py's parse_host."""
-        import docker.constants  # type: ignore[import-untyped]
+        import docker.constants
         import docker.utils
         from docker.errors import DockerException
 
@@ -500,7 +500,7 @@ class DockerEngineService:
         docker-py's own `parse_host` and `UnixHTTPAdapter` derive the path from that endpoint.
         Nothing connects and no request is made, so a dry run may call this.
         """
-        from docker.transport import UnixHTTPAdapter  # type: ignore[import-untyped]
+        from docker.transport import UnixHTTPAdapter
 
         source, raw, params = self._gather_endpoint()
         base_url = self._parse_endpoint(source, raw, params)

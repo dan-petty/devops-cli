@@ -172,7 +172,7 @@ def push(
         return
     from http import HTTPStatus
 
-    from docker.errors import APIError, InvalidRepository  # type: ignore[import-untyped]
+    from docker.errors import APIError, InvalidRepository
 
     client = _engine().client()
     print_info(MESSAGES.docker.pushing_image.format(image=escape_text(image)), prefix=False)

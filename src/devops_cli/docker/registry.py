@@ -6,9 +6,7 @@ an anonymous pull token from the realm its challenge names, as `crane digest` an
 do; the standard library parses the challenge. An image that needs credentials is a
 `RegistryReadError`: devops-cli reads only public images here.
 
-A reference names its registry host, as Argo CD Image Updater writes it. docker-py parses
-references, but its package has no type hints, and its import would add a `type: ignore` over the
-project's ceiling; #2603 types docker-py and moves the split to its parser.
+A reference names its registry host, as Argo CD Image Updater writes it. docker-py splits it.
 """
 
 from __future__ import annotations
@@ -44,17 +42,24 @@ class TaggedImage:
 def tagged_image(reference: str) -> TaggedImage:
     """Split `<registry>/<repository>:<tag>`; raise RegistryReadError for another form.
 
-    The first path component is the registry when it holds a dot or a port, or is `localhost`,
-    as the distribution reference grammar reads it. A tag holds no `/`, so the last `:` after the
-    last `/` starts it.
+    docker-py splits the reference. A reference with a digest (`<repository>@sha256:...`) gives
+    the digest as the tag. docker-py is imported here, as a module-level import would slow every
+    command that imports this module.
     """
-    registry, slash, path = reference.partition("/")
-    if not slash or not ("." in registry or ":" in registry or registry == "localhost"):
+    from docker.auth import resolve_repository_name
+    from docker.errors import InvalidRepository
+    from docker.utils import parse_repository_tag
+
+    repository, tag = parse_repository_tag(reference)
+    try:
+        registry, remote = resolve_repository_name(repository)
+    except InvalidRepository as exc:
+        raise RegistryReadError(f"{reference} is no valid reference: {exc}") from exc
+    if remote == repository:
         raise RegistryReadError(f"{reference} names no registry host, so its registry is unknown.")
-    repository, colon, tag = path.rpartition(":")
-    if not colon or not repository or not tag or "/" in tag:
+    if not tag:
         raise RegistryReadError(f"{reference} names no tag, so it has no digest to look up.")
-    return TaggedImage(registry=registry, repository=repository, tag=tag)
+    return TaggedImage(registry=registry, repository=remote, tag=tag)
 
 
 def _anonymous_token(client: httpx2.Client, challenge: str, reference: str, timeout: float) -> str:

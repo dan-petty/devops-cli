@@ -23,6 +23,7 @@ dependencies = [
     "jinja2==3.1.6",
     "kubernetes==36.0.3",
     "docker==7.2.0",
+    "requests==2.34.2",
     "fastmcp==4.1.2",
     "qdrant-client==1.19.1",
     "pydantic-settings==2.15.0",
@@ -111,6 +112,7 @@ dev = [
     "fakeredis[valkey]==2.40.0",
     "mdit-py-plugins==0.6.1",
     "types-psutil==7.2.2.20260906",
+    "types-docker==7.2.0.20261006",
     "cel-expr-python==0.1.3",
 ]
 
