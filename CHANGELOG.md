@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.72.1](https://github.com/dan-petty/devops-cli/compare/v0.72.0...v0.72.1) (2026-11-06)
+
+
+### Code Refactoring
+
+* **cli:** callers use the HTTP entry point, old factories go ([#3836](https://github.com/dan-petty/devops-cli/issues/3836)) ([0f66175](https://github.com/dan-petty/devops-cli/commit/0f661757e1e204c066dc1dc1f9a37cdeff051455))
+
 ## [0.72.0](https://github.com/dan-petty/devops-cli/compare/v0.71.1...v0.72.0) (2026-11-06)
 
 
