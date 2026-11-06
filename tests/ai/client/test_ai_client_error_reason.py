@@ -1,7 +1,8 @@
 """An `AIClientError` states the HTTP status or the timeout of the call that failed (#2562).
 
-The client reaches its gateway through the `web` fake of the HTTP entry point. The `reason` of an error is its
-code and the cause, and it never holds the text of the provider's reply.
+The client reaches its gateway through the `web` fake of the HTTP entry point.
+The `reason` of an error is its code and the cause.
+It never holds the text of the provider's reply.
 """
 
 from __future__ import annotations
@@ -118,6 +119,7 @@ def test_a_call_that_times_out_says_so(web: WebFake) -> None:
 def test_a_claude_reply_with_a_status_gives_the_status(web: WebFake) -> None:
     """The Anthropic SDK reads the status of a reply that a plain client returns; the client of
     this test has no retry transport, which raises before the SDK sees the reply."""
+    plain_client = http_client(EgressLevel.PRIVATE)
     client = LLMClient(
         AIConfig(
             provider="claude",
@@ -128,7 +130,7 @@ def test_a_claude_reply_with_a_status_gives_the_status(web: WebFake) -> None:
         ),
         api_key="sk-test",
         cache_enabled=False,
-        http_client=http_client(EgressLevel.PRIVATE),
+        http_client=plain_client,
     )
     serve_llm(
         web,
@@ -138,7 +140,10 @@ def test_a_claude_reply_with_a_status_gives_the_status(web: WebFake) -> None:
         ),
     )
 
-    error = _failure(client)
+    try:
+        error = _failure(client)
+    finally:
+        plain_client.close()
 
     assert (error.status, error.reason) == (529, "LLM_INFERENCE_ERROR, HTTP 529")
 

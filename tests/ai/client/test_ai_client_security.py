@@ -376,7 +376,10 @@ def test_ollama_stream_error_message_masks_secrets(web: WebFake) -> None:
 
 
 def test_a_client_given_a_transport_sends_its_requests_through_it(dns: DnsFake) -> None:
-    """Verify `transport=` is the way a caller hands the client its own transport."""
+    """Verify `transport=` is the way a caller hands the client its own transport.
+
+    This test builds the transport by hand on purpose: the `transport=` parameter is the thing under test.
+    """
     dns.answer_every_name()
     seen: list[str] = []
 
