@@ -19,7 +19,7 @@ Issue #3764 is child E of #1330. Two test files of `ai/` still double a `devops_
 
 - `tests/ai/harness/test_harness_slots.py`, `tests/ai/agents/test_agent.py`, `tests/ai/client/test_ai_streaming.py`.
 - Counts in the two named files: internal patches of a `devops_cli` name go from 2 (one in each file) to 0. Private imports go from 2 to 0.
-- Out of scope: the other tests of `test_agent.py` (they test `PydanticAgent`, which #2489 deletes), file names and splits (child F), and the unreachable `partial` branch of `slots.py` (see Workflow follow-up in `tasks.md`).
+- Out of scope: the other tests of `test_agent.py` (they test `PydanticAgent`, which #2489 deletes), file names and splits (child F), and the unreachable `partial` branch of `slots.py` (issue #3852; see Workflow follow-up in `tasks.md`).
 
 ## Feasibility
 
