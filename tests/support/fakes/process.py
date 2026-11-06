@@ -40,6 +40,8 @@ class ProcessCall:
     check: bool = False
     # Started with `spawn_detached`: in a session of its own, with nothing to wait for.
     detached: bool = False
+    # The names of ambient variables the caller lets the child inherit besides the base set.
+    extra_allowed_env: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -294,6 +296,7 @@ class ProcessFake:
             local_read=local_read,
             stdin=stdin if stdin is not None else input,
             check=check,
+            extra_allowed_env=frozenset(kwargs.get("extra_allowed_env") or ()),
         )
         self.calls.append(call)
 

@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.tf import app as tf_app
 from devops_cli.tf import analysis as tf_analysis
 from devops_cli.tf.analysis import (
     analyze_directory,
@@ -26,8 +25,6 @@ parse_plan_drift: Any = getattr(tf_analysis, "parse_plan_drift", None)
 parse_show_state: Any = getattr(tf_analysis, "parse_show_state", None)
 read_plan_drift: Any = getattr(tf_analysis, "read_plan_drift", None)
 read_state: Any = getattr(tf_analysis, "read_state", None)
-
-runner = CliRunner()
 
 _MAIN_TF = """
 variable "region" { default = "us-east-1" }
@@ -482,77 +479,77 @@ def test_detect_drift_reports_clean_when_aligned(tmp_path: Path) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_cli_graph_renders_dependency_table(tf_dir: Path) -> None:
+def test_cli_graph_renders_dependency_table(tf_dir: Path, cli: Callable[..., Any]) -> None:
     """`devops tf graph` renders every address with its dependencies."""
-    result = runner.invoke(tf_app, ["graph", str(tf_dir)])
+    result = cli("tf", "graph", str(tf_dir))
     assert result.exit_code == 0
     assert "aws_subnet.app" in result.output
     assert "dependency edge" in result.output
 
 
-def test_cli_graph_json_emits_the_graph(tf_dir: Path) -> None:
+def test_cli_graph_json_emits_the_graph(tf_dir: Path, cli: Callable[..., Any]) -> None:
     """The JSON form emits the raw adjacency mapping."""
-    result = runner.invoke(tf_app, ["graph", str(tf_dir), "--json"])
+    result = cli("tf", "graph", str(tf_dir), "--json")
     payload = json.loads(result.output)
 
     assert result.exit_code == 0
     assert payload["graph"]["aws_subnet.app"] == ["aws_vpc.main"]
 
 
-def test_cli_graph_blast_radius_for_resource(tf_dir: Path) -> None:
+def test_cli_graph_blast_radius_for_resource(tf_dir: Path, cli: Callable[..., Any]) -> None:
     """Passing --resource switches to blast radius output."""
-    result = runner.invoke(tf_app, ["graph", str(tf_dir), "--resource", "aws_vpc.main", "--json"])
+    result = cli("tf", "graph", str(tf_dir), "--resource", "aws_vpc.main", "--json")
     payload = json.loads(result.output)
 
     assert result.exit_code == 0
     assert payload["impact_count"] == 3
 
 
-def test_cli_graph_rejects_unknown_resource(tf_dir: Path) -> None:
+def test_cli_graph_rejects_unknown_resource(tf_dir: Path, cli: Callable[..., Any]) -> None:
     """An address that is not declared exits non-zero with an actionable message."""
-    result = runner.invoke(tf_app, ["graph", str(tf_dir), "--resource", "aws_vpc.absent"])
+    result = cli("tf", "graph", str(tf_dir), "--resource", "aws_vpc.absent")
     assert result.exit_code == 1
     assert "not declared" in result.output
 
 
-def test_cli_graph_reports_parse_failures(tf_dir: Path) -> None:
+def test_cli_graph_reports_parse_failures(tf_dir: Path, cli: Callable[..., Any]) -> None:
     """Unparseable manifests are named rather than silently omitted."""
     (tf_dir / "broken.tf").write_text('resource "aws_vpc" "x" {', encoding="utf-8")
-    result = runner.invoke(tf_app, ["graph", str(tf_dir)])
+    result = cli("tf", "graph", str(tf_dir))
 
     assert result.exit_code == 0
     assert "broken.tf" in result.output
 
 
-def test_cli_drift_reports_divergence(tf_dir_with_state: Path) -> None:
+def test_cli_drift_reports_divergence(tf_dir_with_state: Path, cli: Callable[..., Any]) -> None:
     """`devops tf drift` lists both divergence directions."""
-    result = runner.invoke(tf_app, ["drift", str(tf_dir_with_state)])
+    result = cli("tf", "drift", str(tf_dir_with_state))
 
     assert result.exit_code == 0
     assert "aws_s3_bucket.legacy" in result.output
     assert "in state, not declared" in result.output
 
 
-def test_cli_drift_json_output(tf_dir_with_state: Path) -> None:
+def test_cli_drift_json_output(tf_dir_with_state: Path, cli: Callable[..., Any]) -> None:
     """The JSON form emits the typed drift report."""
-    result = runner.invoke(tf_app, ["drift", str(tf_dir_with_state), "--json"])
+    result = cli("tf", "drift", str(tf_dir_with_state), "--json")
     payload = json.loads(result.output)
 
     assert result.exit_code == 0
     assert payload["orphaned_in_state"] == ["aws_s3_bucket.legacy"]
 
 
-def test_cli_drift_warns_when_state_absent(tf_dir: Path) -> None:
+def test_cli_drift_warns_when_state_absent(tf_dir: Path, cli: Callable[..., Any]) -> None:
     """A configuration with no state reports that state is unavailable."""
-    result = runner.invoke(tf_app, ["drift", str(tf_dir)])
+    result = cli("tf", "drift", str(tf_dir))
     assert result.exit_code == 0
     assert "state unavailable (run tofu init)" in result.output.lower()
 
 
-def test_cli_commands_support_dry_run(tf_dir: Path) -> None:
+def test_cli_commands_support_dry_run(tf_dir: Path, cli: Callable[..., Any]) -> None:
     """Both analysis commands run locally in dry run as no-external-request commands."""
-    graph_result = runner.invoke(tf_app, ["graph", str(tf_dir)], env={"DEVOPS_CLI_DRY_RUN": "true"})
-    drift_result = runner.invoke(tf_app, ["drift", str(tf_dir)], env={"DEVOPS_CLI_DRY_RUN": "true"})
+    graph_result = cli("tf", "graph", str(tf_dir), env={"DEVOPS_CLI_DRY_RUN": "true"})
+    drift_result = cli("tf", "drift", str(tf_dir), env={"DEVOPS_CLI_DRY_RUN": "true"})
 
     assert (graph_result.exit_code, drift_result.exit_code) == (0, 0)
     assert "IaC Resource Dependency Graph" in graph_result.output
@@ -746,19 +743,18 @@ def test_detect_drift_with_attribute_drift_reports_divergence(tmp_path: Path) ->
 
 
 def test_cli_drift_uninitialized_directory_reports_state_unavailable(
-    tmp_path: Path,
+    tmp_path: Path, cli: Callable[..., Any]
 ) -> None:
     """An uninitialised directory reports the state as unavailable and names tofu init."""
     (tmp_path / "main.tf").write_text('resource "aws_vpc" "main" {}\n', encoding="utf-8")
-    result = runner.invoke(tf_app, ["drift", str(tmp_path)])
+    result = cli("tf", "drift", str(tmp_path))
 
     assert result.exit_code == 0
     assert "state unavailable (run tofu init)" in result.output.lower()
 
 
 def test_cli_drift_replays_recorded_show_and_plan_with_process_fake(
-    tmp_path: Path,
-    process_fake: Any,
+    tmp_path: Path, process_fake: Any, cli: Callable[..., Any]
 ) -> None:
     """CLI drift detection replays recorded `tofu show -json` and `tofu plan -refresh-only -json`."""
     (tmp_path / "main.tf").write_text(
@@ -816,7 +812,7 @@ def test_cli_drift_replays_recorded_show_and_plan_with_process_fake(
         ProcessAnswer(stdout=plan_json),
     )
 
-    result = runner.invoke(tf_app, ["drift", str(tmp_path)])
+    result = cli("tf", "drift", str(tmp_path))
     assert result.exit_code == 0
     assert "module.db.aws_db_instance.primary" in result.output
     assert "attribute changed" in result.output
