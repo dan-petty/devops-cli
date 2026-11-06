@@ -8,7 +8,7 @@ See proposal.md for the motivation and the scope (#3720). `CONTRIBUTING.md` sect
 
 **Goals:**
 - Tell an agent that the devcontainer shell is zsh, and say that another machine can run bash.
-- Give three points with the wrong command and the right command each: a file list in a variable, a word that starts with `=`, and the extra lines of `uv run devops gh api`.
+- Give three points with the wrong command and the right command each: a file list in a variable, a word that starts with `=`, and the two causes of broken JSON from `uv run devops gh api`.
 - Keep the text short, in ASD-STE100, with at most 25 words in a sentence.
 
 **Non-Goals:**
@@ -32,11 +32,11 @@ See proposal.md for the motivation and the scope (#3720). `CONTRIBUTING.md` sect
 - **Alternative considered**: Say that the agent shell is zsh without a scope.
   - *Rejected*: The evidence covers the devcontainer only. A host outside the devcontainer, or a runner, can use bash, and a wrong scope sends an agent to a form that fails there.
 
-### 3. The text states the verified cause of the `devops gh api` lines
+### 3. The text states the two verified causes of broken JSON from `devops gh api`
 
-- **Decision**: Say that `uv run` prints `Bytecode compiled` and `devops` prints `Elapsed:`, that both go to stderr, and that `2>&1` puts them in the data. The right command is `--jq`.
+- **Decision**: Say that `uv run` prints `Bytecode compiled` and `devops` prints `Elapsed:`, that both go to stderr, and that `2>&1` mixes them into the JSON. Say that `echo "$VAR"` in zsh expands backslash escapes, so a `\n` in a JSON string becomes a raw newline. The right commands are a direct pipe, `print -r --`, `printf '%s'` and `--jq`.
 - **Alternative considered**: Say that a pull request body holds control characters, as the issue does.
-  - *Rejected*: No body of the 100 newest pull requests holds one, and the JSON of stdout parses. Only the merged stderr lines break `json.load`, and the text states what a command shows.
+  - *Rejected*: No body of the 100 newest pull requests holds one, and the JSON of stdout parses. Two reproduced causes break the parse: the merged stderr lines and the `echo` of zsh. The text states what a command shows.
 
 ### 4. The shell stays as it is
 

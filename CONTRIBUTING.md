@@ -75,7 +75,7 @@ uv run pre-commit install
 
 ### Shell notes for agents
 
-In the devcontainer, the Bash tool of an agent runs zsh. `SHELL` is `/bin/zsh`, because the `common-utils` feature in `.devcontainer/devcontainer.json` makes zsh the default shell of the user `vscode`. A machine outside the devcontainer can run bash, where `${=F}` and `${(f)...}` are errors. Three zsh behaviors cause wrong commands.
+In the devcontainer, the Bash tool of an agent runs zsh. `SHELL` is `/bin/zsh`, because the `common-utils` feature in `.devcontainer/devcontainer.json` makes zsh the default shell of the user `vscode`. A machine outside the devcontainer can run bash, where `${=F}` and `${(f)...}` are errors. Three behaviors cause wrong commands.
 
 1. **zsh does not split an unquoted variable at white space.** A variable that holds a file list is one argument with newlines, and `ruff` reports `io-error`. Split the list with `${=F}`, with an array, or with a `$(cmd)` in the argument list:
 
@@ -95,11 +95,16 @@ In the devcontainer, the Bash tool of an agent runs zsh. `SHELL` is `/bin/zsh`, 
    printf '%s\n' '-----'    # right
    ```
 
-3. **`uv run devops gh api` writes two extra lines to stderr.** The Bash tool shows a `Bytecode compiled` line before the reply and an `Elapsed:` line after it. A `2>&1` pipe puts these lines in the data, and `json.load` of that output fails. Read a field with `--jq`:
+3. **JSON from `uv run devops gh api` breaks in two ways.** The command writes a `Bytecode compiled` line and an `Elapsed:` line to stderr, and the Bash tool shows them around the reply. A `2>&1` pipe mixes these lines into the JSON. In zsh, `echo "$VAR"` expands backslash escapes, so a `\n` in a JSON string becomes a raw newline. Then the parser fails. Pipe stdout directly, print a variable with `print -r --` or `printf '%s'`, or read one field with `--jq`:
 
    ```zsh
-   uv run devops gh api repos/dan-petty/devops-cli/pulls/<n> 2>&1 | python3 -c 'import json, sys; json.load(sys.stdin)'  # wrong
-   uv run devops gh api repos/dan-petty/devops-cli/pulls/<n> --jq .title                                               # right
+   P=$(uv run devops gh api repos/dan-petty/devops-cli/pulls/<n>)
+   echo "$P" | python3 -m json.tool >/dev/null                                              # wrong: echo expands \n
+   uv run devops gh api repos/dan-petty/devops-cli/pulls/<n> 2>&1 | python3 -m json.tool    # wrong: stderr lines in the JSON
+   print -r -- "$P" | python3 -m json.tool >/dev/null                                       # right
+   printf '%s' "$P" | python3 -m json.tool >/dev/null                                       # right
+   uv run devops gh api repos/dan-petty/devops-cli/pulls/<n> | python3 -m json.tool         # right: a direct pipe carries stdout only
+   uv run devops gh api repos/dan-petty/devops-cli/pulls/<n> --jq .title                    # right: one field
    ```
 
 ---
