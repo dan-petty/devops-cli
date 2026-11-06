@@ -8,15 +8,13 @@ endpoint checks, projections, cache and error mapping run for real.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 from docker.errors import DockerException
-from typer.testing import CliRunner
 
-from devops_cli.commands.docker import app as docker_app
 from devops_cli.config.constants import (
     CONST_SANDBOX_DOCKER_INTERNAL_NET,
 )
@@ -30,12 +28,10 @@ from devops_cli.docker.engine import (
     project_container_stats,
 )
 from devops_cli.exceptions.docker import DockerDaemonUnavailableError, DockerEngineError
-from devops_cli.http.egress import EgressLevel
 from devops_cli.models.docker import EngineSecurityInfo
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake, Lookup
 from tests.support.fakes.docker_engine import UNREACHABLE_MESSAGE, DockerEngineFake, EngineCall
-
-runner = CliRunner()
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Connection lifecycle & host resolution
@@ -92,47 +88,59 @@ def test_resolve_host_defaults_to_unix_socket(docker_endpoint_env: Any) -> None:
     )
 
 
-def test_resolve_host_validates_network_endpoints(docker_endpoint_env: Any) -> None:
+def test_resolve_host_validates_network_endpoints(
+    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch, dns: DnsFake
+) -> None:
     """A TCP DOCKER_HOST is routed through SSRF egress validation before connecting."""
-    engine = DockerEngineService()
-    with (
-        patch.dict(os.environ, {"DOCKER_HOST": "tcp://example.com:2375"}),
-        patch("devops_cli.http.egress.vet_addresses") as mock_validate,
-    ):
-        endpoint = engine.resolve_host()
+    dns.add("example.com", PUBLIC_ADDRESS)
+    monkeypatch.setenv("DOCKER_HOST", "tcp://example.com:2375")
+
+    endpoint = DockerEngineService().resolve_host()
 
     assert (
         endpoint.source,
         endpoint.raw,
         endpoint.base_url,
-        mock_validate.call_args[0],
+        dns.lookups_of("example.com"),
     ) == (
         "DOCKER_HOST",
         "tcp://example.com:2375",
         "http://example.com:2375",
-        ("example.com", 2375, EgressLevel.PUBLIC),
+        [Lookup("example.com", 2375)],
     )
 
 
-def test_resolve_host_leaves_unix_socket_unvalidated(docker_endpoint_env: Any) -> None:
+def test_resolve_host_refuses_a_name_that_resolves_to_a_private_address(
+    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch, dns: DnsFake
+) -> None:
+    """A TCP DOCKER_HOST whose name resolves to a private address is refused before connecting."""
+    dns.add("example.com", "10.0.0.5")
+    monkeypatch.setenv("DOCKER_HOST", "tcp://example.com:2375")
+
+    with pytest.raises(DockerDaemonUnavailableError) as raised:
+        DockerEngineService().resolve_host()
+
+    assert "DOCKER_HOST" in str(raised.value)
+
+
+def test_resolve_host_leaves_unix_socket_unvalidated(
+    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch, dns: DnsFake
+) -> None:
     """A Unix socket endpoint bypasses network egress validation entirely."""
-    engine = DockerEngineService()
-    with (
-        patch.dict(os.environ, {"DOCKER_HOST": "unix:///run/user/1000/docker.sock"}),
-        patch("devops_cli.http.egress.vet_addresses") as mock_validate,
-    ):
-        endpoint = engine.resolve_host()
+    monkeypatch.setenv("DOCKER_HOST", "unix:///run/user/1000/docker.sock")
+
+    endpoint = DockerEngineService().resolve_host()
 
     assert (
         endpoint.source,
         endpoint.raw,
         endpoint.base_url,
-        mock_validate.called,
+        dns.lookups,
     ) == (
         "DOCKER_HOST",
         "unix:///run/user/1000/docker.sock",
         "http+unix:///run/user/1000/docker.sock",
-        False,
+        [],
     )
 
 
@@ -392,10 +400,11 @@ def test_docker_images_cli_no_traceback_on_bad_endpoints(
     expected_fragment: str,
     docker_endpoint_env: Any,
     monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
 ) -> None:
     """devops docker images exits 1 with a single clean error line and no traceback (#1108)."""
     monkeypatch.setenv("DOCKER_HOST", docker_host)
-    res = runner.invoke(docker_app, ["images"])
+    res = cli("docker", "images")
     assert (res.exit_code, "Traceback" in res.output, expected_fragment in res.output) == (
         1,
         False,
@@ -480,20 +489,17 @@ def test_endpoint_podman_rootless_xdg_runtime_dir(
 
 
 def test_endpoint_podman_rootless_fallback_run_user(
-    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """When XDG_RUNTIME_DIR is unset, fallback to /run/user/<uid>/podman/podman.sock."""
     monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
-    fake_run_user = tmp_path / "run" / "user"
-    user_sock_dir = fake_run_user / str(os.getuid()) / "podman"
+    user_sock_dir = docker_endpoint_env.run_user_base / str(os.getuid()) / "podman"
     user_sock_dir.mkdir(parents=True, exist_ok=True)
     podman_sock = user_sock_dir / "podman.sock"
     podman_sock.touch()
 
-    monkeypatch.setattr("devops_cli.docker.engine.CONST_RUN_USER_BASE", fake_run_user)
+    endpoint = DockerEngineService().resolve_host()
 
-    engine = DockerEngineService()
-    endpoint = engine.resolve_host()
     assert (endpoint.source, endpoint.raw, endpoint.base_url) == (
         str(podman_sock),
         f"unix://{podman_sock}",
@@ -501,51 +507,27 @@ def test_endpoint_podman_rootless_fallback_run_user(
     )
 
 
-def test_endpoint_podman_rootful_used_when_accessible(
-    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_endpoint_podman_rootful_used_when_accessible(docker_endpoint_env: Any) -> None:
     """Rootful Podman socket is used when rootless socket is absent and rootful is R/W."""
-    rootful_sock = tmp_path / "podman" / "podman.sock"
+    rootful_sock = docker_endpoint_env.rootful_socket
     rootful_sock.parent.mkdir(parents=True, exist_ok=True)
     rootful_sock.touch()
 
-    monkeypatch.setattr("devops_cli.docker.engine.CONST_PODMAN_ROOTFUL_SOCKET_PATH", rootful_sock)
-    orig_access = os.access
+    endpoint = DockerEngineService().resolve_host()
 
-    def mock_access(path: Any, mode: int, **kwargs: Any) -> bool:
-        if Path(path) == rootful_sock:
-            return True
-        return orig_access(path, mode, **kwargs)
-
-    monkeypatch.setattr("os.access", mock_access)
-
-    engine = DockerEngineService()
-    endpoint = engine.resolve_host()
-    assert (endpoint.source, endpoint.raw) == (
-        str(rootful_sock),
-        f"unix://{rootful_sock}",
-    )
+    assert (endpoint.source, endpoint.raw) == (str(rootful_sock), f"unix://{rootful_sock}")
 
 
-def test_endpoint_podman_rootful_skipped_when_inaccessible(
-    docker_endpoint_env: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can open any socket path")
+def test_endpoint_podman_rootful_skipped_when_inaccessible(docker_endpoint_env: Any) -> None:
     """Rootful Podman socket is ignored if not accessible with R/W permissions."""
-    rootful_sock = tmp_path / "podman" / "podman.sock"
+    rootful_sock = docker_endpoint_env.rootful_socket
     rootful_sock.parent.mkdir(parents=True, exist_ok=True)
     rootful_sock.touch()
+    rootful_sock.chmod(0o444)
 
-    monkeypatch.setattr("devops_cli.docker.engine.CONST_PODMAN_ROOTFUL_SOCKET_PATH", rootful_sock)
+    endpoint = DockerEngineService().resolve_host()
 
-    def mock_access(path: Any, mode: int, **kwargs: Any) -> bool:
-        if Path(path) == rootful_sock:
-            return False
-        return True
-
-    monkeypatch.setattr("os.access", mock_access)
-
-    engine = DockerEngineService()
-    endpoint = engine.resolve_host()
     assert endpoint.source == "/var/run/docker.sock"
 
 
@@ -559,13 +541,12 @@ def test_endpoint_podman_rootless_beats_rootful(
     rootless_sock.touch()
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
 
-    rootful_sock = tmp_path / "run_podman" / "podman.sock"
+    rootful_sock = docker_endpoint_env.rootful_socket
     rootful_sock.parent.mkdir(parents=True, exist_ok=True)
     rootful_sock.touch()
-    monkeypatch.setattr("devops_cli.docker.engine.CONST_PODMAN_ROOTFUL_SOCKET_PATH", rootful_sock)
 
-    engine = DockerEngineService()
-    endpoint = engine.resolve_host()
+    endpoint = DockerEngineService().resolve_host()
+
     assert endpoint.source == str(rootless_sock)
 
 
@@ -624,18 +605,14 @@ def test_ping_returns_false_when_daemon_down(docker_daemon: DockerEngineFake) ->
     assert get_engine().ping() is False
 
 
-def test_cache_entry_expires(
-    docker_daemon: DockerEngineFake, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cache_entry_expires(docker_daemon: DockerEngineFake, clock: ClockFake) -> None:
     """A memoised ping is asked again once its TTL elapses."""
-    now = [1000.0]
-    monkeypatch.setattr("time.monotonic", lambda: now[0])
     engine = get_engine()
     engine.ping()
-    now[0] += DEFAULT_DOCKER_CACHE_TTL_SECONDS - 0.1
+    clock.shift(DEFAULT_DOCKER_CACHE_TTL_SECONDS - 0.1)
     engine.ping()
     within = docker_daemon.call_names().count("ping")
-    now[0] += 0.2
+    clock.shift(0.2)
     engine.ping()
 
     assert (within, docker_daemon.call_names().count("ping")) == (1, 2)
@@ -970,19 +947,19 @@ def test_an_unreachable_daemon_reports_no_security_options_and_not_rootless(
 
 
 def test_security_info_failure_is_retried_after_two_seconds_and_success_after_the_ttl(
-    docker_daemon: DockerEngineFake, monkeypatch: pytest.MonkeyPatch
+    docker_daemon: DockerEngineFake, clock: ClockFake
 ) -> None:
     """A failed answer is remembered for 2 s, like a failed ping, and a good one for the normal
     cache lifetime."""
-    now = [1000.0]
-    monkeypatch.setattr("time.monotonic", lambda: now[0])
     docker_daemon.fail("info", OSError("down"), times=1)
     docker_daemon.info_data = {"SecurityOptions": [_BUILTIN_SECCOMP], "PidsLimit": True}
     engine = get_engine()
 
     reads: list[tuple[float, bool, int]] = []
+    at = 0.0
     for elapsed in (0.0, 1.9, 2.1, 4.0, 5.2, 7.5):
-        now[0] = 1000.0 + elapsed
+        clock.shift(elapsed - at)
+        at = elapsed
         error = engine.security_info().error
         reads.append((elapsed, error is None, docker_daemon.call_names().count("info")))
 
@@ -1328,11 +1305,11 @@ def test_engine_prune_failure_is_typed(docker_daemon: DockerEngineFake) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_cli_docker_cache_table(docker_daemon: DockerEngineFake) -> None:
+def test_cli_docker_cache_table(docker_daemon: DockerEngineFake, cli: Callable[..., Any]) -> None:
     """The cache command renders BuildKit records with a reuse summary."""
     docker_daemon.build_cache = [dict(entry) for entry in _CACHE_ENTRIES]
 
-    result = runner.invoke(docker_app, ["cache"])
+    result = cli("docker", "cache")
 
     assert (result.exit_code, "cache-a" in result.output, "reclaimable" in result.output) == (
         0,
@@ -1341,20 +1318,20 @@ def test_cli_docker_cache_table(docker_daemon: DockerEngineFake) -> None:
     )
 
 
-def test_cli_docker_cache_json(docker_daemon: DockerEngineFake) -> None:
+def test_cli_docker_cache_json(docker_daemon: DockerEngineFake, cli: Callable[..., Any]) -> None:
     """The cache command emits the typed report as JSON on demand."""
     docker_daemon.build_cache = [dict(entry) for entry in _CACHE_ENTRIES]
 
-    result = runner.invoke(docker_app, ["cache", "--json"])
+    result = cli("docker", "cache", "--json")
 
     assert (result.exit_code, '"reclaimable_bytes"' in result.output) == (0, True)
 
 
-def test_cli_docker_cache_prune(docker_daemon: DockerEngineFake) -> None:
+def test_cli_docker_cache_prune(docker_daemon: DockerEngineFake, cli: Callable[..., Any]) -> None:
     """The --prune flag reclaims unused records after reporting them."""
     docker_daemon.build_cache = [dict(entry) for entry in _CACHE_ENTRIES]
 
-    result = runner.invoke(docker_app, ["cache", "--prune"])
+    result = cli("docker", "cache", "--prune")
 
     assert (
         result.exit_code,
@@ -1363,18 +1340,20 @@ def test_cli_docker_cache_prune(docker_daemon: DockerEngineFake) -> None:
     ) == (0, True, ["cache-a"])
 
 
-def test_cli_docker_cache_dry_run() -> None:
+def test_cli_docker_cache_dry_run(cli: Callable[..., Any]) -> None:
     """The cache command supports dry-run inspection without contacting the daemon."""
-    result = runner.invoke(docker_app, ["cache", "--dry-run"])
+    result = cli("docker", "cache", "--dry-run")
     assert result.exit_code == 0
     assert "DOCKER GET /system/df" in result.output
 
 
-def test_cli_docker_cache_podman_engine(docker_daemon: DockerEngineFake) -> None:
+def test_cli_docker_cache_podman_engine(
+    docker_daemon: DockerEngineFake, cli: Callable[..., Any]
+) -> None:
     """The cache command on Podman informs user and exits 1 without prune_builds or df."""
     docker_daemon.set_podman()
 
-    result = runner.invoke(docker_app, ["cache"])
+    result = cli("docker", "cache")
 
     assert (
         result.exit_code,
