@@ -24,8 +24,8 @@ can rely on it for the promises the GitHub adapter keeps.
 A test makes a job's write fail as a `gh` call fails part-way through a run with `fail_write`: a
 502, a timeout or a secondary rate limit, before GitHub applies the write or after it. `writes`
 names every write the job made or tried, in order. `fail_listing` makes the next listing of a
-repository directory fail, and `listed` names every directory that was listed. `fail_visibility`
-makes the read of the repository's visibility fail, and `reads` names every read of an Item and
+repository directory fail, and `listed` names every directory that was listed. `fail_read`
+makes a read of the repository, such as its visibility or its changes, fail, and `reads` names every read of an Item and
 of the last change of a path, in order.
 """
 
@@ -74,6 +74,9 @@ from devops_cli.roadmap.store import (
     split_record,
     with_record,
 )
+
+# The reads that `fail_read` can fail.
+READS = frozenset({"changes_since", "repository_is_private"})
 
 DEFAULT_ROADMAP_MEMORY_REPO = "example/roadmap"
 DEFAULT_ROADMAP_MEMORY_ACTOR = "devops-cli"
@@ -194,7 +197,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._fault = Fault()
         self._counted_writes = 0
         self._listing_error: Exception | None = None
-        self._visibility_error: Exception | None = None
+        self._read_errors: dict[str, Exception] = {}
         # Every write this view made or tried, and every directory it listed, in order.
         self.writes: list[str] = []
         self.listed: list[str] = []
@@ -229,9 +232,20 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Make the next listing of a repository directory raise `error`."""
         self._listing_error = error
 
-    def fail_visibility(self, error: Exception | None) -> None:
-        """Make every read of the repository's visibility raise `error`, until it is None."""
-        self._visibility_error = error
+    def fail_read(self, read: str, error: Exception | None) -> None:
+        """Make every call of the store method `read` raise `error`, until `error` is None. The
+        reads that can fail are `repository_is_private` and `changes_since`."""
+        if read not in READS:
+            raise ValueError(f"{read} is no read that the fake can fail.")
+        if error is None:
+            self._read_errors.pop(read, None)
+        else:
+            self._read_errors[read] = error
+
+    def _readable(self, read: str) -> None:
+        """Raise the error `fail_read` set for `read`, if any."""
+        if read in self._read_errors:
+            raise self._read_errors[read]
 
     def _attempt[R](self, name: str, number: int | None, apply: Callable[[], R]) -> R:
         """Make a write, or fail it as the fault says."""
@@ -655,9 +669,8 @@ class InMemoryRoadmapStore(RoadmapStore):
         return found
 
     def repository_is_private(self) -> bool:
-        """Whether the repository is private, or the error `fail_visibility` set."""
-        if self._visibility_error is not None:
-            raise self._visibility_error
+        """Whether the repository is private, or the error `fail_read` set."""
+        self._readable("repository_is_private")
         return self._roadmap.is_private
 
     def repository_facts(self, full_name: str) -> RepositoryFacts | None:
@@ -742,6 +755,7 @@ class InMemoryRoadmapStore(RoadmapStore):
     def changes_since(self, since: datetime, *, except_actor: str | None = None) -> list[Change]:
         """The changes made at or after `since`, oldest first, without those `except_actor`
         made; an empty actor leaves out nothing."""
+        self._readable("changes_since")
         cutoff = as_utc(since)
         skipped = except_actor or None
         return [

@@ -445,12 +445,14 @@ def test_the_web_search_state_of_a_round_whose_visibility_read_fails(
 ) -> None:
     """A spent quota stops the round, and any other failed read of the repository's visibility
     turns web search off with its reason and a warning (#1365, #2398)."""
-    store.fail_visibility(GitHubRateLimitError("GraphQL budget exhausted"))
+    store.fail_read("repository_is_private", GitHubRateLimitError("GraphQL budget exhausted"))
     with pytest.raises(GitHubRateLimitError) as raised:
         web_search_of(store)
     assert raised.value.error_code == "GITHUB_RATE_LIMIT_UNKNOWN"
 
-    store.fail_visibility(GitHubOperationError("transient read failure", operation="read"))
+    store.fail_read(
+        "repository_is_private", GitHubOperationError("transient read failure", operation="read")
+    )
     with caplog.at_level(logging.WARNING):
         web = web_search_of(store)
 
