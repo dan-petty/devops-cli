@@ -87,7 +87,7 @@ def _prune_candidates(directory: Path) -> Iterator[Path]:
             yield entry
 
 
-def _listed_worktrees(main_root: Path) -> list[Path]:
+def listed_worktrees(main_root: Path) -> list[Path]:
     """Every worktree of the repository whose main worktree is `main_root`, as git lists them;
     none when `main_root` is not in a repository."""
     listing = run_subprocess(
@@ -136,7 +136,7 @@ def _holds_more_than_data(data_dir: Path, main_root: Path, current_root: Path) -
     or inside one, a repository or holds one where cleanup prunes, or a worktree (the main one,
     the one the command runs in, or any other the repository lists) or a parent of one, whose
     `logs/`, `cache/` or `benchmarks/` hold more than the tool's data."""
-    worktrees = [main_root, current_root, *_listed_worktrees(main_root)]
+    worktrees = [main_root, current_root, *listed_worktrees(main_root)]
     return (
         len(data_dir.parts) <= 2
         or is_forbidden_system_path(data_dir)

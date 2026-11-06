@@ -13,7 +13,7 @@ from __future__ import annotations
 from hypothesis import Phase, example, given, settings
 from hypothesis import strategies as st
 
-from devops_cli.argo.gitops import _parse_drift_event
+from devops_cli.argo.gitops import parse_drift_event
 
 _FUZZ_SETTINGS = settings(
     phases=[Phase.explicit, Phase.generate],
@@ -40,7 +40,7 @@ def test_gitops_drift_path_traversal_rejection_specification(
 ) -> None:
     """git-status(1) & path security: paths with traversal sequences must be rejected as None."""
     line = f" M {traversal}{path_suffix}{ext}"
-    result = _parse_drift_event(line, now=1000.0)
+    result = parse_drift_event(line, now=1000.0)
     assert result is None
 
 
@@ -55,7 +55,7 @@ def test_gitops_drift_path_traversal_rejection_specification(
 def test_gitops_drift_non_manifest_rejection_specification(path_stem: str, ext: str) -> None:
     """GitOps manifest boundary: non-manifest files (including .json) must not trigger GitOps drift events."""
     line = f" M k8s/{path_stem}{ext}"
-    result = _parse_drift_event(line, now=1000.0)
+    result = parse_drift_event(line, now=1000.0)
     assert result is None
 
 
@@ -77,7 +77,7 @@ def test_gitops_drift_manifest_status_mapping_specification(
     """
     rel_path = f"k8s/{path_stem}{ext}"
     line = f"{status_code} {rel_path}"
-    event = _parse_drift_event(line, now=12345.0)
+    event = parse_drift_event(line, now=12345.0)
 
     assert event is not None
 

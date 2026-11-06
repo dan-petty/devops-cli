@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 from devops_cli.ci.cache import (
-    _worktree_divergent_paths,
     compute_workspace_fingerprint,
+    worktree_divergent_paths,
 )
 from devops_cli.core.gitignore import get_index, reset_indexes
 from tests.support.fakes.git import GitFake
@@ -301,21 +301,21 @@ def test_a_worktree_modification_is_detected(repo: Path) -> None:
     reads as one modified in the index -- inverting the distinction entirely.
     """
     (repo / "app.py").write_text("value = 2\n", encoding="utf-8")
-    changed, deleted = _worktree_divergent_paths(repo)
+    changed, deleted = worktree_divergent_paths(repo)
     assert ("app.py" in changed, deleted) == (True, [])
 
 
 def test_an_untracked_file_is_detected(repo: Path) -> None:
     """Untracked files are inputs too."""
     (repo / "new.py").write_text("value = 1\n", encoding="utf-8")
-    changed, _ = _worktree_divergent_paths(repo)
+    changed, _ = worktree_divergent_paths(repo)
     assert "new.py" in changed
 
 
 def test_a_deleted_file_is_detected(repo: Path) -> None:
     """A removal must drop the path rather than hash a file that is gone."""
     (repo / "app.py").unlink()
-    _, deleted = _worktree_divergent_paths(repo)
+    _, deleted = worktree_divergent_paths(repo)
     assert "app.py" in deleted
 
 
@@ -337,10 +337,10 @@ def test_an_unstaged_rename_reports_the_new_path(repo: Path) -> None:
         (repo / "app.py").read_text(encoding="utf-8"), encoding="utf-8"
     )
     (repo / "app.py").unlink()
-    changed, deleted = _worktree_divergent_paths(repo)
+    changed, deleted = worktree_divergent_paths(repo)
     assert ("renamed.py" in changed, "app.py" in deleted) == (True, True)
 
 
 def test_a_clean_repository_reports_nothing_divergent(repo: Path) -> None:
     """A freshly committed tree has no divergence to hash."""
-    assert _worktree_divergent_paths(repo) == ([], [])
+    assert worktree_divergent_paths(repo) == ([], [])
