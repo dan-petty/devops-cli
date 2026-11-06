@@ -8,6 +8,9 @@ classify every answer, and dial only the vetted addresses, as IP literals. TLS s
 hostname: httpcore2 takes `server_hostname` from the request's origin, not from the address the
 backend dialled.
 
+The lookup is a seam: `Resolver` is its Protocol, `SystemResolver` the real lookup, and
+`install_resolver` gives a test another resolver (#3752).
+
 The address classes come from #897's predicates (`is_non_public_ip`,
 `is_cloud_metadata_ip` of `devops_cli.core.validation` and the metadata names), so this check
 and every pre-flight check agree.
@@ -20,9 +23,10 @@ from __future__ import annotations
 
 import ipaddress
 import socket
-from collections.abc import Callable, Iterable
+import threading
+from collections.abc import Callable, Iterable, Sequence
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 import anyio
 import httpcore2
@@ -35,6 +39,8 @@ if TYPE_CHECKING:
     from devops_cli.config.settings import AIConfig
 
 IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+# One `socket.getaddrinfo` answer: family, type, protocol, canonical name and socket address.
+AddressInfo = tuple[int, int, int, str, tuple[Any, ...]]
 ConnectFailure = httpcore2.ConnectError | httpcore2.ConnectTimeout
 
 
@@ -70,6 +76,61 @@ def configured_level(ai_config: AIConfig | None = None) -> EgressLevel:
 
         ai_config = load_settings().ai
     return EgressLevel.PRIVATE if ai_config.allow_private_network else EgressLevel.LOOPBACK
+
+
+class Resolver(Protocol):
+    """The DNS lookup under `vet_addresses` and `avet_addresses`: a name to `getaddrinfo` answers.
+
+    Both lookups ask for stream sockets. A failed lookup raises `socket.gaierror` (an `OSError`).
+    """
+
+    def resolve(self, host: str, port: int) -> Sequence[AddressInfo]:
+        """Look `host` up. A sync lookup has no timeout: `socket.getaddrinfo` cannot be bounded."""
+
+    async def aresolve(
+        self, host: str, port: int, timeout: float | None = None
+    ) -> Sequence[AddressInfo]:
+        """Look `host` up off the event loop; raise `TimeoutError` if it takes longer than
+        `timeout` seconds."""
+
+
+class SystemResolver:
+    """The real lookup: `socket.getaddrinfo`, and `anyio.getaddrinfo` for the async side."""
+
+    def resolve(self, host: str, port: int) -> Sequence[AddressInfo]:
+        return socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+
+    async def aresolve(
+        self, host: str, port: int, timeout: float | None = None
+    ) -> Sequence[AddressInfo]:
+        with anyio.fail_after(timeout):
+            return await anyio.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+
+
+_RESOLVER: Resolver | None = None
+_RESOLVER_LOCK = threading.Lock()
+
+
+def get_resolver() -> Resolver:
+    """The active resolver: the one `install_resolver` installed, else `SystemResolver`."""
+    with _RESOLVER_LOCK:
+        return _RESOLVER if _RESOLVER is not None else SystemResolver()
+
+
+def install_resolver(resolver: Resolver) -> Resolver:
+    """Install the resolver that every vetting lookup uses; return the one it replaces."""
+    global _RESOLVER
+    with _RESOLVER_LOCK:
+        previous = _RESOLVER if _RESOLVER is not None else SystemResolver()
+        _RESOLVER = resolver
+    return previous
+
+
+def reset_resolver() -> None:
+    """Restore `SystemResolver` as the resolver."""
+    global _RESOLVER
+    with _RESOLVER_LOCK:
+        _RESOLVER = None
 
 
 def _destination(host: str, port: int) -> str:
@@ -130,7 +191,7 @@ def vet_addresses(host: str, port: int, level: EgressLevel) -> list[str]:
     """
     _refuse_metadata_name(host, port)
     try:
-        answers = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        answers = get_resolver().resolve(host, port)
     except (OSError, UnicodeError) as exc:
         raise httpcore2.ConnectError(str(exc)) from exc
     return _vetted(host, port, answers, level)
@@ -142,8 +203,7 @@ async def avet_addresses(
     """`vet_addresses` for async clients: the lookup runs off the event loop, within `timeout`."""
     _refuse_metadata_name(host, port)
     try:
-        with anyio.fail_after(timeout):
-            answers = await anyio.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        answers = await get_resolver().aresolve(host, port, timeout)
     except TimeoutError as exc:
         raise httpcore2.ConnectTimeout(f"Lookup of {host!r} timed out") from exc
     except (OSError, UnicodeError) as exc:
@@ -242,10 +302,16 @@ class AsyncVettingBackend(httpcore2.AsyncNetworkBackend):
 
 
 __all__ = [
+    "AddressInfo",
     "AsyncVettingBackend",
     "EgressLevel",
+    "Resolver",
+    "SystemResolver",
     "VettingBackend",
     "avet_addresses",
     "configured_level",
+    "get_resolver",
+    "install_resolver",
+    "reset_resolver",
     "vet_addresses",
 ]
