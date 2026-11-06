@@ -22,7 +22,8 @@ from devops_cli.telemetry.tracer import (
     get_recent_spans,
     reset_tracer,
 )
-from tests.llm_stream_fakes import route_llm_clients
+from tests.llm_stream_fakes import serve_llm
+from tests.support.fakes.http import WebFake
 
 
 @pytest.fixture(autouse=True)
@@ -36,14 +37,14 @@ def _clean_telemetry() -> Generator[None]:
     clear_span_buffer()
 
 
-def _serve_reply(monkeypatch: pytest.MonkeyPatch, text: str) -> None:
+def _serve_reply(web: WebFake, text: str) -> None:
     """Answer every chat completion with a reply of `text`, at the HTTP edge."""
     body = {
         "model": "gpt-4o",
         "choices": [{"message": {"content": text}, "finish_reason": "stop"}],
         "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
     }
-    route_llm_clients(monkeypatch, lambda _request: httpx2.Response(200, json=body))
+    serve_llm(web, lambda _request: httpx2.Response(200, json=body))
 
 
 def test_private_host_patterns_defined_and_cross_checked_with_validation() -> None:
@@ -94,9 +95,7 @@ def test_telemetry_config_capture_llm_content_default_false() -> None:
     assert config.capture_llm_content is False
 
 
-def _dispatch_attributes(
-    monkeypatch: pytest.MonkeyPatch, config: Any, capture: bool
-) -> dict[str, Any]:
+def _dispatch_attributes(config: Any, capture: bool) -> dict[str, Any]:
     """The attributes of the one `ai.llm.dispatch` span of a chat with capture on or off."""
     config(telemetry={"enabled": True, "capture_llm_content": capture})
     clear_span_buffer()
@@ -110,13 +109,13 @@ def _dispatch_attributes(
 
 
 def test_ai_llm_dispatch_spans_gate_prompt_and_response_preview(
-    monkeypatch: pytest.MonkeyPatch, config: Any, otlp: Any
+    web: WebFake, config: Any, otlp: Any
 ) -> None:
     """Verify native ai.llm.dispatch spans omit preview attributes when capture is False, include when True."""
-    _serve_reply(monkeypatch, "stubbed response with sensitive details")
+    _serve_reply(web, "stubbed response with sensitive details")
 
-    off = _dispatch_attributes(monkeypatch, config, capture=False)
-    on = _dispatch_attributes(monkeypatch, config, capture=True)
+    off = _dispatch_attributes(config, capture=False)
+    on = _dispatch_attributes(config, capture=True)
 
     assert ("llm.prompt_preview" in off, "llm.response_preview" in off) == (False, False)
     assert "node1.example.internal" in on["llm.prompt_preview"]["stringValue"]
@@ -216,11 +215,11 @@ def _has_prompt_preview_host(host: str) -> bool:
 
 
 def test_pydantic_agent_keeps_private_host_out_of_telemetry_when_capture_off(
-    monkeypatch: pytest.MonkeyPatch, config: Any, otlp: Any
+    web: WebFake, config: Any, otlp: Any
 ) -> None:
     """Drive PydanticAgent + LLMClient and assert hostname is in no Logfire or tracer attribute."""
     captured_logfire_spans: list[Any] = []
-    _serve_reply(monkeypatch, "reply from stubbed agent")
+    _serve_reply(web, "reply from stubbed agent")
     ai_cfg = AIConfig(provider="openai", model="gpt-4o", api_base_url="https://example.com/v1")
 
     config(telemetry={"enabled": True, "capture_llm_content": False})
@@ -244,10 +243,10 @@ def test_pydantic_agent_keeps_private_host_out_of_telemetry_when_capture_off(
 
 
 def test_pydantic_agent_records_prompt_preview_when_capture_on(
-    monkeypatch: pytest.MonkeyPatch, config: Any, otlp: Any
+    web: WebFake, config: Any, otlp: Any
 ) -> None:
     """Assert prompt preview returns when capture_llm_content is True."""
-    _serve_reply(monkeypatch, "reply from stubbed agent")
+    _serve_reply(web, "reply from stubbed agent")
     ai_cfg = AIConfig(provider="openai", model="gpt-4o", api_base_url="https://example.com/v1")
 
     config(telemetry={"enabled": True, "capture_llm_content": True})
