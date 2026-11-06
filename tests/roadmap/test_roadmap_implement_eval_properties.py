@@ -256,6 +256,32 @@ def test_a_lost_test_that_the_plan_of_the_fixture_records_is_not_lost(tmp_path: 
     assert _only(diff_results(allowing, diff), Property.TESTS_KEPT) == (Status.OK, "")
 
 
+def test_a_test_of_a_class_that_the_plan_records_by_its_qualified_name_is_not_lost(
+    tmp_path: Path,
+) -> None:
+    """The step names a test of a class as `Class.test_x`, and the plan records that name. A hunk
+    shows no class, so `tests_kept` reads the entry by the name after the last dot."""
+    recording = RECORDS_TEST_A.replace("::test_a", "::TestKept.test_a")
+    allowing = load_case(write_fixture(tmp_path, proposal=recording))
+    in_class = "class TestKept:\n    def test_a(self) -> None:\n        pass\n"
+    diff = unified(TEST_PATH, in_class, in_class.replace("def test_a", "def helper_a"))
+
+    assert allowing.case.allow_lost_tests == ("tests/test_sample.py::TestKept.test_a",)
+    assert _only(diff_results(allowing, diff), Property.TESTS_KEPT) == (Status.OK, "")
+
+
+def test_an_entry_for_a_test_of_a_class_waives_no_test_of_another_name(tmp_path: Path) -> None:
+    recording = RECORDS_TEST_A.replace("::test_a", "::TestKept.test_a")
+    allowing = load_case(write_fixture(tmp_path, proposal=recording))
+    in_class = "class TestKept:\n    def test_b(self) -> None:\n        pass\n"
+    diff = unified(TEST_PATH, in_class, in_class.replace("def test_b", "def helper_b"))
+
+    assert _only(diff_results(allowing, diff), Property.TESTS_KEPT) == (
+        Status.FAIL,
+        "Lost tests: tests/test_sample.py::test_b.",
+    )
+
+
 def test_a_lost_test_that_the_plan_of_the_fixture_does_not_record_is_lost(tmp_path: Path) -> None:
     allowing = load_case(write_fixture(tmp_path, proposal=RECORDS_TEST_A))
     diff = unified(TEST_PATH, TWO_TESTS, TWO_TESTS.replace("def test_b", "def helper_b"))

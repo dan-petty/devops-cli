@@ -54,3 +54,14 @@ Every test that a `.py` file under `tests/` held at the commit where the step st
 #### Scenario: The prompt of the step
 - **WHEN** a test reads `roadmap_implement_step.md`
 - **THEN** the rule of the tests names the `## Weakened checks` section, and says that an entry from the agent does not count
+
+### Requirement: A work-in-progress commit holds the tasks file of the job
+The `wip:` commit SHALL hold the `tasks.md` as it was before the run with the ticks that the step verified, and no stray file of the group. The step SHALL make no `wip:` commit that would lose a test that existed at the start, unless the caller of the step gives its `path::name` in `recorded_tests`. The agent SHALL find its own `tasks.md` in the checkout after the commit.
+
+#### Scenario: A test that the work would lose
+- **WHEN** the model replaces a test file with a file that holds fewer of its tests, and ticks a task, and `recorded_tests` does not name the lost tests
+- **THEN** the step runs no verification command at the tick and makes no `wip:` commit
+
+#### Scenario: A stray file
+- **WHEN** the model writes a file outside `src/`, `tests/`, `docs/` and `openspec/` and ticks a task
+- **THEN** the `wip:` commit does not hold that file

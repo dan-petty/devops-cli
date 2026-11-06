@@ -31,23 +31,27 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/failure.py`, `src/devops_cli/road
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/implement_eval.py`, `src/devops_cli/roadmap/implement_eval_run.py`, `src/devops_cli/roadmap/implement_eval_properties.py`. Changes: `src/devops_cli/roadmap/implement_eval.py`, `src/devops_cli/roadmap/implement_eval_run.py`, `src/devops_cli/roadmap/implement_eval_properties.py`, `tests/support/roadmap_eval.py`, `tests/roadmap/test_roadmap_implement_eval_properties.py`, `tests/roadmap/test_roadmap_implement_eval_run.py`, `tests/roadmap/test_roadmap_implement_eval_fixtures.py`.
 
-- [x] 4.1 Write tests: `tests_kept` passes a removal that the section of the fixture names, and refuses one that it does not name, and the eval run gives the list to the step
+- [x] 4.1 Write tests: `tests_kept` passes a removal that the section of the fixture names, also a test of a class that the section names as `path::Class.name`, and refuses one that it does not name, and the eval run gives the list to the step
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_eval_properties.py tests/roadmap/test_roadmap_implement_eval_run.py` fails on the base
-- [x] 4.2 Add the record to `allow_lost_tests` in `load_case`, and pass the list in `run_case`
+- [x] 4.2 Add the record to `allow_lost_tests` in `load_case`, pass the list in `run_case`, and let `tests_kept` read an entry `path::Class.name` as the name after the last dot, because a hunk shows no class
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_eval_properties.py tests/roadmap/test_roadmap_implement_eval_run.py tests/roadmap/test_roadmap_implement_eval_fixtures.py` passes
 
 ## 5. Record the removals of the open plans
 
-Reads: `openspec/changes/2519-the-claim-table-of-the-local/tasks.md`, `openspec/changes/2592-devops-ai-gateway-tune-recommends-weights/tasks.md`, `openspec/changes/2610-devops-k8s-image-pins-resolves-with/tasks.md`, `openspec/changes/2636-a-result-that-no-lookup-marked/tasks.md`. Changes: `openspec/changes/2519-the-claim-table-of-the-local/proposal.md`, `openspec/changes/2592-devops-ai-gateway-tune-recommends-weights/proposal.md`, `openspec/changes/2610-devops-k8s-image-pins-resolves-with/proposal.md`, `openspec/changes/2636-a-result-that-no-lookup-marked/proposal.md`, `openspec/changes/3320-a-plan-that-deletes-a-guard/proposal.md`, `openspec/changes/3320-a-plan-that-deletes-a-guard/tasks.md`.
+Reads: `openspec/changes/2519-the-claim-table-of-the-local/tasks.md`, `openspec/changes/2592-devops-ai-gateway-tune-recommends-weights/tasks.md`, `openspec/changes/2610-devops-k8s-image-pins-resolves-with/tasks.md`, `openspec/changes/2636-a-result-that-no-lookup-marked/tasks.md`, `tests/invariants/test_change_folders.py`. Changes: `openspec/changes/2519-the-claim-table-of-the-local/proposal.md`, `openspec/changes/2592-devops-ai-gateway-tune-recommends-weights/proposal.md`, `openspec/changes/2610-devops-k8s-image-pins-resolves-with/proposal.md`, `openspec/changes/2636-a-result-that-no-lookup-marked/proposal.md`, `openspec/changes/3320-a-plan-that-deletes-a-guard/proposal.md`, `openspec/changes/3320-a-plan-that-deletes-a-guard/tasks.md`, `openspec/changes/3320-a-plan-that-deletes-a-guard/design.md`, `openspec/changes/3328-the-stage-probe-checks-prompt-reply/proposal.md`, `openspec/changes/3328-the-stage-probe-checks-prompt-reply/design.md`, `tests/invariants/test_change_folders.py`.
 
-- [x] 5.1 Add a `## Weakened checks` section to each of the four plans, and change the plan of #3320 to use the reader, the model and the form of this change
+The plans of #3320 and #3328 quote the assertion `StageProposal.model_fields` of the test of the reply keys, which this change turns into the properties of the schema. Task 5.1 changes those quotes.
+
+- [x] 5.1 Add a `## Weakened checks` section to each of the four plans, with an entry for each test that a task of the plan removes, renames or moves, and name a test of a class as `path::Class.test_x`, as the guard reads it. Change the plan of #3320 to use the reader, the model and the form of this change, and the quotes of the old assertion in the plans of #3320 and #3328
   - Verification: `uv run devops openspec check` passes
+- [x] 5.2 Add a check to the invariants over the change folders: an entry that names a test of a class with no class, or with another class, is a problem, and so is a section that the reader refuses
+  - Verification: `uv run devops ci test tests/invariants/test_change_folders.py` fails with the entries of the base (`tests/ai/test_ai_gateway_tune.py::test_recommend_weights_with_overrides`) and passes with the qualified names
 
 ## 6. Say what the guard allows
 
-Reads: `docs/ROADMAP_WORKFLOW.md`. Changes: `docs/ROADMAP_WORKFLOW.md`.
+Reads: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/implement.md`. Changes: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/implement.md`.
 
-- [x] 6.1 Change the row of `tests_lost`, the row of `tests_kept` and the text of the guard in `docs/ROADMAP_WORKFLOW.md`, then run `uv run devops docs generate --sync-readme`
+- [x] 6.1 Change the row of `tests_lost`, the row of `tests_kept` and the text of the guard in `docs/ROADMAP_WORKFLOW.md`, and the exit check of the tests in `docs/roadmap/implement.md`, then run `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci docs` passes
 
 ## Criteria
