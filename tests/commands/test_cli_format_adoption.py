@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import importlib
-from types import SimpleNamespace
 from typing import Any, Final
 
-import typer
+import click
 
-from devops_cli.main import _COMMAND_SPECS
+from devops_cli.core.command_resolver import module_click_command
+from devops_cli.docs.generator import DocGenerator
 
 CONST_CLI_VALUE_COMMANDS: Final[frozenset[str]] = frozenset(
     {
@@ -159,7 +158,7 @@ CONST_CLI_VALUE_COMMANDS: Final[frozenset[str]] = frozenset(
 
 
 def _extract_leaf_commands(cmd: Any, prefix: str) -> dict[str, Any]:
-    """Recursively collect leaf commands from a Click command or group."""
+    """Recursively collect leaf commands from a Click command or group, hidden ones included."""
     leaves: dict[str, Any] = {}
     subcommands = getattr(cmd, "commands", None)
     if subcommands:
@@ -172,20 +171,17 @@ def _extract_leaf_commands(cmd: Any, prefix: str) -> dict[str, Any]:
 
 
 def _collect_all_cli_leaf_commands() -> dict[str, Any]:
-    """Traverse all CLI entrypoints in _COMMAND_SPECS and collect leaf commands."""
+    """Walk the Click command of each documented command group and collect the leaf commands."""
     all_leaves: dict[str, Any] = {}
-    for name, (module_path, _) in _COMMAND_SPECS.items():
-        module = importlib.import_module(module_path)
-        app = getattr(module, "app")
-        click_cmd = typer.main.get_command(app)
-        all_leaves.update(_extract_leaf_commands(click_cmd, name))
+    for group in DocGenerator().introspect_all_groups():
+        click_cmd = module_click_command(group.module_path)
+        all_leaves.update(_extract_leaf_commands(click_cmd, group.name))
     return all_leaves
 
 
 def _command_has_format_option(cmd: Any) -> bool:
     """Check if a Click command has a --format option."""
-    params = getattr(cmd, "params", [])
-    return any("--format" in getattr(p, "opts", []) for p in params)
+    return any("--format" in getattr(p, "opts", []) for p in cmd.params)
 
 
 def test_every_value_command_exposes_format_option() -> None:
@@ -203,7 +199,7 @@ def test_every_value_command_exposes_format_option() -> None:
 
 def test_negative_control_detects_missing_format_option() -> None:
     """Negative control ensuring omission of --format from a value command is detected."""
-    dummy_cmd = SimpleNamespace(params=[SimpleNamespace(opts=["--json", "-j"])])
+    dummy_cmd = click.Command("dummy", params=[click.Option(["--json", "-j"], is_flag=True)])
     assert _command_has_format_option(dummy_cmd) is False
 
 
