@@ -50,7 +50,14 @@ from pydantic_ai.exceptions import (
     UnexpectedModelBehavior,
     UsageLimitExceeded,
 )
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, ToolCallPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ToolCallPart,
+    UserPromptPart,
+)
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RunUsage, UsageLimits
 from pydantic_ai_harness.compaction import ClearToolResults, WarnNearLimits
@@ -699,6 +706,20 @@ def _resend_after(
     return Conversation(messages=kept, usage=spent)
 
 
+def _ask_smaller_edit(sent: Conversation) -> Conversation:
+    """`sent` with one more part at the end of its last request: the text that asks for a smaller
+    edit (#3053). A tool call that the provider cannot parse fails again for the same
+    conversation, so the request that follows it must differ. The conversation of a resend ends
+    with a request, so the last message is one."""
+    *earlier, last = sent.messages
+    if not isinstance(last, ModelRequest):
+        return sent
+    ask = UserPromptPart(MESSAGES.roadmap.implement_parser_smaller_edit)
+    return Conversation(
+        messages=[*earlier, replace(last, parts=[*last.parts, ask])], usage=sent.usage
+    )
+
+
 def _run_agent(
     agent: Agent[None, str],
     model: Any,
@@ -709,11 +730,21 @@ def _run_agent(
     """One turn of the agent, and each send again of a request that failed inside a stream (#2794).
     A request is sent again at most `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` times in a row. A send
     that gets a reply gives the next failed request its own resends. The request limit of the
-    step ends the loop. The turn ends with the last send."""
+    step ends the loop. The turn ends with the last send.
+
+    A failure of class `parser` is deterministic for one conversation, so its resend carries the
+    message that asks for a smaller edit, once on a tier. The next parser failure of the tier ends
+    the turn with no resend, and the step stops with class `parser` (#3053). A tier is a new
+    conversation, so the tier loop of `run_step` starts the count again."""
     run = _run_turn(agent, model, log, message, conversation)
     resends = CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
     while run.resend is not None and resends > 0:
         sent = run.resend
+        if run.failure_class is FailureClass.PARSER:
+            if log.parser_failures:
+                break
+            log.parser_failures += 1
+            sent = _ask_smaller_edit(sent)
         if log.trace is not None:
             log.trace.retry(run.reason)
         later = _run_turn(agent, model, log, None, sent)
@@ -1649,6 +1680,7 @@ def _attempt(
             )
             log.fail_to_pass = None
             log.verified.clear()
+            log.parser_failures = 0
             run = _turn(agent, tier_model, log, inputs.message)
             first_request = first_request or run.first_request_tokens
             failure = (
