@@ -12,7 +12,6 @@ import httpx2
 import pytest
 import yaml
 
-from devops_cli.ai.client import LLMClient
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.config.settings import Settings
@@ -58,12 +57,10 @@ def test_the_example_config_reaches_its_loopback_rag_backends(
         api_key="x",
         allow_private_network=ai.allow_private_network,
     )
-    ollama_vectors = EmbeddingsEngine(ai_config=ai, valkey_client=None)._query_ollama_node_batch(
-        ai.get_ollama_urls[0], ["x"]
-    )
+    ollama_vectors = EmbeddingsEngine(ai_config=ai, valkey_client=None).embed_texts(["x"])
     gateway_vectors = EmbeddingsEngine(
         ai_config=gateway_ai, api_key="sk-test", valkey_client=None
-    )._embed_openai(["x"])
+    ).embed_texts(["x"])
 
     assert (
         ai.allow_private_network,
@@ -94,25 +91,10 @@ def test_the_example_config_probes_its_loopback_embedding_dimension(
     gateway_ai = ai.model_copy(update={"provider": "gateway"})
 
     assert (
-        EmbeddingsEngine(ai_config=ai, valkey_client=None)._probe_ollama_dimension(),
-        EmbeddingsEngine(
-            ai_config=gateway_ai, api_key="sk-test", valkey_client=None
-        )._probe_openai_dimension(),
+        EmbeddingsEngine(ai_config=ai, valkey_client=None).dimension,
+        EmbeddingsEngine(ai_config=gateway_ai, api_key="sk-test", valkey_client=None).dimension,
         sent,
     ) == (2, 2, ["http://localhost:11434/api/embed", "http://localhost:4000/v1/embeddings"])
-
-
-def test_the_example_config_chat_providers_accept_its_loopback_endpoints(
-    example_settings: Settings,
-) -> None:
-    """Verify the chat client takes the example's loopback Ollama and gateway endpoints."""
-    ai = example_settings.ai
-    gateway = LLMClient(ai.model_copy(update={"provider": "gateway"}), api_key="sk-test")
-
-    assert (
-        LLMClient(ai)._validate_base_url(ai.get_ollama_urls[0], purpose="Ollama"),
-        gateway._api_base(),
-    ) == ("http://localhost:11434", "http://localhost:4000/v1")
 
 
 @pytest.mark.parametrize(

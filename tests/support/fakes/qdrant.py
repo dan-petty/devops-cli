@@ -287,12 +287,18 @@ class FakeQdrantClient(QdrantProtocol):
         return True
 
 
-def seed_knowledge_base(fake: FakeQdrantClient, docs_collection: str = "devops_docs") -> None:
+def seed_knowledge_base(
+    fake: FakeQdrantClient,
+    docs_collection: str = "devops_docs",
+    *,
+    embedding_model: str | None = None,
+) -> None:
     """Hold the installed knowledge base's digest in `docs_collection`, as an indexed store does.
 
     A RAG search checks the knowledge base before it searches, and rebuilds it when the store
     holds none of its points. With this point the check finds the knowledge base current and
-    rebuilds nothing. The point's vector is empty, so it matches no query.
+    rebuilds nothing. The point's vector is empty, so it matches no query. A test that indexes
+    into the same store gives the embedder's model as `embedding_model`, as the indexer records it.
     """
     fake.upsert_points(
         docs_collection,
@@ -303,6 +309,7 @@ def seed_knowledge_base(fake: FakeQdrantClient, docs_collection: str = "devops_d
                 "payload": {
                     "project_name": CONST_RAG_KB_PROJECT,
                     "kb_digest": knowledge_base_digest(),
+                    **({"embedding_model": embedding_model} if embedding_model else {}),
                 },
             }
         ],
