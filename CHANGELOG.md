@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.65.0](https://github.com/dan-petty/devops-cli/compare/v0.64.3...v0.65.0) (2026-11-06)
+
+
+### Features
+
+* **roadmap:** compare a branch and name the gate in plan-recheck ([#3732](https://github.com/dan-petty/devops-cli/issues/3732)) ([363ba6a](https://github.com/dan-petty/devops-cli/commit/363ba6aefed003efedabd544523b7c39f68eaa6c))
+* **roadmap:** the Service continues a Job that has no result ([#3731](https://github.com/dan-petty/devops-cli/issues/3731)) ([4a2d958](https://github.com/dan-petty/devops-cli/commit/4a2d958e887c937cc2f9d5315e281f6d39021ba5))
+
 ## [0.64.3](https://github.com/dan-petty/devops-cli/compare/v0.64.2...v0.64.3) (2026-11-06)
 
 
