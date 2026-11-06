@@ -7,6 +7,13 @@ name: PR Title
 # The scope is one of the scopes that .github/labels.yml declares, so the pull request gets its
 # scope label (#2800). `main` is the scope of the release pull request. A test holds this list
 # equal to the labels file.
+#
+# The job `plan-check` runs `devops roadmap plan-check` on a plan pull request of the roadmap
+# Service, and shows the form problems of the plan in its check run (#3103). It is advisory: it
+# is not the independent review, which runs outside this repository, and it posts no
+# `service-vetted` status. A person makes it a required check in the ruleset of `main` (ADR 0014)
+# after the plan reader gives no false alarm. A job that its condition skips reports Success
+# (see fail-to-pass.yml), so every other pull request passes.
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
@@ -79,3 +86,47 @@ jobs:
           subjectPatternError: >-
             The summary after "<type>(<scope>): " has more than 60 characters. Shorten it to 60
             characters or fewer (CONTRIBUTING.md section 4).
+
+  # `always()` lets the job run after a failed title check: the command then reports that check
+  # as a problem. Without it, GitHub skips a job whose needed job failed. The condition reads the
+  # author of the pull request, not `github.actor`, because a person who pushes to the branch of
+  # the Service becomes the actor. GitHub compares both operators with no regard to case.
+  plan-check:
+    name: Plan Check
+    needs: semantic-title
+    if: "${{ always() && github.event.pull_request.user.login == 'devops-cli-service[bot]' && startsWith(github.event.pull_request.title, 'docs(openspec): plan #') }}"
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      checks: read
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up uv toolchain
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: plan-check
+
+      # The Node that `.node-version` names runs the pinned OpenSpec, which the command runs.
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+
+      - name: Install OpenSpec
+        run: |
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          uv run devops install-tools --tool openspec --only-missing
+
+      - name: Check the Plan
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: uv run devops roadmap plan-check "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"
