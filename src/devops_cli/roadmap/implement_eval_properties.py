@@ -12,9 +12,11 @@ the two command properties skipped.
 `tests_kept` reads the hunks of each Python file under `tests/`. It fails for a test name that the
 diff removes and does not add, and for a test that is weakened: it loses assertion lines on balance
 (`assert`, `pytest.raises`, `.assert_...`), or it gets a skip or xfail mark or call while its `def`
-stays. A fixture waives a test with `allow_lost_tests`. A hunk shows no class, so a test that moves to
-another class of its file is kept. The check reads lines and not the tree of the file, so a test that
-keeps its assertion lines and loses their meaning is not found.
+stays. A fixture waives a test with `allow_lost_tests`, which also holds each test that its plan
+records, as `path::name` or `path::Class.name`. A hunk shows no class, so a test that moves to
+another class of its file is kept, and an entry with a class waives the test by the name after the
+last dot. The check reads lines and not the tree of the file, so a test that keeps its assertion
+lines and loses their meaning is not found.
 """
 
 from __future__ import annotations
@@ -188,6 +190,16 @@ class _FileScan:
             self.muted.add(self._test.name)
 
 
+def _waived_names(allowed: Iterable[str]) -> set[str]:
+    """The `path::name` that a hunk shows for each entry of `allowed`. A hunk shows no class, so the
+    entry `path::Class.test_x`, the name that the step guard reads (#3490), waives `path::test_x`."""
+    waived: set[str] = set()
+    for entry in allowed:
+        path, _, name = entry.partition("::")
+        waived.add(f"{path}::{name.rsplit('.', 1)[-1]}")
+    return waived
+
+
 def _tests_kept(loaded: LoadedCase, patch: PatchSet) -> PropertyResult:
     texts = MESSAGES.roadmap
     lost: list[str] = []
@@ -200,7 +212,7 @@ def _tests_kept(loaded: LoadedCase, patch: PatchSet) -> PropertyResult:
         scan = _FileScan()
         scan.scan(file)
         weakened += [f"{file.path}::{name}" for name in sorted(scan.weakened() - gone)]
-    allowed = loaded.case.allow_lost_tests
+    allowed = _waived_names(loaded.case.allow_lost_tests)
     problems = [
         message.format(names=_listed(names))
         for message, names in (

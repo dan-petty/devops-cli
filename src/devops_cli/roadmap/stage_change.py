@@ -33,6 +33,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic.json_schema import SkipJsonSchema
 
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.constants import CONST_ROADMAP_SCOPE_LABEL_PREFIX
@@ -381,6 +382,16 @@ def _change_folder_problems(group: StageGroup) -> list[str]:
     ]
 
 
+class WeakenedCheck(_Reply):
+    """One guard check that a plan gives up: the check, what it stopped and the safeguard that takes
+    its place. AGENTS.md rule 5 lets only the owner lower a threshold, and a person allows the entry
+    when that person merges the plan. `check` names a test as `path::name`."""
+
+    check: Text
+    stopped: Text
+    safeguard: Text
+
+
 class StageProposal(_Reply):
     """The model's plan of the change. `summary` is the summary of the pull request title, and
     `pull_request_body` the what and why of its body. The scope and the type of the title are not
@@ -406,6 +417,9 @@ class StageProposal(_Reply):
     groups: list[StageGroup] = Field(min_length=1)
     criteria: list[StageCriterion] = Field(default_factory=list)
     dependencies: list[Line] = Field(default_factory=list)
+    # The plan reader fills this list from `## Weakened checks` of `proposal.md` (#3490). The reply
+    # schema does not show it: `render_change` writes no such section, so a key in a reply is lost.
+    weakened_checks: SkipJsonSchema[list[WeakenedCheck]] = Field(default_factory=list)
 
     @field_validator("summary")
     @classmethod

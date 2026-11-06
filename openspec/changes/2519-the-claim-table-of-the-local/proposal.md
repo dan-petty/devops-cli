@@ -38,6 +38,10 @@ None.
 - The base spec `openspec/specs/local-path-volume-placement/spec.md` stays as it is.
 - Change 2147 (open) edits the same test file, but only `_CONTROL_PLANE_CLAIM_EXEMPTIONS`. It does not touch `CHART_CLAIMS`.
 
+## Weakened checks
+
+- **`tests/core/test_k8s_local_path_placement.py::test_every_chart_an_application_installs_states_its_claims`**: Stopped: a chart that an Application installs and that has no entry in `CHART_CLAIMS`. Safeguard: `test_the_claim_table_names_each_chart_at_the_version_that_an_application_pins` asserts that `pinned_charts()` and the keys of the table have an empty symmetric difference, so it also catches a chart with no entry.
+
 ## Feasibility
 
 Checked on 2026-11-01 at `origin/main`, with the commands below.

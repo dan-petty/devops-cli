@@ -6,10 +6,10 @@
 
 ## What Changes
 
-- Add a `weakened_checks` list to `StageProposal`, each entry holding `check`, `stopped` and `safeguard`, and name the key in the planner prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md`.
+- Show the `weakened_checks` list of `StageProposal` in the reply schema, and name the key in the planner prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md`. Each entry holds `check`, `stopped` and `safeguard`. #3490 added the model and `read_change` reads the section.
 - Refuse a plan whose work texts delete a test or a `CONST_*` entry that no `weakened_checks` entry names.
-- Render a `## Weakened checks` section in `proposal.md` after `## Impact` and before `## Feasibility`, and only when the list is not empty.
-- Add the message texts of the new problem and section to `MESSAGES.roadmap`.
+- Render a `## Weakened checks` section in `proposal.md` after `## Impact` and before `## Feasibility`, and only when the list is not empty. The section uses `stage_weakened_checks_title` and `stage_weakened_entry` of `MESSAGES.roadmap`, the form that `read_change` reads.
+- Add the message text of the new problem to `MESSAGES.roadmap`.
 - Add the proposal rule of `openspec/config.yaml` that asks for the section.
 - Add a replay case of a plan that deletes the guard test and records nothing, and score the same model before and after.
 - The change carries a spec delta because `check_proposal` decides whether the stage job accepts a plan, and a consumer observes that answer.
@@ -32,6 +32,10 @@ None.
 - Documents: `docs/ROADMAP_WORKFLOW.md`
 - Tests: `tests/roadmap/test_roadmap_stage_weakened_checks.py`, `tests/roadmap/test_roadmap_stage_prompt_rules.py`
 
+## Weakened checks
+
+- **`tests/roadmap/test_roadmap_plan_read_weakened.py::test_the_reply_schema_of_the_stage_model_does_not_show_the_field`**: Stopped: a reply key that the stage job cannot write, so the job would lose the value. Safeguard: Task 2.1 shows that `render_change` writes an entry and that `read_change` reads it back.
+
 ## Feasibility
 
 - `probes` states "The path `src/devops_cli/roadmap/stage_change.py` is a file of the staging commit." The module holds `check_proposal` and `render_change`, the two functions that the issue names.
@@ -40,7 +44,7 @@ None.
 - `probes` states "The path `src/devops_cli/config/constants.py` is a file of the staging commit." It holds the `CONST_*` inventories that the issue cites as guard lists.
 - `probes` states "The path `AGENTS.md` is a file of the staging commit." Its rule 5 reads "Never lower a security or quality threshold: only the owner can allow it."
 - `probes` states "The path `proposal.md` is no file of the staging commit. No commit in the history deleted or renamed it." The section is a heading of a rendered file, not a file of the repository, so the plan creates no such path.
-- `tests/roadmap/test_roadmap_stage_prompt_rules.py` holds `test_the_top_level_keys_of_the_reply_are_the_fields_of_the_proposal`, which compares the top-level key bullets of `roadmap_stage_change.md` with the fields of `StageProposal`. A new field without its key bullet fails this test, so the plan changes the prompt in the same group.
+- `tests/roadmap/test_roadmap_stage_prompt_rules.py` holds `test_the_top_level_keys_of_the_reply_are_the_fields_of_the_proposal`, which compares the top-level key bullets of `roadmap_stage_change.md` with the properties of the schema of `StageProposal`. A field that the schema shows and that has no key bullet fails this test, so the plan changes the prompt in the same group.
 - First check against the real system: `uv run devops ci test tests/roadmap/test_roadmap_stage_weakened_checks.py` fails on the missing `weakened_checks` field.
 - Second check: `uv run devops openspec check` accepts the change folder after the delta is written.
 - Third check: `uv run devops roadmap eval stage --dry-run` lists the new replay case with no model call.

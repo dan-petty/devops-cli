@@ -31,6 +31,10 @@ None.
 - Code: `src/devops_cli/models/vulnerability.py`, `src/devops_cli/models/security.py`, `src/devops_cli/models/__init__.py`
 - Tests: `tests/models/test_resource_schemas.py`, `tests/review/test_report.py`, `tests/security/test_osv_scanner.py`, `tests/security/test_reference_report_order.py`, `tests/security/test_vulnerability_lookup.py`, `tests/ai/test_review_finding_losses.py`, `tests/ai/review/test_review_report_summary.py`, `tests/ai/review/test_review_pipeline.py`
 
+## Weakened checks
+
+- **`tests/security/test_vulnerability_lookup.py::test_package_lookup_result_defaults`**: Stopped: a change of the defaults of `PackageLookupResult`. Safeguard: Task 1.4 renames it to `test_package_lookup_result_list_and_reason_defaults`, which keeps the defaults of the list and of the reason, and `status` becomes a required field.
+
 ## Feasibility
 
 Run on `origin/main` at commit `5ac0bea4`, with pydantic 2.13.5 (`pyproject.toml` pins `pydantic==2.13.5`). In pydantic v2, a field annotation with no default is required, so removing the default is enough.

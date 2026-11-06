@@ -7,12 +7,16 @@ or `Class.test_x`. The standard library `ast` lists them, so a decorator, a para
 do not matter. A function inside a function is a helper and is no test. A byte order mark at the
 start of a file does not matter. The check has known limits: it reads names, so a test that keeps
 its name and loses its body, and a test that an `if False:` block hides, are not found.
+
+A plan on the default branch can allow a lost test (#3490): `unrecorded_tests` leaves out each test
+that the plan names as `path::name`. A rename or a move loses the old name, so the entry names that
+one.
 """
 
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterator, Mapping
+from collections.abc import Collection, Iterator, Mapping
 from typing import Protocol
 
 _TEST_PREFIX = "test_"
@@ -64,6 +68,18 @@ def lost_tests(
         if gone:
             lost[path] = gone
     return lost
+
+
+def unrecorded_tests(
+    lost: Mapping[str, list[str]], recorded: Collection[str]
+) -> dict[str, list[str]]:
+    """The tests of `lost` that `recorded` does not name as `path::name`, by path. A path with no
+    such test leaves the result."""
+    left = {
+        path: [name for name in names if f"{path}::{name}" not in recorded]
+        for path, names in lost.items()
+    }
+    return {path: names for path, names in left.items() if names}
 
 
 class GitOutput(Protocol):

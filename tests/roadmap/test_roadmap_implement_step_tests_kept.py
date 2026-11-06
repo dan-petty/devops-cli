@@ -23,6 +23,7 @@ from devops_cli.roadmap.implement_step import (
     run_fix_step,
     run_step,
 )
+from devops_cli.roadmap.implement_wip import WipCommit
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import (
@@ -59,7 +60,8 @@ SOURCE = write_call("src/sample.py", SHOUT_CODE)
 TICK = write_call(TASKS_PATH, TICKED)
 REASON = (
     "The agent removed tests that existed at the start of the step. A step may add tests. "
-    "It may not remove or rename one.\n"
+    "It may remove or rename a test only when the plan on the default branch names it in "
+    "`## Weakened checks`.\n"
 )
 SYNTAX_ERROR = "def test_a(:\n"
 
@@ -83,8 +85,21 @@ def programs(implement_programs: ProcessFake) -> ProcessFake:
     return implement_programs
 
 
-def _run(store: InMemoryRoadmapStore, checkout: Path, script: ModelScript) -> StepOutcome:
-    return run_step(store, item=1, group=1, source=checkout, model=script.model(), window=WINDOW)
+def _run(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    script: ModelScript,
+    recorded: frozenset[str] = frozenset(),
+) -> StepOutcome:
+    return run_step(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        recorded_tests=recorded,
+    )
 
 
 def _script(*work: tuple[str, dict[str, Any]], removes: Path | None = None) -> ModelScript:
@@ -124,6 +139,150 @@ def test_a_step_that_replaces_a_test_file_and_drops_tests_stops_and_names_them(
     )
     assert outcome.failure_class is FailureClass.TESTS_LOST
     assert is_clean_at(checkout, head)
+
+
+def test_a_removal_that_the_record_names_passes(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = _script(write_call(OLD_PATH, OLD.replace("def test_a", "def helper_a")), SOURCE)
+
+    outcome = _run(store, checkout, script, frozenset({f"{OLD_PATH}::test_a"}))
+
+    assert (outcome.status, outcome.reason) == (StepStatus.DONE, "")
+
+
+def test_a_removal_of_a_test_of_a_class_that_the_record_names_passes(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    after = OLD.replace("def test_c", "def helper_c")
+    script = _script(write_call(OLD_PATH, after), SOURCE)
+
+    outcome = _run(store, checkout, script, frozenset({f"{OLD_PATH}::TestKept.test_c"}))
+
+    assert (outcome.status, outcome.reason) == (StepStatus.DONE, "")
+
+
+def test_a_removal_that_the_record_does_not_name_stops_and_names_only_that_test(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    after = OLD.replace("def test_a", "def helper_a").replace("def test_b", "def helper_b")
+    script = _script(write_call(OLD_PATH, after), SOURCE)
+
+    outcome = _run(store, checkout, script, frozenset({f"{OLD_PATH}::test_a"}))
+
+    assert (outcome.status, outcome.reason, outcome.failure_class) == (
+        StepStatus.STOPPED,
+        f"{REASON}{OLD_PATH}: test_b",
+        FailureClass.TESTS_LOST,
+    )
+
+
+def test_a_record_of_the_same_name_in_another_file_does_not_pass(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = _script(write_call(OLD_PATH, OLD.replace("def test_a", "def helper_a")), SOURCE)
+
+    outcome = _run(store, checkout, script, frozenset({"tests/test_other.py::test_a"}))
+
+    assert (outcome.status, outcome.reason) == (
+        StepStatus.STOPPED,
+        f"{REASON}{OLD_PATH}: test_a",
+    )
+
+
+def test_a_rename_passes_when_the_record_names_the_old_test(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = _script(write_call(OLD_PATH, OLD.replace("def test_a", "def test_z")), SOURCE)
+
+    outcome = _run(store, checkout, script, frozenset({f"{OLD_PATH}::test_a"}))
+
+    assert (outcome.status, outcome.reason) == (StepStatus.DONE, "")
+
+
+def test_a_move_to_a_new_file_passes_when_the_record_names_the_old_test(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = _script(
+        write_call(OLD_PATH, OLD.replace("def test_a", "def helper_a")),
+        write_call("tests/test_new.py", "def test_a() -> None: ...\n"),
+        SOURCE,
+    )
+
+    outcome = _run(store, checkout, script, frozenset({f"{OLD_PATH}::test_a"}))
+
+    assert (outcome.status, outcome.reason) == (StepStatus.DONE, "")
+
+
+def test_a_deleted_file_passes_when_the_record_names_each_of_its_tests(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = _script(SOURCE, removes=checkout / OLD_PATH)
+    names = ("test_a", "test_b", "TestKept.test_c")
+
+    outcome = _run(store, checkout, script, frozenset(f"{OLD_PATH}::{name}" for name in names))
+
+    assert (outcome.status, outcome.reason) == (StepStatus.DONE, "")
+
+
+def test_a_kept_task_makes_its_commit_when_the_record_names_the_lost_test(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A tick that loses a recorded test must not hold the `wip:` commit of the task (#3054)."""
+    kept: list[WipCommit] = []
+    script = _script(write_call(OLD_PATH, OLD.replace("def test_a", "def helper_a")), SOURCE)
+
+    outcome = run_step(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        on_wip=kept.append,
+        recorded_tests=frozenset({f"{OLD_PATH}::test_a"}),
+    )
+
+    assert (outcome.status, len(kept) > 0) == (StepStatus.DONE, True)
+
+
+def test_a_kept_task_makes_no_commit_when_the_lost_test_is_not_in_the_record(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    kept: list[WipCommit] = []
+    script = _script(write_call(OLD_PATH, OLD.replace("def test_a", "def helper_a")), SOURCE)
+
+    outcome = run_step(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        on_wip=kept.append,
+    )
+
+    assert (outcome.status, kept) == (StepStatus.STOPPED, [])
+
+
+def test_a_fix_step_passes_a_removal_that_the_record_names(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    script = ModelScript(
+        tool_calls(write_call(OLD_PATH, OLD.replace("def test_a", "def helper_a"))), say("Done.")
+    )
+
+    outcome = run_fix_step(
+        store,
+        item=1,
+        fix=FixRequest(check="tests", log="FAILED"),
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        recorded_tests=frozenset({f"{OLD_PATH}::test_a"}),
+    )
+
+    assert (outcome.status, outcome.reason) == (StepStatus.DONE, "")
 
 
 def test_the_check_runs_before_the_formatter_and_the_verification_commands(
