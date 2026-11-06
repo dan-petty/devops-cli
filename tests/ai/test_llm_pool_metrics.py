@@ -21,7 +21,7 @@ from devops_cli.ai import pool_load as pool_load_module
 from devops_cli.ai.pool_load import pool_load, window_seconds
 from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK, HELM_REPOS_BY_STACK
 from devops_cli.http.egress import EgressLevel
-from tests.web_fakes import StubWeb
+from tests.support.fakes.http import WebFake
 
 K8S = Path("k8s")
 
@@ -202,14 +202,14 @@ def _fake_prometheus_http(request: httpx2.Request) -> httpx2.Response | None:
 
 
 def test_load_reports_the_pool_as_json(
-    config: Callable[..., Path], stub_web: StubWeb, cli: Callable[..., Any]
+    config: Callable[..., Path], web: WebFake, cli: Callable[..., Any]
 ) -> None:
     """Verify `devops ai gateway load` reports the window's backends and GPUs."""
     config(
         prometheus={"url": "http://prometheus.example:9090"},
         ai={"allow_private_network": True},
     )
-    stub_web.serve(_fake_prometheus_http)
+    web.serve(_fake_prometheus_http)
 
     result = cli("ai", "gateway", "load", "--window", "2h", "-f", "json")
     report = json.loads(result.stdout)
@@ -223,7 +223,7 @@ def test_load_reports_the_pool_as_json(
 
 
 def test_load_table_and_an_empty_pool(
-    config: Callable[..., Path], stub_web: StubWeb, cli: Callable[..., Any]
+    config: Callable[..., Path], web: WebFake, cli: Callable[..., Any]
 ) -> None:
     """Verify the table shows GPU and backend figures, and a Prometheus without the pool's
     metrics is named rather than shown as idle."""
@@ -231,11 +231,11 @@ def test_load_table_and_an_empty_pool(
         prometheus={"url": "http://prometheus.example:9090"},
         ai={"allow_private_network": True},
     )
-    stub_web.serve(_fake_prometheus_http)
+    web.serve(_fake_prometheus_http)
     table = cli("ai", "gateway", "load")
 
-    stub_web.servers.clear()
-    stub_web.serve(
+    web.servers.clear()
+    web.serve(
         lambda r: httpx2.Response(
             200,
             json={"status": "success", "data": {"resultType": "vector", "result": []}},
@@ -250,7 +250,7 @@ def test_load_table_and_an_empty_pool(
 
 
 def test_load_needs_prometheus_and_a_valid_window(
-    config: Callable[..., Path], stub_web: StubWeb, cli: Callable[..., Any]
+    config: Callable[..., Path], web: WebFake, cli: Callable[..., Any]
 ) -> None:
     """Verify a missing Prometheus URL or a malformed window exits non-zero without querying."""
     config(prometheus={"url": ""})
@@ -260,7 +260,7 @@ def test_load_needs_prometheus_and_a_valid_window(
         prometheus={"url": "http://prometheus.example:9090"},
         ai={"allow_private_network": True},
     )
-    stub_web.serve(_fake_prometheus_http)
+    web.serve(_fake_prometheus_http)
     bad_window = cli("ai", "gateway", "load", "--window", "forever")
 
     assert (

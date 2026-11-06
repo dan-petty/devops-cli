@@ -20,8 +20,8 @@ from pydantic import BaseModel, Field
 from devops_cli.ai.gateway_tune import backend_label
 from devops_cli.config.constants import CONST_MAX_PROMETHEUS_WINDOW_SECONDS
 from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.models.prometheus import PrometheusQueryResult
 
 # A PromQL instant query's result: each series' labels and value.
@@ -49,7 +49,7 @@ def prometheus_query(base_url: str, timeout: float, level: EgressLevel) -> Query
 
     def query(expr: str) -> list[tuple[dict[str, str], float]]:
         try:
-            with new_http_client(level=level, timeout=httpx2.Timeout(timeout)) as client:
+            with http_client(level, timeout=httpx2.Timeout(timeout)) as client:
                 response = client.get(f"{base_url}/api/v1/query", params={"query": expr})
                 response.raise_for_status()
         except httpx2.HTTPError as exc:

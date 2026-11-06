@@ -11,9 +11,10 @@ import pytest
 from devops_cli.config.settings import Settings
 
 if TYPE_CHECKING:
+    from tests.support.fakes.http import WebFake
     from tests.support.fakes.model import ModelFake
 
-pytestmark = pytest.mark.usefixtures("public_dns")
+pytestmark = pytest.mark.usefixtures("web")
 
 
 def test_native_ollama_reexports() -> None:
@@ -102,37 +103,47 @@ def test_normalize_ollama_base_url_refuses_other_schemes() -> None:
 
 
 @pytest.mark.parametrize("flag", [False, True], ids=["without-flag", "with-flag"])
-def test_the_ollama_provider_dials_at_the_configured_level(flag: bool) -> None:
-    """Verify the provider gets a factory client at the configured level of its AI configuration.
+def test_the_ollama_provider_dials_at_the_configured_level(flag: bool, web: WebFake) -> None:
+    """Verify the provider gets a client at the configured level of its AI configuration.
 
     Without a client of its own, pydantic-ai would build one that resolves the host again at the
-    socket. The factory client checks each address at the connect: loopback, or private with
+    socket. The client of the HTTP entry point checks each address: loopback, or private with
     `ai.allow_private_network`.
     """
+    import asyncio
+
     from devops_cli.ai.models.ollama import create_ollama_model, create_ollama_provider
     from devops_cli.config.settings import AIConfig
-    from devops_cli.http.egress import EgressLevel
-    from tests.web_fakes import egress_level_of
+    from devops_cli.exceptions.security import SSRFBlockedError
 
+    url = "http://192.0.2.10:11434"
+    web.respond("GET", f"{url}/v1/models", 200, {"object": "list", "data": []})
     ai_config = AIConfig(allow_private_network=flag)
-    provider = create_ollama_provider(base_url="http://example.com:11434", ai_config=ai_config)
-    model = create_ollama_model(
-        "qwen3.8:27b", base_url="http://example.com:11434", ai_config=ai_config
+    provider = create_ollama_provider(base_url=url, ai_config=ai_config)
+    model = create_ollama_model("qwen3.8:27b", base_url=url, ai_config=ai_config)
+
+    async def list_models() -> list[str]:
+        failures = []
+        for client in (provider.client, model.client):
+            try:
+                await client.with_options(max_retries=0).models.list()
+            except SSRFBlockedError as exc:
+                failures.append(type(exc).__name__)
+        return failures
+
+    failures = asyncio.run(list_models())
+
+    assert (failures, web.requested) == (
+        ([], [f"{url}/v1/models"] * 2) if flag else (["SSRFBlockedError"] * 2, [])
     )
 
-    expected = EgressLevel.PRIVATE if flag else EgressLevel.LOOPBACK
-    assert (
-        egress_level_of(provider.client._client._transport),
-        egress_level_of(model.client._client._transport),
-    ) == (expected, expected)
 
-
-def test_the_ollama_model_keeps_the_pydantic_ai_timeouts(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_ollama_model_keeps_the_pydantic_ai_timeouts(web: WebFake) -> None:
     """Verify a request of the Ollama model has the timeouts of the client pydantic-ai built before.
 
     pydantic-ai gives its own client 600 s and a 5 s connect, and openai uses the timeout of the
-    client that it gets. The factory client of the provider (#2422) keeps these bounds, so an
-    Ollama node that takes more than 1 s to accept the connect still answers.
+    client that it gets. The client of the provider (#2422) keeps these bounds, so an Ollama node
+    that takes more than 1 s to accept the connect still answers.
     """
     import asyncio
 
@@ -140,19 +151,18 @@ def test_the_ollama_model_keeps_the_pydantic_ai_timeouts(monkeypatch: pytest.Mon
 
     from devops_cli.ai.models.ollama import create_ollama_model
     from devops_cli.config.settings import AIConfig
-    from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects
 
-    recorder = record_connects(monkeypatch, [http_response(200, '{"object": "list", "data": []}')])
+    web.respond("GET", "http://example.com:11434/v1/models", 200, {"object": "list", "data": []})
     model = create_ollama_model(
         "qwen3.8:27b", base_url="http://example.com:11434", ai_config=AIConfig()
     )
 
     asyncio.run(model.client.with_options(max_retries=0).models.list())
 
-    assert (recorder.timeouts_of(PUBLIC_ADDRESS), model.client.timeout) == (
-        [5.0],
-        httpx2.Timeout(600, connect=5),
-    )
+    assert (
+        [request.extensions["timeout"]["connect"] for request in web.sent],
+        model.client.timeout,
+    ) == ([5.0], httpx2.Timeout(600, connect=5))
 
 
 def test_create_ollama_provider() -> None:

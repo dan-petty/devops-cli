@@ -11,10 +11,12 @@ from tenacity import RetryCallState
 
 from devops_cli.ai.retries import (
     create_retry_config,
-    create_retry_transport,
     is_retryable_status_code,
 )
+from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.http import WebFake
 
 
 class TestPydanticAIRetriesSubsystem:
@@ -102,26 +104,16 @@ class TestPydanticAIRetriesSubsystem:
         assert wait_seconds == 2.5
         fallback.assert_called_once_with(mock_state)
 
-    def test_httpx2_tenacity_transport_sync_retry(self, clock: ClockFake) -> None:
+    def test_httpx2_tenacity_transport_sync_retry(self, clock: ClockFake, web: WebFake) -> None:
         """Verify sync HTTPX2TenacityTransport retries and recovers on transient 503."""
-        attempts = 0
-
-        class FlakyTransport(httpx2.BaseTransport):
-            def handle_request(self, request: httpx2.Request) -> httpx2.Response:
-                nonlocal attempts
-                attempts += 1
-                if attempts < 2:
-                    return httpx2.Response(503, request=request)
-                return httpx2.Response(200, json={"result": "recovered"}, request=request)
-
-        transport = create_retry_transport(
-            max_attempts=3,
-            min_wait=1.0,
-            max_wait=10.0,
-            wrapped=FlakyTransport(),
-        )
-        with httpx2.Client(transport=transport) as client:
+        answers = [
+            httpx2.Response(503),
+            httpx2.Response(200, json={"result": "recovered"}),
+        ]
+        web.serve(lambda request: answers.pop(0))
+        with http_client(EgressLevel.PUBLIC, retries=3) as client:
             resp = client.get("https://example.com/ai")
+            attempts = len(web.sent)
             assert (resp.status_code, resp.json(), attempts, clock.waits) == (
                 200,
                 {"result": "recovered"},
@@ -129,27 +121,20 @@ class TestPydanticAIRetriesSubsystem:
                 [1.0],
             )
 
-    def test_httpx2_tenacity_transport_retries_on_http_524(self, clock: ClockFake) -> None:
+    def test_httpx2_tenacity_transport_retries_on_http_524(
+        self, clock: ClockFake, web: WebFake
+    ) -> None:
         """Verify sync HTTPX2TenacityTransport retries and recovers on Cloudflare HTTP 524 gateway timeout."""
-        attempts = 0
-
-        class CloudflareTimeoutTransport(httpx2.BaseTransport):
-            def handle_request(self, request: httpx2.Request) -> httpx2.Response:
-                nonlocal attempts
-                attempts += 1
-                if attempts < 3:
-                    html_error = "<!DOCTYPE html><html><head><title>524: A timeout occurred</title></head><body>error</body></html>"
-                    return httpx2.Response(524, text=html_error, request=request)
-                return httpx2.Response(200, json={"status": "recovered"}, request=request)
-
-        transport = create_retry_transport(
-            max_attempts=4,
-            min_wait=1.0,
-            max_wait=10.0,
-            wrapped=CloudflareTimeoutTransport(),
-        )
-        with httpx2.Client(transport=transport) as client:
+        html_error = "<!DOCTYPE html><html><head><title>524: A timeout occurred</title></head><body>error</body></html>"
+        answers = [
+            httpx2.Response(524, text=html_error),
+            httpx2.Response(524, text=html_error),
+            httpx2.Response(200, json={"status": "recovered"}),
+        ]
+        web.serve(lambda request: answers.pop(0))
+        with http_client(EgressLevel.PUBLIC, retries=4) as client:
             resp = client.post("https://example.com/v1/chat/completions", json={"prompt": "hi"})
+            attempts = len(web.sent)
             assert (resp.status_code, resp.json(), attempts, clock.waits) == (
                 200,
                 {"status": "recovered"},
@@ -157,7 +142,7 @@ class TestPydanticAIRetriesSubsystem:
                 [1.0, 2.0],
             )
 
-    def test_request_limited_json_rejects_4xx_and_5xx_responses(self) -> None:
+    def test_request_limited_json_rejects_4xx_and_5xx_responses(self, web: WebFake) -> None:
         """Verify request_limited_json raises for 4xx and 5xx replies and never parses them."""
         from devops_cli.ai.client.network import request_limited_json
 
@@ -166,13 +151,13 @@ class TestPydanticAIRetriesSubsystem:
             500: '{"error": "internal"}',
             404: '{"error": "not found"}',
         }
-        transport = httpx2.MockTransport(
+        web.serve(
             lambda request: httpx2.Response(
                 int(request.url.path.strip("/")), text=bodies[int(request.url.path.strip("/"))]
             )
         )
         raised: list[tuple[int, str]] = []
-        with httpx2.Client(transport=transport) as client:
+        with http_client(EgressLevel.PUBLIC) as client:
             for status in bodies:
                 with pytest.raises(httpx2.HTTPStatusError) as exc_info:
                     request_limited_json(client, "POST", f"https://example.com/{status}")

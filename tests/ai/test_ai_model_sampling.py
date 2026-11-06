@@ -18,6 +18,8 @@ from devops_cli.config.settings import (
     reset_settings_cache,
 )
 from devops_cli.exceptions import ConfigurationError
+from tests.llm_stream_fakes import serve_llm
+from tests.support.fakes.http import WebFake
 
 # =============================================================================
 # 1. num_ctx refusal and unknown keys validation
@@ -120,12 +122,12 @@ def test_streamed_openai_compat_payload_omits_sampling_when_use_model_sampling()
 
 
 def test_streamed_native_ollama_request_includes_options_and_trace_headers(
-    monkeypatch: pytest.MonkeyPatch,
     tracer: Any,
+    web: WebFake,
 ) -> None:
     """Streamed native Ollama requests carry the same options and trace headers as unstreamed requests."""
     from devops_cli.models.ai import ChatMessage
-    from tests.llm_stream_fakes import ollama_line, route_client
+    from tests.llm_stream_fakes import ollama_line
 
     cfg = AIConfig(
         provider="ollama",
@@ -145,13 +147,14 @@ def test_streamed_native_ollama_request_includes_options_and_trace_headers(
             content=iter([ollama_line("Hello", done=True)]),
         )
 
-    sent = route_client(client, monkeypatch, fake_handler)
+    sent = serve_llm(web, fake_handler)
 
     with tracer.span("test_stream"):
         list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 
-    assert len(sent) == 1
-    req = sent[0]
+    chats = [request for request in sent if request.url.path == "/api/chat"]
+    assert len(chats) == 1
+    req = chats[0]
     data = json.loads(req.content.decode("utf-8"))
     options = data.get("options", {})
 
@@ -163,11 +166,11 @@ def test_streamed_native_ollama_request_includes_options_and_trace_headers(
 
 
 def test_streamed_native_ollama_omits_sampling_when_use_model_sampling(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """When use_model_sampling is true, Ollama requests omit temperature and top_p."""
     from devops_cli.models.ai import ChatMessage
-    from tests.llm_stream_fakes import ollama_line, route_client
+    from tests.llm_stream_fakes import ollama_line
 
     cfg = AIConfig(
         provider="ollama",
@@ -186,7 +189,7 @@ def test_streamed_native_ollama_omits_sampling_when_use_model_sampling(
             content=iter([ollama_line("Hello", done=True)]),
         )
 
-    sent = route_client(client, monkeypatch, fake_handler)
+    sent = serve_llm(web, fake_handler)
     list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 
     assert len(sent) == 1
@@ -310,13 +313,12 @@ def test_review_profile_records_and_serializes_models_and_sampling(
 
 
 def test_response_cache_key_varies_with_sampling_parameters(
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    web: WebFake,
 ) -> None:
     """LLM client cache keys differ when temperature or max_tokens differ."""
     from devops_cli.ai.response_cache import LLMResponseCache
     from devops_cli.models.ai import ChatMessage
-    from tests.llm_stream_fakes import route_llm_clients
 
     cache = LLMResponseCache(cache_dir=tmp_path / "cache", enabled=True)
 
@@ -330,7 +332,7 @@ def test_response_cache_key_varies_with_sampling_parameters(
             json={"message": {"role": "assistant", "content": f"response {calls}"}},
         )
 
-    route_llm_clients(monkeypatch, fake_handler)
+    serve_llm(web, fake_handler)
 
     cfg1 = AIConfig(
         provider="ollama",

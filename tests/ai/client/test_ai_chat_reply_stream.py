@@ -16,7 +16,8 @@ from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.ai.client.network import DEFAULT_AI_MAX_RESPONSE_BYTES, size_limit_text
 from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config.settings import AIConfig
-from tests.llm_stream_fakes import OPENAI_DONE, SSE, openai_chunk, route_llm_clients, sse_data
+from tests.llm_stream_fakes import OPENAI_DONE, SSE, openai_chunk, serve_llm, sse_data
+from tests.support.fakes.http import WebFake
 
 GATEWAY_URL = "http://gateway.example.com:4000/v1"
 OLLAMA = "http://ollama-0.example.com:11434"
@@ -24,9 +25,11 @@ SERVED_BY_HEADER = "x-litellm-model-api-base"
 # What LiteLLM writes while the upstream call has no data yet (`open_sse_before_first_byte`).
 PING = b": ping\n\n"
 
+pytestmark = pytest.mark.usefixtures("clock")
+
 
 @pytest.fixture(autouse=True)
-def _public_endpoints(public_dns: str) -> None:
+def _public_endpoints(web: WebFake) -> None:
     """The configured endpoints are example.com URLs, which resolve to a public address."""
 
 
@@ -91,7 +94,7 @@ def _failure(client: LLMClient) -> tuple[type[Exception], str]:
 
 
 def test_a_reply_that_starts_with_keepalive_comments_is_joined_into_one_reply(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """The pings carry no data; the reply holds the chunks' content, reasoning and usage."""
     frames = [
@@ -104,7 +107,7 @@ def test_a_reply_that_starts_with_keepalive_comments_is_joined_into_one_reply(
         _usage_chunk(),
         OPENAI_DONE,
     ]
-    sent = route_llm_clients(monkeypatch, lambda request: _streamed(frames))
+    sent = serve_llm(web, lambda request: _streamed(frames))
 
     reply = _gateway_client().chat("You are terse.", "Reply with OK.", use_cache=False)
 
@@ -124,27 +127,21 @@ def test_a_reply_that_starts_with_keepalive_comments_is_joined_into_one_reply(
 
 
 @pytest.mark.parametrize("code", ["500", "401"], ids=["server-error", "refused-key"])
-def test_an_error_frame_fails_with_the_error_of_its_http_status(
-    monkeypatch: pytest.MonkeyPatch, code: str
-) -> None:
+def test_an_error_frame_fails_with_the_error_of_its_http_status(code: str, web: WebFake) -> None:
     """After a ping, a failure can only come as a frame; it reads as the HTTP reply would."""
-    route_llm_clients(
-        monkeypatch, lambda request: _streamed([PING, _error_frame(code), OPENAI_DONE])
-    )
+    serve_llm(web, lambda request: _streamed([PING, _error_frame(code), OPENAI_DONE]))
     in_stream = _failure(_gateway_client())
 
-    route_llm_clients(
-        monkeypatch, lambda request: httpx2.Response(int(code), json={"error": _error_body(code)})
-    )
+    serve_llm(web, lambda request: httpx2.Response(int(code), json={"error": _error_body(code)}))
     as_status = _failure(_gateway_client())
 
     assert in_stream == as_status
 
 
-def test_a_stream_past_the_response_size_limit_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_stream_past_the_response_size_limit_fails(web: WebFake) -> None:
     """The decoded data of the frames is counted, as the body of a blocking reply was."""
     oversized = _chunk(delta={"content": "x" * DEFAULT_AI_MAX_RESPONSE_BYTES})
-    route_llm_clients(monkeypatch, lambda request: _streamed([PING, oversized, OPENAI_DONE]))
+    serve_llm(web, lambda request: _streamed([PING, oversized, OPENAI_DONE]))
 
     assert _failure(_gateway_client()) == (
         AIClientError,
@@ -158,11 +155,11 @@ def test_a_stream_past_the_response_size_limit_fails(monkeypatch: pytest.MonkeyP
     ids=["cut-after-a-chunk", "no-chunk"],
 )
 def test_a_stream_that_stops_before_its_final_frame_fails(
-    monkeypatch: pytest.MonkeyPatch, frames: list[bytes]
+    frames: list[bytes], web: WebFake
 ) -> None:
     """A stream cut after one chunk has no `[DONE]` and no finish reason, and a stream of
     pings and `[DONE]` has no chunk to make a reply of."""
-    route_llm_clients(monkeypatch, lambda request: _streamed(frames))
+    serve_llm(web, lambda request: _streamed(frames))
 
     assert _failure(_gateway_client()) == (
         AIClientError,
@@ -171,12 +168,10 @@ def test_a_stream_that_stops_before_its_final_frame_fails(
 
 
 def test_a_failure_in_the_stream_is_recorded_as_a_failed_attempt(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """The transport saw a 200, so the chat path records the failed attempt itself."""
-    route_llm_clients(
-        monkeypatch, lambda request: _streamed([PING, _error_frame("500"), OPENAI_DONE])
-    )
+    serve_llm(web, lambda request: _streamed([PING, _error_frame("500"), OPENAI_DONE]))
 
     _failure(_gateway_client())
 

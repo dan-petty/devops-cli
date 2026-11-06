@@ -17,8 +17,9 @@ from devops_cli.main import app
 from devops_cli.models.ai import ChatMessage
 from devops_cli.review.diff import diff_blocks
 from devops_cli.review.session import ReviewSessionStore
-from tests.llm_stream_fakes import route_client
+from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.git import GitFake
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.process import ProcessAnswer
 
 runner = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
@@ -48,7 +49,7 @@ def test_collect_file_blocks_yields_one_block_per_file(tmp_path: Path) -> None:
 
 
 def test_review_client_uses_long_read_timeout_for_chat_requests(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """A review chat runs far longer than a generic HTTP call and must not be cut short.
 
@@ -61,9 +62,8 @@ def test_review_client_uses_long_read_timeout_for_chat_requests(
         AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"]),
         request_timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
     )
-    sent = route_client(
-        client,
-        monkeypatch,
+    sent = serve_llm(
+        web,
         lambda request: httpx2.Response(200, json={"message": {"content": "ok"}}),
     )
 

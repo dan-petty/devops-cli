@@ -45,8 +45,9 @@ from devops_cli.review.finding import Finding
 from devops_cli.review.score import score_sessions
 from devops_cli.review.session import ReviewSession, ReviewSessionStore
 from devops_cli.review.state import FindingState
-from tests.llm_stream_fakes import route_client
+from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.git import GitFake
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
 CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: Final[str] = getattr(
@@ -1597,7 +1598,7 @@ def _group_reply(
 
 
 def _group_client(
-    monkeypatch: pytest.MonkeyPatch, replies: list[httpx2.Response]
+    replies: list[httpx2.Response], web: WebFake
 ) -> tuple[LLMClient, list[httpx2.Request]]:
     """A real gateway client whose transport answers with `replies` in turn, then the last again,
     and the requests it receives. The client's cache is the test's own."""
@@ -1609,7 +1610,7 @@ def _group_client(
     def answer(_request: httpx2.Request) -> httpx2.Response:
         return replies.pop(0) if len(replies) > 1 else replies[0]
 
-    return client, route_client(client, monkeypatch, answer)
+    return client, serve_llm(web, answer)
 
 
 def _analyze_group(client: LLMClient) -> Any:
@@ -1671,11 +1672,11 @@ def _cache_entries(tmp_path: Path) -> list[dict[str, Any]]:
 
 
 def test_a_group_reply_that_is_not_json_is_rejected_after_one_call_and_never_cached(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """A reply that does not parse costs one model call, records `schema-validation-failed` and
     is not cached, so the next run asks the model again (#1013)."""
-    client, sent = _group_client(monkeypatch, [_group_reply("not json")])
+    client, sent = _group_client([_group_reply("not json")], web)
 
     first = _analyze_group(client)
     calls_after_first = len(sent)
@@ -1693,11 +1694,11 @@ def test_a_group_reply_that_is_not_json_is_rejected_after_one_call_and_never_cac
 
 
 def test_a_group_reply_citing_an_unknown_finding_is_rejected_after_one_call_and_never_cached(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """A reply that parses but fails a G10 check records that check's reason and is not cached
     (#1013)."""
-    client, sent = _group_client(monkeypatch, [_group_reply(_group_payload("fp-unknown"))])
+    client, sent = _group_client([_group_reply(_group_payload("fp-unknown"))], web)
 
     report = _analyze_group(client)
 
@@ -1710,11 +1711,11 @@ def test_a_group_reply_citing_an_unknown_finding_is_rejected_after_one_call_and_
 
 
 def test_a_verified_group_reply_is_cached_and_answers_the_next_run(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """A reply that passes its checks is cached, and the next run is verified from the cache
     without a model call (#1013)."""
-    client, sent = _group_client(monkeypatch, [_group_reply(_group_payload())])
+    client, sent = _group_client([_group_reply(_group_payload())], web)
 
     first = _analyze_group(client)
     second = _analyze_group(client)
@@ -1728,11 +1729,11 @@ def test_a_verified_group_reply_is_cached_and_answers_the_next_run(
 
 
 def test_a_cut_group_reply_that_is_not_json_is_rejected_as_truncated_after_one_call(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """A reply cut at the token cap that also fails to parse is `reply-truncated`, not
     `schema-validation-failed`: the rejection keeps the reply's finish reason (#1013)."""
-    client, sent = _group_client(monkeypatch, [_group_reply("not json", finish_reason="length")])
+    client, sent = _group_client([_group_reply("not json", finish_reason="length")], web)
 
     report = _analyze_group(client)
 
@@ -1744,10 +1745,10 @@ def test_a_cut_group_reply_that_is_not_json_is_rejected_as_truncated_after_one_c
 
 
 def test_an_empty_group_reply_is_one_model_call_and_a_model_call_error(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """An empty reply is not resent: one model call, recorded as `model-call-error` (#1013)."""
-    client, sent = _group_client(monkeypatch, [_group_reply("")])
+    client, sent = _group_client([_group_reply("")], web)
 
     report = _analyze_group(client)
 
@@ -1759,11 +1760,11 @@ def test_an_empty_group_reply_is_one_model_call_and_a_model_call_error(
 
 
 def test_an_empty_group_reply_with_reasoning_is_rejected_after_one_call_and_never_cached(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """An empty reply that carries reasoning reaches the checks, fails to parse, and is not
     cached or resent (#1013)."""
-    client, sent = _group_client(monkeypatch, [_group_reply("", reasoning="thinking it over")])
+    client, sent = _group_client([_group_reply("", reasoning="thinking it over")], web)
 
     report = _analyze_group(client)
 
@@ -1775,12 +1776,12 @@ def test_an_empty_group_reply_with_reasoning_is_rejected_after_one_call_and_neve
 
 
 def test_a_cached_group_reply_that_fails_its_checks_is_replaced_by_one_model_call(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """A cached reply the checks reject is not served: the group makes one model call, is
     verified, and the entry then holds the new reply (#1013)."""
     replies = [_group_reply("not json")]
-    client, sent = _group_client(monkeypatch, replies)
+    client, sent = _group_client(replies, web)
     _analyze_group(client)
     request = json.loads(sent[0].content)
     system, user = (message["content"] for message in request["messages"])
@@ -1806,11 +1807,11 @@ def test_a_cached_group_reply_that_fails_its_checks_is_replaced_by_one_model_cal
 
 
 def test_a_plan_reply_that_is_not_json_is_rejected_after_one_call_and_never_cached(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """A plan reply that does not parse costs one model call, records `schema-validation-failed`
     and is not cached, so the next run asks the model again (#1810)."""
-    client, sent = _group_client(monkeypatch, [_group_reply("not json")])
+    client, sent = _group_client([_group_reply("not json")], web)
 
     record_1, reasons_1, is_cached_1 = _analyze_plan(client)
     calls_after_first = len(sent)
@@ -1843,11 +1844,11 @@ def test_a_plan_reply_that_is_not_json_is_rejected_after_one_call_and_never_cach
 
 
 def test_a_plan_reply_citing_an_unknown_finding_is_rejected_after_one_call_and_never_cached(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """A plan reply that parses but fails a G10 check records that check's reason and is not cached
     (#1810)."""
-    client, sent = _group_client(monkeypatch, [_group_reply(_plan_payload("fp-unknown"))])
+    client, sent = _group_client([_group_reply(_plan_payload("fp-unknown"))], web)
 
     record, reasons, is_cached = _analyze_plan(client)
 
@@ -1869,11 +1870,11 @@ def test_a_plan_reply_citing_an_unknown_finding_is_rejected_after_one_call_and_n
 
 
 def test_a_verified_plan_reply_is_cached_and_answers_the_next_run(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """A plan reply that passes its checks is cached, and the next run is verified from the cache
     without a model call (#1810)."""
-    client, sent = _group_client(monkeypatch, [_group_reply(_plan_payload())])
+    client, sent = _group_client([_group_reply(_plan_payload())], web)
 
     rec_1, reasons_1, cached_1 = _analyze_plan(client)
     rec_2, reasons_2, cached_2 = _analyze_plan(client)
@@ -1891,11 +1892,11 @@ def test_a_verified_plan_reply_is_cached_and_answers_the_next_run(
 
 
 def test_a_cut_plan_reply_that_is_not_json_is_rejected_as_truncated_after_one_call(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """A plan reply cut at the token cap that also fails to parse is `reply-truncated`, not
     `schema-validation-failed`: the rejection keeps the reply's finish reason (#1810)."""
-    client, sent = _group_client(monkeypatch, [_group_reply("not json", finish_reason="length")])
+    client, sent = _group_client([_group_reply("not json", finish_reason="length")], web)
 
     record, reasons, is_cached = _analyze_plan(client)
 
@@ -1909,10 +1910,10 @@ def test_a_cut_plan_reply_that_is_not_json_is_rejected_as_truncated_after_one_ca
 
 
 def test_an_empty_plan_reply_is_one_model_call_and_a_model_call_error(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """An empty plan reply is not resent: one model call, recorded as `model-call-error` (#1810)."""
-    client, sent = _group_client(monkeypatch, [_group_reply("")])
+    client, sent = _group_client([_group_reply("")], web)
 
     record, reasons, is_cached = _analyze_plan(client)
 
@@ -1926,11 +1927,11 @@ def test_an_empty_plan_reply_is_one_model_call_and_a_model_call_error(
 
 
 def test_an_empty_plan_reply_with_reasoning_is_rejected_after_one_call_and_never_cached(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """An empty plan reply that carries reasoning reaches the checks, fails to parse, and is not
     cached or resent (#1810)."""
-    client, sent = _group_client(monkeypatch, [_group_reply("", reasoning="thinking it over")])
+    client, sent = _group_client([_group_reply("", reasoning="thinking it over")], web)
 
     record, reasons, is_cached = _analyze_plan(client)
 
@@ -1944,12 +1945,12 @@ def test_an_empty_plan_reply_with_reasoning_is_rejected_after_one_call_and_never
 
 
 def test_a_cached_plan_reply_that_fails_its_checks_is_replaced_by_one_model_call(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """A cached plan reply the checks reject is not served: the plan makes one model call, is
     verified, and the entry then holds the new reply (#1810)."""
     replies = [_group_reply("not json")]
-    client, sent = _group_client(monkeypatch, replies)
+    client, sent = _group_client(replies, web)
     _analyze_plan(client)
     request = json.loads(sent[0].content)
     system, user = (message["content"] for message in request["messages"])
@@ -2031,9 +2032,7 @@ def test_group_analysis_failure_counts_failed_and_dispatched_apart(tmp_path: Pat
     ) == (1, 0, 1, 2, 1, 0, 1, False, True)
 
 
-def test_group_analysis_two_run_cache_and_no_cache(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
-) -> None:
+def test_group_analysis_two_run_cache_and_no_cache(web: WebFake, tmp_path: Path) -> None:
     """The review's report step runs twice: second run uses cache with no new requests; with --no-cache replayed is 0 (#482)."""
     from devops_cli.ai.review.profile import profiling, review_stage
 
@@ -2062,14 +2061,12 @@ def test_group_analysis_two_run_cache_and_no_cache(
         producer="ruff",
     )
 
-    from tests.llm_stream_fakes import route_llm_clients
-
     replies = [_group_reply(_group_payload())]
 
     def answer(_request: httpx2.Request) -> httpx2.Response:
         return replies.pop(0) if len(replies) > 1 else replies[0]
 
-    sent = route_llm_clients(monkeypatch, answer)
+    sent = serve_llm(web, answer)
     config = AIConfig(
         provider="gateway", model="demo-model", gateway_url="http://example.com:4000/v1"
     )

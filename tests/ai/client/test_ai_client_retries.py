@@ -14,8 +14,11 @@ if TYPE_CHECKING:
 from devops_cli.ai.client import AIClientError, LLMClient, LLMResponse, ReplyRejectedError
 from devops_cli.config.defaults import DEFAULT_AI_MAX_RETRIES, DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import AIConfig, AITaskOverride
+from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import route_client
+from tests.llm_stream_fakes import serve_llm
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.http import WebFake
 
 
 def test_validate_response_text_valid() -> None:
@@ -101,8 +104,7 @@ def test_llm_client_chat_exhausts_retries_and_raises(
     ],
 )
 def test_a_reply_the_validator_refuses_comes_back_on_the_error(
-    monkeypatch: pytest.MonkeyPatch,
-    public_dns: str,
+    web: WebFake,
     content: str,
     rejection: type[Exception],
     spend_ledger: SpendLedger,
@@ -113,9 +115,8 @@ def test_a_reply_the_validator_refuses_comes_back_on_the_error(
     client = LLMClient(
         AIConfig(provider="gateway", model="demo-model", gateway_url="http://example.com:4000/v1")
     )
-    route_client(
-        client,
-        monkeypatch,
+    serve_llm(
+        web,
         lambda request: httpx2.Response(
             200,
             json={
@@ -187,21 +188,61 @@ def test_provider_http_error_informative_formatting() -> None:
     ) == (True, True)
 
 
-def test_provider_uses_shared_client_and_retry_transport() -> None:
-    """Verify the shared client retries through tenacity over the configured-level transport."""
-    from pydantic_ai.retries import HTTPX2TenacityTransport
-
-    from devops_cli.http.egress import EgressLevel
-    from tests.web_fakes import egress_level_of
-
+def test_provider_client_retries_a_server_error(web: WebFake, clock: ClockFake) -> None:
+    """Verify the shared client sends a request again after a 503, and waits between the two."""
     client = LLMClient(
-        AIConfig(provider="openai", api_key="sk-test", max_retries=3, allow_private_network=False)
+        AIConfig(
+            provider="ollama",
+            ollama_urls=["http://example.com:11434"],
+            max_retries=3,
+        ),
+        cache_enabled=False,
     )
-    shared = client._shared_client()
+    answers = [httpx2.Response(503), httpx2.Response(200, json={"message": {"content": "ok"}})]
+    sent = serve_llm(web, lambda request: answers.pop(0))
 
-    assert shared is client._shared_client()
-    assert isinstance(shared._transport, HTTPX2TenacityTransport)
-    assert egress_level_of(shared._transport) == EgressLevel.LOOPBACK
+    reply = client._ollama_messages("sys", [ChatMessage(role="user", content="hi")])
+
+    assert (str(reply), len(sent), len(clock.waits)) == ("ok", 2, 1)
+
+
+def _private_address_client(*, allow_private_network: bool) -> LLMClient:
+    """An Ollama client for an address in a private range, without retries."""
+    return LLMClient(
+        AIConfig(
+            provider="ollama",
+            ollama_urls=["http://192.0.2.10:11434"],
+            max_retries=0,
+            allow_private_network=allow_private_network,
+        ),
+        cache_enabled=False,
+    )
+
+
+def test_provider_client_refuses_a_private_address_at_the_loopback_level(web: WebFake) -> None:
+    """Verify the client refuses an address in a private range before it sends a request."""
+    sent = serve_llm(web, lambda request: httpx2.Response(200, json={"message": {"content": "ok"}}))
+
+    with pytest.raises(SSRFBlockedError) as raised:
+        _private_address_client(allow_private_network=False)._ollama_messages(
+            "sys", [ChatMessage(role="user", content="hi")]
+        )
+
+    assert (raised.value.error_code, sent) == ("SSRF_BLOCKED", [])
+
+
+def test_provider_client_reaches_a_private_address_at_the_private_level(web: WebFake) -> None:
+    """Verify `ai.allow_private_network` lets the client send to an address in a private range."""
+    sent = serve_llm(web, lambda request: httpx2.Response(200, json={"message": {"content": "ok"}}))
+
+    reply = _private_address_client(allow_private_network=True)._ollama_messages(
+        "sys", [ChatMessage(role="user", content="hi")]
+    )
+
+    assert (str(reply), [str(request.url) for request in sent]) == (
+        "ok",
+        ["http://192.0.2.10:11434/api/chat"],
+    )
 
 
 def test_provider_http_error_sanitizes_html_error_response() -> None:
@@ -249,16 +290,14 @@ def test_request_timeout_reads_the_configured_timeout(
     assert client._request_timeout().read == expected_read
 
 
-@pytest.mark.usefixtures("public_dns")
-def test_a_configured_timeout_reaches_the_request(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_configured_timeout_reaches_the_request(web: WebFake) -> None:
     """Verify an Ollama chat request is sent with the task's configured read timeout."""
     config = AIConfig(
         provider="ollama", ollama_urls=["http://example.com:11434"], timeout=5.0
     ).for_task("analysis")
     client = LLMClient(config, api_key="x", cache_enabled=False)
-    sent = route_client(
-        client,
-        monkeypatch,
+    sent = serve_llm(
+        web,
         lambda request: httpx2.Response(200, json={"message": {"content": "ok"}, "done": True}),
     )
 

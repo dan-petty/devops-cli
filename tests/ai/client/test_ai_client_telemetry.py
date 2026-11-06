@@ -27,14 +27,8 @@ from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry.instruments import AI_GATEWAY_SLOT_WAIT, Instrument
 from devops_cli.telemetry.semconv import load_genai_snapshot
 from devops_cli.telemetry.tracer import get_tracer, reset_tracer
-from tests.llm_stream_fakes import (
-    NDJSON,
-    OPENAI_DONE,
-    ollama_line,
-    openai_chunk,
-    reply,
-    route_client,
-)
+from tests.llm_stream_fakes import NDJSON, OPENAI_DONE, ollama_line, openai_chunk, reply, serve_llm
+from tests.support.fakes.http import WebFake
 
 INFERENCE_REQUIRED = load_genai_snapshot()["spans"]["gen_ai.inference.client"]["required"]
 
@@ -264,7 +258,6 @@ def _stream(client: LLMClient) -> None:
     list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 
 
-@pytest.mark.usefixtures("public_dns")
 @pytest.mark.parametrize(
     ("call", "span_name", "ollama_urls", "server"),
     [
@@ -304,6 +297,7 @@ def test_server_attributes_come_from_the_origin_of_the_url_called(
     span_name: str,
     ollama_urls: list[str],
     server: dict[str, Any],
+    web: WebFake,
 ) -> None:
     """The dispatch span names the server that answered, by the origin of the URL called.
 
@@ -311,7 +305,8 @@ def test_server_attributes_come_from_the_origin_of_the_url_called(
     before the client leases a server, so it names a server only when one server is configured.
     """
     cfg = AIConfig(provider="ollama", model="test-model", ollama_urls=ollama_urls)
-    client = LLMClient(cfg, transport=httpx2.MockTransport(_ollama_server))
+    web.serve(_ollama_server)
+    client = LLMClient(cfg)
 
     call(client)
 
@@ -365,7 +360,7 @@ def test_the_dispatch_span_names_the_reason_the_reply_ended(
 
 
 def test_a_complete_stream_names_the_reason_on_the_stream_span(
-    monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]]
+    monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]], web: WebFake
 ) -> None:
     """The reason in a stream's final frames is on ai.llm.stream."""
     monkeypatch.setattr(context_budget, "count_tokens", lambda text, *args, **kwargs: len(text))
@@ -378,7 +373,7 @@ def test_a_complete_stream_names_the_reason_on_the_stream_span(
     )
     client = LLMClient(config, api_key="sk-test")
     frames = [openai_chunk("Hel"), openai_chunk("lo", "length"), OPENAI_DONE]
-    route_client(client, monkeypatch, lambda request: reply(frames))
+    serve_llm(web, lambda request: reply(frames))
 
     chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 
@@ -390,7 +385,7 @@ def test_a_complete_stream_names_the_reason_on_the_stream_span(
 
 
 def test_stream_span_records_sanitizer_attributes_when_sanitize_is_enabled(
-    monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]]
+    monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]], web: WebFake
 ) -> None:
     """Stream trace span ai.llm.stream records unopened_close_tags, unclosed_stream, and discarded_thought_chars when sanitize=True."""
     monkeypatch.setattr(context_budget, "count_tokens", lambda text, *args, **kwargs: len(text))
@@ -407,7 +402,7 @@ def test_stream_span_records_sanitizer_attributes_when_sanitize_is_enabled(
         openai_chunk("<think>unclosed thought"),
         OPENAI_DONE,
     ]
-    route_client(client, monkeypatch, lambda request: reply(frames))
+    serve_llm(web, lambda request: reply(frames))
 
     chunks = list(
         client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")], sanitize=True)
@@ -472,9 +467,8 @@ _TIMED_GATEWAY_CALLS: dict[
 
 
 @pytest.mark.parametrize("call", list(_TIMED_GATEWAY_CALLS))
-@pytest.mark.usefixtures("public_dns")
 def test_a_gateway_call_is_timed_from_when_its_slot_is_held(
-    call: str, monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]]
+    call: str, monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]], web: WebFake
 ) -> None:
     """A call that waits 120 s for a gateway slot and 2 s for its reply records the wait as an
     `ai.llm.gateway_slot` span under the call's span and as one observation of the wait
@@ -509,7 +503,7 @@ def test_a_gateway_call_is_timed_from_when_its_slot_is_held(
         clock.advance(_REQUEST_SECONDS)
         return gateway_reply()
 
-    route_client(client, monkeypatch, answer)
+    serve_llm(web, answer)
 
     invoke(client)
 
@@ -546,14 +540,13 @@ def _gateway_client(monkeypatch: pytest.MonkeyPatch) -> LLMClient:
 
 
 def test_a_gateway_dispatch_span_names_the_deployment_model_that_served_the_call(
-    monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]]
+    monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]], web: WebFake
 ) -> None:
     """A gateway reply naming its deployment model sets gen_ai.response.model to that model, not
     the route name the reply body gives, while gen_ai.request.model keeps the route name."""
     client = _gateway_client(monkeypatch)
-    route_client(
-        client,
-        monkeypatch,
+    serve_llm(
+        web,
         lambda request: httpx2.Response(
             200,
             json={"choices": [{"message": {"content": "ok"}}], "model": "devops-chat"},
@@ -572,14 +565,13 @@ def test_a_gateway_dispatch_span_names_the_deployment_model_that_served_the_call
 
 
 def test_a_gateway_dispatch_span_keeps_the_body_model_when_the_gateway_names_none(
-    monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]]
+    monkeypatch: pytest.MonkeyPatch, sent_spans: list[dict[str, Any]], web: WebFake
 ) -> None:
     """A gateway reply naming no deployment model keeps the reply-body model in
     gen_ai.response.model, with gen_ai.request.model still the route name."""
     client = _gateway_client(monkeypatch)
-    route_client(
-        client,
-        monkeypatch,
+    serve_llm(
+        web,
         lambda request: httpx2.Response(
             200, json={"choices": [{"message": {"content": "ok"}}], "model": "qwen3.8:27b"}
         ),

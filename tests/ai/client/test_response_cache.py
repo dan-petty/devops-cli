@@ -25,8 +25,9 @@ from devops_cli.ai.response_cache import (
 from devops_cli.config.constants import CONST_AI_GATEWAY_SERVED_BY_HEADER
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import route_client
+from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.http import WebFake
 
 
 @pytest.fixture(autouse=True)
@@ -256,7 +257,7 @@ def test_a_cache_entry_keeps_the_backend_and_model_that_served_it(
 
 
 def _served_gateway_client(
-    monkeypatch: pytest.MonkeyPatch, clean_cache: LLMResponseCache, served_by: str
+    clean_cache: LLMResponseCache, served_by: str, web: WebFake
 ) -> tuple[LLMClient, list[httpx2.Request]]:
     """A gateway client, over a transport that answers `served_by` as the backend and
     `served-model` as the model, using the test's cache."""
@@ -271,20 +272,19 @@ def _served_gateway_client(
         "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
     }
     headers = {CONST_AI_GATEWAY_SERVED_BY_HEADER: served_by}
-    sent = route_client(
-        client,
-        monkeypatch,
+    sent = serve_llm(
+        web,
         lambda _request: httpx2.Response(200, json=body, headers=headers),
     )
     return client, sent
 
 
 def test_a_cache_hit_returns_the_backend_and_model_that_served_the_reply(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, clean_cache: LLMResponseCache
+    web: WebFake, clean_cache: LLMResponseCache
 ) -> None:
     """Verify a hit carries the served backend and model of the reply it replays, and still
     names the cache as its backend (#1013)."""
-    client, sent = _served_gateway_client(monkeypatch, clean_cache, "https://example.com:11434")
+    client, sent = _served_gateway_client(clean_cache, "https://example.com:11434", web)
 
     client.chat("system prompt", "hello world")
     hit = client.chat("system prompt", "hello world")
@@ -299,12 +299,12 @@ def test_a_cache_hit_returns_the_backend_and_model_that_served_the_reply(
 
 
 def test_the_backend_a_cached_gateway_reply_records_carries_no_credentials(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, clean_cache: LLMResponseCache
+    web: WebFake, clean_cache: LLMResponseCache
 ) -> None:
     """Verify a gateway that names its backend with credentials in the URL leaves them out of
     the entry: the cache stores the backend as the client reports it (#1013)."""
     client, _sent = _served_gateway_client(
-        monkeypatch, clean_cache, "https://user:secret@example.com:11434"
+        clean_cache, "https://user:secret@example.com:11434", web
     )
 
     client.chat("system prompt", "hello world")
@@ -600,13 +600,12 @@ def test_ai_cache_status_and_clear_read_settings(
 
 
 def test_client_with_cache_disabled_never_reads_or_writes_cache(
-    isolate_data_dir: Path, monkeypatch: pytest.MonkeyPatch, public_dns: str
+    isolate_data_dir: Path, web: WebFake
 ) -> None:
     """Verify that LLMClient with cache_enabled=False neither reads nor writes the cache even when
     a global singleton cache exists and is enabled."""
     from devops_cli.ai.client import LLMClient
     from devops_cli.config.settings import AIConfig
-    from tests.llm_stream_fakes import route_client
 
     reset_llm_response_cache()
     cache_dir = isolate_data_dir / "cache" / "llm"
@@ -622,7 +621,7 @@ def test_client_with_cache_disabled_never_reads_or_writes_cache(
         "choices": [{"message": {"content": "fresh reply"}, "finish_reason": "stop"}],
         "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
     }
-    sent = route_client(client, monkeypatch, lambda _req: httpx2.Response(200, json=body))
+    sent = serve_llm(web, lambda _req: httpx2.Response(200, json=body))
 
     res1 = client.chat("system", "hello")
     res2 = client.chat("system", "hello")
@@ -641,9 +640,7 @@ def test_client_with_cache_disabled_never_reads_or_writes_cache(
     assert cache_files == []
 
 
-def test_empty_content_with_thinking_is_not_cached(
-    isolate_data_dir: Path, monkeypatch: pytest.MonkeyPatch, public_dns: str
-) -> None:
+def test_empty_content_with_thinking_is_not_cached(isolate_data_dir: Path, web: WebFake) -> None:
     """Verify that an LLM response with empty content and thinking blocks is returned to the
     caller but is never saved to the response cache."""
     reset_llm_response_cache()
@@ -665,7 +662,7 @@ def test_empty_content_with_thinking_is_not_cached(
         ],
         "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
     }
-    route_client(client, monkeypatch, lambda _req: httpx2.Response(200, json=body))
+    serve_llm(web, lambda _req: httpx2.Response(200, json=body))
 
     res = client.chat("system", "prompt")
     assert res.content == "   "

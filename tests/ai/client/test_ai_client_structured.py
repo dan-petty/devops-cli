@@ -1,6 +1,6 @@
 """Unit tests for LLM structured output, schema repair, and error reflection retry engine.
 
-The request-body and cache cases answer at the HTTP edge with httpx2's `MockTransport`, read and
+The request-body and cache cases answer at the HTTP edge with the `web` fake, read and
 write the per-test response cache the autouse fixture provides, and retry with no backoff.
 """
 
@@ -42,7 +42,8 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from devops_cli.roadmap.refine import RefinementProposal
 from devops_cli.telemetry.tracer import get_tracer
-from tests.llm_stream_fakes import make_anthropic_model_info_payload, route_client
+from tests.llm_stream_fakes import make_anthropic_model_info_payload, serve_llm
+from tests.support.fakes.http import WebFake
 
 
 @pytest.fixture(autouse=True)
@@ -351,16 +352,14 @@ def _cached_texts(tmp_path: Path) -> list[str]:
     return [json.loads(path.read_text(encoding="utf-8"))["content"] for path in files]
 
 
-def test_each_provider_is_sent_the_schema_and_only_its_own_constraint(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str
-) -> None:
+def test_each_provider_is_sent_the_schema_and_only_its_own_constraint(web: WebFake) -> None:
     """Verify the schema ends the system message for every provider. The gateway gets
     response_format without strict, ollama gets format, openai gets the response_format of its
     model's pydantic-ai profile, and copilot gets none (#1419)."""
     bodies: dict[str, Any] = {}
     for provider in _CONFIGS:
         client = _structured_client(provider)
-        sent = route_client(client, monkeypatch, _answering(provider, _VALID))
+        sent = serve_llm(web, _answering(provider, _VALID))
         client.chat_structured(_SYSTEM, _PROMPT, RefinementProposal, use_cache=False)
         bodies[provider] = json.loads(sent[0].content)
 
@@ -434,8 +433,7 @@ def _claude_answering(model: str, text: str, *, adaptive_thinking: bool) -> Any:
     ],
 )
 def test_claude_gets_the_output_format_its_models_profile_supports(
-    monkeypatch: pytest.MonkeyPatch,
-    public_dns: str,
+    web: WebFake,
     model: str,
     thinking: bool,
     output_config: str | None,
@@ -444,9 +442,7 @@ def test_claude_gets_the_output_format_its_models_profile_supports(
     schema in `output_config.format`, through the Anthropic transform and beside the effort of
     adaptive thinking, and a model that its profile does not name gets no format (#1419)."""
     client = LLMClient(AIConfig(provider="claude", model=model), api_key="sk-ant")
-    sent = route_client(
-        client, monkeypatch, _claude_answering(model, _VALID, adaptive_thinking=True)
-    )
+    sent = serve_llm(web, _claude_answering(model, _VALID, adaptive_thinking=True))
 
     client.chat_structured(
         _SYSTEM, _PROMPT, RefinementProposal, use_cache=False, enable_thinking=thinking
@@ -468,11 +464,11 @@ def test_claude_gets_the_output_format_its_models_profile_supports(
 
 
 def test_a_reply_that_fails_the_schema_gets_the_reflection_and_is_never_cached(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """Verify a Markdown first reply is answered with the reflection and never cached."""
     client = _structured_client()
-    sent = route_client(client, monkeypatch, _answering("gateway", _MARKDOWN, _VALID))
+    sent = serve_llm(web, _answering("gateway", _MARKDOWN, _VALID))
 
     proposal = client.chat_structured(_SYSTEM, _PROMPT, RefinementProposal, backoff_seconds=0)
 
@@ -494,9 +490,7 @@ def test_a_reply_that_fails_the_schema_gets_the_reflection_and_is_never_cached(
     )
 
 
-def test_a_cached_reply_that_fails_the_schema_is_never_served(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str
-) -> None:
+def test_a_cached_reply_that_fails_the_schema_is_never_served(web: WebFake) -> None:
     """Verify a Markdown reply cached at the first attempt's key is passed over for the
     transport, whose valid reply then takes its place."""
     client = _structured_client()
@@ -521,7 +515,7 @@ def test_a_cached_reply_that_fails_the_schema_is_never_served(
         prompt=_PROMPT,
         content=_MARKDOWN,
     )
-    sent = route_client(client, monkeypatch, _answering("gateway", _VALID))
+    sent = serve_llm(web, _answering("gateway", _VALID))
 
     proposal = client.chat_structured(_SYSTEM, _PROMPT, RefinementProposal, backoff_seconds=0)
 
@@ -536,12 +530,10 @@ def test_a_cached_reply_that_fails_the_schema_is_never_served(
     ) == (RefinementProposal.model_validate_json(_VALID), [["system", "user"]], _VALID)
 
 
-def test_a_valid_first_reply_is_cached_and_served(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, tmp_path: Path
-) -> None:
+def test_a_valid_first_reply_is_cached_and_served(web: WebFake, tmp_path: Path) -> None:
     """Verify a valid first reply is written to the cache and answers the same call again."""
     client = _structured_client()
-    sent = route_client(client, monkeypatch, _answering("gateway", _VALID))
+    sent = serve_llm(web, _answering("gateway", _VALID))
 
     first = client.chat_structured(_SYSTEM, _PROMPT, RefinementProposal)
     again = client.chat_structured(_SYSTEM, _PROMPT, RefinementProposal)
@@ -556,11 +548,11 @@ def test_a_valid_first_reply_is_cached_and_served(
 
 @pytest.mark.parametrize(("reply", "violations"), [(_THREE_VIOLATIONS, 3), (_MARKDOWN, 0)])
 def test_the_validation_error_counts_the_last_replys_schema_violations(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, reply: str, violations: int
+    web: WebFake, reply: str, violations: int
 ) -> None:
     """Verify the error carries the last reply's violation count, 0 when it held no JSON."""
     client = _structured_client()
-    sent = route_client(client, monkeypatch, _answering("gateway", reply))
+    sent = serve_llm(web, _answering("gateway", reply))
 
     with pytest.raises(StructuredOutputValidationError) as raised:
         client.chat_structured(_SYSTEM, _PROMPT, RefinementProposal, backoff_seconds=0)
@@ -576,12 +568,12 @@ def test_the_validation_error_counts_the_last_replys_schema_violations(
     ],
 )
 def test_the_validation_error_names_the_error_types_of_the_last_reply(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, reply: str, error_types: tuple[str, ...]
+    web: WebFake, reply: str, error_types: tuple[str, ...]
 ) -> None:
     """Verify the error carries the pydantic error types of the last reply, sorted and without
     a repeat, and none when it held no JSON, so a caller can tell one kind of fault from another."""
     client = _structured_client()
-    route_client(client, monkeypatch, _answering("gateway", reply))
+    serve_llm(web, _answering("gateway", reply))
 
     with pytest.raises(StructuredOutputValidationError) as raised:
         client.chat_structured(_SYSTEM, _PROMPT, RefinementProposal, backoff_seconds=0)
@@ -610,13 +602,11 @@ _INVENTED_KEY = json.dumps(
 )
 
 
-def test_the_retry_prompt_names_every_violation_of_the_last_reply(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str
-) -> None:
+def test_the_retry_prompt_names_every_violation_of_the_last_reply(web: WebFake) -> None:
     """Verify the reflection sent with the retry is the schema report's prescriptive prompt and
     names every violation's field path, not only the first five."""
     client = _structured_client()
-    sent = route_client(client, monkeypatch, _answering("gateway", _SEVEN_VIOLATIONS, _VALID))
+    sent = serve_llm(web, _answering("gateway", _SEVEN_VIOLATIONS, _VALID))
 
     client.chat_structured(_SYSTEM, _PROMPT, RefinementProposal, backoff_seconds=0)
 
@@ -634,7 +624,7 @@ def test_the_retry_prompt_names_every_violation_of_the_last_reply(
 
 def test_the_validation_error_holds_no_key_the_model_invented(
     monkeypatch: pytest.MonkeyPatch,
-    public_dns: str,
+    web: WebFake,
     caplog: pytest.LogCaptureFixture,
     config: Callable[..., Any],
 ) -> None:
@@ -646,7 +636,7 @@ def test_the_validation_error_holds_no_key_the_model_invented(
         get_tracer(), "_send_payload", lambda _path, payload: exported.append(payload)
     )
     client = _structured_client()
-    route_client(client, monkeypatch, _answering("gateway", _INVENTED_KEY))
+    serve_llm(web, _answering("gateway", _INVENTED_KEY))
 
     with (
         caplog.at_level(logging.DEBUG),

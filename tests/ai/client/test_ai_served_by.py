@@ -18,7 +18,8 @@ from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.commands.ai_cost import app as cost_app
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import route_llm_clients
+from tests.llm_stream_fakes import serve_llm
+from tests.support.fakes.http import WebFake
 
 runner = CliRunner()
 
@@ -52,7 +53,7 @@ CREATE TABLE ai_spend_records (
 
 
 @pytest.fixture(autouse=True)
-def _public_endpoints(public_dns: str) -> None:
+def _public_endpoints(web: WebFake) -> None:
     """The configured endpoints are example.com URLs, which resolve to a public address."""
 
 
@@ -123,14 +124,14 @@ class TestLedger:
 
 class TestClient:
     def test_gateway_response_records_its_serving_backend(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, web: WebFake
     ) -> None:
         """Verify the gateway's serving-backend header reaches the response and the ledger."""
         spend = _capture_spend(monkeypatch)
 
         body = {"choices": [{"message": {"content": "OK"}}], "usage": {"completion_tokens": 1}}
-        route_llm_clients(
-            monkeypatch,
+        serve_llm(
+            web,
             lambda request: httpx2.Response(200, json=body, headers={SERVED_BY_HEADER: REMOTE}),
         )
 
@@ -139,12 +140,12 @@ class TestClient:
         assert (reply.served_by, [c.get("served_by") for c in spend]) == (REMOTE, [REMOTE])
 
     def test_response_without_the_header_has_no_serving_backend(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, web: WebFake
     ) -> None:
         """Verify providers other than the gateway record no serving backend rather than a guess."""
         spend = _capture_spend(monkeypatch)
-        route_llm_clients(
-            monkeypatch,
+        serve_llm(
+            web,
             lambda request: httpx2.Response(
                 200, json={"choices": [{"message": {"content": "OK"}}]}
             ),
@@ -155,17 +156,14 @@ class TestClient:
         assert (reply.served_by, [c.get("served_by") for c in spend]) == (None, [None])
 
     def test_streamed_response_records_its_serving_backend(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, web: WebFake
     ) -> None:
         """Verify a streamed gateway reply records the backend named in its response headers."""
         spend = _capture_spend(monkeypatch)
         sse = b'data: {"choices": [{"delta": {"content": "OK"}}]}\n\ndata: [DONE]\n\n'
 
-        def fake_send(self: Any, request: httpx2.Request, **kwargs: Any) -> httpx2.Response:
-            headers = {SERVED_BY_HEADER: OLLAMA, "content-type": "text/event-stream"}
-            return httpx2.Response(200, headers=headers, content=sse, request=request)
-
-        monkeypatch.setattr(httpx2.Client, "send", fake_send)
+        headers = {SERVED_BY_HEADER: OLLAMA, "content-type": "text/event-stream"}
+        web.serve(lambda request: httpx2.Response(200, headers=headers, content=sse))
 
         text = "".join(
             _gateway_client().chat_messages_stream(
@@ -184,27 +182,24 @@ def _hosted_headers(served_model: str | None) -> dict[str, str]:
     return headers
 
 
-def _chat_once(monkeypatch: pytest.MonkeyPatch, headers: dict[str, str]) -> None:
+def _chat_once(web: WebFake, headers: dict[str, str]) -> None:
     """One blocking `devops-chat` call, with a reply that counts one million prompt tokens."""
     body = {
         "model": "devops-chat",
         "choices": [{"message": {"content": "OK"}}],
         "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 0},
     }
-    route_llm_clients(monkeypatch, lambda request: httpx2.Response(200, json=body, headers=headers))
+    serve_llm(web, lambda request: httpx2.Response(200, json=body, headers=headers))
     _gateway_client("devops-chat").chat("You are terse.", "Reply with OK.", use_cache=False)
 
 
-def _stream_once(monkeypatch: pytest.MonkeyPatch, headers: dict[str, str]) -> None:
+def _stream_once(web: WebFake, headers: dict[str, str]) -> None:
     """One streamed `devops-chat` call, whose headers arrive before the first chunk."""
     sse = b'data: {"model": "devops-chat", "choices": [{"delta": {"content": "OK"}}]}\n\n'
     sse += b"data: [DONE]\n\n"
 
-    def fake_send(self: Any, request: httpx2.Request, **kwargs: Any) -> httpx2.Response:
-        stream_headers = {**headers, "content-type": "text/event-stream"}
-        return httpx2.Response(200, headers=stream_headers, content=sse, request=request)
-
-    monkeypatch.setattr(httpx2.Client, "send", fake_send)
+    stream_headers = {**headers, "content-type": "text/event-stream"}
+    web.serve(lambda request: httpx2.Response(200, headers=stream_headers, content=sse))
     "".join(
         _gateway_client("devops-chat").chat_messages_stream(
             "You are terse.", [ChatMessage(role="user", content="Reply with OK.")]
@@ -230,7 +225,7 @@ def _priced_rows(ledger: SpendLedger) -> list[tuple[Any, ...]]:
     ids=["names-the-deployment", "names-no-deployment"],
 )
 def test_a_hosted_gateway_reply_is_priced_at_the_deployment_model_that_it_names(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
     spend_ledger: SpendLedger,
     call: Any,
     served_model: str | None,
@@ -241,7 +236,7 @@ def test_a_hosted_gateway_reply_is_priced_at_the_deployment_model_that_it_names(
     A reply that names its deployment model is priced at that model, and the row keeps the route
     name as its model. A reply that names none is priced at the route name, as before.
     """
-    call(monkeypatch, _hosted_headers(served_model))
+    call(web, _hosted_headers(served_model))
 
     assert _priced_rows(spend_ledger) == [("devops-chat", *priced)]
 

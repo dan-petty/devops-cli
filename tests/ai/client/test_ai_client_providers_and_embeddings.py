@@ -42,10 +42,10 @@ from tests.llm_stream_fakes import (
     ollama_line,
     openai_chunk,
     reply,
-    route_client,
-    route_llm_clients,
+    serve_llm,
     streamed,
 )
+from tests.support.fakes.http import WebFake
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -66,7 +66,7 @@ def _make_resp(status_code: int = 200, json_data: dict | None = None) -> httpx2.
     return httpx2.Response(status_code, request=req, json=json_data)
 
 
-def test_llm_client_ollama_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llm_client_ollama_dispatch(web: WebFake) -> None:
     cfg = AIConfig(
         provider="ollama",
         model="llama3",
@@ -83,13 +83,13 @@ def test_llm_client_ollama_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
             "eval_count": 20,
         },
     )
-    route_client(client, monkeypatch, lambda request: mock_resp)
+    serve_llm(web, lambda request: mock_resp)
 
     res = client.chat(system="sys", user="user")
     assert "Ollama response" in str(res)
 
 
-def test_llm_client_context_window_and_options(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llm_client_context_window_and_options(web: WebFake) -> None:
     captured_payloads: list[dict[str, Any]] = []
 
     def answer(request: httpx2.Request) -> httpx2.Response:
@@ -97,7 +97,7 @@ def test_llm_client_context_window_and_options(monkeypatch: pytest.MonkeyPatch) 
             captured_payloads.append(json.loads(request.content))
         return _make_resp(200, {"message": {"content": "OK"}})
 
-    route_llm_clients(monkeypatch, answer)
+    serve_llm(web, answer)
 
     cfg = AIConfig(
         provider="ollama",
@@ -114,7 +114,7 @@ def test_llm_client_context_window_and_options(monkeypatch: pytest.MonkeyPatch) 
     assert captured_payloads[0]["options"]["num_ctx"] == 40960
 
 
-def test_llm_client_claude_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llm_client_claude_dispatch(web: WebFake) -> None:
     cfg = AIConfig(
         provider="claude",
         model="claude-3-5-sonnet",
@@ -130,13 +130,13 @@ def test_llm_client_claude_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
             "usage": {"input_tokens": 15, "output_tokens": 25},
         },
     )
-    route_client(client, monkeypatch, lambda request: mock_resp)
+    serve_llm(web, lambda request: mock_resp)
 
     res = client.chat(system="sys", user="user")
     assert "Anthropic response" in str(res)
 
 
-def test_llm_client_openai_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llm_client_openai_dispatch(web: WebFake) -> None:
     cfg = AIConfig(provider="openai", model="gpt-4o", api_key="sk-test", allow_private_network=True)
     client = LLMClient(cfg)
 
@@ -147,13 +147,13 @@ def test_llm_client_openai_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
             "usage": {"prompt_tokens": 12, "completion_tokens": 18},
         },
     )
-    route_client(client, monkeypatch, lambda request: mock_resp)
+    serve_llm(web, lambda request: mock_resp)
 
     res = client.chat(system="sys", user="user")
     assert "OpenAI response" in str(res)
 
 
-def test_llm_client_copilot_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llm_client_copilot_dispatch(web: WebFake) -> None:
     cfg = AIConfig(
         provider="copilot", model="gpt-4o", api_key="ghp-test", allow_private_network=True
     )
@@ -166,7 +166,7 @@ def test_llm_client_copilot_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
             "usage": {"prompt_tokens": 10, "completion_tokens": 20},
         },
     )
-    route_client(client, monkeypatch, lambda request: mock_resp)
+    serve_llm(web, lambda request: mock_resp)
 
     res = client.chat(system="sys", user="user")
     assert "Copilot response" in str(res)
@@ -218,7 +218,7 @@ def test_chunk_extractors_and_stream_helpers() -> None:
     assert _is_json_error_payload("plain text") is False
 
 
-def test_llm_client_properties_and_list_models(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llm_client_properties_and_list_models(web: WebFake) -> None:
     """Test LLMClient backend properties, model listing, round robin, and prewarming."""
     cfg = AIConfig(
         provider="ollama",
@@ -239,9 +239,8 @@ def test_llm_client_properties_and_list_models(monkeypatch: pytest.MonkeyPatch) 
 
     # Test list_models, then preload
     tags = {"models": [{"name": "llama3:latest"}, {"name": "qwen2.5:latest"}]}
-    route_client(
-        client,
-        monkeypatch,
+    serve_llm(
+        web,
         lambda request: _make_resp(
             200, tags if request.url.path == "/api/tags" else {"response": ""}
         ),
@@ -267,7 +266,9 @@ def test_llm_client_properties_and_list_models(monkeypatch: pytest.MonkeyPatch) 
     assert called == [pre_res]
 
 
-def test_llm_client_streaming_and_error_branches(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llm_client_streaming_and_error_branches(
+    monkeypatch: pytest.MonkeyPatch, web: WebFake
+) -> None:
     """Test streaming chunk processing, thinking fallback, limits, and error mappings."""
     from devops_cli.ai.client import AIClientError
 
@@ -326,7 +327,7 @@ def test_llm_client_streaming_and_error_branches(monkeypatch: pytest.MonkeyPatch
             return httpx2.Response(404, json={"error": "not found"})
         return reply(claude_frames)
 
-    route_client(claude_client, monkeypatch, _claude_stream_handler)
+    serve_llm(web, _claude_stream_handler)
     assert "".join(claude_client.chat_stream("system", "user")) == "hello world"
 
     # 6. OpenAI models listing
@@ -344,9 +345,8 @@ def test_llm_client_streaming_and_error_branches(monkeypatch: pytest.MonkeyPatch
             "usage": {"total_tokens": 12},
         },
     }
-    route_client(
-        openai_client,
-        monkeypatch,
+    serve_llm(
+        web,
         lambda request: _make_resp(200, openai_replies[request.url.path.removeprefix("/v1")]),
     )
     models = openai_client.list_models()
@@ -442,7 +442,7 @@ def test_embedding_runner_report_rendering_and_markdown(tmp_path: Path) -> None:
     assert runner.is_dry_run_active is True
 
 
-def test_llm_client_embeddings_and_claude_messages(monkeypatch) -> None:
+def test_llm_client_embeddings_and_claude_messages(web: WebFake) -> None:
     """Verify LLMClient Ollama and Claude chat_messages formatting and responses."""
     from devops_cli.models.ai import ChatMessage
 
@@ -463,7 +463,7 @@ def test_llm_client_embeddings_and_claude_messages(monkeypatch) -> None:
             "eval_count": 20,
         },
     )
-    route_client(ollama_client, monkeypatch, lambda request: mock_chat_resp)
+    serve_llm(web, lambda request: mock_chat_resp)
 
     chat_out = ollama_client.chat_messages(
         "System prompt",
@@ -487,7 +487,7 @@ def test_llm_client_embeddings_and_claude_messages(monkeypatch) -> None:
             "usage": {"input_tokens": 15, "output_tokens": 25},
         },
     )
-    route_client(claude_client, monkeypatch, lambda request: mock_claude_msg_resp)
+    serve_llm(web, lambda request: mock_claude_msg_resp)
 
     claude_out = claude_client.chat_messages(
         "System prompt instructions",
@@ -560,7 +560,7 @@ def test_streaming_extractors_edge_cases() -> None:
     )
 
 
-def test_ollama_streaming_and_failover(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ollama_streaming_and_failover(monkeypatch: pytest.MonkeyPatch, web: WebFake) -> None:
     ollama_cfg = AIConfig(
         provider="ollama",
         model="llama3",
@@ -572,7 +572,7 @@ def test_ollama_streaming_and_failover(monkeypatch: pytest.MonkeyPatch) -> None:
     ollama_frames = [ollama_line("Ollama "), ollama_line("stream", done=True)]
 
     # 1. Successful stream
-    route_client(client_ollama, monkeypatch, lambda request: reply(ollama_frames, NDJSON))
+    serve_llm(web, lambda request: reply(ollama_frames, NDJSON))
     tokens = list(client_ollama.chat_stream("system", "prompt"))
     assert "".join(tokens) == "Ollama stream"
 
@@ -582,7 +582,7 @@ def test_ollama_streaming_and_failover(monkeypatch: pytest.MonkeyPatch) -> None:
             raise httpx2.ConnectError("Server 1 down", request=request)
         return reply(ollama_frames, NDJSON)
 
-    failover_sent = route_client(client_ollama, monkeypatch, failover_stream)
+    failover_sent = serve_llm(web, failover_stream)
     tokens_failover = list(client_ollama.chat_stream("system", "prompt"))
     assert ("".join(tokens_failover), len(failover_sent)) == ("Ollama stream", 2)
 
@@ -592,7 +592,7 @@ def test_ollama_streaming_and_failover(monkeypatch: pytest.MonkeyPatch) -> None:
             return httpx2.Response(404, text='{"error":"model \'llama3\' not found"}')
         return reply(ollama_frames, NDJSON)
 
-    not_found_sent = route_client(client_ollama, monkeypatch, not_found_stream)
+    not_found_sent = serve_llm(web, not_found_stream)
     tokens_404 = list(client_ollama.chat_stream("system", "prompt"))
     assert ("".join(tokens_404), len(not_found_sent)) == ("Ollama stream", 2)
 
@@ -602,7 +602,7 @@ def test_ollama_streaming_and_failover(monkeypatch: pytest.MonkeyPatch) -> None:
             return httpx2.Response(404, text='{"error":"model \'llama3\' not found"}')
         return _make_resp(200, {"message": {"content": "Ollama failover success"}})
 
-    not_found_chat_sent = route_client(client_ollama, monkeypatch, not_found_chat)
+    not_found_chat_sent = serve_llm(web, not_found_chat)
     res_non_stream = client_ollama.chat(system="system", user="prompt")
     assert ("Ollama failover success" in str(res_non_stream), len(not_found_chat_sent)) == (
         True,
@@ -610,7 +610,10 @@ def test_ollama_streaming_and_failover(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_copilot_and_openai_streaming_and_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.usefixtures("clock")
+def test_copilot_and_openai_streaming_and_errors(
+    monkeypatch: pytest.MonkeyPatch, web: WebFake
+) -> None:
     # 1. Copilot streaming with reasoning effort
     copilot_cfg = AIConfig(
         provider="github_copilot",
@@ -622,7 +625,7 @@ def test_copilot_and_openai_streaming_and_errors(monkeypatch: pytest.MonkeyPatch
     client_copilot = LLMClient(copilot_cfg)
     _quiet_stream_spend(monkeypatch)
     copilot_frames = [openai_chunk("Copilot "), openai_chunk("stream"), OPENAI_DONE]
-    route_client(client_copilot, monkeypatch, lambda request: reply(copilot_frames))
+    serve_llm(web, lambda request: reply(copilot_frames))
     tokens = list(client_copilot.chat_stream("system", "prompt"))
     assert "".join(tokens) == "Copilot stream"
 
@@ -635,9 +638,8 @@ def test_copilot_and_openai_streaming_and_errors(monkeypatch: pytest.MonkeyPatch
     )
     client_openai = LLMClient(openai_cfg)
 
-    route_client(
-        client_openai,
-        monkeypatch,
+    serve_llm(
+        web,
         lambda request: httpx2.Response(401, json={"error": {"message": "Invalid API key"}}),
     )
     with pytest.raises(AIClientError) as raised:
@@ -645,16 +647,16 @@ def test_copilot_and_openai_streaming_and_errors(monkeypatch: pytest.MonkeyPatch
     assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
     # 3. Stream connection error
-    def mock_stream_err(*args: Any, **kwargs: Any) -> Any:
-        raise httpx2.ConnectError("Connection refused")
+    def refuse(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("Connection refused", request=request)
 
-    monkeypatch.setattr(httpx2.Client, "stream", mock_stream_err)
+    serve_llm(web, refuse)
     with pytest.raises(AIClientError) as raised:
         list(client_openai.chat_stream("sys", "user"))
     assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
 
-def test_claude_streaming_and_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_claude_streaming_and_errors(monkeypatch: pytest.MonkeyPatch, web: WebFake) -> None:
     claude_cfg = AIConfig(
         provider="claude",
         model="claude-sonnet-4-5",
@@ -672,14 +674,13 @@ def test_claude_streaming_and_errors(monkeypatch: pytest.MonkeyPatch) -> None:
             return httpx2.Response(404, json={"error": "not found"})
         return reply(claude_frames)
 
-    route_client(client_claude, monkeypatch, _claude_handler)
+    serve_llm(web, _claude_handler)
     tokens = list(client_claude.chat_stream("system", "prompt"))
     assert "".join(tokens) == "Claude stream"
 
     # 2. Error handling
-    route_client(
-        client_claude,
-        monkeypatch,
+    serve_llm(
+        web,
         lambda request: httpx2.Response(400, json={"error": {"message": "invalid_request_error"}}),
     )
     with pytest.raises(AIClientError) as raised:
@@ -687,7 +688,8 @@ def test_claude_streaming_and_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
 
-def test_openai_and_ollama_list_models(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.usefixtures("clock")
+def test_openai_and_ollama_list_models(web: WebFake) -> None:
     # 1. OpenAI list models
     openai_cfg = AIConfig(
         provider="openai", model="gpt-4o", api_key="test-key", allow_private_network=True
@@ -706,12 +708,12 @@ def test_openai_and_ollama_list_models(monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse(request: httpx2.Request) -> httpx2.Response:
         raise httpx2.ConnectError("Connection refused", request=request)
 
-    route_client(client_openai, monkeypatch, listing)
+    serve_llm(web, listing)
     models = client_openai.list_models()
     assert models == ["gpt-4o", "gpt-4o-mini"]
 
     # 2. OpenAI list models connection error
-    route_client(client_openai, monkeypatch, refuse)
+    serve_llm(web, refuse)
     with pytest.raises(AIClientError) as raised:
         client_openai.list_models()
     assert raised.value.error_code == "LLM_INFERENCE_ERROR"
@@ -724,18 +726,18 @@ def test_openai_and_ollama_list_models(monkeypatch: pytest.MonkeyPatch) -> None:
         allow_private_network=True,
     )
     client_ollama = LLMClient(ollama_cfg)
-    route_client(client_ollama, monkeypatch, listing)
+    serve_llm(web, listing)
     ollama_models = client_ollama.list_models()
     assert ollama_models == ["llama3:latest", "qwen2.5:latest"]
 
     # 4. Ollama list models error
-    route_client(client_ollama, monkeypatch, refuse)
+    serve_llm(web, refuse)
     with pytest.raises(AIClientError) as raised:
         client_ollama.list_models()
     assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
 
-def test_chat_cache_and_starting_point(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chat_cache_and_starting_point(web: WebFake) -> None:
     ollama_cfg = AIConfig(
         provider="ollama",
         model="llama3",
@@ -743,9 +745,8 @@ def test_chat_cache_and_starting_point(monkeypatch: pytest.MonkeyPatch) -> None:
         allow_private_network=True,
     )
     client = LLMClient(ollama_cfg, cache_enabled=True)
-    route_client(
-        client,
-        monkeypatch,
+    serve_llm(
+        web,
         lambda request: httpx2.Response(200, json={"message": {"content": "Cached output"}}),
     )
 
@@ -768,7 +769,8 @@ def test_chat_cache_and_starting_point(monkeypatch: pytest.MonkeyPatch) -> None:
     assert res2.cached is True
 
 
-def test_ollama_thinking_only_and_total_duration(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.usefixtures("clock")
+def test_ollama_thinking_only_and_total_duration(web: WebFake) -> None:
     ollama_cfg = AIConfig(
         provider="ollama",
         model="llama3",
@@ -788,19 +790,19 @@ def test_ollama_thinking_only_and_total_duration(monkeypatch: pytest.MonkeyPatch
             "load_duration": 1000000000,
         },
     )
-    route_client(client, monkeypatch, lambda request: mock_resp)
+    serve_llm(web, lambda request: mock_resp)
     res = client.chat("sys", "user", enable_thinking=True)
     assert res.thinking == "reasoning steps"
     assert res.processing_seconds == 4.0
 
     # 2. HTTP error in ollama request
-    route_client(client, monkeypatch, lambda request: httpx2.Response(500))
+    serve_llm(web, lambda request: httpx2.Response(500))
     with pytest.raises(AIClientError) as raised:
         client.chat("sys", "user_error", use_cache=False)
     assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
 
-def test_augment_messages_starting_point(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_augment_messages_starting_point(web: WebFake) -> None:
     ollama_cfg = AIConfig(
         provider="ollama",
         model="llama3",
@@ -813,7 +815,7 @@ def test_augment_messages_starting_point(monkeypatch: pytest.MonkeyPatch) -> Non
         request=httpx2.Request("POST", "http://localhost"),
         json={"message": {"content": "Augmented response"}},
     )
-    route_client(client, monkeypatch, lambda request: mock_resp)
+    serve_llm(web, lambda request: mock_resp)
 
     res = client.chat_messages(
         system="sys",
@@ -824,7 +826,7 @@ def test_augment_messages_starting_point(monkeypatch: pytest.MonkeyPatch) -> Non
     assert str(res) == "Augmented response"
 
 
-def test_openai_default_routes_use_v1(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_openai_default_routes_use_v1(web: WebFake) -> None:
     openai_cfg = AIConfig(
         provider="openai", model="gpt-4o", api_key="test-key", allow_private_network=True
     )
@@ -844,7 +846,7 @@ def test_openai_default_routes_use_v1(monkeypatch: pytest.MonkeyPatch) -> None:
             },
         )
 
-    sent = route_client(client_openai, monkeypatch, answer)
+    sent = serve_llm(web, answer)
     client_openai.chat("sys", "hello")
     list(client_openai.chat_stream("sys", "hello"))
     client_openai.list_models()
@@ -858,7 +860,7 @@ def test_openai_default_routes_use_v1(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_copilot_and_gateway_preserve_configured_endpoints(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     client_copilot = LLMClient(
         AIConfig(provider="copilot", model="gpt-4o", api_key="test-key", allow_private_network=True)
@@ -882,11 +884,11 @@ def test_copilot_and_gateway_preserve_configured_endpoints(
             },
         )
 
-    sent_copilot = route_client(client_copilot, monkeypatch, answer)
+    sent_copilot = serve_llm(web, answer)
     client_copilot.chat("sys", "hello")
     assert [str(r.url) for r in sent_copilot] == ["https://api.githubcopilot.com/chat/completions"]
 
-    sent_gateway = route_client(client_gateway, monkeypatch, answer)
+    sent_gateway = serve_llm(web, answer)
     client_gateway.chat("sys", "hello")
     assert [str(r.url) for r in sent_gateway] == ["https://example.com/v1/chat/completions"]
 

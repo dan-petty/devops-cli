@@ -10,6 +10,7 @@ from collections.abc import Callable, Generator
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx2
 import pytest
 from genai_prices.data_snapshot import set_custom_snapshot
 
@@ -20,8 +21,8 @@ from devops_cli.ai.spend.pricing import (
     _get_installed_genai_prices_version,
 )
 from devops_cli.config.defaults import DEFAULT_AI_REFERENCE_MODEL
+from tests.support.fakes.http import WebFake
 from tests.support.paths import REPO_ROOT
-from tests.web_fakes import http_response, record_connects
 
 
 @pytest.fixture(autouse=True)
@@ -228,14 +229,11 @@ def test_pricing_registry_cost_calculation(tmp_path: Path) -> None:
     assert (cost, cost_small) == (5.0, 0.005)
 
 
-@pytest.mark.usefixtures("public_dns")
-def test_pricing_registry_remote_catalog_update(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_pricing_registry_remote_catalog_update(tmp_path: Path, web: WebFake) -> None:
     """Verify the default registry is fetched from its public host, written as a snapshot and reloaded.
 
-    The fetch goes through a factory client: its connect dials the vetted public address, and the
-    request names the registry host.
+    The fetch goes through a client of the HTTP entry point at the public level, and the request
+    names the registry host.
     """
 
     raw = [
@@ -255,13 +253,13 @@ def test_pricing_registry_remote_catalog_update(
         }
     ]
 
-    recorder = record_connects(monkeypatch, [http_response(200, json.dumps(raw))])
+    web.serve(lambda request: httpx2.Response(200, json=raw))
 
     registry = PricingRegistry(data_dir=tmp_path)
     res = registry.update_from_remote()
 
     snapshot_file = tmp_path / "ai" / "pricing_snapshot.json"
-    assert (res.source_model_count, snapshot_file.is_file(), recorder.requested_hosts) == (
+    assert (res.source_model_count, snapshot_file.is_file(), [r.url.host for r in web.sent]) == (
         1,
         True,
         ["raw.githubusercontent.com"],
@@ -624,17 +622,8 @@ def test_loaded_snapshot_passes_recorded_fetch_time_as_auto_update_timestamp(
     assert current_snapshot.timestamp == recorded_time
 
 
-def test_full_snapshot_loaded_with_source_works_offline(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_full_snapshot_loaded_with_source_works_offline(tmp_path: Path, web: WebFake) -> None:
     """Verify snapshot loaded with --source operates completely offline without network requests."""
-    import httpx2
-
-    def fail_network(*args: object, **kwargs: object) -> None:
-        raise AssertionError("Network access attempted during offline pricing resolution")
-
-    monkeypatch.setattr(httpx2, "get", fail_network)
-    monkeypatch.setattr(httpx2.Client, "request", fail_network)
 
     custom_data = [
         {
@@ -662,6 +651,7 @@ def test_full_snapshot_loaded_with_source_works_offline(
     reloaded = PricingRegistry(data_dir=tmp_path)
     p = reloaded.get_pricing("offline-model", provider="offline-prov")
     assert (p.prompt_usd_per_million, p.completion_usd_per_million) == (8.0, 16.0)
+    assert web.sent == []
 
 
 def test_is_local_configured_cluster_and_gateway(

@@ -1,8 +1,8 @@
 """The AI client reads a reply's body only up to its size limit, through every provider, and
 sends a gateway chat call only once it holds one of the gateway's backend slots.
 
-Replies are answered by httpx2's own `MockTransport` with bodies that record how many of their
-chunks were read, so no socket is opened. Hosts are `example.com`, as docs/TESTING.md requires.
+Replies are answered by the `web` fake of the HTTP entry point with bodies that record how many
+of their chunks were read, so no socket is opened. Hosts are `example.com`, as docs/TESTING.md requires.
 """
 
 from __future__ import annotations
@@ -25,9 +25,12 @@ from devops_cli.ai.client.network import request_limited_json, size_limit_text
 from devops_cli.ai.client.streaming import StreamingTokenProcessor
 from devops_cli.config.defaults import DEFAULT_GATEWAY_REVIEW_CONCURRENCY
 from devops_cli.config.settings import AIConfig
+from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import OPENAI_DONE, RecordedBody, openai_chunk, route_client
+from tests.llm_stream_fakes import OPENAI_DONE, RecordedBody, openai_chunk, serve_llm
 from tests.llm_stream_fakes import reply as stream_reply
+from tests.support.fakes.http import WebFake
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 _LIMIT = 4096
@@ -56,20 +59,21 @@ def small_limit(monkeypatch: pytest.MonkeyPatch) -> int:
     return _LIMIT
 
 
-def _answer(handler: Callable[[httpx2.Request], httpx2.Response]) -> httpx2.Client:
-    return httpx2.Client(transport=httpx2.MockTransport(handler))
+def _answer(web: WebFake, handler: Callable[[httpx2.Request], httpx2.Response]) -> httpx2.Client:
+    """A client of the HTTP entry point whose requests `handler` answers."""
+    web.serve(handler)
+    return http_client(EgressLevel.PUBLIC)
 
 
 @pytest.mark.parametrize("call", list(_PROVIDER_CALLS))
-@pytest.mark.usefixtures("public_dns")
 def test_post_limited_json_stops_reading_past_limit(
-    call: str, small_limit: int, monkeypatch: pytest.MonkeyPatch
+    call: str, small_limit: int, web: WebFake
 ) -> None:
     """Verify a provider stops reading a 2 MB reply once it passes the 4 KiB limit."""
     config, invoke = _PROVIDER_CALLS[call]
     client = LLMClient(config, api_key="sk-test", cache_enabled=False)
     body = RecordedBody(_REPLY_FRAMES.get(call, [_KIB] * 2000))
-    route_client(client, monkeypatch, lambda request: httpx2.Response(200, content=iter(body)))
+    serve_llm(web, lambda request: httpx2.Response(200, content=iter(body)))
 
     with pytest.raises(AIClientError) as caught:
         invoke(client)
@@ -80,14 +84,14 @@ def test_post_limited_json_stops_reading_past_limit(
     )
 
 
-def test_a_declared_length_past_the_limit_is_refused_unread() -> None:
+def test_a_declared_length_past_the_limit_is_refused_unread(web: WebFake) -> None:
     """Verify a Content-Length over the limit is refused before any of the body is read."""
     body = RecordedBody([_KIB] * 8)
     declared = {"content-length": str(8 * len(_KIB))}
 
     with (
         _answer(
-            lambda request: httpx2.Response(200, headers=declared, content=iter(body))
+            web, lambda request: httpx2.Response(200, headers=declared, content=iter(body))
         ) as client,
         pytest.raises(AIClientError, match=r"exceeded maximum size \(4KB\)"),
     ):
@@ -96,13 +100,15 @@ def test_a_declared_length_past_the_limit_is_refused_unread() -> None:
     assert body.read == 0
 
 
-def test_a_compressed_reply_counts_its_decoded_bytes() -> None:
+def test_a_compressed_reply_counts_its_decoded_bytes(web: WebFake) -> None:
     """Verify the limit bounds the decoded body, so a small gzip reply cannot inflate past it."""
     packed = gzip.compress(json.dumps({"content": "x" * 100_000}).encode())
     headers = {"content-encoding": "gzip"}
 
     with (
-        _answer(lambda request: httpx2.Response(200, headers=headers, content=packed)) as client,
+        _answer(
+            web, lambda request: httpx2.Response(200, headers=headers, content=packed)
+        ) as client,
         pytest.raises(AIClientError, match=r"exceeded maximum size \(4KB\)"),
     ):
         request_limited_json(client, "POST", "http://example.com/api/chat", limit_bytes=_LIMIT)
@@ -110,22 +116,22 @@ def test_a_compressed_reply_counts_its_decoded_bytes() -> None:
     assert len(packed) < _LIMIT
 
 
-def test_a_reply_within_the_limit_is_parsed_with_its_headers() -> None:
+def test_a_reply_within_the_limit_is_parsed_with_its_headers(web: WebFake) -> None:
     """Verify a JSON object reply comes back parsed, with the headers it was sent with."""
     reply = httpx2.Response(200, headers={"x-served-by": "node-a"}, json={"model": "m"})
 
-    with _answer(lambda request: reply) as client:
+    with _answer(web, lambda request: reply) as client:
         payload, headers = request_limited_json(client, "GET", "http://example.com/v1/models")
 
     assert (payload, headers.get("x-served-by")) == ({"model": "m"}, "node-a")
 
 
-def test_an_error_reply_raises_with_its_body_readable() -> None:
+def test_an_error_reply_raises_with_its_body_readable(web: WebFake) -> None:
     """Verify a 4xx reply is never parsed and its body reaches the HTTPStatusError's response."""
     error = {"error": "model 'm' does not support thinking"}
 
     with (
-        _answer(lambda request: httpx2.Response(400, json=error)) as client,
+        _answer(web, lambda request: httpx2.Response(400, json=error)) as client,
         pytest.raises(httpx2.HTTPStatusError) as caught,
     ):
         request_limited_json(client, "POST", "http://example.com/api/chat")
@@ -133,12 +139,12 @@ def test_an_error_reply_raises_with_its_body_readable() -> None:
     assert (caught.value.response.status_code, caught.value.response.json()) == (400, error)
 
 
-def test_an_error_reply_past_the_limit_is_not_read_whole() -> None:
+def test_an_error_reply_past_the_limit_is_not_read_whole(web: WebFake) -> None:
     """Verify a 5xx reply's body is bounded by the same limit as a success."""
     body = RecordedBody([_KIB] * 2000)
 
     with (
-        _answer(lambda request: httpx2.Response(500, content=iter(body))) as client,
+        _answer(web, lambda request: httpx2.Response(500, content=iter(body))) as client,
         pytest.raises(AIClientError, match=r"exceeded maximum size \(4KB\)"),
     ):
         request_limited_json(client, "POST", "http://example.com/api/chat", limit_bytes=_LIMIT)
@@ -153,10 +159,12 @@ def test_an_error_reply_past_the_limit_is_not_read_whole() -> None:
         (b'["a", "b"]', "AI provider replied with a JSON list, not an object"),
     ],
 )
-def test_a_reply_that_is_not_a_json_object_is_refused(content: bytes, message: str) -> None:
+def test_a_reply_that_is_not_a_json_object_is_refused(
+    content: bytes, message: str, web: WebFake
+) -> None:
     """Verify a body that is not JSON, or JSON that is not an object, raises AIClientError."""
     with (
-        _answer(lambda request: httpx2.Response(200, content=content)) as client,
+        _answer(web, lambda request: httpx2.Response(200, content=content)) as client,
         pytest.raises(AIClientError, match=message),
     ):
         request_limited_json(client, "POST", "http://example.com/api/chat")
@@ -290,13 +298,11 @@ def test_a_wait_past_the_slot_timeout_names_the_slot_sum() -> None:
 
 
 @pytest.mark.parametrize("call", list(_GATEWAY_CHAT_CALLS))
-@pytest.mark.usefixtures("public_dns", "short_slot_wait")
-def test_a_gateway_chat_call_waits_for_a_gateway_slot(
-    call: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.mark.usefixtures("short_slot_wait")
+def test_a_gateway_chat_call_waits_for_a_gateway_slot(call: str, web: WebFake) -> None:
     """Verify a gateway chat call, streamed or not, sends nothing while every slot is held."""
     client = LLMClient(_GATEWAY, api_key="sk-test", cache_enabled=False)
-    sent = route_client(client, monkeypatch, lambda request: httpx2.Response(200, json=_CHAT_REPLY))
+    sent = serve_llm(web, lambda request: httpx2.Response(200, json=_CHAT_REPLY))
 
     with _every_gateway_slot_held(), pytest.raises(AIClientError, match="backend slots"):
         _GATEWAY_CHAT_CALLS[call](client)
@@ -304,16 +310,15 @@ def test_a_gateway_chat_call_waits_for_a_gateway_slot(
     assert sent == []
 
 
-@pytest.mark.usefixtures("public_dns", "short_slot_wait")
+@pytest.mark.usefixtures("short_slot_wait")
 def test_a_gateway_stream_holds_its_slot_until_the_generator_closes(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify an open gateway stream keeps its slot after its first chunk, so with every other
     slot held a further request is refused, and that closing the stream early gives it back."""
     client = LLMClient(_GATEWAY, api_key="sk-test", cache_enabled=False)
-    route_client(
-        client,
-        monkeypatch,
+    serve_llm(
+        web,
         lambda request: stream_reply([openai_chunk("a"), openai_chunk("b"), OPENAI_DONE]),
     )
 
@@ -332,14 +337,14 @@ def test_a_gateway_stream_holds_its_slot_until_the_generator_closes(
     [_OPENAI, _OPENAI.model_copy(update={"gateway_enabled": True})],
     ids=["openai", "openai-with-gateway-enabled"],
 )
-@pytest.mark.usefixtures("public_dns", "short_slot_wait")
+@pytest.mark.usefixtures("short_slot_wait")
 def test_another_provider_sends_while_every_gateway_slot_is_held(
-    config: AIConfig, monkeypatch: pytest.MonkeyPatch
+    config: AIConfig, web: WebFake
 ) -> None:
     """Verify an openai client's chat call takes no gateway slot, with `ai.gateway_enabled` set
     too: only the `gateway` provider sends chat calls to the gateway."""
     client = LLMClient(config, api_key="sk-test", cache_enabled=False)
-    sent = route_client(client, monkeypatch, lambda request: httpx2.Response(200, json=_CHAT_REPLY))
+    sent = serve_llm(web, lambda request: httpx2.Response(200, json=_CHAT_REPLY))
 
     with _every_gateway_slot_held():
         reply = client._openai_compat_messages("sys", _MESSAGES)
@@ -347,8 +352,7 @@ def test_another_provider_sends_while_every_gateway_slot_is_held(
     assert (reply.content, len(sent)) == ("ok", 1)
 
 
-@pytest.mark.usefixtures("public_dns")
-def test_dispatch_calls_hold_the_model_call_slot(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dispatch_calls_hold_the_model_call_slot(web: WebFake) -> None:
     """Verify two dispatch calls, each slow on its send, keep only one model call in flight when
     the Service's limit is one, so a lane that waits holds the process, not the gateway (#2564)."""
     network.set_model_call_limit(1)
@@ -372,7 +376,7 @@ def test_dispatch_calls_hold_the_model_call_slot(monkeypatch: pytest.MonkeyPatch
             in_flight -= 1
         return httpx2.Response(200, json=_CHAT_REPLY)
 
-    sent = route_client(client, monkeypatch, slow_send)
+    sent = serve_llm(web, slow_send)
 
     lanes = [
         threading.Thread(target=lambda: client._dispatch_messages("sys", _MESSAGES))

@@ -18,6 +18,8 @@ from devops_cli.security.sanitizer import (
     sanitize_telemetry_endpoint,
 )
 from devops_cli.security.vault_broker import VaultSecretBroker
+from tests.llm_stream_fakes import serve_llm
+from tests.support.fakes.http import WebFake
 from tests.support.paths import REPO_ROOT
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -320,16 +322,12 @@ def test_extract_served_by_strips_userinfo() -> None:
     )
 
 
-def test_gateway_served_by_blocking_and_streaming_strips_credentials(
-    monkeypatch: pytest.MonkeyPatch,
-    public_dns: str,
-) -> None:
+def test_gateway_served_by_blocking_and_streaming_strips_credentials(web: WebFake) -> None:
     """Verify served_by header strips credentials on blocking and streaming OpenAI-compat clients."""
     from devops_cli.ai.client import LLMClient
     from devops_cli.ai.client.network import stream_served_by
     from devops_cli.config.settings import AIConfig
     from devops_cli.models.ai import ChatMessage
-    from tests.llm_stream_fakes import route_llm_clients
 
     client = LLMClient(
         AIConfig(
@@ -342,8 +340,8 @@ def test_gateway_served_by_blocking_and_streaming_strips_credentials(
     )
 
     body = {"choices": [{"message": {"content": "OK"}}], "usage": {"completion_tokens": 1}}
-    route_llm_clients(
-        monkeypatch,
+    serve_llm(
+        web,
         lambda request: httpx2.Response(
             200,
             json=body,
@@ -358,8 +356,9 @@ def test_gateway_served_by_blocking_and_streaming_strips_credentials(
     )
 
     # Suspicious userinfo fails closed to None
-    route_llm_clients(
-        monkeypatch,
+    web.servers.clear()
+    serve_llm(
+        web,
         lambda request: httpx2.Response(
             200,
             json=body,
@@ -372,14 +371,12 @@ def test_gateway_served_by_blocking_and_streaming_strips_credentials(
     # Streaming path
     sse = b'data: {"choices": [{"delta": {"content": "OK"}}]}\n\ndata: [DONE]\n\n'
 
-    def fake_send(self: Any, request: httpx2.Request, **kwargs: Any) -> httpx2.Response:
-        headers = {
-            "x-litellm-model-api-base": "https://user:pw@example.com:11434",
-            "content-type": "text/event-stream",
-        }
-        return httpx2.Response(200, headers=headers, content=sse, request=request)
-
-    monkeypatch.setattr(httpx2.Client, "send", fake_send)
+    streaming_headers = {
+        "x-litellm-model-api-base": "https://user:pw@example.com:11434",
+        "content-type": "text/event-stream",
+    }
+    web.servers.clear()
+    web.serve(lambda request: httpx2.Response(200, headers=streaming_headers, content=sse))
 
     stream_served_by.set(None)
     text = "".join(
@@ -388,14 +385,12 @@ def test_gateway_served_by_blocking_and_streaming_strips_credentials(
     assert (text, stream_served_by.get()) == ("OK", "https://example.com:11434")
 
     # Streaming path with invalid userinfo
-    def fake_send_invalid(self: Any, request: httpx2.Request, **kwargs: Any) -> httpx2.Response:
-        headers = {
-            "x-litellm-model-api-base": "http://u:12/34@example.com:11434",
-            "content-type": "text/event-stream",
-        }
-        return httpx2.Response(200, headers=headers, content=sse, request=request)
-
-    monkeypatch.setattr(httpx2.Client, "send", fake_send_invalid)
+    invalid_headers = {
+        "x-litellm-model-api-base": "http://u:12/34@example.com:11434",
+        "content-type": "text/event-stream",
+    }
+    web.servers.clear()
+    web.serve(lambda request: httpx2.Response(200, headers=invalid_headers, content=sse))
     stream_served_by.set(None)
     "".join(client.chat_messages_stream("system", [ChatMessage(role="user", content="hello")]))
     assert stream_served_by.get() is None

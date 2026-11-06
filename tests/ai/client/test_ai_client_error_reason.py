@@ -1,6 +1,6 @@
 """An `AIClientError` states the HTTP status or the timeout of the call that failed (#2562).
 
-The client reaches its gateway through httpx2's `MockTransport`. The `reason` of an error is its
+The client reaches its gateway through the `web` fake of the HTTP entry point. The `reason` of an error is its
 code and the cause, and it never holds the text of the provider's reply.
 """
 
@@ -13,13 +13,18 @@ import pytest
 
 from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.config.settings import AIConfig
-from tests.llm_stream_fakes import reply, route_client, route_llm_clients, sse_data
+from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
+from tests.llm_stream_fakes import reply, serve_llm, sse_data
+from tests.support.fakes.http import WebFake
 
 _MODEL_TEXT = "MODEL-TEXT"
 
+pytestmark = pytest.mark.usefixtures("clock")
+
 
 @pytest.fixture(autouse=True)
-def _public_endpoints(public_dns: str) -> None:
+def _public_endpoints(web: WebFake) -> None:
     """The gateway is an example.com URL, which resolves to a public address."""
 
 
@@ -65,10 +70,10 @@ def test_the_reason_is_the_code_then_the_status_or_the_timeout(
 
 
 def test_a_reply_with_a_status_gives_the_status_and_not_the_body(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
-    route_llm_clients(
-        monkeypatch,
+    serve_llm(
+        web,
         lambda request: httpx2.Response(408, json={"error": {"message": _MODEL_TEXT}}),
     )
 
@@ -81,11 +86,11 @@ def test_a_reply_with_a_status_gives_the_status_and_not_the_body(
     )
 
 
-def test_an_error_frame_with_a_status_gives_that_status(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_error_frame_with_a_status_gives_that_status(web: WebFake) -> None:
     """After a keepalive comment the gateway has sent its status line, so it writes its error
     reply into a frame whose code is the status."""
     frame = sse_data({"error": {"message": _MODEL_TEXT, "type": "Timeout", "code": "408"}})
-    route_llm_clients(monkeypatch, lambda request: reply([b": keepalive\n\n", frame]))
+    serve_llm(web, lambda request: reply([b": keepalive\n\n", frame]))
 
     error = _failure(_client())
 
@@ -95,11 +100,11 @@ def test_an_error_frame_with_a_status_gives_that_status(monkeypatch: pytest.Monk
     )
 
 
-def test_a_call_that_times_out_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_call_that_times_out_says_so(web: WebFake) -> None:
     def time_out(request: httpx2.Request) -> httpx2.Response:
         raise httpx2.ReadTimeout("read timed out", request=request)
 
-    route_llm_clients(monkeypatch, time_out)
+    serve_llm(web, time_out)
 
     error = _failure(_client())
 
@@ -110,7 +115,9 @@ def test_a_call_that_times_out_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_a_claude_reply_with_a_status_gives_the_status(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_claude_reply_with_a_status_gives_the_status(web: WebFake) -> None:
+    """The Anthropic SDK reads the status of a reply that a plain client returns; the client of
+    this test has no retry transport, which raises before the SDK sees the reply."""
     client = LLMClient(
         AIConfig(
             provider="claude",
@@ -121,10 +128,10 @@ def test_a_claude_reply_with_a_status_gives_the_status(monkeypatch: pytest.Monke
         ),
         api_key="sk-test",
         cache_enabled=False,
+        http_client=http_client(EgressLevel.PRIVATE),
     )
-    route_client(
-        client,
-        monkeypatch,
+    serve_llm(
+        web,
         lambda request: httpx2.Response(
             529,
             json={"type": "error", "error": {"type": "overloaded_error", "message": _MODEL_TEXT}},
@@ -187,15 +194,15 @@ def _time_out(request: httpx2.Request) -> httpx2.Response:
     ids=["claude-timeout", "ollama-timeout", "ollama-status"],
 )
 def test_a_provider_that_builds_its_own_error_gives_the_status_or_the_timeout(
-    monkeypatch: pytest.MonkeyPatch,
     make_client: Any,
     handler: Any,
     status: int | None,
     timed_out: bool,
+    web: WebFake,
 ) -> None:
     """The Claude and Ollama paths build their error without the gateway mixin."""
     client = make_client()
-    route_client(client, monkeypatch, handler)
+    serve_llm(web, handler)
 
     error = _failure(client)
 

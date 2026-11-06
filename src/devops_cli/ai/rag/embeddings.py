@@ -64,8 +64,8 @@ from devops_cli.config.settings import AIConfig, setting_default
 from devops_cli.core import clock
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.config import ConfigurationError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import configured_level
+from devops_cli.http.entry import http_client
 from devops_cli.lang import ERRORS
 from devops_cli.telemetry import (
     ContextPropagatingThreadPoolExecutor as ThreadPoolExecutor,
@@ -500,8 +500,8 @@ class EmbeddingsEngine:
         """
         level = configured_level(self.ai_config)
         if self._is_gateway_provider():
-            return new_http_client(level=level, timeout=timeout, headers=gateway_caller_headers())
-        return new_http_client(level=level, timeout=timeout)
+            return http_client(level, timeout=timeout, headers=gateway_caller_headers())
+        return http_client(level, timeout=timeout)
 
     def _get_http_client(self) -> httpx2.Client:
         """The one HTTP client of the engine's batches, made at the first request.

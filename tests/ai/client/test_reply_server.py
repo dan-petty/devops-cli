@@ -3,7 +3,7 @@
 The origin holds the scheme, the host and the port, and never userinfo. Thus a password in a
 configured AI URL stays out of the terminal output, the spend ledger, the metric labels, the
 spans and the response cache, and the URL still sends it as Basic authentication. Every server
-is a MockTransport, and `public_dns` answers each name, so no test opens a socket or sends a DNS
+is the `web` fake, which answers each name, so no test opens a socket or sends a DNS
 query.
 """
 
@@ -23,7 +23,14 @@ from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry.tracer import get_recent_spans
-from tests.llm_stream_fakes import NDJSON, ollama_line, reply, route_client
+from tests.llm_stream_fakes import (
+    NDJSON,
+    make_anthropic_model_info_payload,
+    ollama_line,
+    reply,
+    serve_llm,
+)
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.otlp import FakeCollector
 
 PASSWORD = "pw"
@@ -60,13 +67,15 @@ NOT_FOUND = {"type": "error", "error": {"type": "not_found_error", "message": "n
 
 
 @pytest.fixture(autouse=True)
-def _public_endpoints(public_dns: str) -> None:
+def _public_endpoints(web: WebFake) -> None:
     """The configured hosts are example.com names, which resolve to a public address."""
 
 
 def _serve(request: httpx2.Request) -> httpx2.Response:
-    """Answer a chat request of each provider; refuse every other request, as a model lookup."""
+    """Answer a chat request of each provider and the model lookup of Claude; refuse the rest."""
     path = request.url.path
+    if path == "/v1/models/test-model":
+        return httpx2.Response(200, json=make_anthropic_model_info_payload("test-model"))
     if path.endswith("/api/chat"):
         return httpx2.Response(200, json=OLLAMA_REPLY)
     if path.endswith("/chat/completions"):
@@ -172,7 +181,6 @@ ROWS = [
     ("provider", "settings", "origin_url", "backend", "server", "span_server"), ROWS
 )
 def test_a_reply_names_its_server_by_the_origin_of_the_url_called(
-    monkeypatch: pytest.MonkeyPatch,
     otlp: FakeCollector,
     spend_ledger: SpendLedger,
     provider: str,
@@ -181,6 +189,7 @@ def test_a_reply_names_its_server_by_the_origin_of_the_url_called(
     backend: str,
     server: str,
     span_server: dict[str, Any],
+    web: WebFake,
 ) -> None:
     """The reply holds the origin of the URL called, and the display, the ledger, the counters
     and the span name the server as httpx2 reads it.
@@ -189,7 +198,7 @@ def test_a_reply_names_its_server_by_the_origin_of_the_url_called(
     host is lower case and a default port is left out. The span carries the port in all cases.
     """
     client = _client(provider, settings)
-    route_client(client, monkeypatch, _serve)
+    serve_llm(web, _serve)
 
     answer = client.chat("system instructions", "hello")
 
@@ -220,16 +229,16 @@ def test_a_reply_names_its_server_by_the_origin_of_the_url_called(
     ],
 )
 def test_a_password_in_a_configured_url_stays_out_of_every_record(
-    monkeypatch: pytest.MonkeyPatch,
     otlp: FakeCollector,
     spend_ledger: SpendLedger,
     isolate_data_dir: Path,
     provider: str,
     settings: dict[str, Any],
+    web: WebFake,
 ) -> None:
     """The server gets the userinfo as Basic authentication, and no record holds the password."""
     client = _client(provider, settings)
-    sent = route_client(client, monkeypatch, _serve)
+    sent = serve_llm(web, _serve)
 
     answer = client.chat("system instructions", "hello")
 
@@ -257,7 +266,7 @@ def test_a_password_in_a_configured_url_stays_out_of_every_record(
 
 
 def test_a_streamed_reply_names_its_leased_server_without_its_password(
-    monkeypatch: pytest.MonkeyPatch, otlp: FakeCollector, spend_ledger: SpendLedger
+    otlp: FakeCollector, spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """A stream over two configured servers records the one that it leased, and no password.
 
@@ -268,7 +277,7 @@ def test_a_streamed_reply_names_its_leased_server_without_its_password(
         {"ollama_urls": ["http://user:pw@example.com:11434", "http://example.com:11435"]},
     )
     frames = [ollama_line("Hello "), ollama_line("world", done=True, eval_count=2)]
-    route_client(client, monkeypatch, lambda request: reply(frames, NDJSON))
+    serve_llm(web, lambda request: reply(frames, NDJSON))
 
     chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 

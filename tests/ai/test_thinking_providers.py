@@ -11,7 +11,8 @@ import pytest
 from devops_cli.ai.client.models import is_reasoning_model
 from devops_cli.ai.client.unified import LLMClient
 from devops_cli.config.settings import AIConfig
-from tests.llm_stream_fakes import route_llm_clients
+from tests.llm_stream_fakes import serve_llm
+from tests.support.fakes.http import WebFake
 
 
 def _make_resp(status_code: int = 200, json_data: dict[str, Any] | None = None) -> httpx2.Response:
@@ -87,7 +88,7 @@ class TestOpenAIReasoningPayloadAndParsing:
     """Validate OpenAI-compatible payload adaptation for declared reasoning models."""
 
     def test_openai_reasoning_payload_omits_temperature_and_uses_max_completion_tokens(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, web: WebFake
     ) -> None:
         """Declared reasoning models must omit temperature and use max_completion_tokens."""
         captured_payload: dict[str, Any] = {}
@@ -104,7 +105,7 @@ class TestOpenAIReasoningPayloadAndParsing:
                 },
             )
 
-        route_llm_clients(monkeypatch, mock_post)
+        serve_llm(web, mock_post)
 
         cfg = AIConfig(
             provider="openai",
@@ -126,9 +127,7 @@ class TestOpenAIReasoningPayloadAndParsing:
             res.text,
         ) == (False, False, 4000, "high", "Reasoned response")
 
-    def test_openai_undeclared_o3_model_gets_standard_params(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_openai_undeclared_o3_model_gets_standard_params(self, web: WebFake) -> None:
         """A model named o3 with no declaration gets standard parameters."""
         captured_payload: dict[str, Any] = {}
 
@@ -144,7 +143,7 @@ class TestOpenAIReasoningPayloadAndParsing:
                 },
             )
 
-        route_llm_clients(monkeypatch, mock_post)
+        serve_llm(web, mock_post)
 
         cfg = AIConfig(
             provider="openai",
@@ -165,9 +164,7 @@ class TestOpenAIReasoningPayloadAndParsing:
             res.text,
         ) == (False, False, 4000, 0.7, "Standard response")
 
-    def test_openai_reasoning_disabled_thinking_omits_reasoning_effort(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_openai_reasoning_disabled_thinking_omits_reasoning_effort(self, web: WebFake) -> None:
         """When thinking is disabled on a reasoning model, no reasoning parameter is sent."""
         captured_payload: dict[str, Any] = {}
 
@@ -183,7 +180,7 @@ class TestOpenAIReasoningPayloadAndParsing:
                 },
             )
 
-        route_llm_clients(monkeypatch, mock_post)
+        serve_llm(web, mock_post)
 
         cfg = AIConfig(
             provider="openai",
@@ -204,9 +201,7 @@ class TestOpenAIReasoningPayloadAndParsing:
             res.text,
         ) == (False, False, 4000, "Direct response")
 
-    def test_openai_non_reasoning_payload_omits_reasoning_effort(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_openai_non_reasoning_payload_omits_reasoning_effort(self, web: WebFake) -> None:
         """Non-reasoning models must omit reasoning_effort even if configured globally."""
         captured_payload: dict[str, Any] = {}
 
@@ -222,7 +217,7 @@ class TestOpenAIReasoningPayloadAndParsing:
                 },
             )
 
-        route_llm_clients(monkeypatch, mock_post)
+        serve_llm(web, mock_post)
 
         cfg = AIConfig(
             provider="openai",
@@ -243,9 +238,7 @@ class TestOpenAIReasoningPayloadAndParsing:
             res.text,
         ) == (False, False, 4000, 0.2, "Standard response")
 
-    def test_openai_extracts_reasoning_content_into_thinking(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_openai_extracts_reasoning_content_into_thinking(self, web: WebFake) -> None:
         """DeepSeek / OpenRouter format with reasoning_content is extracted into res.thinking."""
         resp = _make_resp(
             200,
@@ -261,7 +254,7 @@ class TestOpenAIReasoningPayloadAndParsing:
                 "usage": {"prompt_tokens": 5, "completion_tokens": 15, "total_tokens": 20},
             },
         )
-        route_llm_clients(monkeypatch, lambda request: resp)
+        serve_llm(web, lambda request: resp)
 
         cfg = AIConfig(provider="openai", model="deepseek-reasoner", allow_private_network=True)
         client = LLMClient(cfg, api_key="sk-test-token")
@@ -276,7 +269,7 @@ class TestOpenAIReasoningPayloadAndParsing:
 class TestClaudeThinkingPayloadAndParsing:
     """Validate Anthropic Claude adaptive thinking payload generation and multi-block response parsing."""
 
-    def test_claude_extended_thinking_payload(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_claude_extended_thinking_payload(self, web: WebFake) -> None:
         """Claude with thinking enabled includes adaptive thinking block and omits temperature."""
         from tests.llm_stream_fakes import (
             make_anthropic_model_info_payload as _make_model_info_payload,
@@ -312,7 +305,7 @@ class TestClaudeThinkingPayloadAndParsing:
                 )
             return httpx2.Response(404)
 
-        route_llm_clients(monkeypatch, mock_post)
+        serve_llm(web, mock_post)
 
         cfg = AIConfig(
             provider="claude",
@@ -332,7 +325,7 @@ class TestClaudeThinkingPayloadAndParsing:
         assert res.thinking == "Analyzing architecture invariants..."
         assert str(res) == "Plan approved."
 
-    def test_claude_disabled_thinking_payload(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_claude_disabled_thinking_payload(self, web: WebFake) -> None:
         """Claude with enable_thinking=False does not include thinking block."""
         from tests.llm_stream_fakes import (
             make_anthropic_model_info_payload as _make_model_info_payload,
@@ -362,7 +355,7 @@ class TestClaudeThinkingPayloadAndParsing:
                 )
             return httpx2.Response(404)
 
-        route_llm_clients(monkeypatch, mock_post)
+        serve_llm(web, mock_post)
 
         cfg = AIConfig(
             provider="claude",
@@ -381,9 +374,7 @@ class TestClaudeThinkingPayloadAndParsing:
 class TestOllamaThinkingSeparation:
     """Validate Ollama thinking extraction and clean output separation."""
 
-    def test_ollama_separates_inline_think_blocks_into_thinking_field(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_ollama_separates_inline_think_blocks_into_thinking_field(self, web: WebFake) -> None:
         """When Ollama model outputs inline <think> tags, res.text is stripped and res.thinking is populated."""
         resp = _make_resp(
             200,
@@ -396,7 +387,7 @@ class TestOllamaThinkingSeparation:
                 "eval_count": 50,
             },
         )
-        route_llm_clients(monkeypatch, lambda request: resp)
+        serve_llm(web, lambda request: resp)
 
         cfg = AIConfig(
             provider="ollama",
@@ -419,13 +410,12 @@ class TestOllamaThinkingSeparation:
 class TestStreamingThinkingExtractors:
     """Validate SSE stream frames for thinking deltas."""
 
-    def test_extract_claude_thinking_delta(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_extract_claude_thinking_delta(self, web: WebFake) -> None:
         from devops_cli.ai.client import LLMClient
         from devops_cli.config.settings import AIConfig
         from tests.llm_stream_fakes import (
             anthropic_event,
             reply,
-            route_client,
         )
         from tests.llm_stream_fakes import (
             make_anthropic_model_info_payload as _make_model_info_payload,
@@ -471,14 +461,14 @@ class TestStreamingThinkingExtractors:
 
         cfg = AIConfig(provider="claude", model=model_name, allow_private_network=True)
         client = LLMClient(cfg, api_key="sk-ant-test")
-        route_client(client, monkeypatch, handler)
+        serve_llm(web, handler)
 
         chunks = list(client.chat_stream("System", "Hello", enable_thinking=True))
         assert "<think>step 1 reasoning</think>" in "".join(chunks)
 
-    def test_extract_openai_reasoning_content_delta(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_extract_openai_reasoning_content_delta(self, web: WebFake) -> None:
         from devops_cli.models.ai import ChatMessage
-        from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, route_client, sse_data
+        from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, sse_data
 
         cfg = AIConfig(provider="openai", model="deepseek-reasoner", allow_private_network=True)
         client = LLMClient(cfg, api_key="sk-test-token")
@@ -489,7 +479,7 @@ class TestStreamingThinkingExtractors:
             openai_chunk("42", "stop"),
             OPENAI_DONE,
         ]
-        route_client(client, monkeypatch, lambda request: reply(frames))
+        serve_llm(web, lambda request: reply(frames))
         chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
         assert chunks == ["<think>step 1 reasoning</think>", "42"]
 
@@ -498,7 +488,7 @@ class TestGatewayReasoningPayloadRouting:
     """Validate gateway parameter routing based on /model/info capability declarations."""
 
     def test_gateway_declared_reasoning_model_gets_reasoning_parameters(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, web: WebFake
     ) -> None:
         """When gateway /model/info declares supports_reasoning, reasoning params are applied."""
         from devops_cli.ai.gateway import clear_gateway_reasoning_cache
@@ -537,7 +527,7 @@ class TestGatewayReasoningPayloadRouting:
                 )
             return _make_resp(404)
 
-        route_llm_clients(monkeypatch, mock_handler)
+        serve_llm(web, mock_handler)
 
         cfg = AIConfig(
             provider="gateway",
@@ -560,7 +550,7 @@ class TestGatewayReasoningPayloadRouting:
         ) == (False, False, 4000, "medium", "Gateway reasoning response")
 
     def test_gateway_mixed_deployment_group_gets_standard_parameters(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, web: WebFake
     ) -> None:
         """When a model group has mixed deployments, standard parameters are used."""
         from devops_cli.ai.gateway import clear_gateway_reasoning_cache
@@ -603,7 +593,7 @@ class TestGatewayReasoningPayloadRouting:
                 )
             return _make_resp(404)
 
-        route_llm_clients(monkeypatch, mock_handler)
+        serve_llm(web, mock_handler)
 
         cfg = AIConfig(
             provider="gateway",
@@ -626,7 +616,7 @@ class TestGatewayReasoningPayloadRouting:
         ) == (False, False, 4000, 0.2, "Standard review response")
 
     def test_gateway_disabled_thinking_omits_reasoning_effort(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, web: WebFake
     ) -> None:
         """When enable_thinking=False on gateway reasoning model, reasoning_effort is omitted."""
         from devops_cli.ai.gateway import clear_gateway_reasoning_cache
@@ -660,7 +650,7 @@ class TestGatewayReasoningPayloadRouting:
                 )
             return _make_resp(404)
 
-        route_llm_clients(monkeypatch, mock_handler)
+        serve_llm(web, mock_handler)
 
         cfg = AIConfig(
             provider="gateway",

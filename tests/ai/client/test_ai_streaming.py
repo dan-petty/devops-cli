@@ -37,10 +37,11 @@ from tests.llm_stream_fakes import (
     ollama_line,
     openai_chunk,
     reply,
-    route_client,
+    serve_llm,
     sse_data,
     streamed,
 )
+from tests.support.fakes.http import WebFake
 
 
 class TestSuffixOverlap:
@@ -723,14 +724,16 @@ def _openai_client(monkeypatch: pytest.MonkeyPatch) -> LLMClient:
     return LLMClient(config, api_key="sk-test", cache_enabled=False)
 
 
-def test_each_stream_starts_with_no_finish_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_each_stream_starts_with_no_finish_reason(
+    monkeypatch: pytest.MonkeyPatch, web: WebFake
+) -> None:
     """Verify a stream ending on `[DONE]` alone, or cut, does not inherit the last one's reason."""
     client = _openai_client(monkeypatch)
     cut_length = [openai_chunk("Hi", "length"), OPENAI_DONE]
     replies = iter(
         [cut_length, [openai_chunk("Hi")], cut_length, [openai_chunk("Hi"), OPENAI_DONE]]
     )
-    route_client(client, monkeypatch, lambda request: reply(next(replies)))
+    serve_llm(web, lambda request: reply(next(replies)))
     reasons: list[str | None] = []
 
     for _ in range(4):
@@ -744,6 +747,7 @@ def test_each_stream_starts_with_no_finish_reason(monkeypatch: pytest.MonkeyPatc
 
 def test_an_ollama_stream_failing_after_output_is_not_replayed_on_another_host(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify a stream cut after it yielded output raises instead of failing over mid-reply."""
     monkeypatch.setattr(context_budget, "count_tokens", lambda text, *args, **kwargs: len(text))
@@ -762,7 +766,7 @@ def test_an_ollama_stream_failing_after_output_is_not_replayed_on_another_host(
         yield ollama_line("Hi")
         raise httpx2.ReadError("connection reset by peer")
 
-    sent = route_client(client, monkeypatch, lambda request: reply(cut_body(), NDJSON))
+    sent = serve_llm(web, lambda request: reply(cut_body(), NDJSON))
     chunks: list[str] = []
     with pytest.raises(AIClientError, match="connection terminated unexpectedly") as raised:
         for chunk in client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]):
@@ -773,6 +777,7 @@ def test_an_ollama_stream_failing_after_output_is_not_replayed_on_another_host(
 
 def test_openai_stream_sends_stream_options_and_records_provider_usage(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify OpenAI stream asks for usage and records provider-reported token usage."""
     recorded_spends: list[dict[str, Any]] = []
@@ -808,7 +813,7 @@ def test_openai_stream_sends_stream_options_and_records_provider_usage(
         sent_requests.append(request)
         return reply(frames)
 
-    route_client(client, monkeypatch, handle)
+    serve_llm(web, handle)
     chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 
     assert chunks == ["Hello ", "world"]
@@ -826,6 +831,7 @@ def test_openai_stream_sends_stream_options_and_records_provider_usage(
 
 def test_ollama_stream_records_provider_eval_counts(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify Ollama stream captures final eval_count and prompt_eval_count."""
     recorded_spends: list[dict[str, Any]] = []
@@ -846,7 +852,7 @@ def test_ollama_stream_records_provider_eval_counts(
         ollama_line("Hello "),
         ollama_line("world", done=True, prompt_eval_count=14, eval_count=28),
     ]
-    route_client(client, monkeypatch, lambda request: reply(frames, NDJSON))
+    serve_llm(web, lambda request: reply(frames, NDJSON))
     chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 
     assert chunks == ["Hello ", "world"]
@@ -857,6 +863,7 @@ def test_ollama_stream_records_provider_eval_counts(
 
 def test_claude_stream_records_provider_message_usage(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify Claude stream captures message_start input tokens and message_delta output tokens."""
     recorded_spends: list[dict[str, Any]] = []
@@ -875,7 +882,7 @@ def test_claude_stream_records_provider_message_usage(
         cache_enabled=False,
     )
     frames = anthropic_stream_frames(["Hello ", "world"], input_tokens=16, output_tokens=32)
-    route_client(client, monkeypatch, lambda request: reply(frames))
+    serve_llm(web, lambda request: reply(frames))
     chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 
     assert chunks == ["Hello ", "world"]
@@ -886,6 +893,7 @@ def test_claude_stream_records_provider_message_usage(
 
 def test_multi_node_ollama_stream_records_leased_server(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify multi-node Ollama stream records the leased node as server instead of joined list."""
     recorded_spends: list[dict[str, Any]] = []
@@ -906,7 +914,7 @@ def test_multi_node_ollama_stream_records_leased_server(
         ollama_line("Hello "),
         ollama_line("world", done=True, prompt_eval_count=10, eval_count=20),
     ]
-    route_client(client, monkeypatch, lambda request: reply(frames, NDJSON))
+    serve_llm(web, lambda request: reply(frames, NDJSON))
     chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 
     assert chunks == ["Hello ", "world"]
@@ -917,6 +925,7 @@ def test_multi_node_ollama_stream_records_leased_server(
 
 def test_stream_closed_after_partial_consumption_records_spent_tokens(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify stream closed early records spent tokens in a finally block."""
     client = _openai_client(monkeypatch)
@@ -932,7 +941,7 @@ def test_stream_closed_after_partial_consumption_records_spent_tokens(
         openai_chunk("Four", "stop"),
         OPENAI_DONE,
     ]
-    route_client(client, monkeypatch, lambda request: reply(frames))
+    serve_llm(web, lambda request: reply(frames))
 
     gen = client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")])
     c1 = next(gen)

@@ -32,7 +32,7 @@ from devops_cli.models.benchmark import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from tests.web_fakes import StubWeb
+    from tests.support.fakes.http import WebFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -415,7 +415,7 @@ def test_compute_ndcg_and_report_rendering() -> None:
 @pytest.mark.usefixtures("keyring_store")
 def test_override_endpoint_gets_no_key(
     monkeypatch: pytest.MonkeyPatch,
-    stub_web: StubWeb,
+    web: WebFake,
     server: str,
     authorization: str | None,
 ) -> None:
@@ -436,7 +436,7 @@ def test_override_endpoint_gets_no_key(
 
     assert [
         (str(sent.url), sent.headers.get("authorization"))
-        for sent in stub_web.sent
+        for sent in web.sent
         if sent.url.host == "example.com"
     ] == [(f"{server}/v1/embeddings", authorization)]
 
@@ -1148,7 +1148,7 @@ def test_an_embedding_server_with_no_origin_is_named_unknown() -> None:
 )
 def test_a_failed_embedding_run_sends_the_server_userinfo_and_names_only_its_host_and_port(
     tmp_path: Path,
-    stub_web: StubWeb,
+    web: WebFake,
     capsys: pytest.CaptureFixture[str],
     caplog: pytest.LogCaptureFixture,
     userinfo: str,
@@ -1163,7 +1163,7 @@ def test_a_failed_embedding_run_sends_the_server_userinfo_and_names_only_its_hos
             return None
         return httpx2.Response(500, json={"error": "model failed"})
 
-    stub_web.serve(answer)
+    web.serve(answer)
     bench = EmbeddingBenchmarkRunner(
         models=["m"],
         servers=[f"http://{userinfo}@example.com:11434"],
@@ -1179,7 +1179,7 @@ def test_a_failed_embedding_run_sends_the_server_userinfo_and_names_only_its_hos
     assert (
         [(result.server, result.failed) for result in report.models],
         report.models[0].error,
-        {sent.headers.get("authorization") for sent in stub_web.sent if sent.url.port == 11434},
+        {sent.headers.get("authorization") for sent in web.sent if sent.url.port == 11434},
         "m on example.com:11434" in shown.out,
         _SERVER_SECRET
         in shown.out + shown.err + caplog.text + report.model_dump_json() + _saved_benchmark_text(),
@@ -1227,7 +1227,7 @@ def test_an_embedding_endpoint_error_names_the_endpoint_by_host_and_port(userinf
 
 @pytest.mark.parametrize("flag", ["--servers", "--models"])
 def test_an_embedding_benchmark_sends_the_userinfo_and_records_only_the_host_and_port(
-    tmp_path: Path, stub_web: StubWeb, cli: Callable[..., Any], flag: str
+    tmp_path: Path, web: WebFake, cli: Callable[..., Any], flag: str
 ) -> None:
     """Verify a benchmark run keeps no password of a server URL, whether the URL comes from
     `--servers` or from the endpoint of a `--models` entry: the server gets it as Basic
@@ -1241,7 +1241,7 @@ def test_an_embedding_benchmark_sends_the_userinfo_and_records_only_the_host_and
         texts = json.loads(request.content)["input"]
         return httpx2.Response(200, json={"embeddings": [[1.0, 0.0, 0.5] for _ in texts]})
 
-    stub_web.serve(answer)
+    web.serve(answer)
     options = (
         ["--models", "nomic-embed-text", "--servers", _SERVER_WITH_USERINFO]
         if flag == "--servers"
@@ -1256,7 +1256,7 @@ def test_an_embedding_benchmark_sends_the_userinfo_and_records_only_the_host_and
     basic = "Basic " + base64.b64encode(f"bench-user:{_SERVER_SECRET}".encode()).decode()
     assert (
         result.exit_code,
-        {sent.headers.get("authorization") for sent in stub_web.sent if sent.url.port == 11434},
+        {sent.headers.get("authorization") for sent in web.sent if sent.url.port == 11434},
         recorded.setup["servers"] + recorded.setup["models"],
         {(model["model"], model["server"]) for model in recorded.results["models"]},
         _SERVER_SECRET in result.output + _saved_benchmark_text(),

@@ -12,7 +12,8 @@ from typer.testing import CliRunner
 from devops_cli.config.settings import AIConfig, reset_settings_cache
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.main import app
-from tests.llm_stream_fakes import as_requested
+from tests.llm_stream_fakes import serve_llm
+from tests.support.fakes.http import WebFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -120,9 +121,9 @@ def test_review_path_unconfigured_exits_nonzero_and_names_setting(
 
 def test_gateway_only_config_routes_all_calls_to_gateway(
     isolate_devops_cli_config: Any,
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
-    """With gateway-only config, fake transport verifies calls go to gateway URL and never localhost:11434."""
+    """With gateway-only config, the `web` fake verifies calls go to gateway URL and never localhost:11434."""
     from devops_cli.ai.client import LLMClient
     from devops_cli.ai.rag.embeddings import EmbeddingsEngine
     from devops_cli.config.settings import load_settings
@@ -141,21 +142,17 @@ def test_gateway_only_config_routes_all_calls_to_gateway(
     reset_settings_cache()
     settings = load_settings()
 
-    requested_urls: list[str] = []
-
-    def mock_send(_self: Any, request: httpx2.Request, **_kwargs: Any) -> httpx2.Response:
-        url_str = str(request.url)
-        requested_urls.append(url_str)
-        if "embeddings" in url_str:
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        if "embeddings" in str(request.url):
             body = {"data": [{"index": 0, "embedding": [0.1, 0.2]}], "usage": {"total_tokens": 5}}
         else:
             body = {
                 "choices": [{"message": {"role": "assistant", "content": "mocked response"}}],
                 "usage": {"total_tokens": 10},
             }
-        return as_requested(request, httpx2.Response(200, json=body, request=request))
+        return httpx2.Response(200, json=body)
 
-    monkeypatch.setattr(httpx2.Client, "send", mock_send)
+    serve_llm(web, answer)
 
     # 1. LLMClient call
     client = LLMClient(config=settings.ai, api_key="sk-test", cache_enabled=False)
@@ -167,6 +164,7 @@ def test_gateway_only_config_routes_all_calls_to_gateway(
     embedder.embed_query("query")
 
     # Assert all calls went to the gateway and NONE to localhost:11434
+    requested_urls = web.requested
     ai_requests = [u for u in requested_urls if not u.endswith("/traces")]
     assert len(ai_requests) >= 2
     for url in ai_requests:
