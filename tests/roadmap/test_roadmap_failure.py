@@ -509,7 +509,7 @@ def test_the_default_actions_are_the_ones_of_the_design() -> None:
         "conflict": "wait",
         "ci_infra": "retry",
         "no_change_in_fix": "wait",
-        "tests_lost": "retry",
+        "tests_lost": "wait",
         "head_moved": "retry",
         "output_cap": "raise_limit",
         "read_only_path": "wait",

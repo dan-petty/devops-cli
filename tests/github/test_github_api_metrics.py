@@ -15,8 +15,10 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import httpx2
 import pytest
 
+from devops_cli.exceptions import GitHubUnreadError
 from devops_cli.github.rate_limiter import get_github_rate_limiter, run_gh
 from devops_cli.github.request_scope import request_scope
 from devops_cli.github.session import get_github_session
@@ -78,7 +80,7 @@ def test_a_refused_and_retried_gh_command_counts_two_requests_and_one_wait(
         _histogram_points(otlp, GITHUB_THROTTLE_WAIT.name),
     ) == (
         0,
-        [({"resource": "core", "method": "GET", **_UNSCOPED}, 2.0)],
+        [({"resource": "core", "method": "GET", "status": "none", **_UNSCOPED}, 2.0)],
         [({"resource": "core"}, 1, 7.0)],
     )
 
@@ -103,7 +105,11 @@ def test_a_graphql_answer_counts_its_request_and_the_points_it_reports(
         otlp.points(GITHUB_REQUESTS_TOTAL.name),
         otlp.points(GITHUB_GRAPHQL_POINTS_TOTAL.name),
         _histogram_points(otlp, GITHUB_THROTTLE_WAIT.name),
-    ) == ([({"resource": "graphql", "method": "POST", **_UNSCOPED}, 1.0)], [({}, 3.0)], [])
+    ) == (
+        [({"resource": "graphql", "method": "POST", "status": "none", **_UNSCOPED}, 1.0)],
+        [({}, 3.0)],
+        [],
+    )
 
 
 def test_a_session_request_refused_once_counts_two_requests_and_its_wait(
@@ -123,7 +129,10 @@ def test_a_session_request_refused_once_counts_two_requests_and_its_wait(
         otlp.points(GITHUB_REQUESTS_TOTAL.name),
         _histogram_points(otlp, GITHUB_THROTTLE_WAIT.name),
     ) == (
-        [({"resource": "core", "method": "GET", **_UNSCOPED}, 2.0)],
+        [
+            ({"resource": "core", "method": "GET", "status": "429", **_UNSCOPED}, 1.0),
+            ({"resource": "core", "method": "GET", "status": "200", **_UNSCOPED}, 1.0),
+        ],
         [({"resource": "core"}, 1, 1.0)],
     )
 
@@ -141,8 +150,17 @@ def test_a_write_of_a_job_row_counts_its_method_repository_and_row(
     run_gh(_COMMENT)
 
     assert otlp.points(GITHUB_REQUESTS_TOTAL.name) == [
-        ({"resource": "core", "method": "POST", "repo": "octo/repo", "row": "refine"}, 1.0),
-        ({"resource": "core", "method": "POST", **_UNSCOPED}, 1.0),
+        (
+            {
+                "resource": "core",
+                "method": "POST",
+                "status": "none",
+                "repo": "octo/repo",
+                "row": "refine",
+            },
+            1.0,
+        ),
+        ({"resource": "core", "method": "POST", "status": "none", **_UNSCOPED}, 1.0),
     ]
 
 
@@ -175,5 +193,71 @@ def test_a_session_request_counts_the_scope_of_the_thread_that_sent_it(
         get_github_session().rest("PATCH", "/repos/octo/repo/issues/7", body={"title": "T"})
 
     assert otlp.points(GITHUB_REQUESTS_TOTAL.name) == [
-        ({"resource": "core", "method": "PATCH", "repo": "octo/repo", "row": "intake"}, 1.0)
+        (
+            {
+                "resource": "core",
+                "method": "PATCH",
+                "status": "200",
+                "repo": "octo/repo",
+                "row": "intake",
+            },
+            1.0,
+        )
     ]
+
+
+def test_a_304_answer_counts_once_with_status_304(
+    github_api: GitHubApiFake, otlp: FakeCollector
+) -> None:
+    """A conditional GET that GitHub answers 304 is one paced request with status 304. The first
+    GET of that URL is one request with status 200."""
+    etag = {"etag": '"v1"'}
+    github_api.route(
+        "GET",
+        "/user",
+        github_json({"login": "octocat"}, headers=etag),
+        github_json({"login": "octocat"}, headers=etag),
+    )
+    session = get_github_session()
+
+    session.rest("GET", "/user")
+    session.rest("GET", "/user")
+
+    assert otlp.points(GITHUB_REQUESTS_TOTAL.name) == [
+        ({"resource": "core", "method": "GET", "status": "200", **_UNSCOPED}, 1.0),
+        ({"resource": "core", "method": "GET", "status": "304", **_UNSCOPED}, 1.0),
+    ]
+
+
+def test_a_get_that_loses_its_connection_counts_each_attempt_with_its_status(
+    github_api: GitHubApiFake, otlp: FakeCollector
+) -> None:
+    """A lost GET is sent again (#3506). The lost attempt counts with status none, and the attempt
+    that gets the answer counts with its status."""
+    github_api.route("GET", "/user", httpx2.RemoteProtocolError, github_json({"login": "octocat"}))
+
+    get_github_session().rest("GET", "/user")
+
+    assert otlp.points(GITHUB_REQUESTS_TOTAL.name) == [
+        ({"resource": "core", "method": "GET", "status": "none", **_UNSCOPED}, 1.0),
+        ({"resource": "core", "method": "GET", "status": "200", **_UNSCOPED}, 1.0),
+    ]
+
+
+def test_a_request_that_gets_no_answer_counts_with_status_none(
+    github_api: GitHubApiFake, otlp: FakeCollector
+) -> None:
+    """A refused connect gets no answer, so its one paced attempt counts with status none, and
+    the error still reaches the caller."""
+    github_api.route("GET", "/user", httpx2.ConnectError)
+
+    with pytest.raises(GitHubUnreadError) as raised:
+        get_github_session().rest("GET", "/user")
+
+    assert (
+        (type(raised.value), raised.value.error_code, raised.value.exit_code),
+        otlp.points(GITHUB_REQUESTS_TOTAL.name),
+    ) == (
+        (GitHubUnreadError, "GITHUB_UNREAD", 1),
+        [({"resource": "core", "method": "GET", "status": "none", **_UNSCOPED}, 1.0)],
+    )

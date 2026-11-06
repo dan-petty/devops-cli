@@ -6,6 +6,10 @@ so a job's credential (the helper of its git configuration) is the job's alone.
 
 from __future__ import annotations
 
+import shutil
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from devops_cli.config.constants import CONST_GIT_CLI
@@ -29,6 +33,22 @@ def git(cwd: Path, *args: str, operation: str) -> str:
             operation=operation,
         )
     return proc.stdout.strip()
+
+
+@contextmanager
+def checkout_at(repository: Path, commit: str, *, operation: str) -> Iterator[Path]:
+    """The tracked files of `commit` in a new detached worktree of `repository`, removed after.
+    A commit the repository lacks raises `GitOperationError` for `operation`."""
+    parent = Path(tempfile.mkdtemp(prefix="roadmap-checkout-"))
+    tree = parent / "tree"
+    try:
+        git(repository, "worktree", "add", "--detach", str(tree), commit, operation=operation)
+        try:
+            yield tree
+        finally:
+            git(repository, "worktree", "remove", "--force", str(tree), operation=operation)
+    finally:
+        shutil.rmtree(parent, ignore_errors=True)
 
 
 def default_branch(source: Path, *, operation: str) -> str:

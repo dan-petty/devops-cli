@@ -444,6 +444,15 @@ def test_an_idle_pass_reads_the_comments_of_each_stop_and_nothing_else(
     assert (cleared.cleared, reads) == ((), ["comments"] * len(numbers))
 
 
+def test_a_new_digest_does_not_clear_a_stop_for_a_lost_test(store: InMemoryRoadmapStore) -> None:
+    """A new image cannot restore a test, and a step that repeats the run spends the same tokens
+    (#3490)."""
+    number = _blocked(store, implement_failure=FailureClass.TESTS_LOST.value)
+
+    assert _clear(store, Template(DIGEST_B)).cleared == ()
+    assert _item(store, number).status == "Blocked"
+
+
 def test_the_action_table_has_retry_classes_and_others() -> None:
     """The rule reads the table, so a test holds the classes that the cases below name."""
     assert {"provider", "timeout", "ci_infra"} <= {c.value for c in RETRY_CLASSES}

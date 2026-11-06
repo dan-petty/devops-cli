@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlsplit
 import httpx2
 import pytest
 
+from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.exceptions.git import (
     GitHubFileNotFoundError,
     GitHubOperationError,
@@ -1203,6 +1204,48 @@ def test_a_missing_file_raises_not_found_and_another_failure_raises_as_a_failed_
     assert type(failed.value) is GitHubOperationError
 
 
+def test_repository_files_lists_the_files_of_a_directory_through_the_contents_request() -> None:
+    listing = json.dumps(
+        [
+            {"name": "0001-a.md", "path": "docs/adr/0001-a.md", "type": "file"},
+            {"name": "old", "path": "docs/adr/old", "type": "dir"},
+            {"name": "0002-b.md", "path": "docs/adr/0002-b.md", "type": "file"},
+        ]
+    )
+    store, runner = recorded_store({"contents/docs/adr": listing})
+
+    paths = store.repository_files("docs/adr", ref="feat/topic")
+
+    assert (paths, [args for args, _ in runner.calls]) == (
+        ["docs/adr/0001-a.md", "docs/adr/0002-b.md"],
+        [
+            [
+                "api",
+                "-H",
+                "Accept: application/vnd.github.raw+json",
+                f"repos/{REPO}/contents/docs/adr?ref=feat%2Ftopic",
+            ]
+        ],
+    )
+
+
+def test_a_missing_directory_raises_not_found_and_another_failure_raises_as_a_failed_read() -> None:
+    missing, _ = recorded_store({"contents/": (1, "gh: Not Found (HTTP 404)")})
+    broken, _ = recorded_store({"contents/": (1, "gh: Server Error (HTTP 502)")})
+    with pytest.raises(GitHubFileNotFoundError, match=r"has no docs/adr at main"):
+        missing.repository_files("docs/adr", ref="main")
+    with pytest.raises(GitHubOperationError, match=r"Could not read docs/adr") as failed:
+        broken.repository_files("docs/adr", ref="main")
+    assert type(failed.value) is GitHubOperationError
+
+
+def test_a_path_that_is_a_file_is_no_directory_listing() -> None:
+    store, _ = recorded_store({"contents/": "text of a file\n"})
+
+    with pytest.raises(GitHubOperationError, match=r"malformed docs/adr"):
+        store.repository_files("docs/adr")
+
+
 # ── Comments ──────────────────────────────────────────────────────────────────
 
 
@@ -1218,6 +1261,147 @@ def test_comments_on_reads_every_comment_of_the_issue_oldest_first_with_its_time
         datetime(2026, 10, 2, 3, 26, 48, tzinfo=UTC),
         [f"{API}/repos/{REPO}/issues/844/comments?per_page=100"],
     )
+
+
+def test_a_comment_carries_its_authors_login_and_association() -> None:
+    """The model of refine reads the replies of trusted authors only (#3502): a comment gives
+    the login that GitHub holds in its `user` and the association that it states."""
+    store, _ = recorded_store(
+        {
+            "issues/844/comments": [
+                {
+                    "body": "A reply",
+                    "created_at": "2026-10-02T03:26:48Z",
+                    "author_association": "CONTRIBUTOR",
+                    "user": {"login": "devops-cli-service[bot]"},
+                },
+                {"body": "An old reply", "created_at": "2026-10-02T03:27:48Z"},
+            ]
+        }
+    )
+
+    assert [(c.author_login, c.author_association) for c in store.comments_on(844)] == [
+        ("devops-cli-service[bot]", "CONTRIBUTOR"),
+        (None, None),
+    ]
+
+
+def _repository_comment(
+    created_at: str, login: str, association: str, *, page: str = "issues"
+) -> dict[str, Any]:
+    """A comment as the listing of the whole repository gives it: `page` is `issues` for a
+    comment on an issue and `pull` for one on a pull request, and `issue_url` is the same for
+    both, as GitHub gives it."""
+    return {
+        "body": "An answer",
+        "created_at": created_at,
+        "author_association": association,
+        "user": {"login": login},
+        "issue_url": f"{API}/repos/{REPO}/issues/844",
+        "html_url": f"https://github.com/{REPO}/{page}/844#issuecomment-1",
+    }
+
+
+COMMENTS_LISTING = f"/repos/{REPO}/issues/comments?sort=created&direction=desc"
+
+
+def test_comments_since_reads_the_repository_comments_newest_first_from_the_time(
+    github_api: GitHubApiFake,
+) -> None:
+    listing = f"{COMMENTS_LISTING}&since=2026-11-05T12:00:00Z&per_page=100"
+    github_api.route(
+        "GET",
+        listing,
+        github_json(
+            [
+                _repository_comment(
+                    "2026-11-05T13:00:00Z", "devops-cli-service[bot]", "CONTRIBUTOR"
+                ),
+                _repository_comment("2026-11-05T12:30:00Z", "alice", "OWNER"),
+            ]
+        ),
+    )
+    store, runner = over_github()
+
+    found = list(store.comments_since(datetime(2026, 11, 5, 12, tzinfo=UTC)))
+
+    assert [(c.author_login, c.author_association, c.created_at) for c in found] == [
+        ("devops-cli-service[bot]", "CONTRIBUTOR", datetime(2026, 11, 5, 13, tzinfo=UTC)),
+        ("alice", "OWNER", datetime(2026, 11, 5, 12, 30, tzinfo=UTC)),
+    ]
+    assert (github_api.requested, runner.calls) == ([f"GET {API}{listing}"], [])
+
+
+def test_comments_since_tells_a_comment_on_a_pull_request_from_one_on_an_issue(
+    github_api: GitHubApiFake,
+) -> None:
+    listing = f"{COMMENTS_LISTING}&per_page=100"
+    github_api.route(
+        "GET",
+        listing,
+        github_json(
+            [
+                _repository_comment("2026-11-05T13:00:00Z", "alice", "OWNER", page="pull"),
+                _repository_comment("2026-11-05T12:30:00Z", "alice", "OWNER"),
+            ]
+        ),
+    )
+    store, _ = over_github()
+
+    found = list(store.comments_since(None))
+
+    assert [c.on_pull_request for c in found] == [True, False]
+
+
+def test_comments_since_with_no_time_sends_no_since_parameter(github_api: GitHubApiFake) -> None:
+    listing = f"{COMMENTS_LISTING}&per_page=100"
+    github_api.route("GET", listing, github_json([]))
+    store, _ = over_github()
+
+    assert list(store.comments_since(None)) == []
+    assert github_api.requested == [f"GET {API}{listing}"]
+
+
+def test_comments_since_sends_no_request_for_a_page_the_caller_does_not_read(
+    github_api: GitHubApiFake,
+) -> None:
+    listing = f"{COMMENTS_LISTING}&per_page=100"
+    second = f"{COMMENTS_LISTING}&per_page=100&page=2"
+    github_api.route(
+        "GET",
+        listing,
+        github_json(
+            [_repository_comment("2026-11-05T13:00:00Z", "alice", "OWNER")],
+            headers=next_page(second),
+        ),
+    )
+    github_api.route(
+        "GET", second, github_json([_repository_comment("2026-11-05T12:00:00Z", "bob", "OWNER")])
+    )
+    store, _ = over_github()
+
+    first = next(store.comments_since(None))
+
+    assert (first.author_login, len(github_api.sent)) == ("alice", 1)
+
+
+def test_comments_since_sends_one_request_for_the_first_page_of_comments(
+    github_api: GitHubApiFake,
+) -> None:
+    """A caller that takes one page of comments and no more sends no request for the next page
+    that the first one links, as the round of the Service does (#2754)."""
+    listing = f"{COMMENTS_LISTING}&per_page=100"
+    second = f"{COMMENTS_LISTING}&per_page=100&page=2"
+    page = [
+        _repository_comment("2026-11-05T13:00:00Z", "devops-cli-service[bot]", "CONTRIBUTOR")
+    ] * DEFAULT_GH_REST_PER_PAGE
+    github_api.route("GET", listing, github_json(page, headers=next_page(second)))
+    github_api.route("GET", second, github_json([]))
+    store, _ = over_github()
+
+    taken = list(itertools.islice(store.comments_since(None), DEFAULT_GH_REST_PER_PAGE))
+
+    assert (len(taken), github_api.requested) == (DEFAULT_GH_REST_PER_PAGE, [f"GET {API}{listing}"])
 
 
 def test_path_changed_at_reads_the_newest_commit_of_a_path_once_for_the_stores_life() -> None:

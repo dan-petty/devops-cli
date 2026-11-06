@@ -1,4 +1,25 @@
-"""Universal secret masking, credential redaction, and token sanitization engine."""
+"""Universal secret masking, credential redaction, and token sanitization engine.
+
+The userinfo of a URL is masked, whatever the scheme (#2662). A URL parser finds it, never a
+pattern: `urllib.parse.urlsplit` in free text (`redact_text`) and `httpx2.URL` in a single URL
+(`mask_uri_credentials`).
+
+- A user name and a password: `redact_text` shows `<masked-user>:<masked-password>`.
+  `mask_uri_credentials` keeps the user name and shows `user:***`.
+- A password with no user name: `redact_text` shows `<masked-user>:<masked-password>`, and
+  `mask_uri_credentials` shows `***`.
+- A user name with no password: the user name is masked, as `<masked-user>` in `redact_text` and as
+  `***` in `mask_uri_credentials`. A service can take a token as the user name, with an empty
+  password (httpx2 sends such a URL as Basic authentication). A token and a harmless name such as
+  `git` in `ssh://git@host/` look the same to a parser, so the rule masks both. pip masks a user
+  name with no password in the same way.
+- A URL with no userinfo stays as written in `redact_text`. An `@` after the authority, as in a
+  query, is not userinfo. `mask_uri_credentials` fails closed for a text that has an `@` and no
+  userinfo, and returns `<masked-url>` (#1109).
+
+A user name with a `/`, `?` or `#` that is not percent-encoded is not valid userinfo. The parser
+reads it as part of the host or the path, so the rule cannot mask it.
+"""
 
 from __future__ import annotations
 
@@ -64,13 +85,20 @@ def _mask_url_candidate(match: re.Match[str]) -> str:
     except Exception:
         return "<masked-url>" if has_at else candidate
 
+    # The userinfo starts right after "://" and the parser gives its parts as written.
+    userinfo_start = candidate.find("://") + 3
     if parts.password is not None:
-        scheme_end = candidate.find("://") + 3
         userinfo_len = len(parts.username or "") + 1 + len(parts.password)
         return (
-            f"{candidate[:scheme_end]}"
+            f"{candidate[:userinfo_start]}"
             f"<masked-user>:<masked-password>"
-            f"{candidate[scheme_end + userinfo_len :]}"
+            f"{candidate[userinfo_start + userinfo_len :]}"
+        )
+    if parts.username:
+        return (
+            f"{candidate[:userinfo_start]}"
+            f"<masked-user>"
+            f"{candidate[userinfo_start + len(parts.username) :]}"
         )
 
     if has_at:
@@ -198,6 +226,26 @@ def _mask_literal(match: re.Match[str], masked: str, is_code: bool = False) -> s
     return masked
 
 
+# One character of an assigned value. A backslash that starts an escaped quote mark, `\"` or `\'`,
+# ends the value. JSON text writes a quote mark inside a string in that way. A mask of the
+# backslash alone leaves a quote mark that ends the string early (#2569). A double backslash is one
+# character, so a value never splits it.
+_VALUE_CHAR = r"""(?:[^\s\"',;\\]|\\\\|\\(?![\\\"']))"""
+
+
+def _quoted(value: str) -> str:
+    """Wrap the pattern of an assigned value in an optional pair of quote marks.
+
+    The pair is the group `quote` and a closing quote mark of the same kind. A match with no
+    opening quote mark has no closing one. A value such as the token in
+    `"download_url":"https://example.com/f?token=<value>"` ends inside a string. The quote mark
+    after it closes that string, and a mask that takes that mark breaks the JSON text (#2569).
+    After an opening quote mark, the closing one stays optional, so a value with no closing mark
+    is masked.
+    """
+    return r"""(?P<quote>["'])?""" + value + r"(?(quote)(?P=quote)?)"
+
+
 def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Replacement], ...]:
     # A keyword and its value sit on one line. Between them, and in a check after the value,
     # a pattern allows whitespace other than a line break, `[^\S\r\n]`, and never `\s`: with
@@ -221,7 +269,7 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
         (
             re.compile(
                 r"\b(?:password|passwd|pwd)[^\S\r\n]*(?P<sep>[:=])[^\S\r\n]*"
-                r"(?P<quote>[\"']?)(?!<masked-)(?P<value>[^\s\"',;]{8,})[\"']?",
+                + _quoted(rf"(?!<masked-)(?P<value>{_VALUE_CHAR}{{8,}})"),
                 re.IGNORECASE,
             ),
             lambda match: _mask_literal(match, "password=<masked-password>", is_code=is_code),
@@ -242,7 +290,7 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
         (
             re.compile(
                 r"\b(?:token|auth_token)[^\S\r\n]*(?P<sep>[:=])[^\S\r\n]*"
-                r"(?P<quote>[\"']?)(?!<masked-)(?P<value>[^\s\"',;]{8,})[\"']?",
+                + _quoted(rf"(?!<masked-)(?P<value>{_VALUE_CHAR}{{8,}})"),
                 re.IGNORECASE,
             ),
             lambda match: _mask_literal(match, "token=<masked-token>", is_code=is_code),
@@ -250,14 +298,14 @@ def _build_secret_patterns(is_code: bool) -> tuple[tuple[re.Pattern[str], _Repla
         (
             re.compile(
                 r"(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY)[^\S\r\n]*[:=][^\S\r\n]*"
-                r"[\"']?[A-Za-z0-9/+=]{40}[\"']?"
+                + _quoted(r"[A-Za-z0-9/+=]{40}")
             ),
             "aws_secret_access_key=<masked-aws-secret>",
         ),
         (
             re.compile(
                 r"(?:client_secret|client-secret|AZURE_CLIENT_SECRET)[^\S\r\n]*[:=][^\S\r\n]*"
-                r"[\"']?[A-Za-z0-9_\-~.]{20,}[\"']?"
+                + _quoted(r"[A-Za-z0-9_\-~.]{20,}")
             ),
             "client_secret=<masked-client-secret>",
         ),
@@ -388,7 +436,12 @@ def mask_private_hosts(text: str) -> str:
 
 
 def redact_text(text: str, syntax: Literal["code", "data"] | str = "data") -> str:
-    """Sanitize and redact known credential and secret patterns in the input text."""
+    """Sanitize and redact known credential and secret patterns in the input text.
+
+    A URL in the text has its userinfo masked, whatever the scheme: `<masked-user>:<masked-password>`
+    for a user and a password, and `<masked-user>` for a user with no password. See the module
+    docstring for the rule.
+    """
     if not text:
         return ""
     patterns = _SECRET_PATTERNS_CODE if _is_code_syntax(syntax) else _SECRET_PATTERNS_DATA
@@ -442,7 +495,12 @@ def mask_secret_named_values(data: Any) -> Any:
 
 
 def mask_uri_credentials(uri: str) -> str:
-    """Mask password or credentials in URL/URI strings while preserving scheme and host."""
+    """Mask the credentials in the userinfo of a URL/URI, and keep everything else.
+
+    A user beside a password stays and the password becomes `***`. A password with no user, and
+    a user with no password, become `***` whole: a service can take a token as the user name, and
+    the parser cannot tell a token from a harmless name such as `git`. See the module docstring.
+    """
     if not uri:
         return ""
     try:
@@ -451,9 +509,9 @@ def mask_uri_credentials(uri: str) -> str:
         return "<masked-url>"
     if "@" in uri and not u.userinfo:
         return "<masked-url>"
-    if u.password:
-        if u.username:
-            return str(u.copy_with(username=u.username, password=_URL_MASK))
+    if u.username and u.password:
+        return str(u.copy_with(username=u.username, password=_URL_MASK))
+    if u.username or u.password:
         return str(u.copy_with(username=_URL_MASK, password=None))
     return uri
 

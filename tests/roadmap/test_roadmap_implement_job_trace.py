@@ -7,6 +7,7 @@ every other program.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -104,6 +105,45 @@ def test_a_new_run_clears_the_trace_of_the_last_run_before_its_first_step(
     held = job_world.store.item(1)
     assert held is not None
     assert STALE not in (held.job_record[ImplementRecordKey.TRACE] or "")
+
+
+def _first_requests(world: JobWorld) -> dict[str, int]:
+    """The input tokens of the first request of each step, as the spend of the record holds them."""
+    held = world.store.item(1)
+    assert held is not None
+    spend = json.loads(held.job_record[ImplementRecordKey.SPEND] or "{}")
+    return {row["step"]: row["first_request_tokens"] for row in spend["steps"]}
+
+
+def test_the_spend_holds_the_size_of_the_first_request_of_each_step(job_world: JobWorld) -> None:
+    job_world.run(two_groups())
+
+    events = _trace(job_world).events
+    firsts = {
+        step: next(
+            e.fields["tokens_in"]
+            for e in events
+            if e.kind is TraceEventKind.MODEL and e.step == step
+        )
+        for step in ("group 1", "group 2")
+    }
+    assert firsts["group 1"] > 0
+    assert _first_requests(job_world) == firsts
+
+
+def test_a_run_with_more_events_than_the_bound_keeps_the_size_of_its_first_requests(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(implement_trace, "CONST_ROADMAP_IMPLEMENT_TRACE_CHARS", 700)
+
+    job_world.run(two_groups())
+
+    trace = _trace(job_world)
+    firsts = _first_requests(job_world)
+    assert trace.dropped > 0
+    assert not any(e.kind is TraceEventKind.MODEL and e.step == "group 1" for e in trace.events)
+    assert set(firsts) == {"group 1", "group 2"}
+    assert all(tokens > 0 for tokens in firsts.values())
 
 
 def test_a_run_with_more_events_than_the_bound_leaves_the_newest_and_counts_the_rest(

@@ -1,0 +1,12 @@
+# Item #3331: feat(roadmap): stage requires an eval replay task when a plan edits the stage prompt or gates
+
+## Problem
+
+`docs/ROADMAP_WORKFLOW.md` says that a pull request that changes the stage prompt or a check of the
+stage job states the score of the same model before and after the change. A plan that changes one of
+these paths often holds no task that runs `uv run devops roadmap eval stage --replay`.
+
+### Acceptance criteria
+
+- [ ] A plan that changes the stage prompt or a stage gate with no replay task is refused.
+- [ ] A plan that changes the stage prompt or a stage gate with the replay task and the score passes.

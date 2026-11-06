@@ -22,6 +22,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 
 from devops_cli.config.constants import (
+    CONST_ROADMAP_ADR_DIRECTORY,
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
     CONST_ROADMAP_LABELS_PATH,
@@ -362,9 +363,11 @@ def refine_requests(
     open item a blocked item waits on is read for its state (#1758). A round without `--item`
     reads the newest commit of each path the block of a waiting item cites, when no reply ends
     the wait first (#2005). A round records on each item that the cap on refine's comments
-    leaves alone the time of its newest comment, once for each such comment (#2475). When a
-    proposal defers a part, the plan holds the intake requests of one new candidate and the
-    record of its number (#2423). Refine reads no repository file, so `ref` changes no request."""
+    leaves alone the time of its newest comment, once for each such comment (#2475). A round reads
+    the comments of each item that an account that the jobs do not trust opened, and writes one
+    comment on it when none holds the marker of the notice (#3502). When a proposal defers a
+    part, the plan holds the intake requests of one new candidate and the record of its number
+    (#2423). Refine reads no repository file, so `ref` changes no request."""
     from devops_cli.roadmap.intake_requests import planned_requests
 
     del ref
@@ -408,6 +411,11 @@ def refine_requests(
                 ],
                 repeat=each_candidate,
             ),
+            *within(
+                store.comments_on(target_item),
+                cond["outside_author"],
+                repeat=rep["outside_item"],
+            ),
             *blockers,
             *_wait_reads(store),
         ]
@@ -422,6 +430,7 @@ def refine_requests(
                 repeat=each_candidate,
             ),
             *within(store.set_marks(target_item), cond["capped"], repeat=each_candidate),
+            *within(store.comment(target_item), cond["outside_notice"], repeat=rep["outside_item"]),
         ]
 
     return tuple(reads), tuple(writes)
@@ -435,9 +444,11 @@ def alternatives_requests(
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap alternatives` reads, in order, and the writes `--confirm` makes after
     them (#2650). The run reads the repository's visibility and every issue, and stops when the
-    repository is private or no Firecrawl key is set. For each item it checks it reads the
-    item's comments, runs the model, and makes the searches and fact reads the model asks for;
-    `--item` names the item, and `limit` caps the items of a round, which `--limit` sets."""
+    repository is private or no Firecrawl key is set. Once for the run, when it checks an item that
+    is no skip class, it reads the directory of the ADRs and each file of it (#3505). For each
+    item it checks it reads the item's comments, runs the model, and makes the searches and fact
+    reads the model asks for; `--item` names the item, and `limit` caps the items of a round, which
+    `--limit` sets."""
     del limit
     store = StoreRequests(repo)
     texts = MESSAGES.roadmap
@@ -477,9 +488,20 @@ def alternatives_requests(
         method=methods["model"],
         target=texts.plan_targets["model_run"].format(subject=subject),
     )
+    adrs = within(
+        [
+            *store.file(CONST_ROADMAP_ADR_DIRECTORY, None),
+            *within(
+                store.file(f"{CONST_ROADMAP_ADR_DIRECTORY}/{_p('adr_file')}", None),
+                repeat=rep["adr_file"],
+            ),
+        ],
+        cond["adr_read"],
+    )
     reads = [
         *visibility,
         *store.every_issue(),
+        *adrs,
         *within([*store.comments_on(subject), model, search, *facts], cond["check_on"], each_item),
     ]
     writes = within(
@@ -553,6 +575,7 @@ def stage_requests(
     req, cond, rep = texts.stage_requests, texts.stage_request_conditions, texts.plan_repeat
     clone, tree, branch, change = "<model-clone>", "<worktree>", _p("branch"), _p("change")
     each_item, each_closed = rep["stage_item"], rep["stage_closed"]
+    each_rejected = rep["stage_rejected"]
 
     def git(key: str, cwd: str, *args: str, when: str = "", repeat: str = "") -> PlannedRequest:
         return PlannedRequest(
@@ -578,6 +601,19 @@ def stage_requests(
             "origin/main",
             "openspec/changes/",
             "openspec/changes/archive/",
+        ),
+        planned_session_read(
+            f"/repos/{repo}/pulls/{_p('pull')}",
+            req["plan_state"],
+            condition=cond["plan_state"],
+            repeat=rep["stage_plan"],
+        ),
+        *within(store.comments_on(_p("pull")), cond["rejected_comments"], repeat=each_rejected),
+        git("fetch_branch", clone, "fetch", "-q", "origin", branch, repeat=each_rejected),
+        *within(
+            store.path_change(_p("path")),
+            cond["rejected_path"],
+            repeat=rep["stage_rejected_path"].format(limit=CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS),
         ),
         git(
             "move_clone",
@@ -605,6 +641,7 @@ def stage_requests(
             repeat=rep["open_plan"],
         ),
         git("fetch_branch", clone, "fetch", "-q", "origin", branch, repeat=each_closed),
+        *within(store.comments_on(_p("item")), cond["rejected_reason"], repeat=each_item),
         PlannedRequest("model", req["model_change"], repeat=each_item),
         PlannedRequest(
             "model", req["model_split"], condition=cond["model_split"], repeat=each_item
@@ -635,6 +672,18 @@ def stage_requests(
             repeat=each_closed,
         ),
         *within(store.set_marks(_p("item")), cond["close_pull"], repeat=each_closed),
+        git(
+            "delete_rejected",
+            clone,
+            "push",
+            f"--force-with-lease=refs/heads/{branch}:{_p('remote_tip')}",
+            "origin",
+            f":refs/heads/{branch}",
+            when=cond["delete_rejected"],
+            repeat=each_rejected,
+        ),
+        *within(store.comment(_p("item")), repeat=each_rejected),
+        *within(store.set_field(_p("item"), "Status"), repeat=each_rejected),
         git(
             "worktree",
             clone,

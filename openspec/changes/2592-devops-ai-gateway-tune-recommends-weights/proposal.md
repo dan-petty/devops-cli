@@ -38,6 +38,12 @@ The issue has no acceptance list. Its "Expected" text and its "Proposed design" 
 | `ai.gateway_weights` is gone | Group 4 |
 | `ai.gateway_concurrency` is gone | Not delivered. The RAG embedder reads it (see Feasibility). This is a correction of the refine design, which said that no code reads it. |
 
+## Weakened checks
+
+- **`tests/ai/test_ai_gateway_tune.py::TestTune.test_weights_are_throughput_relative_to_the_slowest_deployment`, `tests/ai/test_ai_gateway_tune.py::TestTune.test_recommend_weights_with_overrides`, `tests/ai/test_ai_gateway_tune.py::TestTune.test_calculate_hardware_weights_and_concurrency`, `tests/ai/test_ai_gateway_tune.py::TestTune.test_calculate_weights_with_backend_label_overrides` and `tests/ai/test_ai_gateway_tune.py::TestTune.test_tune_pool_applies_concurrency_overrides`**: Stopped: a wrong weight or concurrency from the functions that group 2 deletes. Safeguard: The functions go with their tests, and the search of task 2.3 finds no name of them in the command or in the module.
+- **`tests/ai/test_ai_gateway_tune.py::test_tune_command_weighs_capacity_against_cost`**: Stopped: a wrong capacity or cost in the report of the command. Safeguard: Task 2.3 renames the test and keeps its assertions of capacity and cost.
+- **`tests/commands/test_config_field_validation.py::test_ai_gateway_weights_refuses_scalar_string_in_config_set`**: Stopped: a scalar string for a mapping setting of `ai`, which `config set` must refuse. Safeguard: Task 4.2 renames the test and makes it set `ai.gateway_concurrency`, a mapping setting that stays, so the test keeps the refusal of a scalar string.
+
 ## Feasibility
 
 Checked on 2026-11-01 against `origin/main` (`0d2d0723`).

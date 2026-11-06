@@ -17,19 +17,31 @@ were collected.
 The collector's `deltatocumulative` processor adds the deltas of each stream (its
 resource, scope, metric and attributes) into a running total before Prometheus stores
 it. Prometheus names a series by `service.name` (`job`), `service.instance.id`
-(`instance`) and the metric's attributes. The `service.instance.id` is the host name,
+(`instance`) and the metric's attributes. The collector sets `job` and `instance` from
+the resource after it copies the attributes. So an attribute with either name is lost.
+A job row is the `row` attribute. The `service.instance.id` is the host name,
 which every command on the host shares. The standard `OTEL_RESOURCE_ATTRIBUTES` sets
-another one: roadmap-service sets `service.instance.id=roadmap-service`, so a new pod
-writes the series of the pod before it. A running total that starts again from zero,
-for a new pod or for a stream that gets no delta for `max_stale` (`1h` in
+another one: roadmap-service sets `service.instance.id=roadmap-service`, so on the OTLP
+path a new pod continues the series of the pod before it. The `/metrics` scrape adds the
+label `pod`, so each pod has its own series there. A running total that starts again from
+zero, for a new pod or for a stream that gets no delta for `max_stale` (`1h` in
 `k8s/otel/values.yaml`), is a counter reset to `rate()` and `increase()`.
 Cluster job pods have unique instance names and export metrics only once when they exit.
 PromQL functions like `increase()` and `rate()` drop series that contain only one sample.
 To calculate these counters, the collector transmits created timestamps via remote write 2.0
 (`remote_write_version: 2` in `k8s/otel/values.yaml`). Prometheus sets
 `enable-feature: created-timestamp-zero-ingestion` in `k8s/monitoring/prometheus-values.yaml`.
-Prometheus then writes a zero-value sample at the start timestamp of each series, so
-`increase()` calculates the full counter value.
+On this path, Prometheus writes a zero-value sample at the start timestamp of each series,
+so `increase()` calculates the full counter value. The `/metrics` scrape gets no such sample.
+
+The Service starts each label set of its counters at zero (#3495). So the first count
+of a label set is in its series. The exception is
+`devops_cli_service_identity_refused_total`: its label set starts with the
+first refusal. A pod loses a count that it makes before its first scrape, because
+`increase()` does not count the first sample of a series. The labels of
+`devops_cli_service_implement_failures_total` are `class` and `repo`. The labels of
+`devops_cli_service_jobs_total` are `repo`, `lane`, `row` and `result`.
+
 A gauge holds a snapshot, such as a project metric that the roadmap Service sends
 every 15 minutes. Prometheus finds a plain selector only within five minutes of a
 sample, so a dashboard reads a gauge with `last_over_time(<metric>[$__range])`, and
@@ -75,13 +87,17 @@ writes by name.
 | `devops_cli_rag_query_duration_ms` | Histogram | `ms` | RAG retrieval time, by stage: embedding, search, ranking, or total for the whole query. |
 | `devops_cli_qdrant_retries_total` | Counter | `1` | Qdrant requests retried after a transient error, by operation and error type. |
 | `devops_cli_rag_points` | Gauge | `1` | Points stored in RAG vector collections, by collection. |
-| `devops_cli_github_requests_total` | Counter | `1` | GitHub requests the rate limiter paced, each attempt and retry once, by resource, method, repo and row. The resource is the rate limit resource the request spends, such as core, graphql or search. The method is the HTTP method; a GraphQL request is a POST, and a gh command other than gh api is a POST when it writes and a GET when it reads. The repo is the repository of the roadmap Service worker that sent the request, one of service.repos, and the row is the job row that sent it, such as metrics, intake, refine or alternatives; each is other outside a worker or a row. A gh command and a request of the GitHub session both count. |
+| `devops_cli_github_requests_total` | Counter | `1` | GitHub requests the rate limiter paced, each attempt and retry once, by resource, method, status, repo and row. The resource is the rate limit resource the request spends, such as core, graphql or search. The method is the HTTP method; a GraphQL request is a POST, and a gh command other than gh api is a POST when it writes and a GET when it reads. The status is the HTTP status of the answer, such as 200 or 304. It is none for a gh command or for an attempt that got no answer. The repo is the repository of the roadmap Service worker that sent the request, one of service.repos, and the row is the job row that sent it, such as metrics, intake, refine or alternatives; each is other outside a worker or a row. A gh command and a request of the GitHub session both count. |
 | `devops_cli_github_throttle_wait_seconds` | Histogram | `s` | Time devops-cli waited before it sent a refused GitHub request again, by resource: one observation for each throttle. GitHub refused the request with a rate limit, or the GitHub session got a 5xx for a read. |
 | `devops_cli_github_graphql_points_total` | Counter | `1` | GraphQL points that GitHub reported each answer cost in its rateLimit field. |
 | `devops_cli_firecrawl_searches_total` | Counter | `1` | Firecrawl web searches, by result: ok, the HTTP status of a search that Firecrawl refused, such as 402 when the account has no credits or 429 at its rate limit, or error for a search that got no answer or a reply with no web results. |
 | `devops_cli_roadmap_refine_comments_capped_total` | Counter | `1` | Refine comments that the cap on refine's comments on one item in 24 hours stopped: one count for each newest comment on an item that the cap left with no answer. The item waits on a person and takes no place under the round's limit. A later round that finds no newer comment on the item does not count it again. |
-| `devops_cli_roadmap_alternatives_total` | Counter | `1` | Checks of open items for an open tool that covers them, by verdict: covers, partly, none or not-applicable. One count for each check that the alternatives job writes to an item. A check that fails, or that the job skips because a person changed the item, counts nothing. |
+| `devops_cli_roadmap_alternatives_total` | Counter | `1` | Checks of open items for an open tool that covers them, by verdict: covers, partly, none, not-applicable, rejected or in-use. One count for each check that the alternatives job writes to an item. A check that fails, or that the job skips because a person changed the item, counts nothing. |
 | `devops_cli_roadmap_stage_total` | Counter | `1` | Items that a stage round handled, one count for each item, by result: staged for an item written as a branch and a draft pull request, needs_split for an item stopped on a task group over the budget, failed for an item that failed in the plan or in the writes, and skipped for an item the job left out with a reason. A plan with no write counts nothing. |
+| `devops_cli_roadmap_tool_calls_total` | Counter | `1` | Tool calls of the roadmap planner and verifier, by tool, row, toolset and outcome. The outcome ok is a call that gave its result. The outcome empty is a call that ran and found nothing, such as a search with no match. The outcome error is a call that could not run or got no answer. The row is the job row of the run: stage for the planner, stage_verify for the verifier. Each run adds 0 for every tool of its toolset before its first model request. So a tool that no run calls keeps a series. |
+| `devops_cli_roadmap_tool_answer_chars` | Histogram | `{char}` | Characters in the answer of each tool call of the roadmap planner and verifier, after the cut of the tool, by tool, row and toolset. The text of a refusal counts. A call that got no answer adds no observation. |
+| `devops_cli_roadmap_tool_calls_per_run` | Histogram | `{call}` | Tool calls of each run of the roadmap planner and verifier, by row and toolset. A run that raised because a model call failed adds no observation. |
+| `devops_cli_roadmap_tool_limit_hits_total` | Counter | `1` | Runs of the roadmap planner and verifier whose tools ended on a limit, by row, toolset and limit. The limit calls means fewer tool calls were left than a turn needs. The limit requests means one model request was left. The limit window means the messages filled the context window. One count for each run. |
 | `devops_cli_roadmap_item_age_seconds` | Gauge | `s` | Age of the oldest open roadmap item in each status, by repo, state and plan. The state is the status. Plan is true when the item holds a stage pull request. That pull request waits for a person. The age is the time since the status label was set. Zero when no item is in the pair. |
 | `devops_cli_roadmap_oldest_item_number` | Gauge | `1` | Issue number of the oldest open roadmap item in each pair of repo, state and plan. The pair is the one that devops_cli_roadmap_item_age_seconds reports. Zero when no item is in the pair. |
 | `devops_cli_roadmap_claim_age_seconds` | Gauge | `s` | Age of the oldest claim on an open roadmap item, by repo. The age is the time since the owner label was set. Zero when no open item holds a claim. |

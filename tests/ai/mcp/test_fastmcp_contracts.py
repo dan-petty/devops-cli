@@ -1455,11 +1455,12 @@ def test_the_roadmap_tools_build_the_commands_argv() -> None:
     ]
 
 
-def test_roadmap_refine_contract_and_argv() -> None:
+def test_roadmap_refine_contract_and_argv(tmp_path, monkeypatch) -> None:
     from unittest.mock import patch
 
     from devops_cli.ai.mcp.server import roadmap_refine
 
+    monkeypatch.chdir(tmp_path)
     params = _roadmap_tool_parameters("roadmap_refine")
     assert "confirm" in params
 
@@ -1481,13 +1482,13 @@ def test_roadmap_refine_contract_and_argv() -> None:
         all(c[-1] == "--dry-run" for c in calls),
         any("--confirm" in c for c in calls),
     ) == (
-        [*head, "--source", ".", "--limit", "3", "--dry-run"],
+        [*head, "--source", str(tmp_path), "--limit", "3", "--dry-run"],
         [
             *head,
             "--repo",
             "dan-petty/devops-cli",
             "--source",
-            ".",
+            str(tmp_path),
             "--item",
             "744",
             "--limit",
@@ -1597,7 +1598,7 @@ def test_telemetry_profile_reads_the_named_trace() -> None:
     ]
 
 
-def test_docker_sandbox_hands_its_command_over_after_the_options_end(tmp_path) -> None:
+def test_docker_sandbox_hands_its_command_over_after_the_options_end(tmp_path, monkeypatch) -> None:
     """`docker_sandbox` appended `command` straight after its own options (#980).
 
     `devops docker sandbox` parsed a leading `--root` or `--cpus 64` in that list as its own
@@ -1608,6 +1609,7 @@ def test_docker_sandbox_hands_its_command_over_after_the_options_end(tmp_path) -
 
     from devops_cli.ai.mcp.server import docker_sandbox
 
+    monkeypatch.chdir(tmp_path)
     with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
         docker_sandbox(command=["--root", "id"], workspace=str(tmp_path))
     assert run.call_args.args[0][-3:] == ["--", "--root", "id"]

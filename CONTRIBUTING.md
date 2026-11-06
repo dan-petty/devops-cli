@@ -73,6 +73,50 @@ uv run pre-commit install
 
    Several agents share one host, and the full test suite starts one pytest worker for each CPU, so gates that run at once make each other several times slower (11189 tests took 247 s alone and 440 s each beside a second gate). A run that selects `test`, `security` or `typecheck`, and the full-suite `devops ci test` and `devops ci coverage`, therefore wait for a free gate slot first and say which process and worktree hold the slots. One slot exists for each 16 CPUs, and at least one; `ci.gate_slots` (or `DEVOPS_CLI_CI_GATE_SLOTS`) sets the number. The pre-push hook, a test run narrowed by paths or by `-n`, a dry run and a cached verdict never wait. The operating system frees a slot when its holder ends, also when it is killed. The wait is not part of the gate time and is recorded as the histogram `devops_cli_ci_gate_slot_wait_seconds`.
 
+### Shell notes for agents
+
+In the devcontainer, the Bash tool of Claude Code runs zsh. `SHELL` is `/bin/zsh`, because the `common-utils` feature in `.devcontainer/devcontainer.json` makes zsh the default shell of the user `vscode`. The tool of another agent, or a machine outside the devcontainer, can run bash. Run `echo $ZSH_VERSION` to check: it prints a version only in zsh.
+
+In bash, `${=F}`, `${(f)...}` and `print -r --` fail. The forms `printf '%s'`, `$(cmd)` and `"${files[@]}"` work in both shells. Three behaviors cause wrong commands.
+
+1. **zsh does not split an unquoted variable at white space.** A variable that holds a file list is one argument with newlines, and `ruff` reports `io-error`. Split the list with `${=F}`, with an array, or with a `$(cmd)` in the argument list. The git command lists Python files that exist. `ruff` lints a file of another type as Python, and it reports an error for a deleted file:
+
+   ```zsh
+   F=$(git diff --name-only --diff-filter=d origin/main...HEAD -- '*.py')
+   # wrong: one argument with newlines
+   uv run ruff check $F
+   # right, but it splits a name with a space
+   uv run ruff check ${=F}
+   # right, but it splits a name with a space
+   uv run ruff check $(git diff --name-only --diff-filter=d origin/main...HEAD -- '*.py')
+   # right: it splits at newlines and keeps a name with a space
+   files=(${(f)"$(git diff --name-only --diff-filter=d origin/main...HEAD -- '*.py')"})
+   uv run ruff check "${files[@]}"
+   ```
+
+   Git quotes a non-ASCII name. For such a name, use `git diff -z` and split with `${(0)...}`.
+
+2. **A word that starts with `=` and has more text is a command lookup.** `echo =========` prints `======== not found`, and the shell runs nothing else in that command. Print a separator with `printf`:
+
+   ```zsh
+   echo =========           # wrong
+   printf '%s\n' '-----'    # right
+   ```
+
+3. **JSON from `uv run devops gh api` breaks in two ways.** The command writes a `Bytecode compiled` line and an `Elapsed:` line to stderr. In a git worktree, `uv run` also writes a `warning: VIRTUAL_ENV` line. The Bash tool shows these lines around the reply, and a `2>&1` pipe mixes them into the JSON.
+
+   In zsh, `echo "$VAR"` expands backslash escapes. A `\n` in a JSON string then becomes a raw newline, and the parser fails. Pipe stdout directly. Print a variable with `print -r --` or `printf '%s'`. Or read one field with `--jq`:
+
+   ```zsh
+   P=$(uv run devops gh api repos/dan-petty/devops-cli/pulls/<n>)
+   echo "$P" | python3 -m json.tool >/dev/null                                              # wrong: echo expands \n
+   uv run devops gh api repos/dan-petty/devops-cli/pulls/<n> 2>&1 | python3 -m json.tool    # wrong: stderr lines in the JSON
+   print -r -- "$P" | python3 -m json.tool >/dev/null                                       # right, zsh only
+   printf '%s' "$P" | python3 -m json.tool >/dev/null                                       # right, zsh and bash
+   uv run devops gh api repos/dan-petty/devops-cli/pulls/<n> | python3 -m json.tool         # right: a direct pipe carries stdout only
+   uv run devops gh api repos/dan-petty/devops-cli/pulls/<n> --jq .title                    # right: one field
+   ```
+
 ---
 
 ## 4. Git Hygiene & Branch Management

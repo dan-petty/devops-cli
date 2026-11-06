@@ -1,3 +1,8 @@
+# Report a merged defect pull request that adds no guardrail (#3479). docs/SELF_IMPROVEMENT.md
+# (Continuous self-hardening) says that a check that fails when the problem returns guards a
+# defect: a regression test under tests/ or a requirement under openspec/specs/ is such a check,
+# and the audit counts both. The job runs after the merge, so it cannot block the merge. It writes
+# the report to the job summary and files no issue, because an issue from a job has no root cause.
 name: Defect PR Hardening Audit
 
 on:
@@ -8,7 +13,6 @@ on:
 permissions:
   contents: read
   pull-requests: read
-  issues: write
 
 env:
   # uv runs only its own CPython builds, never the runner image's Python (#1494).
@@ -43,40 +47,22 @@ jobs:
         if: "!github.event.pull_request.head.repo.fork"
         uses: ./.github/actions/setup-toolchain
 
-      - name: Run hardening report
-        id: hardening_report
+      # The command exits 0 for a pull request with no guardrail, so the report is the only result.
+      # The step keeps the status of the command, so a pull request that GitHub cannot read still
+      # fails the step.
+      - name: Report hardening
         if: "!github.event.pull_request.head.repo.fork"
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          uv run devops pr hardening-report --pr "$PR_NUMBER" --fail-on-missing
-
-      - name: Hand unhardened defect finding to intake
-        if: failure() && steps.hardening_report.outcome == 'failure' && !github.event.pull_request.head.repo.fork
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          INTAKE_BODY=$(mktemp)
-          cat <<'EOF' > "$INTAKE_BODY"
-          ## Unhardened Defect PR Audit Finding
-
-          Defect Pull Request #${PR_NUMBER} was merged without adding guardrails or lessons to any declared hardening surface.
-
-          ### Declared Hardening Surfaces
-          - `docs/TESTING.md`
-          - `ARCHITECTURE.md`
-          - `SECURITY.md`
-          - `CONTRIBUTING.md`
-          - `src/devops_cli/ai/tasks/*.md`
-          - `src/devops_cli/ai/knowledge_base/`
-          - `.devops/review.toml`
-          - `src/devops_cli/review/rules/`
-
-          Per project invariants (`AGENTS.md`), defect fixes must codify root-cause guardrails into at least one declared surface to prevent recurrent regressions.
-          EOF
-          sed -i "s/\${PR_NUMBER}/${PR_NUMBER}/g" "$INTAKE_BODY"
-          # The runner has no model credential, so the model-based intake command cannot run here. The issue has no priority label, so the next intake round of the Service places it.
-          uv run devops gh issues create --repo "$GITHUB_REPOSITORY" --title "fix(hardening): defect PR #${PR_NUMBER} missing declared surface hardening" --body "$(cat "$INTAKE_BODY")" --label source/agent
+          status=0
+          report=$(COLUMNS=120 uv run devops pr hardening-report --pr "$PR_NUMBER" 2>&1) || status=$?
+          printf '%s\n' "$report"
+          {
+            echo "### Defect PR hardening audit"
+            echo "~~~"
+            printf '%s\n' "$report"
+            echo "~~~"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"

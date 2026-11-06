@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
@@ -18,8 +18,26 @@ from devops_cli.dry_run import dry_run_class, is_dry_run, render_request_plan
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, write_stdout
 
+if TYPE_CHECKING:
+    from devops_cli.config.settings import Settings
+
 _STORE = "roadmap_eval/verify"
 _TASK = "verification"
+
+
+def _review_model(settings: Settings, model: str | None) -> Any:
+    """The pydantic-ai model of the review: the model of the task `verification`, or `--model` in
+    its place with the rest of the task, such as its provider and its sampling (#3039). The review
+    reads the repository with the read tools, so it needs this model and not only the client of
+    the task."""
+    from devops_cli.ai.client.factory import get_task_model
+
+    if model is None:
+        return get_task_model(_TASK, settings=settings)
+    override = settings.ai.tasks.verification.model_copy(update={"model": model})
+    tasks = settings.ai.tasks.model_copy(update={_TASK: override})
+    ai = settings.ai.model_copy(update={"tasks": tasks})
+    return get_task_model(_TASK, settings=settings.model_copy(update={"ai": ai}))
 
 
 def _run(
@@ -36,6 +54,7 @@ def _run(
     from devops_cli.config.settings import load_settings
     from devops_cli.roadmap.intake_model import gateway_address
     from devops_cli.roadmap.stage_eval_cases import load_cases, select_cases
+    from devops_cli.roadmap.stage_toolbox import ToolboxModel
     from devops_cli.roadmap.stage_verify_eval import (
         evaluate_cases,
         planned_verify_calls,
@@ -54,7 +73,8 @@ def _run(
         return
     client = get_llm_client(task=_TASK, settings=settings, model=model)
     name = model or settings.ai.for_task(_TASK).model
-    score = evaluate_cases(name, cases, client, source or find_repo_root())
+    review = ToolboxModel(_review_model(settings, model))
+    score = evaluate_cases(name, cases, client, source or find_repo_root(), toolbox=review)
     now = datetime.now(UTC)
     report = verify_json(score, gateway=gateway, taken=now.isoformat(timespec="seconds"))
     target = resolve_store_path(f"{_STORE}/{now:%Y%m%dT%H%M%SZ}.json")

@@ -550,10 +550,81 @@ def test_the_comment_lists_the_tool_calls_and_the_counts_of_the_plan_run(
 
     (comment,) = _comments(store)
     assert applied.staged == (1,)
-    assert "The plan run made 2 model request(s)" in comment
+    assert "The runs of the planner and the review made 2 model request(s)" in comment
     assert '1. `read_file({"path":"src/devops_cli/sample.py"})`' in comment
     assert "input tokens" in comment
     assert "output tokens" in comment
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_counts_the_calls_of_each_tool_in_one_line_in_alphabetical_order(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    script = Script(
+        call("read_file", path="src/devops_cli/sample.py"),
+        call("list_files", directory="src"),
+        call("read_file", path="src/devops_cli/sample.py"),
+        make_stage_proposal(),
+    )
+
+    _stage(store, stage_repo, toolbox=script)
+
+    (comment,) = _comments(store)
+    lines = [line for line in comment.splitlines() if line.startswith("Tool calls:")]
+    assert lines == ["Tool calls: list_files=1 (empty=0), read_file=2 (empty=0)"]
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_counts_the_empty_answers_of_a_tool(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    script = Script(
+        call("search_code", text="a text that no file holds"),
+        call("search_code", text="another text that no file holds"),
+        call("read_file", path="src/devops_cli/sample.py"),
+        make_stage_proposal(),
+    )
+
+    _stage(store, stage_repo, toolbox=script)
+
+    (comment,) = _comments(store)
+    assert "Tool calls: read_file=1 (empty=0), search_code=2 (empty=2)" in comment
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_of_an_item_with_two_plan_runs_sums_the_calls_of_each_tool(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    stage_repo.track({"tests/security/test_scanner_tool_executor.py": ""})
+    group = make_stage_proposal().groups[0]
+    refused = make_stage_proposal(
+        groups=[
+            group.model_copy(
+                update={"changes": [*group.changes, "tests/test_scanner_tool_executor.py"]}
+            )
+        ]
+    )
+    script = Script(
+        call("read_file", path="src/devops_cli/sample.py"),
+        refused,
+        call("read_file", path="src/devops_cli/sample.py"),
+        make_stage_proposal(),
+    )
+
+    _stage(store, stage_repo, toolbox=script)
+
+    (comment,) = _comments(store)
+    assert "Tool calls: read_file=2 (empty=0)" in comment
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_of_an_item_that_made_no_tool_call_has_no_line_of_tool_counts(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    _stage(store, stage_repo, toolbox=Script(make_stage_proposal()))
+
+    (comment,) = _comments(store)
+    assert "Tool calls:" not in comment
 
 
 @pytest.mark.usefixtures("model_fake")
@@ -563,7 +634,7 @@ def test_the_comment_of_an_item_that_made_no_tool_call_says_so(
     _stage(store, stage_repo, toolbox=Script(make_stage_proposal()))
 
     (comment,) = _comments(store)
-    assert "The plan run made 1 model request(s)" in comment
+    assert "The runs of the planner and the review made 1 model request(s)" in comment
     assert "The model made no tool call." in comment
 
 
@@ -632,7 +703,7 @@ def test_the_comment_of_an_item_with_two_plan_runs_lists_the_calls_of_both_and_s
     _stage(store, stage_repo, toolbox=script)
 
     (comment,) = _comments(store)
-    assert "The plan run made 4 model request(s)" in comment
+    assert "The runs of the planner and the review made 4 model request(s)" in comment
     first = comment.index("1. `list_files(")
     second = comment.index("2. `read_file(")
     assert first < second

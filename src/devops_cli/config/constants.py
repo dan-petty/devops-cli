@@ -265,6 +265,10 @@ CONST_MCP_DOMAINS: Final[frozenset[str]] = frozenset(
     CONST_MCP_EAGER_DOMAINS | CONST_MCP_LAZY_DOMAINS | {"github", "secrets", "benchmarks"}
 )
 # Command exposure table: (command_path, timeout_seconds, read_only, format_json)
+# A role server and a client choose tools by the read-only flag. A tool with an option that writes
+# to GitHub or to a file is not read-only, or its schema leaves that option out.
+# `tests/ai/mcp/test_mcp_read_only_write_options.py` finds such an option by the verbs resolve,
+# write, delete and create in its description (#3235).
 CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool], ...]] = (
     (("ai", "ast", "graph"), 60.0, True, False),
     (("ai", "ast", "parse"), 60.0, True, True),
@@ -297,7 +301,8 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("argo", "fleet", "sync"), 300.0, False, True),
     (("argo", "rollouts", "analyze"), 300.0, False, True),
     (("branches", "list"), 60.0, True, False),
-    (("ci",), 360.0, True, False),
+    # `--fix` is on by default and rewrites files (#3235).
+    (("ci",), 360.0, False, False),
     (("config", "audit-keys"), 30.0, True, False),
     (("config", "output"), 30.0, True, True),
     (("config", "show"), 30.0, True, False),
@@ -348,7 +353,8 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("k8s", "status"), 60.0, True, False),
     (("k8s", "teardown-stack"), 180.0, False, False),
     (("k8s", "validate"), 60.0, True, False),
-    (("pr", "check-readiness"), 60.0, True, False),
+    # `--auto-resolve` resolves review threads on GitHub (#3235).
+    (("pr", "check-readiness"), 60.0, False, False),
     (("pr", "checks"), 60.0, True, False),
     (("pr", "close"), 60.0, False, False),
     (("pr", "describe"), 60.0, True, False),
@@ -371,8 +377,10 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("review", "pr"), 300.0, False, False),
     (("review", "stats"), 60.0, True, False),
     (("roadmap", "intake"), 300.0, False, False),
-    (("roadmap", "refine"), 300.0, True, False),
-    (("roadmap", "run"), 300.0, True, False),
+    # `--confirm` writes the proposed designs to GitHub (#3235).
+    (("roadmap", "refine"), 300.0, False, False),
+    # `--confirm` runs the jobs that write to GitHub (#3235).
+    (("roadmap", "run"), 300.0, False, False),
     (("sandbox", "deploy"), 300.0, False, False),
     (("sandbox", "exec"), 300.0, False, False),
     (("sandbox", "network-policy"), 300.0, True, False),
@@ -1542,6 +1550,10 @@ CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES: Final[str] = "devops_cli_service_webhoo
 CONST_SERVICE_METRIC_TRIGGERS: Final[str] = "devops_cli_service_triggers_total"
 CONST_SERVICE_METRIC_JOBS: Final[str] = "devops_cli_service_jobs_total"
 CONST_SERVICE_METRIC_JOB_SECONDS: Final[str] = "devops_cli_service_job_seconds_total"
+# The `result` values of the jobs counter: a stop of the Service is no failure of its row (#2753).
+CONST_SERVICE_JOB_RESULT_SUCCESS: Final[str] = "success"
+CONST_SERVICE_JOB_RESULT_ERROR: Final[str] = "error"
+CONST_SERVICE_JOB_RESULT_STOPPED: Final[str] = "stopped"
 # The time the last job of a lane started, or the time its worker started before its first job
 # (#2505).
 CONST_SERVICE_METRIC_JOB_START_TIMESTAMP: Final[str] = (
@@ -1565,6 +1577,13 @@ CONST_SERVICE_METRIC_JOB_SUSPENDED: Final[str] = "devops_cli_service_job_suspend
 CONST_SERVICE_METRIC_IMPLEMENT_FAILURES: Final[str] = "devops_cli_service_implement_failures_total"
 # Counts chat commands handled through the webhook router by `command` and `result` (#1395).
 CONST_SERVICE_METRIC_CHAT_COMMANDS: Final[str] = "devops_cli_service_chat_commands_total"
+# The `command` label of the chat command that the webhook router counts, and its `result` values:
+# each one exists at zero from the start, so the constants serve the route and its priming (#3495).
+CONST_SERVICE_CHAT_COMMAND_ROADMAP: Final[str] = "/roadmap"
+CONST_SERVICE_CHAT_RESULT_USAGE: Final[str] = "usage"
+CONST_SERVICE_CHAT_RESULT_STATUS: Final[str] = "status"
+CONST_SERVICE_CHAT_RESULT_UNKNOWN_REPO: Final[str] = "unknown_repo"
+CONST_SERVICE_CHAT_RESULT_ERROR: Final[str] = "error"
 # The Service's window for its GitHub request budget (#2161).
 CONST_SERVICE_BUDGET_WINDOW_SECONDS: Final[int] = 3600
 # What the Service keeps on its volume so that a restart does not clear it (#2474), each a file in
@@ -3036,6 +3055,9 @@ CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS: Final[int] = 24
 # Every comment refine posts carries this marker, so a later round tells a person's reply from
 # refine's own comments: a comment after refine's last one is a reply (#1758).
 CONST_ROADMAP_REFINE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap refine: next step -->"
+# The comment that tells the author of an item why a round leaves it alone carries this marker,
+# so a later round writes no second one (#3502).
+CONST_ROADMAP_REFINE_OUTSIDE_MARKER: Final[str] = "<!-- devops roadmap refine: outside author -->"
 # What a proposal's `suspected_block` holds when it names no block, lower-cased.
 CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS: Final[frozenset[str]] = frozenset({"", "none", "null"})
 # The newest replies that reach the model, each cut to this many tokens (#1758).
@@ -3119,6 +3141,12 @@ CONST_ROADMAP_STAGE_PROBE_DEFINITION_LINES: Final[int] = 3
 CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS: Final[int] = 6000
 CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS: Final[int] = 1500
 CONST_ROADMAP_STAGE_VERIFY_MAX_FILES: Final[int] = 30
+# The repair rounds of a plan that the verification pass returns (#3039): the planner revises the
+# plan at most this many times, so a plan costs at most three verification runs.
+CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS: Final[int] = 2
+# The recall floor of the verification pass (#3039, #3207): the share of the blocker and major
+# defects of the golden set that the pass must find. `docs/ROADMAP_WORKFLOW.md` states the same floor.
+CONST_ROADMAP_VERIFY_RECALL_FLOOR: Final[float] = 0.9
 # `devops roadmap alternatives` (#2650): the block the job keeps in an issue body, the marker of
 # its comment (a comment after the job's last one is a reply), the most searches and fact reads of
 # one item's check, and how long a tool may go without a push or an upload and stay maintained.
@@ -3137,6 +3165,11 @@ CONST_ROADMAP_ALTERNATIVES_CLASSIFIER_SEPARATOR: Final[str] = " :: "
 # The longest body, in tokens, that reaches the model with an item: a quarter of the planner window
 # of 65,536 tokens that the example ConfigMap sets (#3206).
 CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS: Final[int] = 16384
+# The ADRs of a repository, as the check reads them (#3505): the directory that holds them, and the
+# most tokens of their titles and options that reach the model with an item, half of the body cap.
+# The 17 ADRs of this repository hold about 6,000 tokens of options.
+CONST_ROADMAP_ADR_DIRECTORY: Final[str] = "docs/adr"
+CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS: Final[int] = 8192
 # The class of error that the job records for a reply it refused (#2949): a refusal raises no
 # exception, so it has no class of its own.
 CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR: Final[str] = "RefusedReply"
@@ -3400,6 +3433,11 @@ CONST_ROADMAP_PRIORITY_VALUES: Final[tuple[str, ...]] = (
 CONST_ROADMAP_P0_PRIORITIES: Final[frozenset[str]] = frozenset(
     {CONST_ROADMAP_CRITICAL_PRIORITY, CONST_ROADMAP_P0_PRIORITY}
 )
+# The Priority values of an item that the stage job plans at `roadmap.stage.planned_limit` (#3692).
+CONST_ROADMAP_PLANNED_LIMIT_PRIORITIES: Final[tuple[str, ...]] = (
+    CONST_ROADMAP_CRITICAL_PRIORITY,
+    CONST_ROADMAP_P1_PRIORITY,
+)
 CONST_ROADMAP_CRITICAL_FIX_LABELS: Final[frozenset[str]] = frozenset({"type/bug", "type/security"})
 # An Item's Owner values, in the order of their labels' family (`owner/service`, ...; ADR 0016,
 # #2910). The Service claims an Item for the Job it creates, an agent and a person claim by hand.
@@ -3416,12 +3454,21 @@ CONST_ROADMAP_OWNER_VALUES: Final[tuple[str, ...]] = (
 CONST_ROADMAP_INTAKE_REASON_MARKER: Final[str] = "<!-- devops roadmap intake: reason -->"
 # The stage job's comment marker (#2654).
 CONST_ROADMAP_STAGE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap stage -->"
+# The second marker of the stage job's comment that carries the reason of a rejected plan (#3503):
+# a plan pull request that a person closed with no merge. The comment also holds the stage marker.
+CONST_ROADMAP_STAGE_REJECTED_MARKER: Final[str] = "<!-- devops roadmap stage: rejected plan -->"
+# Both markers of a comment of the stage job: a reader that gives its text to a model removes them.
+CONST_ROADMAP_STAGE_COMMENT_MARKERS: Final[tuple[str, ...]] = (
+    CONST_ROADMAP_STAGE_COMMENT_MARKER,
+    CONST_ROADMAP_STAGE_REJECTED_MARKER,
+)
 # The comment marker of `devops roadmap retitle` (#3486).
 CONST_ROADMAP_RETITLE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap retitle -->"
 # The marker of every roadmap job's comment: a comment that holds none of them is a person's.
 CONST_ROADMAP_JOB_COMMENT_MARKERS: Final[tuple[str, ...]] = (
     CONST_ROADMAP_RETITLE_COMMENT_MARKER,
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
+    CONST_ROADMAP_REFINE_OUTSIDE_MARKER,
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
     CONST_ROADMAP_INTAKE_REASON_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
@@ -3481,6 +3528,10 @@ CONST_ROADMAP_SIZE_OPTIONS: Final[tuple[str, ...]] = ("High", "Medium", "Low")
 CONST_ROADMAP_TRUSTED_AUTHORS: Final[frozenset[str]] = frozenset(
     {"OWNER", "MEMBER", "COLLABORATOR"}
 )
+# The login of the bot that the workflows of a repository act as. The jobs take an item that it
+# opened, as they take an item of the Service App's bot (`service.github_app.bot_login`), when a
+# review approves the item (#3502).
+CONST_ROADMAP_ACTIONS_BOT_LOGIN: Final[str] = "github-actions[bot]"
 # What each kind of P0 evidence looks like: a GHSA ID, an Actions run id, a commit SHA.
 CONST_ROADMAP_EVIDENCE_PATTERNS: Final[dict[str, re.Pattern[str]]] = {
     "advisory": re.compile(r"GHSA(-[23456789cfghjmpqrvwx]{4}){3}"),
@@ -4010,17 +4061,6 @@ CONST_PR_CLOSING_ISSUE_LABELS_PAGE: Final[int] = 100
 # The `gh pr list --author` value `devops pr update --all` lists with: the account gh runs as,
 # so a pull request that a bot or another person owns is never updated.
 CONST_PR_UPDATE_AUTHOR: Final[str] = "@me"
-# The declared surfaces where defect pull requests must record hardening guardrails or lessons (#697, #1151, #1979).
-CONST_HARDENING_SURFACES: Final[tuple[str, ...]] = (
-    "docs/TESTING.md",
-    "ARCHITECTURE.md",
-    "SECURITY.md",
-    "CONTRIBUTING.md",
-    "src/devops_cli/ai/tasks/*.md",
-    "src/devops_cli/ai/knowledge_base/",
-    ".devops/review.toml",
-    "src/devops_cli/review/rules/",
-)
 # Conventional commit title pattern identifying a bug fix pull request (#697).
 CONST_DEFECT_TITLE_PATTERN: Final[str] = r"^fix(?:\([^()]*\))?!?:\s*"
 

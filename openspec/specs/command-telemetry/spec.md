@@ -106,7 +106,7 @@ When a delegated devops command reports its own failure and exits with a non-zer
 - **THEN** `devops_cli_subcommand_duration_seconds` has one point with the `command` `alone` and the `sub_command` `alone`
 
 ### Requirement: The devops-cli dashboard finds each sub-command from its series
-The `command` variable of `k8s/monitoring/dashboards/devops-cli.json` SHALL read its values with `label_values(devops_cli_command_total, command)`. The multi-value variable `sub_command`, with All, SHALL read its values with `label_values(devops_cli_subcommand_duration_seconds{command=~"$command"}, sub_command)`. The row "Sub-commands" SHALL hold the panel "Sub-command Calls" and the panel "Telemetry: $sub_command", which repeats for each selected sub-command.
+The `command` variable of `k8s/monitoring/dashboards/devops-cli.json` SHALL read its values with `label_values(devops_cli_command_total{job=~"$job"}, command)`. The multi-value variable `sub_command`, with All, SHALL read its values with `label_values(devops_cli_subcommand_duration_seconds{job=~"$job",command=~"$command"}, sub_command)`. The row "Sub-commands" SHALL hold the panel "Sub-command Calls" and the panel "Telemetry: $sub_command", which repeats for each selected sub-command.
 
 #### Scenario: The variables are queries
 - **WHEN** the dashboard file is read
@@ -115,7 +115,7 @@ The `command` variable of `k8s/monitoring/dashboards/devops-cli.json` SHALL read
 #### Scenario: The latency panel repeats by sub-command
 - **WHEN** the dashboard file is read
 - **THEN** the panel "Telemetry: $sub_command" repeats by `sub_command`, four to a line
-- **AND** each query of the row filters `devops_cli_subcommand_duration_seconds` by `$command` and `$sub_command`
+- **AND** each query of the row filters `devops_cli_subcommand_duration_seconds` by `$job`, `$command` and `$sub_command`
 
 ### Requirement: A span starts without VCS attributes when the working directory is gone
 The telemetry client SHALL start a span, with no `vcs.*` attribute and no exception, when the working directory of the process no longer exists. When the working directory exists and lies inside a git repository, the span SHALL hold the branch and the revision of that repository in its `vcs.*` attributes.
@@ -127,3 +127,18 @@ The telemetry client SHALL start a span, with no `vcs.*` attribute and no except
 #### Scenario: The working directory is inside a git repository
 - **WHEN** the working directory holds a `.git` directory whose `HEAD` names a branch and whose branch file holds a revision, and a client starts a span
 - **THEN** the span holds that branch in `vcs.ref.name` and `vcs.branch`, and that revision in `vcs.revision_id` and `vcs.commit`
+
+### Requirement: The devops-cli dashboard filters by job
+The dashboard `k8s/monitoring/dashboards/devops-cli.json` SHALL have the multi-value query variable `job`, with All, as its first variable. It SHALL read its values with `label_values({__name__=~"devops_cli_command_total|devops_cli_github_requests_total"}, job)`. Each Prometheus query of the dashboard SHALL filter each `devops_cli_*` series with the matcher `job=~"$job"` first in its selector.
+
+#### Scenario: The job variable is a query
+- **WHEN** the dashboard file is read
+- **THEN** the first variable is `job`, a query variable of the Prometheus datasource with Multi-value and All, and it holds no fixed options
+
+#### Scenario: The job variable reads a series that the Service sends as it works
+- **WHEN** the query of the variable `job` is read
+- **THEN** its selector holds `devops_cli_command_total` and `devops_cli_github_requests_total`
+
+#### Scenario: Each query filters by job
+- **WHEN** each Prometheus query of the dashboard file is read
+- **THEN** each `devops_cli_*` series in the query has a selector that starts with `job=~"$job"`

@@ -617,7 +617,8 @@ def test_job_error_handling_and_metrics() -> None:
         CONST_SERVICE_METRIC_JOBS,
         labels={"repo": "example-org/repo1", "lane": LANE, "result": "success"},
     )
-    assert (err_count, succ_count >= 1.0) == (1.0, True)
+    # A lane job with no row counts no job: jobs_total counts the rows of a roadmap lane (#3495).
+    assert (err_count, succ_count) == (0.0, 0.0)
 
 
 def test_readyz_and_healthz_lifecycle() -> None:
@@ -1144,8 +1145,9 @@ def test_repo_worker_logs_configuration_errors_without_traceback(
     success_count_after = GLOBAL_METRICS.get_counter_value(
         CONST_SERVICE_METRIC_JOBS, labels={**counter_labels, "result": "success"}
     )
-    assert err_count_after - err_count_before == 5.0
-    assert success_count_after - success_count_before == 1.0
+    # The worker counts no job: jobs_total counts the rows of a roadmap lane (#3495).
+    assert err_count_after - err_count_before == 0.0
+    assert success_count_after - success_count_before == 0.0
 
     # JsonLogFormatter formatting
     formatter = JsonLogFormatter()
@@ -1196,8 +1198,9 @@ def test_a_round_that_the_stop_of_the_service_ends_counts_as_stopped_and_logs_no
 
     last = worker.last_round
     assert last is not None
+    # The worker counts no job of a round: jobs_total counts the rows of a roadmap lane (#3495).
     assert (counted("stopped") - before[0], counted("error") - before[1], last.result) == (
-        1.0,
+        0.0,
         0.0,
         "stopped",
     )
@@ -1655,7 +1658,7 @@ def test_metrics_show_a_stalled_model_lane_by_its_queue_depth() -> None:
         exported_as(CONST_SERVICE_METRIC_JOB_START_TIMESTAMP, f'lane="model",{repo}'),
         exported_as(CONST_SERVICE_METRIC_JOBS, f'lane="model",{repo},result="success"'),
         lanes.model_released,
-    ) == (True, True, True, True, True, False, True)
+    ) == (True, True, False, True, True, False, True)
 
 
 def test_a_budget_refusal_in_the_model_lane_holds_the_status_lane_too() -> None:
@@ -1789,7 +1792,7 @@ def _delivery_series(client: TestClient) -> dict[tuple[str, str, str], float]:
         (sample.labels["provider"], sample.labels["event"], sample.labels["outcome"]): sample.value
         for family in text_string_to_metric_families(client.get("/metrics").text)
         for sample in family.samples
-        if sample.name == CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES
+        if sample.name == CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES and sample.value > 0
     }
 
 

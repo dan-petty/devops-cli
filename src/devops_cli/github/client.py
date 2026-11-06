@@ -75,7 +75,8 @@ class PullRequest(BaseModel):
 
 class PullStatus(BaseModel):
     """Whether a pull request is open, a draft, or merged (#2665), the commit of its head
-    (#2865), and the labels it holds (#3264). `head_sha` is empty when GitHub names no head."""
+    (#2865), the labels it holds (#3264) and when it closed (#3503). `head_sha` is empty when
+    GitHub names no head, and `closed_at` is None for a pull request that is open."""
 
     model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
@@ -85,6 +86,7 @@ class PullStatus(BaseModel):
     head_sha: str = Field(default="", validation_alias=AliasPath("head", "sha"))
     head_ref: str = Field(default="", validation_alias=AliasPath("head", "ref"))
     labels: tuple[str, ...] = ()
+    closed_at: datetime | None = None
 
     @field_validator("labels", mode="before")
     @classmethod

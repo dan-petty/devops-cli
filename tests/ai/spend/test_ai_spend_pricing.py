@@ -721,6 +721,86 @@ def test_a_gateway_call_is_local_by_the_backend_that_served_it(
     ] == [True, True, False, True, False]
 
 
+def test_a_gateway_reply_that_names_a_deployment_model_and_no_backend_is_hosted(
+    config: Callable[..., Path],
+) -> None:
+    """Verify a hosted group sets no `api_base`, so its reply names a deployment model and no
+    backend. That call is hosted behind a loopback gateway, a configured gateway host and a
+    gateway with no server, while a reply that names a local backend stays local."""
+    from devops_cli.ai.spend.pricing import is_local
+
+    config(k8s={"domain": "example.com"}, ai={"gateway_url": "https://gw.example.com/v1"})
+    claude = "anthropic/claude-haiku-5-5"
+    cluster_ollama = "http://ollama-16gib.llm.svc.cluster.local:11434"
+
+    assert [
+        is_local("localhost:4000", "gateway", served_model=claude),
+        is_local("gw.example.com", "gateway", served_model=claude),
+        is_local(None, "gateway", served_model=claude),
+        is_local("localhost:4000", "gateway", served_by=cluster_ollama, served_model=claude),
+        is_local("localhost:4000", "gateway", served_model=" "),
+    ] == [False, False, False, True, True]
+
+
+@pytest.mark.parametrize(
+    ("model", "served_model", "source"),
+    [
+        ("claude-haiku-5-5", "anthropic/claude-haiku-5-5", "genai_prices:anthropic"),
+        ("claude-sonnet-5-5", "anthropic/claude-sonnet-5-5", "genai_prices:anthropic"),
+        ("gemini-3.8-flash", "gemini/gemini-3.8-flash", "genai_prices:google"),
+    ],
+)
+def test_a_hosted_group_behind_a_loopback_gateway_is_priced_by_genai_prices(
+    tmp_path: Path, model: str, served_model: str, source: str
+) -> None:
+    """Verify the Claude and Gemini groups of the gateway cost money: the reply names the
+    deployment model and no backend, and genai-prices prices the model."""
+    registry = PricingRegistry(data_dir=tmp_path)
+
+    cost = registry.calculate_request_cost(
+        model,
+        1_000_000,
+        100_000,
+        server="127.0.0.1:4200",
+        provider="gateway",
+        served_model=served_model,
+    )
+
+    assert (cost.pricing_source, cost.cost_usd > 0) == (source, True)
+
+
+def test_a_hosted_group_that_nothing_prices_warns_with_the_command_that_sets_a_price(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verify the DeepSeek group, which genai-prices does not list, is hosted at $0 with the
+    source `unknown`, and that its one warning names the command that sets a price, and a price
+    override of the deployment model prices it."""
+    deepseek = "openrouter/deepseek/deepseek-v4.1-flash-1017:floor"
+    registry = PricingRegistry(data_dir=tmp_path)
+    call = {
+        "model": "deepseek-v4.1-flash-1017",
+        "server": "127.0.0.1:4200",
+        "provider": "gateway",
+        "served_model": deepseek,
+    }
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.ai.spend.pricing"):
+        unpriced = [registry.calculate_request_cost(**call, prompt_tokens=10, completion_tokens=1)]
+        unpriced.append(
+            registry.calculate_request_cost(**call, prompt_tokens=10, completion_tokens=1)
+        )
+    registry.set_custom_pricing("deepseek-v4.1-flash-1017:floor", 0.05, 0.192)
+    priced = registry.calculate_request_cost(
+        **call, prompt_tokens=1_000_000, completion_tokens=1_000_000
+    )
+
+    assert (
+        [(c.cost_usd, c.pricing_source) for c in unpriced],
+        [r.getMessage().count("devops ai cost set-price") for r in caplog.records],
+        (priced.cost_usd, priced.pricing_source),
+    ) == ([(0.0, "unknown")] * 2, [1], (0.242, "custom_override"))
+
+
 def _settings_loads_of(call: Callable[[], object]) -> int:
     """The number of times `call` runs `load_settings`, counted by a profile hook, so the test
     patches no devops-cli name (#1420)."""
@@ -885,7 +965,7 @@ def test_an_unknown_hosted_model_is_priced_unknown_and_warns_once(
         RequestCost(2.5, "genai_prices:openai"),
         RequestCost(0.0, "local"),
         [
-            "genai-prices and the price overrides hold no price for model gpt-9-preview under provider openai. Its requests are recorded at $0 with the pricing source unknown."
+            "genai-prices and the price overrides hold no price for model gpt-9-preview under provider openai. Its requests are recorded at $0 with the pricing source unknown. To set a price, run 'devops ai cost set-price gpt-9-preview <prompt_rate> <completion_rate>'."
         ],
     )
 
@@ -942,7 +1022,7 @@ def test_a_gateway_call_is_priced_at_the_litellm_reference_of_its_deployment_mod
         ],
         RequestCost(0.0, "local"),
         [
-            "genai-prices and the price overrides hold no price for model openai/gpt-9-preview under provider litellm. Its requests are recorded at $0 with the pricing source unknown."
+            "genai-prices and the price overrides hold no price for model openai/gpt-9-preview under provider litellm. Its requests are recorded at $0 with the pricing source unknown. To set a price, run 'devops ai cost set-price openai/gpt-9-preview <prompt_rate> <completion_rate>'."
         ],
     )
 

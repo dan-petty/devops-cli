@@ -854,9 +854,9 @@ between the runs of a comparison, or the claims judged after an earlier run are 
 shown to the personas of, the runs after it.
 
 To compare models rather than prompts, run every arm from one checkout and pin each arm's model
-from the shell. Each model `devops-review` serves has a gateway group of its own
-(`qwen3.8:27b`, `gpt-oss:20b`). The group of `gpt-oss:20b` has the pool's deployment and no fallback.
-`DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL` names that group for the analysis task. `devops review benchmark
+from the shell. The model that `devops-review` serves has a gateway group of its own
+(`qwen3.8:27b`), and each hosted model has one too.
+`DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL` names a group for the analysis task. `devops review benchmark
 --no-static-scan` keeps scanner findings out of the model's recall. With `DEVOPS_CLI_DATA_DIR`
 unset, `DEVOPS_CLI_DATA_REVIEWS_DIR` and `DEVOPS_CLI_DATA_ANALYSIS_DIR` give each arm its own
 sessions and pre-analysis metadata, which also keeps its sessions out of `devops review stats`.

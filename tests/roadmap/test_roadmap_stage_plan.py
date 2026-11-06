@@ -1889,6 +1889,28 @@ def test_check_proposal_accepts_a_recorded_hit_that_survives_the_change() -> Non
     assert _search_problems(_move_plan(DOTTED), {"devops_cli.roadmap.stage_": (STAGE_OLD,)}) == []
 
 
+E_MOVE = (
+    "! git grep -n -e devops_cli.roadmap.stage_ready -e devops_cli.roadmap.stage -- src/ tests/"
+)
+
+
+def test_a_move_group_checks_each_e_literal() -> None:
+    evidence = {
+        "devops_cli.roadmap.stage_ready": (STAGE_OLD,),
+        "devops_cli.roadmap.stage": (STAGE_OLD,),
+    }
+
+    assert _search_problems(_move_plan(E_MOVE), evidence) == [
+        f"Group 1 gives the `verify` command `{E_MOVE}` for the moved prefix `stage`, and its "
+        "literal `devops_cli.roadmap.stage` names one module of the moved prefix. Search the "
+        "dotted prefix, such as `devops_cli.roadmap.stage_`, so the check covers every module.",
+        f"Group 1 gives the `verify` command `{E_MOVE}` with the literal "
+        f"`devops_cli.roadmap.stage`, and the plan creates `{STAGE_PACKAGE}`, whose import path "
+        "`devops_cli.roadmap.stage.ready` contains the literal. The search can never pass on the "
+        "produced tree. Search a name that the plan does not keep.",
+    ]
+
+
 # ── The requirement that the base spec already has (#3013) ────────────────────
 
 DUPLICATE_PROBLEM = (

@@ -9,8 +9,8 @@ Two rules take it out of Blocked, and the row `implement` runs them before it pl
 - **`digest`**: the digest in the template of CronJob `devops-cli-runner` differs from
   `implement.job_digest`, the digest of the Job that left the stop, and the class of the stop has the
   action `retry` in `ACTION_BY_CLASS` (#3481). A new runner image may fix the cause of such a stop,
-  so the Service tries the item once more. A new image cannot fix a plan, a premise, a refused tool
-  or a failed test, so a stop of another class, or with no class on record, waits for a retry.
+  so the Service tries the item once more. A new image cannot fix a plan, a premise, a refused tool,
+  a failed test or a lost test, so a stop of another class, or with no class on record, waits for a retry.
 
 A clear removes `implement.stopped`, sets the Status that `derive_status` gives (Ready, or Planned
 when the plan is on the default branch), and comments the rule that ran.

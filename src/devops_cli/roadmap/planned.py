@@ -23,6 +23,7 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_ARCHIVED_DIR_RE,
     CONST_OPENSPEC_CHANGE_DIR_RE,
     CONST_OPENSPEC_CHANGES_DIR,
+    CONST_ROADMAP_PLANNED_LIMIT_PRIORITIES,
     CONST_ROADMAP_STATUS_PLANNED,
 )
 from devops_cli.roadmap.clone_git import default_branch, git
@@ -54,6 +55,12 @@ def planned_count(items: Iterable[Item]) -> int:
         for item in items
         if item.state is GitHubState.OPEN and item.status == CONST_ROADMAP_STATUS_PLANNED
     )
+
+
+def planned_limit_priorities() -> str:
+    """The priorities that the stage job plans at the limit (#3692), as the texts of the job and
+    the inbox name them."""
+    return " or ".join(CONST_ROADMAP_PLANNED_LIMIT_PRIORITIES)
 
 
 def _folders(listing: str, pattern: re.Pattern[str]) -> dict[int, str]:

@@ -673,31 +673,37 @@ def test_the_copy_pods_mount_each_claim_on_its_own_node(
     ]
 
 
+def _copy_sides(process_fake: ProcessFake) -> tuple[list[str], list[str]]:
+    """The two sides of the pipe of the copy as words, each with its redirection last."""
+    script = next(call.argv[-1] for call in process_fake.calls if call.argv[0] == "bash")
+    _, _, pipe = script.partition(" && kubectl")
+    source, destination = (
+        shlex.split(side.replace(' <"', ' < "').replace(' >"', ' > "'))
+        for side in f"kubectl{pipe}".split(" | ")
+    )
+    return source, destination
+
+
 def test_the_copy_pipes_gnu_tar_between_the_two_pods_through_the_api_server(
     cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
 ) -> None:
     _move(tmp_path)
 
-    script = next(call.argv[-1] for call in process_fake.calls if call.argv[0] == "bash")
-    source, destination = (shlex.split(side) for side in script.split(" | "))
-    assert (source, destination) == (
+    source, destination = _copy_sides(process_fake)
+    assert (source[:-2], destination[:-2]) == (
         [
             "kubectl",
             "--context",
             CONTEXT,
             "exec",
+            "-i",
             "grafana-src",
             "-n",
             NAMESPACE,
             "--",
-            "tar",
-            "-C",
-            "/src",
-            "--numeric-owner",
-            "--sparse",
-            "-cpf",
-            "-",
-            ".",
+            "bash",
+            "-c",
+            "tar -C /src --numeric-owner --sparse -cpf - . && exec cat",
         ],
         [
             "kubectl",
@@ -716,6 +722,29 @@ def test_the_copy_pipes_gnu_tar_between_the_two_pods_through_the_api_server(
             "-xpf",
             "-",
         ],
+    )
+
+
+def test_the_source_of_the_copy_holds_until_the_destination_ended(
+    cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """The destination's stdout is the source's stdin, so its end is the source's end of input."""
+    _move(tmp_path)
+
+    source, destination = _copy_sides(process_fake)
+    assert source[-2:] == ["<", "$hold/end"]
+    assert destination[-2:] == [">", "$hold/end"]
+
+
+def test_the_copy_makes_the_pipe_that_holds_the_source_and_removes_it(
+    cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    _move(tmp_path)
+
+    script = next(call.argv[-1] for call in process_fake.calls if call.argv[0] == "bash")
+    setup, _, _ = script.partition("kubectl")
+    assert setup == (
+        """hold=$(mktemp -d) && trap 'rm -rf "$hold"' EXIT && mkfifo "$hold/end" && """
     )
 
 

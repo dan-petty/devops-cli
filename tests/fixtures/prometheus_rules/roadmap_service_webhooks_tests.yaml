@@ -5,9 +5,9 @@
 #
 # tests/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files` names,
 # beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each
-# series at time 0, with one sample each `interval`. A label set of rejected deliveries with no
-# sample in the 15 minutes before the range started in the range, and the rule gives its last
-# value (#2505). Each other series gives its increase(), which promtool extrapolates to the range.
+# series at time 0, with one sample each `interval`. The Service starts each label set of rejected
+# deliveries at zero (#3495), so the rule reads each series with its increase(), which promtool
+# extrapolates to the range, and needs no workaround term (#2505 before #3495).
 rule_files:
   - roadmap-service-webhooks.rules.yaml
 
@@ -19,7 +19,7 @@ tests:
     input_series:
       # Forged deliveries from minute 30, 5 each minute, under an event that no consumer takes.
       - series: 'devops_cli_service_webhook_deliveries_total{job="roadmap-service", provider="github", event="other", outcome="rejected"}'
-        values: '_x30 5+5x10'
+        values: '0x29 5+5x10'
       - series: 'devops_cli_service_webhook_deliveries_total{job="roadmap-service", provider="github", event="issues", outcome="accepted"}'
         values: '0+10x45'
       - series: 'devops_cli_service_webhook_deliveries_total{job="devops-cli", provider="github", event="issues", outcome="rejected"}'

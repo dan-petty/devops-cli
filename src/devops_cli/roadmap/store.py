@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast, runtime_checkable
@@ -141,7 +141,8 @@ class RefineRecordKey(StrEnum):
     alternatives check found and refine put to a person (#2652), and the numbers of the issues
     that refine filed for the deferred parts of the item, comma separated (#2423), and the body
     hash of a round that looked again at an item after the stage job returned it: a second
-    return on the same body waits on a person (#3483)."""
+    return on the same body waits on a person (#3483), and the verdict of the review of an item
+    that a bot opened (`JudgeVerdict`, #3502)."""
 
     BODY_HASH = "refine.body_hash"
     SECTION_HASH = "refine.section_hash"
@@ -154,18 +155,32 @@ class RefineRecordKey(StrEnum):
     ALTERNATIVES_ASKED = "refine.alternatives_asked"
     DEFERRED = "refine.deferred"
     RETURNED_BODY_HASH = "refine.returned_body_hash"
+    JUDGE = "refine.judge"
+
+
+class JudgeVerdict(StrEnum):
+    """What the review of refine's proposal for an item that a bot opened found (#3502):
+    `APPROVED` it found no open defect, and `REFUSED` it found one."""
+
+    APPROVED = "approved"
+    REFUSED = "refused"
 
 
 class Verdict(StrEnum):
     """What an alternatives check found (#2650): `COVERS` one tool covers the whole need,
     `PARTLY` one covers a part, `NONE` the search found no tool, `NOT_APPLICABLE` the item is in a
-    skip class, such as a `docs` item, and the job made no search (#2946). The model cannot give
-    `NOT_APPLICABLE`. The job records the verdict, and refine reads it (#2652)."""
+    skip class, such as a `docs` item, and the job made no search (#2946), `REJECTED` an ADR of the
+    repository rejected the tool that the model found, and `IN_USE` the item already names it
+    (#3505). The model cannot give `NOT_APPLICABLE`, `REJECTED` or `IN_USE` as its verdict. The job
+    sets `NOT_APPLICABLE` for a skip class, and it sets the other two when the text confirms what
+    the model proposes. The job records the verdict, and refine reads it (#2652)."""
 
     COVERS = "covers"
     PARTLY = "partly"
     NONE = "none"
     NOT_APPLICABLE = "not-applicable"
+    REJECTED = "rejected"
+    IN_USE = "in-use"
 
 
 class AlternativesRecordKey(StrEnum):
@@ -191,7 +206,10 @@ class StageRecordKey(StrEnum):
     draft state (#2865), and `stage.needs_fix`, the number of the draft that it told about the
     label `plan/needs-fix` (#3264). When the last plan or write of the item failed, the record
     holds the time of the failure and the class of its error (#3493), until a run stages the item
-    or stops it on the budget."""
+    or stops it on the budget. `stage.text_hash` is the hash of the text that the plan came from
+    (#3503). When a person closes the plan pull request with no merge, the job clears every key and
+    records the rejection in `stage.rejected` as JSON (#3503): the pull request, the hash of the
+    text that the plan came from, the time of the close and the files that the reason names."""
 
     BRANCH = "stage.branch"
     PR = "stage.pr"
@@ -203,6 +221,8 @@ class StageRecordKey(StrEnum):
     NEEDS_FIX = "stage.needs_fix"
     FAILED_AT = "stage.failed_at"
     FAILED_ERROR = "stage.failed_error"
+    TEXT_HASH = "stage.text_hash"
+    REJECTED = "stage.rejected"
 
 
 class ImplementRecordKey(StrEnum):
@@ -281,8 +301,9 @@ class Item(BaseModel):
     store set for each field; a field missing from it was never set by a job. `body` is the
     issue's body, with no record block, as the read the Item came from gave it, so a job can
     judge an Item by its text without a read of each issue. `author_association` is the
-    author's relation to the repository, as on `IssueRecord`: a refine round refines only an
-    Item that the owner, a member or a collaborator opened (#2478). `sub_issues` is how many
+    author's relation to the repository, and `author_login` the author's login, as on
+    `IssueRecord`: the jobs take only an Item that the owner, a member or a collaborator opened,
+    or that the bot of the Service App or of the workflows opened (#2478, #3502). `sub_issues` is how many
     sub-issues the issue has, as on `IssueRecord`: an Item with some is a tracker. `updated_at` is
     when the issue last changed, as on `IssueRecord`.
     """
@@ -298,6 +319,7 @@ class Item(BaseModel):
     labels: tuple[str, ...] = ()
     milestone: str | None = None
     author_association: str | None = None
+    author_login: str | None = None
     sub_issues: int = 0
     updated_at: datetime | None = None
     status: str | None = None
@@ -330,7 +352,8 @@ class IssueRecord(BaseModel):
 
     `body` holds no record block: `job_record` is what the block held. `milestone` is the title
     of the issue's milestone. `author_association` is GitHub's word for the author's relation
-    to the repository, such as `OWNER`, `COLLABORATOR` or `NONE`. `updated_at` is when the issue
+    to the repository, such as `OWNER`, `COLLABORATOR` or `NONE`, and `author_login` is the
+    author's login, such as `devops-cli-service[bot]`. `updated_at` is when the issue
     last changed: any write to it, a comment included, moves it. `sub_issues` is how many
     sub-issues GitHub records for the issue, open or closed. `parent` is the number of the issue
     of the same repository that has the issue as a sub-issue.
@@ -349,6 +372,7 @@ class IssueRecord(BaseModel):
     milestone: str | None = None
     pull_request: bool = False
     author_association: str | None = None
+    author_login: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     closed_at: datetime | None = None
@@ -360,13 +384,16 @@ class IssueRecord(BaseModel):
 class IssueComment(BaseModel):
     """One comment on an issue: its body, when it was made, and the commenter's relation to the
     repository as GitHub gives it (`OWNER`, `MEMBER`, `COLLABORATOR`, `NONE` and others), None
-    when the store does not know it."""
+    when the store does not know it, and the commenter's login. `on_pull_request` says that the
+    comment is on a pull request, which GitHub's comment listings mix with the issues (#2754)."""
 
     model_config = ConfigDict(frozen=True)
 
     body: str
     created_at: datetime
     author_association: str | None = None
+    author_login: str | None = None
+    on_pull_request: bool = False
 
 
 class Closure(BaseModel):
@@ -836,6 +863,10 @@ class RoadmapStore(Protocol):
         """The text of the repository file at `path` on `ref` (the default branch when None),
         raising `GitHubFileNotFoundError` when there is no such file."""
 
+    def repository_files(self, directory: str, *, ref: str | None = None) -> list[str]:
+        """The sorted paths of the files directly in `directory` on `ref` (the default branch when
+        None), raising `GitHubFileNotFoundError` when the repository has no such directory."""
+
     def repository_is_private(self) -> bool:
         """Whether the repository is private."""
 
@@ -850,6 +881,12 @@ class RoadmapStore(Protocol):
 
     def comments_on(self, number: int) -> list[IssueComment]:
         """Every comment on issue `number`, oldest first."""
+
+    def comments_since(self, since: datetime | None) -> Iterator[IssueComment]:
+        """The comments of the whole repository, on issues and pull requests, newest first, that
+        were changed at or after `since` (every comment when None). A comment that someone edited
+        after `since` can come with an older creation time. The read is lazy: a caller that stops
+        at the first comment it wants asks for no more pages (#2754)."""
 
     def path_changed_at(self, path: str) -> datetime | None:
         """When the newest commit on the default branch that changed `path` was made, or None

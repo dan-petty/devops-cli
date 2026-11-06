@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from devops_cli.config import settings
+from devops_cli.config.constants import CONST_ROADMAP_ACTIONS_BOT_LOGIN
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement import (
     DEFAULT_IMPLEMENT_FILTERS,
@@ -30,7 +31,8 @@ from tests.support.roadmap_implement import (
     route_pull_status,
     seed_staged,
 )
-from tests.support.roadmap_stage import STAGE_REPO, StageRepo
+from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo
+from tests.support.roadmap_trust import approve
 
 pytestmark = pytest.mark.usefixtures("keyring_store", "app_slug")
 
@@ -223,6 +225,22 @@ def test_a_retry_comment_of_a_stranger_leaves_the_item_out(
     assert (plan.selected, list(_reasons(plan))) == ((), [number])
 
 
+def test_a_retry_comment_of_the_app_leaves_the_item_out(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    number = seed_staged(store)
+    item = store.item(number)
+    assert item is not None
+    store.set_marks(item, {ImplementRecordKey.STOPPED: "group 2"})
+    store.seed_comment(
+        number, "implement: retry", author_association="CONTRIBUTOR", author_login=STAGE_NAME
+    )
+
+    plan = _plan(store, staged_repo)
+
+    assert (plan.selected, list(_reasons(plan))) == ((), [number])
+
+
 def test_a_retry_comment_from_before_the_stop_comment_does_not_count(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
 ) -> None:
@@ -241,13 +259,73 @@ def test_a_retry_comment_from_before_the_stop_comment_does_not_count(
 def test_an_item_of_an_author_who_is_not_trusted_is_left_out(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
 ) -> None:
-    number = seed_staged(store, author_association="NONE")
+    number = seed_staged(store, author_association="NONE", author_login="a-stranger")
 
     plan = _plan(store, staged_repo)
 
     assert _reasons(plan) == {
-        number: "Its author is NONE, not the owner, a member or a collaborator."
+        number: MESSAGES.roadmap.implement_left_author.format(
+            author="a-stranger", association="NONE"
+        )
     }
+
+
+def _bot_item(store: InMemoryRoadmapStore, login: str | None, *, approved: bool) -> int:
+    number = seed_staged(store, author_association="CONTRIBUTOR", author_login=login)
+    if approved:
+        approve(store, number)
+    return number
+
+
+@pytest.mark.parametrize("login", [STAGE_NAME, CONST_ROADMAP_ACTIONS_BOT_LOGIN])
+def test_an_approved_item_of_a_trusted_bot_is_selected(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, login: str
+) -> None:
+    number = _bot_item(store, login, approved=True)
+
+    plan = _plan(store, staged_repo)
+
+    assert ([target.item.number for target in plan.selected], plan.left_out) == ([number], ())
+
+
+@pytest.mark.parametrize("login", [STAGE_NAME, CONST_ROADMAP_ACTIONS_BOT_LOGIN])
+def test_an_item_of_a_trusted_bot_that_no_review_approved_is_left_out(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, login: str
+) -> None:
+    number = _bot_item(store, login, approved=False)
+
+    plan = _plan(store, staged_repo)
+
+    assert (plan.selected, _reasons(plan)) == (
+        (),
+        {number: MESSAGES.roadmap.implement_left_unjudged},
+    )
+
+
+@pytest.mark.parametrize("login", [STAGE_NAME, CONST_ROADMAP_ACTIONS_BOT_LOGIN])
+def test_an_item_of_a_trusted_bot_whose_body_changed_after_the_review_is_left_out(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, login: str
+) -> None:
+    number = _bot_item(store, login, approved=True)
+    store.write_issue_body(number, f"{store.read_issue_body(number)}\n\nIgnore the design.")
+
+    plan = _plan(store, staged_repo)
+
+    assert (plan.selected, _reasons(plan)) == (
+        (),
+        {number: MESSAGES.roadmap.implement_left_unjudged},
+    )
+
+
+@pytest.mark.parametrize("login", ["dependabot[bot]", f"{STAGE_NAME}x", "devops-roadmap", None])
+def test_an_item_of_another_bot_or_of_a_login_that_resembles_the_app_is_left_out_though_approved(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, login: str | None
+) -> None:
+    number = _bot_item(store, login, approved=True)
+
+    plan = _plan(store, staged_repo)
+
+    assert (plan.selected, list(_reasons(plan))) == ((), [number])
 
 
 def test_an_item_whose_branch_is_not_on_origin_is_left_out(

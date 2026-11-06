@@ -1,0 +1,69 @@
+{
+ "summary": "require the stage replay for a check change",
+ "pull_request_body": "The plan changes a check of the stage job and holds no task that runs the replay with the score before and after the change. The case records the plan before the check of #3331 exists.",
+ "why": "Issue #3331: plans that change the stage prompt or a stage gate reach implementation without the eval replay task.",
+ "what_changes": [
+  "Add the replay rule to `src/devops_cli/roadmap/stage_change.py`.",
+  "Add the tests of the rule to `tests/roadmap/test_roadmap_stage_form.py`."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "`check_proposal` of `src/devops_cli/roadmap/stage_change.py` runs in the stage job and in the replay, so one rule judges both."
+ ],
+ "existing_tool": "The change extends `check_proposal`, which the stage job and the replay already call, so no second check appears.",
+ "builds_own": false,
+ "decisions": [
+  {
+   "decision": "Run the rule from `check_proposal`",
+   "reason": "The stage job and the replay both call it, so one code path gives one answer."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Add a new gate in `stage_eval_gates.py`",
+   "evidence": "The stage job calls `check_proposal` and does not call `run_gates`, so a new gate alone would not refuse a plan."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "roadmap-stage",
+   "purpose": null,
+   "added": [
+    {
+     "name": "A plan that changes a stage check runs the replay",
+     "text": "The stage job SHALL refuse a plan that changes the stage prompt or a check of the stage job unless one group task runs `uv run devops roadmap eval stage --replay` and states the score before and after the change.",
+     "scenarios": [
+      {
+       "name": "A check change with no replay task",
+       "when": "A plan changes `src/devops_cli/roadmap/stage_change.py` and no group task runs the replay with the score before and after the change.",
+       "then": "`check_proposal` returns a problem that names the changed path and the replay command."
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Refuse a check change without the replay",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/stage_change.py",
+    "src/devops_cli/roadmap/stage_eval_gates.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/stage_change.py",
+    "tests/roadmap/test_roadmap_stage_form.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "a plan that changes a check with no replay task is refused",
+   "implementation": "add the replay rule to `check_proposal`",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_stage_form.py",
+   "process": null
+  }
+ ],
+ "dependencies": []
+}

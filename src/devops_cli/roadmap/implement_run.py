@@ -149,6 +149,7 @@ from devops_cli.roadmap.implement_trace import (
     summary_table,
 )
 from devops_cli.roadmap.implement_wip import WipCommit, kept_commits
+from devops_cli.roadmap.plan_read import PlanReadError, merged_recorded_tests
 from devops_cli.roadmap.pull_form import title_problems
 from devops_cli.roadmap.pull_labels import (
     add_pull_labels,
@@ -360,6 +361,11 @@ def _step_label(group: int) -> str:
     return MESSAGES.roadmap.implement_step_group.format(group=group)
 
 
+def _outcome_label(outcome: StepOutcome) -> str:
+    """The label of the step that left `outcome`: its group, or the fix of a failed check."""
+    return _step_label(outcome.group) if outcome.group else MESSAGES.roadmap.implement_step_fix
+
+
 @contextmanager
 def _worktree(source: Path, target: ImplementTarget) -> Iterator[Path]:
     """The worktree on the staged branch, taken over from `origin`, or for a Planned item on the new
@@ -504,7 +510,9 @@ class _ItemRun:
         )
 
     def _spend(self) -> str:
-        """The spend of every step, itemized under the tier that served it (#3060)."""
+        """The spend of every step, itemized under the tier that served it (#3060), and the input
+        tokens of the first request of each step (#3499). The trace drops its oldest events when it
+        is long, so the size of a first request is kept here."""
         tiers: dict[str, dict[str, int]] = {}
         for outcome in self.outcomes:
             for tier, spend in outcome.tier_spend.items():
@@ -519,6 +527,10 @@ class _ItemRun:
                 "requests": sum(o.requests for o in self.outcomes),
                 "input_tokens": sum(o.input_tokens for o in self.outcomes),
                 "output_tokens": sum(o.output_tokens for o in self.outcomes),
+                "steps": [
+                    {"step": _outcome_label(o), "first_request_tokens": o.first_request_tokens}
+                    for o in self.outcomes
+                ],
                 "tiers": tiers,
             }
         )
@@ -607,6 +619,22 @@ class _ItemRun:
         Every hook run reads this copy, never the file of the checkout, which the agent can edit
         (#3043)."""
         return trusted_config(self.path, f"origin/{self.default}")
+
+    def _recorded_tests(self) -> frozenset[str]:
+        """The tests that the plan on the default branch records (#3490). A person merged that
+        text, so it holds what the owner allows under rule 5 of `AGENTS.md`. The job never reads the
+        file of the checkout, which the agent can edit, and a plan that is only on its staged branch
+        records none. A section that the reader refuses stops the item: the plan is at fault."""
+        try:
+            return merged_recorded_tests(
+                self.path, f"origin/{self.default}", self.number, operation=GIT_OPERATION
+            )
+        except PlanReadError as error:
+            raise _StopError(
+                self.step,
+                MESSAGES.roadmap.plan_check_read.format(path=error.path, reason=error.reason),
+                failure_class=FailureClass.PLAN_DEFECT,
+            ) from error
 
     def _install_hooks(self) -> None:
         """Fetch the hook environments before the first model request, so that no network failure
@@ -892,6 +920,7 @@ class _ItemRun:
                     trace=self.trace,
                     on_wip=self._keep,
                     spend=self._item_spend(),
+                    recorded_tests=self._recorded_tests(),
                 )
             except OverWindowError as err:
                 self._handle_over_window(group, err, change, tasks_text, tasks_file, tasks)
@@ -1213,7 +1242,7 @@ class _ItemRun:
     def _row(self, outcome: StepOutcome) -> SummaryRow:
         """The row of the table for a step: its attempts are the first turn and the repair
         rounds, and its last failing command is in the trace."""
-        step = _step_label(outcome.group) if outcome.group else MESSAGES.roadmap.implement_step_fix
+        step = _outcome_label(outcome)
         return SummaryRow(
             step=step,
             status=outcome.status.value,
@@ -1285,6 +1314,7 @@ class _ItemRun:
             model_for_tier=self.model_for_tier,
             trace=self.trace,
             spend=self._item_spend(),
+            recorded_tests=self._recorded_tests(),
         )
         self.outcomes.append(outcome)
         if outcome.status is StepStatus.STOPPED:

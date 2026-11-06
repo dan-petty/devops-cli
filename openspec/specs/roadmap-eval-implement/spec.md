@@ -36,7 +36,7 @@ The committed set SHALL hold at least 10 fixtures, the fixtures of #2175 and #27
 - **THEN** it returns at least 10 fixtures, including those of #2175 and #2735, with a recorded result that fails no property and one that fails some
 
 ### Requirement: The property tests_kept finds a lost or weakened test
-`tests_kept` SHALL fail when the diff deletes a Python file under `tests/`, removes a test name that no added line of the same file defines, takes assertion lines from a test on balance, or adds a skip or xfail to a test whose `def` stays, unless the fixture allows that `path::name`.
+`tests_kept` SHALL fail when the diff deletes a Python file under `tests/`, removes a test name that no added line of the same file defines, takes assertion lines from a test on balance, or adds a skip or xfail to a test whose `def` stays, unless `allow_lost_tests` of the fixture allows that `path::name`. `load_case` SHALL add each `path::name` that the `## Weakened checks` section of the plan names to that list, and `run_case` SHALL give the same list to the step.
 
 #### Scenario: A deleted test
 - **WHEN** the diff deletes `tests/test_sample.py`, which defined `test_a`
@@ -57,6 +57,22 @@ The committed set SHALL hold at least 10 fixtures, the fixtures of #2175 and #27
 #### Scenario: A skip on an existing test
 - **WHEN** the diff adds `@pytest.mark.skip` above a `test_y` that already exists
 - **THEN** `tests_kept` fails and names `tests/test_sample.py::test_y` as weakened
+
+#### Scenario: A removal that the plan of the fixture records
+- **WHEN** the diff removes `test_a`, and the `proposal.md` of the fixture names `tests/test_sample.py::test_a` in an entry of `## Weakened checks`
+- **THEN** `allow_lost_tests` holds `tests/test_sample.py::test_a`, and `tests_kept` passes
+
+#### Scenario: A removal that the plan of the fixture does not record
+- **WHEN** the diff removes `test_b`, and the section names only `tests/test_sample.py::test_a`
+- **THEN** `tests_kept` fails and names `tests/test_sample.py::test_b`
+
+#### Scenario: A test of a class that the plan of the fixture records
+- **WHEN** the diff removes `def test_a` from `class TestKept`, and the section names `tests/test_sample.py::TestKept.test_a`
+- **THEN** `tests_kept` passes, and the step guard allows the same removal through the same entry
+
+#### Scenario: The step of a fixture reads the list
+- **WHEN** `run_case` runs a fixture whose list holds a test, and the scripted model removes that test
+- **THEN** the step reports done
 
 ### Requirement: The property diff_scope finds a path outside the group
 `diff_scope` SHALL fail when the diff touches a path other than the `changes` paths of the fixture and the `tasks.md` of its change.

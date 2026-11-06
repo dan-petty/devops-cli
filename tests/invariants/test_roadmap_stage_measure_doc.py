@@ -25,7 +25,7 @@ def test_the_acceptable_score_has_a_recall_threshold_a_good_plan_rule_and_a_live
     assert "at least 90%" in section
     assert "blocker" in section
     assert "major" in section
-    assert "3 good plans" in section
+    assert "good plans of the golden set" in section
     assert "At least 80%" in section
 
 

@@ -55,7 +55,7 @@ def test_every_gate_still_refuses_every_known_bad_plan_it_must(cases: list[Stage
 def test_each_good_plan_passes_every_gate(cases: list[StageCase]) -> None:
     report = replay_all(cases)
 
-    assert report.good() == (3, 3)
+    assert report.good() == (4, 4)
     assert all(not r.refused for r in report.replays if r.case.verdict is Verdict.GOOD)
 
 
@@ -107,7 +107,7 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
     assert counts[DefectType.VERIFY_FORM] == (6, 0, 12)
     assert counts[DefectType.TASK_ORDER] == (0, 0, 8)
     assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)
-    assert report.judged() == (68, 304)
+    assert report.judged() == (69, 306)
 
 
 def test_the_judged_share_counts_the_caught_and_the_missed_and_not_the_rest(
@@ -350,7 +350,18 @@ def _stage_move_case(cases: list[StageCase]) -> StageCase:
 
 
 def _with_verify(case: StageCase, verify: str) -> StageCase:
-    groups = [{**group, "verify": verify} for group in case.groups]
+    groups = [
+        {
+            **group,
+            "verify": verify,
+            "implementation": (
+                f"{group['implementation']}, and run "
+                "`uv run devops roadmap eval stage --replay` with the score before and after "
+                "the change"
+            ),
+        }
+        for group in case.groups
+    ]
     return case.model_copy(update={"plan": {**case.plan, "groups": groups}})
 
 

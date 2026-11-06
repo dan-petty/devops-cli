@@ -41,9 +41,10 @@ from devops_cli.config.constants import (
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import GitHubRateLimitError
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.pull_form import is_placeholder
-from devops_cli.roadmap.refine import NextStep, extract_section_and_outside, hash_text
+from devops_cli.roadmap.refine import NextStep
 from devops_cli.roadmap.stage import StageFailure, write_each
 from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.step_files import section_text

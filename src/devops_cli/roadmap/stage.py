@@ -15,7 +15,7 @@ families all apply. With no `--filter` the job takes the filter of the setting
 that is not Ready, whatever the filter says: a `status` filter can only narrow the Ready items.
 It also leaves out an item that an agent or a person claimed with an `owner/*` label (#2910), an item with the label `needs-split`, a tracker (sub-issues or the label `type/epic`), an item whose author has no write access
 (the model reads the body), an item whose "Dependencies" section names an open issue, a held item
-(`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit that `origin` lacks), an item whose plan is already on the default branch or whose
+(`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit that `origin` lacks), an item whose plan a person rejected until its text or a file that the reason names changes (`stage_rejected`, #3503), an item whose plan is already on the default branch or whose
 change is archived there (`planned.read_planned_changes`, one read of the tree for the round), an
 item whose title gives no branch name or whose summary is over `SUMMARY_MAX_CHARS` units (#3369), an item whose text looks like a secret, an item whose last plan or write failed less than
 `roadmap.stage.retry_hours` hours ago (its record holds `stage.failed_at` and
@@ -45,15 +45,24 @@ that is no file of the staged commit, and that no group up to its own creates (`
 sent back in the same way: the problem lists the files with the same name, and a second reply with
 a missing path stops the item, so no draft opens. The groups of a split are checked in the same
 way. After the checks, the model review of the plan (`stage_verify`, #3153) reads the issue, the
-plan and the files that the plan cites with the client of the task `verification`. A finding of
-the type `missing_path`, `false_premise` or `ignores_existing_code` that quotes its evidence sends
-the plan back to the planner once. A finding of such a type, of `spec_delta_wrong`, or one that
-reports a placeholder is open: the job keeps the draft with the label `plan/needs-fix` and puts
-the finding first in the comment (#3264). Every other finding goes into the comment of the item.
+plan and the files that the plan cites, and reads the repository with the read tools, on the model
+of the task `verification` (#3039). A finding of the type `missing_path`, `false_premise`,
+`ignores_existing_code`, `task_order` or `verify_form` that quotes its evidence sends the plan back
+to the planner, up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039). The planner gets
+each open finding of that round. A finding of such a type, of `spec_delta_wrong` or
+`criterion_dropped`, or one that reports a placeholder is open: if the last review repeats it, the
+job keeps the draft with the label `plan/needs-fix` and puts the finding first in the comment
+(#3264). The comment lists every other finding of each round (#3039).
 The review never merges and never marks a draft ready. `plan_item` plans one item with a given client
 and checkout: the golden set of the job runs
 it on each case (`stage_eval_run`, #3028). The plan writes nothing to git or to GitHub. A model call
 that fails skips its item; rejected credentials stop the run.
+
+**Rejected plans.** Before it selects, the job reads the plan pull request of each staged New or
+Ready item (`stage_rejected.closed_plans`). One that closed with no merge is a rejected plan. The
+write deletes the staged branch when only the session identity wrote to it, posts the reason on the
+issue, and records `stage.rejected`. It returns the item to New, unless the same run stages the item
+again (`_reject_plan`).
 
 **Why.** `--why` adds to the plan the open items that the filter does not name, under their own
 heading, each with the family it misses (`StageFilter.mismatch`). They are not "left out": no rule
@@ -86,22 +95,23 @@ from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import BIN_OPENSPEC
 from devops_cli.config.constants import (
-    CONST_ROADMAP_CRITICAL_PRIORITY,
     CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
+    CONST_ROADMAP_PLANNED_LIMIT_PRIORITIES,
     CONST_ROADMAP_PRIORITY_VALUES,
     CONST_ROADMAP_STAGE_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
+    CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
-    CONST_ROADMAP_TRUSTED_AUTHORS,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import (
     DevOpsCLIError,
     GitHubOperationError,
+    GitHubRateLimitError,
     GitHubUnauthenticatedError,
     GitOperationError,
     RoadmapStageError,
@@ -120,6 +130,7 @@ from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
 from devops_cli.roadmap.agent_run import RunTrace
+from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_summary, commit_type
@@ -128,6 +139,7 @@ from devops_cli.roadmap.planned import (
     PlannedChanges,
     open_plan_creates,
     planned_count,
+    planned_limit_priorities,
     read_planned_changes,
 )
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
@@ -138,6 +150,7 @@ from devops_cli.roadmap.refine import (
     collect_context,
     inspect_checkout,
     recorded_blockers,
+    stage_comment_text,
 )
 from devops_cli.roadmap.refine_investigation import task_window
 from devops_cli.roadmap.stage_change import (
@@ -150,6 +163,7 @@ from devops_cli.roadmap.stage_change import (
     pull_request_body,
     render_change,
     safe_text,
+    shared_texts,
     staging_title,
     write_change_files,
 )
@@ -169,9 +183,18 @@ from devops_cli.roadmap.stage_overlap import (
 )
 from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage_probe import blocked_by, probe_premise
+from devops_cli.roadmap.stage_rejected import (
+    ReadFailure,
+    RejectedPlan,
+    closed_plans,
+    hold_reason,
+    reasons_of,
+    recorded_rejection,
+    staged_plans,
+)
 from devops_cli.roadmap.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage_split import ask_split
-from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
+from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel, review
 from devops_cli.roadmap.stage_validate import validate_change
 from devops_cli.roadmap.stage_verify import (
     PLAN_NEEDS_FIX_LABEL,
@@ -182,7 +205,6 @@ from devops_cli.roadmap.stage_verify import (
     open_findings_section,
     return_problem,
     returning,
-    verify,
 )
 from devops_cli.roadmap.step_files import code_spans
 from devops_cli.roadmap.store import (
@@ -193,6 +215,7 @@ from devops_cli.roadmap.store import (
     RoadmapStore,
     StageRecordKey,
 )
+from devops_cli.roadmap.trust import is_approved, is_trusted
 from devops_cli.security.sanitizer import mask_secrets, redact_text
 from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL, emit
 
@@ -359,7 +382,7 @@ def named_items(store: RoadmapStore, filters: StageFilter) -> list[Item]:
 @dataclass(frozen=True)
 class PlannedQueue:
     """The Planned items that wait for a delivery (#3487): how many there are, and the count at
-    which the job plans no new item."""
+    which the job plans only a P0 or P1 item."""
 
     count: int
     limit: int
@@ -401,6 +424,7 @@ class _Judge:
         queue: PlannedQueue,
         now: datetime,
         retry: timedelta,
+        rejected: Mapping[int, RejectedPlan],
     ) -> None:
         self._store = store
         self._holder_of = holder_of
@@ -408,6 +432,7 @@ class _Judge:
         self._queue = queue
         self._now = now
         self._retry = retry
+        self._rejected_now = rejected
 
     def reason(self, item: Item, *, named: bool) -> str | None:
         """Why the job leaves `item` out, or None when it may stage it. A person who names the
@@ -422,6 +447,7 @@ class _Judge:
             self._dependency,
             self._recorded_blocker,
             self._planned_on_default,
+            *([] if named else [self._rejected]),
             self._held,
             self._secret,
         ]
@@ -452,12 +478,15 @@ class _Judge:
         return MESSAGES.roadmap.stage_left_tracker if is_tracker else None
 
     def _author(self, item: Item) -> str | None:
-        if item.author_association in CONST_ROADMAP_TRUSTED_AUTHORS:
-            return None
+        """An account that the jobs do not trust opened the item, or a bot opened it and no
+        review of refine approved it (#3502)."""
         texts = MESSAGES.roadmap
-        return texts.stage_left_author.format(
-            association=item.author_association or texts.refine_author_unknown
-        )
+        if not is_trusted(item):
+            return texts.stage_left_author.format(
+                author=item.author_login or texts.refine_author_unknown,
+                association=item.author_association or texts.refine_author_unknown,
+            )
+        return None if is_approved(item) else texts.stage_left_unjudged
 
     def _title(self, item: Item) -> str | None:
         texts = MESSAGES.roadmap
@@ -499,6 +528,13 @@ class _Judge:
             return texts.stage_left_archived.format(branch=self._planned.default, folder=folder)
         return None
 
+    def _rejected(self, item: Item) -> str | None:
+        """A person closed the plan pull request of the item with no merge, and neither the text
+        of the item nor a file that the reason names changed since (#3503). The rejections that
+        the same run found count, as the job has not written their record yet."""
+        rejected = self._rejected_now.get(item.number) or recorded_rejection(item)
+        return None if rejected is None else hold_reason(self._store, item, rejected)
+
     def _held(self, item: Item) -> str | None:
         return self._holder_of(item.number, _target_of(item).branch)
 
@@ -507,14 +543,14 @@ class _Judge:
         return MESSAGES.roadmap.stage_left_secret if looks_secret else None
 
     def _queue_full(self, item: Item) -> str | None:
-        """The queue of Planned items is at its limit (#3487): the job plans no new item, except one
-        of the highest priority. `--item` overrules it, as it overrules a recorded split."""
-        if not self._queue.full or item.priority == CONST_ROADMAP_CRITICAL_PRIORITY:
+        """The queue of Planned items is at its limit (#3487): the job plans only a P0 or P1 item
+        (#3692). `--item` overrules it, as it overrules a recorded split."""
+        if not self._queue.full or item.priority in CONST_ROADMAP_PLANNED_LIMIT_PRIORITIES:
             return None
         return MESSAGES.roadmap.stage_left_planned_limit.format(
             count=self._queue.count,
             limit=self._queue.limit,
-            priority=CONST_ROADMAP_CRITICAL_PRIORITY,
+            priorities=planned_limit_priorities(),
         )
 
     def _failed_lately(self, item: Item) -> str | None:
@@ -596,15 +632,17 @@ def select_stageable(
     item_number: int | None = None,
     probe: int | None = None,
     now: datetime | None = None,
+    rejected: Mapping[int, RejectedPlan] | None = None,
 ) -> StageSelection:
     """The items to stage, up to `limit`, and those the filter names that the job leaves out.
 
     `holder_of` tells who holds an issue and its new `branch` (`worktree_add.issue_holder`), or None. `planned` holds
     the change folders of the default branch (#2714). With `item_number` the filter and the limit
     do not apply. `probe` is the issue that `walk_named` judges also after the limit. With
-    `planned_limit` Planned items or more, the job takes only an item of the highest priority
-    (#3487). An item that failed less than `roadmap.stage.retry_hours` hours before `now` waits
-    (#3493).
+    `planned_limit` Planned items or more, the job takes only a P0 or P1 item (#3487, #3692). An
+    item that failed less than `roadmap.stage.retry_hours` hours before `now` waits (#3493). An
+    item whose plan a person rejected waits for a change of its text or of a file that the reason
+    names; `rejected` holds the rejections of this run that the record does not hold yet (#3503).
     """
     opened = _open_items(store)
     retry = timedelta(hours=load_settings().roadmap.stage.retry_hours)
@@ -615,6 +653,7 @@ def select_stageable(
         PlannedQueue(planned_count(opened), planned_limit),
         now or datetime.now(UTC),
         retry,
+        rejected or {},
     )
     if item_number is not None:
         return _named_item(judge, store, item_number)
@@ -648,11 +687,11 @@ class StagedChange:
     """A change ready to write: the target, the title and the body of its draft pull request, the
     files by path from the repository root, the measure of each task group, whether
     `openspec validate` ran on it (it does not without the binary), the budget of the run, and
-    what the plan runs of the toolbox did (#3037). The trace is empty for an item planned with one
-    call. `proposal` is the plan that the files render, and `findings` are the points that the
-    model review of the plan raised and that returned no plan (#3153): the comment lists them.
-    `open_findings` are the findings that keep the draft with the label `plan/needs-fix`
-    (#3264); they are a part of `findings`."""
+    what the plan runs and the review runs of the toolbox did (#3037, #3039). The trace is empty
+    for an item planned with one call and no review. `proposal` is the plan that the files render. `findings` are the points that each model
+    review of the plan raised in each repair round (#3153, #3039): the comment lists them.
+    `open_findings` are the findings of the last review that keep the draft with the label
+    `plan/needs-fix` (#3264); they are a part of `findings`."""
 
     target: StageTarget
     title: str
@@ -723,6 +762,25 @@ class Removal:
 
 
 @dataclass(frozen=True)
+class Rejection:
+    """The plan pull request of an item that a person closed with no merge (#3503): the record to
+    write, the comment that holds the reason, and the staged `branch` to delete with the commit
+    `branch_sha` that the job judged, or None when the branch is gone or another author wrote to
+    it."""
+
+    item: Item
+    plan: RejectedPlan
+    comment: str
+    branch: str | None = None
+    branch_sha: str = ""
+
+    @property
+    def number(self) -> int:
+        """The number of the item."""
+        return self.item.number
+
+
+@dataclass(frozen=True)
 class KeptBranch:
     """The staged branch of a closed item that the job keeps, and why."""
 
@@ -751,6 +809,7 @@ class StagePlan:
     planned: PlannedChanges | None = None
     unmatched: tuple[LeftOut, ...] = ()
     blocked: tuple[Blocked, ...] = ()
+    rejections: tuple[Rejection, ...] = ()
 
 
 def _stage_error(message: str, target: StageTarget) -> RoadmapStageError:
@@ -788,15 +847,21 @@ class _Planner:
         window: int,
         tool: OpenSpecTool | None,
         toolbox: ToolboxClient | None = None,
-        verifier: StageClient | None = None,
+        verifier: ToolboxClient | None = None,
+        verify_window: int | None = None,
         pull_reads: Callable[[], PullReads] | None = None,
         pull_repo: str = "",
         grep: Callable[[str], Sequence[str]] | None = None,
         open_creates: Callable[[], Mapping[str, int]] | None = None,
+        traces: list[RunTrace] | None = None,
+        rejected: Mapping[int, str] | None = None,
     ) -> None:
         self._client = client
         self._toolbox = toolbox
         self._verifier = verifier
+        self._verify_window = verify_window
+        # The runs of the planner and of the verifier, in order, for the comment (#3039).
+        self._traces: list[RunTrace] = [] if traces is None else traces
         self._source = source
         self._sha = sha
         self._specs = specs
@@ -820,6 +885,8 @@ class _Planner:
         # The read of the open plans that create a path (#3418), and the dependency that the
         # probe of the item in hand found, which the run returns without a model call.
         self._open_creates = open_creates
+        # The reason of a rejected plan, by issue number, for the request (#3503).
+        self._rejected = rejected or {}
         self._dependency: Blocked | None = None
         # The open pull requests that overlap the paths of the item in hand, and the files that
         # hold a cited metric (#3252). The gate reads the overlaps.
@@ -831,11 +898,10 @@ class _Planner:
         """The change of `target`, or the group that stops it. A reply the checks refuse goes back
         to the model once, with the problem. The model splits the groups at most once. With a
         verifier, the model review of the plan (#3153) follows the checks and may return the plan
-        once more. So an item costs three planner calls at most without a verifier, four with one,
-        and two calls of the verifier."""
+        up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039). So an item costs three
+        planner calls at most without a verifier, five with one, and three calls of the verifier."""
         self._split_asked = False
-        if self._toolbox is not None:
-            self._toolbox.traces.clear()
+        self._traces.clear()
         request = self._request(target)
         if self._dependency is not None:
             return self._dependency
@@ -843,8 +909,8 @@ class _Planner:
         verifier = self._verifier
         if isinstance(outcome, StagedChange) and verifier is not None:
             outcome = self._verified(target, request, outcome, verifier)
-        if isinstance(outcome, StagedChange) and self._toolbox is not None:
-            return replace(outcome, trace=RunTrace.combined(self._toolbox.traces))
+        if isinstance(outcome, StagedChange) and self._traces:
+            return replace(outcome, trace=RunTrace.combined(self._traces))
         return outcome
 
     def _gated(self, target: StageTarget, request: Mapping[str, Any]) -> StagedChange | OverBudget:
@@ -869,33 +935,47 @@ class _Planner:
         target: StageTarget,
         request: Mapping[str, Any],
         change: StagedChange,
-        verifier: StageClient,
+        verifier: ToolboxClient,
     ) -> StagedChange | OverBudget:
         """The change after the model review. A finding of a type that returns the plan, with a
-        quote that is in the input, sends the plan back to the planner once: the revised plan
-        passes the checks and the review again, and a refused revision stops the item. Every
-        other finding, and every finding of the revised plan, stays on the change for the
-        comment. An open finding keeps the draft with `plan/needs-fix` (#3264)."""
-        findings, returned, _ = self._review(target, change, verifier)
-        if returned:
-            again = {
-                **request,
-                "previous": change.proposal.model_dump(),
-                "problem": return_problem(returned),
-            }
-            revised = self._ask(StageProposal, _CHANGE_TASK, again)
-            outcome = self._settle(target, revised)
-            if isinstance(outcome, _Refused):
-                message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
-                raise _stage_error(message, target)
-            if isinstance(outcome, OverBudget):
-                return outcome
-            change = outcome
-            findings, _, open_ = self._review(target, change, verifier)
-        else:
-            given = self._input_of(target, change)
-            open_ = open_findings(findings, given)
-        return replace(change, findings=tuple(findings), open_findings=tuple(open_))
+        quote that is in the input, sends the plan back to the planner with each open finding of
+        the round. The revised plan passes the checks and the review again, up to
+        `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039), and a refused revision stops the
+        item. Every finding of each round stays on the change for the comment (#3039). The last
+        review judges the last plan, so only its open findings keep the draft with
+        `plan/needs-fix` (#3264)."""
+        seen, returned, open_ = self._review(target, change, verifier)
+        for _ in range(CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS):
+            if not returned:
+                break
+            revised = self._repaired(target, request, change, open_)
+            if isinstance(revised, OverBudget):
+                return revised
+            change = revised
+            findings, returned, open_ = self._review(target, change, verifier)
+            seen = [*seen, *findings]
+        return replace(change, findings=tuple(dict.fromkeys(seen)), open_findings=tuple(open_))
+
+    def _repaired(
+        self,
+        target: StageTarget,
+        request: Mapping[str, Any],
+        change: StagedChange,
+        open_: Sequence[Finding],
+    ) -> StagedChange | OverBudget:
+        """The plan of one repair round: the planner gets the plan and each open finding of the
+        review, and its revision passes the checks or stops the item."""
+        again = {
+            **request,
+            "previous": change.proposal.model_dump(),
+            "problem": return_problem(open_),
+        }
+        revised = self._ask(StageProposal, _CHANGE_TASK, again)
+        outcome = self._settle(target, revised)
+        if isinstance(outcome, _Refused):
+            message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
+            raise _stage_error(message, target)
+        return outcome
 
     def _input_of(self, target: StageTarget, change: StagedChange) -> VerificationInput:
         """The input that the pass reads for `change`."""
@@ -906,15 +986,15 @@ class _Planner:
             body=item.body,
             plan=change.proposal.model_dump(mode="json"),
             source=self._source,
+            window=self._verify_window,
         )
 
     def _review(
-        self, target: StageTarget, change: StagedChange, verifier: StageClient
+        self, target: StageTarget, change: StagedChange, verifier: ToolboxClient
     ) -> tuple[list[Finding], list[Finding], list[Finding]]:
         """The findings of the model review of `change`, those that return the plan, and those
         that are open."""
-        given = self._input_of(target, change)
-        findings = verify(verifier, given)
+        findings, given = review(verifier, self._input_of(target, change))
         return findings, returning(findings, given), open_findings(findings, given)
 
     def _request(self, target: StageTarget) -> dict[str, Any]:
@@ -937,6 +1017,8 @@ class _Planner:
             "capabilities": self._capabilities(),
             "budget": self._budget,
         }
+        if item.number in self._rejected:
+            request["rejected_plan"] = self._rejected[item.number]
         self._read_overlaps(item.body)
         if self._overlaps:
             request["overlaps"] = [overlap.entry() for overlap in self._overlaps]
@@ -1083,7 +1165,7 @@ class _Planner:
     ) -> tuple[dict[str, str], list[MeasuredGroup]]:
         files = render_change(target.change, proposal, self._known, created=self._today)
         item = target.item
-        shared = [f"{item.title}\n{item.body}", *files.values()]
+        shared = shared_texts(item.title, item.body, files)
         measured = measure_groups(self._source, proposal.groups, shared=shared)
         return files, measured
 
@@ -1208,6 +1290,56 @@ def _reconcile(
     return tuple(removals), tuple(kept)
 
 
+class Rejections(NamedTuple):
+    """The plans that a person closed with no merge, the staged branches that the job keeps for
+    them, and the items whose plan pull request could not be read."""
+
+    found: tuple[Rejection, ...] = ()
+    kept: tuple[KeptBranch, ...] = ()
+    failures: tuple[ReadFailure, ...] = ()
+
+
+def _rejections(
+    store: RoadmapStore,
+    repo: str,
+    source: Path,
+    heads: str,
+    planned: PlannedChanges,
+    item_number: int | None,
+) -> Rejections:
+    """Find the staged plans that a person closed with no merge (#3503). The staged branch goes
+    with the rule of a closed item: it is deleted when every commit past the default branch is the
+    identity of the session's or a clean merge by a person, and kept when another author wrote to
+    it. The job deletes it only while it ends at the commit judged here. The read writes nothing."""
+    pushed = set(remote_branches(heads))
+    staged = staged_plans(store.items(), planned, item_number)
+    read = closed_plans(store, repo, staged, stop=(*_STOP_THE_RUN, GitHubRateLimitError))
+    found: list[Rejection] = []
+    kept: list[KeptBranch] = []
+    for closed in read.closed:
+        plan, comment = closed.rejection()
+        branch = closed.item.job_record.get(StageRecordKey.BRANCH) or ""
+        delete, tip = None, ""
+        if branch in pushed:
+            if (foreign := _foreign_commits(source, branch)) == 0:
+                delete, tip = branch, _git(source, "rev-parse", f"origin/{branch}")
+            else:
+                reason = MESSAGES.roadmap.stage_kept_reason.format(count=foreign)
+                kept.append(KeptBranch(closed.item.number, branch, reason))
+        found.append(Rejection(closed.item, plan, comment, delete, tip))
+    return Rejections(tuple(found), tuple(kept), read.failures)
+
+
+def _heads_after(heads: str, rejections: Iterable[Rejection]) -> str:
+    """The heads of `origin` (`git ls-remote --heads`) without the branches that the writes of
+    `rejections` delete. An item whose branch the run deletes is no more held by it, so a run can
+    stage the item at once."""
+    deleted = {found.branch for found in rejections if found.branch is not None}
+    return "\n".join(
+        line for line in heads.splitlines() if not deleted.intersection(remote_branches(line))
+    )
+
+
 class StageRead(NamedTuple):
     """What the stage job reads before it asks the model: the commit of the default branch, the
     heads of `origin`, the plans on the default branch, and the selection."""
@@ -1231,6 +1363,7 @@ def read_stage_selection(
     heads: str | None = None,
     planned: PlannedChanges | None = None,
     now: datetime | None = None,
+    rejected: Mapping[int, RejectedPlan] | None = None,
 ) -> StageRead:
     """Select the items to stage in the clone `source`, with no model call and no write to git or
     to GitHub. `plan_stage` and `devops roadmap explain` read the selection through this one
@@ -1251,6 +1384,7 @@ def read_stage_selection(
         planned_limit=planned_limit,
         probe=probe,
         now=now,
+        rejected=rejected,
     )
     return StageRead(sha, heads, planned, selection)
 
@@ -1265,7 +1399,7 @@ def plan_stage(
     limit: int | None = None,
     step_tokens: int | None = None,
     model: LLMClient | ToolboxModel | None = None,
-    verifier: StageClient | None = None,
+    verifier: ToolboxModel | None = None,
     why: bool = False,
     now: datetime | None = None,
 ) -> StagePlan:
@@ -1274,17 +1408,22 @@ def plan_stage(
 
     `source` is the clone of the repository, at the default branch. `limit` and `step_tokens`
     override `roadmap.stage.limit` and `roadmap.stage.step_tokens`. At `roadmap.stage.planned_limit`
-    Planned items the plan holds only items of the highest priority (#3487). A client as `model` replaces
+    Planned items the plan holds only P0 and P1 items (#3487, #3692). A client as `model` replaces
     the client of the `analysis` task and plans with the one call and no tool. A `ToolboxModel`
     plans with the read-only tools (#3037), and the client of the `analysis` task answers the call
-    that splits the groups. A `verifier`, the client of the `verification` task, makes the model
-    review each plan after the checks (#3153); without one, the job makes no review call, as the
-    golden-set run of the planner does. With `why`, the plan also lists the open items that the
-    filter does not name (#2911). An item that failed less than `roadmap.stage.retry_hours` hours
-    before `now` is left out, unless `item_number` names it (#3493).
+    that splits the groups. A `verifier`, the model of the `verification` task, makes an agent with
+    the read-only tools review each plan after the checks (#3153, #3039); without one, the job makes
+    no review call, as the golden-set run of the planner does. With `why`, the plan also lists the
+    open items that the filter does not name (#2911). An item that failed less than
+    `roadmap.stage.retry_hours` hours before `now` is left out, unless `item_number` names it
+    (#3493).
     """
     checkout = Path(source)
     settings = load_settings()
+    inspect_checkout(checkout, repo)  # refuses a clone whose origin is not `repo`
+    heads = read_remote_heads(checkout)
+    planned = read_planned_changes(checkout, operation=_GIT_OPERATION)
+    rejections = _rejections(store, repo, checkout, heads, planned, item_number)
     sha, heads, planned, selection = read_stage_selection(
         store,
         repo=repo,
@@ -1293,7 +1432,10 @@ def plan_stage(
         limit=limit or settings.roadmap.stage.limit,
         planned_limit=settings.roadmap.stage.planned_limit,
         item_number=item_number,
+        heads=_heads_after(heads, rejections.found),
+        planned=planned,
         now=now,
+        rejected={found.number: found.plan for found in rejections.found},
     )
     budget = step_tokens or settings.roadmap.stage.step_tokens
     removals, kept = _reconcile(store, checkout, heads)
@@ -1304,9 +1446,11 @@ def plan_stage(
         budget,
         left_out=selection.left_out,
         removals=removals,
-        kept=kept,
+        kept=(*kept, *rejections.kept),
         planned=planned,
         unmatched=unmatched,
+        failed=tuple(_write_failure(f.item, f.error) for f in rejections.failures),
+        rejections=rejections.found,
     )
     if not selection.selected:
         return plan
@@ -1329,13 +1473,17 @@ def plan_stage(
             verifier=verifier,
             repo=repo,
             open_creates=creators,
+            rejected={
+                **{found.number: stage_comment_text(found.comment) for found in rejections.found},
+                **reasons_of(store, (target.item for target in selection.selected)),
+            },
         )
         ready, stopped, failed, blocked = _plan_each(planner, selection.selected)
     return replace(
         plan,
         ready=tuple(ready),
         over_budget=tuple(stopped),
-        failed=tuple(failed),
+        failed=(*plan.failed, *failed),
         blocked=tuple(blocked),
     )
 
@@ -1348,30 +1496,39 @@ def _planner_of(
     budget: int,
     tool: OpenSpecTool | None,
     toolbox: ToolboxModel | None = None,
-    verifier: StageClient | None = None,
+    verifier: ToolboxModel | None = None,
     repo: str | None = None,
     open_creates: Callable[[], Mapping[str, int]] | None = None,
+    rejected: Mapping[int, str] | None = None,
 ) -> _Planner:
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
     context window of the `stage` task once. With a `toolbox` model, a plan run calls the
     read-only tools on the checkout, and `client` answers the other calls. The toolset
     `roadmap.stage.toolset` chooses the tools; with `repo`, `read_issue` and `find_issues` of the
     toolset `extended` read that repository on GitHub with the client of the session (#3238). A
-    `verifier` makes the model review of each plan (#3153)."""
+    `verifier` makes the model review of each plan (#3153): an agent of the task `verification`
+    with the same tools, and with the window of that task, because the two tasks can resolve to
+    different windows (#3039). `rejected` holds the reason of each rejected plan by issue number,
+    for the request of an item that a person rejected (#3503)."""
     window = task_window("stage")
-    runner = (
-        None
-        if toolbox is None
-        else ToolboxClient(
-            toolbox.model,
+    verify_window = task_window("verification")
+    traces: list[RunTrace] = []
+
+    def runner_of(model: ToolboxModel, tokens: int) -> ToolboxClient:
+        return ToolboxClient(
+            model.model,
             client,
             checkout,
             sha,
-            window=window,
+            window=tokens,
             openspec=tool,
             github=None if repo is None else StageGitHub(repo),
+            traces=traces,
         )
-    )
+
+    runner = None if toolbox is None else runner_of(toolbox, window)
+    # A review makes only agent runs, so the client of the job as its inner client gets no call.
+    reviewer = None if verifier is None else runner_of(verifier, verify_window)
     return _Planner(
         client=runner or client,
         toolbox=runner,
@@ -1382,11 +1539,14 @@ def _planner_of(
         budget=budget,
         window=window,
         tool=tool,
-        verifier=verifier,
+        verifier=reviewer,
+        verify_window=verify_window,
         pull_reads=None if repo is None else session_pull_reads,
         pull_repo=repo or "",
         grep=partial(grep_at, checkout, sha, operation=_GIT_OPERATION),
         open_creates=open_creates,
+        traces=traces,
+        rejected=rejected,
     )
 
 
@@ -1443,6 +1603,7 @@ class StageApplied:
     failed: tuple[StageFailure, ...] = ()
     removed: tuple[int, ...] = ()
     returned: tuple[int, ...] = ()
+    rejected: tuple[int, ...] = ()
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -1523,8 +1684,9 @@ def _groups_recorded(groups: Sequence[MeasuredGroup]) -> str:
 
 
 def _run_report(trace: RunTrace) -> str:
-    """The report of the plan runs of an item: the counts and each tool call, in order. It is
-    empty for an item that was planned with one call, which made no run of the toolbox."""
+    """The report of the plan runs of an item: the counts, each tool call in order, and one line
+    of the calls and the empty answers of each tool (#3240). It is empty for an item that was
+    planned with one call, which made no run of the toolbox."""
     if not trace.requests:
         return ""
     texts = MESSAGES.roadmap
@@ -1542,12 +1704,16 @@ def _run_report(trace: RunTrace) -> str:
         )
     else:
         listed = texts.stage_comment_no_tools_offered
+    counts = ", ".join(
+        texts.stage_comment_tool_count.format(name=name, calls=made, empty=empty)
+        for name, (made, empty) in trace.tool_counts().items()
+    )
     return texts.stage_comment_run.format(
         requests=trace.requests,
         input_tokens=trace.input_tokens,
         output_tokens=trace.output_tokens,
         calls=listed,
-    )
+    ) + (texts.stage_comment_tool_counts.format(counts=counts) if counts else "")
 
 
 def _notes(change: StagedChange) -> str:
@@ -1616,10 +1782,12 @@ def _stage_one(
             StageRecordKey.PR: str(pull.number),
             StageRecordKey.SHA: sha,
             StageRecordKey.GROUPS: _groups_recorded(change.groups),
+            StageRecordKey.TEXT_HASH: body_hashes(target.item.body)[0],
             StageRecordKey.NEEDS_SPLIT: None,
             StageRecordKey.FILE_CAP: None,
             StageRecordKey.FAILED_AT: None,
             StageRecordKey.FAILED_ERROR: None,
+            StageRecordKey.REJECTED: None,
         },
     )
     label_note = _label_pull(store, pull.number, change.title)
@@ -1685,6 +1853,38 @@ def _remove_staged(store: RoadmapStore, repo: str, source: Path, removal: Remova
     store.set_marks(removal.item, {key: None for key in StageRecordKey})
 
 
+def _delete_rejected_branch(source: Path, branch: str, tip: str) -> None:
+    """Delete `branch` of `origin` while it ends at `tip`, the commit that the plan judged. A
+    commit that someone pushed since keeps the branch: the lease refuses the delete, and the job
+    goes on with the rest of the rejection (#3503). A refused delete with the branch at `tip` is a
+    real failure and stops the item."""
+    try:
+        ref = f"refs/heads/{branch}"
+        _git(source, "push", f"--force-with-lease={ref}:{tip}", "origin", f":{ref}")
+    except GitOperationError:
+        remote = _git(source, "ls-remote", "--heads", "origin", f"refs/heads/{branch}").split()
+        if remote and remote[0] == tip:
+            raise
+        if remote:
+            logger.warning("The branch %s changed after the plan judged it, so it stays.", branch)
+
+
+def _reject_plan(store: RoadmapStore, source: Path, rejection: Rejection, *, staged: bool) -> None:
+    """Write a rejected plan (#3503): delete the staged branch, post the comment with the reason,
+    then record the rejection and clear every other stage key. The branch goes first and the
+    comment second, so a failed write never leaves a record that no one was told about, and the
+    next run tries the whole rejection again. The item returns to New, unless the same run stages
+    it (`staged`): then its Status stays as it is."""
+    if rejection.branch is not None:
+        _delete_rejected_branch(source, rejection.branch, rejection.branch_sha)
+    store.comment(rejection.number, rejection.comment)
+    marks = {key: None for key in StageRecordKey} | {StageRecordKey.REJECTED: rejection.plan.record}
+    if staged or rejection.item.status == CONST_ROADMAP_STATUS_NEW:
+        store.set_marks(rejection.item, marks)
+    else:
+        store.set_field(rejection.item, ItemField.STATUS, CONST_ROADMAP_STATUS_NEW, marks=marks)
+
+
 _STOP_THE_RUN: tuple[type[DevOpsCLIError], ...] = (GitHubUnauthenticatedError, ServiceStoppingError)
 
 
@@ -1748,8 +1948,8 @@ def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now:
 def apply_stage(
     store: RoadmapStore, plan: StagePlan, *, source: Path | str, now: datetime | None = None
 ) -> StageApplied:
-    """Writes the plan: removes the staged branches of closed items, stages each ready change,
-    and stops each item whose group is over the budget. A write that fails stops its item, and
+    """Writes the plan: removes the staged branches of closed items, writes each rejected plan
+    (#3503), stages each ready change, and stops each item whose group is over the budget. A write that fails stops its item, and
     the others go on; rejected GitHub credentials stop the run. Each item that failed, in the plan
     or in a write, gets the time and the error class in its job record, and the job leaves it for
     `roadmap.stage.retry_hours` hours (#3493). The stop of the Service stops the run too, but it
@@ -1757,10 +1957,12 @@ def apply_stage(
     (#2753)."""
     checkout = Path(source)
     removed: list[int] = []
+    rejected: list[int] = []
     returned: list[int] = []
     staged: list[int] = []
     stopped: list[int] = []
     failed: list[StageFailure] = []
+    staging = {change.target.item.number for change in plan.ready}
     phases = (
         (
             [
@@ -1768,6 +1970,13 @@ def apply_stage(
                 for r in plan.removals
             ],
             removed,
+        ),
+        (
+            [
+                (r.item, partial(_reject_plan, store, checkout, r, staged=r.number in staging))
+                for r in plan.rejections
+            ],
+            rejected,
         ),
         (
             [(b.target.item, partial(_return_blocked, store, b)) for b in plan.blocked],
@@ -1792,7 +2001,12 @@ def apply_stage(
     if stopped_by is not None:
         raise stopped_by
     return StageApplied(
-        tuple(staged), tuple(stopped), tuple(failed), tuple(removed), tuple(returned)
+        tuple(staged),
+        tuple(stopped),
+        tuple(failed),
+        tuple(removed),
+        tuple(returned),
+        tuple(rejected),
     )
 
 
@@ -1813,6 +2027,7 @@ def stage_results(plan: StagePlan, applied: StageApplied) -> dict[int, StageResu
     results |= dict.fromkeys(applied.staged, StageResult.STAGED)
     results |= dict.fromkeys(applied.stopped, StageResult.NEEDS_SPLIT)
     results |= dict.fromkeys(applied.returned, StageResult.SKIPPED)
+    results |= dict.fromkeys(applied.rejected, StageResult.SKIPPED)
     results |= dict.fromkeys(
         (failure.number for failure in (*plan.failed, *applied.failed)), StageResult.FAILED
     )
@@ -1891,6 +2106,14 @@ def render_stage_plan(plan: StagePlan) -> str:
         texts.stage_kept_line.format(number=k.number, branch=k.branch, reason=k.reason)
         for k in plan.kept
     ]
+    rejected = [
+        texts.stage_rejected_line.format(
+            number=r.number,
+            pull=r.plan.pull,
+            note=texts.stage_rejected_deletes.format(branch=r.branch) if r.branch else "",
+        )
+        for r in plan.rejections
+    ]
     lines += _section(texts.stage_heading_ready, ready)
     lines += _section(texts.stage_heading_over, over)
     lines += _section(texts.stage_heading_left, left)
@@ -1910,10 +2133,11 @@ def render_stage_plan(plan: StagePlan) -> str:
         for b in plan.blocked
     ]
     lines += _section(texts.stage_heading_returned, returned)
+    lines += _section(texts.stage_heading_rejected, rejected)
     lines += _section(texts.stage_heading_failed, failed)
     lines += _section(texts.stage_heading_removals, removals)
     lines += _section(texts.stage_heading_kept, kept)
-    if not (ready or over or left or failed or removals or kept or returned):
+    if not (ready or over or left or failed or removals or kept or returned or rejected):
         lines += ["", texts.stage_nothing]
     return "\n".join(lines)
 
@@ -1952,6 +2176,7 @@ __all__ = [
     "LeftOut",
     "OverBudget",
     "PlannedQueue",
+    "Rejection",
     "Removal",
     "StageApplied",
     "StageFailure",

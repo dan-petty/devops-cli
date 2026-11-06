@@ -47,7 +47,7 @@ from devops_cli.github.labels import diff_labels
 from devops_cli.lang import MESSAGES
 from devops_cli.output import format_duration
 from devops_cli.roadmap.inbox_kind import InboxKind
-from devops_cli.roadmap.planned import planned_count
+from devops_cli.roadmap.planned import planned_count, planned_limit_priorities
 from devops_cli.roadmap.pull_labels import declared_specs
 from devops_cli.roadmap.refine import NextStep
 from devops_cli.roadmap.status_sync import job_holds
@@ -337,7 +337,9 @@ def _queue_lines(items: Iterable[Item], repo: str, planned_limit: int) -> list[I
     if count < planned_limit:
         return []
     texts = MESSAGES.roadmap
-    subject = texts.inbox_subjects["queue"].format(count=count, limit=planned_limit)
+    subject = texts.inbox_subjects["queue"].format(
+        count=count, limit=planned_limit, priorities=planned_limit_priorities()
+    )
     clear = texts.inbox_clears["queue"].format(repo=repo)
     return [InboxLine(InboxKind.QUEUE, None, None, subject, clear)]
 

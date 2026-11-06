@@ -213,6 +213,29 @@ def test_a_refine_round_plans_the_record_of_a_comment_the_cap_stops_and_an_item_
     ) == ([f"api repos/{REPO}/issues/<item>", "issue patch"], [])
 
 
+def test_a_refine_round_plans_the_read_and_the_notice_for_an_item_of_an_untrusted_author() -> None:
+    """A round reads the comments of each item that an account that the jobs do not trust opened,
+    and writes one comment on it when none tells its author yet. `--item` refines its item whoever
+    opened it, so its plan holds neither (#3502)."""
+    from devops_cli.roadmap.request_plan import refine_requests
+
+    reads, writes = refine_requests(REPO, None)
+    single_reads, single_writes = refine_requests(REPO, None, item=7)
+    texts = MESSAGES.roadmap
+    read, notice = texts.plan_conditions["outside_author"], texts.plan_conditions["outside_notice"]
+    repeat = texts.plan_repeat["outside_item"]
+    paged = f"{repeat}; {texts.plan_repeat_page}"
+    assert (
+        [(r.argv[1:], r.repeat) for r in reads if r.condition == read],
+        [(_shape(r), r.repeat) for r in writes if r.condition == notice],
+        [r for r in [*single_reads, *single_writes] if r.condition in {read, notice}],
+    ) == (
+        [((f"{API}{listing_path(comments_endpoint(REPO, '<item>'))}",), paged)],
+        [("api -X POST", repeat)],
+        [],
+    )
+
+
 def test_a_refine_plan_lists_the_intake_requests_of_a_deferred_part() -> None:
     """A round and a refine of one item each list the requests of one new intake candidate, and
     the record of its number, when the proposal defers a part (#2423)."""
@@ -397,6 +420,26 @@ def test_the_alternatives_dry_run_lists_the_gh_command_and_the_url_of_each_reque
         ("gh", "api", f"repos/{REPO}/issues/7") in argvs,
         {request.method for request in plan.requests if not request.argv},
     ) == (AlternativesPlan, True, True, True, True, True, True, True, {"model call"})
+
+
+def test_the_alternatives_dry_run_lists_the_reads_of_the_adrs() -> None:
+    """The run lists `docs/adr` and each file of it once for the run, when it checks an item that
+    is no skip class (#3505)."""
+    from devops_cli.roadmap.alternatives import dry_run_alternatives
+
+    raw = ("gh", "api", "-H", "Accept: application/vnd.github.raw+json")
+    plan = dry_run_alternatives(REPO)
+    reads = {request.argv: request for request in plan.requests}
+
+    directory = reads[(*raw, f"repos/{REPO}/contents/docs/adr")]
+    adr_file = reads[(*raw, f"repos/{REPO}/contents/docs/adr/NNNN-name.md")]
+    assert [(r.condition, r.repeat) for r in (directory, adr_file)] == [
+        ("the run checks an item that is no skip class", ""),
+        (
+            "the run checks an item that is no skip class",
+            "for each file of the directory, once a run",
+        ),
+    ]
 
 
 def test_the_alternatives_dry_run_names_no_project_board() -> None:
@@ -591,3 +634,29 @@ def test_the_implement_plan_lists_amendment_commit_split_and_return_with_conditi
     assert split.condition != ""
     assert return_comment.condition != ""
     assert return_status.condition != ""
+
+
+def test_the_stage_plan_lists_the_reads_and_the_writes_of_a_rejected_plan() -> None:
+    from devops_cli.roadmap.request_plan import stage_requests
+
+    reads, writes = stage_requests(REPO)
+
+    texts = MESSAGES.roadmap
+    (state,) = [r for r in reads if r.target == texts.stage_requests["plan_state"]]
+    assert state.argv == ("GET", f"{API}/repos/{REPO}/pulls/<pull request>")
+    assert state.repeat == texts.plan_repeat["stage_plan"]
+    comment_reads = [r for r in reads if "<pull request>/comments" in " ".join(r.argv)]
+    assert [r.condition for r in comment_reads] == [
+        texts.stage_request_conditions["rejected_comments"]
+    ]
+    deletes = [w for w in writes if w.target == texts.stage_requests["delete_rejected"]]
+    assert [w.argv[-4:] for w in deletes] == [
+        (
+            "push",
+            "--force-with-lease=refs/heads/<branch>:<remote tip>",
+            "origin",
+            ":refs/heads/<branch>",
+        )
+    ]
+    of_a_rejection = [w for w in writes if w.repeat == texts.plan_repeat["stage_rejected"]]
+    assert len(of_a_rejection) == 4

@@ -712,7 +712,8 @@ def test_the_mcp_semgrep_tool_scans_with_the_default_ruleset_unless_the_caller_n
     scanner_fake: ScannerFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The MCP `scan_sast` tool runs the Semgrep adapter with `DEFAULT_SEMGREP_CONFIG`, read from
-    its cached ruleset, and with the ruleset that the caller names in its place (#1435)."""
+    its cached ruleset, and with the ruleset that the caller names in its place (#1435). A local
+    path that the caller names resolves under the work tree (#3480)."""
     monkeypatch.chdir(tmp_path)
 
     for arguments in ({"target": str(tmp_path)}, {"target": str(tmp_path), "config": "./rules"}):
@@ -720,7 +721,7 @@ def test_the_mcp_semgrep_tool_scans_with_the_default_ruleset_unless_the_caller_n
 
     assert [run.argv[run.argv.index("--config") + 1] for run in scanner_fake.runs] == [
         f"./{CACHED_RULESET_FILE_NAME}",
-        "./rules",
+        str(tmp_path / "rules"),
     ]
 
 

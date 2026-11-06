@@ -5,6 +5,10 @@ that lives on GitHub (#1844, ADR 0010, ADR 0001).
 `openspec validate --strict` passes a folder of only `.openspec.yaml` and a delta, and the
 readiness check in the switch reads the folder by path alone, so without this test an empty plan
 would count as a plan.
+
+A plan that records a test in `## Weakened checks` names it as the guard of the implement step does
+(#3490): `path::Class.test_x` for a test of a class. The guard compares the names exactly, so a name
+without its class waives nothing and the plan stops at the group that removes the test.
 """
 
 from __future__ import annotations
@@ -22,6 +26,8 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGE_NAME_RE,
     CONST_OPENSPEC_CHANGES_DIR,
 )
+from devops_cli.roadmap.implement_test_names import defined_tests
+from devops_cli.roadmap.plan_read import PlanReadError, recorded_tests, weakened_checks
 from devops_cli.roadmap.stage_change import GroupKind, render_change
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
@@ -76,15 +82,21 @@ def _metadata_lines(tokens: list[Token]) -> list[str]:
     ]
 
 
-def folder_problems(folder: Path) -> list[str]:
-    """Why the change folder `folder` is not a plan; empty when it is."""
+def folder_problems(folder: Path, root: Path = REPO_ROOT) -> list[str]:
+    """Why the change folder `folder` is not a plan; empty when it is. `root` is the repository that
+    holds the test files which the proposal records."""
     problems = []
     if not re.fullmatch(CONST_OPENSPEC_CHANGE_NAME_RE, folder.name):
         problems.append(f"{folder.name}: not named <issue>-<slug>")
     for path in sorted(folder.rglob("*.md")):
         if _metadata_lines(_tokens(path)):
             problems.append(f"{folder.name}/{path.relative_to(folder).as_posix()}: has a field")
-    return [*problems, *_proposal_problems(folder), *_task_problems(folder)]
+    return [
+        *problems,
+        *_proposal_problems(folder),
+        *_task_problems(folder),
+        *_record_problems(folder, root),
+    ]
 
 
 def _proposal_problems(folder: Path) -> list[str]:
@@ -100,6 +112,36 @@ def _proposal_problems(folder: Path) -> list[str]:
     ]
 
 
+def _record_problems(folder: Path, root: Path) -> list[str]:
+    """The tests that `## Weakened checks` records under a name that the guard does not read. The
+    name `path::test_x` is wrong when `path` defines `Class.test_x` and no `test_x` of its own: the
+    guard reads the class. A name that the file no longer defines at all is a removal that the
+    pull request has done, and the plan stays until its last commit archives it, so it is no problem.
+    A section that the reader refuses is a problem too."""
+    proposal = folder / "proposal.md"
+    if not proposal.is_file():
+        return []
+    try:
+        recorded = recorded_tests(weakened_checks(proposal.read_text(encoding="utf-8")))
+    except PlanReadError as refused:
+        return [f"{folder.name}/proposal.md: {refused.reason}"]
+    problems = []
+    for entry in sorted(recorded):
+        path, _, name = entry.partition("::")
+        file = root / path
+        defined = defined_tests(file.read_text(encoding="utf-8")) if file.is_file() else None
+        if not defined or name in defined:
+            continue
+        near = sorted(
+            test for test in defined if test.rsplit(".", 1)[-1] == name.rsplit(".", 1)[-1]
+        )
+        if near:
+            problems.append(
+                f"{folder.name}/proposal.md: records {entry}, and the file defines {', '.join(near)}"
+            )
+    return problems
+
+
 def _task_problems(folder: Path) -> list[str]:
     """Why `tasks.md` is no task list, or that there is none."""
     tasks = folder / "tasks.md"
@@ -110,8 +152,9 @@ def _task_problems(folder: Path) -> list[str]:
     return []
 
 
-def tree_problems(changes_dir: Path) -> list[str]:
-    """Why the active changes under `changes_dir` are not plans, and any stray entry there."""
+def tree_problems(changes_dir: Path, root: Path = REPO_ROOT) -> list[str]:
+    """Why the active changes under `changes_dir` are not plans, and any stray entry there. `root`
+    is the repository that holds the test files which the proposals record."""
     entries = sorted(changes_dir.iterdir()) if changes_dir.is_dir() else []
     problems = [
         f"{entry.name}: not a change folder or {ARCHIVE_DIR_NAME}/"
@@ -120,7 +163,7 @@ def tree_problems(changes_dir: Path) -> list[str]:
     ]
     for entry in entries:
         if entry.is_dir() and entry.name != ARCHIVE_DIR_NAME:
-            problems.extend(folder_problems(entry))
+            problems.extend(folder_problems(entry, root))
     return problems
 
 
@@ -286,3 +329,82 @@ def test_the_tasks_of_a_stage_group_of_each_kind_make_a_plan(tmp_path: Path) -> 
     folder = _folder(tmp_path, tasks=files[f"{root}/tasks.md"])
 
     assert folder_problems(folder) == []
+
+
+SECTION = (
+    "\n## Weakened checks\n\n- **`{entry}`**: Stopped: an old form. Safeguard: `test_b` holds it.\n"
+)
+CLASS_TESTS = "class TestSample:\n    def test_a(self) -> None: ...\n"
+
+
+def _repo_with_tests(tmp_path: Path, text: str) -> Path:
+    """A repository root with the test file `tests/test_sample.py` that holds `text`."""
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_sample.py").write_text(text, encoding="utf-8")
+    return tmp_path
+
+
+def _records(tmp_path: Path, entry: str) -> Path:
+    return _folder(tmp_path, proposal=PROPOSAL + SECTION.format(entry=entry))
+
+
+def test_a_test_of_a_class_that_a_plan_records_by_its_qualified_name_passes(
+    tmp_path: Path,
+) -> None:
+    root = _repo_with_tests(tmp_path, CLASS_TESTS)
+    folder = _records(tmp_path, "tests/test_sample.py::TestSample.test_a")
+
+    assert folder_problems(folder, root) == []
+
+
+def test_a_test_of_a_class_that_a_plan_records_with_no_class_is_reported(tmp_path: Path) -> None:
+    """The guard reads `TestSample.test_a`, so the entry `test_a` would waive nothing."""
+    root = _repo_with_tests(tmp_path, CLASS_TESTS)
+    folder = _records(tmp_path, "tests/test_sample.py::test_a")
+
+    assert folder_problems(folder, root) == [
+        "1900-widget-export/proposal.md: records tests/test_sample.py::test_a, "
+        "and the file defines TestSample.test_a"
+    ]
+
+
+def test_a_test_that_a_plan_records_under_another_class_is_reported(tmp_path: Path) -> None:
+    root = _repo_with_tests(tmp_path, CLASS_TESTS)
+    folder = _records(tmp_path, "tests/test_sample.py::TestOther.test_a")
+
+    assert folder_problems(folder, root) == [
+        "1900-widget-export/proposal.md: records tests/test_sample.py::TestOther.test_a, "
+        "and the file defines TestSample.test_a"
+    ]
+
+
+def test_a_module_level_test_that_a_plan_records_passes(tmp_path: Path) -> None:
+    root = _repo_with_tests(tmp_path, "def test_a() -> None: ...\n")
+    folder = _records(tmp_path, "tests/test_sample.py::test_a")
+
+    assert folder_problems(folder, root) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [None, "def test_b() -> None: ...\n", "def test_a(:\n"],
+    ids=["no-file", "gone", "syntax"],
+)
+def test_a_record_of_a_test_that_the_file_no_longer_defines_is_no_problem(
+    tmp_path: Path, text: str | None
+) -> None:
+    """The pull request that removes the test leaves the plan in place until it archives it."""
+    root = tmp_path if text is None else _repo_with_tests(tmp_path, text)
+    folder = _records(tmp_path, "tests/test_sample.py::TestSample.test_a")
+
+    assert folder_problems(folder, root) == []
+
+
+def test_a_section_that_the_reader_refuses_is_reported(tmp_path: Path) -> None:
+    folder = _folder(tmp_path, proposal=PROPOSAL + "\n## Weakened checks\n\nThe test goes.\n")
+
+    assert folder_problems(folder, tmp_path) == [
+        "1900-widget-export/proposal.md: `proposal.md` holds a line in `## Weakened checks` that "
+        "is no entry: The test goes.. The form is "
+        "`- **<check>**: Stopped: <stopped> Safeguard: <safeguard>`."
+    ]

@@ -1,0 +1,5 @@
+You have read-only tools on the repository at the commit of the plan. Use them to check each path, each premise and each verify command. `files` holds only the start of the first cited files, so read a file with a tool when you need the rest. A tool answers a path that is not in the repository with a text, and it never changes a file.
+
+A quote may also come from a tool answer. Copy the text of the file with no line number.
+
+A `missing_path`, `false_premise`, `ignores_existing_code`, `task_order` or `verify_form` finding with a quote that is in the input or in a tool answer sends the plan back to its author, up to two repair rounds. So report these only when the quote proves them. A plan that a defect still holds after the last round stays a draft.

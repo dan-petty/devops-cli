@@ -12,13 +12,25 @@ An item that refine cannot set to Ready gets one comment with its next step. The
 - The split that a person makes.
 - The open items that this item waits on.
 
+A proposal that names an open issue as a dependency is not whole. The item waits on that issue. Refine does not set it to Ready, and a Ready item goes back to New. A closed dependency holds nothing back.
+
 Refine looks at the item again after a reply, a body edit, or the close of those open items. It also looks again after a commit on the default branch that changes a file that the block cites. The report groups every item by its next step.
 
 An item that waits on a person has one more way out. The comment of refine names issues and files in its questions. Refine looks at the item again when an issue that the comment names closes after the comment, or when a file that it names changes on the default branch after the comment. A round reads at most 5 issues and 5 files from one comment.
 
 ## Items that the stage job returns
 
-The stage job can return an item to New with evidence that the plan cannot hold. That is the act of a job, not of a person, so the next round refines the item again with no reply and no body edit. The model reads the evidence of the return in `stage_return`. A round that looks at the same body again records its hash in `refine.returned_body_hash`. When the stage job returns the item a second time on that body, refine does not look again. The item waits on a person, and the reason is `devops roadmap explain <number>` and a line in `devops roadmap inbox`. A reply or a body edit ends that wait. A person who sets an item back to New with no comment is the other case: the item waits for the reason of that person.
+The stage job can return an item to New with evidence that the plan cannot hold. That is the act of a job, not of a person, so the next round refines the item again with no reply and no body edit. The model reads the evidence of the return in `stage_return`. A plan pull request that a person closed with no merge is such a return. The stage job copies the reason of the person to the issue and returns the item to New. Then `stage_return` holds that reason. A round that looks at the same body again records its hash in `refine.returned_body_hash`. When the stage job returns the item a second time on that body, refine does not look again. The item waits on a person, and the reason is `devops roadmap explain <number>` and a line in `devops roadmap inbox`. A reply or a body edit ends that wait. A person who sets an item back to New with no comment is the other case: the item waits for the reason of that person.
+
+## Items that a bot opens
+
+The Service App and the workflows of the repository open items. Examples are the parts that refine splits off and the findings of an audit. A round takes an item whose author login is exactly `service.github_app.bot_login` or `github-actions[bot]`. It takes such an item as it takes the item of a person with write access. It takes no item of another bot or of an outside account. Refine writes one comment on such an item to tell its author why the round leaves it alone.
+
+Nobody wrote the text of a bot item, so a Ready proposal for it goes through a review first. The review is the verification pass of the stage job, with the model of the task slot `ai.tasks.verification`. It reads the issue and the proposal. With no open finding, refine sets the item Ready and records `refine.judge` `approved`.
+
+With an open finding, the item stays New and waits for a body edit. One comment lists each finding with its evidence. The approval covers the body that the review read, and the hashes in the job record show it. A body edit ends the approval, and the next round reviews the item again. The stage job, the implement job and the alternatives job take a bot item only with an approval that holds.
+
+The review is a model, so text in the item can mislead it. The control is the login of the author. The models of refine and of the alternatives job read only the replies of two kinds of author. These are a person with write access and the App's bot. A person still merges each pull request. A comment of a bot starts no `implement: retry`.
 
 ## What refine investigates
 
@@ -42,7 +54,7 @@ In each open milestone, and among the P0 and P1 items of the backlog, refine als
 
 Two kinds of item wait for a person. Only `--item` refines them:
 
-- An item that an account other than the owner, a member or a collaborator opened.
+- An item that another account opened. The accounts that a round trusts are the owner, a member, a collaborator, the Service App's bot and `github-actions[bot]`.
 - An item on which refine wrote 2 comments in the last 24 hours. It takes no place under `--limit` until the older comment is 24 hours old.
 
 `--item` refines an open New or Ready item even when nothing changed since its last round.
@@ -66,6 +78,7 @@ The command [`devops roadmap repair`](repair.md) sets back the items that a plac
 | Topic | Spec |
 | :--- | :--- |
 | The limit, the cap of comments, the items of an account without write access | [roadmap-refine](../../openspec/specs/roadmap-refine/spec.md) |
+| The authors that the jobs trust, the review of a bot item, the replies that the model reads | [roadmap-author-trust](../../openspec/specs/roadmap-author-trust/spec.md) |
 | The investigation, the options of a decision, web search | [roadmap-refine](../../openspec/specs/roadmap-refine/spec.md) |
 | The next-step comment, the paths of a block, a change that ends a wait | [roadmap-refine](../../openspec/specs/roadmap-refine/spec.md) |
 | A deferred part and its filing through intake | [roadmap-refine](../../openspec/specs/roadmap-refine/spec.md) |

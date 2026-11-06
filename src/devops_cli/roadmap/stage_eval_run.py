@@ -14,10 +14,7 @@ score counts it as neither avoided nor caught.
 
 from __future__ import annotations
 
-import shutil
-import tempfile
-from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -33,7 +30,7 @@ from devops_cli.ai.client.models import (
 from devops_cli.exceptions import RoadmapStageError, ToolExecutionError
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
-from devops_cli.roadmap.clone_git import git
+from devops_cli.roadmap.clone_git import checkout_at
 from devops_cli.roadmap.refine_investigation import task_window
 from devops_cli.roadmap.stage import (
     OverBudget,
@@ -111,22 +108,6 @@ def item_of(case: StageCase) -> Item:
     )
 
 
-@contextmanager
-def checkout_at(repository: Path, commit: str) -> Iterator[Path]:
-    """The tracked files of `commit` in a new detached worktree of `repository`, removed after.
-    A commit the repository lacks raises `GitOperationError`."""
-    parent = Path(tempfile.mkdtemp(prefix="stage-eval-"))
-    tree = parent / "tree"
-    try:
-        git(repository, "worktree", "add", "--detach", str(tree), commit, operation=_OPERATION)
-        try:
-            yield tree
-        finally:
-            git(repository, "worktree", "remove", "--force", str(tree), operation=_OPERATION)
-    finally:
-        shutil.rmtree(parent, ignore_errors=True)
-
-
 def _first_reply_problems(
     case: StageCase, reply: StageProposal, source: Path
 ) -> dict[GateName, list[str]]:
@@ -173,7 +154,7 @@ def run_case(
     does (#3037), and `client` answers the call that splits the groups. The recorder wraps the
     toolbox client, so it keeps the first plan the model gave. `openspec` reads the specs for the
     tool `read_spec`. Without a toolbox, a plan is one call."""
-    with checkout_at(repository, case.base_commit) as source:
+    with checkout_at(repository, case.base_commit, operation=_OPERATION) as source:
         planner: StageClient = (
             client
             if toolbox is None

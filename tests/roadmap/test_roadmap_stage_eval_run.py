@@ -18,6 +18,7 @@ from devops_cli.ai.client.models import (
 )
 from devops_cli.config.constants import CONST_ROADMAP_STAGE_TOOL_MAX_CALLS
 from devops_cli.exceptions import GitOperationError
+from devops_cli.roadmap.clone_git import checkout_at
 from devops_cli.roadmap.stage import StagedChange, plan_item
 from devops_cli.roadmap.stage_change import StageProposal
 from devops_cli.roadmap.stage_eval_cases import (
@@ -32,7 +33,6 @@ from devops_cli.roadmap.stage_eval_run import (
     CaseRun,
     Outcome,
     RecordingClient,
-    checkout_at,
     item_of,
     run_case,
     run_cases,
@@ -261,7 +261,7 @@ def test_a_commit_that_the_repository_lacks_fails_and_leaves_no_worktree_and_no_
 
     with (
         pytest.raises(GitOperationError, match="worktree"),
-        checkout_at(stage_repo.clone, "0" * 40),
+        checkout_at(stage_repo.clone, "0" * 40, operation="test"),
     ):
         pass
 
@@ -275,7 +275,7 @@ def test_a_checkout_is_the_tracked_files_of_the_commit_and_is_removed(
     sha = stage_repo.git("rev-parse", "HEAD")
     stage_repo.track({"later.txt": "later"})
 
-    with checkout_at(stage_repo.clone, sha) as tree:
+    with checkout_at(stage_repo.clone, sha, operation="test") as tree:
         names = {path.name for path in tree.rglob("*") if path.is_file()}
         assert "sample.py" in names
         assert "later.txt" not in names

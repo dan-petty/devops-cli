@@ -28,6 +28,11 @@ from devops_cli.config.constants import (
     CONST_GH_WEBHOOK_SIGNATURE_PREFIX,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_ROADMAP_WEBHOOK_EVENTS,
+    CONST_SERVICE_CHAT_COMMAND_ROADMAP,
+    CONST_SERVICE_CHAT_RESULT_ERROR,
+    CONST_SERVICE_CHAT_RESULT_STATUS,
+    CONST_SERVICE_CHAT_RESULT_UNKNOWN_REPO,
+    CONST_SERVICE_CHAT_RESULT_USAGE,
     CONST_SERVICE_DELIVERY_LRU_CAPACITY,
     CONST_SERVICE_EVENT_OTHER,
     CONST_SERVICE_MAX_BODY_BYTES,
@@ -170,6 +175,14 @@ def _format_lane_status(status: Any) -> str:
     )
 
 
+def _count_chat_command(result: str) -> None:
+    """Count one `/roadmap` chat command under its `result` (#1395, #3495)."""
+    GLOBAL_METRICS.increment_counter(
+        CONST_SERVICE_METRIC_CHAT_COMMANDS,
+        labels={"command": CONST_SERVICE_CHAT_COMMAND_ROADMAP, "result": result},
+    )
+
+
 async def mattermost_roadmap_responder(
     request: Request,
     service_manager: ServiceManager,
@@ -183,9 +196,7 @@ async def mattermost_roadmap_responder(
     try:
         args = shlex.split(raw_text)
     except ValueError:
-        GLOBAL_METRICS.increment_counter(
-            CONST_SERVICE_METRIC_CHAT_COMMANDS, labels={"command": "/roadmap", "result": "usage"}
-        )
+        _count_chat_command(CONST_SERVICE_CHAT_RESULT_USAGE)
         return {
             "response_type": "ephemeral",
             "text": MESSAGES.serve.chat_roadmap_usage,
@@ -195,20 +206,14 @@ async def mattermost_roadmap_responder(
         if not args or args == ["status"]:
             statuses = service_manager.lane_statuses()
             lines = [_format_lane_status(s) for s in statuses]
-            GLOBAL_METRICS.increment_counter(
-                CONST_SERVICE_METRIC_CHAT_COMMANDS,
-                labels={"command": "/roadmap", "result": "status"},
-            )
+            _count_chat_command(CONST_SERVICE_CHAT_RESULT_STATUS)
             return {"response_type": "ephemeral", "text": "\n".join(lines)}
 
         if len(args) == 2 and args[0] == "status":
             target_repo = args[1]
             if target_repo not in service_manager.managed_repos:
                 known = ", ".join(service_manager.config.repos)
-                GLOBAL_METRICS.increment_counter(
-                    CONST_SERVICE_METRIC_CHAT_COMMANDS,
-                    labels={"command": "/roadmap", "result": "unknown_repo"},
-                )
+                _count_chat_command(CONST_SERVICE_CHAT_RESULT_UNKNOWN_REPO)
                 return {
                     "response_type": "ephemeral",
                     "text": MESSAGES.serve.chat_roadmap_unknown_repo.format(
@@ -218,24 +223,17 @@ async def mattermost_roadmap_responder(
 
             statuses = service_manager.lane_statuses(target_repo)
             lines = [_format_lane_status(s) for s in statuses]
-            GLOBAL_METRICS.increment_counter(
-                CONST_SERVICE_METRIC_CHAT_COMMANDS,
-                labels={"command": "/roadmap", "result": "status"},
-            )
+            _count_chat_command(CONST_SERVICE_CHAT_RESULT_STATUS)
             return {"response_type": "ephemeral", "text": "\n".join(lines)}
 
-        GLOBAL_METRICS.increment_counter(
-            CONST_SERVICE_METRIC_CHAT_COMMANDS, labels={"command": "/roadmap", "result": "usage"}
-        )
+        _count_chat_command(CONST_SERVICE_CHAT_RESULT_USAGE)
         return {
             "response_type": "ephemeral",
             "text": MESSAGES.serve.chat_roadmap_usage,
         }
     except Exception as exc:
         logger.error("Error executing /roadmap chat command: %s", exc, exc_info=True)
-        GLOBAL_METRICS.increment_counter(
-            CONST_SERVICE_METRIC_CHAT_COMMANDS, labels={"command": "/roadmap", "result": "error"}
-        )
+        _count_chat_command(CONST_SERVICE_CHAT_RESULT_ERROR)
         return {
             "response_type": "ephemeral",
             "text": f"Error executing roadmap command: {exc}",
@@ -571,6 +569,39 @@ async def _read_and_route(
     return _route(delivery, provider, payload, service_manager, consumers)
 
 
+def _declared_events(
+    provider: WebhookProvider, consumers: Sequence[WebhookConsumer]
+) -> frozenset[str]:
+    """The events that `provider` declares: its ping event and the events of the consumers that
+    take its events."""
+    taking = [consumer for consumer in consumers if consumer.provider is provider.name]
+    ping_events = {provider.ping_event} if provider.ping_event is not None else set()
+    return frozenset(ping_events).union(*(c.events for c in taking))
+
+
+_DELIVERY_OUTCOMES: Final[tuple[str, ...]] = (
+    CONST_SERVICE_OUTCOME_ACCEPTED,
+    CONST_SERVICE_OUTCOME_IGNORED,
+    CONST_SERVICE_OUTCOME_REJECTED,
+    CONST_SERVICE_OUTCOME_NO_SUBSCRIBER,
+    CONST_SERVICE_OUTCOME_SELF,
+)
+"""The outcomes that a delivery of a provider counts, each under its declared event (#3495)."""
+
+
+def _delivery_label_sets(
+    provider: WebhookProvider, consumers: Sequence[WebhookConsumer]
+) -> list[dict[str, str]]:
+    """Each label set that a delivery of `provider` counts: each declared event and `other`, with
+    each outcome. The Service creates each of them at zero when its routes are built (#3495)."""
+    events = _declared_events(provider, consumers) | {CONST_SERVICE_EVENT_OTHER}
+    return [
+        {"provider": str(provider.name), "event": event, "outcome": outcome}
+        for event in sorted(events)
+        for outcome in _DELIVERY_OUTCOMES
+    ]
+
+
 def _receiver(
     provider: WebhookProvider,
     service_manager: ServiceManager,
@@ -578,8 +609,7 @@ def _receiver(
 ) -> Callable[[Request], Awaitable[Response]]:
     """The route handler of one provider, over the consumers that take its events."""
     taking = [consumer for consumer in consumers if consumer.provider is provider.name]
-    ping_events = {provider.ping_event} if provider.ping_event is not None else set()
-    declared_events = frozenset(ping_events).union(*(c.events for c in taking))
+    declared_events = _declared_events(provider, consumers)
 
     async def receive(request: Request) -> Response:
         event = request.headers.get(provider.event_header, "") if provider.event_header else ""
@@ -622,6 +652,9 @@ def create_webhook_router(
     active = (roadmap_consumer(service_manager),) if consumers is None else tuple(consumers)
     router = APIRouter(tags=["webhooks"])
     for provider in WEBHOOK_PROVIDERS.values():
+        GLOBAL_METRICS.prime_counter(
+            CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES, _delivery_label_sets(provider, active)
+        )
         router.add_api_route(
             provider.path,
             _receiver(provider, service_manager, active),

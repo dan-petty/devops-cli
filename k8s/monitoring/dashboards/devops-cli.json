@@ -61,7 +61,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (command) (increase(devops_cli_command_total[1h]))",
+          "expr": "sum by (command) (increase(devops_cli_command_total{job=~\"$job\"}[1h]))",
           "legendFormat": "devops {{command}}",
           "refId": "A"
         }
@@ -107,7 +107,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (target_type) (increase(devops_cli_review_duration_seconds[1h])))",
+          "expr": "histogram_quantile(0.5, sum by (target_type) (increase(devops_cli_review_duration_seconds{job=~\"$job\"}[1h])))",
           "legendFormat": "p50 {{target_type}}",
           "refId": "A"
         },
@@ -116,7 +116,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (target_type) (increase(devops_cli_review_duration_seconds[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (target_type) (increase(devops_cli_review_duration_seconds{job=~\"$job\"}[1h])))",
           "legendFormat": "p95 {{target_type}}",
           "refId": "B"
         },
@@ -125,7 +125,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_avg(sum by (target_type) (increase(devops_cli_review_duration_seconds[1h])))",
+          "expr": "histogram_avg(sum by (target_type) (increase(devops_cli_review_duration_seconds{job=~\"$job\"}[1h])))",
           "legendFormat": "mean {{target_type}}",
           "refId": "C"
         },
@@ -134,7 +134,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_count(sum by (target_type) (increase(devops_cli_review_duration_seconds[1h])))",
+          "expr": "histogram_count(sum by (target_type) (increase(devops_cli_review_duration_seconds{job=~\"$job\"}[1h])))",
           "legendFormat": "count {{target_type}}",
           "refId": "D"
         }
@@ -180,7 +180,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum(increase(devops_cli_rag_query_duration_ms{stage=\"total\"}[1h])))",
+          "expr": "histogram_quantile(0.5, sum(increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=\"total\"}[1h])))",
           "legendFormat": "p50",
           "refId": "A"
         },
@@ -189,7 +189,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum(increase(devops_cli_rag_query_duration_ms{stage=\"total\"}[1h])))",
+          "expr": "histogram_quantile(0.95, sum(increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=\"total\"}[1h])))",
           "legendFormat": "p95",
           "refId": "B"
         },
@@ -198,7 +198,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_avg(sum(increase(devops_cli_rag_query_duration_ms{stage=\"total\"}[1h])))",
+          "expr": "histogram_avg(sum(increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=\"total\"}[1h])))",
           "legendFormat": "mean",
           "refId": "C"
         },
@@ -207,7 +207,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_count(sum(increase(devops_cli_rag_query_duration_ms{stage=\"total\"}[1h])))",
+          "expr": "histogram_count(sum(increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=\"total\"}[1h])))",
           "legendFormat": "count",
           "refId": "D"
         }
@@ -253,7 +253,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (command) (increase(devops_cli_command_duration_seconds[1h])))",
+          "expr": "histogram_quantile(0.5, sum by (command) (increase(devops_cli_command_duration_seconds{job=~\"$job\"}[1h])))",
           "legendFormat": "p50 {{command}}",
           "refId": "A"
         },
@@ -262,7 +262,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (command) (increase(devops_cli_command_duration_seconds[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (command) (increase(devops_cli_command_duration_seconds{job=~\"$job\"}[1h])))",
           "legendFormat": "p95 {{command}}",
           "refId": "B"
         },
@@ -271,7 +271,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (command) (increase(devops_cli_command_duration_seconds[1h])))",
+          "expr": "histogram_quantile(0.99, sum by (command) (increase(devops_cli_command_duration_seconds{job=~\"$job\"}[1h])))",
           "legendFormat": "p99 {{command}}",
           "refId": "C"
         },
@@ -280,7 +280,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_avg(sum by (command) (increase(devops_cli_command_duration_seconds[1h])))",
+          "expr": "histogram_avg(sum by (command) (increase(devops_cli_command_duration_seconds{job=~\"$job\"}[1h])))",
           "legendFormat": "mean {{command}}",
           "refId": "D"
         },
@@ -289,7 +289,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_count(sum by (command) (increase(devops_cli_command_duration_seconds[1h])))",
+          "expr": "histogram_count(sum by (command) (increase(devops_cli_command_duration_seconds{job=~\"$job\"}[1h])))",
           "legendFormat": "count {{command}}",
           "refId": "E"
         }
@@ -337,7 +337,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(sum by (command) (increase(devops_cli_command_total{status=\"error\"}[1h])) or sum by (command) (increase(devops_cli_command_total[1h])) * 0) / sum by (command) (increase(devops_cli_command_total[1h]))",
+          "expr": "(sum by (command) (increase(devops_cli_command_total{job=~\"$job\",status=\"error\"}[1h])) or sum by (command) (increase(devops_cli_command_total{job=~\"$job\"}[1h])) * 0) / sum by (command) (increase(devops_cli_command_total{job=~\"$job\"}[1h]))",
           "legendFormat": "devops {{command}}",
           "refId": "A"
         }
@@ -431,7 +431,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_count(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
+          "expr": "histogram_count(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
           "legendFormat": "{{sub_command}}",
           "refId": "A"
         },
@@ -440,7 +440,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_count(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{command=~\"$command\",sub_command=~\"$sub_command\",status=\"error\"}[1h])))",
+          "expr": "histogram_count(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\",status=\"error\"}[1h])))",
           "legendFormat": "errors {{sub_command}}",
           "refId": "B"
         }
@@ -489,7 +489,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
+          "expr": "histogram_quantile(0.5, sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
           "legendFormat": "p50",
           "refId": "A"
         },
@@ -498,7 +498,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
           "legendFormat": "p95",
           "refId": "B"
         },
@@ -507,7 +507,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
+          "expr": "histogram_quantile(0.99, sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
           "legendFormat": "p99",
           "refId": "C"
         },
@@ -516,7 +516,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_avg(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
+          "expr": "histogram_avg(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
           "legendFormat": "mean",
           "refId": "D"
         },
@@ -525,7 +525,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_count(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
+          "expr": "histogram_count(sum by (sub_command) (increase(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\",sub_command=~\"$sub_command\"}[1h])))",
           "legendFormat": "count",
           "refId": "E"
         }
@@ -583,7 +583,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (stage) (increase(devops_cli_rag_query_duration_ms{stage=~\"embedding|search|ranking\"}[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (stage) (increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=~\"embedding|search|ranking\"}[1h])))",
           "legendFormat": "p95 {{stage}}",
           "refId": "A"
         },
@@ -592,7 +592,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_avg(sum by (stage) (increase(devops_cli_rag_query_duration_ms{stage=~\"embedding|search|ranking\"}[1h])))",
+          "expr": "histogram_avg(sum by (stage) (increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=~\"embedding|search|ranking\"}[1h])))",
           "legendFormat": "mean {{stage}}",
           "refId": "B"
         },
@@ -601,7 +601,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_count(sum by (stage) (increase(devops_cli_rag_query_duration_ms{stage=~\"embedding|search|ranking\"}[1h])))",
+          "expr": "histogram_count(sum by (stage) (increase(devops_cli_rag_query_duration_ms{job=~\"$job\",stage=~\"embedding|search|ranking\"}[1h])))",
           "legendFormat": "count {{stage}}",
           "refId": "C"
         }
@@ -646,7 +646,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (operation, error_type) (increase(devops_cli_qdrant_retries_total[1h]))",
+          "expr": "sum by (operation, error_type) (increase(devops_cli_qdrant_retries_total{job=~\"$job\"}[1h]))",
           "legendFormat": "{{operation}} {{error_type}}",
           "refId": "A"
         }
@@ -694,7 +694,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(sum(increase(devops_cli_embedding_cache_lookups_total{result=\"hit\"}[1h])) or sum(increase(devops_cli_embedding_cache_lookups_total[1h])) * 0) / sum(increase(devops_cli_embedding_cache_lookups_total[1h]))",
+          "expr": "(sum(increase(devops_cli_embedding_cache_lookups_total{job=~\"$job\",result=\"hit\"}[1h])) or sum(increase(devops_cli_embedding_cache_lookups_total{job=~\"$job\"}[1h])) * 0) / sum(increase(devops_cli_embedding_cache_lookups_total{job=~\"$job\"}[1h]))",
           "legendFormat": "hit share",
           "refId": "A"
         }
@@ -751,7 +751,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_count(sum by (target_type) (increase(devops_cli_review_duration_seconds[1h])))",
+          "expr": "histogram_count(sum by (target_type) (increase(devops_cli_review_duration_seconds{job=~\"$job\"}[1h])))",
           "legendFormat": "{{target_type}}",
           "refId": "A"
         }
@@ -801,7 +801,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (severity) (increase(devops_cli_findings_total[1h]))",
+          "expr": "sum by (severity) (increase(devops_cli_findings_total{job=~\"$job\"}[1h]))",
           "legendFormat": "{{severity}}",
           "refId": "A"
         }
@@ -846,7 +846,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (producer) (increase(devops_cli_findings_total[1h]))",
+          "expr": "sum by (producer) (increase(devops_cli_findings_total{job=~\"$job\"}[1h]))",
           "legendFormat": "{{producer}}",
           "refId": "A"
         }
@@ -891,7 +891,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (status) (increase(devops_cli_findings_total[1h]))",
+          "expr": "sum by (status) (increase(devops_cli_findings_total{job=~\"$job\"}[1h]))",
           "legendFormat": "{{status}}",
           "refId": "A"
         }
@@ -968,7 +968,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(devops_cli_ai_spend_usd_total[$__range])) or vector(0)",
+          "expr": "sum(increase(devops_cli_ai_spend_usd_total{job=~\"$job\"}[$__range])) or vector(0)",
           "instant": true,
           "legendFormat": "Spend USD",
           "refId": "A"
@@ -1014,7 +1014,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (server) (rate(devops_cli_ai_spend_usd_total[5m])) * 3600 or sum by (server) (rate(devops_cli_ai_requests_total{cached=\"false\"}[5m])) * 0",
+          "expr": "sum by (server) (rate(devops_cli_ai_spend_usd_total{job=~\"$job\"}[5m])) * 3600 or sum by (server) (rate(devops_cli_ai_requests_total{job=~\"$job\",cached=\"false\"}[5m])) * 0",
           "legendFormat": "{{server}}",
           "refId": "A"
         }
@@ -1071,7 +1071,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (resource) (increase(devops_cli_github_requests_total[1h]))",
+          "expr": "sum by (resource) (increase(devops_cli_github_requests_total{job=~\"$job\"}[1h]))",
           "legendFormat": "{{resource}}",
           "refId": "A"
         }
@@ -1116,7 +1116,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_count(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds[1h])))",
+          "expr": "histogram_count(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds{job=~\"$job\"}[1h])))",
           "legendFormat": "{{resource}}",
           "refId": "A"
         }
@@ -1161,7 +1161,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_sum(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds[1h])))",
+          "expr": "histogram_sum(sum by (resource) (increase(devops_cli_github_throttle_wait_seconds{job=~\"$job\"}[1h])))",
           "legendFormat": "{{resource}}",
           "refId": "A"
         }
@@ -1206,8 +1206,694 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(devops_cli_github_graphql_points_total[1h])) or vector(0)",
+          "expr": "sum(increase(devops_cli_github_graphql_points_total{job=~\"$job\"}[1h])) or vector(0)",
           "legendFormat": "points",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 94
+      },
+      "id": 33,
+      "title": "Planner Tools",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Tool calls of the stage planner in the last hour, by tool and outcome (ok, empty or error), on the left axis, and the mean size of the answers of each tool in characters, after the cut of the tool, on the right axis. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792). A tool that no run calls shows a line at 0.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 95
+      },
+      "id": 34,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Planner Tool Calls and Answer Size",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (tool, outcome) (increase(devops_cli_roadmap_tool_calls_total{job=~\"$job\",row=\"stage\"}[1h]))",
+          "legendFormat": "{{tool}} {{outcome}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_avg(sum by (tool) (increase(devops_cli_roadmap_tool_answer_chars{job=~\"$job\",row=\"stage\"}[1h])))",
+          "legendFormat": "{{tool}} mean chars",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 103
+      },
+      "id": 35,
+      "title": "Roadmap Service",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The rows that the Service ran in the last hour, by lane and result. A result of stopped is a row that the stop of the Service ended, and it is no failure.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 104
+      },
+      "id": 36,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Rounds by Lane and Result",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (lane, result) (increase(devops_cli_service_jobs_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{lane}} {{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The rows that failed in the last hour. The alert RoadmapServiceJobsFailing fires for a row of a repository that has failures and no success in the hour.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 104
+      },
+      "id": 37,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Failed Rounds by Repository and Row",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (repo, row) (increase(devops_cli_service_jobs_total{job=~\"$job\",result=\"error\"}[1h]))",
+          "legendFormat": "{{repo}} {{row}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The seconds of work of each lane in the last hour.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 104
+      },
+      "id": 38,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Round Seconds by Lane",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (lane) (increase(devops_cli_service_job_seconds_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{lane}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The GitHub requests of the Service in the last hour, beside its limit service.github_requests_per_hour. The cluster Jobs do not count in this budget. To see their requests, set the variable Job to devops-cli-job and read the row GitHub API. If the list does not show this value, no Job ended or sent a request in the time range: make the range wider.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 112
+      },
+      "id": 39,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service GitHub Budget",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(last_over_time(devops_cli_service_budget_spent_requests{job=~\"$job\"}[5m]))",
+          "legendFormat": "spent",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(last_over_time(devops_cli_service_budget_limit_requests{job=~\"$job\"}[5m]))",
+          "legendFormat": "limit",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The times in the last hour that a hold began: the requests of the last hour used the budget, so no round could start. A request that waits for the budget inside a round does not count.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 112
+      },
+      "id": 40,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Budget Holds",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(devops_cli_service_budget_holds_total{job=~\"$job\"}[1h])) or vector(0)",
+          "legendFormat": "holds",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The seconds since the last round of each lane of each repository started. The alert RoadmapServiceLaneStalled reads the same series.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 112
+      },
+      "id": 41,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Time Since Round Start",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "time() - max by (repo, lane) (last_over_time(devops_cli_service_job_start_timestamp_seconds{job=~\"$job\"}[5m]))",
+          "legendFormat": "{{repo}} {{lane}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The repositories that wait for a round, by lane.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 120
+      },
+      "id": 42,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Queue Depth by Lane",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (lane) (last_over_time(devops_cli_service_queue_depth{job=~\"$job\"}[5m]))",
+          "legendFormat": "{{lane}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "1 while a row of a repository failed its limit of rounds in a row and waits for new input, else 0.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 120
+      },
+      "id": 43,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Suspended Rows",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (repo, row) (last_over_time(devops_cli_service_job_suspended{job=~\"$job\"}[5m]))",
+          "legendFormat": "{{repo}} {{row}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The count of each time that GitHub refused the identity of the Service, on the current pod. A value above 0 means that the Service is halted. The series starts with the first refusal, so the panel shows no data until then. The alert RoadmapServiceIdentityRefused reads the same value.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 120
+      },
+      "id": 44,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Identity Refusals",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (identity) (last_over_time(devops_cli_service_identity_refused_total{job=~\"$job\"}[5m]))",
+          "legendFormat": "{{identity}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The triggers that the Service queued in the last hour, by source: poll or webhook.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 128
+      },
+      "id": 45,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Triggers by Source",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (source) (increase(devops_cli_service_triggers_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{source}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The webhook deliveries of the last hour, by outcome.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 128
+      },
+      "id": 46,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Webhook Deliveries by Outcome",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (outcome) (increase(devops_cli_service_webhook_deliveries_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The stops of the implement job in the last hour, by failure class.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 128
+      },
+      "id": 47,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Implement Failures by Class",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (class) (increase(devops_cli_service_implement_failures_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{class}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The chat commands of the last hour that the webhook router handled, by command and result.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 128
+      },
+      "id": 48,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Chat Commands by Result",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (command, result) (increase(devops_cli_service_chat_commands_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{command}} {{result}}",
           "refId": "A"
         }
       ]
@@ -1256,16 +1942,16 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(devops_cli_command_total, command)",
+        "definition": "label_values({__name__=~\"devops_cli_command_total|devops_cli_github_requests_total\"}, job)",
         "hide": 0,
         "includeAll": true,
-        "label": "Command",
+        "label": "Job",
         "multi": true,
-        "name": "command",
+        "name": "job",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(devops_cli_command_total, command)",
+          "query": "label_values({__name__=~\"devops_cli_command_total|devops_cli_github_requests_total\"}, job)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
@@ -1289,7 +1975,40 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "definition": "label_values(devops_cli_subcommand_duration_seconds{command=~\"$command\"}, sub_command)",
+        "definition": "label_values(devops_cli_command_total{job=~\"$job\"}, command)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Command",
+        "multi": true,
+        "name": "command",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(devops_cli_command_total{job=~\"$job\"}, command)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\"}, sub_command)",
         "hide": 0,
         "includeAll": true,
         "label": "Sub-command",
@@ -1298,7 +2017,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(devops_cli_subcommand_duration_seconds{command=~\"$command\"}, sub_command)",
+          "query": "label_values(devops_cli_subcommand_duration_seconds{job=~\"$job\",command=~\"$command\"}, sub_command)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,

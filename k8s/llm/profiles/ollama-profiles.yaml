@@ -2,10 +2,11 @@
 # Tiers: 16gib, 24gib, 32gib, 48gib, 64gib, 72gib, 96gib, 128gib.
 # Each tier serves one request per model at a time. Ollama reserves KV cache for
 # OLLAMA_CONTEXT_LENGTH x OLLAMA_NUM_PARALLEL tokens, and four slots left a dense ~30B model too
-# little VRAM to load (#1061). A tier keeps one model loaded, except ollama-16gib, which the gateway
-# sends embeddings to as its fallback and which keeps two. Ollama loads the second model only when
-# both fit in VRAM, and otherwise unloads the idle one, so the embedder stays beside the chat model
-# where it fits (#1987). That tier must hold qwen3-embedding:0.6b in its model directory.
+# little VRAM to load (#1061). A tier keeps one model loaded. A chat tier that the gateway sends
+# embeddings to keeps two: Ollama loads the second model only when both fit in VRAM, and otherwise
+# unloads the idle one, so the embedder stays beside the chat model where it fits (#1987). No tier
+# does this now. The gateway sends ollama-16gib nothing, because its host is unstable (k8s/README.md,
+# GPU Placement). The DaemonSet stays, so that a revert brings the tier back.
 # ollama-48gib and ollama-64gib load qwen3.8:27b and no other model (#3567): OLLAMA_MAX_LOADED_MODELS
 # is 1 and OLLAMA_KEEP_ALIVE is -1, so the model stays loaded for good and no swap drops its KV
 # cache. The gateway sends them no other model and no embedding batch. The model directory of
@@ -139,7 +140,7 @@ spec:
             - name: OLLAMA_CONTEXT_LENGTH
               value: "131072"
             - name: OLLAMA_MAX_LOADED_MODELS
-              value: "2"
+              value: "1"
             - name: OLLAMA_NUM_PARALLEL
               value: "1"
             - name: OLLAMA_KV_CACHE_TYPE

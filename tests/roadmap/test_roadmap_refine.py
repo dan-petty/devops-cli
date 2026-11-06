@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 import httpx2
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 from markdown_it import MarkdownIt
 from markdown_it.rules_inline import StateInline, backtick
@@ -60,6 +60,7 @@ from devops_cli.config.settings import reset_settings_cache
 from devops_cli.exceptions import RoadmapRefineError, RoadmapRunError, ended_by_stop
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.roadmap import store as roadmap_store_module
+from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore, JobWrite
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
@@ -74,8 +75,6 @@ from devops_cli.roadmap.refine import (
     check_person_edits,
     check_ready,
     collect_context,
-    extract_section_and_outside,
-    hash_text,
     inspect_checkout,
     needs_investigation,
     plan_refine,
@@ -93,10 +92,12 @@ from devops_cli.roadmap.run import (
     build_stub_table,
     run_due_jobs,
 )
+from devops_cli.roadmap.stage_rejected import comment_text
 from devops_cli.roadmap.store import (
     AlternativesRecordKey,
     CloseReason,
     GitHubState,
+    IssueComment,
     Item,
     ItemField,
     RefineRecordKey,
@@ -561,20 +562,22 @@ def test_check_ready_matrix() -> None:
         suspected_block=None,
     )
     assert (
-        check_ready(base, []),
-        check_ready(base, ["Unresolved question"]),
-        check_ready(base.model_copy(update={"fits_one_pr": False}), []),
-        check_ready(base.model_copy(update={"suspected_block": "Waiting on auth"}), []),
-        check_ready(base.model_copy(update={"acceptance_criteria": []}), []),
-        check_ready(base.model_copy(update={"problem_statement": ""}), []),
-        check_ready(base.model_copy(update={"existing_tool": " "}), []),
+        check_ready(base, [], ()),
+        check_ready(base, ["Unresolved question"], ()),
+        check_ready(base, [], (7,)),
+        check_ready(base.model_copy(update={"fits_one_pr": False}), [], ()),
+        check_ready(base.model_copy(update={"suspected_block": "Waiting on auth"}), [], ()),
+        check_ready(base.model_copy(update={"acceptance_criteria": []}), [], ()),
+        check_ready(base.model_copy(update={"problem_statement": ""}), [], ()),
+        check_ready(base.model_copy(update={"existing_tool": " "}), [], ()),
         check_ready(
             base.model_copy(
                 update={"acceptance_criteria": [_CRITERION.model_copy(update={"then": ""})]}
             ),
             [],
+            (),
         ),
-    ) == (True, False, False, False, False, False, False, False)
+    ) == (True, False, False, False, False, False, False, False, False)
 
 
 def test_a_criterion_takes_the_parts_of_an_openspec_requirement_and_refuses_the_old_keys() -> None:
@@ -660,7 +663,7 @@ def test_sanitize_text_markdown() -> None:
     sanitized = sanitize_text(raw, allowed)
     assert (
         "![img]" not in sanitized,
-        "<b>" not in sanitized,
+        "&lt;b>bold HTML&lt;/b>." in sanitized,
         "`@alice`" in sanitized,
         "[Valid](https://example.com/allowed)" in sanitized,
         "`https://evil.com/bad`" in sanitized,
@@ -1911,10 +1914,9 @@ _OPEN_QUESTION = "Which store holds the record? (missing verified source)"
 
 
 def _blocked_by(blocker: int) -> RefinementProposal:
-    """A proposal that waits on the open item `blocker`."""
-    return _READY.model_copy(
-        update={"suspected_block": f"Waits on #{blocker}.", "dependencies": [blocker]}
-    )
+    """A complete proposal that names the item `blocker` as its one dependency and holds no
+    suspected block, so the dependency alone decides (#3500)."""
+    return _READY.model_copy(update={"dependencies": [blocker]})
 
 
 def _is_about(number: int, prompt: str) -> bool:
@@ -2027,7 +2029,7 @@ def test_an_item_refine_cannot_ready_gets_one_comment_and_a_record_of_its_next_s
 def test_the_next_step_comment_holds_the_models_text_sanitized_and_one_line_for_each_point(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
-    """The model's split reaches the comment as the section shows it: no HTML, every handle in
+    """The model's split reaches the comment as the section shows it: no raw HTML, every handle in
     a code span so no one is pinged, and each point on its own line (#1758)."""
     store.seed_visibility(is_private=True)
     number = _seed_item(store, "New", "P1-High")
@@ -2037,7 +2039,7 @@ def test_the_next_step_comment_holds_the_models_text_sanitized_and_one_line_for_
     _refine_round(store, git_repo)
 
     assert [comment.splitlines()[-2:] for comment in _comment_bodies(store, number)] == [
-        ["1. Ask `@owner` now ## Then this", "2. The second change."]
+        ["1. Ask `@owner` &lt;b>now&lt;/b> ## Then this", "2. The second change."]
     ]
 
 
@@ -2131,6 +2133,89 @@ def test_closing_the_item_that_blocks_an_item_makes_it_eligible_again(
         [(w.item.number, w.step) for w in waiting.waiting_items],
         [r.item.number for r in after_close.refined_items],
     ) == ([(blocked, "blocked")], [blocked])
+
+
+# ── An open dependency that the proposal names blocks the item (#3500) ────────────────────
+
+
+@pytest.mark.parametrize("status", ["New", CONST_ROADMAP_STATUS_READY], ids=["new", "ready"])
+def test_a_complete_proposal_with_an_open_dependency_blocks_its_item_and_sets_no_ready(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, status: str
+) -> None:
+    """A proposal with no open question, no split and no suspected block, and one open
+    dependency, gives the next step `blocked` with that number. The item stays New, or goes back
+    to New from Ready, and its record holds the blocker (#3500)."""
+    store.seed_visibility(is_private=True)
+    blocker = _seed_item(store, "In Progress", "P1-High")
+    number = _seed_item(store, status, "P1-High")
+    model_fake.answer(_blocked_by(blocker))
+
+    plan = plan_refine(store, repo=REPO, source=git_repo, item_number=number)
+    apply_refine(store, plan)
+
+    item = _require_item(store, number)
+    assert (
+        [(r.is_ready, r.next_step, r.step_details, r.blocked_by) for r in plan.refined_items],
+        item.status,
+        item.job_record.get(RefineRecordKey.NEXT_STEP),
+        item.job_record.get(RefineRecordKey.BLOCKED_BY),
+    ) == ([(False, "blocked", (f"#{blocker}",), (blocker,))], "New", "blocked", str(blocker))
+
+
+def test_a_complete_proposal_whose_dependency_is_closed_reaches_ready(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """The same proposal with a closed dependency gives the next step `ready` and no blocker: a
+    closed issue holds nothing back (#3500)."""
+    store.seed_visibility(is_private=True)
+    blocker = _seed_item(store, "In Progress", "P1-High")
+    store.as_actor("alice").close_by_hand(blocker, CloseReason.COMPLETED)
+    number = _seed_item(store, "New", "P1-High")
+    model_fake.answer(_blocked_by(blocker))
+
+    plan = _refine_round(store, git_repo)
+
+    item = _require_item(store, number)
+    assert (
+        [(r.is_ready, r.next_step, r.blocked_by) for r in plan.refined_items],
+        item.status,
+        item.job_record.get(RefineRecordKey.BLOCKED_BY),
+    ) == ([(True, "ready", ())], CONST_ROADMAP_STATUS_READY, None)
+
+
+def test_a_blocked_item_reaches_ready_in_the_round_after_its_last_blocker_closes(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """An item with two open dependencies waits on both. When the first closes, it waits on the
+    second with no model call. The round after the second closes refines it again, and it reaches
+    Ready (#3500)."""
+    store.seed_visibility(is_private=True)
+    first = _seed_item(store, "In Progress", "P1-High")
+    second = _seed_item(store, "In Progress", "P1-High")
+    number = _seed_item(store, "New", "P1-High")
+    model_fake.answer(_READY.model_copy(update={"dependencies": [first, second]}))
+    _refine_round(store, git_repo)
+    blocked = _require_item(store, number)
+    calls = model_fake.call_count
+
+    store.as_actor("alice").close_by_hand(first, CloseReason.COMPLETED)
+    waiting = plan_refine(store, repo=REPO, source=git_repo)
+    store.as_actor("alice").close_by_hand(second, CloseReason.COMPLETED)
+    after = _refine_round(store, git_repo)
+
+    assert (
+        (blocked.status, blocked.job_record.get(RefineRecordKey.BLOCKED_BY)),
+        [(w.item.number, w.step, w.details) for w in waiting.waiting_items],
+        model_fake.call_count - calls,
+        [(r.item.number, r.next_step) for r in after.refined_items],
+        _require_item(store, number).status,
+    ) == (
+        ("New", f"{first},{second}"),
+        [(number, "blocked", (f"#{second}",))],
+        1,
+        [(number, "ready")],
+        CONST_ROADMAP_STATUS_READY,
+    )
 
 
 def test_an_unchanged_item_whose_record_needs_a_split_but_holds_no_step_gets_its_split_handed_on(
@@ -2902,11 +2987,12 @@ def _seed_authored(store: InMemoryRoadmapStore, association: str | None, priorit
 
 
 def _outside_author(association: str, number: int) -> str:
-    """The detail line of an item that an account without write access opened."""
+    """The detail line of an item that an account that the jobs do not trust opened."""
     return (
-        f"The author's association with the repository is {association}. A refine round "
-        "refines only the items that the owner, a member or a collaborator opened. A person "
-        f"refines this item with --item {number}."
+        f"The author is unknown, and its association with the repository is {association}. A "
+        "refine round refines only the items that these accounts opened: the owner, a member, "
+        "a collaborator, the Service App's bot and github-actions[bot]. A person refines this "
+        f"item with --item {number}."
     )
 
 
@@ -3006,7 +3092,7 @@ def test_a_rendered_section_neutralizes_comment_openers_www_links_and_cross_repo
         ("Open <!-- a comment", set(), "Open &lt;!-- a comment"),
         ("<![CDATA[ hidden", set(), "&lt;![CDATA[ hidden"),
         ("<? hidden", set(), "&lt;? hidden"),
-        ("A tag <<b></b>!-- rebuilt", set(), "A tag &lt;!-- rebuilt"),
+        ("A tag <<b></b>!-- rebuilt", set(), "A tag <&lt;b>&lt;/b>!-- rebuilt"),
         ("Go to www.example.com.", set(), "Go to `www.example.com`."),
         ("(www.example.com/a)", set(), "(`www.example.com/a`)"),
         ("Go to www.example.com", {"www.example.com"}, "Go to www.example.com"),
@@ -3043,7 +3129,7 @@ def test_sanitize_text_neutralizes_what_github_hides_links_or_cross_references(
     raw: str, allowed: set[str], sanitized: str
 ) -> None:
     """The opener of a comment, a CDATA section or a processing instruction becomes an entity,
-    also when a stripped tag builds it again; a bare `www.` link that `allowed` does not hold
+    and a tag next to a `<` builds none again; a bare `www.` link that `allowed` does not hold
     and a cross-repository reference become code spans, one time each, also inside emphasis,
     after a slash, after a block quote marker, in a table cell, with a scheme in capitals,
     after a handle, after a code span that an unclosed `[` comes before, with what follows a
@@ -3063,13 +3149,29 @@ def test_sanitize_text_neutralizes_what_github_hides_links_or_cross_references(
         "Run ``a ` www.example.com`` here",
         "```\ncurl www.example.com other/repo#1 @alice\n```",
         "Read:\n\n    curl www.example.com",
+        "Keep `<section>.<option>` as it is",
+        "Run `devops <read command> --help` now",
+        "Run ``a ` <b>x</b>`` here",
+        "```\ndevops <read command> --help\n```",
+        "Read:\n\n    devops <read command> --help",
     ],
 )
 def test_sanitize_text_writes_the_code_in_the_models_text_as_it_is(raw: str) -> None:
-    """A link, a handle or a reference in a code span or a code block is text that GitHub does
-    not link, so it stays as it is: a backtick added in the span would close it early and
-    show what it holds (#2525)."""
+    """A link, a handle, a reference or a tag in a code span or a code block is text that GitHub
+    does not link or read as HTML, so it stays as it is: a backtick added in the span would close
+    it early and show what it holds (#2525), and a deleted tag would take the placeholder or the
+    value of a command with it (#3504)."""
     assert sanitize_text(raw, set()) == raw
+
+
+def test_sanitize_text_neutralizes_an_end_marker_in_a_code_span_too() -> None:
+    """The section is found by its markers in the raw text, so a marker in a code span of the
+    model's text cannot end the section either (#2478, #3504)."""
+    sanitized = sanitize_text(f"Quote `{CONST_ROADMAP_REFINE_END_MARKER}` and <b>x</b>", set())
+    assert (sanitized, CONST_ROADMAP_REFINE_END_MARKER in sanitized) == (
+        "Quote `[end-marker]` and &lt;b>x&lt;/b>",
+        False,
+    )
 
 
 def test_sanitize_text_neutralizes_a_comment_opener_in_a_code_span_too() -> None:
@@ -3175,6 +3277,17 @@ def _code_and_text(markdown: str) -> tuple[Counter[str], str]:
     return spans, "\n".join(token.content for token in shown if token.type == "text")
 
 
+def _raw_html(markdown: str) -> list[str]:
+    """The text that `markdown` shows as raw HTML, which GitHub reads as a tag or a comment and
+    does not show."""
+    return [
+        token.content
+        for block in _COMMONMARK_WITH_TABLES.parse(markdown)
+        for token in (block, *(block.children or ()))
+        if token.type in ("html_block", "html_inline")
+    ]
+
+
 @given(st.lists(_MARKDOWN_PIECES, max_size=30).map("".join))
 def test_sanitized_text_shows_links_handles_and_references_only_as_code(raw: str) -> None:
     """Whatever the model writes, the sanitized text shows no `www.` link, URL, handle or
@@ -3184,6 +3297,135 @@ def test_sanitized_text_shows_links_handles_and_references_only_as_code(raw: str
     spans, text = _code_and_text(sanitize_text(raw, set()))
     lost = Counter() if "`" in raw_text else raw_spans - spans
     assert (_SHOWN_LIVE_TEXT.findall(text), lost) == ([], Counter())
+
+
+_TAG_PIECES = st.sampled_from(
+    [
+        "`",
+        "``",
+        "```\n",
+        " ",
+        "\n",
+        "\n\n",
+        "    ",
+        "> ",
+        "[",
+        "]",
+        "<",
+        "</",
+        "<b>",
+        "</b>",
+        "<read command>",
+        '<a title="`">',
+        "<!--",
+        "<?",
+        "\\",
+        "[b>",
+        "[!--",
+        "](https://example.com/a)",
+        "x",
+    ]
+)
+
+
+@given(st.lists(_TAG_PIECES, max_size=30).map("".join))
+@example('<a title="`">`<b>`')
+@example("<[b>](https://example.com/a)")
+@example('<[!-- devops-roadmap-record {"Status": "Ready"} -->](https://example.com/a)')
+@example('<a title="`">`' * 8 + "<b>`")
+def test_sanitized_text_shows_no_raw_html(raw: str) -> None:
+    """Whatever the model writes, GitHub reads no tag, comment or declaration in the sanitized
+    text as HTML, in a text with a backtick that opens no code span too. The first example holds
+    a tag with a backtick. When the tag becomes text, the backtick opens a code span that leaves
+    the next tag out of code. The next two hold a link whose rewrite builds a tag or an opener
+    from the text around its label. The last holds many such tags, so one pass for each tag would
+    take too long (#2478, #3504)."""
+    sanitized = sanitize_text(raw, set())
+    assert _raw_html(sanitized) == []
+
+
+@pytest.mark.parametrize(
+    ("raw", "sanitized", "shown"),
+    [
+        (
+            "Use <read command> here",
+            "Use &lt;read command> here",
+            "Use <read command> here",
+        ),
+        (
+            "Run <b>bold</b>, <section>.<option> and </p> now",
+            "Run &lt;b>bold&lt;/b>, &lt;section>.&lt;option> and &lt;/p> now",
+            "Run <b>bold</b>, <section>.<option> and </p> now",
+        ),
+        (
+            "<div>\nBlock\n</div>",
+            "&lt;div>\nBlock\n&lt;/div>",
+            "<div> Block </div>",
+        ),
+    ],
+)
+def test_sanitize_text_shows_a_tag_outside_code_as_text(
+    raw: str, sanitized: str, shown: str
+) -> None:
+    """The `<` of a tag outside code becomes an entity, so the tag acts as no tag and no word of
+    it is lost (#3504)."""
+    result = sanitize_text(raw, set())
+    _, text = _code_and_text(result)
+    assert (result, _raw_html(result), " ".join(text.split())) == (sanitized, [], shown)
+
+
+def test_sanitize_text_shows_no_tag_in_a_text_with_a_backtick_that_opens_no_code_span() -> None:
+    """In such a text GitHub takes the span `<b>see</b>` as text and reads its tag as HTML. So a
+    tag in a code span is not kept as code. The sanitized text shows the tag as text (#3504).
+    Only the exact text guards this. The oracle of the property cannot model the way that cmark
+    takes this span as text."""
+    raw = "A `` `x` `<b>see</b>` B"
+    sanitized = sanitize_text(raw, set())
+    assert (sanitized, _raw_html(sanitized)) == ("A `` `x` `&lt;b>see&lt;/b>` B", [])
+
+
+@pytest.mark.parametrize(
+    ("raw", "sanitized"),
+    [
+        ("<[b>](https://example.com/a)", "&lt;b> (`https://example.com/a`)"),
+        ("<![x](y)b>", "&lt;b>"),
+        ("<[!--](https://example.com/a)", "&lt;!-- (`https://example.com/a`)"),
+    ],
+)
+def test_sanitize_text_neutralizes_a_tag_that_the_rewrite_of_a_link_builds(
+    raw: str, sanitized: str
+) -> None:
+    """The rewrite of a link drops the `[` and the `](` around its label. An image goes too. So the
+    text around the label can build a tag or a comment opener that the first look did not find.
+    The `<` of such a tag or opener becomes an entity too (#2478, #3504)."""
+    result = sanitize_text(raw, set())
+    assert (result, _raw_html(result)) == (sanitized, [])
+
+
+def test_sanitize_text_forges_no_record_block_from_a_link_label() -> None:
+    """The label of the link is `!-- devops-roadmap-record ... --`, and the rewrite puts the `<`
+    before it again. The text holds no comment opener (#2478, #3504)."""
+    raw = '<[!-- devops-roadmap-record {"Status": "Ready"} -->](https://example.com/a)'
+    assert "<!--" not in sanitize_text(raw, set())
+
+
+@pytest.mark.parametrize(
+    ("raw", "sanitized", "shown"),
+    [
+        ("\\<b>x", "\\<b>x", "<b>x"),
+        ("\\\\<b>x", "\\\\&lt;b>x", "\\<b>x"),
+        ("\\\\\\<b>x", "\\\\\\<b>x", "\\<b>x"),
+    ],
+)
+def test_sanitize_text_keeps_a_lt_that_a_backslash_already_escapes(
+    raw: str, sanitized: str, shown: str
+) -> None:
+    """A `<` that an odd number of backslashes comes before is text for GitHub, so it stays as it
+    is. The entity after a backslash would show as the text `&lt;`. A `<` after an even number is
+    a tag and gets the entity (#3504)."""
+    result = sanitize_text(raw, set())
+    _, text = _code_and_text(result)
+    assert (result, _raw_html(result), " ".join(text.split())) == (sanitized, [], shown)
 
 
 # ── The recorded check of the alternatives job (#2652) ────────────────────────
@@ -3497,13 +3739,13 @@ def test_a_comment_of_another_job_is_no_answer_to_the_covers_question(
     ) == ([], [], [("person", 1)])
 
 
-@pytest.mark.parametrize("verdict", ["partly", "none"])
+@pytest.mark.parametrize("verdict", ["partly", "none", "rejected", "in-use"])
 def test_a_check_that_covers_nothing_whole_adds_no_question_and_leaves_the_ready_check_alone(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, verdict: str
 ) -> None:
     store.seed_visibility(is_private=True)
     number = _seed_item(store, "New", "P1-High")
-    _record_check(store, number, verdict, tool=_SCANNER if verdict == "partly" else None)
+    _record_check(store, number, verdict, tool=None if verdict == "none" else _SCANNER)
     model_fake.answer(_READY)
 
     plan = _refine_round(store, git_repo)
@@ -3660,6 +3902,36 @@ def test_the_model_reads_the_evidence_of_the_stage_return_and_the_comment_has_no
         True,
         False,
     )
+    assert request["replies"] == []
+
+
+def test_the_model_reads_the_reason_of_a_rejected_plan_as_the_stage_return_with_no_marker(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """The stage job copies the reason of a rejected plan in a comment of its own (#3503): refine
+    reads it as `stage_return` and gives the item one new look, with no reply."""
+    store.seed_visibility(is_private=True)
+    number = _seed_item(store, "New", "P1-High")
+    model_fake.answer(_READY)
+    _refine_round(store, git_repo)
+    reason = IssueComment(
+        body="The plan cannot hold: the runner has no sandbox.",
+        created_at=datetime.now(UTC),
+        author_login="alice",
+    )
+    store.comment(number, comment_text(7, reason))
+    store.set_field(_require_item(store, number), ItemField.STATUS, "New")
+    calls = model_fake.call_count
+
+    again = plan_refine(store, repo=REPO, source=git_repo)
+
+    request = json.loads(model_fake.calls[-1].prompt)
+    assert model_fake.call_count - calls == 1
+    assert [r.item.number for r in again.refined_items] == [number]
+    assert "The plan cannot hold: the runner has no sandbox." in request["stage_return"]
+    assert "#7" in request["stage_return"]
+    assert _STAGE_MARKER not in request["stage_return"]
+    assert constants.CONST_ROADMAP_STAGE_REJECTED_MARKER not in request["stage_return"]
     assert request["replies"] == []
 
 

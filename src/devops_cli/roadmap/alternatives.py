@@ -25,6 +25,20 @@ the facts. A failed model call, a stopped run or a refused reply skips its item,
 written. The run fails, naming each skipped item, only when it tried items and checked none.
 Rejected credentials stop the run at the first item.
 
+**The ADRs and the item (#3505).** Once for a run that checks an item of no skip class, the job
+reads each ADR of `docs/adr/` that is in force: its number, its title, its status lines and its
+`Considered Options` section. An ADR that a later ADR supersedes is left out. The request holds the
+entries as `decisions`, newest first, cut by whole entries to a token cap. A warning names each ADR
+that the cut leaves out. The model proposes the verdict `rejected` with `adr`, the number of the
+ADR that rejected the tool. It proposes the verdict `in-use` with `in_use`, when the item already
+names the tool. Both go with the tool of a `covers` or `partly` verdict and with `tool_name`, the
+name that the ADR or the item writes for it. The job gives `rejected` when the ADR is one that the
+model saw and its title or options name the tool. It gives `in-use` when the title or the body of
+the item, outside the job's block and refine's section, names the tool. A name of one word counts
+only in a code span, a link or strong emphasis. The job drops a proposal that it cannot confirm,
+and the verdict of the reply stays. The model cannot give `rejected` or `in-use` as its verdict:
+it gets one more turn, and then the job refuses the reply. Refine asks no question for either.
+
 **Writes.** With `--confirm` a check replaces the job's block in the body, records
 `alternatives.*` in the job record, and posts one comment that carries
 `CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER`. It changes no label and closes no issue. A comment
@@ -60,6 +74,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
     CONST_ROADMAP_ALTERNATIVES_LICENSE_CLASSIFIER,
     CONST_ROADMAP_ALTERNATIVES_MAINTAINED_DAYS,
+    CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS,
     CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS,
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_LICENSE_CHARS,
@@ -71,7 +86,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
-    CONST_ROADMAP_TRUSTED_AUTHORS,
 )
 from devops_cli.config.defaults import (
     DEFAULT_PYPI_PACKAGE_URL,
@@ -84,10 +98,10 @@ from devops_cli.exceptions.roadmap import RoadmapAlternativesError
 from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.adr import Adr, fit_to_budget, names, read_adrs
+from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.refine import (
-    extract_section_and_outside,
-    hash_text,
     replies_after_marker,
     sanitize_text,
     web_search_of,
@@ -108,6 +122,7 @@ from devops_cli.roadmap.store import (
     is_name_segment,
     is_repository_name,
 )
+from devops_cli.roadmap.trust import is_approved, is_trusted, trusted_replies
 from devops_cli.telemetry.instruments import ROADMAP_ALTERNATIVES_TOTAL, emit
 
 logger = logging.getLogger(__name__)
@@ -125,14 +140,24 @@ _FIX_TYPE = "fix"
 
 
 _TOOL_VERDICTS = frozenset({Verdict.COVERS, Verdict.PARTLY})
+# The verdicts that the model cannot give. The job sets `not-applicable` for a skip class, and it
+# sets `rejected` and `in-use` when it confirms what the model says in `adr` and `in_use` (#3505).
+_JOB_VERDICTS = frozenset({Verdict.NOT_APPLICABLE, Verdict.REJECTED, Verdict.IN_USE})
 
 
 class AlternativesReply(BaseModel):
     """The model's reply. The license, the dates, whether the tool is maintained and the searches
-    that ran are the job's to write, so the reply holds none of them."""
+    that ran are the job's to write, so the reply holds none of them. The model proposes the verdict
+    `rejected` with `adr`, the number of the ADR that rejected the tool of a `covers` or `partly`
+    verdict, and the verdict `in-use` with `in_use`, when the item already names that tool.
+    `tool_name` is the name that the ADR or the item writes for the tool. The job confirms each
+    proposal against the text, and keeps the verdict of the reply when it cannot (#3505)."""
 
     verdict: Verdict
     tool_url: str | None = None
+    tool_name: str | None = None
+    adr: int | None = None
+    in_use: bool = False
     covers: list[str] = Field(default_factory=list)
     lacks: list[str] = Field(default_factory=list)
     sources: list[str] = Field(default_factory=list)
@@ -406,6 +431,7 @@ class Check:
     new_body: str
     comment: str
     skip_class: str | None = None
+    adr: int | None = None
 
 
 @dataclass(frozen=True)
@@ -446,13 +472,19 @@ class AlternativesPlan:
         return bool(self.checks) or bool(self.failures) or bool(self.write_requests)
 
 
-def body_hash_of(body: str) -> str:
-    """The hash of `body` outside the job's block and refine's section: what a person wrote, so a
-    write of either job starts no new check."""
+def _person_text(body: str) -> str:
+    """`body` outside the job's block and refine's section: what a person wrote. Both blocks name
+    the tool of an earlier check, so neither says that the item names it (#3505)."""
     outside, _ = extract_section_and_outside(
         body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
     )
-    return hash_text(extract_section_and_outside(outside)[0])
+    return extract_section_and_outside(outside)[0]
+
+
+def body_hash_of(body: str) -> str:
+    """The hash of `body` outside the job's block and refine's section: what a person wrote, so a
+    write of either job starts no new check."""
+    return hash_text(_person_text(body))
 
 
 def _recorded_time(item: Item, key: AlternativesRecordKey, name: str) -> datetime | None:
@@ -486,7 +518,8 @@ def _is_eligible(item: Item) -> bool:
     return (
         item.state is GitHubState.OPEN
         and item.status in {CONST_ROADMAP_STATUS_NEW, CONST_ROADMAP_STATUS_READY}
-        and item.author_association in CONST_ROADMAP_TRUSTED_AUTHORS
+        and is_trusted(item)
+        and is_approved(item)
     )
 
 
@@ -532,9 +565,11 @@ def select_items(
     return Selection(ordered[:cap], current)
 
 
-def _request(item: Item, comments: Sequence[IssueComment]) -> str:
+def _request(item: Item, comments: Sequence[IssueComment], adrs: Sequence[Adr]) -> str:
     """The JSON document the model reads: the item without the job's block, the replies since the
-    job's last comment (every comment when it left none), and the budget."""
+    job's last comment (every comment when it left none), the entries of the ADRs in force (#3505),
+    and the budget. `comments` holds the comments of trusted authors only, so text of an outside
+    account does not reach the model. The `decisions` key is left out when there is no ADR."""
     outside, _ = extract_section_and_outside(
         item.body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
     )
@@ -550,6 +585,7 @@ def _request(item: Item, comments: Sequence[IssueComment]) -> str:
             truncate_to_token_limit(reply.body, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
             for reply in replies
         ],
+        **({"decisions": "\n\n".join(adr.entry for adr in adrs)} if adrs else {}),
         "search_budget": {
             "searches": CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
             "results_per_search": CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS,
@@ -575,13 +611,33 @@ def _search_missing(tools: AlternativesTools) -> str | None:
     return None if tools.queries else MESSAGES.roadmap.alternatives_retry_search
 
 
+def _retry_message(reply: AlternativesReply, tools: AlternativesTools) -> str | None:
+    """The message that sends `reply` back to the model once, or None. Another turn can mend a
+    verdict that only the job sets, and a reply that follows no search (#3505)."""
+    texts = MESSAGES.roadmap
+    messages = [
+        message
+        for message in (
+            texts.alternatives_retry_verdict.format(verdict=reply.verdict.value)
+            if reply.verdict in _JOB_VERDICTS
+            else None,
+            _search_missing(tools),
+        )
+        if message is not None
+    ]
+    return " ".join(messages) or None
+
+
 def _refusal(reply: AlternativesReply, tools: AlternativesTools) -> str | None:
     """Why the job refuses `reply`, or None. The model cannot give `not-applicable`, since the job
-    sets it for a skip class only; every verdict must follow a search; a tool verdict needs a tool
+    sets it for a skip class only, nor `rejected` or `in-use`, which the job gives when it
+    confirms `adr` and `in_use`; every verdict must follow a search; a tool verdict needs a tool
     whose facts a tool read; and every source must be a URL that a tool returned."""
     texts = MESSAGES.roadmap
     if reply.verdict is Verdict.NOT_APPLICABLE:
         return texts.alternatives_reason_skip_only
+    if reply.verdict in _JOB_VERDICTS:
+        return texts.alternatives_reason_job_verdict.format(verdict=reply.verdict.value)
     if not tools.queries:
         return texts.alternatives_reason_no_search
     if reply.verdict in _TOOL_VERDICTS:
@@ -628,6 +684,16 @@ def _tool_section(tool: CheckedTool | None) -> list[str]:
     ]
 
 
+def _basis(check: Check) -> list[str]:
+    """The line that says why the job gave the verdict `rejected` or `in-use`, or none."""
+    texts = MESSAGES.roadmap
+    if check.verdict is Verdict.REJECTED and check.adr is not None:
+        return [texts.alternatives_basis_rejected.format(number=check.adr)]
+    if check.verdict is Verdict.IN_USE:
+        return [texts.alternatives_basis_in_use]
+    return []
+
+
 def _list_section(title: str, lines: Sequence[str]) -> list[str]:
     item = MESSAGES.roadmap.alternatives_comment_item
     return [title, *(item.format(text=line) for line in lines)] if lines else []
@@ -649,6 +715,7 @@ def _comment_of(check: Check) -> str:
     sections = [
         heading,
         skip,
+        _basis(check),
         _tool_section(check.tool),
         _list_section(texts.alternatives_comment_covers, check.covers),
         _list_section(texts.alternatives_comment_lacks, check.lacks),
@@ -689,6 +756,7 @@ def _block_of(check: Check) -> str:
                 date=check.checked_at.date().isoformat(), verdict=check.verdict.value
             ),
             *skip,
+            *_basis(check),
             detail,
             CONST_ROADMAP_ALTERNATIVES_END_MARKER,
         ]
@@ -754,19 +822,65 @@ def _skip_check(item: Item, skip_class: str, now: datetime) -> Check | CheckFail
     )
 
 
+def _confirmed_adr(number: int, tool_names: tuple[str, ...], adrs: Sequence[Adr]) -> bool:
+    """Whether `adrs`, the ADRs in force that the model saw, hold ADR `number` and its title or
+    its options name the tool."""
+    adr = next((candidate for candidate in adrs if candidate.number == number), None)
+    return adr is not None and names(f"{adr.title}\n\n{adr.options}", *tool_names)
+
+
+def _verdict_of(
+    item: Item, reply: AlternativesReply, tool: CheckedTool | None, adrs: Sequence[Adr]
+) -> tuple[Verdict, int | None]:
+    """The verdict of the check, and the ADR that rejected its tool (#3505). The model proposes
+    `rejected` with `adr` and `in-use` with `in_use`, and the job gives one only when the text
+    confirms it: an ADR in force that holds the number and names the tool, or a title or a body of
+    the item, outside both blocks of a job, that names the tool. `rejected` comes first. The job
+    drops a proposal that it cannot confirm, and the verdict of the reply stays."""
+    if tool is None:
+        return reply.verdict, None
+    tool_names = (tool.name, reply.tool_name or "")
+    if reply.adr is not None:
+        if _confirmed_adr(reply.adr, tool_names, adrs):
+            return Verdict.REJECTED, reply.adr
+        logger.info(
+            "The alternatives check of #%d dropped ADR %d: no ADR in force holds that number and "
+            "names the tool.",
+            item.number,
+            reply.adr,
+        )
+    if reply.in_use:
+        if any(names(text, *tool_names) for text in (item.title, _person_text(item.body))):
+            return Verdict.IN_USE, None
+        logger.info(
+            "The alternatives check of #%d dropped the flag in_use: the item does not name the "
+            "tool.",
+            item.number,
+        )
+    return reply.verdict, None
+
+
 def validate_reply(
-    item: Item, reply: AlternativesReply, tools: AlternativesTools, now: datetime
+    item: Item,
+    reply: AlternativesReply,
+    tools: AlternativesTools,
+    now: datetime,
+    adrs: Sequence[Adr],
 ) -> Check | CheckFailure:
-    """The check that `reply` makes, or the failure when the job refuses it."""
+    """The check that `reply` makes, or the failure when the job refuses it. `adrs` are the ADRs
+    in force that the model saw, which confirm the ADR that the reply names."""
     refusal = _refusal(reply, tools) or _marker_problem(item.body)
     if refusal is not None:
         return CheckFailure(item, refusal, CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR, now)
     allowed = tools.allowed_urls
+    tool = _checked_tool(reply, tools, now)
+    verdict, adr = _verdict_of(item, reply, tool, adrs)
     return _completed(
         Check(
             item=item,
-            verdict=reply.verdict,
-            tool=_checked_tool(reply, tools, now),
+            verdict=verdict,
+            adr=adr,
+            tool=tool,
             covers=_clean(reply.covers, allowed),
             lacks=_clean(reply.lacks, allowed),
             queries=_clean(tools.queries, allowed),
@@ -791,7 +905,7 @@ def _stopped_reason(stopped: InvestigationStopped) -> str:
 
 
 def _check_one(
-    store: RoadmapStore, item: Item, *, key: str, model: Any, now: datetime
+    store: RoadmapStore, item: Item, *, key: str, model: Any, adrs: Sequence[Adr], now: datetime
 ) -> Check | CheckFailure:
     """One item's check: the skip check of a skip class, else its agent run and its validated
     reply. Raises `AICredentialsError` when the model refuses the key."""
@@ -799,7 +913,7 @@ def _check_one(
     if skip_class is not None:
         return _skip_check(item, skip_class, now)
     tools = AlternativesTools(store=store, firecrawl_key=key)
-    request = _request(item, store.comments_on(item.number))
+    request = _request(item, trusted_replies(store.comments_on(item.number)), adrs)
     texts = MESSAGES.roadmap
     try:
         reply = investigate(
@@ -808,7 +922,7 @@ def _check_one(
             request,
             tools,
             AlternativesReply,
-            output_check=lambda _reply: _search_missing(tools),
+            output_check=lambda answer: _retry_message(answer, tools),
             window=analysis_window(),
         )
     except AICredentialsError:
@@ -828,7 +942,7 @@ def _check_one(
             reply.reason,
         )
         return CheckFailure(item, _stopped_reason(reply), reply.reason, now)
-    return validate_reply(item, reply, tools, now)
+    return validate_reply(item, reply, tools, now, adrs)
 
 
 # ── Entry points ──────────────────────────────────────────────────────────────
@@ -864,10 +978,17 @@ def plan_alternatives(
     if not selection.selected:
         return AlternativesPlan(repo=repo, current=selection.current)
     model = investigator or get_task_model("analysis")
+    # The ADRs are the same for each item, and a skip-class item makes no model call (#3505). The
+    # model sees only the entries that fit the cap, so only they can be confirmed.
+    adrs = (
+        fit_to_budget(read_adrs(store), max_tokens=CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS)
+        if any(skip_class_of(it) is None for it in selection.selected)
+        else ()
+    )
     checks: list[Check] = []
     failures: list[CheckFailure] = []
     for item in selection.selected:
-        outcome = _check_one(store, item, key=web.key, model=model, now=moment)
+        outcome = _check_one(store, item, key=web.key, model=model, adrs=adrs, now=moment)
         if isinstance(outcome, CheckFailure):
             failures.append(outcome)
         else:
