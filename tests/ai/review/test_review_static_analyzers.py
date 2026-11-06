@@ -21,8 +21,8 @@ from devops_cli.ai.review.pipeline import (
     _compute_coverage_matrix,
     _resolve_effective_tool_states,
     _scan_kubernetes_manifests,
-    _static_analyzer_states,
     _static_analyzer_summary,
+    static_analyzer_states,
 )
 from devops_cli.ai.review.profile import ReviewProfile, profiling, summarize_profiles
 from devops_cli.ai.review_schema import Finding
@@ -67,7 +67,7 @@ def only_bandit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scanner_fake: S
 @pytest.mark.usefixtures("only_bandit")
 def test_each_analyzer_is_marked_ran_missing_fallback_or_without_files() -> None:
     """Verify every analyzer gets the state it actually had."""
-    states = _static_analyzer_states(
+    states = static_analyzer_states(
         {
             "python": [Path("a.py")],
             "yaml": [],

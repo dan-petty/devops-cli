@@ -38,6 +38,8 @@ class FakeEmbedder(EmbedderProtocol):
         failure_message: str | None = None,
     ) -> None:
         self.dimension = dimension
+        # The name the indexer records in each point as `embedding_model`.
+        self.model = "fake-embed-model"
         self.failing = failing
         self.failure_message = failure_message
         self.calls: list[tuple[list[str], bool]] = []

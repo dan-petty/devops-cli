@@ -9,18 +9,21 @@ may be enclosed in double quotes.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 
-from hypothesis import Phase, example, given, settings
+from hypothesis import HealthCheck, Phase, example, given, settings
 from hypothesis import strategies as st
 
-from devops_cli.ci.cache import _worktree_divergent_paths
+from devops_cli.ci.cache import worktree_divergent_paths
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
+# The fixture lives for the whole test, not for one example. Each test resets it at the start of
+# every example, so no example sees the answers or calls of an earlier one.
 _FUZZ_SETTINGS = settings(
     phases=[Phase.explicit, Phase.generate],
     derandomize=True,
     max_examples=35,
     deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 
 _VALID_INDEX_STATES = ("M", "A", "D", "R", "C", "U", "?", "!", " ")
@@ -54,6 +57,7 @@ _VALID_WORKTREE_STATES = ("M", "D", "U", "?", "!", " ")
 @example(entries=[(" ", "M", "path with spaces.txt", True)])
 def test_git_status_porcelain_v1_divergent_paths_specification(
     entries: list[tuple[str, str, str, bool]],
+    process_fake: ProcessFake,
 ) -> None:
     """git-status(1) porcelain v1: parses index and worktree status columns and paths.
 
@@ -62,6 +66,7 @@ def test_git_status_porcelain_v1_divergent_paths_specification(
     - Unstaged modifications (worktree != ' ') or untracked ('?') classify as changed
     - Quoted paths and rename targets ('old -> new') are properly unwrapped.
     """
+    process_fake.reset()
     lines: list[str] = []
     expected_changed: list[str] = []
     expected_deleted: list[str] = []
@@ -79,8 +84,8 @@ def test_git_status_porcelain_v1_divergent_paths_specification(
 
     stdout_text = "\n".join(lines)
 
-    with patch("devops_cli.ci.cache._get_git_output", return_value=stdout_text):
-        changed, deleted = _worktree_divergent_paths(Path("/dummy/repo"))
+    process_fake.answer("git status", ProcessAnswer(stdout=stdout_text))
+    changed, deleted = worktree_divergent_paths(Path("/dummy/repo"))
 
     assert (changed, deleted) == (expected_changed, expected_deleted)
 
@@ -96,10 +101,12 @@ def test_git_status_porcelain_v1_divergent_paths_specification(
 @example(short_lines=["", " ", "M ", "??"])
 def test_git_status_porcelain_v1_short_lines_skipped_specification(
     short_lines: list[str],
+    process_fake: ProcessFake,
 ) -> None:
     """git-status(1) porcelain v1: lines shorter than 4 characters are incomplete and skipped."""
+    process_fake.reset()
     stdout_text = "\n".join(short_lines)
-    with patch("devops_cli.ci.cache._get_git_output", return_value=stdout_text):
-        changed, deleted = _worktree_divergent_paths(Path("/dummy/repo"))
+    process_fake.answer("git status", ProcessAnswer(stdout=stdout_text))
+    changed, deleted = worktree_divergent_paths(Path("/dummy/repo"))
 
     assert (changed, deleted) == ([], [])

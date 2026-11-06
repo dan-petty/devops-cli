@@ -29,6 +29,9 @@ class FakeQdrantClient(QdrantProtocol):
 
     def __init__(self, *, refusing: bool = False) -> None:
         self.refusing = refusing
+        # What `WorkspaceIndexer` reads of a client it is given: the key and the address.
+        self.api_key: str | None = None
+        self.base_url = "http://example.com:6333"
         self.collections: dict[str, list[dict[str, Any]]] = {}
         self.vector_sizes: dict[str, int] = {}
         self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
@@ -212,6 +215,7 @@ class FakeQdrantClient(QdrantProtocol):
         file_paths: list[str],
         project_name: str | None = None,
         batch_size: int = 500,
+        wait: bool = True,
     ) -> bool:
         if self.refusing:
             raise QdrantClientError("Server is unreachable")
@@ -242,6 +246,7 @@ class FakeQdrantClient(QdrantProtocol):
         name: str,
         project_name: str,
         batch_size: int = 500,
+        wait: bool = True,
     ) -> bool:
         if self.refusing:
             raise QdrantClientError("Server is unreachable")

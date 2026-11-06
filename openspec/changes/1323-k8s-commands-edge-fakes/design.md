@@ -27,7 +27,7 @@ Tests covering `commands/k8s/` historically monkeypatched internal module functi
   - *Rejected*: AGENTS.md rule prohibits backward-compatibility shims before 1.0.0. The purpose of #1323 is to eliminate mock-detection branches and patch routing.
 
 ### 2. Move Domain Stack Catalogs and URL Resolution to `k8s/`
-- **Decision**: Move `_HELM_REPOS_BY_STACK`, `_HELM_RELEASES_BY_STACK`, `_MANIFESTS_BY_STACK`, and URL resolution helpers (`_parse_minikube_service_url`, `_extract_first_node_ip`, `_resolve_k8s_node_port_url`, `_resolve_accessible_url`) to `src/devops_cli/k8s/` under public names (`HELM_REPOS_BY_STACK`, `HELM_RELEASES_BY_STACK`, etc.). Move Argo CD host override derivation to `src/devops_cli/k8s/argocd_overrides.py`.
+- **Decision**: Move `HELM_REPOS_BY_STACK` (alias `_HELM_REPOS_BY_STACK`), `HELM_RELEASES_BY_STACK`, `MANIFESTS_BY_STACK`, and URL resolution helpers (`_parse_minikube_service_url`, `_extract_first_node_ip`, `_resolve_k8s_node_port_url`, `_resolve_accessible_url`) to `src/devops_cli/k8s/` (the release, manifest and post-Helm tables got their public names in #2167, in `stack_lifecycle.py`). Move Argo CD host override derivation to `src/devops_cli/k8s/argocd_overrides.py`.
 - **Alternative considered**: Keep catalog dictionaries in `stack_lifecycle.py`.
   - *Rejected*: Invariant tests and command modules must share a single public domain source of truth.
 

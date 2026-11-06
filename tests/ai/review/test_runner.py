@@ -4,22 +4,22 @@ suppressions a branch or PR change touches, and what a model's reply may not set
 from __future__ import annotations
 
 import inspect
+import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from typing import Any
 
 import pytest
 
 from devops_cli.ai.analyze.symbols import BaseRevision
 from devops_cli.ai.review.flags import resolve_stage_flags
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-from devops_cli.ai.review.protocol import ReviewLLMClient
 from devops_cli.ai.review.runner import (
     ReviewClients,
-    _check_and_warn_perimeter_changes,
-    _execute_review_workflow,
-    _record_review_metrics,
-    _run_orchestrator_review,
+    check_and_warn_perimeter_changes,
+    execute_review_workflow,
     format_pr_review_comment,
+    record_review_metrics,
+    run_orchestrator_review,
 )
 from devops_cli.ai.review_schema import (
     FileReviewPayload,
@@ -27,12 +27,12 @@ from devops_cli.ai.review_schema import (
     derive_recommendation,
 )
 from devops_cli.config.constants import CONST_REVIEW_CONFIG_FILE
-from devops_cli.review.anchors import ToolAnchor
-from devops_cli.review.finding import Finding as AdmittedFinding
 from devops_cli.review.session import ReviewSessionStore
-from devops_cli.review.state import FindingState
 from tests.support.fakes.git import GitFake
+from tests.support.fakes.model import ModelFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
 
 _RUNNER = """import textwrap
 
@@ -75,7 +75,7 @@ def test_a_change_review_names_the_unexpired_suppressions_it_touches(
     base revision, and not the expired one on src/b.py."""
     (tmp_path / ".git").mkdir()
 
-    _check_and_warn_perimeter_changes(
+    check_and_warn_perimeter_changes(
         target_type,
         ["src/a.py", "src/b.py"],
         base_revision=_base_revision(),
@@ -98,7 +98,7 @@ def test_a_path_review_lists_no_suppressions(
     """A path review has no change to compare, so it prints nothing."""
     (tmp_path / ".git").mkdir()
 
-    _check_and_warn_perimeter_changes(
+    check_and_warn_perimeter_changes(
         "path", ["src/a.py"], base_revision=_base_revision(), target_dir=tmp_path
     )
 
@@ -179,7 +179,7 @@ def test_no_review_layer_falls_back_to_the_working_directory_for_its_target() ->
     type-check and review the working directory's files, one layer above the fix. The
     orchestrator takes the target through its constructor alone: no stage takes another (#2098)."""
     layers = {
-        "_execute_review_workflow": _execute_review_workflow,
+        "execute_review_workflow": execute_review_workflow,
         "ReviewPipelineOrchestrator": ReviewPipelineOrchestrator.__init__,
     }
     targets = {name: inspect.signature(fn).parameters["target_dir"] for name, fn in layers.items()}
@@ -198,106 +198,102 @@ def test_no_review_layer_falls_back_to_the_working_directory_for_its_target() ->
 
 
 def test_a_review_outside_the_working_directory_reads_its_targets_analysis_metadata(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    model_fake: ModelFake,
 ) -> None:
     """Verify a review whose target is not the working directory loads analysis metadata from
     the target's repository in the summary (#1100)."""
+    from devops_cli.ai.analyze.cache import save_analysis_metadata
+    from devops_cli.models.ai import FileAnalysisMeta
+
     here = _checkout(tmp_path / "here", {"runner.py": _RUNNER})
     target = _checkout(tmp_path / "target", {"runner.py": _RUNNER})
     monkeypatch.chdir(here)
-    roots: list[object] = []
-
-    def metas(_files: object, repo_root: object = None) -> dict[str, object]:
-        roots.append(repo_root)
-        return {}
-
-    with (
-        patch("devops_cli.ai.review.runner._load_file_analysis_metas", side_effect=metas),
-        patch("devops_cli.ai.review.runner._print_analysis_metadata"),
+    for repo, purpose in (
+        (here, "Purpose of the working directory"),
+        (target, "Purpose of target"),
     ):
-        _execute_review_workflow(
-            [f"### File: runner.py\n{_RUNNER}"],
-            "Path review",
-            True,
-            ReviewClients(analysis=MagicMock(spec=ReviewLLMClient)),
-            target_type="path",
-            target_ref=str(target),
-            target_dir=target,
-        )
+        meta = FileAnalysisMeta(path="runner.py", language="python", primary_purpose=purpose)
+        save_analysis_metadata("path", str(target), repo.name, [meta], repo)
 
-    assert (len(roots) > 0, set(roots)) == (True, {target.resolve()})
+    execute_review_workflow(
+        [f"### File: runner.py\n{_RUNNER}"],
+        "Path review",
+        True,
+        ReviewClients(analysis=model_fake),
+        target_type="path",
+        target_ref=str(target),
+        target_dir=target,
+    )
+
+    printed = " ".join(capsys.readouterr().out.split())
+    assert ("Purpose of target" in printed, "Purpose of the working directory" in printed) == (
+        True,
+        False,
+    )
 
 
-def test_summary_only_exits_before_orchestrator_construction(tmp_path: Path) -> None:
-    """Verify --summary prints metadata and returns before ReviewPipelineOrchestrator construction,
-    making zero model calls and creating no session directory (#995)."""
+def test_summary_only_exits_before_orchestrator_construction(
+    tmp_path: Path, model_fake: ModelFake
+) -> None:
+    """Verify --summary prints metadata and returns before the review pipeline starts, making
+    zero model calls and creating no session directory (#995)."""
     target = _checkout(tmp_path / "target", {"app.py": "def foo(): pass\n"})
-    mock_client = MagicMock(spec=ReviewLLMClient)
 
-    with (
-        patch("devops_cli.ai.review.pipeline.ReviewPipelineOrchestrator") as mock_orchestrator,
-        patch("devops_cli.ai.review.runner._print_analysis_metadata"),
-    ):
-        result = _execute_review_workflow(
-            ["### File: app.py\ndef foo(): pass\n"],
-            "Path review",
-            True,
-            ReviewClients(analysis=mock_client),
-            target_type="path",
-            target_ref=str(target),
-            target_dir=target,
-        )
+    result = execute_review_workflow(
+        ["### File: app.py\ndef foo(): pass\n"],
+        "Path review",
+        True,
+        ReviewClients(analysis=model_fake),
+        target_type="path",
+        target_ref=str(target),
+        target_dir=target,
+    )
 
-    assert (
-        result,
-        mock_orchestrator.called,
-        mock_client.chat.called,
-        mock_client.chat_messages.called,
-        (target / ".data" / "reviews").exists(),
-    ) == ([], False, False, False, False)
+    assert (result, model_fake.call_count, (target / ".data" / "reviews").exists()) == (
+        [],
+        0,
+        False,
+    )
 
 
 @pytest.mark.usefixtures("scanner_fake")
-def test_routed_files_only_branch_diff_makes_no_model_calls(tmp_path: Path) -> None:
+def test_routed_files_only_branch_diff_makes_no_model_calls(
+    tmp_path: Path, model_fake: ModelFake
+) -> None:
     """Verify a review of routed files only (such as uv.lock) invokes _review_routed_files_only
     with zero model calls and succeeds (#948, #995)."""
     target = _checkout(tmp_path / "target", {"uv.lock": "version = 1\n"})
-    mock_client = MagicMock(spec=ReviewLLMClient)
-    mock_client.backend_info = "mock-llm"
 
-    result = _execute_review_workflow(
+    result = execute_review_workflow(
         [],
         "Branch `feature` vs `main`",
         False,
-        ReviewClients(analysis=mock_client),
+        ReviewClients(analysis=model_fake),
         target_type="branch",
         target_ref="feature",
         target_dir=target,
         routed_files=["uv.lock"],
     )
 
-    assert (
-        len(result) == 1,
-        mock_client.chat.called,
-        mock_client.chat_messages.called,
-    ) == (True, False, False)
+    assert (len(result) == 1, model_fake.call_count) == (True, 0)
 
 
 @pytest.mark.usefixtures("scanner_fake")
 def test_a_routed_files_only_review_publishes_its_session_without_a_profile(
-    tmp_path: Path, review_store: type[ReviewSessionStore]
+    tmp_path: Path, review_store: type[ReviewSessionStore], model_fake: ModelFake
 ) -> None:
     """Verify a review that writes a report but no profile still publishes its session, whole
     and with the files it wrote (#771)."""
     target = _checkout(tmp_path / "target", {"uv.lock": "version = 1\n"})
-    mock_client = MagicMock(spec=ReviewLLMClient)
-    mock_client.backend_info = "mock-llm"
 
-    _execute_review_workflow(
+    execute_review_workflow(
         [],
         "Branch `feature` vs `main`",
         False,
-        ReviewClients(analysis=mock_client),
+        ReviewClients(analysis=model_fake),
         target_type="branch",
         target_ref="feature",
         target_dir=target,
@@ -320,19 +316,17 @@ def test_a_routed_files_only_review_publishes_its_session_without_a_profile(
 
 @pytest.mark.usefixtures("scanner_fake")
 def test_a_review_publishes_its_session_after_it_writes_the_profile(
-    tmp_path: Path, review_store: type[ReviewSessionStore]
+    tmp_path: Path, review_store: type[ReviewSessionStore], model_fake: ModelFake
 ) -> None:
     """Verify the session is published last: it holds profile.json, which is written after the
     report, and no staging directory is left (#771)."""
     target = _checkout(tmp_path / "target", {"runner.py": _RUNNER})
-    mock_client = MagicMock(spec=ReviewLLMClient)
-    mock_client.backend_info = "mock-llm"
 
-    _execute_review_workflow(
+    execute_review_workflow(
         [f"### File: runner.py\n{_RUNNER}"],
         "Path review",
         False,
-        ReviewClients(analysis=mock_client),
+        ReviewClients(analysis=model_fake),
         target_type="path",
         target_ref=str(target),
         target_dir=target,
@@ -364,19 +358,18 @@ def test_a_review_without_a_report_keeps_no_session(
     files: dict[str, str],
     pages: list[str],
     routed_files: list[str],
+    model_fake: ModelFake,
 ) -> None:
     """Verify a review run with `--no-reporting` keeps no session: it writes no findings.json,
     which every reader of a session needs, so nothing is published and no staging directory is
     left for the dashboard to show as unfinished (#771)."""
     target = _checkout(tmp_path / "target", files)
-    mock_client = MagicMock(spec=ReviewLLMClient)
-    mock_client.backend_info = "mock-llm"
 
-    _execute_review_workflow(
+    execute_review_workflow(
         pages,
         "Path review",
         False,
-        ReviewClients(analysis=mock_client),
+        ReviewClients(analysis=model_fake),
         target_type="path",
         target_ref=str(target),
         target_dir=target,
@@ -392,15 +385,15 @@ def test_a_review_without_a_report_keeps_no_session(
     ) == ([], [], [".staging"])
 
 
-def test_unverified_high_findings_stay_in_report_with_request_changes(tmp_path: Path) -> None:
+def test_unverified_high_findings_stay_in_report_with_request_changes(
+    tmp_path: Path, model_fake: ModelFake
+) -> None:
     """Verify #789 constraint: unverified HIGH findings remain in the report and findings.json
     with REQUEST CHANGES recommendation; only INVALIDATED findings leave the report."""
-    mock_client = MagicMock(spec=ReviewLLMClient)
-    mock_client.backend_info = "mock-llm"
     orchestrator = ReviewPipelineOrchestrator(
         session_id="test-789",
         session_dir=tmp_path / "session",
-        llm_client=mock_client,
+        llm_client=model_fake,
         target_dir=tmp_path,
     )
     unverified_high = SavedFinding(
@@ -437,122 +430,92 @@ def test_unverified_high_findings_stay_in_report_with_request_changes(tmp_path: 
     ) == (1, "Unverified SQL Injection", "UNVERIFIED", "REQUEST CHANGES", "APPROVE")
 
 
+def _bandit_report(path: Path) -> str:
+    """Bandit's JSON report with one HIGH finding on line 2 of `path`."""
+    return json.dumps(
+        {
+            "results": [
+                {
+                    "filename": str(path),
+                    "line_number": 2,
+                    "test_id": "B602",
+                    "test_name": "subprocess_popen_with_shell_equals_true",
+                    "issue_text": "subprocess shell=True",
+                    "issue_severity": "HIGH",
+                    "issue_confidence": "HIGH",
+                }
+            ],
+            "errors": [],
+        }
+    )
+
+
+def _review_with_findings(
+    orchestrator: ReviewPipelineOrchestrator, stage_flags: Any
+) -> tuple[Any, str]:
+    """Run the orchestrator review of `app.py` and format its PR comment."""
+    results = run_orchestrator_review(
+        orchestrator, ["app.py"], {}, ["app.py"], stage_flags=stage_flags
+    )
+    return results, format_pr_review_comment(results, files=["app.py"])
+
+
 def test_orchestrator_review_feeds_comment_and_metrics_with_and_without_reporting(
-    tmp_path: Path,
+    tmp_path: Path, model_fake: ModelFake, scanner_fake: ScannerFake, otlp: Any
 ) -> None:
-    """Verify #791: real _run_orchestrator_review output feeds PR comment and metrics
-    with and without --no-reporting, preserving persona labels."""
-    repo = _checkout(tmp_path / "repo", {"app.py": "import os\nprint('hello')\n"})
-    mock_client = MagicMock(spec=ReviewLLMClient)
-    mock_client.backend_info = "mock-llm"
+    """Verify #791: real run_orchestrator_review output feeds PR comment and metrics
+    with and without --no-reporting, preserving the producer labels."""
+    repo = _checkout(
+        tmp_path / "repo", {"app.py": "import subprocess\nsubprocess.call('ls', shell=True)\n"}
+    )
+    scanner_fake.script("bandit", ToolAnswer(stdout=_bandit_report(repo / "app.py")))
     orchestrator = ReviewPipelineOrchestrator(
         session_id="test-791-rep",
         session_dir=tmp_path / "session",
-        llm_client=mock_client,
+        llm_client=model_fake,
         target_dir=repo,
+        tool_executor=scanner_fake,
     )
-    qa_finding = SavedFinding(
-        title="Unverified Test Coverage Gap",
-        severity="MEDIUM",
-        status="VERIFIED",
-        verified=True,
-        verified_by="llm",
-        reportable=True,
-        location="app.py:2",
-        description="Missing unit tests",
-        fix="Add test cases",
-        producer="qa",
+
+    results_no_rep, comment_no_rep = _review_with_findings(
+        orchestrator, resolve_stage_flags(no_reporting=True)
     )
-    admitted = AdmittedFinding(
-        anchor=ToolAnchor(run_id="bandit", result_index=0, rule_id="B602"),
-        tool="bandit",
-        rule_id="B602",
-        path="app.py",
-        line=1,
-        message="subprocess shell=True",
-        severity="HIGH",
-        severity_derivation="rule",
-        state=FindingState.OPEN,
-        fingerprint_v2="fp791",
+    otlp.clear()
+    record_review_metrics(results_no_rep, 12.0, "pr")
+    metrics_no_rep = otlp.points("devops_cli_findings_total")
+
+    results_rep, comment_rep = _review_with_findings(
+        orchestrator, resolve_stage_flags(no_reporting=False)
     )
-    orchestrator.admitted_scanner_findings = [admitted]
+    otlp.clear()
+    record_review_metrics(results_rep, 15.0, "pr")
+    metrics_rep = otlp.points("devops_cli_findings_total")
 
-    flags_no_rep = resolve_stage_flags(no_reporting=True, no_static_scan=True)
-    with patch.object(orchestrator, "_collect_and_deduplicate_findings", return_value=[qa_finding]):
-        results_no_rep = _run_orchestrator_review(
-            orchestrator,
-            ["app.py"],
-            {},
-            ["app.py"],
-            stage_flags=flags_no_rep,
-        )
-
-    comment_no_rep = format_pr_review_comment(results_no_rep, files=["app.py"])
-    with patch("devops_cli.telemetry.instruments.emit") as mock_emit:
-        _record_review_metrics(results_no_rep, 12.0, "pr")
-        metrics_no_rep = [
-            (call.args[1], call.args[2])
-            for call in mock_emit.call_args_list
-            if call.args[0].name == "devops_cli_findings_total"
-        ]
-
-    flags_rep = resolve_stage_flags(no_reporting=False, no_static_scan=True)
-    with patch.object(orchestrator, "_collect_and_deduplicate_findings", return_value=[qa_finding]):
-        results_rep = _run_orchestrator_review(
-            orchestrator,
-            ["app.py"],
-            {},
-            ["app.py"],
-            stage_flags=flags_rep,
-        )
-
-    comment_rep = format_pr_review_comment(results_rep, files=["app.py"])
-    with patch("devops_cli.telemetry.instruments.emit") as mock_emit:
-        _record_review_metrics(results_rep, 15.0, "pr")
-        metrics_rep = [
-            (call.args[1], call.args[2])
-            for call in mock_emit.call_args_list
-            if call.args[0].name == "devops_cli_findings_total"
-        ]
-
+    bandit_point = ({"producer": "bandit", "severity": "HIGH", "status": "UNVERIFIED"}, 1)
     assert (
         "Zero findings identified." in comment_no_rep,
-        "Unverified Test Coverage Gap" in comment_no_rep,
-        "[bandit] B602" in comment_no_rep,
-        metrics_no_rep,
+        "B602" in comment_no_rep,
+        [(point[0], point[1]) for point in metrics_no_rep],
         "Zero findings identified." in comment_rep,
-        "Unverified Test Coverage Gap" in comment_rep,
-        metrics_rep,
-    ) == (
-        False,
-        True,
-        True,
-        [
-            (1, {"producer": "qa", "severity": "MEDIUM", "status": "VERIFIED"}),
-            (1, {"producer": "bandit", "severity": "HIGH", "status": "VERIFIED"}),
-        ],
-        False,
-        True,
-        [(1, {"producer": "qa", "severity": "MEDIUM", "status": "VERIFIED"})],
-    )
+        "B602" in comment_rep,
+        [(point[0], point[1]) for point in metrics_rep],
+    ) == (False, True, [bandit_point], False, True, [bandit_point])
 
 
 def test_orchestrator_review_no_static_scan_reports_analyzers_none_when_empty(
-    tmp_path: Path,
+    tmp_path: Path, model_fake: ModelFake
 ) -> None:
-    """Verify #657 constraint via real _run_orchestrator_review: --no-static-scan with zero
+    """Verify #657 constraint via real run_orchestrator_review: --no-static-scan with zero
     findings emits Analyzers: None."""
     repo = _checkout(tmp_path / "repo", {"app.py": "x = 1\n"})
-    mock_client = MagicMock(spec=ReviewLLMClient)
-    mock_client.backend_info = "mock-llm"
     orchestrator = ReviewPipelineOrchestrator(
         session_id="test-791-scanners",
         session_dir=tmp_path / "session",
-        llm_client=mock_client,
+        llm_client=model_fake,
         target_dir=repo,
     )
     flags = resolve_stage_flags(no_static_scan=True, no_reporting=True)
-    results = _run_orchestrator_review(
+    results = run_orchestrator_review(
         orchestrator,
         ["app.py"],
         {},
@@ -569,7 +532,7 @@ def test_orchestrator_review_no_static_scan_reports_analyzers_none_when_empty(
 
 def test_branch_review_excludes_deleted_files_from_pages_and_targets(tmp_path: Path) -> None:
     """A branch review leaves the files it deletes out of persona pages and scanners (#1140)."""
-    from devops_cli.ai.review.runner import _prepare_branch_content
+    from devops_cli.ai.review.runner import prepare_branch_content
     from devops_cli.review.diff import diff_file_names
 
     repo = tmp_path / "repo"
@@ -579,7 +542,7 @@ def test_branch_review_excludes_deleted_files_from_pages_and_targets(tmp_path: P
         "apiVersion: v1\nkind: ConfigMap\ndata:\n  key: val\n", encoding="utf-8"
     )
 
-    pages, _title, _target_branch, _base_rev = _prepare_branch_content(
+    pages, _title, _target_branch, _base_rev = prepare_branch_content(
         "feat/delete-manifest", "main", repo, working_directory=repo
     )
 

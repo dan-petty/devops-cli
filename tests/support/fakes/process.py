@@ -208,6 +208,18 @@ class ProcessFake:
 
         return _terminate_process_group_os(pid, sig)
 
+    def reset(self) -> None:
+        """Clear the recorded calls and the scripted answers, as a fresh fake holds them.
+
+        A test that runs many examples with one fixture (a Hypothesis test) calls this at the
+        start of each example, so no example sees the answers or calls of an earlier one.
+        """
+        self.calls.clear()
+        self._answers.clear()
+        self.sandbox_processes.clear()
+        self._sandbox_answers.clear()
+        self.terminated_pids.clear()
+
     @property
     def call_count(self) -> int:
         """The total number of commands executed through this fake."""

@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.k8s import app
 from devops_cli.commands.k8s.networking import VALID_STACKS, _resolve_stacks
 from devops_cli.commands.k8s.stack_lifecycle import (
-    _MANIFESTS_BY_STACK,
+    MANIFESTS_BY_STACK,
 )
 from devops_cli.dry_run import set_dry_run
 from tests.support.paths import REPO_ROOT
@@ -38,7 +38,7 @@ def test_devops_stack_registration_and_resolution() -> None:
 def test_devops_stack_manifests_integrity() -> None:
     """Every devops manifest exists; the ConfigMap is rendered from config at deploy time instead.
     The rate limit of the webhook route is applied before the Ingress that names it (#2476)."""
-    manifests = _MANIFESTS_BY_STACK.get("devops", [])
+    manifests = MANIFESTS_BY_STACK.get("devops", [])
     filenames = [p.name for p in manifests]
     rate_limit_then_ingress = ["roadmap-service/middleware.yaml", "roadmap-service/ingress.yaml"]
 

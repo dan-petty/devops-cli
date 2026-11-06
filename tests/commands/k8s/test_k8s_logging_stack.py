@@ -11,9 +11,9 @@ from typer.testing import CliRunner
 from devops_cli.commands.k8s import app
 from devops_cli.commands.k8s.networking import VALID_STACKS
 from devops_cli.commands.k8s.stack_lifecycle import (
-    _HELM_RELEASES_BY_STACK,
     _HELM_REPOS_BY_STACK,
-    _MANIFESTS_BY_STACK,
+    HELM_RELEASES_BY_STACK,
+    MANIFESTS_BY_STACK,
 )
 from devops_cli.config.defaults import DEFAULT_K8S_DIR
 from tests.support.fakes.kubernetes import FakeCluster
@@ -29,7 +29,7 @@ def test_logging_stack_definitions_and_single_shipper() -> None:
             encoding="utf-8"
         )
     )
-    release_names = tuple(r["name"] for r in _HELM_RELEASES_BY_STACK["logging"])
+    release_names = tuple(r["name"] for r in HELM_RELEASES_BY_STACK["logging"])
     repo_names = tuple(_HELM_REPOS_BY_STACK["logging"].keys())
     pod_logs_enabled = mon_values["podLogsViaLoki"]["enabled"]
     local_loki_url = mon_values["destinations"]["localLoki"]["url"]
@@ -46,7 +46,7 @@ def test_logging_stack_definitions_and_single_shipper() -> None:
         "http://loki.logging.svc.cluster.local:3100/loki/api/v1/push",
     )
 
-    manifest_paths = [str(p) for p in _MANIFESTS_BY_STACK["logging"]]
+    manifest_paths = [str(p) for p in MANIFESTS_BY_STACK["logging"]]
     assert ("logging" in VALID_STACKS, any("networkpolicy.yaml" in p for p in manifest_paths)) == (
         True,
         True,
@@ -59,7 +59,7 @@ def test_deploy_stack_installs_loki_from_the_grafana_community_chart() -> None:
     CVE-2026-21729 (#1632). It adds only the grafana-community repository, and gives the chart
     only the values file. The invariant test of the Application and the values is in
     tests/invariants/test_k8s_manifests.py."""
-    (release,) = _HELM_RELEASES_BY_STACK["logging"]
+    (release,) = HELM_RELEASES_BY_STACK["logging"]
 
     assert (release, _HELM_REPOS_BY_STACK["logging"]) == (
         {

@@ -253,7 +253,7 @@ def test_ai_analyze_path_enhanced(tmp_path: Path) -> None:
     with (
         patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
         patch(
-            "devops_cli.ai.analyze.outlines._enhance_file_metadata_with_ai",
+            "devops_cli.ai.analyze.outlines.enhance_file_metadata_with_ai",
             return_value=mock_enhanced,
         ),
     ):
@@ -361,7 +361,7 @@ def test_ai_analyze_quality_and_confidence_scores(tmp_path: Path) -> None:
     with (
         patch("devops_cli.commands.analyze.find_repo_root", return_value=tmp_path),
         patch(
-            "devops_cli.ai.analyze.outlines._enhance_file_metadata_with_ai",
+            "devops_cli.ai.analyze.outlines.enhance_file_metadata_with_ai",
             return_value=mock_enhanced,
         ),
     ):

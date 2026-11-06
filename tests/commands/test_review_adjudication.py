@@ -254,7 +254,7 @@ def test_the_exporter_labels_a_record_human_only_when_a_person_judged_it(tmp_pat
 _PREPARED = {
     "path": ("_prepare_path_content", (["page"], "Path Review", [])),
     "branch": (
-        "_prepare_branch_content",
+        "prepare_branch_content",
         (["diff"], "Branch Review", "feature", sentinel.base_revision),
     ),
     "pr": (
@@ -277,7 +277,7 @@ def test_each_review_command_loads_settings_once(
         patch("devops_cli.commands.review.load_settings") as load,
         patch("devops_cli.commands.review._make_review_clients"),
         patch(f"devops_cli.commands.review.{preparer}", return_value=prepared),
-        patch("devops_cli.commands.review._execute_review_workflow", return_value=[]),
+        patch("devops_cli.commands.review.execute_review_workflow", return_value=[]),
     ):
         target = [str(tmp_path)] if command == "path" else []
         res = runner.invoke(app, [*args, *target, "--no-logfire"])

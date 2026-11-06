@@ -7,9 +7,19 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
-from devops_cli.survey.models import CapabilityGap, CapabilityStatus
+from devops_cli.survey.models import CapabilityStatus
+
+_PROPOSAL = {
+    "type": "type/feature",
+    "type_reason": "it adds a capability.",
+    "priority": "P2-Medium",
+    "priority_reason": "useful, not urgent.",
+    "value": "Medium",
+    "value_reason": "it helps maintainers.",
+    "effort": "Low",
+    "effort_reason": "one module.",
+}
 
 
 def test_survey_command_json_output(cli: Callable[..., Any]) -> None:
@@ -85,8 +95,15 @@ def test_survey_command_with_custom_config(cli: Callable[..., Any]) -> None:
         config_path.unlink(missing_ok=True)
 
 
-def test_survey_emit_candidates_calls_intake(cli: Callable[..., Any]) -> None:
-    """The survey command hands discovered capability gaps to roadmap intake."""
+def test_survey_emit_candidates_calls_intake(
+    cli: Callable[..., Any],
+    roadmap_store: Any,
+    model_fake: Any,
+    embedder: Any,
+    keyring_store: Any,
+) -> None:
+    """The survey command hands discovered capability gaps to roadmap intake, which files one
+    issue for each gap with its citation."""
     config_toml = """
     [[tools]]
     name = "tool-x"
@@ -104,29 +121,25 @@ def test_survey_emit_candidates_calls_intake(cli: Callable[..., Any]) -> None:
     status = "present"
     citation = "https://example.com/tool-x/docs"
     """
+    roadmap_store.seed_file(".github/labels.yml", Path(".github/labels.yml").read_text("utf-8"))
+    model_fake.answer(json.dumps(_PROPOSAL))
     with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as f:
         f.write(config_toml)
         config_path = Path(f.name)
 
     try:
-        with patch("devops_cli.commands.survey.emit_all_gaps_to_intake") as mock_emit:
-            mock_emit.return_value = [MagicMock(number=999, decision=MagicMock(outcome="place"))]
-            result = cli(
-                "survey",
-                "--capabilities-only",
-                "--config",
-                str(config_path),
-                "--emit-candidates",
-                "--confirm",
-            )
-            assert result.exit_code == 0
-            assert mock_emit.called
-            gaps_arg = mock_emit.call_args[0][0]
-            assert len(gaps_arg) == 1
-            gap = gaps_arg[0]
-            assert isinstance(gap, CapabilityGap)
-            assert gap.capability == "missing-capability"
-            assert gap.tool == "tool-x"
-            assert gap.citation == "https://example.com/tool-x/docs"
+        result = cli(
+            "survey",
+            "--capabilities-only",
+            "--config",
+            str(config_path),
+            "--emit-candidates",
+            "--confirm",
+        )
+        filed = [issue for issue in roadmap_store.issues() if "missing-capability" in issue.title]
+        assert (result.exit_code, len(filed)) == (0, 1), result.output
+        assert filed[0].title == "feat(cli): missing-capability"
+        assert "https://example.com/tool-x/docs" in filed[0].body
+        assert "tool-x" in filed[0].body
     finally:
         config_path.unlink(missing_ok=True)

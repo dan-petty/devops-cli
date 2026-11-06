@@ -183,7 +183,7 @@ def semgrep_scan_command(
     return build_semgrep_cmd(targets, [*configs, str(RULE_PACK_DIR)], exclude_paths, exclude_rules)
 
 
-def _files_command(
+def files_command(
     names: list[str], configs: list[str], exclude_rules: Sequence[str] = ()
 ) -> list[str] | None:
     """The command that scans the named files; None when none is named."""
@@ -201,10 +201,10 @@ def _build_scan_command(
     `_REVIEW_EXCLUDED_RULES`."""
     if isinstance(target, MaterializedTargets):
         configs = rules_configs(config, ruleset, in_workdir=True)
-        return _files_command(target.names, configs, tuple(_REVIEW_EXCLUDED_RULES))
+        return files_command(target.names, configs, tuple(_REVIEW_EXCLUDED_RULES))
     configs = rules_configs(config, ruleset)
     if isinstance(target, list):
-        return _files_command([str(p.resolve()) for p in _scannable_files(target)], configs)
+        return files_command([str(p.resolve()) for p in _scannable_files(target)], configs)
 
     if not target.exists():
         return None

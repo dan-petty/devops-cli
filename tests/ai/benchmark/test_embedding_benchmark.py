@@ -791,7 +791,7 @@ def test_a_files_preamble_is_a_distractor_not_a_target(tmp_path: Path) -> None:
 def test_a_code_query_and_the_index_lookup_carry_the_same_symbols() -> None:
     """Verify the query the benchmark makes for a chunk is the lookup `outlines` makes for the
     file, a path and the same first symbols, so the two cannot drift apart (#481)."""
-    from devops_cli.ai.analyze.outlines import _enhance_file_metadata_with_ai
+    from devops_cli.ai.analyze.outlines import enhance_file_metadata_with_ai
     from devops_cli.ai.benchmark.code_chunk_corpus import _code_chunk_query
     from devops_cli.ai.rag.models import CodeChunk
 
@@ -806,7 +806,7 @@ def test_a_code_query_and_the_index_lookup_carry_the_same_symbols() -> None:
         patch("devops_cli.ai.rag.investigator.investigate_rag_context", side_effect=record),
         patch("devops_cli.ai.rag.investigator.format_rag_investigation_for_prompt"),
     ):
-        _enhance_file_metadata_with_ai(
+        enhance_file_metadata_with_ai(
             "pkg/big.py", "class Big: pass", "python", symbols, MagicMock()
         )
     chunk = CodeChunk(

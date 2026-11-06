@@ -14,8 +14,8 @@ import yaml
 from packaging.version import InvalidVersion, Version
 
 from devops_cli.commands.k8s.stack_lifecycle import (
-    _HELM_RELEASES_BY_STACK,
     _HELM_REPOS,
+    HELM_RELEASES_BY_STACK,
 )
 from tests.support.paths import REPO_ROOT
 
@@ -297,7 +297,7 @@ def test_grafana_runs_the_grafana_community_chart_that_ships_a_patched_grafana()
         if doc
     }
     chart_source = next(source for source in application["spec"]["sources"] if "chart" in source)
-    release = next(r for r in _HELM_RELEASES_BY_STACK["infra"] if r["name"] == "grafana")
+    release = next(r for r in HELM_RELEASES_BY_STACK["infra"] if r["name"] == "grafana")
     alias = release["chart"].split("/")[0]
 
     assert {
@@ -1127,7 +1127,7 @@ def test_no_stack_values_file_sets_a_debug_log_level() -> None:
     """No values file the stack lifecycle installs sets a debug log level (#1133)."""
     values_by_release = {
         release["name"]: yaml.safe_load(Path(release["values"]).read_text(encoding="utf-8")) or {}
-        for releases in _HELM_RELEASES_BY_STACK.values()
+        for releases in HELM_RELEASES_BY_STACK.values()
         for release in releases
     }
     debug_in_repo = {

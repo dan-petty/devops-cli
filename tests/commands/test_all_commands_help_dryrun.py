@@ -18,6 +18,7 @@ from devops_cli.commands.roadmap import app as roadmap_app
 from devops_cli.commands.ssh import app as ssh_app
 from devops_cli.commands.telemetry import app as telemetry_app
 from devops_cli.commands.tls import app as tls_app
+from devops_cli.docs.generator import DocGenerator
 from devops_cli.main import app as main_app
 
 COMMAND_SPECS = [
@@ -88,27 +89,15 @@ def test_subcommand_apps_help_and_dryrun(app_instance, args: list[str], keyring_
     assert result.exit_code == 0, f"Command {' '.join(args)} failed with output:\n{result.output}"
 
 
-def test_all_registered_subcommands_have_help() -> None:
-    """Ensure all subcommands registered across _COMMAND_SPECS have help option enabled."""
-    from importlib import import_module
+def test_all_registered_subcommands_have_help(cli: Any) -> None:
+    """Ensure every documented command group answers `--help` with a usage line."""
+    failures = []
+    for group in DocGenerator().introspect_all_groups():
+        result = cli([group.name, "--help"])
+        if result.exit_code != 0 or "Usage" not in result.output:
+            failures.append(group.name)
 
-    import typer
-
-    from devops_cli.main import _COMMAND_SPECS
-
-    all_have_help = True
-    for _name, (module_path, _) in _COMMAND_SPECS.items():
-        mod = import_module(module_path)
-        app = getattr(mod, "app", None)
-        if app is None:
-            continue
-        click_cmd = typer.main.get_command(app)
-        has_help = getattr(click_cmd, "add_help_option", True)
-        if not has_help:
-            all_have_help = False
-            break
-
-    assert all_have_help is True
+    assert failures == []
 
 
 def test_all_command_specs_registered(cli: Any) -> None:

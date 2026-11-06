@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from devops_cli.ai.review import ReviewPipelineOrchestrator
-from devops_cli.ai.review.runner import ReviewClients, _execute_review_workflow
+from devops_cli.ai.review.runner import ReviewClients, execute_review_workflow
 from devops_cli.config.constants import CONST_TOOL_EXECUTOR_SANDBOX
 from devops_cli.lang import MESSAGES
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
@@ -118,7 +118,7 @@ def test_a_review_that_the_host_cannot_sandbox_says_why_and_what_to_change_on_th
     no run outside the sandbox."""
     process_fake.answer(str(bwrap), ProcessAnswer(returncode=1, stderr=f"{_NAMESPACE_REFUSED}\n"))
 
-    _execute_review_workflow(
+    execute_review_workflow(
         [],
         "app.py",
         False,

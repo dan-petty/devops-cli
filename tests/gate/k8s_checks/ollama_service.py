@@ -12,8 +12,8 @@ from devops_cli.commands.k8s.networking import (
     _configure_llm_stack_urls,
 )
 from devops_cli.commands.k8s.stack_lifecycle import (
-    _HELM_RELEASES_BY_STACK,
-    _MANIFESTS_BY_STACK,
+    HELM_RELEASES_BY_STACK,
+    MANIFESTS_BY_STACK,
 )
 from devops_cli.config.defaults import DEFAULT_OLLAMA_PORT
 from devops_cli.config.settings import Settings
@@ -32,13 +32,13 @@ def check_llm_stack_forwards_ollama_through_a_service_deploy_stack_creates() -> 
     """
     manifests = {
         (doc["metadata"]["namespace"], doc["metadata"]["name"]): doc
-        for path in _MANIFESTS_BY_STACK["llm"]
+        for path in MANIFESTS_BY_STACK["llm"]
         for doc in applied_documents(path)
         if doc.get("kind") == "Service"
     }
     # A Helm release's Service carries the release name.
     deployed = manifests.keys() | {
-        (release["namespace"], release["name"]) for release in _HELM_RELEASES_BY_STACK["llm"]
+        (release["namespace"], release["name"]) for release in HELM_RELEASES_BY_STACK["llm"]
     }
     forwarded = [
         (namespace, service.removeprefix("svc/"))

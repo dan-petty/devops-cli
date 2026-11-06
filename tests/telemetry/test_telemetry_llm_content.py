@@ -7,28 +7,27 @@ from collections.abc import Generator
 from typing import Any
 from unittest.mock import patch
 
+import httpx2
 import pytest
 from opentelemetry.sdk.trace import SpanProcessor
 
 from devops_cli.ai.agents.agent import PydanticAgent
-from devops_cli.ai.client import LLMClient, LLMResponse
+from devops_cli.ai.client import LLMClient
 from devops_cli.config.settings import AIConfig, Settings, TelemetryConfig
 from devops_cli.core.validation import is_loopback_or_private_host
-from devops_cli.models.ai import ChatMessage
 from devops_cli.security.sanitizer import PRIVATE_HOST_PATTERNS
 from devops_cli.telemetry.logfire import LogfireBridge, reset_logfire_bridge
 from devops_cli.telemetry.tracer import (
-    OTelTelemetryClient,
     clear_span_buffer,
     get_recent_spans,
     reset_tracer,
 )
+from tests.llm_stream_fakes import serve_llm
+from tests.support.fakes.http import WebFake
 
 
 @pytest.fixture(autouse=True)
-def _clean_telemetry(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
-    monkeypatch.setattr(OTelTelemetryClient, "_send_payload", lambda self, path, p: None)
-    monkeypatch.setattr(OTelTelemetryClient, "_send_payload_sync", lambda self, path, p: None)
+def _clean_telemetry() -> Generator[None]:
     reset_tracer()
     reset_logfire_bridge()
     clear_span_buffer()
@@ -36,6 +35,16 @@ def _clean_telemetry(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     reset_tracer()
     reset_logfire_bridge()
     clear_span_buffer()
+
+
+def _serve_reply(web: WebFake, text: str) -> None:
+    """Answer every chat completion with a reply of `text`, at the HTTP edge."""
+    body = {
+        "model": "gpt-4o",
+        "choices": [{"message": {"content": text}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    }
+    serve_llm(web, lambda _request: httpx2.Response(200, json=body))
 
 
 def test_private_host_patterns_defined_and_cross_checked_with_validation() -> None:
@@ -86,61 +95,31 @@ def test_telemetry_config_capture_llm_content_default_false() -> None:
     assert config.capture_llm_content is False
 
 
+def _dispatch_attributes(config: Any, capture: bool) -> dict[str, Any]:
+    """The attributes of the one `ai.llm.dispatch` span of a chat with capture on or off."""
+    config(telemetry={"enabled": True, "capture_llm_content": capture})
+    clear_span_buffer()
+    ai_cfg = AIConfig(provider="openai", model="gpt-4o", api_base_url="https://example.com/v1")
+    client = LLMClient(ai_cfg, api_key="sk-test", cache_enabled=False)
+    client.chat("system instruction", "user query containing node1.example.internal")
+
+    spans = [s for s in get_recent_spans() if s.get("name") == "ai.llm.dispatch"]
+    assert len(spans) == 1
+    return {a["key"]: a["value"] for a in spans[0].get("attributes", [])}
+
+
 def test_ai_llm_dispatch_spans_gate_prompt_and_response_preview(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake, config: Any, otlp: Any
 ) -> None:
     """Verify native ai.llm.dispatch spans omit preview attributes when capture is False, include when True."""
+    _serve_reply(web, "stubbed response with sensitive details")
 
-    def stubbed_driver(
-        self: LLMClient, system: str, messages: list[ChatMessage], **_: Any
-    ) -> LLMResponse:
-        return LLMResponse(
-            "stubbed response with sensitive details",
-            prompt_tokens=10,
-            completion_tokens=5,
-            total_tokens=15,
-        )
+    off = _dispatch_attributes(config, capture=False)
+    on = _dispatch_attributes(config, capture=True)
 
-    monkeypatch.setattr(LLMClient, "_openai_compat_messages", stubbed_driver)
-    ai_cfg = AIConfig(provider="openai", model="gpt-4o", api_base_url="https://example.com/v1")
-
-    # Case 1: capture_llm_content is False (default)
-    settings_false = Settings()
-    settings_false.telemetry.capture_llm_content = False
-    with patch(
-        "devops_cli.telemetry.tracer._resolve_telemetry_settings",
-        return_value=settings_false.telemetry,
-    ):
-        reset_tracer()
-        clear_span_buffer()
-        client = LLMClient(ai_cfg, api_key="sk-test", cache_enabled=False)
-        client.chat("system instruction", "user query containing node1.example.internal")
-
-        spans = [s for s in get_recent_spans() if s.get("name") == "ai.llm.dispatch"]
-        assert len(spans) == 1
-        attrs = {a["key"]: a["value"] for a in spans[0].get("attributes", [])}
-        assert "llm.prompt_preview" not in attrs
-        assert "llm.response_preview" not in attrs
-
-    # Case 2: capture_llm_content is True
-    settings_true = Settings()
-    settings_true.telemetry.capture_llm_content = True
-    with patch(
-        "devops_cli.telemetry.tracer._resolve_telemetry_settings",
-        return_value=settings_true.telemetry,
-    ):
-        reset_tracer()
-        clear_span_buffer()
-        client = LLMClient(ai_cfg, api_key="sk-test", cache_enabled=False)
-        client.chat("system instruction", "user query containing node1.example.internal")
-
-        spans = [s for s in get_recent_spans() if s.get("name") == "ai.llm.dispatch"]
-        assert len(spans) == 1
-        attrs = {a["key"]: a["value"] for a in spans[0].get("attributes", [])}
-        assert "llm.prompt_preview" in attrs
-        assert "node1.example.internal" in attrs["llm.prompt_preview"]["stringValue"]
-        assert "llm.response_preview" in attrs
-        assert "stubbed response" in attrs["llm.response_preview"]["stringValue"]
+    assert ("llm.prompt_preview" in off, "llm.response_preview" in off) == (False, False)
+    assert "node1.example.internal" in on["llm.prompt_preview"]["stringValue"]
+    assert "stubbed response" in on["llm.response_preview"]["stringValue"]
 
 
 def test_logfire_bridge_scrubbing_and_content_inclusion() -> None:
@@ -236,78 +215,48 @@ def _has_prompt_preview_host(host: str) -> bool:
 
 
 def test_pydantic_agent_keeps_private_host_out_of_telemetry_when_capture_off(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake, config: Any, otlp: Any
 ) -> None:
     """Drive PydanticAgent + LLMClient and assert hostname is in no Logfire or tracer attribute."""
     captured_logfire_spans: list[Any] = []
-
-    def stubbed_driver(
-        self: LLMClient, system: str, messages: list[ChatMessage], **_: Any
-    ) -> LLMResponse:
-        return LLMResponse(
-            "reply from stubbed agent", prompt_tokens=20, completion_tokens=10, total_tokens=30
-        )
-
-    monkeypatch.setattr(LLMClient, "_openai_compat_messages", stubbed_driver)
+    _serve_reply(web, "reply from stubbed agent")
     ai_cfg = AIConfig(provider="openai", model="gpt-4o", api_base_url="https://example.com/v1")
 
-    settings_off = Settings()
-    settings_off.telemetry.capture_llm_content = False
+    config(telemetry={"enabled": True, "capture_llm_content": False})
+    clear_span_buffer()
+    import logfire
 
-    with patch(
-        "devops_cli.telemetry.tracer._resolve_telemetry_settings",
-        return_value=settings_off.telemetry,
-    ):
-        reset_tracer()
-        clear_span_buffer()
-        import logfire
+    logfire.configure(
+        send_to_logfire=False,
+        additional_span_processors=[_CapturingSpanProcessor(captured_logfire_spans)],
+        scrubbing=logfire.ScrubbingOptions(extra_patterns=PRIVATE_HOST_PATTERNS),
+    )
 
-        logfire.configure(
-            send_to_logfire=False,
-            additional_span_processors=[_CapturingSpanProcessor(captured_logfire_spans)],
-            scrubbing=logfire.ScrubbingOptions(extra_patterns=PRIVATE_HOST_PATTERNS),
-        )
+    client = LLMClient(ai_cfg, api_key="sk-test", cache_enabled=False)
+    agent: PydanticAgent[Any, Any] = PydanticAgent(client=client, name="TestSecurityAgent")
 
-        client = LLMClient(ai_cfg, api_key="sk-test", cache_enabled=False)
-        agent: PydanticAgent[Any, Any] = PydanticAgent(client=client, name="TestSecurityAgent")
+    res = agent.run("Connect to node1.example.internal and check status")
+    assert res.content == "reply from stubbed agent"
 
-        res = agent.run("Connect to node1.example.internal and check status")
-        assert res.content == "reply from stubbed agent"
-
-        _assert_no_host_in_recent_spans("node1.example.internal")
-        _assert_no_host_in_logfire_spans("node1.example.internal", captured_logfire_spans)
+    _assert_no_host_in_recent_spans("node1.example.internal")
+    _assert_no_host_in_logfire_spans("node1.example.internal", captured_logfire_spans)
 
 
 def test_pydantic_agent_records_prompt_preview_when_capture_on(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake, config: Any, otlp: Any
 ) -> None:
     """Assert prompt preview returns when capture_llm_content is True."""
-
-    def stubbed_driver(
-        self: LLMClient, system: str, messages: list[ChatMessage], **_: Any
-    ) -> LLMResponse:
-        return LLMResponse(
-            "reply from stubbed agent", prompt_tokens=20, completion_tokens=10, total_tokens=30
-        )
-
-    monkeypatch.setattr(LLMClient, "_openai_compat_messages", stubbed_driver)
+    _serve_reply(web, "reply from stubbed agent")
     ai_cfg = AIConfig(provider="openai", model="gpt-4o", api_base_url="https://example.com/v1")
 
-    settings_on = Settings()
-    settings_on.telemetry.capture_llm_content = True
+    config(telemetry={"enabled": True, "capture_llm_content": True})
+    clear_span_buffer()
 
-    with patch(
-        "devops_cli.telemetry.tracer._resolve_telemetry_settings",
-        return_value=settings_on.telemetry,
-    ):
-        reset_tracer()
-        clear_span_buffer()
+    client = LLMClient(ai_cfg, api_key="sk-test", cache_enabled=False)
+    agent: PydanticAgent[Any, Any] = PydanticAgent(client=client, name="TestSecurityAgent")
 
-        client = LLMClient(ai_cfg, api_key="sk-test", cache_enabled=False)
-        agent: PydanticAgent[Any, Any] = PydanticAgent(client=client, name="TestSecurityAgent")
+    agent.run("Connect to node1.example.internal and check status")
 
-        agent.run("Connect to node1.example.internal and check status")
-
-        assert _has_prompt_preview_host("node1.example.internal"), (
-            "Expected node1.example.internal in prompt preview when capture is on"
-        )
+    assert _has_prompt_preview_host("node1.example.internal"), (
+        "Expected node1.example.internal in prompt preview when capture is on"
+    )

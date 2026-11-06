@@ -311,7 +311,7 @@ def test_run_pr_review_workflow_partial_context(tmp_path: Path) -> None:
 
     with (
         patch("devops_cli.git.worktree.fetch_pr_head", return_value=None),
-        patch("devops_cli.commands.review._execute_review_workflow", return_value=[]) as mock_exec,
+        patch("devops_cli.commands.review.execute_review_workflow", return_value=[]) as mock_exec,
     ):
         result = _run_pr_review_workflow(
             pages=["page1"],
@@ -355,7 +355,7 @@ def test_run_pr_review_workflow_with_worktree(tmp_path: Path) -> None:
     with (
         patch("devops_cli.git.worktree.fetch_pr_head", return_value="commit-sha-42"),
         patch("devops_cli.git.worktree.review_worktrees_context") as mock_ctx,
-        patch("devops_cli.commands.review._execute_review_workflow", return_value=[]) as mock_exec,
+        patch("devops_cli.commands.review.execute_review_workflow", return_value=[]) as mock_exec,
     ):
         mock_ctx.return_value.__enter__.return_value = mock_rw
         result = _run_pr_review_workflow(

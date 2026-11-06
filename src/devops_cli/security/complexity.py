@@ -91,7 +91,7 @@ def measure_python_text_complexity(
         return {}
 
 
-def _evaluate_single_function_delta(
+def evaluate_single_function_delta(
     rel_path: str,
     name: str,
     base_fn: FunctionComplexity | None,
@@ -187,7 +187,7 @@ def compute_complexity_deltas(
 
         all_names = sorted(set(base_funcs.keys()) | set(head_funcs.keys()))
         for name in all_names:
-            delta, finding = _evaluate_single_function_delta(
+            delta, finding = evaluate_single_function_delta(
                 rel_path,
                 name,
                 base_funcs.get(name),

@@ -14,22 +14,20 @@ from typing import Any
 
 import pytest
 
-from devops_cli.ai.review.pipeline import _STATIC_ANALYZERS, ReviewPipelineOrchestrator
+from devops_cli.ai.review.pipeline import STATIC_ANALYZERS, ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.config.commands import BIN_OSV_SCANNER, build_osv_scan_cmd
 from devops_cli.config.constants import CONST_OSV_OFFLINE_DB_TTL_SECONDS
-from devops_cli.models.vulnerability import NetworkReputationRecord
 from devops_cli.review.analysis import default_environment_facts
 from devops_cli.review.anchors import AdvisoryAnchor
 from devops_cli.security.osv_scanner import (
     OsvScanner,
-    _extract_osv_severity,
     detect_manifest_coverage_gaps,
+    extract_osv_severity,
     get_or_compute_snapshot_digest,
     parse_osv_scanner_output,
     run_osv_scan,
 )
-from devops_cli.security.reference_extractor import NetworkReference
 from devops_cli.security.registry import global_scanner_registry
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
@@ -60,18 +58,18 @@ def test_osv_scanner_command_builder(tmp_path: Path) -> None:
 def test_osv_severity_extraction_never_defaults_to_high() -> None:
     """Severities map directly from advisory database/ecosystem fields, falling back to UNKNOWN."""
     # Database specific severity
-    assert _extract_osv_severity({"database_specific": {"severity": "MODERATE"}}) == "MEDIUM"
-    assert _extract_osv_severity({"database_specific": {"severity": "CRITICAL"}}) == "CRITICAL"
-    assert _extract_osv_severity({"database_specific": {"severity": "LOW"}}) == "LOW"
+    assert extract_osv_severity({"database_specific": {"severity": "MODERATE"}}) == "MEDIUM"
+    assert extract_osv_severity({"database_specific": {"severity": "CRITICAL"}}) == "CRITICAL"
+    assert extract_osv_severity({"database_specific": {"severity": "LOW"}}) == "LOW"
 
     # Ecosystem specific severity
-    assert _extract_osv_severity({"ecosystem_specific": {"severity": "HIGH"}}) == "HIGH"
+    assert extract_osv_severity({"ecosystem_specific": {"severity": "HIGH"}}) == "HIGH"
 
     # Missing severity never defaults to HIGH
-    assert _extract_osv_severity({}) == "UNKNOWN"
-    assert _extract_osv_severity({"database_specific": {}}) == "UNKNOWN"
+    assert extract_osv_severity({}) == "UNKNOWN"
+    assert extract_osv_severity({"database_specific": {}}) == "UNKNOWN"
     assert (
-        _extract_osv_severity(
+        extract_osv_severity(
             {"severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N/AC:L/PR:N"}]}
         )
         == "UNKNOWN"
@@ -324,10 +322,10 @@ def test_environment_facts_carries_cyclonedx_inventory() -> None:
 
 
 def test_review_pipeline_has_osv_scanner_in_static_analyzers() -> None:
-    """_STATIC_ANALYZERS includes osv-scanner targeting lockfiles."""
-    scanner_names = [name for name, _, _ in _STATIC_ANALYZERS]
+    """STATIC_ANALYZERS includes osv-scanner targeting lockfiles."""
+    scanner_names = [name for name, _, _ in STATIC_ANALYZERS]
     assert "osv-scanner" in scanner_names
-    lock_analyzer = next(entry for entry in _STATIC_ANALYZERS if entry[0] == "osv-scanner")
+    lock_analyzer = next(entry for entry in STATIC_ANALYZERS if entry[0] == "osv-scanner")
     assert lock_analyzer == ("osv-scanner", BIN_OSV_SCANNER, "lockfiles")
 
 
@@ -339,35 +337,12 @@ def test_run_osv_scan_invokes_scanner(tmp_path: Path, scanner_fake: ScannerFake)
     assert outcome.status in ("ran", "clean", "skipped")
 
 
-def test_threat_intel_opt_in_behavior(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scanner_fake: ScannerFake
-) -> None:
+def test_threat_intel_opt_in_behavior(tmp_path: Path, scanner_fake: ScannerFake, web: Any) -> None:
     """ReviewPipelineOrchestrator threat_intel defaults to False and makes no external lookups."""
     src_file = tmp_path / "app.py"
-    src_file.write_text('REMOTE = "198.51.100.1"\n', encoding="utf-8")
-
-    sample_net = NetworkReference(
-        target="198.51.100.1",
-        reference_type="ip",
-        source_file="app.py",
-        line_number=1,
-    )
-    monkeypatch.setattr(
-        "devops_cli.ai.review.pipeline.extract_network_references",
-        lambda content, fpath: [sample_net],
-    )
-
-    called_shodan = False
-
-    def _mock_shodan(client: Any, ip: str) -> tuple[str, NetworkReputationRecord]:
-        nonlocal called_shodan
-        called_shodan = True
-        return (ip, NetworkReputationRecord(target=ip, ip=ip, outcome="ok"))
-
-    monkeypatch.setattr(
-        "devops_cli.ai.review.pipeline._fetch_ip_threat_intel",
-        _mock_shodan,
-    )
+    src_file.write_text('REMOTE = "8.8.8.8"\n', encoding="utf-8")
+    shodan_url = "https://internetdb.shodan.io/8.8.8.8"
+    web.respond("GET", shodan_url, 200, {"ports": [443], "vulns": [], "cpes": [], "tags": []})
 
     # 1. Default (threat_intel=False): no threat lookups run
     orch = ReviewPipelineOrchestrator(
@@ -377,7 +352,7 @@ def test_threat_intel_opt_in_behavior(
     )
     assert orch.threat_intel is False
     payloads = orch.init_per_file_payloads(["app.py"], {})
-    assert called_shodan is False
+    assert shodan_url not in web.requested
     assert len(payloads) == 1
     assert payloads[0].network_references == []
 
@@ -389,6 +364,6 @@ def test_threat_intel_opt_in_behavior(
     )
     assert orch_on.threat_intel is True
     payloads_on = orch_on.init_per_file_payloads(["app.py"], {})
-    assert called_shodan is True
+    assert shodan_url in web.requested
     assert len(payloads_on) == 1
     assert len(payloads_on[0].network_references) >= 1

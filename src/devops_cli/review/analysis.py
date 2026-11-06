@@ -504,7 +504,7 @@ def build_correlation_table(
     return entries
 
 
-def _build_anchor_excerpt(
+def build_anchor_excerpt(
     finding: Finding,
     content: str | None,
     context_lines: int,
@@ -536,7 +536,7 @@ def _collect_anchor_excerpts(
     seen: set[tuple[str, int, int]] = set()
     excerpts: list[AnchorExcerpt] = []
     for finding in group.findings:
-        excerpt = _build_anchor_excerpt(finding, file_contents.get(finding.path), context_lines)
+        excerpt = build_anchor_excerpt(finding, file_contents.get(finding.path), context_lines)
         if excerpt is not None and (excerpt.path, excerpt.start_line, excerpt.end_line) not in seen:
             seen.add((excerpt.path, excerpt.start_line, excerpt.end_line))
             excerpts.append(excerpt)
@@ -573,7 +573,7 @@ def _resolve_rule_doc(
     return "\n".join(dict.fromkeys(parts)) if parts else None
 
 
-def _collect_reference_candidates(
+def collect_reference_candidates(
     group: FindingGroup,
     rule_docs: Mapping[str, str],
     kb_manuals: Mapping[str, str],
@@ -684,7 +684,7 @@ def build_analysis_job_input(
     """Construct an `AnalysisJobInput` with secret-masked excerpts and reference budget tracking."""
     contents = file_contents or {}
     env = environment or default_environment_facts(group.findings)
-    candidates = _collect_reference_candidates(
+    candidates = collect_reference_candidates(
         group,
         rule_docs or {},
         kb_manuals or {},

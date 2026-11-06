@@ -76,10 +76,10 @@ from devops_cli.commands.k8s.security_audit import (
 )
 from devops_cli.commands.k8s.stack_lifecycle import (
     _HELM_RELEASES,
-    _HELM_RELEASES_BY_STACK,
     _HELM_REPOS,
     _HELM_REPOS_BY_STACK,
-    _MANIFESTS_BY_STACK,
+    HELM_RELEASES_BY_STACK,
+    MANIFESTS_BY_STACK,
     _bootstrap_openwebui_account,
     _recover_stuck_helm_release,
     _require_helm_version,
@@ -141,12 +141,12 @@ app.add_typer(volume_app, name="volume", help=HELP.k8s.volume_app)
 
 
 __all__ = [
+    "HELM_RELEASES_BY_STACK",
+    "MANIFESTS_BY_STACK",
     "VALID_STACKS",
     "_HELM_RELEASES",
-    "_HELM_RELEASES_BY_STACK",
     "_HELM_REPOS",
     "_HELM_REPOS_BY_STACK",
-    "_MANIFESTS_BY_STACK",
     "_bootstrap_openwebui_account",
     "_cluster_reachable",
     "_detect_service_url",

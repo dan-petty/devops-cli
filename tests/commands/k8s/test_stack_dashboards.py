@@ -27,7 +27,7 @@ from typing import Any
 import pytest
 import yaml
 
-from devops_cli.commands.k8s.stack_lifecycle import _HELM_RELEASES_BY_STACK
+from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
 from devops_cli.prometheus.promql import falls_back_to_constant, grouping_labels, selectors
 from tests.support.paths import FIXTURES, REPO_ROOT
 
@@ -887,7 +887,7 @@ def test_a_source_entry_overriding_a_sampled_family_fails() -> None:
 def test_cluster_metrics_allowlist_fixtures_match_pinned_k8s_monitoring_version() -> None:
     """Verify cluster_metrics allow-list fixtures record the pinned k8s-monitoring chart version (#1136)."""
     k8s_mon_release = next(
-        r for r in _HELM_RELEASES_BY_STACK["infra"] if r["name"] == "k8s-monitoring"
+        r for r in HELM_RELEASES_BY_STACK["infra"] if r["name"] == "k8s-monitoring"
     )
     expected_header = f"# chart: {k8s_mon_release['chart']} {k8s_mon_release['version']}"
     headers = {

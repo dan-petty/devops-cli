@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock
 
 from devops_cli.ai.review.cited_code import record_cited_code
 from devops_cli.ai.review_schema import CitedCode, FileReviewPayload, SavedFinding
 from devops_cli.config.defaults import DEFAULT_CITED_EXCERPT_MAX_LINES
+from tests.support.fakes.model import ModelFake
 
 _RUNNER = """import textwrap
 
@@ -95,7 +95,7 @@ def test_a_finding_records_the_lines_its_location_cites_inside_the_checkout(
 
 
 def test_a_saved_session_carries_the_cited_code_of_its_findings_and_candidates(
-    tmp_path: Path,
+    tmp_path: Path, model_fake: ModelFake
 ) -> None:
     """The orchestrator records the cited code when it writes findings.json and candidates.json,
     so `review score` and `review export-feedback` read it from new sessions."""
@@ -105,7 +105,7 @@ def test_a_saved_session_carries_the_cited_code_of_its_findings_and_candidates(
 
     orchestrator = ReviewPipelineOrchestrator(
         session_id="s1150-cited",
-        llm_client=MagicMock(),
+        llm_client=model_fake,
         target_dir=tree,
         session_dir=session,
     )

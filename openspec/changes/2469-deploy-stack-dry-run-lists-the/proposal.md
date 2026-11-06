@@ -31,12 +31,12 @@ None.
 - Tests: `tests/commands/k8s/test_k8s_logging_stack.py`.
 - Specs: `openspec/specs/k8s-helm-deploy/spec.md`.
 - No option, help text or document changes. The help of `--dry-run` (`HELP.k8s.deploy_dry_run`) stays true, so the change regenerates no document.
-- Out of scope: the other 10 test files that read the private tables (`git grep -l "_HELM_RELEASES_BY_STACK\|_HELM_REPOS_BY_STACK" -- tests`). They keep working, and the new key lets each of them move later. The issue asks that a test can read the values, not that every test moves.
+- Out of scope: the other 10 test files that read the private tables (`git grep -l "HELM_RELEASES_BY_STACK\|_HELM_REPOS_BY_STACK" -- tests`). They keep working, and the new key lets each of them move later. The issue asks that a test can read the values, not that every test moves.
 
 ## Existing code
 
 - Reuse `_build_helm_upgrade_cmd` as it is. Its `is_v4` input is the only input the dry run sets by hand.
-- Reuse the public tables `HELM_RELEASES_BY_STACK` and `HELM_REPOS_BY_STACK` (aliases `_HELM_RELEASES_BY_STACK` and `_HELM_REPOS_BY_STACK`). `_build_helm_repo_cmds` reads the repository table, and `deploy_stack` already reads the release table. Group 2 stops the reads of the private aliases in the test file.
+- Reuse the public tables `HELM_RELEASES_BY_STACK` and `HELM_REPOS_BY_STACK` (the alias `_HELM_REPOS_BY_STACK` of the repository table stays). `_build_helm_repo_cmds` reads the repository table, and `deploy_stack` already reads the release table. Group 2 stops the reads of the private aliases in the test file.
 - Reuse `render_dry_run_result` and the `details` dict of `deploy_stack`. Keep `helm_releases`, `manifests` and the other keys.
 - Keep `_deploy_helm_repos` as the caller that runs the commands. Its calls (`helm repo add` with `check=False`, then `helm repo update`) and its early return for a stack without a repository stay.
 - Reuse `tests/support/fakes/process.py` (`process_fake`, `ProcessAnswer`) and the `cli` fixture of `tests/support/cli.py`. The pattern is `test_deploy_stack_with_process_fake_pending_upgrade_rolls_back` in `tests/commands/k8s/test_k8s.py`.
@@ -67,8 +67,8 @@ All commands ran on `origin/main` at `aeb699e3`, in the worktree of this change.
 - Since #2844 (commit 29aa8c28), `stack_lifecycle.py` defines the public names `HELM_RELEASES_BY_STACK` (line 109) and `HELM_REPOS_BY_STACK` (line 73). The private names stay as aliases (lines 98 and 248). Two other test files already import the public names: `tests/ai/test_llm_pool_metrics.py` and `tests/invariants/test_k8s_manifests.py`. The premise now rests on this: the dry run lists no Helm request, and the test file of this change still reads the private aliases. A read of a public table would remove the private import, but it would still copy the production data into the test. The dry-run output gives the values from the same builders as the real run.
 - The `helm_ctx` problem is real. `git grep -n "helm_ctx = " -- src/devops_cli/commands/k8s/stack_lifecycle.py` prints line 1371 for `deploy_stack`. The dry-run branch returns at line 1340, before that line, so the dry run must build `helm_ctx` from `effective_context` (set at the top of the function) first.
 - The `is_v4` input is real. `_build_helm_upgrade_cmd` adds `--force-conflicts` when `is_v4` is true, and it runs `helm version` when `is_v4` is `None`. The dry run therefore passes `is_v4=False`. A dry run makes no request, reads included (`src/devops_cli/dry_run/requests.py`, #412).
-- The test paths are real. `git ls-files tests | grep test_k8s_logging_stack` prints only `tests/commands/k8s/test_k8s_logging_stack.py`. The file imports `_HELM_RELEASES_BY_STACK`, `_HELM_REPOS_BY_STACK` and `_MANIFESTS_BY_STACK` on lines 13 to 17, and reads them on lines 32, 33, 49, 62 and 64. The dry-run code is the package `src/devops_cli/dry_run/`, not a module.
-- The count is right. `git grep -l "_HELM_RELEASES_BY_STACK\|_HELM_REPOS_BY_STACK" -- tests | wc -l` prints 11 files. The issue says 13, and the difference is of no matter here.
+- The test paths are real. `git ls-files tests | grep test_k8s_logging_stack` prints only `tests/commands/k8s/test_k8s_logging_stack.py`. The file imports `HELM_RELEASES_BY_STACK`, `_HELM_REPOS_BY_STACK` and `MANIFESTS_BY_STACK` on lines 13 to 17, and reads them on lines 32, 33, 49, 62 and 64. The dry-run code is the package `src/devops_cli/dry_run/`, not a module.
+- The count is right. `git grep -l "HELM_RELEASES_BY_STACK\|_HELM_REPOS_BY_STACK" -- tests | wc -l` prints 11 files. The issue says 13, and the difference is of no matter here.
 - Only two readers of the `helm_releases` key exist: `tests/commands/k8s/test_k8s.py:2811` and the base spec scenario of the chat stack. The key stays.
 - The two new tests fail on the base for the right reason. The dry-run `details` has no `helm_commands` key, so the lookup raises `KeyError: 'helm_commands'`.
 

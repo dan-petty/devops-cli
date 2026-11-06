@@ -8,21 +8,23 @@ a credential.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pytest
-
 from devops_cli.ai.review.pipeline import (
     ReviewPipelineOrchestrator,
-    _admit_scanner_findings,
-    _wrap_static_findings,
+    admit_scanner_findings,
+    wrap_static_findings,
 )
 from devops_cli.ai.review_schema import Finding, SavedFinding
 from devops_cli.security.gitleaks import parse_gitleaks_json
+from devops_cli.security.semgrep_registry import fetch_registry_ruleset
 from devops_cli.security.trivy import parse_trivy_json
+from tests.support.fakes.tool_executor import ToolAnswer
 
 if TYPE_CHECKING:
+    from tests.support.fakes.http import WebFake
     from tests.support.fakes.model import ModelFake
     from tests.support.fakes.scanners import ScannerFake
 
@@ -108,11 +110,11 @@ def _candidates() -> list[SavedFinding]:
         severity="HIGH",
     )
     return [
-        *_wrap_static_findings([bandit, hardcoded_password], tool="bandit"),
-        *_wrap_static_findings([credential_logged], tool="semgrep"),
-        *_wrap_static_findings(gitleaks, tool="gitleaks"),
-        *_wrap_static_findings(trivy, tool="trivy"),
-        *_wrap_static_findings([semgrep], tool="semgrep"),
+        *wrap_static_findings([bandit, hardcoded_password], tool="bandit"),
+        *wrap_static_findings([credential_logged], tool="semgrep"),
+        *wrap_static_findings(gitleaks, tool="gitleaks"),
+        *wrap_static_findings(trivy, tool="trivy"),
+        *wrap_static_findings([semgrep], tool="semgrep"),
     ]
 
 
@@ -127,7 +129,7 @@ def test_review_toml_severity_caps_apply_at_admission_and_spare_secret_findings(
     orchestrator = ReviewPipelineOrchestrator(session_id="s1301-caps", target_dir=root)
     candidates = _candidates()
 
-    admitted, reported = _admit_scanner_findings(
+    admitted, reported = admit_scanner_findings(
         candidates,
         session_id="s1301-caps",
         worktree_root=root,
@@ -160,49 +162,46 @@ def test_review_toml_severity_caps_apply_at_admission_and_spare_secret_findings(
 
 
 def test_a_review_caps_the_scanner_findings_it_reports(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scanner_fake: ScannerFake
+    tmp_path: Path, scanner_fake: ScannerFake
 ) -> None:
     """The orchestrator's scanner stage passes the caps it read to admission: Bandit's HIGH in a
     test is reported LOW."""
-    from devops_cli.security.base import ScanOutcome
-
     root = _repository(tmp_path)
-    bandit = Finding(
-        title="[B602] subprocess call with shell=True identified",
-        location="tests/test_app.py:2",
-        severity="HIGH",
-    )
-    monkeypatch.setattr(
-        "devops_cli.security.bandit.run_bandit_scan",
-        lambda *_, **__: ScanOutcome("ran", [bandit]),
-    )
-    for scan in (
-        "_scan_kubernetes_manifests",
-        "_scan_container_and_lockfiles",
-        "_scan_secrets",
-        "_scan_semgrep",
-    ):
-        monkeypatch.setattr(f"devops_cli.ai.review.pipeline.{scan}", lambda *_, **__: [])
+    bandit_report = {
+        "results": [
+            {
+                "filename": str(root / "tests" / "test_app.py"),
+                "line_number": 2,
+                "test_id": "B602",
+                "test_name": "subprocess_popen_with_shell_equals_true",
+                "issue_text": "subprocess call with shell=True identified",
+                "issue_severity": "HIGH",
+                "issue_confidence": "HIGH",
+            }
+        ],
+        "errors": [],
+    }
+    scanner_fake.script("bandit", ToolAnswer(stdout=json.dumps(bandit_report)))
     orchestrator = ReviewPipelineOrchestrator(
         session_id="s1301-stage", target_dir=root, tool_executor=scanner_fake
     )
 
     reported = orchestrator._run_static_scanners(["tests/test_app.py"])
 
-    assert [f.severity for f in reported["tests/test_app.py"]] == ["LOW"]
+    bandit = [f for f in reported["tests/test_app.py"] if f.title.startswith("[B602]")]
+    assert [f.severity for f in bandit] == ["LOW"]
 
 
 def test_fake_scanner_results_with_absolute_paths_come_out_repository_relative(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     model_fake: ModelFake,
     scanner_fake: ScannerFake,
+    web: WebFake,
 ) -> None:
     """Fake Semgrep and Bandit results with absolute paths come out as src/app.py:12 in
     findings.json and review.md, with no absolute path in the description. The report's group
     analysis asks the model edge's fake, not a model server."""
     from devops_cli.ai.review_schema import FileReviewPayload
-    from devops_cli.security.base import ScanOutcome
 
     repo = tmp_path / "repo"
     src_dir = repo / "src"
@@ -217,33 +216,51 @@ def test_fake_scanner_results_with_absolute_paths_come_out_repository_relative(
     (repo / "pyproject.toml").write_text("[project]\nname = 'demo'\n", encoding="utf-8")
 
     abs_app = str(app_file.resolve())
-    bandit_finding = Finding(
-        title="[B602] subprocess call with shell=True identified",
-        location=f"{abs_app}:12",
-        description=f"Bandit flaw at {abs_app}:12 with shell=True",
-        severity="HIGH",
+    scanner_fake.script(
+        "bandit",
+        ToolAnswer(
+            stdout=json.dumps(
+                {
+                    "results": [
+                        {
+                            "filename": abs_app,
+                            "line_number": 12,
+                            "test_id": "B602",
+                            "test_name": "subprocess_popen_with_shell_equals_true",
+                            "issue_text": "subprocess call with shell=True identified",
+                            "issue_severity": "HIGH",
+                            "issue_confidence": "HIGH",
+                        }
+                    ],
+                    "errors": [],
+                }
+            )
+        ),
     )
-    semgrep_finding = Finding(
-        title="[python.lang.subprocess] Subprocess call",
-        location=f"{abs_app}:12",
-        description=f"Semgrep AST flaw at {abs_app}:12: call",
-        severity="HIGH",
+    scanner_fake.script(
+        "semgrep",
+        ToolAnswer(
+            stdout=json.dumps(
+                {
+                    "results": [
+                        {
+                            "check_id": "python.lang.subprocess",
+                            "path": abs_app,
+                            "start": {"line": 12},
+                            "end": {"line": 12},
+                            "extra": {"message": "Subprocess call", "severity": "ERROR"},
+                        }
+                    ],
+                    "errors": [],
+                }
+            )
+        ),
     )
-
-    monkeypatch.setattr(
-        "devops_cli.security.bandit.run_bandit_scan",
-        lambda *_, **__: ScanOutcome("ran", [bandit_finding]),
+    web.content(
+        "https://semgrep.dev/c/p/default",
+        b"rules:\n- id: example.lang.security.first.first\n  pattern: first(...)\n",
     )
-    monkeypatch.setattr(
-        "devops_cli.security.semgrep.run_semgrep_scan",
-        lambda *_, **__: ScanOutcome("ran", [semgrep_finding]),
-    )
-    for scan in (
-        "_scan_kubernetes_manifests",
-        "_scan_container_and_lockfiles",
-        "_scan_secrets",
-    ):
-        monkeypatch.setattr(f"devops_cli.ai.review.pipeline.{scan}", lambda *_, **__: [])
+    fetch_registry_ruleset("p/default")
 
     orchestrator = ReviewPipelineOrchestrator(
         session_id="s788", target_dir=repo, tool_executor=scanner_fake
@@ -323,12 +340,12 @@ def test_scanner_finding_citing_absent_kubernetes_object_is_rejected(tmp_path: P
     )
 
     candidates = [
-        *_wrap_static_findings([finding_valid, finding_ghost], tool="kube-linter"),
-        *_wrap_static_findings([finding_empty_path_valid, finding_empty_path_ghost], tool="pluto"),
+        *wrap_static_findings([finding_valid, finding_ghost], tool="kube-linter"),
+        *wrap_static_findings([finding_empty_path_valid, finding_empty_path_ghost], tool="pluto"),
     ]
 
     rejection_counts: dict[str, int] = {}
-    admitted, reported = _admit_scanner_findings(
+    admitted, reported = admit_scanner_findings(
         candidates,
         session_id="s1352-manifests",
         worktree_root=tmp_path,

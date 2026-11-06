@@ -105,16 +105,16 @@ from devops_cli.ai.review.profile import (
 from devops_cli.ai.review.runner import (
     ReviewClients,
     _corpus_digest,
-    _execute_review_workflow,
     _find_session_dir,
     _git_repo_root,
     _make_review_clients,
     _nearest_conventions,
-    _prepare_branch_content,
     _prepare_path_content,
     _prepare_pr_content,
     _prepare_watch_content,
     _review_candidate_files,
+    execute_review_workflow,
+    prepare_branch_content,
 )
 from devops_cli.ai.review.sample_validation import (
     CategoryReport,
@@ -299,7 +299,7 @@ def _execute_path_review(
             path_targets, pattern, working_directory, override_pages
         )
 
-    _execute_review_workflow(
+    execute_review_workflow(
         pages,
         title,
         summary,
@@ -651,13 +651,13 @@ def branch(
     # The one read of the working directory: the repository and the boundary come from it (#2098).
     working_directory = Path.cwd().resolve()
     repo_path = (working_directory / repo_path).resolve()
-    pages, title, target_ref, base_revision = _prepare_branch_content(
+    pages, title, target_ref, base_revision = prepare_branch_content(
         branch_name, base, repo_path, working_directory=working_directory
     )
     session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     if base_revision is None or getattr(base_revision, "read_head", None) is None:
         print_info("Scanning in place (uncommitted work)...", prefix=False)
-        _execute_review_workflow(
+        execute_review_workflow(
             pages,
             title,
             summary,
@@ -682,7 +682,7 @@ def branch(
         base_rev=getattr(base_revision, "revision", None),
         session_id=session_id,
     ) as rw:
-        _execute_review_workflow(
+        execute_review_workflow(
             pages,
             title,
             summary,
@@ -740,7 +740,7 @@ def _run_pr_review_workflow(
             f"PR head unavailable from refs/pull/{number}/head; marked partial context",
             prefix=False,
         )
-        return _execute_review_workflow(
+        return execute_review_workflow(
             pages,
             title,
             summary,
@@ -763,7 +763,7 @@ def _run_pr_review_workflow(
         base_rev=base_sha,
         session_id=session_id,
     ) as rw:
-        return _execute_review_workflow(
+        return execute_review_workflow(
             pages,
             title,
             summary,

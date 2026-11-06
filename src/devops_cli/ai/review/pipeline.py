@@ -264,7 +264,7 @@ def _try_reuse_cached_analysis_meta(
     return old_meta.model_copy(update={"content_hash": cur_hash})
 
 
-def _wrap_static_findings(findings: list[Finding], tool: str = "") -> list[SavedFinding]:
+def wrap_static_findings(findings: list[Finding], tool: str = "") -> list[SavedFinding]:
     """Wrap generic findings from static analyzers into SavedFindings."""
     wrapped: list[SavedFinding] = []
     for f in findings:
@@ -325,7 +325,7 @@ def _find_matching_file(loc_path: str, file_paths: list[str]) -> str | None:
     return _sibling_file(loc_path, file_paths)
 
 
-def _match_static_findings_to_files(
+def match_static_findings_to_files(
     findings: list[SavedFinding], file_paths: list[str]
 ) -> dict[str, list[SavedFinding]]:
     """Map findings from static analyzers to corresponding target repository files."""
@@ -561,7 +561,7 @@ def _collect_manifest_candidates(
     return candidates
 
 
-def _admit_scanner_findings(
+def admit_scanner_findings(
     findings: list[SavedFinding],
     *,
     session_id: str,
@@ -670,7 +670,7 @@ def _scan_kubernetes_manifests(
         kl = run_kubelinter_scan(yp, isolated=True, tool_executor=tool_executor)
         _observe_outcome(outcomes, "Kube-linter", kl, file_path=yp, total_files=total_manifests)
         if kl:
-            findings.extend(_wrap_static_findings(kl, tool="kube-linter"))
+            findings.extend(wrap_static_findings(kl, tool="kube-linter"))
 
         pl = run_pluto_scan(
             yp,
@@ -682,7 +682,7 @@ def _scan_kubernetes_manifests(
         )
         _observe_outcome(outcomes, "Pluto", pl, file_path=yp, total_files=total_manifests)
         if pl:
-            findings.extend(_wrap_static_findings(pl, tool="pluto"))
+            findings.extend(wrap_static_findings(pl, tool="pluto"))
     return findings
 
 
@@ -703,7 +703,7 @@ def _scan_container_and_lockfiles(
         )
         _observe_outcome(outcomes, "Trivy", t_findings, file_path=dp, total_files=total_containers)
         if t_findings:
-            findings.extend(_wrap_static_findings(t_findings, tool="trivy"))
+            findings.extend(wrap_static_findings(t_findings, tool="trivy"))
     return findings
 
 
@@ -735,7 +735,7 @@ def _scan_lockfiles(
         scanner_digest = getattr(outcome, "snapshot_digest", "") or get_or_compute_snapshot_digest()
         profiler.set_osv_snapshot_digest(scanner_digest)
     if outcome.findings:
-        return _wrap_static_findings(outcome.findings, tool="osv-scanner")
+        return wrap_static_findings(outcome.findings, tool="osv-scanner")
     return []
 
 
@@ -1016,7 +1016,7 @@ ANALYZER_NO_FILES = "no files"
 ANALYZER_FAILED = "failed"
 
 # (name, binary, the kind of file it scans).
-_STATIC_ANALYZERS: tuple[tuple[str, str, str], ...] = (
+STATIC_ANALYZERS: tuple[tuple[str, str, str], ...] = (
     ("Bandit", BIN_BANDIT, "python"),
     ("Kube-linter", BIN_KUBELINTER, "yaml"),
     ("Pluto", BIN_PLUTO, "yaml"),
@@ -1061,14 +1061,14 @@ def _predict_analyzer_state(name: str, binary: str) -> str:
     return ANALYZER_NOT_INSTALLED
 
 
-def _static_analyzer_states(
+def static_analyzer_states(
     files_by_kind: dict[str, list[Path]],
     observed_outcomes: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """How each static analyzer took part: runs, uses built-in patterns, is missing, or has no files."""
     states: dict[str, str] = {}
     outcomes = observed_outcomes or {}
-    for name, binary, kind in _STATIC_ANALYZERS:
+    for name, binary, kind in STATIC_ANALYZERS:
         if not files_by_kind.get(kind):
             states[name] = ANALYZER_NO_FILES
         elif name in outcomes:
@@ -1347,7 +1347,7 @@ def _scan_secrets(
 
     gl = run_gitleaks_scan(paths, ignore_tests=True, isolated=True, tool_executor=tool_executor)
     _observe_outcome(outcomes, "Gitleaks", gl)
-    return _wrap_static_findings(gl, tool="gitleaks")
+    return wrap_static_findings(gl, tool="gitleaks")
 
 
 def _scan_semgrep(
@@ -1371,7 +1371,7 @@ def _scan_semgrep(
         warn_of_old_cache(DEFAULT_SEMGREP_CONFIG, ruleset, to_stderr=False)
     sg = run_semgrep_scan(paths, reviewed_tree=tree, ruleset=ruleset, tool_executor=tool_executor)
     _observe_outcome(outcomes, "Semgrep", sg)
-    return _wrap_static_findings(sg, tool="semgrep")
+    return wrap_static_findings(sg, tool="semgrep")
 
 
 def _run_seconds(outcome: Any) -> float | None:
@@ -1611,7 +1611,7 @@ class ScannerFileBuckets:
         }
 
 
-def _classify_scanner_files(
+def classify_scanner_files(
     all_resolved: Sequence[Path],
     extra_scan_paths: Sequence[Path] = (),
     path_classes: Mapping[str, Sequence[str]] | None = None,
@@ -1723,7 +1723,7 @@ def _scan_golangci_lint(
         combined = merge_outcomes(outcomes) if len(outcomes) > 1 else outcomes[0]
         _observe_outcome(observed_outcomes, "golangci-lint", combined)
 
-    return _wrap_static_findings(all_findings, tool="golangci-lint")
+    return wrap_static_findings(all_findings, tool="golangci-lint")
 
 
 def _run_scanners_for_buckets(
@@ -1747,7 +1747,7 @@ def _run_scanners_for_buckets(
         )
         if observed_outcomes is not None:
             _observe_outcome(outcomes, "Bandit", bandit_res)
-        findings.extend(_wrap_static_findings(bandit_res, tool="bandit"))
+        findings.extend(wrap_static_findings(bandit_res, tool="bandit"))
 
     if buckets.yaml:
         findings.extend(
@@ -1792,7 +1792,7 @@ def _run_scanners_for_buckets(
         go_findings = _scan_golangci_lint(
             buckets.go, outcomes, tree=tree, tool_executor=tool_executor
         )
-        matched_go = _match_static_findings_to_files(go_findings, [str(p) for p in buckets.go])
+        matched_go = match_static_findings_to_files(go_findings, [str(p) for p in buckets.go])
         findings.extend([f for flist in matched_go.values() for f in flist])
 
     return findings
@@ -1863,7 +1863,7 @@ def _populate_gomod_for_dir(
         curr = curr.parent if curr.parent != curr else None
 
 
-def _write_base_revision_lockfiles(
+def write_base_revision_lockfiles(
     base_revision: Any,
     tmp_root: Path,
     written_paths: list[str],
@@ -1930,19 +1930,19 @@ def _collect_base_revision_fingerprints(
             return set()
 
         written.extend(
-            _write_base_revision_lockfiles(
+            write_base_revision_lockfiles(
                 base_revision, tmp_root, written, coverage_gaps=coverage_gaps
             )
         )
         base_resolved = [tmp_root / p for p in written if (tmp_root / p).is_file()]
         extra_leak_files = [tmp_root / p for p in secret_scan_files if (tmp_root / p).is_file()]
 
-        buckets = _classify_scanner_files(base_resolved, extra_leak_files, path_classes)
+        buckets = classify_scanner_files(base_resolved, extra_leak_files, path_classes)
         base_findings = _run_scanners_for_buckets(
             buckets, tree=tmp_root, tool_executor=tool_executor
         )
 
-        base_admitted, _ = _admit_scanner_findings(
+        base_admitted, _ = admit_scanner_findings(
             base_findings,
             session_id="base-revision",
             worktree_root=tmp_root,
@@ -2475,7 +2475,7 @@ class ReviewPipelineOrchestrator:
         with trace_span("security.static_scanners", attributes={"file_count": n_paths}) as sc_span:
             all_resolved = [self._resolve_file_path(f) for f in file_paths]
             observed_outcomes: dict[str, Any] = {}
-            buckets = _classify_scanner_files(
+            buckets = classify_scanner_files(
                 all_resolved,
                 [self._resolve_file_path(f) for f in self.secret_scan_files],
                 self.path_classes,
@@ -2535,7 +2535,7 @@ class ReviewPipelineOrchestrator:
                 if added_diff_lines is not None
                 else getattr(self, "added_diff_lines", None)
             )
-            admitted_frozen, admitted_saved = _admit_scanner_findings(
+            admitted_frozen, admitted_saved = admit_scanner_findings(
                 all_static_findings,
                 session_id=self.session_id,
                 worktree_root=reviewed_tree(self.target_dir),
@@ -2560,7 +2560,7 @@ class ReviewPipelineOrchestrator:
             )
             self.static_severities = Counter(f.severity for f in all_static_findings)
 
-            tools = [name for name, _, _ in _STATIC_ANALYZERS]
+            tools = [name for name, _, _ in STATIC_ANALYZERS]
             all_files_to_cover = sorted(set(file_paths) | set(self.secret_scan_files))
             tool_effective_states = _resolve_effective_tool_states(
                 self.static_analyzers,
@@ -2581,7 +2581,7 @@ class ReviewPipelineOrchestrator:
                 active_prof.set_coverage(self.coverage)
                 active_prof.set_rejections(self.rejection_counts)
 
-            static_findings_by_file = _match_static_findings_to_files(
+            static_findings_by_file = match_static_findings_to_files(
                 all_static_findings, [*file_paths, *self.secret_scan_files]
             )
 
@@ -2634,7 +2634,7 @@ class ReviewPipelineOrchestrator:
             require_version=True,
             tool_executor=self.tool_executor,
         )
-        all_evidence.extend(_wrap_static_findings(ruff_res.findings, tool="ruff"))
+        all_evidence.extend(wrap_static_findings(ruff_res.findings, tool="ruff"))
 
         mypy_res = run_mypy_scan(
             py_paths,
@@ -2642,7 +2642,7 @@ class ReviewPipelineOrchestrator:
             checkout_root=checkout_root,
             tool_executor=self.tool_executor,
         )
-        all_evidence.extend(_wrap_static_findings(mypy_res.findings, tool="mypy"))
+        all_evidence.extend(wrap_static_findings(mypy_res.findings, tool="mypy"))
 
         deltas, c901_findings = _evaluate_session_complexity_deltas(
             py_paths,
@@ -2654,14 +2654,14 @@ class ReviewPipelineOrchestrator:
         )
         self.complexity_deltas = deltas
         if c901_findings:
-            all_evidence.extend(_wrap_static_findings(c901_findings, tool="c901"))
+            all_evidence.extend(wrap_static_findings(c901_findings, tool="c901"))
 
         eff_added = (
             added_diff_lines
             if added_diff_lines is not None
             else getattr(self, "added_diff_lines", None)
         )
-        admitted_frozen, admitted_saved = _admit_scanner_findings(
+        admitted_frozen, admitted_saved = admit_scanner_findings(
             all_evidence,
             session_id=self.session_id,
             worktree_root=rev_tree,
@@ -2678,7 +2678,7 @@ class ReviewPipelineOrchestrator:
             manifest_objects=getattr(self, "manifest_objects", None),
         )
         self.admitted_scanner_findings.extend(admitted_frozen)
-        evidence_findings_by_file = _match_static_findings_to_files(admitted_saved, file_paths)
+        evidence_findings_by_file = match_static_findings_to_files(admitted_saved, file_paths)
 
         return evidence_findings_by_file
 
@@ -2688,7 +2688,7 @@ class ReviewPipelineOrchestrator:
         observed_outcomes: dict[str, Any] | None = None,
     ) -> None:
         """Keep how each analyzer took part, for the report and the review's profile."""
-        self.static_analyzers = _static_analyzer_states(files_by_kind, observed_outcomes)
+        self.static_analyzers = static_analyzer_states(files_by_kind, observed_outcomes)
         self.static_analyzer_reasons = _static_analyzer_reasons(
             self.static_analyzers, observed_outcomes
         )

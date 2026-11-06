@@ -5,12 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 import yaml
 from pydantic import ValidationError
-from typer.testing import CliRunner
 
 from devops_cli.ai.research.models import (
     ClarifyingQuestion,
@@ -19,67 +17,47 @@ from devops_cli.ai.research.models import (
     KnowledgeGapType,
     SocraticInquiryResult,
 )
-from devops_cli.ai.research.socratic import (
-    SocraticFormulator,
-    _bound_inquiry_result,
-    _build_user_prompt,
-    render_socratic_markdown,
-)
+from devops_cli.ai.research.socratic import SocraticFormulator, render_socratic_markdown
 from devops_cli.config.defaults import DEFAULT_AI_SOCRATIC_MAX_PROBES
-from devops_cli.main import app
+from tests.support.fakes.model import ModelFake
 
 CONST_SOCRATIC_GAP_TYPES: tuple[str, ...] = ("GAP", "AMBIGUITY", "UNDERSPECIFIED_CONTRACT")
 CONST_SOCRATIC_LOOKUP_TYPES: tuple[str, ...] = ("file", "symbol", "search")
 
-runner = CliRunner()
 
-
-class FakeSocraticClient:
-    """Deterministic fake LLM client simulating chat_structured output."""
-
-    def __init__(self, canned_result: SocraticInquiryResult | None = None) -> None:
-        self.canned_result = canned_result or SocraticInquiryResult(
-            task="Add caching to review pipeline",
-            summary="Identified cache storage and key hashing ambiguities.",
-            gaps=[
-                KnowledgeGap(
-                    type="GAP",
-                    description="Missing cache backend specification",
-                    rationale="Unclear if Valkey or disk cache is expected",
-                ),
-                KnowledgeGap(
-                    type="AMBIGUITY",
-                    description="Cache invalidation semantics unspecified",
-                    rationale="TTL vs event-driven eviction not specified",
-                ),
-            ],
-            questions=[
-                ClarifyingQuestion(
-                    question="Should caching use Valkey L2 or disk JSONL?",
-                    target_gap="Missing cache backend specification",
-                    rationale="Determines external service dependency vs local storage",
-                ),
-            ],
-            lookups=[
-                CodeLookupInstruction(
-                    target="src/devops_cli/ai/response_cache.py",
-                    lookup_type="file",
-                    rationale="Inspect existing caching implementation patterns",
-                    target_gap="Missing cache backend specification",
-                ),
-            ],
-        )
-        self.calls: list[dict[str, Any]] = []
-
-    def chat_structured(
-        self,
-        system: str,
-        prompt: str,
-        schema: type[Any],
-        **kwargs: Any,
-    ) -> Any:
-        self.calls.append({"system": system, "prompt": prompt, "schema": schema, **kwargs})
-        return self.canned_result
+def _canned_result() -> SocraticInquiryResult:
+    """The inquiry result that the model returns in the happy-path tests."""
+    return SocraticInquiryResult(
+        task="Add caching to review pipeline",
+        summary="Identified cache storage and key hashing ambiguities.",
+        gaps=[
+            KnowledgeGap(
+                type="GAP",
+                description="Missing cache backend specification",
+                rationale="Unclear if Valkey or disk cache is expected",
+            ),
+            KnowledgeGap(
+                type="AMBIGUITY",
+                description="Cache invalidation semantics unspecified",
+                rationale="TTL vs event-driven eviction not specified",
+            ),
+        ],
+        questions=[
+            ClarifyingQuestion(
+                question="Should caching use Valkey L2 or disk JSONL?",
+                target_gap="Missing cache backend specification",
+                rationale="Determines external service dependency vs local storage",
+            ),
+        ],
+        lookups=[
+            CodeLookupInstruction(
+                target="src/devops_cli/ai/response_cache.py",
+                lookup_type="file",
+                rationale="Inspect existing caching implementation patterns",
+                target_gap="Missing cache backend specification",
+            ),
+        ],
+    )
 
 
 def test_socratic_constants_and_types() -> None:
@@ -192,20 +170,23 @@ def test_socratic_inquiry_result_serialization() -> None:
     assert (reconstituted.task, reconstituted.summary) == ("Test task", "A brief summary")
 
 
-def test_build_user_prompt_formatting(tmp_path: Path) -> None:
-    prompt = _build_user_prompt(
-        task="Optimize SQL queries",
-        context="PostgreSQL 16",
-        repo_root=tmp_path,
-        max_probes=3,
+def test_the_prompt_holds_the_task_the_context_the_root_and_the_probe_limit(
+    tmp_path: Path, model_fake: ModelFake
+) -> None:
+    model_fake.answer(_canned_result())
+
+    SocraticFormulator(max_probes=3).formulate(
+        task="Optimize SQL queries", context="PostgreSQL 16", repo_root=tmp_path
     )
+
+    prompt = model_fake.calls[0].prompt
     assert "Task Description:\nOptimize SQL queries" in prompt
     assert "Context / Instructions:\nPostgreSQL 16" in prompt
     assert f"Repository Root:\n{tmp_path}" in prompt
     assert "at most 3" in prompt
 
 
-def test_bound_inquiry_result_truncates_probes() -> None:
+def test_the_result_is_cut_to_the_probe_limit(model_fake: ModelFake) -> None:
     questions = [
         ClarifyingQuestion(question=f"Q{i}?", target_gap="G", rationale="R") for i in range(10)
     ]
@@ -213,14 +194,18 @@ def test_bound_inquiry_result_truncates_probes() -> None:
         CodeLookupInstruction(target=f"T{i}", lookup_type="file", rationale="R", target_gap="G")
         for i in range(8)
     ]
-    raw = SocraticInquiryResult(
-        task="",
-        summary="Summary",
-        gaps=[KnowledgeGap(type="GAP", description="G", rationale="R")],
-        questions=questions,
-        lookups=lookups,
+    model_fake.answer(
+        SocraticInquiryResult(
+            task="",
+            summary="Summary",
+            gaps=[KnowledgeGap(type="GAP", description="G", rationale="R")],
+            questions=questions,
+            lookups=lookups,
+        )
     )
-    bounded = _bound_inquiry_result(raw, original_task="Original Task", max_probes=4)
+
+    bounded = SocraticFormulator(max_probes=4).formulate("Original Task")
+
     assert (len(bounded.questions), len(bounded.lookups), bounded.task) == (
         4,
         4,
@@ -234,9 +219,9 @@ def test_socratic_formulator_empty_task_raises() -> None:
         formulator.formulate("   ")
 
 
-def test_socratic_formulator_happy_path() -> None:
-    fake_client = FakeSocraticClient()
-    formulator = SocraticFormulator(client=fake_client, max_probes=3)
+def test_socratic_formulator_happy_path(model_fake: ModelFake) -> None:
+    model_fake.answer(_canned_result())
+    formulator = SocraticFormulator(client=model_fake, max_probes=3)
     res = formulator.formulate(task="Refactor pipeline orchestrator", context="Phase 1")
 
     assert (res.task, len(res.gaps), len(res.questions), len(res.lookups)) == (
@@ -245,22 +230,16 @@ def test_socratic_formulator_happy_path() -> None:
         1,
         1,
     )
-    assert len(fake_client.calls) == 1
-    call = fake_client.calls[0]
-    assert call["schema"] is SocraticInquiryResult
-    assert "Task Description:\nRefactor pipeline orchestrator" in call["prompt"]
+    assert model_fake.call_count == 1
+    assert "Task Description:\nRefactor pipeline orchestrator" in model_fake.calls[0].prompt
 
 
-def test_socratic_formulator_resolves_default_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_client = FakeSocraticClient()
-    mock_get_client = MagicMock(return_value=fake_client)
-    monkeypatch.setattr("devops_cli.ai.research.socratic.get_llm_client", mock_get_client)
+def test_socratic_formulator_resolves_default_client(model_fake: ModelFake) -> None:
+    model_fake.answer(_canned_result())
 
-    formulator = SocraticFormulator(client=None)
-    res = formulator.formulate("Inspect network egress")
+    res = SocraticFormulator(client=None).formulate("Inspect network egress")
 
-    mock_get_client.assert_called_once_with(task="research")
-    assert res.task == "Inspect network egress"
+    assert (model_fake.call_count, res.task) == (1, "Inspect network egress")
 
 
 def test_render_socratic_markdown() -> None:
@@ -306,15 +285,14 @@ def test_render_socratic_markdown_empty_lists() -> None:
     assert "*No code lookup instructions required.*" in md
 
 
-def test_cli_socratic_requires_task() -> None:
-    result = runner.invoke(app, ["ai", "research", "socratic"])
+def test_cli_socratic_requires_task(cli: Any) -> None:
+    result = cli(["ai", "research", "socratic"])
     assert result.exit_code != 0
     assert "A task description must be provided" in result.output
 
 
-def test_cli_socratic_dry_run() -> None:
-    result = runner.invoke(
-        app,
+def test_cli_socratic_dry_run(cli: Any) -> None:
+    result = cli(
         ["ai", "research", "socratic", "Add rate limiter", "--dry-run"],
     )
     assert (
@@ -324,28 +302,19 @@ def test_cli_socratic_dry_run() -> None:
     ) == (0, True, True)
 
 
-def test_cli_socratic_happy_path_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_client = FakeSocraticClient()
-    monkeypatch.setattr(
-        "devops_cli.ai.research.socratic.get_llm_client",
-        MagicMock(return_value=fake_client),
-    )
+def test_cli_socratic_happy_path_text(cli: Any, model_fake: ModelFake) -> None:
+    model_fake.answer(_canned_result())
 
-    result = runner.invoke(app, ["ai", "research", "socratic", "Add caching"])
+    result = cli(["ai", "research", "socratic", "Add caching"])
     assert result.exit_code == 0
     assert "Socratic Metacognitive Analysis" in result.output
     assert "Identified Knowledge Gaps" in result.output
 
 
-def test_cli_socratic_option_task_and_format_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_client = FakeSocraticClient()
-    monkeypatch.setattr(
-        "devops_cli.ai.research.socratic.get_llm_client",
-        MagicMock(return_value=fake_client),
-    )
+def test_cli_socratic_option_task_and_format_json(cli: Any, model_fake: ModelFake) -> None:
+    model_fake.answer(_canned_result())
 
-    result = runner.invoke(
-        app,
+    result = cli(
         ["ai", "research", "socratic", "--task", "Add caching", "--format", "json"],
     )
     assert result.exit_code == 0
@@ -354,15 +323,10 @@ def test_cli_socratic_option_task_and_format_json(monkeypatch: pytest.MonkeyPatc
     assert payload["questions"][0]["question"] == "Should caching use Valkey L2 or disk JSONL?"
 
 
-def test_cli_socratic_format_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_client = FakeSocraticClient()
-    monkeypatch.setattr(
-        "devops_cli.ai.research.socratic.get_llm_client",
-        MagicMock(return_value=fake_client),
-    )
+def test_cli_socratic_format_yaml(cli: Any, model_fake: ModelFake) -> None:
+    model_fake.answer(_canned_result())
 
-    result = runner.invoke(
-        app,
+    result = cli(
         ["ai", "research", "socratic", "Add caching", "--format", "yaml"],
     )
     assert result.exit_code == 0
@@ -370,15 +334,10 @@ def test_cli_socratic_format_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
     assert (payload["task"], len(payload["lookups"])) == ("Add caching", 1)
 
 
-def test_cli_socratic_format_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_client = FakeSocraticClient()
-    monkeypatch.setattr(
-        "devops_cli.ai.research.socratic.get_llm_client",
-        MagicMock(return_value=fake_client),
-    )
+def test_cli_socratic_format_markdown(cli: Any, model_fake: ModelFake) -> None:
+    model_fake.answer(_canned_result())
 
-    result = runner.invoke(
-        app,
+    result = cli(
         ["ai", "research", "socratic", "Add caching", "--format", "markdown"],
     )
     assert result.exit_code == 0
@@ -386,14 +345,9 @@ def test_cli_socratic_format_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "Targeted Clarifying Questions" in result.output
 
 
-def test_cli_socratic_failure_handles_gracefully(monkeypatch: pytest.MonkeyPatch) -> None:
-    failing_client = MagicMock()
-    failing_client.chat_structured.side_effect = RuntimeError("Inference timeout")
-    monkeypatch.setattr(
-        "devops_cli.ai.research.socratic.get_llm_client",
-        MagicMock(return_value=failing_client),
-    )
+def test_cli_socratic_failure_handles_gracefully(cli: Any, model_fake: ModelFake) -> None:
+    model_fake.answer(RuntimeError("Inference timeout"))
 
-    result = runner.invoke(app, ["ai", "research", "socratic", "Failing task"])
+    result = cli(["ai", "research", "socratic", "Failing task"])
     assert result.exit_code == 1
     assert "Socratic inquiry failed: Inference timeout" in result.output

@@ -6,12 +6,10 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-from devops_cli.ai.review_schema import Finding
 from devops_cli.config.constants import (
     CONST_CANARY_EXPECTED_RESULTS,
     CONST_CANARY_TOOLS,
@@ -29,11 +27,13 @@ from devops_cli.review.canary import (
     resolve_ruff_target_version,
     run_tool_canary,
 )
-from devops_cli.security.base import ScanOutcome
 from devops_cli.security.mypy import MypyScanner, run_mypy_scan
 from devops_cli.security.pluto import PlutoScanner, run_pluto_scan
 from devops_cli.security.ruff import RuffScanner, run_ruff_scan
+from devops_cli.security.semgrep_registry import fetch_registry_ruleset
 from devops_cli.security.tool_executor import ToolLimits
+from tests.support.fakes.model import ModelFake
+from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
 from tests.support.paths import FIXTURES
 
@@ -266,7 +266,9 @@ def test_canary_caches_once_per_five_tuple_key(
 def test_failed_canary_withholds_findings_and_records_rejection_and_coverage_state(
     recorded_outputs: dict[str, Any],
     tmp_path: Path,
-    tool_executor_fake: ToolExecutorFake,
+    scanner_fake: ScannerFake,
+    model_fake: ModelFake,
+    web: Any,
 ) -> None:
     """Admit a finding from a failed-canary tool and assert rejection count and coverage state."""
     src_dir = tmp_path / "src"
@@ -274,38 +276,38 @@ def test_failed_canary_withholds_findings_and_records_rejection_and_coverage_sta
     target_py = src_dir / "main.py"
     target_py.write_text("import subprocess\n", encoding="utf-8")
 
-    # Seed the canary cache with a failing result for Semgrep (1.178.0 output) and passing Bandit.
-    tool_executor_fake.script("semgrep", _recorded(recorded_outputs, "semgrep_1_178_0"))
-    tool_executor_fake.script("bandit", _recorded(recorded_outputs, "bandit"))
-    run_tool_canary("semgrep", tool_executor=tool_executor_fake)
-    run_tool_canary("bandit", tool_executor=tool_executor_fake)
-
-    semgrep_finding = ScanOutcome(
-        "ran",
-        [
-            Finding(
-                severity="HIGH",
-                location="src/main.py:1",
-                title="[python.lang.security.audit.exec] Dangerous exec",
-                description="Found dangerous call",
-                fix="Avoid exec",
-            )
+    # The canary of Semgrep prints the 1.178.0 output, which fails it; Bandit's canary passes.
+    scanner_fake.canaries.script("semgrep", _recorded(recorded_outputs, "semgrep_1_178_0"))
+    scanner_fake.canaries.script("bandit", _recorded(recorded_outputs, "bandit"))
+    # The scan of Semgrep finds a call, which the failed canary withholds.
+    semgrep_report = {
+        "results": [
+            {
+                "check_id": "python.lang.security.audit.exec",
+                "path": "src/main.py",
+                "start": {"line": 1},
+                "end": {"line": 1},
+                "extra": {"message": "Dangerous exec", "severity": "ERROR"},
+            }
         ],
+        "errors": [],
+    }
+    scanner_fake.script("semgrep", ToolAnswer(stdout=json.dumps(semgrep_report)))
+    # A scan of Semgrep reads the rules of the registry from its cache.
+    web.content(
+        "https://semgrep.dev/c/p/default",
+        b"rules:\n- id: example.lang.security.first.first\n  pattern: first(...)\n",
     )
-    bandit_finding = ScanOutcome("ran", [])
+    fetch_registry_ruleset("p/default")
 
     orchestrator = ReviewPipelineOrchestrator(
         session_id="test-canary-fail",
         session_dir=tmp_path / "session",
         target_dir=tmp_path,
-        llm_client=MagicMock(),
+        llm_client=model_fake,
+        tool_executor=scanner_fake,
     )
-    with (
-        patch("devops_cli.security.semgrep.run_semgrep_scan", return_value=semgrep_finding),
-        patch("devops_cli.security.bandit.run_bandit_scan", return_value=bandit_finding),
-        patch("devops_cli.ai.review.pipeline._scan_secrets", return_value=[]),
-    ):
-        by_file = orchestrator._run_static_scanners(["src/main.py"])
+    by_file = orchestrator._run_static_scanners(["src/main.py"])
 
     assert (
         by_file,
@@ -327,9 +329,9 @@ def test_failed_canary_withholds_findings_and_records_rejection_and_coverage_sta
 
 
 def test_a_review_runs_each_canary_once_through_its_executor_and_records_no_canary_run(
-    recorded_outputs: dict[str, Any],
     tmp_path: Path,
-    tool_executor_fake: ToolExecutorFake,
+    scanner_fake: ScannerFake,
+    model_fake: ModelFake,
 ) -> None:
     """A review runs the canary of each tool it starts once, on the executor it was given, as it
     starts the tool. A canary checks the tool on a fixture of its own and scans nothing of the
@@ -337,32 +339,34 @@ def test_a_review_runs_each_canary_once_through_its_executor_and_records_no_cana
     src_dir = tmp_path / "src"
     src_dir.mkdir(parents=True)
     (src_dir / "main.py").write_text("x = 1\n", encoding="utf-8")
-    for tool in ("bandit", "semgrep"):
-        tool_executor_fake.script(tool, _recorded(recorded_outputs, tool))
 
     orchestrator = ReviewPipelineOrchestrator(
         session_id="test-auto-canary",
         session_dir=tmp_path / "session",
         target_dir=tmp_path,
-        llm_client=MagicMock(),
-        tool_executor=tool_executor_fake,
+        llm_client=model_fake,
+        tool_executor=scanner_fake,
     )
-    with (
-        patch("devops_cli.security.bandit.run_bandit_scan", return_value=ScanOutcome("ran", [])),
-        patch("devops_cli.security.semgrep.run_semgrep_scan", return_value=ScanOutcome("ran", [])),
-        patch("devops_cli.ai.review.pipeline._scan_secrets", return_value=[]),
-    ):
-        orchestrator._run_static_scanners(["src/main.py"])
-        orchestrator._run_static_scanners(["src/main.py"])
+    orchestrator._run_static_scanners(["src/main.py"])
+    orchestrator._run_static_scanners(["src/main.py"])
 
+    canaried = [
+        (request.tool, request.workdir.name.startswith(CONST_CANARY_WORKDIR_PREFIX))
+        for request in scanner_fake.canaries.requests
+    ]
+    tools = [tool for tool, _ in canaried]
     assert (
+        sorted(tools),
+        all(is_canary for _, is_canary in canaried),
+        orchestrator.canary_results["bandit"],
+        orchestrator.canary_results["semgrep"],
         [
-            (request.tool, request.workdir.name.startswith(CONST_CANARY_WORKDIR_PREFIX))
-            for request in tool_executor_fake.requests
+            run
+            for run in scanner_fake.runs
+            if CONST_CANARY_WORKDIR_PREFIX in str(run.cwd)
+            or any(CONST_CANARY_WORKDIR_PREFIX in part for part in run.argv)
         ],
-        orchestrator.canary_results,
-        orchestrator.tool_executor.runs,
-    ) == ([("bandit", True), ("semgrep", True)], {"bandit": True, "semgrep": True}, ())
+    ) == (["bandit", "semgrep"], True, True, True, [])
 
 
 def test_the_mypy_canary_starts_the_interpreter_of_devops_cli_through_the_executor(

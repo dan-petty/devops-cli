@@ -967,7 +967,7 @@ def _missing_stack_lifecycle_paths(
     post_helm_by_stack: Mapping[str, Sequence[Path]],
     k8s_dir: Path,
 ) -> list[str]:
-    """Return stack:path entries missing from _MANIFESTS_BY_STACK or _POST_HELM_BY_STACK."""
+    """Return stack:path entries missing from MANIFESTS_BY_STACK or POST_HELM_BY_STACK."""
     missing_manifests = [
         f"{stack_name}:{path}"
         for stack_name, paths in manifests_by_stack.items()
@@ -986,13 +986,13 @@ def _missing_stack_lifecycle_paths(
 def test_manifests_by_stack_files_exist() -> None:
     """Every Kubernetes manifest or post-Helm path declared in stack_lifecycle must exist on disk."""
     from devops_cli.commands.k8s.stack_lifecycle import (
-        _MANIFESTS_BY_STACK,
-        _POST_HELM_BY_STACK,
         DEFAULT_K8S_DIR,
+        MANIFESTS_BY_STACK,
+        POST_HELM_BY_STACK,
     )
 
     assert (
-        _missing_stack_lifecycle_paths(_MANIFESTS_BY_STACK, _POST_HELM_BY_STACK, DEFAULT_K8S_DIR),
+        _missing_stack_lifecycle_paths(MANIFESTS_BY_STACK, POST_HELM_BY_STACK, DEFAULT_K8S_DIR),
         _missing_stack_lifecycle_paths(
             {},
             {"llm": (Path("llm", "gateway", "nonexistent-monitor.yaml"),)},

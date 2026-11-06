@@ -27,7 +27,7 @@ from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review.protocol import ReviewLLMClient
 from devops_cli.ai.review.runner import (
     ReviewClients,
-    _execute_review_workflow,
+    execute_review_workflow,
 )
 from devops_cli.ai.review_schema import (
     FileReviewPayload,
@@ -104,7 +104,7 @@ def test_the_pipeline_records_its_subject_and_leaves_itself_out_of_its_baseline(
 
 
 def test_a_review_hands_its_subject_to_the_orchestrator(tmp_path: Path) -> None:
-    """Verify `_execute_review_workflow` builds the subject from its target and pages once, and
+    """Verify `execute_review_workflow` builds the subject from its target and pages once, and
     gives it to the orchestrator."""
     client = MagicMock(spec=ReviewLLMClient)
 
@@ -114,7 +114,7 @@ def test_a_review_hands_its_subject_to_the_orchestrator(tmp_path: Path) -> None:
             MagicMock(findings=[]),
             "report",
         )
-        _execute_review_workflow(
+        execute_review_workflow(
             _PAGES,
             "Branch `feature` vs `main`",
             False,

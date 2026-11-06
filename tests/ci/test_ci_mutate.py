@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import shlex
-import subprocess
 import tomllib
 from collections.abc import Callable
 from pathlib import Path
@@ -247,21 +246,21 @@ def mutation_repo(tmp_path: Path, git_fake: GitFake) -> Path:
 
 @pytest.fixture
 def mutmut_calls(
-    mutation_repo: Path, monkeypatch: pytest.MonkeyPatch
+    mutation_repo: Path, monkeypatch: pytest.MonkeyPatch, git_fake: GitFake
 ) -> Callable[..., list[list[str]]]:
-    """Run from the repository with the ci subprocess seam answering as mutmut would."""
+    """Run from the repository with the process fake answering as mutmut would."""
     monkeypatch.chdir(mutation_repo)
 
     def install(*, run_code: int = 0, results_code: int = 0) -> list[list[str]]:
         calls: list[list[str]] = []
         replies = {"run": (run_code, ""), "results": (results_code, RESULTS), "show": (0, SHOW)}
 
-        def fake(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-            calls.append(list(cmd))
-            code, stdout = replies[cmd[cmd.index("mutmut") + 1]]
-            return subprocess.CompletedProcess(cmd, code, stdout=stdout, stderr="mutmut failed")
+        def answer(call: ProcessCall) -> ProcessAnswer:
+            calls.append(list(call.argv))
+            code, stdout = replies[call.argv[call.argv.index("mutmut") + 1]]
+            return ProcessAnswer(returncode=code, stdout=stdout, stderr="mutmut failed")
 
-        monkeypatch.setattr("devops_cli.commands.ci.run_subprocess", fake)
+        git_fake.answer(lambda call: "mutmut" in call.argv, answer)
         return calls
 
     return install

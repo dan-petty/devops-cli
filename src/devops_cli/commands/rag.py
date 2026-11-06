@@ -73,9 +73,9 @@ def load_settings(*args: Any, **kwargs: Any) -> Any:
 
 def _get_rag_components() -> tuple[Any, Any, str, str]:
     """Resolve configured Qdrant client, Embeddings engine, and collection names."""
-    from devops_cli.ai.rag.embeddings import EmbeddingsEngine
-    from devops_cli.ai.rag.qdrant import QdrantClient
-    from devops_cli.config.settings import get_ai_api_key, get_qdrant_api_key, load_settings
+    from devops_cli.ai.rag.embeddings import create_embedder
+    from devops_cli.ai.rag.indexer import resolve_qdrant_client
+    from devops_cli.config.settings import get_ai_api_key, load_settings
 
     settings = load_settings()
     qdrant_url = settings.qdrant.url
@@ -89,16 +89,8 @@ def _get_rag_components() -> tuple[Any, Any, str, str]:
     code_coll = f"{prefix}_code" if prefix else DEFAULT_RAG_COLLECTION
     docs_coll = f"{prefix}_docs" if prefix else DEFAULT_RAG_DOCS_COLLECTION
 
-    qdrant = QdrantClient(
-        base_url=qdrant_url,
-        api_key=get_qdrant_api_key(settings),
-        allow_private_network=settings.ai.allow_private_network,
-        timeout=settings.qdrant.timeout,
-    )
-    embedder = EmbeddingsEngine(
-        ai_config=settings.ai,
-        api_key=get_ai_api_key(settings),
-    )
+    qdrant = resolve_qdrant_client(qdrant_url)
+    embedder = create_embedder(settings.ai, api_key=get_ai_api_key(settings))
     return qdrant, embedder, code_coll, docs_coll
 
 

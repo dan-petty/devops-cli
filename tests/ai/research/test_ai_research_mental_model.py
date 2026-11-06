@@ -5,12 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 import yaml
 from pydantic import ValidationError
-from typer.testing import CliRunner
 
 from devops_cli.ai.research.mental_model import (
     MentalModelSynthesizer,
@@ -30,68 +28,53 @@ from devops_cli.ai.research.models import (
     StateTransition,
 )
 from devops_cli.config.defaults import DEFAULT_AI_RESEARCH_DIR
-from devops_cli.main import app
+from tests.support.fakes.model import ModelFake
 
 CONST_CAUSAL_NODE_TYPES: tuple[str, ...] = ("cause", "effect", "mediator", "outcome")
 CONST_CAUSAL_RELATIONSHIPS: tuple[str, ...] = ("causes", "inhibits", "triggers", "mediates")
 
-runner = CliRunner()
 
-
-class FakeMentalModelClient:
-    """Deterministic fake LLM client returning structured mental models."""
-
-    def __init__(self, canned_model: MentalModel | None = None) -> None:
-        self.canned_model = canned_model or MentalModel(
-            topic="k8s_reconciler",
-            revision=1,
-            created_at="2026-10-11T20:00:00Z",
-            updated_at="2026-10-11T20:00:00Z",
-            summary="Kubernetes controller reconciliation loop model.",
-            state_transitions=[
-                StateTransition(
-                    from_state="Idle",
-                    trigger="WatchEvent",
-                    to_state="Reconciling",
-                    condition="ResourceGenerationChanged",
-                ),
-                StateTransition(
-                    from_state="Reconciling",
-                    trigger="StatusUpdated",
-                    to_state="Idle",
-                    condition="NoConflict",
-                ),
-            ],
-            causal_graph=CausalGraph(
-                nodes=[
-                    CausalNode(id="N1", label="Spec mutation", node_type="cause"),
-                    CausalNode(id="N2", label="Reconciliation queue", node_type="mediator"),
-                    CausalNode(id="N3", label="Cluster state convergence", node_type="outcome"),
-                ],
-                edges=[
-                    CausalEdge(source="N1", target="N2", relationship="triggers", confidence=0.95),
-                    CausalEdge(source="N2", target="N3", relationship="causes", confidence=0.90),
-                ],
+def _canned_model() -> MentalModel:
+    """The mental model that the model returns in the happy-path tests."""
+    return MentalModel(
+        topic="k8s_reconciler",
+        revision=1,
+        created_at="2026-10-11T20:00:00Z",
+        updated_at="2026-10-11T20:00:00Z",
+        summary="Kubernetes controller reconciliation loop model.",
+        state_transitions=[
+            StateTransition(
+                from_state="Idle",
+                trigger="WatchEvent",
+                to_state="Reconciling",
+                condition="ResourceGenerationChanged",
             ),
-            invariants=[
-                InvariantRule(
-                    id="INV-1",
-                    description="Reconciler must be idempotent",
-                    predicate="reconcile(state) == reconcile(reconcile(state))",
-                ),
+            StateTransition(
+                from_state="Reconciling",
+                trigger="StatusUpdated",
+                to_state="Idle",
+                condition="NoConflict",
+            ),
+        ],
+        causal_graph=CausalGraph(
+            nodes=[
+                CausalNode(id="N1", label="Spec mutation", node_type="cause"),
+                CausalNode(id="N2", label="Reconciliation queue", node_type="mediator"),
+                CausalNode(id="N3", label="Cluster state convergence", node_type="outcome"),
             ],
-        )
-        self.calls: list[dict[str, Any]] = []
-
-    def chat_structured(
-        self,
-        system: str,
-        prompt: str,
-        schema: type[Any],
-        **kwargs: Any,
-    ) -> Any:
-        self.calls.append({"system": system, "prompt": prompt, "schema": schema, **kwargs})
-        return self.canned_model
+            edges=[
+                CausalEdge(source="N1", target="N2", relationship="triggers", confidence=0.95),
+                CausalEdge(source="N2", target="N3", relationship="causes", confidence=0.90),
+            ],
+        ),
+        invariants=[
+            InvariantRule(
+                id="INV-1",
+                description="Reconciler must be idempotent",
+                predicate="reconcile(state) == reconcile(reconcile(state))",
+            ),
+        ],
+    )
 
 
 def test_mental_model_constants_and_defaults() -> None:
@@ -177,8 +160,7 @@ def test_invariant_rule_validation() -> None:
 
 
 def test_mental_model_serialization_round_trip() -> None:
-    fake_client = FakeMentalModelClient()
-    model = fake_client.canned_model
+    model = _canned_model()
     data = model.model_dump(by_alias=True)
     yaml_text = yaml.safe_dump(data, sort_keys=False)
     loaded = yaml.safe_load(yaml_text)
@@ -200,8 +182,7 @@ def test_mental_model_serialization_round_trip() -> None:
 
 def test_save_and_load_mental_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    fake = FakeMentalModelClient()
-    saved_path = save_mental_model(fake.canned_model)
+    saved_path = save_mental_model(_canned_model())
     assert saved_path.is_file()
 
     loaded = load_mental_model("k8s_reconciler")
@@ -220,11 +201,11 @@ def test_mental_model_synthesizer_empty_inputs_raise() -> None:
 
 
 def test_mental_model_synthesizer_progressive_revision(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model_fake: ModelFake
 ) -> None:
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    fake_client = FakeMentalModelClient()
-    synth = MentalModelSynthesizer(client=fake_client)
+    model_fake.answer(_canned_model(), _canned_model())
+    synth = MentalModelSynthesizer(client=model_fake)
 
     # Revision 1
     rev1 = synth.synthesize("k8s_reconciler", "Initial observations")
@@ -237,13 +218,12 @@ def test_mental_model_synthesizer_progressive_revision(
         2,
         rev1.created_at,
     )
-    assert len(fake_client.calls) == 2
-    assert "Prior Mental Model (Revision 1)" in fake_client.calls[1]["prompt"]
+    assert len(model_fake.calls) == 2
+    assert "Prior Mental Model (Revision 1)" in model_fake.calls[1].prompt
 
 
 def test_render_mental_model_markdown() -> None:
-    fake = FakeMentalModelClient()
-    md = render_mental_model_markdown(fake.canned_model)
+    md = render_mental_model_markdown(_canned_model())
     assert "# Mental Model: k8s_reconciler" in md
     assert "**Revision**: 1" in md
     assert "State Machine Transitions" in md
@@ -251,15 +231,14 @@ def test_render_mental_model_markdown() -> None:
     assert "Causal Graph (DAG)" in md
 
 
-def test_cli_model_help() -> None:
-    result = runner.invoke(app, ["ai", "research", "model", "--help"])
+def test_cli_model_help(cli: Any) -> None:
+    result = cli(["ai", "research", "model", "--help"])
     assert result.exit_code == 0
     assert "Progressively synthesize and distill research observations" in result.output
 
 
-def test_cli_model_dry_run() -> None:
-    result = runner.invoke(
-        app,
+def test_cli_model_dry_run(cli: Any) -> None:
+    result = cli(
         ["ai", "research", "model", "cache_invalidation", "-o", "TTL expires", "--dry-run"],
     )
     assert (
@@ -270,26 +249,21 @@ def test_cli_model_dry_run() -> None:
 
 
 def test_cli_model_missing_observations_and_no_existing_model_exits_1(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Any
 ) -> None:
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    result = runner.invoke(app, ["ai", "research", "model", "unknown_topic"])
+    result = cli(["ai", "research", "model", "unknown_topic"])
     assert result.exit_code == 1
     assert "No existing mental model found" in result.output
 
 
 def test_cli_model_happy_path_creates_file_and_shows_yaml(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Any, model_fake: ModelFake
 ) -> None:
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    fake_client = FakeMentalModelClient()
-    monkeypatch.setattr(
-        "devops_cli.ai.research.mental_model.get_llm_client",
-        MagicMock(return_value=fake_client),
-    )
+    model_fake.answer(_canned_model(), _canned_model())
 
-    result = runner.invoke(
-        app,
+    result = cli(
         ["ai", "research", "model", "consensus", "--observations", "Leader election via Raft"],
     )
     assert result.exit_code == 0
@@ -299,42 +273,40 @@ def test_cli_model_happy_path_creates_file_and_shows_yaml(
     assert (loaded["topic"], loaded["revision"]) == ("consensus", 1)
 
 
-def test_cli_model_with_file_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_model_with_file_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Any, model_fake: ModelFake
+) -> None:
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    fake_client = FakeMentalModelClient()
-    monkeypatch.setattr(
-        "devops_cli.ai.research.mental_model.get_llm_client",
-        MagicMock(return_value=fake_client),
-    )
+    model_fake.answer(_canned_model(), _canned_model())
 
     notes_file = tmp_path / "notes.txt"
     notes_file.write_text("Discovered 503 retry storm on cache stampede\n", encoding="utf-8")
 
-    result = runner.invoke(
-        app,
+    result = cli(
         ["ai", "research", "model", "stampede", "--file", str(notes_file)],
     )
     assert result.exit_code == 0
     assert (tmp_path / ".data" / "research" / "mental_model_stampede.yaml").is_file()
 
 
-def test_cli_model_file_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_model_file_not_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Any
+) -> None:
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    result = runner.invoke(
-        app,
+    result = cli(
         ["ai", "research", "model", "stampede", "--file", str(tmp_path / "missing.txt")],
     )
     assert result.exit_code == 1
     assert "Observations file not found" in result.output
 
 
-def test_cli_model_show_existing_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_model_show_existing_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Any
+) -> None:
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    fake = FakeMentalModelClient()
-    save_mental_model(fake.canned_model)
+    save_mental_model(_canned_model())
 
-    result = runner.invoke(
-        app,
+    result = cli(
         ["ai", "research", "model", "k8s_reconciler", "--show", "--format", "json"],
     )
     assert result.exit_code == 0
@@ -342,13 +314,13 @@ def test_cli_model_show_existing_model(tmp_path: Path, monkeypatch: pytest.Monke
     assert (payload["topic"], payload["revision"]) == ("k8s_reconciler", 1)
 
 
-def test_cli_model_format_markdown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_model_format_markdown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Any
+) -> None:
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    fake = FakeMentalModelClient()
-    save_mental_model(fake.canned_model)
+    save_mental_model(_canned_model())
 
-    result = runner.invoke(
-        app,
+    result = cli(
         ["ai", "research", "model", "k8s_reconciler", "--show", "--format", "markdown"],
     )
     assert result.exit_code == 0
@@ -356,23 +328,21 @@ def test_cli_model_format_markdown(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert "State Machine Transitions" in result.output
 
 
-def test_cli_model_progressive_update(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_model_progressive_update(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Any, model_fake: ModelFake
+) -> None:
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    fake_client = FakeMentalModelClient()
-    monkeypatch.setattr(
-        "devops_cli.ai.research.mental_model.get_llm_client",
-        MagicMock(return_value=fake_client),
-    )
+    model_fake.answer(_canned_model(), _canned_model())
 
     # First run: revision 1
-    res1 = runner.invoke(app, ["ai", "research", "model", "cluster", "-o", "Obs 1"])
+    res1 = cli(["ai", "research", "model", "cluster", "-o", "Obs 1"])
     assert res1.exit_code == 0
     model1 = load_mental_model("cluster")
     assert model1 is not None
     assert model1.revision == 1
 
     # Second run: revision 2
-    res2 = runner.invoke(app, ["ai", "research", "model", "cluster", "-o", "Obs 2"])
+    res2 = cli(["ai", "research", "model", "cluster", "-o", "Obs 2"])
     assert res2.exit_code == 0
     model2 = load_mental_model("cluster")
     assert model2 is not None
@@ -380,16 +350,11 @@ def test_cli_model_progressive_update(tmp_path: Path, monkeypatch: pytest.Monkey
 
 
 def test_cli_model_synthesis_failure_exits_1(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Any, model_fake: ModelFake
 ) -> None:
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
-    failing_client = MagicMock()
-    failing_client.chat_structured.side_effect = RuntimeError("Inference timeout")
-    monkeypatch.setattr(
-        "devops_cli.ai.research.mental_model.get_llm_client",
-        MagicMock(return_value=failing_client),
-    )
+    model_fake.answer(RuntimeError("Inference timeout"))
 
-    result = runner.invoke(app, ["ai", "research", "model", "fail_topic", "-o", "bad"])
+    result = cli(["ai", "research", "model", "fail_topic", "-o", "bad"])
     assert result.exit_code == 1
     assert "Mental model synthesis failed: Inference timeout" in result.output

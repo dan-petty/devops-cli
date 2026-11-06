@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import re
-from contextlib import nullcontext
 from typing import Any
-from unittest.mock import MagicMock
 
 import httpx2
 import pytest
@@ -280,29 +278,22 @@ def test_acceptance_criteria_table(input_str: str, func_name: str, expected: Any
     assert evaluator(input_str) == expected
 
 
-def test_vault_broker_status_span_masks_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_vault_broker_status_span_masks_credentials(web: Any, otlp: Any, config: Any) -> None:
     """Verify VAULT_ADDR credentials are masked on the get_status span attribute."""
-    captured_attrs: dict[str, Any] = {}
-
-    def fake_trace_span(name: str, attributes: dict[str, Any] | None = None) -> Any:
-        if attributes:
-            captured_attrs.update(attributes)
-        return nullcontext()
-
-    monkeypatch.setattr("devops_cli.security.vault_broker.trace_span", fake_trace_span)
-    monkeypatch.setattr(
-        "devops_cli.security.vault_broker.vault_request",
-        lambda *args, **kwargs: MagicMock(json=lambda: {"initialized": True, "sealed": False}),
-    )
+    config(telemetry={"enabled": True})
+    web.serve(lambda request: httpx2.Response(200, json={"initialized": True, "sealed": False}))
 
     broker = VaultSecretBroker(vault_addr="https://admin:supersecret@example.com:8200")
     status = broker.get_status()
 
-    assert (
-        status.is_healthy,
-        "supersecret" not in captured_attrs.get("vault_addr", ""),
-        captured_attrs.get("vault_addr"),
-    ) == (True, True, "https://admin:***@example.com:8200")
+    spans = [s for s in otlp.spans if s.name == "security.vault_broker.get_status"]
+    assert len(spans) == 1
+    exported = spans[0].attributes.get("vault_addr", "")
+    assert (status.is_healthy, "supersecret" not in exported, exported) == (
+        True,
+        True,
+        "https://admin:***@example.com:8200",
+    )
 
 
 def test_extract_served_by_strips_userinfo() -> None:

@@ -12,10 +12,10 @@ import yaml
 
 from devops_cli.commands.k8s.networking import _resolve_stacks
 from devops_cli.commands.k8s.stack_lifecycle import (
-    _HELM_RELEASES_BY_STACK,
     _HELM_REPOS_BY_STACK,
     _KUSTOMIZATIONS_BY_STACK,
-    _MANIFESTS_BY_STACK,
+    HELM_RELEASES_BY_STACK,
+    MANIFESTS_BY_STACK,
 )
 from devops_cli.config.constants import (
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK,
@@ -92,7 +92,7 @@ def test_the_gitea_application_runs_the_pinned_chart_that_deploy_stack_installs(
     at the revision every leaf Application tracks. The Application that runs Gitea never reads
     Gitea."""
     app = _yaml(APPS_DIR / "gitea.yaml")
-    (release,) = _HELM_RELEASES_BY_STACK["gitea"]
+    (release,) = HELM_RELEASES_BY_STACK["gitea"]
 
     assert (
         app["metadata"]["finalizers"],
@@ -137,7 +137,7 @@ def test_the_gitea_manifests_application_renders_the_perimeter_deploy_stack_appl
         app["spec"]["destination"],
         app["spec"]["syncPolicy"],
         _yaml(GITEA_DIR / "kustomization.yaml")["resources"],
-        _MANIFESTS_BY_STACK["gitea"],
+        MANIFESTS_BY_STACK["gitea"],
         _KUSTOMIZATIONS_BY_STACK.get("gitea"),
     ) == (
         FINALIZERS,

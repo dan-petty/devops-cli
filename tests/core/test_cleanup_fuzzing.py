@@ -10,18 +10,21 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
 
-from hypothesis import Phase, example, given, settings
+from hypothesis import HealthCheck, Phase, example, given, settings
 from hypothesis import strategies as st
 
-from devops_cli.core.cleanup import _listed_worktrees
+from devops_cli.core.cleanup import listed_worktrees
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
+# The fixture lives for the whole test, not for one example. Each test resets it at the start of
+# every example, so no example sees the answers or calls of an earlier one.
 _FUZZ_SETTINGS = settings(
     phases=[Phase.explicit, Phase.generate],
     derandomize=True,
     max_examples=35,
     deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 
 
@@ -58,12 +61,14 @@ _FUZZ_SETTINGS = settings(
 def test_git_worktree_porcelain_parsing_specification(
     paths: list[str],
     hashes: list[str],
+    process_fake: ProcessFake,
 ) -> None:
     """git-worktree(1) porcelain format: entry begins with 'worktree <path>' line.
 
     Non-worktree lines (HEAD, branch, bare, detached, locked) must not be treated as worktrees,
     and paths must resolve correctly.
     """
+    process_fake.reset()
     records: list[str] = []
     for idx, path in enumerate(paths):
         h = hashes[idx % len(hashes)] if hashes else "0" * 40
@@ -77,8 +82,11 @@ def test_git_worktree_porcelain_parsing_specification(
         stderr="",
     )
 
-    with patch("devops_cli.core.cleanup.run_subprocess", return_value=proc):
-        result = _listed_worktrees(Path("/dummy/main"))
+    process_fake.answer(
+        "git worktree list",
+        ProcessAnswer(returncode=proc.returncode, stdout=proc.stdout, stderr=proc.stderr),
+    )
+    result = listed_worktrees(Path("/dummy/main"))
 
     expected = [Path(p).resolve() for p in paths]
     assert result == expected
@@ -88,8 +96,11 @@ def test_git_worktree_porcelain_parsing_specification(
 @given(exit_code=st.integers(min_value=1, max_value=255))
 @example(exit_code=1)
 @example(exit_code=128)
-def test_git_worktree_porcelain_failure_specification(exit_code: int) -> None:
+def test_git_worktree_porcelain_failure_specification(
+    exit_code: int, process_fake: ProcessFake
+) -> None:
     """git-worktree(1): non-zero exit code indicates not a repository or git error, returning empty list."""
+    process_fake.reset()
     proc = subprocess.CompletedProcess(
         args=["git", "worktree", "list", "--porcelain", "-z"],
         returncode=exit_code,
@@ -97,7 +108,10 @@ def test_git_worktree_porcelain_failure_specification(exit_code: int) -> None:
         stderr="fatal: not a git repository",
     )
 
-    with patch("devops_cli.core.cleanup.run_subprocess", return_value=proc):
-        result = _listed_worktrees(Path("/dummy/main"))
+    process_fake.answer(
+        "git worktree list",
+        ProcessAnswer(returncode=proc.returncode, stdout=proc.stdout, stderr=proc.stderr),
+    )
+    result = listed_worktrees(Path("/dummy/main"))
 
     assert result == []

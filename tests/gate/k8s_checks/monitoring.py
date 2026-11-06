@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from devops_cli.commands.k8s.stack_lifecycle import (
-    _HELM_RELEASES_BY_STACK,
-    _MANIFESTS_BY_STACK,
+    HELM_RELEASES_BY_STACK,
+    MANIFESTS_BY_STACK,
 )
 from tests.gate.k8s_render import applied_objects, kustomized_objects, manifest_objects
 from tests.support.paths import REPO_ROOT
@@ -47,17 +47,17 @@ EXEMPT_PLAIN_SERVICES: dict[tuple[str, str], tuple[str, str]] = {
 
 def check_no_plain_service_sits_in_a_helm_namespace_without_owned_exemption() -> None:
     """No Service in the kustomize base, or in any plain manifest that deploy-stack applies,
-    sits in a namespace that a release in _HELM_RELEASES_BY_STACK installs into, unless an
+    sits in a namespace that a release in HELM_RELEASES_BY_STACK installs into, unless an
     exemption names its owner (#1104). The test renders no chart and keeps no hand-written
     list of chart Service names.
     """
     helm_namespaces = {
-        r["namespace"] for releases in _HELM_RELEASES_BY_STACK.values() for r in releases
+        r["namespace"] for releases in HELM_RELEASES_BY_STACK.values() for r in releases
     }
     base_services = kustomized_objects(K8S_DIR, "Service")
     manifest_services = {
         svc
-        for manifests in _MANIFESTS_BY_STACK.values()
+        for manifests in MANIFESTS_BY_STACK.values()
         for m in manifests
         for svc in applied_objects(REPO_ROOT / m, "Service")
     }

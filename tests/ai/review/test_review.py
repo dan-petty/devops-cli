@@ -42,7 +42,7 @@ def test_review_path_workflow(tmp_path: Path) -> None:
             "devops_cli.commands.review._prepare_path_content",
             return_value=(["code page"], "Path Review", []),
         ),
-        patch("devops_cli.commands.review._execute_review_workflow", return_value=mock_wf),
+        patch("devops_cli.commands.review.execute_review_workflow", return_value=mock_wf),
     ):
         res = runner.invoke(review_app, ["path", str(py_file)])
         assert res.exit_code == 0
@@ -59,9 +59,9 @@ def test_review_branch_workflow() -> None:
         sentinel.base_revision,
     )
     with (
-        patch("devops_cli.commands.review._prepare_branch_content", return_value=prepared),
+        patch("devops_cli.commands.review.prepare_branch_content", return_value=prepared),
         patch(
-            "devops_cli.commands.review._execute_review_workflow", return_value=mock_wf
+            "devops_cli.commands.review.execute_review_workflow", return_value=mock_wf
         ) as workflow,
     ):
         res = runner.invoke(review_app, ["branch", "feat/my-feature"])
@@ -82,7 +82,7 @@ def test_review_pr_workflow() -> None:
     with (
         patch("devops_cli.commands.review._prepare_pr_content", return_value=prepared),
         patch(
-            "devops_cli.commands.review._execute_review_workflow", return_value=mock_wf
+            "devops_cli.commands.review.execute_review_workflow", return_value=mock_wf
         ) as workflow,
     ):
         res = runner.invoke(review_app, ["pr", "10"])
@@ -273,7 +273,7 @@ def test_review_multiple_targets_and_findings_options(tmp_path: Path) -> None:
     f2.write_text("def b(): pass\n", encoding="utf-8")
 
     with (
-        patch("devops_cli.commands.review._execute_review_workflow") as mock_exec,
+        patch("devops_cli.commands.review.execute_review_workflow") as mock_exec,
         patch("devops_cli.ai.review.runner._is_allowed_review_boundary", return_value=True),
     ):
         res_multi = runner.invoke(review_app, ["path", str(f1), str(f2), "--pattern", "*.py"])
@@ -473,7 +473,7 @@ def test_review_path_watch_reviews_only_changed_files(
 
     with (
         patch("devops_cli.commands.review._make_review_clients"),
-        patch("devops_cli.commands.review._execute_review_workflow") as mock_workflow,
+        patch("devops_cli.commands.review.execute_review_workflow") as mock_workflow,
         patch.object(DebouncedFileWatcher, "watch", fake_watch),
     ):
         res = runner.invoke(review_app, ["path", str(target_dir), "--watch"])
@@ -503,7 +503,7 @@ def test_review_path_watch_skips_deleted_files_and_runs_no_review(
 
     with (
         patch("devops_cli.commands.review._make_review_clients"),
-        patch("devops_cli.commands.review._execute_review_workflow") as mock_workflow,
+        patch("devops_cli.commands.review.execute_review_workflow") as mock_workflow,
         patch.object(DebouncedFileWatcher, "watch", fake_watch),
     ):
         res = runner.invoke(review_app, ["path", str(target_dir), "--watch"])
@@ -548,7 +548,7 @@ def test_tally_findings_splits_comma_joined_personas() -> None:
 _PREPARED_REVIEWS = {
     "path": ("_prepare_path_content", ["path", "app.py"], (["page"], "Path Review", [])),
     "branch": (
-        "_prepare_branch_content",
+        "prepare_branch_content",
         ["branch", "feat/x"],
         (["diff"], "Branch Review", "feat/x", sentinel.base_revision),
     ),
@@ -571,7 +571,7 @@ def test_review_full_flag_reaches_the_review_workflow(
         patch(f"devops_cli.commands.review.{prepare}", return_value=prepared),
         patch("devops_cli.commands.review._make_review_clients"),
         patch("devops_cli.commands.review._init_logfire_if_enabled"),
-        patch("devops_cli.commands.review._execute_review_workflow", return_value=[]) as workflow,
+        patch("devops_cli.commands.review.execute_review_workflow", return_value=[]) as workflow,
         patch("devops_cli.commands.review.load_settings"),
     ):
         result = runner.invoke(review_app, [*command, *flags])

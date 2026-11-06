@@ -247,14 +247,13 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
     ],
 }
 
-_HELM_RELEASES_BY_STACK = HELM_RELEASES_BY_STACK
 _HELM_RELEASES: list[dict[str, str]] = HELM_RELEASES_BY_STACK["infra"]
 
 # Paths applied right after the Secret push, before any chart: a directory with `kubectl apply -k`
 # and a file with `kubectl apply -f`, in order, and deleted in reverse order before the charts
 # uninstall. `llm/gateway` is a kustomization: it generates the gateway's ConfigMap from its
 # config.yaml with a content-hash name, so a changed config rolls the gateway (#1929).
-_MANIFESTS_BY_STACK: dict[str, list[Path]] = {
+MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "infra": [
         DEFAULT_K8S_DIR / "argocd" / "networkpolicy.yaml",
         DEFAULT_K8S_DIR / "argo-workflows" / "networkpolicy.yaml",
@@ -310,7 +309,7 @@ _KUSTOMIZATIONS_BY_STACK: dict[str, tuple[Path, ...]] = {
 # Paths under --k8s-dir applied after Helm releases install their CRDs (step 9) and deleted in
 # reverse order before Helm releases uninstall: a directory goes through `_apply_kustomizations`
 # (`kubectl apply -k`) and a file through `_apply_manifest_files` (`kubectl apply -f`) (#1367, #1391).
-_POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
+POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
     "infra": (Path("argo-workflows", "workflowtemplate-version.yaml"),),
     "llm": (Path("llm", "gateway-db.yaml"), Path("llm", "gateway", "servicemonitor.yaml")),
     "chat": (Path("mattermost"),),
@@ -1127,10 +1126,10 @@ def _collect_deploy_targets(
     all_kustomizations: list[Path] = []
     all_post_helm: list[Path] = []
     for s_name in selected_stacks:
-        all_releases.extend(_HELM_RELEASES_BY_STACK.get(s_name, []))
-        all_manifests.extend([str(p) for p in _MANIFESTS_BY_STACK.get(s_name, [])])
+        all_releases.extend(HELM_RELEASES_BY_STACK.get(s_name, []))
+        all_manifests.extend([str(p) for p in MANIFESTS_BY_STACK.get(s_name, [])])
         all_kustomizations.extend(k8s_dir / k for k in _KUSTOMIZATIONS_BY_STACK.get(s_name, ()))
-        all_post_helm.extend(k8s_dir / p for p in _POST_HELM_BY_STACK.get(s_name, ()))
+        all_post_helm.extend(k8s_dir / p for p in POST_HELM_BY_STACK.get(s_name, ()))
     return all_releases, all_manifests, all_kustomizations, all_post_helm
 
 
@@ -1144,13 +1143,13 @@ def _collect_teardown_targets(
     for s_name in reversed(selected_stacks):
         all_uninstalls.extend(
             release
-            for release in reversed(_HELM_RELEASES_BY_STACK.get(s_name, []))
+            for release in reversed(HELM_RELEASES_BY_STACK.get(s_name, []))
             if release["name"] not in CONST_HELM_TEARDOWN_RETAINED_RELEASES
         )
         all_post_helm_deletes.extend(
-            k8s_dir / p for p in reversed(_POST_HELM_BY_STACK.get(s_name, ()))
+            k8s_dir / p for p in reversed(POST_HELM_BY_STACK.get(s_name, ()))
         )
-        all_manifest_deletes.extend([str(p) for p in reversed(_MANIFESTS_BY_STACK.get(s_name, []))])
+        all_manifest_deletes.extend([str(p) for p in reversed(MANIFESTS_BY_STACK.get(s_name, []))])
     return all_uninstalls, all_post_helm_deletes, all_manifest_deletes
 
 

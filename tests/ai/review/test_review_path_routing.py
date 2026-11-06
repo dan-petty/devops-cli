@@ -23,9 +23,9 @@ from devops_cli.ai.review.protocol import ReviewLLMClient
 from devops_cli.ai.review.runner import (
     ReviewClients,
     _collect_file_blocks,
-    _execute_review_workflow,
-    _prepare_branch_content,
     _prepare_pr_content,
+    execute_review_workflow,
+    prepare_branch_content,
 )
 from devops_cli.ai.review_schema import Finding
 from devops_cli.commands.review import app as review_app
@@ -243,7 +243,7 @@ def test_a_branch_review_reaches_the_personas_with_only_reviewable_files(
     root = tmp_path / "project"
     _branch(root, git, ("src/app.py", *_ROUTED))
 
-    pages, *_ = _prepare_branch_content("feature", "main", root, working_directory=root)
+    pages, *_ = prepare_branch_content("feature", "main", root, working_directory=root)
 
     assert _page_files(pages) == ["src/app.py"]
 
@@ -294,7 +294,7 @@ def test_a_path_review_hands_its_routed_files_to_the_secret_scan(
     with (
         patch("devops_cli.commands.review._make_review_clients"),
         patch("devops_cli.commands.review._init_logfire_if_enabled"),
-        patch("devops_cli.commands.review._execute_review_workflow", return_value=[]) as workflow,
+        patch("devops_cli.commands.review.execute_review_workflow", return_value=[]) as workflow,
     ):
         result = CliRunner().invoke(review_app, ["path", str(root)])
 
@@ -387,7 +387,7 @@ def test_a_branch_with_only_routed_files_makes_no_model_call(
     legacy engine sent that page to the model."""
     root = tmp_path / "project"
     _branch(root, git, ("openspec/changes/1-x/tasks.md",))
-    pages, title, target, base_revision = _prepare_branch_content(
+    pages, title, target, base_revision = prepare_branch_content(
         "feature", "main", root, working_directory=root
     )
     model = MagicMock(spec=ReviewLLMClient)
@@ -396,7 +396,7 @@ def test_a_branch_with_only_routed_files_makes_no_model_call(
         "devops_cli.ai.review.runner.print_info", lambda text, **_: printed.append(text)
     )
 
-    _execute_review_workflow(
+    execute_review_workflow(
         pages,
         title,
         False,
@@ -424,7 +424,7 @@ def _review_routed_branch(
     """Review a branch touching only a change folder; what was printed, and findings.json."""
     root = tmp_path / "project"
     _branch(root, git, ("openspec/changes/1-x/tasks.md",))
-    pages, title, target, base_revision = _prepare_branch_content(
+    pages, title, target, base_revision = prepare_branch_content(
         "feature", "main", root, working_directory=root
     )
     printed: list[str] = []
@@ -432,7 +432,7 @@ def _review_routed_branch(
         "devops_cli.ai.review.runner.print_info", lambda text, **_: printed.append(text)
     )
     model = MagicMock(spec=ReviewLLMClient)
-    _execute_review_workflow(
+    execute_review_workflow(
         pages,
         title,
         False,

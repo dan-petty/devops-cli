@@ -8,8 +8,8 @@ from typing import Any
 import yaml
 
 from devops_cli.commands.k8s.stack_lifecycle import (
-    _HELM_RELEASES_BY_STACK,
-    _POST_HELM_BY_STACK,
+    HELM_RELEASES_BY_STACK,
+    POST_HELM_BY_STACK,
 )
 from tests.gate.k8s_render import applied_documents, kustomize
 from tests.support.paths import REPO_ROOT
@@ -240,10 +240,10 @@ def check_argo_cd_and_deploy_stack_both_apply_the_database_and_the_operator_come
     (the Cluster needs the operator's CRD), and the operator is a release of stack `infra`, which
     every stack that holds a CloudNativePG Cluster needs, so no stack installs it twice."""
     kustomization = yaml.safe_load((LLM_DIR / "kustomization.yaml").read_text(encoding="utf-8"))
-    post_helm = [str(path) for path in _POST_HELM_BY_STACK["llm"]]
+    post_helm = [str(path) for path in POST_HELM_BY_STACK["llm"]]
     releases = {
         stack: [release["name"] for release in releases]
-        for stack, releases in _HELM_RELEASES_BY_STACK.items()
+        for stack, releases in HELM_RELEASES_BY_STACK.items()
     }
 
     assert (

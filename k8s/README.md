@@ -18,7 +18,7 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 | **`chat`** | Mattermost Team Edition on CloudNativePG ([Mattermost](#mattermost)) | `mattermost`, `mattermost-operator` | `8065` (Mattermost HTTP, in the cluster) |
 | **`all`** | All components from the stacks above, and the `devops` stack | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging`, `gitea`, `devops`, `mattermost`, `cnpg-system`, `mattermost-operator` | All ports above |
 
-Register each manifest, Helm release and post-Helm step that runs in the cluster in `_MANIFESTS_BY_STACK`, `_HELM_RELEASES_BY_STACK` or `_POST_HELM_BY_STACK` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), so that `devops k8s deploy-stack --stack all` deploys it with the `infra`, `llm`, `logging`, `devops`, `gitea` and `chat` stacks. deploy-stack applies a file of `_MANIFESTS_BY_STACK` with `kubectl apply -f` and a kustomization directory with `kubectl apply -k`.
+Register each manifest, Helm release and post-Helm step that runs in the cluster in `MANIFESTS_BY_STACK`, `HELM_RELEASES_BY_STACK` or `POST_HELM_BY_STACK` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), so that `devops k8s deploy-stack --stack all` deploys it with the `infra`, `llm`, `logging`, `devops`, `gitea` and `chat` stacks. deploy-stack applies a file of `MANIFESTS_BY_STACK` with `kubectl apply -f` and a kustomization directory with `kubectl apply -k`.
 
 ## Prerequisites
 
@@ -938,7 +938,7 @@ Gitea keeps its repositories, its packages and its SQLite database (WAL mode) on
 
 There are no backups yet. A branch that a clone pushed is also in that clone, but an issue or a pull request made in Gitea is lost with the node.
 
-The next major version of the chart (its main branch, with Gitea 28) replaces `gitea.admin` with `secrets.admin`, turns persistence off by default and moves `strategy` under `deployment`. Change those keys in `gitea/values.yaml` in the pull request that changes the pinned version in `argocd/apps/gitea.yaml` and `_HELM_RELEASES_BY_STACK`.
+The next major version of the chart (its main branch, with Gitea 28) replaces `gitea.admin` with `secrets.admin`, turns persistence off by default and moves `strategy` under `deployment`. Change those keys in `gitea/values.yaml` in the pull request that changes the pinned version in `argocd/apps/gitea.yaml` and `HELM_RELEASES_BY_STACK`.
 
 ## Mattermost
 

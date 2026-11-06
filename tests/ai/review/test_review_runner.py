@@ -18,9 +18,9 @@ from devops_cli.ai.review.runner import (
     _git_repo_root,
     _is_allowed_review_boundary,
     _make_review_clients,
-    _prepare_branch_content,
     _prepare_path_content,
     _prepare_pr_content,
+    prepare_branch_content,
 )
 from devops_cli.ai.review_schema import (
     Finding,
@@ -147,7 +147,7 @@ def test_prepare_content_helpers(
         patch("devops_cli.git.operations.resolve_merge_base", return_value="base-sha"),
         patch("devops_cli.git.operations.list_changed_files", return_value=[]),
     ):
-        b_pages, b_title, b_target, _ = _prepare_branch_content(
+        b_pages, b_title, b_target, _ = prepare_branch_content(
             "feat/test", "main", REPO_ROOT, working_directory=REPO_ROOT
         )
         assert (len(b_pages) >= 1, "feat/test" in b_title, b_target) == (True, True, "feat/test")
@@ -546,8 +546,8 @@ def test_resolve_branch_targets() -> None:
 def test_prepare_branch_content_on_main_and_base_switching(
     process_fake: ProcessFake,
 ) -> None:
-    """Verify _prepare_branch_content properly prepares pages on main and base-passed branches."""
-    from devops_cli.ai.review.runner import _prepare_branch_content
+    """Verify prepare_branch_content properly prepares pages on main and base-passed branches."""
+    from devops_cli.ai.review.runner import prepare_branch_content
 
     process_fake.answer(
         "git diff",
@@ -566,7 +566,7 @@ def test_prepare_branch_content_on_main_and_base_switching(
         patch("devops_cli.git.operations.resolve_merge_base", return_value="base-sha"),
         patch("devops_cli.git.operations.list_changed_files", return_value=[]),
     ):
-        pages, title, target, _ = _prepare_branch_content(
+        pages, title, target, _ = prepare_branch_content(
             "main", "main", REPO_ROOT, working_directory=REPO_ROOT
         )
         assert (len(pages) >= 1, "feat/19-example" in title, "main" in title, target) == (
@@ -585,7 +585,7 @@ def test_prepare_branch_content_on_main_and_base_switching(
         ),
         patch("devops_cli.git.operations.list_changed_files", return_value=[]),
     ):
-        pages, title, target, _ = _prepare_branch_content(
+        pages, title, target, _ = prepare_branch_content(
             None, "main", REPO_ROOT, working_directory=REPO_ROOT
         )
         assert (len(pages) >= 1, "main" in title, "HEAD" in title, target) == (

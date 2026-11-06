@@ -228,7 +228,7 @@ def _resolve_valid_drift_paths(paths: Sequence[Path | str]) -> list[str]:
     return resolved_paths
 
 
-def _parse_drift_event(
+def parse_drift_event(
     line: str,
     now: float,
     repo_root: Path | None = None,
@@ -305,7 +305,7 @@ def inspect_git_manifest_drift(paths: Sequence[Path | str]) -> list[GitOpsDriftE
             ):
                 if idx < len(tokens):
                     idx += 1
-            ev = _parse_drift_event(line, now, repo_root=repo_root)
+            ev = parse_drift_event(line, now, repo_root=repo_root)
             if ev is not None:
                 events.append(ev)
         return events

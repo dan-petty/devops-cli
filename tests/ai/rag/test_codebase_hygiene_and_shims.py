@@ -7,7 +7,7 @@ from collections import Counter
 from pathlib import Path
 
 from devops_cli.ai.rag.chunker import SemanticChunker
-from devops_cli.ai.rag.indexer import _is_indexable_file
+from devops_cli.ai.rag.indexer import WorkspaceIndexer
 from tests.support.paths import REPO_ROOT
 
 
@@ -38,17 +38,17 @@ def test_indexer_no_hardcoded_indexable_extensions(tmp_path: Path) -> None:
     # Verify text file detection works on any valid text/code file
     py_file = tmp_path / "app.py"
     py_file.write_text("print('hello')", encoding="utf-8")
-    assert _is_indexable_file(py_file, tmp_path) is True
-
     # Unknown extension with plain text content should still be indexed
     custom_doc = tmp_path / "doc.customtext"
     custom_doc.write_text("Plain text documentation", encoding="utf-8")
-    assert _is_indexable_file(custom_doc, tmp_path) is True
 
     # Binary file with null bytes should NOT be indexed
     bin_file = tmp_path / "app.bin"
     bin_file.write_bytes(b"\x00\x01\x02\x03\x04\xff")
-    assert _is_indexable_file(bin_file, tmp_path) is False
+
+    collected = {path.name for path in WorkspaceIndexer.collect_files(tmp_path)}
+
+    assert collected == {"app.py", "doc.customtext"}
 
 
 def test_reference_extractor_no_hardcoded_extensions() -> None:

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from pathlib import Path
-from typing import Any
 
 import pytest
 import yaml
@@ -30,7 +28,7 @@ from devops_cli.review.rules_pack import (
     validate_rule_pair,
     verify_rules_lock,
 )
-from devops_cli.security.semgrep import _files_command, parse_semgrep_json
+from devops_cli.security.semgrep import files_command, parse_semgrep_json
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import FIXTURES, REPO_ROOT
 
@@ -123,21 +121,19 @@ def test_offline_gate_every_pack_rule_matches_rules_lock() -> None:
 
 def test_rules_test_writes_and_checks_manifest_with_fake_semgrep(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake,
 ) -> None:
     """`devops review rules test` runs `semgrep --test`, writes `rules.lock`, and `--check` catches drift."""
     pack_copy = tmp_path / "rules"
     shutil.copytree(RULE_PACK_DIR, pack_copy)
     (pack_copy / RULES_LOCK_FILENAME).unlink()
-    calls: list[list[str]] = []
-
-    def fake_run(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
-        calls.append(list(cmd))
-        if "--version" in cmd:
-            return subprocess.CompletedProcess(cmd, 0, f"{pinned_semgrep_version()}\n", "")
-        return subprocess.CompletedProcess(cmd, 0, "1/1: ✓ All tests passed\n", "")
-
-    monkeypatch.setattr("devops_cli.review.rules_pack.run_subprocess", fake_run)
+    process_fake.answer(
+        lambda call: "--version" in call.argv,
+        ProcessAnswer(stdout=f"{pinned_semgrep_version()}\n"),
+    )
+    process_fake.answer(
+        lambda call: "--test" in call.argv, ProcessAnswer(stdout="1/1: ✓ All tests passed\n")
+    )
     res_write = runner.invoke(
         review_app, ["rules", "test", "--rules-dir", str(pack_copy), "--format", "json"]
     )
@@ -154,7 +150,7 @@ def test_rules_test_writes_and_checks_manifest_with_fake_semgrep(
     assert (
         res_write.exit_code,
         RULE_ID in payload["rules"],
-        any("--test" in c and "--metrics" in c for c in calls),
+        any("--test" in c.argv and "--metrics" in c.argv for c in process_fake.calls),
         res_check.exit_code,
         res_drift.exit_code,
         "test_sha256 drift" in (res_drift.stdout + res_drift.stderr),
@@ -163,28 +159,27 @@ def test_rules_test_writes_and_checks_manifest_with_fake_semgrep(
 
 def test_rules_test_fails_when_semgrep_test_fails_and_dry_run_is_pure(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake,
 ) -> None:
     """A failing `semgrep --test` raises `ValidationError`, and `--dry-run` starts no process."""
     pack_copy = tmp_path / "rules"
     shutil.copytree(RULE_PACK_DIR, pack_copy)
-    started: list[list[str]] = []
-
-    def fake_fail(cmd: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
-        started.append(list(cmd))
-        if "--version" in cmd:
-            return subprocess.CompletedProcess(cmd, 0, f"{pinned_semgrep_version()}\n", "")
-        return subprocess.CompletedProcess(cmd, 1, "0/1: 1 test did not pass\n", "")
-
-    monkeypatch.setattr("devops_cli.review.rules_pack.run_subprocess", fake_fail)
+    process_fake.answer(
+        lambda call: "--version" in call.argv,
+        ProcessAnswer(stdout=f"{pinned_semgrep_version()}\n"),
+    )
+    process_fake.answer(
+        lambda call: "--test" in call.argv,
+        ProcessAnswer(returncode=1, stdout="0/1: 1 test did not pass\n"),
+    )
     res_dry = runner.invoke(
         root_app, ["--dry-run", "review", "rules", "test", "--rules-dir", str(pack_copy)]
     )
-    dry_started = list(started)
+    dry_started = list(process_fake.calls)
     set_dry_run(False)
     with pytest.raises(ValidationError, match="semgrep --test failed"):
         run_rule_pack_tests(pack_copy)
-    cmd = _files_command(["a.yaml"], DEFAULT_SEMGREP_CONFIG) or []
+    cmd = files_command(["a.yaml"], DEFAULT_SEMGREP_CONFIG) or []
     parsed = parse_semgrep_json(
         {
             "results": [
@@ -201,7 +196,7 @@ def test_rules_test_fails_when_semgrep_test_fails_and_dry_run_is_pure(
     assert (
         res_dry.exit_code,
         dry_started,
-        len(started),
+        len(process_fake.calls),
         normalize_pack_check_id(f"tmp.dir.{RULE_ID}"),
         str(RULE_PACK_DIR) in cmd,
         parsed[0].title.startswith(f"[{RULE_ID}]"),

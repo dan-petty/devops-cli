@@ -199,9 +199,9 @@ class GatewayIntakeModel:
     def _embedder(self) -> Embedder:
         if self._given_embedder is not None:
             return self._given_embedder
-        from devops_cli.ai.rag.embeddings import EmbeddingsEngine
+        from devops_cli.ai.rag.embeddings import create_embedder
 
-        return EmbeddingsEngine(self._ai, api_key=self._api_key)
+        return create_embedder(self._ai, api_key=self._api_key)
 
     @cached_property
     def _client(self) -> ProposalClient:

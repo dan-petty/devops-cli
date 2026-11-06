@@ -161,7 +161,7 @@ def _index_blob_hashes(root: Path) -> dict[str, str]:
     return hashes
 
 
-def _worktree_divergent_paths(root: Path) -> tuple[list[str], list[str]]:
+def worktree_divergent_paths(root: Path) -> tuple[list[str], list[str]]:
     """Return paths whose working copy differs from the index, and paths that are gone."""
     output = _get_git_output(
         ["status", "--porcelain=v1", "--untracked-files=all"], root, strip=False
@@ -234,7 +234,7 @@ def compute_worktree_blob_hashes(
     """
     if index_hashes is None:
         index_hashes = _index_blob_hashes(root)
-    changed, deleted = divergent if divergent is not None else _worktree_divergent_paths(root)
+    changed, deleted = divergent if divergent is not None else worktree_divergent_paths(root)
 
     content: dict[str, str] = dict(index_hashes)
     content.update(_git_blob_hashes(root, [p for p in changed if (root / p).is_file()]))
@@ -264,7 +264,7 @@ def compute_workspace_fingerprint(
     if not index_hashes and head_sha == "":
         return None
 
-    divergent = _worktree_divergent_paths(root)
+    divergent = worktree_divergent_paths(root)
     content = compute_worktree_blob_hashes(root, index_hashes=index_hashes, divergent=divergent)
 
     config_hash = _compute_config_hashes(root)

@@ -24,7 +24,7 @@ import yaml
 from devops_cli.ai.client import LLMClient, LLMResponse
 from devops_cli.ai.personas import PersonaDefinition
 from devops_cli.ai.response_cache import get_llm_response_cache
-from devops_cli.ai.review.runner import _record_review_metrics
+from devops_cli.ai.review.runner import record_review_metrics
 from devops_cli.ai.review_schema import Finding, ReviewResult
 from devops_cli.ai.spend.ledger import SpendLedger, track_request_spend
 from devops_cli.ai.spend.pricing import get_pricing_registry
@@ -1232,7 +1232,7 @@ def test_a_review_sends_its_duration_and_findings_by_persona_severity_and_status
         (persona, "the persona failed"),
     ]
 
-    _record_review_metrics(results, 312.5, "path")
+    record_review_metrics(results, 312.5, "path")
 
     assert (
         otlp.points("devops_cli_review_duration_seconds"),

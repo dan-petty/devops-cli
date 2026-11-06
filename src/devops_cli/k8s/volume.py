@@ -130,18 +130,10 @@ def reclaim_volume(core: Any, name: str, patch: bool = False) -> str:
     return "deleted"
 
 
-def get_k8s_client(context: str | None = None) -> Any:
-    """Retrieve an initialized Kubernetes CoreV1Api client."""
-    from devops_cli.k8s.doctor import get_k8s_client as _get_client
-
-    return _get_client(context)
-
-
 __all__ = [
     "check_volume_claim_absent",
     "check_volume_not_mounted",
     "check_volume_orphan_phase",
-    "get_k8s_client",
     "plan_volume_reclaim_requests",
     "reclaim_volume",
     "verify_volume_orphaned",
