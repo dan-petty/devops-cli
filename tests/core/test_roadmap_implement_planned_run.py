@@ -71,8 +71,8 @@ def test_two_groups_make_a_new_branch_a_draft_a_closing_body_and_a_ready_pull_re
     assert planned_world.sent("PATCH", f"pulls/{PULL}") == [
         {
             "title": TITLE,
-            "body": "Closes #1\n\nThe job drops the last comment of a thread (#1). It must keep it."
-            f"\n\nChange: `openspec/changes/archive/2026-10-29-{CHANGE}/`",
+            "body": "The job drops the last comment of a thread (#1). It must keep it."
+            f"\n\nCloses #1\n\nChange: `openspec/changes/archive/2026-10-29-{CHANGE}/`",
         }
     ]
     assert planned_world.pull.ready_calls == [("pr", "ready", str(PULL), "--repo", STAGE_REPO)]

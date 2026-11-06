@@ -1150,12 +1150,13 @@ class _ItemRun:
         pattern = f"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-{self.number}-*"
         return next((p.name for p in sorted(folder.glob(pattern)) if p.is_dir()), "")
 
-    def _why(self, archived: str, room: int) -> str:
-        """The "why" of the proposal on one line, at most `room` characters long. The title of the
-        item stands in when the proposal has none, when its text is longer than `room`, or when it
-        holds a closing keyword for an issue, which would close that issue when the pull request
-        merges. The text is never cut: a cut text ends with `...` and reads as a mistake."""
-        proposal = self.path / CONST_OPENSPEC_ARCHIVE_DIR / archived / "proposal.md"
+    def _why(self, change: str, room: int) -> str:
+        """The "why" of the proposal in the folder `change` on one line, at most `room` characters
+        long. The title of the item stands in when the proposal has none, when its text is longer
+        than `room`, or when it holds a closing keyword for an issue, which would close that issue
+        when the pull request merges. The text is never cut: a cut text ends with `...` and reads
+        as a mistake."""
+        proposal = self.path / change / "proposal.md"
         text = ""
         if proposal.is_file():
             section = section_text(proposal.read_text(encoding="utf-8"), _WHY_HEADINGS)
@@ -1164,13 +1165,13 @@ class _ItemRun:
             text = safe_text(self.target.item.title)
         return text
 
-    def _body(self, archived: str) -> str:
+    def _body(self, change: str) -> str:
         """The body of the pull request, in the form of `pull_form`: the why, `Closes #<issue>` and
-        the `Change:` line. A body that breaks the form stops the item before the job writes it."""
-        change = f"{CONST_OPENSPEC_ARCHIVE_DIR}/{archived}"
+        the `Change:` line for the folder `change`. A body that breaks the form stops the item
+        before the job writes it."""
         room = BODY_MAX_CHARS - len(f"\n\nCloses #{self.number}\n\nChange: `{change}/`")
         try:
-            return build_body(why=self._why(archived, room), issue=self.number, change=change)
+            return build_body(why=self._why(change, room), issue=self.number, change=change)
         except ValidationError as exc:
             problems = " ".join(line.removeprefix("- ") for line in str(exc).splitlines())
             raise _StopError(
@@ -1186,11 +1187,17 @@ class _ItemRun:
         self.step = MESSAGES.roadmap.implement_step_names["pull_request"]
         texts = MESSAGES.roadmap
         archived = self._archived_name()
-        if not archived:
-            # No archive folder: the body has no `Change:` line to name, and the step `ready`
-            # stops the item and says that the change is not archived.
+        active = self._active_change()
+        if archived:
+            change = f"{CONST_OPENSPEC_ARCHIVE_DIR}/{archived}"
+        elif active is not None:
+            # A project that declares no archive step keeps the active folder.
+            change = f"{CONST_OPENSPEC_CHANGES_DIR}/{active.name}"
+        else:
+            # No folder: the body has no `Change:` line to name, and the step `ready` stops the
+            # item and says that the change is missing.
             return
-        body = self._body(archived)
+        body = self._body(change)
         client = get_github_session().client
         before = client.get_pull(self.repo, pull)
         delivery_title = self._delivery_title()

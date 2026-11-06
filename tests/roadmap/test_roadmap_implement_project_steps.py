@@ -16,12 +16,15 @@ from pydantic_ai.messages import ModelResponse
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureAction, FailureClass
 from devops_cli.roadmap.planned import PlannedChanges
+from devops_cli.roadmap.pull_form import body_problems
 from devops_cli.roadmap.stop_clear import ClearLimits, clear_stops
 from devops_cli.roadmap.store import ImplementRecordKey, Item
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.implement_step import command_text
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
+    CHANGE,
+    PULL,
     SHOUT,
     STEPS_DECLARATION,
     STEPS_FILE,
@@ -187,6 +190,18 @@ def test_the_comment_of_the_job_names_each_step_that_it_skipped(job_world: JobWo
     assert "- step docs: skipped" in comment
     assert "- step archive: skipped" in comment
     assert STEPS_FILE in comment
+
+
+def test_a_project_without_the_archive_step_gets_a_body_that_names_the_active_folder(
+    job_world: JobWorld,
+) -> None:
+    undeclare_steps(job_world.repo)
+
+    job_world.run(two_groups())
+
+    (patched,) = job_world.sent("PATCH", f"pulls/{PULL}")
+    assert body_problems(patched["body"]) == []
+    assert patched["body"].endswith(f"Change: `openspec/changes/{CHANGE}/`")
 
 
 def test_the_comment_of_the_job_names_no_step_that_it_ran(job_world: JobWorld) -> None:
