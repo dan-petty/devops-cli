@@ -224,8 +224,9 @@ def test_the_hook_returns_the_resolver_it_replaces_and_a_reset_restores_the_real
     finally:
         egress.reset_resolver()
 
-    assert (installed is fake, isinstance(previous, SystemResolver)) == (True, True)
-    assert isinstance(egress.get_resolver(), SystemResolver)
+    assert installed is fake
+    assert type(previous) is SystemResolver
+    assert type(egress.get_resolver()) is SystemResolver
 
 
 @pytest.mark.unreachable(UNKNOWN_NAME)
@@ -236,11 +237,9 @@ def test_the_dns_fixture_removes_the_fake_and_restores_the_stdlib_lookup_at_tear
         fake.map("api.example.com", PUBLIC_ADDRESS)
         during = (egress.get_resolver() is fake, socket.getaddrinfo is stdlib_before)
 
-    assert (
-        during,
-        isinstance(egress.get_resolver(), SystemResolver),
-        socket.getaddrinfo is stdlib_before,
-    ) == ((True, False), True, True)
+    assert during == (True, False)
+    assert type(egress.get_resolver()) is SystemResolver
+    assert socket.getaddrinfo is stdlib_before
 
 
 @pytest.mark.unreachable(UNKNOWN_NAME)
