@@ -2345,9 +2345,17 @@ class RoadmapMessages:
         "the reply gives the verdict not-applicable, which the job sets for a skip class only"
     )
     alternatives_reason_no_search: str = "the reply gives a verdict with no search"
+    alternatives_reason_job_verdict: str = (
+        "the reply gives the verdict {verdict}, which the job sets and the model cannot give"
+    )
     alternatives_retry_search: str = (
         "Call search_web at least once before you reply. The job refuses a verdict that follows "
         "no search. Give the verdict none when the search finds no tool."
+    )
+    alternatives_retry_verdict: str = (
+        "The verdict {verdict} is set by the job. Give the verdict covers, partly or none. "
+        "To say that an ADR rejected the tool, set adr. To say that the item names the tool, "
+        "set in_use."
     )
     alternatives_reason_markers: str = "the body holds a marker of the check with no partner"
     # What the tools of the check answer.
@@ -2374,6 +2382,12 @@ class RoadmapMessages:
     alternatives_comment_heading: str = "## Alternatives check: {verdict}"
     alternatives_comment_tool: str = "Tool: {name} ({url})"
     alternatives_comment_no_tool: str = "Tool: none found"
+    # The line that says why the job, not the model, gave the verdict `rejected` or `in-use`
+    # (#3505). The ADR number has four digits, as in the file name.
+    alternatives_basis_rejected: str = (
+        "Rejected by ADR {number:04d}. A newer fact can change an ADR."
+    )
+    alternatives_basis_in_use: str = "The item already names this tool."
     alternatives_comment_skip_class: str = (
         "Class: {skip_class}. The check makes no search and no model call for an item of this "
         "class."
@@ -3810,6 +3824,9 @@ class RoadmapMessages:
             "query": "<search query>",
             "repository": "<owner/name>",
             "package": "<package>",
+            # No angle brackets: the contents request percent-encodes them, and the name has the
+            # form of an ADR file name.
+            "adr_file": "NNNN-name.md",
             "item": "<item>",
             "blocker": "<blocking item>",
             "path": "<cited path>",
@@ -3873,6 +3890,7 @@ class RoadmapMessages:
             "posted": "the change posts a comment",
             "job_drafts": "the pull request is an open draft of a job",
             "check_on": "the repository is public and a Firecrawl key is set",
+            "adr_read": "the run checks an item that is no skip class",
             "issues_unread": "the run has not read every issue yet",
             "labels_differ": "the labels of the repository differ from .github/labels.yml",
             "still_waiting": "no comment follows refine's last comment on the waiting item",
@@ -3909,6 +3927,7 @@ class RoadmapMessages:
             ),
             "evidence": "for each piece of evidence the model cites",
             "alternatives_item": "for each item the run checks, at most --limit",
+            "adr_file": "for each file of the directory, once a run",
             "retitle_item": "for each item with a long title, at most --limit",
             "search": "for each search the model asks for, at most {limit} for an item",
             "fact": "for each fact read the model asks for, at most {limit} for an item",

@@ -246,9 +246,10 @@ ROADMAP_ALTERNATIVES_TOTAL = Instrument(
     "devops_cli_roadmap_alternatives_total",
     InstrumentKind.COUNTER,
     "1",
-    "Checks of open items for an open tool that covers them, by verdict: covers, partly, none or "
-    "not-applicable. One count for each check that the alternatives job writes to an item. A "
-    "check that fails, or that the job skips because a person changed the item, counts nothing",
+    "Checks of open items for an open tool that covers them, by verdict: covers, partly, none, "
+    "not-applicable, rejected or in-use. One count for each check that the alternatives job writes "
+    "to an item. A check that fails, or that the job skips because a person changed the item, "
+    "counts nothing",
 )
 ROADMAP_STAGE_TOTAL = Instrument(
     "devops_cli_roadmap_stage_total",

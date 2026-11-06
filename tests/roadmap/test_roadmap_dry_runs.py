@@ -422,6 +422,26 @@ def test_the_alternatives_dry_run_lists_the_gh_command_and_the_url_of_each_reque
     ) == (AlternativesPlan, True, True, True, True, True, True, True, {"model call"})
 
 
+def test_the_alternatives_dry_run_lists_the_reads_of_the_adrs() -> None:
+    """The run lists `docs/adr` and each file of it once for the run, when it checks an item that
+    is no skip class (#3505)."""
+    from devops_cli.roadmap.alternatives import dry_run_alternatives
+
+    raw = ("gh", "api", "-H", "Accept: application/vnd.github.raw+json")
+    plan = dry_run_alternatives(REPO)
+    reads = {request.argv: request for request in plan.requests}
+
+    directory = reads[(*raw, f"repos/{REPO}/contents/docs/adr")]
+    adr_file = reads[(*raw, f"repos/{REPO}/contents/docs/adr/NNNN-name.md")]
+    assert [(r.condition, r.repeat) for r in (directory, adr_file)] == [
+        ("the run checks an item that is no skip class", ""),
+        (
+            "the run checks an item that is no skip class",
+            "for each file of the directory, once a run",
+        ),
+    ]
+
+
 def test_the_alternatives_dry_run_names_no_project_board() -> None:
     from devops_cli.roadmap.request_plan import alternatives_requests
 

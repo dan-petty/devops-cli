@@ -169,13 +169,18 @@ class JudgeVerdict(StrEnum):
 class Verdict(StrEnum):
     """What an alternatives check found (#2650): `COVERS` one tool covers the whole need,
     `PARTLY` one covers a part, `NONE` the search found no tool, `NOT_APPLICABLE` the item is in a
-    skip class, such as a `docs` item, and the job made no search (#2946). The model cannot give
-    `NOT_APPLICABLE`. The job records the verdict, and refine reads it (#2652)."""
+    skip class, such as a `docs` item, and the job made no search (#2946), `REJECTED` an ADR of the
+    repository rejected the tool that the model found, and `IN_USE` the item already names it
+    (#3505). The model cannot give `NOT_APPLICABLE`, `REJECTED` or `IN_USE` as its verdict. The job
+    sets `NOT_APPLICABLE` for a skip class, and it sets the other two when the text confirms what
+    the model proposes. The job records the verdict, and refine reads it (#2652)."""
 
     COVERS = "covers"
     PARTLY = "partly"
     NONE = "none"
     NOT_APPLICABLE = "not-applicable"
+    REJECTED = "rejected"
+    IN_USE = "in-use"
 
 
 class AlternativesRecordKey(StrEnum):
@@ -857,6 +862,10 @@ class RoadmapStore(Protocol):
     def repository_file(self, path: str, *, ref: str | None = None) -> str:
         """The text of the repository file at `path` on `ref` (the default branch when None),
         raising `GitHubFileNotFoundError` when there is no such file."""
+
+    def repository_files(self, directory: str, *, ref: str | None = None) -> list[str]:
+        """The sorted paths of the files directly in `directory` on `ref` (the default branch when
+        None), raising `GitHubFileNotFoundError` when the repository has no such directory."""
 
     def repository_is_private(self) -> bool:
         """Whether the repository is private."""

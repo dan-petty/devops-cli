@@ -3739,13 +3739,13 @@ def test_a_comment_of_another_job_is_no_answer_to_the_covers_question(
     ) == ([], [], [("person", 1)])
 
 
-@pytest.mark.parametrize("verdict", ["partly", "none"])
+@pytest.mark.parametrize("verdict", ["partly", "none", "rejected", "in-use"])
 def test_a_check_that_covers_nothing_whole_adds_no_question_and_leaves_the_ready_check_alone(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, verdict: str
 ) -> None:
     store.seed_visibility(is_private=True)
     number = _seed_item(store, "New", "P1-High")
-    _record_check(store, number, verdict, tool=_SCANNER if verdict == "partly" else None)
+    _record_check(store, number, verdict, tool=None if verdict == "none" else _SCANNER)
     model_fake.answer(_READY)
 
     plan = _refine_round(store, git_repo)

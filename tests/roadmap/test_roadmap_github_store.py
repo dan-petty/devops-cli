@@ -1204,6 +1204,48 @@ def test_a_missing_file_raises_not_found_and_another_failure_raises_as_a_failed_
     assert type(failed.value) is GitHubOperationError
 
 
+def test_repository_files_lists_the_files_of_a_directory_through_the_contents_request() -> None:
+    listing = json.dumps(
+        [
+            {"name": "0001-a.md", "path": "docs/adr/0001-a.md", "type": "file"},
+            {"name": "old", "path": "docs/adr/old", "type": "dir"},
+            {"name": "0002-b.md", "path": "docs/adr/0002-b.md", "type": "file"},
+        ]
+    )
+    store, runner = recorded_store({"contents/docs/adr": listing})
+
+    paths = store.repository_files("docs/adr", ref="feat/topic")
+
+    assert (paths, [args for args, _ in runner.calls]) == (
+        ["docs/adr/0001-a.md", "docs/adr/0002-b.md"],
+        [
+            [
+                "api",
+                "-H",
+                "Accept: application/vnd.github.raw+json",
+                f"repos/{REPO}/contents/docs/adr?ref=feat%2Ftopic",
+            ]
+        ],
+    )
+
+
+def test_a_missing_directory_raises_not_found_and_another_failure_raises_as_a_failed_read() -> None:
+    missing, _ = recorded_store({"contents/": (1, "gh: Not Found (HTTP 404)")})
+    broken, _ = recorded_store({"contents/": (1, "gh: Server Error (HTTP 502)")})
+    with pytest.raises(GitHubFileNotFoundError, match=r"has no docs/adr at main"):
+        missing.repository_files("docs/adr", ref="main")
+    with pytest.raises(GitHubOperationError, match=r"Could not read docs/adr") as failed:
+        broken.repository_files("docs/adr", ref="main")
+    assert type(failed.value) is GitHubOperationError
+
+
+def test_a_path_that_is_a_file_is_no_directory_listing() -> None:
+    store, _ = recorded_store({"contents/": "text of a file\n"})
+
+    with pytest.raises(GitHubOperationError, match=r"malformed docs/adr"):
+        store.repository_files("docs/adr")
+
+
 # ── Comments ──────────────────────────────────────────────────────────────────
 
 

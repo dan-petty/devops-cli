@@ -3165,6 +3165,11 @@ CONST_ROADMAP_ALTERNATIVES_CLASSIFIER_SEPARATOR: Final[str] = " :: "
 # The longest body, in tokens, that reaches the model with an item: a quarter of the planner window
 # of 65,536 tokens that the example ConfigMap sets (#3206).
 CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS: Final[int] = 16384
+# The ADRs of a repository, as the check reads them (#3505): the directory that holds them, and the
+# most tokens of their titles and options that reach the model with an item, half of the body cap.
+# The 17 ADRs of this repository hold about 6,000 tokens of options.
+CONST_ROADMAP_ADR_DIRECTORY: Final[str] = "docs/adr"
+CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS: Final[int] = 8192
 # The class of error that the job records for a reply it refused (#2949): a refusal raises no
 # exception, so it has no class of its own.
 CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR: Final[str] = "RefusedReply"

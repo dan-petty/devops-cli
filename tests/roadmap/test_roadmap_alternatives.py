@@ -19,13 +19,17 @@ from pydantic_ai.messages import ModelMessage, RetryPromptPart, ToolReturnPart, 
 from typer.testing import CliRunner
 
 from devops_cli.ai.client.models import AICredentialsError
+from devops_cli.ai.context_budget import count_tokens
 from devops_cli.commands.roadmap import app as roadmap_app
 from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+    CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS,
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+    CONST_ROADMAP_REFINE_END_MARKER,
+    CONST_ROADMAP_REFINE_START_MARKER,
 )
 from devops_cli.config.defaults import DEFAULT_FIRECRAWL_SEARCH_URL, DEFAULT_PYPI_PACKAGE_URL
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
@@ -44,6 +48,7 @@ from devops_cli.roadmap.alternatives import (
 )
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.refine import covers_question, recorded_check
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, run_due_jobs
 from devops_cli.roadmap.store import (
     AlternativesRecordKey,
@@ -53,6 +58,7 @@ from devops_cli.roadmap.store import (
     RoadmapStore,
 )
 from devops_cli.telemetry.instruments import FIRECRAWL_SEARCHES_TOTAL, ROADMAP_ALTERNATIVES_TOTAL
+from tests.roadmap_faults import ListingStore
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.otlp import FakeCollector
@@ -110,7 +116,7 @@ def _item(
     store: InMemoryRoadmapStore,
     title: str = "Scan a directory",
     *,
-    body: str = "The job needs a scanner for a directory.",
+    body: str = "The job needs to read every file of a directory.",
     status: str = "New",
     association: str = "COLLABORATOR",
 ) -> int:
@@ -724,7 +730,7 @@ def test_a_pypi_package_that_does_not_exist_or_fails_to_read_is_answered_as_text
 def test_the_request_holds_the_item_the_replies_and_the_budget(
     store: InMemoryRoadmapStore, web_key: None
 ) -> None:
-    body = "The job needs a scanner."
+    body = "The job needs to read a directory."
     block = (
         f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nOld verdict.\n"
         f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
@@ -791,6 +797,524 @@ def test_the_request_holds_no_comment_of_an_account_that_the_jobs_do_not_trust(
     ]
 
 
+# ── The ADRs ──────────────────────────────────────────────────────────────────
+
+
+def _adr(store: InMemoryRoadmapStore, number: int, title: str, options: str, *notes: str) -> None:
+    """Commit the ADR `number` with `title`, the paragraphs `notes` under the title, and the
+    `options` of its `Considered Options`."""
+    paragraphs = "".join(f"{note}\n\n" for note in notes)
+    store.seed_file(
+        f"docs/adr/{number:04d}-decision.md",
+        f"# {title}\n\n{paragraphs}The text.\n\n## Considered Options\n\n{options}\n\n"
+        "## Consequences\n\n- None.\n",
+    )
+
+
+def test_the_request_holds_the_titles_status_and_options_of_the_adrs_in_force_newest_first(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    _adr(store, 6, "Zero decision", "- **Gamma**: chosen.")
+    _adr(store, 7, "First decision", "- **Alpha**: chosen.")
+    _adr(
+        store,
+        8,
+        "Second decision",
+        "- **Beta**: rejected.",
+        "ADR 0008 supersedes [ADR 0007](0007-decision.md). ADR 0008 amends ADR 0006.",
+    )
+    store.seed_file("docs/adr/README.md", "# Decisions\n")
+    _item(store)
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+
+    _plan(store, script)
+
+    assert _prompt_of(script.seen[0])["decisions"] == "\n\n".join(
+        [
+            "ADR 0008: Second decision\n"
+            "ADR 0008 supersedes ADR 0007. ADR 0008 amends ADR 0006.\n"
+            "## Considered Options\n\n- **Beta**: rejected.",
+            "ADR 0006: Zero decision\n## Considered Options\n\n- **Gamma**: chosen.",
+        ]
+    )
+
+
+def _long_options(label: str) -> str:
+    return "\n".join(f"- **{label} {n}**: rejected, for a reason." for n in range(500))
+
+
+def test_the_decisions_are_cut_by_whole_entries_the_oldest_go_first_and_a_warning_says_so(
+    store: InMemoryRoadmapStore, web_key: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    _adr(store, 7, "Oldest decision", _long_options("Seven"))
+    _adr(store, 8, "Older decision", _long_options("Eight"))
+    _adr(store, 9, "Newest decision", _long_options("Nine"))
+    _item(store)
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.adr"):
+        _plan(store, script)
+
+    decisions = _prompt_of(script.seen[0])["decisions"]
+    assert (
+        count_tokens(decisions) <= CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS,
+        decisions.startswith("ADR 0009: Newest decision\n"),
+        decisions.endswith("Nine 499**: rejected, for a reason."),
+        "ADR 0008" in decisions or "ADR 0007" in decisions,
+        [record.getMessage() for record in caplog.records],
+    ) == (
+        True,
+        True,
+        True,
+        False,
+        [
+            f"The ADRs of the repository do not fit the cap of "
+            f"{CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS} tokens: the alternatives check leaves "
+            "out ADR 0008, ADR 0007."
+        ],
+    )
+
+
+def test_a_repository_with_no_adr_directory_sends_no_decisions(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    store.seed_file("README.md", "# Project\n")
+    _item(store)
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+
+    _plan(store, script)
+
+    assert "decisions" not in _prompt_of(script.seen[0])
+
+
+def test_a_run_reads_the_adrs_once_and_only_for_an_item_that_is_no_skip_class(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    listing = ListingStore(store)
+    _item(store, "docs(roadmap): explain the check")
+    _plan(listing.as_store(), Script(AlternativesReply(verdict=Verdict.NONE)))
+    skip_only = list(listing.listed)
+    _item(store, "First change")
+    _item(store, "Second change")
+
+    _plan(listing.as_store(), _searching(AlternativesReply(verdict=Verdict.NONE)))
+
+    assert (skip_only, listing.listed) == ([], ["docs/adr"])
+
+
+def test_a_failed_read_of_the_adrs_stops_the_run_before_any_model_call(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    broken = ListingStore(
+        store, error=GitHubOperationError("GitHub answered 502.", operation="roadmap.read")
+    )
+    _item(store)
+    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+
+    with pytest.raises(GitHubOperationError, match="502"):
+        _plan(broken.as_store(), script)
+
+    assert script.seen == []
+
+
+# ── The verdicts that the ADRs and the item give ──────────────────────────────
+
+TEMPORAL_URL = "https://github.com/temporalio/temporal"
+REJECTION = "Rejected by ADR 0008. A newer fact can change an ADR."
+
+
+def _facts(full_name: str) -> RepositoryFacts:
+    """The facts of the repository `full_name`, as GitHub gives them for a live project."""
+    return RepositoryFacts(
+        full_name=full_name,
+        url=f"https://github.com/{full_name}",
+        license="MIT",
+        pushed_at=_days_ago(2),
+        stars=9000,
+        latest_release="v1.30.0",
+        released_at=_days_ago(7),
+    )
+
+
+def _seed_temporal(store: InMemoryRoadmapStore) -> None:
+    """The repository `temporalio/temporal`, which GitHub knows, and ADR 0008, which rejects it."""
+    store.seed_repository(_facts("temporalio/temporal"))
+    _adr(
+        store,
+        8,
+        "Argo Workflows runs the jobs",
+        "- **DBOS**: runner-up.\n"
+        "- **Temporal and Hatchet**: rejected. Each needs a new Postgres and 3-6 pods.",
+    )
+
+
+def _temporal(**changes: Any) -> AlternativesReply:
+    reply = AlternativesReply(
+        verdict=Verdict.COVERS,
+        tool_url=TEMPORAL_URL,
+        covers=["Runs durable workflows."],
+        sources=[TEMPORAL_URL, SEARCH_URL],
+        adr=8,
+    )
+    return reply.model_copy(update=changes)
+
+
+def _search_then_read(name: str, *replies: AlternativesReply) -> Script:
+    """A model that searches, reads the repository `name`, and answers with each of `replies` in
+    turn."""
+    return Script(
+        call("search_web", query="durable runs"), call("github_repository", name=name), *replies
+    )
+
+
+def _search_then_read_temporal(*replies: AlternativesReply) -> Script:
+    return _search_then_read("temporalio/temporal", *replies)
+
+
+def _question(store: RoadmapStore, number: int) -> Any:
+    """The question that refine puts to a person for the check that item `number` holds."""
+    item = store.item(number)
+    assert item is not None
+    return covers_question(
+        recorded_check(item, store.read_issue_body(number)), store.comments_on(number)
+    )
+
+
+def test_a_tool_that_an_adr_rejected_gives_the_verdict_rejected_and_no_question(
+    store: InMemoryRoadmapStore, web_key: None, otlp: FakeCollector
+) -> None:
+    _seed_temporal(store)
+    number = _item(store, "Durable runs")
+
+    plan = _plan(store, _search_then_read_temporal(_temporal()))
+    apply_alternatives(store, plan)
+
+    (check,) = plan.checks
+    comment = store.comments_on(number)[0].body.splitlines()
+    block = store.read_issue_body(number).splitlines()
+    assert (
+        (check.verdict, check.adr, check.tool.url if check.tool else None),
+        "## Alternatives check: rejected" in comment,
+        f"Tool: temporalio/temporal ({TEMPORAL_URL})" in comment,
+        REJECTION in comment,
+        REJECTION in block,
+        _recorded(store, number, AlternativesRecordKey.VERDICT),
+        _recorded(store, number, AlternativesRecordKey.TOOL),
+        _question(store, number),
+        otlp.points(ROADMAP_ALTERNATIVES_TOTAL.name),
+    ) == (
+        (Verdict.REJECTED, 8, TEMPORAL_URL),
+        True,
+        True,
+        True,
+        True,
+        "rejected",
+        TEMPORAL_URL,
+        None,
+        [({"verdict": "rejected"}, 1.0)],
+    )
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "verdict"),
+    [
+        pytest.param("DBOS Transact", Verdict.REJECTED, id="display-name"),
+        pytest.param(None, Verdict.COVERS, id="repository-name-only"),
+    ],
+)
+def test_the_display_name_of_a_tool_confirms_an_adr_that_the_repository_name_does_not(
+    store: InMemoryRoadmapStore, web_key: None, tool_name: str | None, verdict: Verdict
+) -> None:
+    dbos = "dbos-inc/dbos-transact-py"
+    store.seed_repository(_facts(dbos))
+    _adr(
+        store,
+        8,
+        "Argo Workflows runs the jobs",
+        "- **DBOS Transact in-process** (runner-up): rejected for now.",
+    )
+    _item(store, "Durable runs")
+    reply = _temporal(
+        tool_url=f"https://github.com/{dbos}", tool_name=tool_name, sources=[SEARCH_URL]
+    )
+
+    plan = _plan(store, _search_then_read(dbos, reply))
+
+    assert ([check.verdict for check in plan.checks], plan.failures) == ([verdict], [])
+
+
+@pytest.mark.parametrize("verdict", [Verdict.COVERS, Verdict.PARTLY])
+def test_a_tool_that_the_item_body_names_and_the_model_flags_gives_the_verdict_in_use(
+    store: InMemoryRoadmapStore, web_key: None, verdict: Verdict
+) -> None:
+    number = _item(store, body="Run example/scanner on each file of the directory.")
+
+    plan = _plan(store, _search_then_read_then(_covers(verdict=verdict, in_use=True)))
+    apply_alternatives(store, plan)
+
+    (check,) = plan.checks
+    comment = store.comments_on(number)[0].body.splitlines()
+    assert (
+        (check.verdict, check.adr, check.tool.url if check.tool else None),
+        "## Alternatives check: in-use" in comment,
+        "The item already names this tool." in comment,
+        _recorded(store, number, AlternativesRecordKey.VERDICT),
+        _recorded(store, number, AlternativesRecordKey.TOOL),
+        _question(store, number),
+    ) == ((Verdict.IN_USE, None, TOOL_URL), True, True, "in-use", TOOL_URL, None)
+
+
+def test_a_tool_that_the_title_names_and_the_model_flags_gives_the_verdict_in_use(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    _item(store, "Scan a directory with `scanner`")
+
+    plan = _plan(store, _search_then_read_then(_covers(in_use=True)))
+
+    assert [check.verdict for check in plan.checks] == [Verdict.IN_USE]
+
+
+def test_a_tool_that_the_item_names_keeps_its_verdict_when_the_model_does_not_flag_it(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    number = _item(store, body="Run example/scanner on each file of the directory.")
+
+    plan = _plan(store, _search_then_read_then(_covers()))
+    apply_alternatives(store, plan)
+
+    assert ([check.verdict for check in plan.checks], _question(store, number) is not None) == (
+        [Verdict.COVERS],
+        True,
+    )
+
+
+def test_a_flag_that_the_item_does_not_back_is_dropped_and_the_verdict_stays(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    number = _item(store)
+
+    plan = _plan(store, _search_then_read_then(_covers(in_use=True)))
+    apply_alternatives(store, plan)
+
+    assert (
+        [check.verdict for check in plan.checks],
+        plan.failures,
+        _question(store, number) is not None,
+    ) == ([Verdict.COVERS], [], True)
+
+
+@pytest.mark.parametrize(
+    ("body", "verdict"),
+    [
+        pytest.param("Just add the file, and act on it.", Verdict.COVERS, id="prose"),
+        pytest.param("A task that builds the image.", Verdict.COVERS, id="another-word"),
+        pytest.param("Run `just` for the build.", Verdict.IN_USE, id="code-span"),
+        pytest.param("Run [just](https://just.systems) for it.", Verdict.IN_USE, id="link"),
+        pytest.param("Run casey/just for the build.", Verdict.IN_USE, id="owner-and-name"),
+    ],
+)
+def test_a_tool_with_a_common_word_for_a_name_is_in_use_only_in_a_form_that_marks_it(
+    store: InMemoryRoadmapStore, web_key: None, body: str, verdict: Verdict
+) -> None:
+    store.seed_repository(_facts("casey/just"))
+    _item(store, body=body)
+    reply = _covers(tool_url="https://github.com/casey/just", in_use=True, sources=[SEARCH_URL])
+
+    plan = _plan(store, _search_then_read("casey/just", reply))
+
+    assert [check.verdict for check in plan.checks] == [verdict]
+
+
+_NAMES_SCANNER = "Tool: example/scanner (https://github.com/example/scanner), MIT."
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(
+            f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nAlternatives check: covers.\n"
+            f"{_NAMES_SCANNER}\n{CONST_ROADMAP_ALTERNATIVES_END_MARKER}",
+            id="block-of-the-check",
+        ),
+        pytest.param(
+            f"{CONST_ROADMAP_REFINE_START_MARKER}\n### Open questions\n- The alternatives check "
+            f"found that `https://github.com/example/scanner` covers this item.\n"
+            f"{CONST_ROADMAP_REFINE_END_MARKER}",
+            id="refine-section",
+        ),
+    ],
+)
+def test_a_tool_that_only_a_block_of_a_job_names_is_not_in_use(
+    store: InMemoryRoadmapStore, web_key: None, text: str
+) -> None:
+    number = _item(store, body=f"The job needs to read a directory.\n\n{text}")
+
+    plan = _plan(store, _search_then_read_then(_covers(in_use=True)))
+    apply_alternatives(store, plan)
+
+    question = _question(store, number)
+    assert (
+        [check.verdict for check in plan.checks],
+        question is not None and TOOL_URL in question.text,
+    ) == ([Verdict.COVERS], True)
+
+
+def test_a_tool_that_no_adr_rejected_and_the_item_does_not_name_keeps_covers_and_its_question(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    _adr(store, 7, "Valkey is the cache", "- **Redis**: rejected.")
+    number = _item(store)
+
+    plan = _plan(store, _search_then_read_then(_covers()))
+    apply_alternatives(store, plan)
+
+    question = _question(store, number)
+    assert (
+        [(check.verdict, check.adr) for check in plan.checks],
+        question is not None and TOOL_URL in question.text,
+    ) == ([(Verdict.COVERS, None)], True)
+
+
+def test_a_repository_with_no_adr_directory_gives_the_verdict_of_the_reply(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    number = _item(store)
+
+    plan = _plan(store, _search_then_read_then(_covers()))
+    apply_alternatives(store, plan)
+
+    assert (
+        [check.verdict for check in plan.checks],
+        _question(store, number) is not None,
+    ) == ([Verdict.COVERS], True)
+
+
+def test_a_tool_that_an_adr_rejected_and_the_item_names_is_rejected(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    _seed_temporal(store)
+    _item(store, body="`temporalio/temporal` would fit, but ADR 0008 rejected it.")
+
+    plan = _plan(store, _search_then_read_temporal(_temporal(in_use=True)))
+
+    assert [check.verdict for check in plan.checks] == [Verdict.REJECTED]
+
+
+def test_an_adr_number_with_a_verdict_of_no_tool_keeps_the_verdict(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    _seed_temporal(store)
+    _item(store)
+
+    plan = _plan(store, _searching(AlternativesReply(verdict=Verdict.NONE, adr=8, in_use=True)))
+
+    assert [(check.verdict, check.adr, check.tool) for check in plan.checks] == [
+        (Verdict.NONE, None, None)
+    ]
+
+
+def _seed_replaced_adr(store: InMemoryRoadmapStore) -> None:
+    """ADR 4, which rejected Temporal, and ADR 5, which supersedes it and chose it."""
+    _adr(
+        store,
+        4,
+        "Old engine",
+        "- **Temporal**: rejected.",
+        "[ADR 0005](0005-decision.md) supersedes this ADR.",
+    )
+    _adr(store, 5, "New engine", "- **Temporal**: chosen.", "ADR 0005 supersedes ADR 0004.")
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        pytest.param({"adr": 99}, id="no-such-adr"),
+        pytest.param({"adr": 7}, id="adr-that-does-not-name-the-tool"),
+        pytest.param({"adr": 4}, id="adr-that-a-later-adr-supersedes"),
+    ],
+)
+def test_an_adr_that_the_job_cannot_confirm_is_dropped_and_the_verdict_stays(
+    store: InMemoryRoadmapStore, web_key: None, changes: dict[str, Any]
+) -> None:
+    store.seed_repository(_facts("temporalio/temporal"))
+    _seed_replaced_adr(store)
+    _adr(store, 7, "Valkey is the cache", "- **Redis**: rejected.")
+    number = _item(store)
+
+    plan = _plan(store, _search_then_read_temporal(_temporal(**changes)))
+    apply_alternatives(store, plan)
+
+    assert (
+        [(check.verdict, check.adr) for check in plan.checks],
+        plan.failures,
+        _question(store, number) is not None,
+    ) == ([(Verdict.COVERS, None)], [], True)
+
+
+def test_an_adr_that_the_cut_left_out_is_not_confirmed(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    store.seed_repository(_facts("temporalio/temporal"))
+    _adr(store, 8, "Cut decision", "- **Temporal**: rejected.\n" + _long_options("Eight"))
+    _adr(store, 9, "Newest decision", _long_options("Nine"))
+    _item(store)
+
+    plan = _plan(store, _search_then_read_temporal(_temporal()))
+
+    assert [(check.verdict, check.adr) for check in plan.checks] == [(Verdict.COVERS, None)]
+
+
+@pytest.mark.parametrize("verdict", [Verdict.REJECTED, Verdict.IN_USE, Verdict.NOT_APPLICABLE])
+def test_a_verdict_that_only_the_job_sets_gets_one_more_turn(
+    store: InMemoryRoadmapStore, web_key: None, verdict: Verdict
+) -> None:
+    _seed_temporal(store)
+    number = _item(store, "Durable runs")
+    script = _search_then_read_temporal(_temporal(verdict=verdict), _temporal())
+
+    plan = _plan(store, script)
+
+    assert (
+        [(check.item.number, check.verdict) for check in plan.checks],
+        plan.failures,
+        any(
+            f"The verdict {verdict.value} is set by the job" in text
+            for text in _retry_prompts(script)
+        ),
+    ) == ([(number, Verdict.REJECTED)], [], True)
+
+
+@pytest.mark.parametrize(
+    ("verdict", "reason"),
+    [
+        pytest.param(
+            Verdict.REJECTED,
+            "the reply gives the verdict rejected, which the job sets and the model cannot give",
+            id="rejected",
+        ),
+        pytest.param(
+            Verdict.IN_USE,
+            "the reply gives the verdict in-use, which the job sets and the model cannot give",
+            id="in-use",
+        ),
+    ],
+)
+def test_a_second_reply_with_a_verdict_that_only_the_job_sets_is_refused(
+    store: InMemoryRoadmapStore, web_key: None, verdict: Verdict, reason: str
+) -> None:
+    _seed_temporal(store)
+    number = _item(store)
+
+    plan = _plan(store, _search_then_read_temporal(_temporal(verdict=verdict)))
+
+    assert (
+        plan.checks,
+        [(failure.item.number, failure.reason, failure.error_class) for failure in plan.failures],
+        apply_alternatives(store, plan),
+        store.comments_on(number),
+    ) == ([], [(number, reason, "RefusedReply")], 0, [])
+
+
 # ── Writes ────────────────────────────────────────────────────────────────────
 
 
@@ -798,7 +1322,7 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
     store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb
 ) -> None:
     _firecrawl(stub_web, SEARCH_URL)
-    number = _item(store, body="The job needs a scanner.")
+    number = _item(store, body="The job needs to read a directory.")
     before = store.item(number)
     assert before is not None
     script = _search_then_read_then(_covers())
@@ -851,7 +1375,7 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
         ],
         "\n".join(
             [
-                "The job needs a scanner.",
+                "The job needs to read a directory.",
                 "",
                 CONST_ROADMAP_ALTERNATIVES_START_MARKER,
                 f"Alternatives check of {NOW.date()}: covers.",
@@ -861,7 +1385,7 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
             ]
         ),
         {
-            "alternatives.body_hash": body_hash_of("The job needs a scanner."),
+            "alternatives.body_hash": body_hash_of("The job needs to read a directory."),
             "alternatives.checked_at": NOW.isoformat(),
             "alternatives.failed_at": None,
             "alternatives.failed_error": None,
@@ -1028,7 +1552,7 @@ def test_a_covering_tool_is_written_through_the_github_store_over_its_process_ed
         7,
         "Scan a directory",
         labels=("priority/p2-medium", "status/new"),
-        body="The job needs a scanner.",
+        body="The job needs to read a directory.",
     )
     _firecrawl(stub_web, SEARCH_URL)
     roadmap = GitHubRoadmapStore(REPO, runner=github, session=RunnerSession(github))

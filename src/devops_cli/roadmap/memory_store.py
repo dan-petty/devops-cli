@@ -499,6 +499,22 @@ class InMemoryRoadmapStore(RoadmapStore):
             )
         return text
 
+    def repository_files(self, directory: str, *, ref: str | None = None) -> list[str]:
+        """The sorted paths of the files committed directly in `directory` on `ref`, raising when
+        none is."""
+        found = sorted(
+            path
+            for path, at in self._roadmap.files
+            if at == ref and path.rpartition("/")[0] == directory
+        )
+        if not found:
+            raise GitHubFileNotFoundError(
+                f"{self._roadmap.repo} has no {directory} on {ref or 'its default branch'}.",
+                operation="roadmap.read",
+                details={"path": directory[:256], "ref": (ref or "")[:256]},
+            )
+        return found
+
     def repository_is_private(self) -> bool:
         """Whether the repository is private."""
         return self._roadmap.is_private
