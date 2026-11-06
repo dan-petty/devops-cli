@@ -9,6 +9,7 @@ See proposal.md for the motivation and the scope (#3850, item 1 of #1329).
 ### 1. One function in `ai/rag/indexer.py`
 
 - **Decision**: `resolve_rag_components(settings=None) -> RagComponents` sits next to `resolve_qdrant_client`, which already resolves the client from the settings. `RagComponents` is a `NamedTuple`, so a command unpacks it as before.
+- **Note**: the function builds the embedder and reads the AI key before the investigator checks `is_alive`. The old code did both after the check. The embedder constructor opens no connection, so a cache miss with Qdrant down costs one key lookup and one object.
 - **Alternative considered**: a new module `ai/rag/components.py`.
   - *Rejected*: `indexer.py` already owns the client resolution and the collection defaults. A module of one function adds an import and no clarity.
 - **Alternative considered**: let each caller keep its code and share only the collection-name rule.
