@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/roadmap/clone_git.py`, `src/devops_cli/roadmap/stage_paths.py`. Changes: `src/devops_cli/roadmap/stage_moved.py` (new), `tests/roadmap/test_roadmap_stage_moved.py` (new).
 
-- [ ] 1.1 Write `tests/roadmap/test_roadmap_stage_moved.py` first: a clone with two commits that change one named path gives both short hashes and subjects in log order, a commit that changes an unnamed path gives nothing, and a base with no later commit gives an empty list
+- [x] 1.1 Write `tests/roadmap/test_roadmap_stage_moved.py` first: a clone with two commits that change one named path gives both short hashes and subjects in log order, a commit that changes an unnamed path gives nothing, and a base with no later commit gives an empty list
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_moved.py` fails on the base
-- [ ] 1.2 Add `src/devops_cli/roadmap/stage_moved.py` with a frozen `MovedPath` of the path and its commits, and one function that takes the checkout, the base commit, the default branch and the named paths, runs `git log --format=%h%x00%s --name-only <base>..<branch> -- <paths>` through `git()` of `src/devops_cli/roadmap/clone_git.py`, and keeps the entries for the named paths. Give the log its own operation name for the git helper
+- [x] 1.2 Add `src/devops_cli/roadmap/stage_moved.py` with a frozen `MovedPath` of the path and its commits, and one function that takes the checkout, the base commit, the default branch and the named paths, runs `git log --format=%h%x00%s --name-only <base>..<branch> -- <paths>` through `git()` of `src/devops_cli/roadmap/clone_git.py`, and keeps the entries for the named paths. Give the log its own operation name for the git helper
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_moved.py` passes
 
 ## 2. Write the moved paths in the comment of a staged item
