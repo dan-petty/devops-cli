@@ -93,7 +93,10 @@ class PlanReadError(ValueError):
 
 
 @dataclass(frozen=True)
-class _GroupFiles:
+class GroupFiles:
+    """The paths of the `Reads: ... Changes: ...` line of a group: `creates` are the changed paths
+    that the line marks `(new)`."""
+
     reads: list[str]
     changes: list[str]
     creates: list[str]
@@ -260,7 +263,9 @@ def created_paths(tasks_md: str) -> list[str]:
     return list(dict.fromkeys(found))
 
 
-def _group_files(text: str) -> _GroupFiles:
+def group_files(text: str) -> GroupFiles:
+    """The paths of the `Reads: ... Changes: ...` line in the text of a group. Raises
+    `PlanReadError` when the group has no such line."""
     match = _READS.search(text)
     if match is None:
         raise PlanReadError(_TASKS, MESSAGES.roadmap.plan_read_bad_tasks)
@@ -275,7 +280,7 @@ def _group_files(text: str) -> _GroupFiles:
         changes.append(path)
         if mark.startswith(_NEW_MARK):
             creates.append(path)
-    return _GroupFiles(reads=reads, changes=changes, creates=creates)
+    return GroupFiles(reads=reads, changes=changes, creates=creates)
 
 
 def _task_texts(group: TaskGroup) -> list[str]:
@@ -361,7 +366,7 @@ def _verification_problems(group: TaskGroup, first: _Task) -> list[str]:
 
 
 def _group(group: TaskGroup) -> StageGroup:
-    files = _group_files(group.text)
+    files = group_files(group.text)
     if not group.tasks:
         raise PlanReadError(_TASKS, MESSAGES.roadmap.plan_read_bad_task.format(text=group.title))
     first = _task(group, 0)

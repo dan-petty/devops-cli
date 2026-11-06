@@ -8,7 +8,8 @@ can stay Planned. The folder of a closed issue stays in every count. This comman
 
 The command reads `origin/<default branch>` of the model clone, or of the clone that `--source`
 names. It reads each folder `openspec/changes/<issue>-<slug>/`, the open issues, and the issue of
-each folder that is not open. It calls no model and writes nothing to git or to GitHub.
+each folder that is not open. It calls no model and writes nothing to git or to GitHub. It writes
+no file, unless you give [`--confirm`](#write-the-rewrite-with-confirm).
 
 For each folder it runs the same checks as [plan-check](plan-check.md): the plan reader
 (`read_change`), the stage gates (`check_gates`, the gates of `check_proposal`) and
@@ -43,14 +44,62 @@ Each folder gets one result. The first rule that holds gives it.
 | :--- | :--- |
 | `cleanup` | The issue of the folder is closed. Run `openspec archive`, or delete the folder. |
 | `delivered` | Every file that the plan marks `(new)` is on the default branch. The issue is not closed yet. |
-| `new-plan` | The plan does not read, or it fails a gate or `openspec validate`. The first line below the folder is the first problem. |
-| `rewrite` | The plan passes every check, but it has no `design.md` or no `Verification:` line. A mechanical rewrite can add them. |
-| `ok` | None of the above. |
+| `new-plan` | The plan does not read, or it fails a gate or `openspec validate`, also after the rewrite. The first line below the folder is the first problem of the rewritten plan. |
+| `rewrite` | The plan as it is fails the plan reader or lacks a file, and the mechanical rewrite fixes it. The lines below the folder are the edits. |
+| `ok` | None of the above. The rewrite changes nothing. |
 
-A plan with no `Verification:` line usually fails the plan reader, because a group needs a command or a manual process. So the command shows such a plan as `new-plan`, with the reader error as the reason. The result `rewrite` is for a plan that passes every check and lacks only the `design.md` or the `Verification:` line.
+## The mechanical rewrite
 
-The command does not tell a sample path from a stale path. A path that the tree lacks is a
-`new-plan` problem.
+Before it judges a plan, the command applies the rewrite to the files in memory. The rewrite works
+on the task groups that `parse_task_groups` gives, and it edits by line number. It makes three
+edits and no other:
+
+- **A `Verification:` line.** A group with no such line gets one under its first task. The command
+  comes from the plan: `uv run devops ci test` with the test files of the `Changes:` line of the
+  group, or `uv run devops ci docs` when the group changes only documents. A group of the kind
+  `behavior` gets the `fails on the base` form, and any other group gets the `passes` form. The
+  rewrite writes no command that the implement step refuses. A group that changes no test file and
+  no document gets no line, because no text of the plan gives a command. The command does not guess.
+- **A bare name for a sample path.** A path in a code span in the first line of a task changes to
+  its file name when the tree lacks it, and no group lists it in `Reads:` or `Changes:` or marks it
+  `(new)`. Such a path is a sample that a test writes at run time, and the paths gate refuses it.
+  The rewrite finds the paths in the first line only. It then changes the same code span in every
+  line of the task, but not in a `Verification:` line. The `Reads:`, `Changes:` and `Verification:`
+  lines of a group stay as they are, because a person decides those. Two sample paths can have the
+  same file name, and then the task names the same file twice. A person must look for this in the
+  diff.
+- **A `design.md` stub.** A folder with no `design.md` gets a stub that says the plan records no
+  design decision.
+
+Then the command judges the rewritten plan with the plan reader, the stage gates and
+`openspec validate`. A plan gets `rewrite` only when the rewritten plan passes all three. A plan
+that the rewrite does not fix stays `new-plan`, and its refusals come from the rewritten plan. The
+counts of folders with no `Verification:` line and of folders that fail the plan reader still
+describe the merged plan as it is.
+
+## Write the rewrite with confirm
+
+Without `--confirm` the command writes nothing. With `--confirm` it writes the changed files of each
+`rewrite` folder of the default branch to the working tree of the checkout that `--source` names,
+and it prints how many files it wrote. It makes no commit: a person reviews the diff and opens a
+pull request. The option has these checks:
+
+- It needs `--source`. The model clone belongs to the jobs, so the command never writes there.
+- It does not combine with `--dry-run`.
+- Every file must hold the text of the default branch, or not exist when the rewrite adds it. If a
+  file differs, the command writes no file at all, and the error names the file.
+- It writes the folders of the default branch only. With `--branch`, the folders of the branch get
+  no write.
+
+## A plan with no way forward
+
+A merged plan that stays `new-plan` has no way forward. The implement job leaves its item out with
+the reason `Its plan fails the stage check: <first problem>`, or with the reader error, and
+`devops roadmap explain <issue>` prints that reason (#3393). The job does not use the label
+`plan/needs-fix`: it belongs to a plan pull request. A person plans the item again.
+
+The command does not tell a sample path from a stale path in a `Reads:` or `Changes:` line. A path
+that the tree lacks is a `new-plan` problem.
 
 ## The gate of a refusal
 
@@ -106,7 +155,8 @@ calls no model. After the report of the default branch it prints:
 
 A refusal that the branch adds is a case to review, not a proven false refusal. It can be a hit of
 the gate or a false refusal. Only a person decides which. A folder that the reader refuses does not
-stop the run.
+stop the run. The comparison applies the rewrite to the folders of both sides. A gate fault that the
+rewrite fixes shows as `rewrite`, not as a refusal that the branch adds.
 
 Use the option in three ways:
 
@@ -129,6 +179,7 @@ up. The pass closes no issue.
 | `--source <path>` | The clone to read. Without it, the model clone. |
 | `--branch <ref>` | A ref of the clone. Compare its change folders with the default branch. |
 | `--json` | Print the folders, the counts and the refusals of each gate as JSON. With `--branch`, the key `branch` holds the comparison. |
+| `--confirm` | Write the rewritten files of each `rewrite` folder to the working tree of `--source`. It needs `--source`, and it makes no commit. |
 | `--dry-run` | Make no request: print the reads that a run makes, with placeholders. |
 
 ## Where the rules are

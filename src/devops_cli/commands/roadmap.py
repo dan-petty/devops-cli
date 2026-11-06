@@ -811,12 +811,20 @@ def plan_recheck_cmd(
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help=HELP.roadmap.plan_recheck_dry_run)
     ] = False,
+    confirm: Annotated[
+        bool, typer.Option("--confirm", help=HELP.roadmap.plan_recheck_confirm)
+    ] = False,
 ) -> None:
     """Judge each change folder on the default branch again, with one result for each. With a
-    branch, compare its refusals with those of the default branch."""
+    branch, compare its refusals with those of the default branch. With --confirm, write the
+    rewrite of each `rewrite` folder to the working tree of --source."""
+    _one_mode(dry_run=dry_run, confirm=confirm)
+    if confirm and source is None:
+        _refuse(MESSAGES.roadmap.plan_rewrite_need_source)
     target = _target(repo)
     from devops_cli.openspec.tool import isolated_openspec
     from devops_cli.roadmap.plan_recheck import recheck_plans, render_recheck
+    from devops_cli.roadmap.plan_rewrite import write_rewrite
     from devops_cli.roadmap.request_plan import plan_recheck_requests
     from devops_cli.roadmap.run import model_clone
 
@@ -832,6 +840,15 @@ def plan_recheck_cmd(
         write_stdout(json.dumps(recheck.as_dict()) + "\n")
     else:
         write_stdout(render_recheck(recheck) + "\n")
+    if confirm and source is not None:
+        with _exit_on_failure("Could not write the rewritten plans"):
+            rewrites = [r.rewrite for r in recheck.records if r.rewrite is not None]
+            written = write_rewrite(source, rewrites)
+        if written and not json_output:
+            write_stdout(
+                MESSAGES.roadmap.plan_rewrite_changed.format(count=len(written), source=source)
+                + "\n"
+            )
 
 
 @app.command("explain", help=HELP.roadmap.explain)

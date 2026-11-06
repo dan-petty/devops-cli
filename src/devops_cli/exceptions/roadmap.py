@@ -220,6 +220,15 @@ class RoadmapStageError(DevOpsCLIError):
         )
 
 
+class RoadmapPlanRewriteError(DevOpsCLIError):
+    """Raised when `devops roadmap plan-recheck --confirm` refuses to write a rewritten plan (#3556).
+
+    The command checks every file before it writes the first, so a refused run has written nothing.
+    """
+
+    error_code = "ROADMAP_PLAN_REWRITE_REFUSED"
+
+
 class RoadmapIntakeError(DevOpsCLIError):
     """Raised after an intake round in which the writes failed for one or more candidates.
 

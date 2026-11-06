@@ -3739,9 +3739,28 @@ class RoadmapMessages:
         "The plan marks {paths} as new, and `{branch}` holds them. "
         "Close issue #{issue} when it is done."
     )
-    plan_recheck_no_design: str = "The folder has no `design.md`."
-    plan_recheck_no_verification: str = (
-        "No group of `tasks.md` has a `Verification:` line, so the step runs no plan command."
+    # The mechanical rewrite of a merged plan (#3556).
+    plan_rewrite_design_stub: str = (
+        "# Design\n\nThis plan was written before the file `design.md` was required. "
+        "It records no design decision.\n"
+    )
+    plan_rewrite_note_design: str = "Add the file `design.md` with a stub."
+    plan_rewrite_note_verification: str = (
+        "Group {group}: add the line `Verification:` with `{command}` under its first task."
+    )
+    plan_rewrite_note_path: str = (
+        "Group {group}: change the sample path `{path}` to the bare name `{name}`."
+    )
+    plan_rewrite_changed: str = (
+        "Changed {count} files in `{source}`. Review the diff, and open a pull request."
+    )
+    plan_rewrite_need_source: str = (
+        "The option --confirm needs --source: the rewrite goes to the working tree of that "
+        "checkout, and not to the model clone."
+    )
+    plan_rewrite_file_differs: str = (
+        "The file `{path}` differs from the default branch, so the command writes no file. "
+        "Restore the file, or run the command in a clean checkout."
     )
     plan_recheck_openspec: str = "`openspec validate` finds: {problem}"
     plan_recheck_results: str = (
