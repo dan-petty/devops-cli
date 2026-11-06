@@ -27,18 +27,18 @@ and the draft and takes them over as a Staged item.
 
 **Work in progress** (#3054). A step commits each ticked task whose verification passes as a `wip:`
 commit. The job pushes it at once (`_keep`) when a task is left, and records `implement.wip`, so a
-pod that dies loses only the work after the last tick. A stop discards only that work. The next run takes the branch
-with its `wip:` commits, shows the kept ticks to the agent, and its step folds them into its own
-commit.
+pod that dies loses only the work after the last tick. A stop discards only that work. The next run
+takes the branch with its `wip:` commits, shows the kept ticks to the agent, and its step folds them
+into its own commit.
 
 **A stop.** A step that stops, a conflict, a failed command or a check that fails twice stops the
 item: the job pushes the commits that passed (also a stop in the scoped checks, #3645: the finished
-groups stay on the branch, and the draft is not marked ready), comments the step, the reason and the last message
-of the agent, sets Status Blocked, and records `implement.stopped`. The comment starts with the
-class of the failure, the action taken and the action left (`failure.py`, #3065), and the class is
-recorded in `implement.failure`. It does not run the item again
-until a clear rule of the Service removes the stop: a person's comment `implement: retry`, a new
-runner image (`stop_clear.py`), or, for a Job that ended with no result, a continuation (#3721).
+groups stay on the branch, and the draft is not marked ready), comments the step, the reason and the
+last message of the agent, sets Status Blocked, and records `implement.stopped`. The comment starts
+with the class of the failure, the action taken and the action left (`failure.py`, #3065), and the
+class is recorded in `implement.failure`. It does not run the item again until a clear rule of the
+Service removes the stop: a person's comment `implement: retry`, a new runner image
+(`stop_clear.py`), or, for a Job that ended with no result, a continuation (#3721).
 
 **A claim** (#2910). The Service holds the item with `owner/service` while the Job runs. The job
 reads the item before each unticked task group, when a step stops, and before the push. When an
