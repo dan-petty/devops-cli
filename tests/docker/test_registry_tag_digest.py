@@ -23,8 +23,9 @@ DIGEST = "sha256:" + "b" * 64
         (f"{IMAGE}:latest", TaggedImage("ghcr.io", "example/devops-cli/service", "latest")),
         ("localhost:5000/team/app:v1", TaggedImage("localhost:5000", "team/app", "v1")),
         ("localhost/app:v1", TaggedImage("localhost", "app", "v1")),
+        (f"{IMAGE}@{DIGEST}", TaggedImage("ghcr.io", "example/devops-cli/service", DIGEST)),
     ],
-    ids=["ghcr", "registry-port", "localhost"],
+    ids=["ghcr", "registry-port", "localhost", "digest"],
 )
 def test_a_reference_that_names_its_registry_and_a_tag_splits(
     reference: str, expected: TaggedImage
@@ -35,8 +36,14 @@ def test_a_reference_that_names_its_registry_and_a_tag_splits(
 
 @pytest.mark.parametrize(
     "reference",
-    ["nginx:1.27", "library/nginx:1.27", IMAGE, "registry.example.com:5000/app"],
-    ids=["no-registry", "hub-path", "no-tag", "port-no-tag"],
+    [
+        "nginx:1.27",
+        "library/nginx:1.27",
+        IMAGE,
+        "registry.example.com:5000/app",
+        f"https://{IMAGE}:v1",
+    ],
+    ids=["no-registry", "hub-path", "no-tag", "port-no-tag", "scheme"],
 )
 def test_a_reference_without_a_registry_host_or_a_tag_is_refused(reference: str) -> None:
     """A reference whose registry or tag is not named gives no registry to ask."""

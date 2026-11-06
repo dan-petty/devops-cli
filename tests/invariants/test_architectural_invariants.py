@@ -117,7 +117,7 @@ CONST_AST_GREP_RULE_ID_SEPARATOR: Final[str] = ","
 DEFAULT_C901_SUPPRESSION_CEILING: int = 25
 DEFAULT_AST_GREP_SUPPRESSION_CEILING: int = 0
 DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
-    "src type: ignore": 51,
+    "src type: ignore": 40,
     "src noqa: C901": DEFAULT_C901_SUPPRESSION_CEILING,
     "src noqa: E402": 2,
     "src noqa: F401": 0,

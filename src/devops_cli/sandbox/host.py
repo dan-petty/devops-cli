@@ -75,8 +75,8 @@ def _tmpfs_mount_args(path: str, options: str) -> list[str]:
     bubblewrap can set only a tmpfs's size, in bytes, so any other option, or a size it cannot
     express in bytes (such as `size=50%`), is refused rather than dropped.
     """
-    from docker.errors import DockerException  # type: ignore[import-untyped]
-    from docker.utils import parse_bytes  # type: ignore[import-untyped]
+    from docker.errors import DockerException
+    from docker.utils import parse_bytes
 
     args: list[str] = []
     for option in filter(None, options.split(",")):

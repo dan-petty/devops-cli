@@ -7,8 +7,9 @@ the SDK gives it. Most methods of the SDK's models take `**kwargs` and pass them
 `APIClient`, so their Protocols take `**kwargs` too: the SDK, not the type checker, refuses a
 keyword that its `APIClient` method does not have.
 
-The SDK has no type information, so a type checker cannot hold `docker.DockerClient` to these
-Protocols. `tests/docker/test_engine_contract.py` holds the SDK client, over the Engine API's
+The stubs of the SDK (`types-docker`) list each keyword of a call, while these Protocols forward
+`**kwargs`, so a type checker cannot hold `docker.DockerClient` to them, and `_sdk_client` casts
+the client. `tests/docker/test_engine_contract.py` holds the SDK client, over the Engine API's
 recorded answers, and the fake in `tests/support/fakes/docker_engine.py` to the same calls.
 """
 
