@@ -9,6 +9,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-options: ServerSideApply=true
     notifications.argoproj.io/subscribe.on-deployed.mattermost: ""
+    notifications.argoproj.io/subscribe.on-deployed.github: ""
   finalizers:
   - resources-finalizer.argocd.argoproj.io
 spec:

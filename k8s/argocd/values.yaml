@@ -129,7 +129,15 @@ notifications:
       cpu: 200m
       memory: 128Mi
   notifiers:
-    service.webhook.mattermost:
+    # The GitHub App `devops-cli-argocd` (Deployments: read and write). The values come from
+    # argocd-notifications-secret (README, Cluster Secrets). The Applications that carry the
+    # annotation `notifications.argoproj.io/subscribe.on-deployed.github` use it (k8s/argocd/apps/).
+    # Each value is a string: the chart copies it into `ConfigMap.data`, which holds only strings.
+    service.github: |
+      appID: $github-appID
+      installationID: $github-installationID
+      privateKey: $github-privateKey
+    service.webhook.mattermost: |
       url: $mattermost-deploys-url
       headers:
         - name: Content-Type
@@ -146,7 +154,7 @@ notifications:
         send:
           - app-deployed
         when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
-        oncePer: app.status.sync.revision
+        oncePer: app.status.operationState?.syncResult?.revision
     trigger.on-sync-failed: |
       - description: Application syncing has failed
         send:
@@ -154,11 +162,18 @@ notifications:
         when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']
   templates:
     template.app-deployed: |
+      message: 'Deployed revision {{ dig "status" "operationState" "syncResult" "revision" "" .app | trunc 7 }}'
+      github:
+        deployment:
+          state: success
+          environment: "{{.app.metadata.name}}"
+          autoMerge: false
+          requiredContexts: []
       webhook:
         mattermost:
           method: POST
           body: |
-            {"text": {{ printf "Application %s deployed revision %s" .app.metadata.name (dig "status" "sync" "revision" "" .app | trunc 7) | toJson }}}
+            {"text": {{ printf "Application %s deployed revision %s" .app.metadata.name (dig "status" "operationState" "syncResult" "revision" "" .app | trunc 7) | toJson }}}
     template.app-sync-failed: |
       webhook:
         mattermost:

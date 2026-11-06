@@ -201,7 +201,7 @@ def test_with_no_notifier_value_the_push_writes_nothing_and_names_the_commands(
         "devops config set argocd.github_app_installation_id" in output,
         "devops config set argocd.github_app_private_key" in output,
         cluster.applies(),
-    ) == (0, True, True, True, []), result.output
+    ) == (1, True, True, True, []), result.output
 
 
 def test_apply_is_one_server_side_apply_of_a_list_on_stdin(

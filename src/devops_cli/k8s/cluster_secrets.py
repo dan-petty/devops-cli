@@ -392,22 +392,20 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
     # The GitHub App of Argo CD's GitHub notifier (#2000). Its `service.github` refers to these
     # keys as `$github-appID`, `$github-installationID` and `$github-privateKey`. The values
     # (`notifications.secret.create: false`) leave this Secret to the push. Argo CD reads the
-    # Secret when it builds each notification, so no workload restarts.
+    # Secret when it builds each notification, so no workload restarts. The three keys are
+    # required: the engine builds all notifiers together, so a notifier that lacks a key fails
+    # every notification, including the Mattermost alerts.
     ClusterSecret(
         namespace="argocd",
         name="argocd-notifications-secret",
         stack="infra",
         entries=(
-            SecretEntry("github-appID", SettingSource("argocd.github_app_id"), required=False),
+            SecretEntry("github-appID", SettingSource("argocd.github_app_id")),
             SecretEntry(
-                "github-installationID",
-                SettingSource("argocd.github_app_installation_id"),
-                required=False,
+                "github-installationID", SettingSource("argocd.github_app_installation_id")
             ),
             SecretEntry(
-                "github-privateKey",
-                KeyringSource.for_credential("argocd.github_app_private_key"),
-                required=False,
+                "github-privateKey", KeyringSource.for_credential("argocd.github_app_private_key")
             ),
             SecretEntry(
                 "mattermost-deploys-url",

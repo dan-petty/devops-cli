@@ -571,9 +571,9 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `monitoring/grafana-admin` | `admin-user` | literal | yes | fail | infra | `deployment/grafana` |
 | `monitoring/grafana-admin` | `admin-password` | keyring `grafana_password` | yes | adopt from `monitoring/grafana admin-password`; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
 | `monitoring/alertmanager-mattermost` | `url` | derived from keyring mattermost_alerts_hook | no | skip with a warning | infra | none |
-| `argocd/argocd-notifications-secret` | `github-appID` | setting argocd.github_app_id | no | skip with a warning | infra | none |
-| `argocd/argocd-notifications-secret` | `github-installationID` | setting argocd.github_app_installation_id | no | skip with a warning | infra | none |
-| `argocd/argocd-notifications-secret` | `github-privateKey` | keyring `argocd_github_app_private_key` | no | adopt the live value; else skip with a warning | infra | none |
+| `argocd/argocd-notifications-secret` | `github-appID` | setting argocd.github_app_id | yes | fail | infra | none |
+| `argocd/argocd-notifications-secret` | `github-installationID` | setting argocd.github_app_installation_id | yes | fail | infra | none |
+| `argocd/argocd-notifications-secret` | `github-privateKey` | keyring `argocd_github_app_private_key` | yes | adopt the live value; else fail | infra | none |
 | `argocd/argocd-notifications-secret` | `mattermost-deploys-url` | derived from keyring mattermost_deploys_hook | no | skip with a warning | infra | none |
 | `gitea/gitea-admin` | `username` | literal | yes | fail | gitea | `deployment/gitea` |
 | `gitea/gitea-admin` | `password` | keyring `gitea_admin_password` | yes | adopt the live value; else fail | gitea | `deployment/gitea` |
@@ -1153,7 +1153,7 @@ Every Application sets `enabled: true` under `spec.syncPolicy.automated` in git,
 
 ### Notifications
 
-Argo CD delivers notifications to Mattermost when the `devops` application deploys successfully and when any application sync fails.
+Argo CD delivers notifications to Mattermost when the `devops` application deploys successfully and when any application sync fails. It also writes a GitHub deployment for each deploy of an Application that has one GitHub source.
 
 1. **Create an Incoming Webhook in Mattermost**:
    - In Mattermost, open Main Menu > Integrations > Incoming Webhooks > Add Incoming Webhook.
@@ -1174,7 +1174,15 @@ The notifications controller reads the derived URL from `argocd/argocd-notificat
 - **Application deploys**: When the `devops` application finishes a sync and reaches Healthy status (`on-deployed`), a notification posts to the deploys channel. Other applications do not trigger deploy posts to prevent notification clutter.
 - **Application sync failures**: When any application sync fails (`on-sync-failed`), a failure notification posts to the deploys channel with the error message.
 - **Persistent OutOfSync or Degraded states**: Not handled by this webhook; issue #551 monitors lasting conditions through Prometheus metrics and Alertmanager alerts.
-- **GitHub deployment status tracking**: Owned separately by issue #1387.
+- **GitHub deployments**: Each Application under `k8s/argocd/apps/` that has one `spec.source` on github.com carries the annotation `notifications.argoproj.io/subscribe.on-deployed.github: ""`.
+  - When such an Application finishes a sync and reaches Healthy status (`on-deployed`), the notifier `service.github` writes a GitHub deployment for the synced commit. The environment is the Application name, and the status is `success`.
+  - The trigger fires once for each value of `operationState.syncResult.revision`. This is the revision that the notifier reads. The `status.sync.revision` value moves to a new commit before its sync runs, so the trigger does not use it.
+  - The notifier acts as the GitHub App `devops-cli-argocd`. It reads the keys `$github-appID`, `$github-installationID` and `$github-privateKey` of `argocd/argocd-notifications-secret` (see Cluster Secrets). The App needs only the repository permission Deployments (read and write).
+  - The deployment sets `autoMerge: false` and no required check. So GitHub reads no commit status and writes no branch.
+  - A multi-source Application sets neither `spec.source` nor `syncResult.revision`, so it carries no annotation.
+  - The notification posts to `api.github.com` on TCP port 443. The perimeter network policy allows it.
+  - List the deployments with `devops gh api "repos/<owner>/<name>/deployments?environment=<application>"`. A failed sync writes no GitHub deployment.
+  - The engine builds all notifiers together. If one of the three keys is missing or the private key is not valid, no notification posts, including the Mattermost alerts. So the secret push requires the three keys, and it fails when one has no value.
 
 ### Replaced Hand Steps
 
