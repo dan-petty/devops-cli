@@ -17,4 +17,4 @@
 - **Add a new blocking type.**: A new type changes the schema, the prompt, the spec, the nine-type test and the golden set, and it duplicates `criterion_dropped`.
 - **Flag each group that changes only test files in code.**: The last group of the plan of #3410 changes only fixture files and a test file, and it delivers its criterion. A code rule refuses the good case that this change keeps good.
 - **Open a finding with no quote.**: A finding with no quote shows no text of the input, so a person cannot check it. The rule of #3264 keeps it as advice.
-- **Use the example of #3435 as the bad case.**: The plan of #3410 is correct, and its recorded case has the field that the replay needs. The bad case removes the group that adds the field.
+- **Use the example of the issue as the bad case.**: The merged plan of #3410 is correct, and its recorded case has the field that the replay needs. The bad case removes the group that adds the field.
