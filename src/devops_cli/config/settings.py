@@ -1677,6 +1677,21 @@ def _match_dir_candidate(d: Path, candidate_names: tuple[str, ...]) -> Path | No
     return None
 
 
+def project_config_directories(start_dir: Path) -> Iterator[Path]:
+    """The directories whose project config file counts, nearest first.
+
+    `start_dir` always counts. An ancestor counts only when it is a project root, which holds
+    `.git` or `.devcontainer`, and the first project root ends the walk. A `config.yaml` in a
+    shared directory, such as the system temporary directory, is so no project config (#3585).
+    """
+    for d in (start_dir, *start_dir.parents):
+        is_project_root = (d / ".git").exists() or (d / ".devcontainer").exists()
+        if d == start_dir or is_project_root:
+            yield d
+        if is_project_root:
+            return
+
+
 def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
     """Locate candidate project/devcontainer config file from env, base_dir, or ancestor directories.
 
@@ -1686,6 +1701,11 @@ def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
     is a feature for the user's own repositories, and naming one is the explicit opt-in. The walk
     still runs in devops-cli's own repository, whose code already runs in this process
     (`reads_untrusted_trees`, `core.repo.is_own_source_repository`).
+
+    The walk goes up from the base directory. It takes a config file in the base directory, and in
+    an ancestor only when that ancestor is a project root: it holds `.git` or `.devcontainer`. The
+    walk ends at the first project root. So a stray `config.yaml` in a shared directory, such as
+    the system temporary directory, is no project config (#3585).
     """
     env_config = os.environ.get(PROJECT_CONFIG_ENV)
     if env_config:
@@ -1695,13 +1715,10 @@ def _find_project_config_path(base_dir: Path | None = None) -> Path | None:
     if reads_untrusted_trees():
         return None
 
-    start_dir = (base_dir or Path.cwd()).resolve()
-    for d in (start_dir, *start_dir.parents):
+    for d in project_config_directories((base_dir or Path.cwd()).resolve()):
         candidate = _match_dir_candidate(d, PROJECT_CONFIG_CANDIDATES)
         if candidate is not None:
             return candidate
-        if (d / ".git").exists() or (d / ".devcontainer").exists():
-            break
     return None
 
 

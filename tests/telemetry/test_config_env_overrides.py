@@ -149,6 +149,52 @@ def test_the_project_config_skips_a_directory(
     assert (skipped, settings.config_layer_paths()[1]) == (None, non_existent.resolve())
 
 
+@pytest.mark.parametrize(
+    ("marker", "config_name", "found"),
+    [
+        pytest.param(None, "config.yaml", False, id="no-marker-ignored"),
+        pytest.param(".git", "config.yaml", True, id="git-root-accepted"),
+        pytest.param(
+            ".devcontainer", ".devcontainer/config.yaml", True, id="devcontainer-accepted"
+        ),
+    ],
+)
+def test_project_config_search_takes_an_ancestor_file_only_at_a_project_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    marker: str | None,
+    config_name: str,
+    found: bool,
+) -> None:
+    """A `config.yaml` in the parent of the base directory counts only when the parent is a
+    project root. A stray file in a shared directory, such as `/tmp`, is no project config."""
+    monkeypatch.delenv("DEVOPS_CLI_CONFIG", raising=False)
+    parent = tmp_path / "parent"
+    base = parent / "base"
+    base.mkdir(parents=True)
+    config_file = parent / config_name
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file.write_text("ssh:\n  key_prefix: stray\n", encoding="utf-8")
+    if marker == ".git":
+        (parent / ".git").mkdir()
+
+    resolved = settings._find_project_config_path(base_dir=base)
+
+    assert resolved == (config_file.resolve() if found else None)
+
+
+def test_project_config_search_takes_the_file_of_the_base_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The base directory needs no project marker to hold its own config."""
+    monkeypatch.delenv("DEVOPS_CLI_CONFIG", raising=False)
+    base = tmp_path / "base"
+    base.mkdir()
+    (base / "config.yaml").write_text("ssh: {}\n", encoding="utf-8")
+
+    assert settings._find_project_config_path(base_dir=base) == (base / "config.yaml").resolve()
+
+
 _TELEMETRY_VARIABLES = (
     "DEVOPS_CLI_TELEMETRY_ENABLED",
     "DEVOPS_CLI_TELEMETRY_ENDPOINT",
