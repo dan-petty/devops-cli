@@ -784,10 +784,13 @@ def test_git_waits_before_looking_again_after_a_failed_lookup(
     with patch("subprocess.run", return_value=_gh_answers(returncode=1)) as run:
         run_subprocess(["git", "status"])
         run_subprocess(["git", "status"])
-        clock.shift(DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS)
+        clock.shift(DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS - 1)
+        run_subprocess(["git", "status"])
+        clock.shift(1)
         run_subprocess(["git", "status"])
     assert [call.args[0][0] for call in run.call_args_list] == [
         CONST_GH_CLI,
+        "git",
         "git",
         "git",
         CONST_GH_CLI,

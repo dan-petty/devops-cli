@@ -47,9 +47,7 @@ def test_run_json_subprocess_raises_on_nonzero_returncode(process_fake: ProcessF
     with pytest.raises(DevOpsCLIError) as exc_info:
         run_json_subprocess(["kubectl", "get", "pods"])
 
-    assert "namespace not found" in str(exc_info.value) or "Subprocess failed" in str(
-        exc_info.value
-    )
+    assert "namespace not found" in str(exc_info.value)
 
 
 def test_run_json_subprocess_handles_malformed_json_with_default(
