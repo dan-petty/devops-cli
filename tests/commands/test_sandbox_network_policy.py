@@ -12,7 +12,6 @@ import pytest
 import yaml
 from pydantic import ValidationError as PydanticValidationError
 
-import devops_cli.main  # noqa: F401  # loaded here, not in a test: MCP dispatches through it
 from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
 )
@@ -847,6 +846,7 @@ def test_no_policy_opens_the_cache_port(mode: str, allow_collector: bool) -> Non
     assert 6379 not in ports
 
 
+@pytest.mark.usefixtures("cli")  # loads devops_cli.main, which the MCP tools dispatch through
 def test_the_mcp_tool_asks_for_the_collector_lane_only_when_told_to() -> None:
     """`sandbox_network_policy(allow_collector=True)` adds the collector lane to the policy it prints."""
     from devops_cli.ai.mcp.server import sandbox_network_policy

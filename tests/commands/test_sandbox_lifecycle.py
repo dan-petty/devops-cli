@@ -7,7 +7,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import devops_cli.main  # noqa: F401  # loaded here, not in a test: MCP dispatches through it
+import pytest
+
 from devops_cli.sandbox.models import SandboxInstance, SandboxStatus
 from devops_cli.sandbox.registry import SandboxRegistry
 from tests.support.fakes.docker_engine import DockerEngineFake
@@ -153,6 +154,7 @@ def test_cli_sandbox_exec(
     assert res_fail.exit_code == 42
 
 
+@pytest.mark.usefixtures("cli")  # loads devops_cli.main, which the MCP tools dispatch through
 def test_fastmcp_sandbox_tools(
     tmp_path: Path, monkeypatch: Any, docker_daemon: DockerEngineFake
 ) -> None:
