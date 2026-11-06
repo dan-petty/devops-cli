@@ -49,10 +49,10 @@ plan and the files that the plan cites, and reads the repository with the read t
 of the task `verification` (#3039). A finding of the type `missing_path`, `false_premise`,
 `ignores_existing_code`, `task_order` or `verify_form` that quotes its evidence sends the plan back
 to the planner, up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039). The planner gets
-each open finding of that round. A finding of such a type, of `spec_delta_wrong`, or one that
-reports a placeholder is open: if the last review repeats it, the job keeps the draft with the
-label `plan/needs-fix` and puts the finding first in the comment (#3264). The comment lists every
-other finding of each round (#3039).
+each open finding of that round. A finding of such a type, of `spec_delta_wrong` or
+`criterion_dropped`, or one that reports a placeholder is open: if the last review repeats it, the
+job keeps the draft with the label `plan/needs-fix` and puts the finding first in the comment
+(#3264). The comment lists every other finding of each round (#3039).
 The review never merges and never marks a draft ready. `plan_item` plans one item with a given client
 and checkout: the golden set of the job runs
 it on each case (`stage_eval_run`, #3028). The plan writes nothing to git or to GitHub. A model call

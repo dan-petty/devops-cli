@@ -55,7 +55,7 @@ def test_every_gate_still_refuses_every_known_bad_plan_it_must(cases: list[Stage
 def test_each_good_plan_passes_every_gate(cases: list[StageCase]) -> None:
     report = replay_all(cases)
 
-    assert report.good() == (3, 3)
+    assert report.good() == (4, 4)
     assert all(not r.refused for r in report.replays if r.case.verdict is Verdict.GOOD)
 
 
@@ -107,7 +107,7 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
     assert counts[DefectType.VERIFY_FORM] == (6, 0, 12)
     assert counts[DefectType.TASK_ORDER] == (0, 0, 8)
     assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)
-    assert report.judged() == (69, 305)
+    assert report.judged() == (69, 306)
 
 
 def test_the_judged_share_counts_the_caught_and_the_missed_and_not_the_rest(

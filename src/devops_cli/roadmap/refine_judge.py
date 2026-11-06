@@ -35,10 +35,12 @@ if TYPE_CHECKING:
     from devops_cli.roadmap.stage import StageClient
 
 # The open types of this review (#3039). A proposal of refine holds no task group and no verify
-# command, so a `task_order` or a `verify_form` finding on it is advice and refuses no item.
+# command, so a `task_order`, a `verify_form` or a `criterion_dropped` finding on it is advice and
+# refuses no item (#3448).
 JUDGE_OPEN_TYPES: Final[frozenset[DefectType]] = OPEN_TYPES - {
     DefectType.TASK_ORDER,
     DefectType.VERIFY_FORM,
+    DefectType.CRITERION_DROPPED,
 }
 
 

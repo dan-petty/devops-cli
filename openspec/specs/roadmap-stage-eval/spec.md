@@ -186,7 +186,7 @@ The JSON report and the printed score of a live run SHALL state the input tokens
 
 #### Scenario: The workflow document states the threshold
 - **WHEN** a test reads the stage measurement section of `docs/ROADMAP_WORKFLOW.md`
-- **THEN** it holds the recall threshold, the rule for the 3 good plans and the share of live plans
+- **THEN** it holds the recall threshold, the rule for the good plans of the golden set and the share of live plans
 
 #### Scenario: The workflow document names the baseline procedure
 - **WHEN** a test reads the stage measurement section
@@ -209,3 +209,18 @@ The report SHALL state the recall floor `CONST_ROADMAP_VERIFY_RECALL_FLOOR` and 
 #### Scenario: The report states the floor
 - **WHEN** the command runs on the set
 - **THEN** the report states the floor of 90 percent of the blocker and major defects and whether the recall of those defects reaches it
+
+### Requirement: The golden set holds a test-only group that delivers its criterion and the same plan without the code
+The golden set SHALL hold the merged plan of #3410 as a `good` case, and a reviewed case whose plan is the same plan without the group that adds the field of the case model. The reviewed case SHALL hold one `criterion_dropped` defect with the gate `none` and a `reason`. In both plans the group that adds the case of a move of the stage modules SHALL change only test files and fixture files.
+
+#### Scenario: The replay lists the dropped criterion
+- **WHEN** The stage eval replay runs the reviewed case of #3410.
+- **THEN** The report lists one `criterion_dropped` defect with the gate `none`, and no gate refuses the plan.
+
+#### Scenario: The good twin passes every gate
+- **WHEN** The stage eval replay runs the good case of #3410.
+- **THEN** Every gate accepts the plan, and the case is the twin of the reviewed case.
+
+#### Scenario: The two plans differ by one group
+- **WHEN** The groups of the two plans are compared.
+- **THEN** The reviewed plan holds the groups of the good plan except the group that changes `src/devops_cli/roadmap/stage_eval_cases.py`.

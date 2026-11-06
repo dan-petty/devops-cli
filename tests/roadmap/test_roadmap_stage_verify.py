@@ -211,8 +211,8 @@ def test_a_return_type_with_a_quote_in_the_input_returns_the_plan() -> None:
     assert returning(findings, given) == [findings[0]]
 
 
-def test_the_open_types_add_the_spec_delta_to_the_return_types() -> None:
-    assert OPEN_TYPES == RETURN_TYPES | {DefectType.SPEC_DELTA_WRONG}
+def test_the_open_types_add_the_spec_delta_and_the_dropped_criterion_to_the_return_types() -> None:
+    assert OPEN_TYPES == RETURN_TYPES | {DefectType.SPEC_DELTA_WRONG, DefectType.CRITERION_DROPPED}
     assert PLAN_NEEDS_FIX_LABEL == "plan/needs-fix"
 
 
@@ -229,6 +229,89 @@ def test_an_open_finding_is_a_listed_type_or_a_placeholder_with_a_quote_in_the_i
     ]
 
     assert open_findings(findings, given) == [findings[0], findings[1]]
+
+
+CRITERION = "The stage eval case MUST hold the plan of #3378 and its recorded search evidence."
+# The plan of group 4 of #3410: the criterion names a case of the golden set, and the group writes
+# only a fixture and a test file. No group changes the code that gives the case its field.
+TEST_ONLY_PLAN = {
+    "groups": [
+        {
+            "title": "Read the evidence in the replay",
+            "reads": ["src/devops_cli/roadmap/stage_eval_cases.py"],
+            "changes": ["tests/roadmap/test_roadmap_stage_eval_cases.py"],
+        },
+        {
+            "title": "Add the case of a move of the stage modules",
+            "reads": ["src/devops_cli/roadmap/stage_eval_cases.py"],
+            "changes": [
+                "tests/fixtures/roadmap_eval/stage/3372-the-stage-plan-of-a-module/facts.json",
+                "tests/roadmap/test_roadmap_stage_negative_search.py",
+            ],
+        },
+    ]
+}
+
+
+def _test_only_input() -> VerificationInput:
+    return VerificationInput.of(
+        number=3410,
+        title="fix(roadmap): the stage gate proves a negative search",
+        body=f"## Acceptance criteria\n\n- {CRITERION}\n",
+        plan=TEST_ONLY_PLAN,
+        source=Path("/nonexistent"),
+    )
+
+
+def test_a_dropped_criterion_finding_of_a_test_only_group_with_a_quote_in_the_input_is_open() -> (
+    None
+):
+    given = _test_only_input()
+    finding = Finding(
+        type=DefectType.CRITERION_DROPPED,
+        where="group 2",
+        problem="The group writes only a fixture and a test, and no group adds the field.",
+        quote=CRITERION,
+    )
+
+    assert open_findings([finding], given) == [finding]
+
+
+def test_a_dropped_criterion_finding_with_no_quote_in_the_input_is_advice() -> None:
+    given = _test_only_input()
+    invented = Finding(
+        type=DefectType.CRITERION_DROPPED,
+        where="group 2",
+        problem="The group writes only a test.",
+        quote="The case MUST hold a field that the issue never names.",
+    )
+    unquoted = Finding(
+        type=DefectType.CRITERION_DROPPED, where="group 2", problem="The group writes only a test."
+    )
+
+    assert open_findings([invented, unquoted], given) == []
+
+
+def test_a_dropped_criterion_finding_does_not_return_the_plan_to_the_planner() -> None:
+    given = _test_only_input()
+    finding = Finding(
+        type=DefectType.CRITERION_DROPPED, where="group 2", problem="No code.", quote=CRITERION
+    )
+
+    assert returning([finding], given) == []
+
+
+def test_the_dropped_criterion_type_names_a_test_only_group_and_one_that_delivers() -> None:
+    line = next(
+        line
+        for line in load_task_prompt("roadmap_stage_verify.md").splitlines()
+        if line.startswith("- `criterion_dropped`")
+    )
+
+    assert "changes only test files" in line
+    assert "no group of the plan changes the code" in line
+    assert "when an earlier group changes that code" in line
+    assert "is no `criterion_dropped`" in line
 
 
 def test_the_open_findings_section_lists_each_open_finding_first() -> None:
