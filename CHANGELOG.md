@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.64.2](https://github.com/dan-petty/devops-cli/compare/v0.64.1...v0.64.2) (2026-11-06)
+
+
+### Bug Fixes
+
+* **k8s:** keep grafana, prometheus and loki off the control-plane node ([#3723](https://github.com/dan-petty/devops-cli/issues/3723)) ([34010d6](https://github.com/dan-petty/devops-cli/commit/34010d6041ca9127243748c8fb3acfe90224b5cd))
+* **roadmap:** keep a plan with a dropped criterion in draft ([#3718](https://github.com/dan-petty/devops-cli/issues/3718)) ([dacaf57](https://github.com/dan-petty/devops-cli/commit/dacaf57ff0f1345007757ccabfe7d6ac73d6780c))
+* **roadmap:** the alternatives check reads the ADRs and the item ([#3714](https://github.com/dan-petty/devops-cli/issues/3714)) ([a22260c](https://github.com/dan-petty/devops-cli/commit/a22260c44849a2a66960461f1b6c701ada54a619))
+
 ## [0.64.1](https://github.com/dan-petty/devops-cli/compare/v0.64.0...v0.64.1) (2026-11-06)
 
 
