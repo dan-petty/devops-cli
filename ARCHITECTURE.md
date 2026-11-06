@@ -142,6 +142,7 @@ flowchart TD
    - Secrets are managed exclusively through OS Keyring (`keyring`), isolating API tokens and credentials from git commits, environment dumps, and config files.
 2. **SSRF Guardrails (`devops_cli.http.egress`)**:
    - Every HTTP client is built by `devops_cli.http.client`. It resolves each host once, at the connect, and dials only the addresses its egress level admits (public, loopback or private), checked against RFC 1918, loopback, link-local and cloud metadata ranges. Kept pre-flight checks (Qdrant, kubectl manifest apply, container engine endpoint, config init wizard) call `vet_addresses` directly at their level. Cloud metadata is refused at every level, and TLS still verifies the hostname.
+   - Every lookup of these checks goes through one resolver seam in `devops_cli.http.egress`: the `Resolver` Protocol, `SystemResolver` (`socket.getaddrinfo`, and `anyio.getaddrinfo` for the async lookup) and the hook `set_resolver`, which returns the resolver it replaces. `reset_resolver` restores the system resolver.
 3. **Safe Subprocess Execution**:
    - All external binary invocations (`git`, `kubectl`, `trivy`, `docker`) use explicit argument arrays with `shell=False` and deterministic timeout boundaries.
 

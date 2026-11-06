@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import ipaddress
 import socket
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 import anyio
 import httpcore2
@@ -36,6 +36,54 @@ if TYPE_CHECKING:
 
 IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 ConnectFailure = httpcore2.ConnectError | httpcore2.ConnectTimeout
+AddressAnswer = tuple[Any, ...]
+"""One answer of `socket.getaddrinfo`: family, type, protocol, canonical name and socket address."""
+
+
+class Resolver(Protocol):
+    """The DNS lookup of the egress checks: a host and port to `socket.getaddrinfo` answers.
+
+    A lookup that finds no address raises `socket.gaierror`. The async lookup raises
+    `TimeoutError` when it outlasts `timeout`; the sync lookup has no timeout, as
+    `socket.getaddrinfo` has none.
+    """
+
+    def lookup(self, host: str, port: int) -> Sequence[AddressAnswer]:
+        """Resolve `host` for a stream socket to `port`."""
+
+    async def alookup(self, host: str, port: int, timeout: float | None) -> Sequence[AddressAnswer]:
+        """Resolve `host` off the event loop, within `timeout` seconds if it is not None."""
+
+
+class SystemResolver:
+    """The real resolver: `socket.getaddrinfo`, and `anyio.getaddrinfo` for the async lookup."""
+
+    def lookup(self, host: str, port: int) -> Sequence[AddressAnswer]:
+        return socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+
+    async def alookup(self, host: str, port: int, timeout: float | None) -> Sequence[AddressAnswer]:
+        with anyio.fail_after(timeout):
+            return await anyio.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+
+
+_resolver: Resolver = SystemResolver()
+
+
+def get_resolver() -> Resolver:
+    """The resolver that `vet_addresses` and `avet_addresses` ask."""
+    return _resolver
+
+
+def set_resolver(resolver: Resolver) -> Resolver:
+    """Install `resolver` for every later lookup, and return the one it replaces."""
+    global _resolver
+    previous, _resolver = _resolver, resolver
+    return previous
+
+
+def reset_resolver() -> None:
+    """Install the system resolver."""
+    set_resolver(SystemResolver())
 
 
 class EgressLevel(StrEnum):
@@ -100,7 +148,7 @@ def _refuse_metadata_name(host: str, port: int) -> None:
 
 
 def _vetted(
-    host: str, port: int, answers: Iterable[tuple[Any, ...]], level: EgressLevel
+    host: str, port: int, answers: Iterable[AddressAnswer], level: EgressLevel
 ) -> list[str]:
     """The answers' addresses in order, or SSRFBlockedError if any one of them is unsafe.
 
@@ -130,7 +178,7 @@ def vet_addresses(host: str, port: int, level: EgressLevel) -> list[str]:
     """
     _refuse_metadata_name(host, port)
     try:
-        answers = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        answers = _resolver.lookup(host, port)
     except (OSError, UnicodeError) as exc:
         raise httpcore2.ConnectError(str(exc)) from exc
     return _vetted(host, port, answers, level)
@@ -142,8 +190,7 @@ async def avet_addresses(
     """`vet_addresses` for async clients: the lookup runs off the event loop, within `timeout`."""
     _refuse_metadata_name(host, port)
     try:
-        with anyio.fail_after(timeout):
-            answers = await anyio.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        answers = await _resolver.alookup(host, port, timeout)
     except TimeoutError as exc:
         raise httpcore2.ConnectTimeout(f"Lookup of {host!r} timed out") from exc
     except (OSError, UnicodeError) as exc:
@@ -244,8 +291,13 @@ class AsyncVettingBackend(httpcore2.AsyncNetworkBackend):
 __all__ = [
     "AsyncVettingBackend",
     "EgressLevel",
+    "Resolver",
+    "SystemResolver",
     "VettingBackend",
     "avet_addresses",
     "configured_level",
+    "get_resolver",
+    "reset_resolver",
+    "set_resolver",
     "vet_addresses",
 ]
