@@ -1,0 +1,23 @@
+"""Tests for `devops {{ group }} {{ name }}`."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
+
+import pytest
+
+from devops_cli.exceptions.base import DevOpsCLIError
+
+
+def test_{{ field }}_prints_its_done_message(cli: Callable[..., Any]) -> None:
+    """Replace this failing test with the output and exit code of the command."""
+    result = cli("{{ group }}", "{{ name }}")
+
+    assert (result.exit_code, result.output) == (0, "Write the expected output.")
+
+
+def test_{{ field }}_refuses_what_it_cannot_do() -> None:
+    """Replace this failing test with a refusal that the command raises."""
+    with pytest.raises(DevOpsCLIError, match="Write the words of the error message"):
+        pytest.fail("Call the code that must refuse, inside this block.")

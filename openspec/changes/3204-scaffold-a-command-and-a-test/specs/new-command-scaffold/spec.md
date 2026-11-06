@@ -64,7 +64,7 @@ The test module that the scaffold writes SHALL ask for the shared fake fixture o
 - **THEN** The test asks for the `github_api` fixture.
 
 ### Requirement: The scaffold refuses to write over a file
-The scaffold SHALL write no file when any target path exists, SHALL name each existing path, and SHALL exit nonzero.
+The scaffold SHALL write no file when a file that it creates exists, or when the group module or a language class already holds the function or the entry that it adds. It SHALL name each path, and SHALL exit nonzero.
 
 #### Scenario: An existing target is refused
 - **WHEN** A user runs the same scaffold command twice.

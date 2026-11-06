@@ -11,6 +11,7 @@ Complete command-line reference for `devops-cli`, automatically generated from C
 - [`devops workspace`](#devops-workspace) — Manage multi-root VS Code workspace files (.code-workspace).
 - [`devops install-tools`](#devops-install-tools) — Install and manage DevOps tool binaries.
 - [`devops openspec`](#devops-openspec) — Check the OpenSpec change folders, regenerate the agent skills and archive a change.
+- [`devops new`](#devops-new) — Write the files of a new command or a new test in project form.
 - [`devops k8s`](#devops-k8s) — Manage Kubernetes clusters, pods, services, and workloads.
 - [`devops kustomize`](#devops-kustomize) — Kustomize build and apply operations.
 - [`devops docker`](#devops-docker) — Docker image management.
@@ -744,6 +745,53 @@ devops openspec archive <change>
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `<change>` | `string` | Yes | Name of the change folder under openspec/changes, as \<issue\>-\<slug\>. |
+
+---
+
+## devops new
+
+Write the files of a new command or a new test in project form.
+
+### `devops new command`
+
+**Add a command to a group that exists: its function, its help and message entries, and a failing test. The command writes over no file and prints the steps that stay manual. The page of the group is docs/commands/\<group\>.md.**
+
+```bash
+devops new command [OPTIONS] <group> <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<group>` | `string` | Yes | Name of the group module under src/devops_cli/commands. |
+| `<name>` | `string` | Yes | Name of the new command, in lower case with hyphens. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops new test`
+
+**Write the test file of a module of src/devops_cli at its mirror path under tests, with the fixtures of the edges the module reaches. The command writes over no file. The page is docs/TESTING.md.**
+
+```bash
+devops new test [OPTIONS] <module>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<module>` | `string` | Yes | Path of the source module, such as src/devops_cli/config/constants.py. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 

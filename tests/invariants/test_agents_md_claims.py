@@ -27,8 +27,8 @@ from devops_cli.config.constants import (
     CONST_AGENTS_MD_ROUTES,
     CONST_DOCS_CLASS_GENERATED,
     CONST_DOCS_CLASS_HAND_WRITTEN,
-    CONST_DOCS_INVENTORY,
 )
+from devops_cli.docs.inventory import documents_of_class
 from tests.support.markdown_tables import routing_rows, tables, where_to_look
 from tests.support.paths import REPO_ROOT
 
@@ -327,8 +327,7 @@ def test_every_hand_written_and_generated_document_is_within_two_links_of_agents
     documents = sorted(
         path.resolve()
         for kind in (CONST_DOCS_CLASS_HAND_WRITTEN, CONST_DOCS_CLASS_GENERATED)
-        for pattern in CONST_DOCS_INVENTORY[kind]
-        for path in REPO_ROOT.glob(pattern)
+        for path in documents_of_class(REPO_ROOT, kind)
     )
 
     assert (

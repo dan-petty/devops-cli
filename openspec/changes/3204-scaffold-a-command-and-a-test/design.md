@@ -2,14 +2,14 @@
 
 ## Decisions
 
-- **Render a built-in template set from a module beside the command, and edit the target files through that set.**: The project has few templates and needs offline runs. The scaffold must also insert a function into a Python module and an entry into the language folder, which Copier does not do.
+- **Render a built-in template set with the project's `render_template`, and edit the target files at the positions that `ast` reports.**: The project has few templates and needs offline runs. The templates are `.j2` files in `src/devops_cli/templates/`, the place of its other templates. The scaffold must also insert a function into a Python module and an entry into the language folder, which Copier does not do.
 - **Derive the MCP excluded set as every command of the tree that `CONST_MCP_EXPOSURE_TABLE` does not name, and keep the exposure table manual.**: Exposure over MCP is an explicit opt-in, and the command tree does not say which commands are safe to expose. A new command is then unexposed with no hand edit.
 - **Make the hand-written class of `CONST_DOCS_INVENTORY` the complement of its other classes.**: A new hand-written page needs no inventory edit, and a file that no other class claims still lands in one class that the check reads.
 - **State the mirror path as the one test-location rule in `docs/TESTING.md`.**: The stage gate of #3015 wants the mirror folder, and one rule removes the conflict that the issue records.
 - **Put the group at `src/devops_cli/commands/new.py` as a top-level `devops new`.**: `src/devops_cli/main.py` registers the top-level groups in `_COMMAND_SPECS`, and no `dev` group exists.
 - **Declare the dry-run class of each scaffold command with the `@dry_run_class` decorator on the command function.**: The ratchet `tests/invariants/test_dry_run_class_ratchet.py` reads the decorator of each command and its gaps file, so a decorator on the command keeps the group in the one place that the check reads.
 - **Print only the manual steps that remain.**: A list that the change derives needs no edit, so a checklist entry for it would send the reader to a file that must stay as it is.
-- **Write each template as text held in one module and render it with the paths that the command computes.**: The command computes every target path, so the path rule lives in one place and the refused case is checked before any write.
+- **Compute the whole plan before any write.**: `src/devops_cli/scaffold/plan.py` computes every target path and the full text of every file, so the path rule lives in one place and a refused case is found before any file changes.
 
 - **Commit the skill in `.claude/skills/` and `.agents/skills/`, and test that both hold the same text.**: The project commits its OpenSpec skills in each agent root (`.claude`, `.agents`, `.kilocode`), and an agent reads only its own root, so a skill in one root reaches one agent.
 
