@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import BaseModel, Field
 
 
@@ -57,37 +55,10 @@ class PackageIntelRequest(BaseModel):
     ecosystem: str = Field(default="PyPI", description="Package ecosystem (PyPI, npm, Go, Maven)")
 
 
-class PackageIntelResult(BaseModel):
-    """Vulnerability and threat intelligence lookup result for a package."""
-
-    package_name: str = Field(..., description="Queried package name")
-    version: str = Field(default="", description="Queried package version")
-    ecosystem: str = Field(default="PyPI", description="Package ecosystem")
-    is_vulnerable: bool = Field(default=False, description="Whether known CVEs or advisories exist")
-    vulnerabilities_count: int = Field(default=0, description="Total count of matching advisories")
-    advisories: list[dict[str, Any]] = Field(
-        default_factory=list, description="Detailed advisory records from OSV"
-    )
-    security_status: str = Field(default="Clean", description="High-level security evaluation")
-
-
 class NetworkIntelRequest(BaseModel):
     """Request parameters for querying network target threat intelligence."""
 
     target: str = Field(..., description="IP address, domain name, or URL endpoint")
-
-
-class NetworkIntelResult(BaseModel):
-    """Threat intelligence and reputation report for a network target."""
-
-    target: str = Field(..., description="Target IP or hostname queried")
-    target_type: str = Field(default="domain", description="Target classification (ip | domain)")
-    is_malicious: bool = Field(default=False, description="Whether target is flagged as malicious")
-    risk_level: str = Field(default="LOW", description="Evaluated risk level")
-    open_ports: list[int] = Field(default_factory=list, description="Discovered open ports")
-    reputation_summary: str = Field(
-        default="Safe", description="High-level reputation summary from Shodan/Cloudflare"
-    )
 
 
 class UvAuditRequest(BaseModel):

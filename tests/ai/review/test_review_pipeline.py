@@ -779,9 +779,14 @@ def test_review_pipeline_dependency_and_network_auditing() -> None:
     )
 
     # 3. Audit network references
-    net_clean = NetworkReference(target="127.0.0.1", reference_type="ip", is_local=True)
+    net_clean = NetworkReference(
+        target="127.0.0.1", reference_type="ip", is_local=True, security_status="✓ Safe"
+    )
     net_mal = NetworkReference(
-        target="https://malicious-site.cc", reference_type="url", is_local=False
+        target="https://malicious-site.cc",
+        reference_type="url",
+        is_local=False,
+        security_status="✓ Safe",
     )
     net_cache = {
         "https://malicious-site.cc": NetworkReputationRecord(

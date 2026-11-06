@@ -30,6 +30,7 @@ def test_a_network_reference_location_is_its_file_and_line() -> None:
         reference_type="url",
         source_file="src/client.py",
         line_number=88,
+        security_status="✓ Safe",
     )
 
     assert reference.location == "src/client.py:88"
