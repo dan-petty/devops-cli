@@ -16,7 +16,7 @@ from devops_cli.github.pr_threads import (
     unresolve_thread_args,
 )
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.github_store import label_args, repository_file_args
+from devops_cli.roadmap.stores.github_store import label_args, repository_file_args
 from devops_cli.roadmap.title_labels import requested_labels
 
 

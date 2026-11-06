@@ -279,7 +279,7 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
             labels={"repo": repo, "source": CONST_SERVICE_SOURCE_WEBHOOK},
         )
         from devops_cli.roadmap.run import SCOPED_UPDATES, WebhookDelivery, run_scoped_update
-        from devops_cli.roadmap.store import get_roadmap_store
+        from devops_cli.roadmap.stores.store import get_roadmap_store
 
         scoped = SCOPED_UPDATES.get((event, action))
         if (

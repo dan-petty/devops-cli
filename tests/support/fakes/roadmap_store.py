@@ -18,7 +18,7 @@ A job's write of a field compares the issue's value with the value the store las
 that field, else with the value of the Item the caller passes, as the GitHub adapter does: a
 person's change since raises before anything changes.
 
-`tests/roadmap/test_roadmap_store_contract.py` holds the fake to `GitHubRoadmapStore`, so a test
+`tests/roadmap/stores/test_roadmap_store_contract.py` holds the fake to `GitHubRoadmapStore`, so a test
 can rely on it for the promises the GitHub adapter keeps.
 
 A test makes a job's write fail as a `gh` call fails part-way through a run with `fail_write`: a
@@ -37,7 +37,7 @@ from typing import Any, Concatenate, cast
 
 from devops_cli.config.constants import CONST_GH_ISSUE_STATE_REASON_REOPENED
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.stores.store import (
     Candidate,
     Change,
     ChangeKind,

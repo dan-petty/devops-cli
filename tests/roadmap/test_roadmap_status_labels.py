@@ -11,7 +11,7 @@ import yaml
 from devops_cli.github.merge_readiness import ClosingRead
 from devops_cli.roadmap import pull_status
 from devops_cli.roadmap.grounding import ClosingIssue
-from devops_cli.roadmap.store import FIELD_VALUES, ItemField, field_label
+from devops_cli.roadmap.stores.store import FIELD_VALUES, ItemField, field_label
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"

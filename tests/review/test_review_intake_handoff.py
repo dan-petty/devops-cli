@@ -40,8 +40,8 @@ from devops_cli.review.handoff import (
     run_hand_off,
 )
 from devops_cli.review.session import ReviewSessionStore
-from devops_cli.roadmap.intake import Filer, Outcome
-from devops_cli.roadmap.intake_model import GatewayIntakeModel
+from devops_cli.roadmap.intake.intake import Filer, Outcome
+from devops_cli.roadmap.intake.intake_model import GatewayIntakeModel
 from tests.support.builders import make_finding
 from tests.support.fakes.github import API, github_json, quota_headers
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore

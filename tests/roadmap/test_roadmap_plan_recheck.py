@@ -16,8 +16,8 @@ from devops_cli.roadmap.plan_recheck import (
     refusals_by_gate,
     render_recheck,
 )
-from devops_cli.roadmap.stage_change import StageProposal, render_change
-from devops_cli.roadmap.store import GitHubState, ItemField
+from devops_cli.roadmap.stage.stage_change import StageProposal, render_change
+from devops_cli.roadmap.stores.store import GitHubState, ItemField
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import VALID_REPORT, StageRepo, validate_args

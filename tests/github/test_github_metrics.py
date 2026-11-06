@@ -45,8 +45,8 @@ from devops_cli.github.metrics import (
     parse_tag_datetime,
     reset_refused_paths,
 )
-from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.store import Change, ItemField, RoadmapStore, StageRecordKey
+from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
+from devops_cli.roadmap.stores.store import Change, ItemField, RoadmapStore, StageRecordKey
 from devops_cli.telemetry.instruments import (
     PROJECT_FORKS,
     PROJECT_ITEM_LABELS,

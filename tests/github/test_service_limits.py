@@ -45,7 +45,6 @@ from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticate
 from devops_cli.github import rate_limiter, session_transport
 from devops_cli.github.request_scope import request_labels
 from devops_cli.github.session import get_github_session
-from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.run import (
     FailureLedger,
     JobOutcome,
@@ -55,6 +54,7 @@ from devops_cli.roadmap.run import (
     service_jobs,
     service_state_dir,
 )
+from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from devops_cli.server.service import RequestBudget, ServiceManager, TriggerBatch
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import reset_tracer

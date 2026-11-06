@@ -31,7 +31,7 @@ from devops_cli.review.checkout import is_clean_path_review, why_not_on_merged_c
 from devops_cli.review.filed_findings import finding_marker, read_filed_findings
 from devops_cli.review.fingerprint import is_fingerprint_v2
 from devops_cli.review.session import load_session_payload
-from devops_cli.roadmap.intake import (
+from devops_cli.roadmap.intake.intake import (
     CandidateOutcome,
     Filer,
     IntakePlan,
@@ -41,9 +41,9 @@ from devops_cli.roadmap.intake import (
     intake_candidate,
     render_intake,
 )
-from devops_cli.roadmap.intake_model import IntakeModel
-from devops_cli.roadmap.intake_requests import SpendMeter
-from devops_cli.roadmap.store import RoadmapStore
+from devops_cli.roadmap.intake.intake_model import IntakeModel
+from devops_cli.roadmap.intake.intake_requests import SpendMeter
+from devops_cli.roadmap.stores.store import RoadmapStore
 
 # A verdict that takes a finding out of the hand-off: a person or the review found it not valid,
 # or found that something already stops it.

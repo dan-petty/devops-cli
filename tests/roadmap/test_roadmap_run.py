@@ -65,9 +65,7 @@ from devops_cli.exceptions import (
 )
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
-from devops_cli.roadmap import store as roadmap_store_module
-from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.intake_model import (
+from devops_cli.roadmap.intake.intake_model import (
     ModelEvidence,
     ModelProposal,
     ProposalRequest,
@@ -96,7 +94,9 @@ from devops_cli.roadmap.run import (
     service_jobs,
     service_state_dir,
 )
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.stores import store as roadmap_store_module
+from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
+from devops_cli.roadmap.stores.store import (
     CloseReason,
     Evidence,
     EvidenceKind,
@@ -143,8 +143,8 @@ runner = CliRunner()
 @pytest.mark.parametrize(
     ("module", "adapter_name"),
     [
-        ("devops_cli.roadmap.refine", "_run_refine_adapter"),
-        ("devops_cli.roadmap.stage", "_run_stage_adapter"),
+        ("devops_cli.roadmap.refine.refine", "_run_refine_adapter"),
+        ("devops_cli.roadmap.stage.stage", "_run_stage_adapter"),
     ],
 )
 def test_the_model_job_imports_are_at_module_level_not_lazy_in_the_adapter(
@@ -1664,11 +1664,11 @@ def test_intake_placing_p0_item_makes_no_refine_call_and_refine_is_due_through_c
         intake=NOW - timedelta(minutes=61),
         refine=NOW - timedelta(minutes=5),
     )
-    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.intake"):
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.intake.intake"):
         jobs = _poll_round(store, tmp_path, table=table)
 
     intake_warnings = [
-        r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.intake"
+        r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.intake.intake"
     ]
     item = store.item(num)
     assert (

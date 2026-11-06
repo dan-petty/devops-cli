@@ -7,13 +7,13 @@ from datetime import UTC, datetime
 import pytest
 
 from devops_cli.roadmap.plan_read import PlanReadError, read_change
-from devops_cli.roadmap.stage_change import (
+from devops_cli.roadmap.stage.stage_change import (
     GroupKind,
     StageGroup,
     StageProposal,
     render_change,
 )
-from devops_cli.roadmap.stage_criteria import PENDING_PERSON
+from devops_cli.roadmap.stage.stage_criteria import PENDING_PERSON
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
 
@@ -220,13 +220,13 @@ def _tasks_with(group_text: str) -> dict[str, str]:
 # The group of #3187: `Changes:` names no file in a code span.
 NO_CHANGED_FILE = (
     "## 1. Prove the move\n\n"
-    "Reads: `src/devops_cli/roadmap/store.py`. Changes: each module that names an old path.\n\n"
+    "Reads: `src/devops_cli/roadmap/stores/store.py`. Changes: each module that names an old path.\n\n"
     "- [ ] 1.1 Prove the move. Verify that `uv run devops ci test tests/test_sample.py` passes\n"
 )
 # The group of #3308: `Changes:` names a file of the change folder.
 CHANGE_FOLDER_FILE = (
     "## 1. Fix the plan\n\n"
-    f"Reads: `src/devops_cli/roadmap/store.py`. Changes: `openspec/changes/{CHANGE}/proposal.md`.\n\n"
+    f"Reads: `src/devops_cli/roadmap/stores/store.py`. Changes: `openspec/changes/{CHANGE}/proposal.md`.\n\n"
     "- [ ] 1.1 Fix the plan. Verify that `uv run devops ci test tests/test_sample.py` passes\n"
 )
 
@@ -266,7 +266,7 @@ def test_the_reader_raises_only_a_read_error_over_each_change_folder_of_the_tree
 def _two_tasks(second_verification: str) -> dict[str, str]:
     return _tasks_with(
         "## 1. Render the values\n\n"
-        "Reads: `src/devops_cli/roadmap/store.py`. Changes: `k8s/loki-values.yaml`.\n\n"
+        "Reads: `src/devops_cli/roadmap/stores/store.py`. Changes: `k8s/loki-values.yaml`.\n\n"
         "- [ ] 1.1 Change the values.\n"
         "  - Verification: `uv run devops ci docs`\n"
         "- [ ] 1.2 Document the values.\n"

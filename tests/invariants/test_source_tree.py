@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import ast
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from tests.support.paths import REPO_ROOT
 from tests.support.trees import ParsedTreeMap
@@ -307,3 +310,118 @@ def test_layout_ratchet_flags_orphan_mirror_directory(tmp_path: Path) -> None:
     removed_tests.mkdir(parents=True)
     (tmp_path / "src" / "devops_cli").mkdir(parents=True)
     assert find_orphan_test_directories(tmp_path) == ["legacy_module"]
+
+
+# ── The roadmap package layout (#3187) ───────────────────────────────────────
+
+_ROADMAP_DOTTED = "devops_cli.roadmap"
+_ROADMAP_SRC = REPO_ROOT / "src" / "devops_cli" / "roadmap"
+_ROADMAP_TESTS = REPO_ROOT / "tests" / "roadmap"
+_ROADMAP_JOBS = ("intake", "refine", "stage", "implement")
+_ROADMAP_STORE_MODULES = ("store", "github_store")
+
+
+def _module_stems(directory: Path) -> list[str]:
+    """The names of the modules in `directory`, without the package module."""
+    return sorted(p.stem for p in directory.glob("*.py") if p.name != "__init__.py")
+
+
+def _roadmap_path(dotted: str) -> Path | None:
+    """The module file or package folder that the dotted name `devops_cli.roadmap...` gives."""
+    base = _ROADMAP_SRC.joinpath(*dotted.split(".")[2:])
+    for candidate in (base.with_suffix(".py"), base / "__init__.py"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _roadmap_import_problems(path: Path) -> list[str]:
+    """The imports in `path` of a roadmap module, or of a name of a roadmap package, that do not
+    exist."""
+    problems: list[str] = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        names: list[str] = []
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            if node.module == _ROADMAP_DOTTED or node.module.startswith(f"{_ROADMAP_DOTTED}."):
+                names = [node.module]
+                module = _roadmap_path(node.module)
+                if module is not None and module.name == "__init__.py":
+                    names += [f"{node.module}.{alias.name}" for alias in node.names]
+        elif isinstance(node, ast.Import):
+            names = [
+                alias.name for alias in node.names if alias.name.startswith(f"{_ROADMAP_DOTTED}.")
+            ]
+        problems += [
+            f"{path.relative_to(REPO_ROOT)}:{node.lineno} {name}"
+            for name in names
+            if name != _ROADMAP_DOTTED and _roadmap_path(name) is None
+        ]
+    return problems
+
+
+def test_each_roadmap_job_module_sits_in_its_subpackage() -> None:
+    """No top-level roadmap module starts with a job name, and each job and the stores have a
+    subpackage that holds its modules (#3187)."""
+    assert [m for m in _module_stems(_ROADMAP_SRC) if m.startswith(_ROADMAP_JOBS)] == []
+    for job in _ROADMAP_JOBS:
+        assert _module_stems(_ROADMAP_SRC / job), job
+    assert set(_ROADMAP_STORE_MODULES) <= set(_module_stems(_ROADMAP_SRC / "stores"))
+    assert set(_ROADMAP_STORE_MODULES).isdisjoint(_module_stems(_ROADMAP_SRC))
+
+
+def test_every_import_of_a_roadmap_module_names_a_module_that_exists() -> None:
+    """No module of `src/` or `tests/` imports a roadmap module by a path that the move
+    removed (#3187)."""
+    problems = [
+        problem
+        for tree in ("src", "tests")
+        for path in sorted((REPO_ROOT / tree).rglob("*.py"))
+        for problem in _roadmap_import_problems(path)
+    ]
+    assert problems == []
+
+
+def test_the_roadmap_package_module_holds_only_its_docstring() -> None:
+    """The package module re-exports no name, so each caller imports a submodule (#3187)."""
+    body = ast.parse((_ROADMAP_SRC / "__init__.py").read_text(encoding="utf-8")).body
+    assert len(body) == 1
+    assert isinstance(body[0], ast.Expr)
+    assert isinstance(body[0].value, ast.Constant)
+    assert isinstance(body[0].value.value, str)
+
+
+def test_a_moved_roadmap_module_keeps_its_history() -> None:
+    """`git log --follow` reaches the commits that touched a moved module before the move (#3187)."""
+    shallow = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if shallow.returncode != 0 or shallow.stdout.strip() != "false":
+        pytest.skip("The checkout holds no full git history.")
+    log = subprocess.run(
+        ["git", "log", "--follow", "--oneline", "--", "src/devops_cli/roadmap/stores/store.py"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert len(log.stdout.splitlines()) > 1
+
+
+def test_the_roadmap_tests_mirror_the_roadmap_subpackages() -> None:
+    """A test module of a job or of the stores sits in the directory of its subpackage, with its
+    snapshot file beside it (#3187)."""
+    flat = sorted(p.name for p in _ROADMAP_TESTS.glob("test_*.py"))
+    prefixes = tuple(f"test_roadmap_{job}" for job in _ROADMAP_JOBS)
+    stores = tuple(f"test_roadmap_{name}" for name in _ROADMAP_STORE_MODULES)
+    assert [name for name in flat if name.startswith((*prefixes, *stores))] == []
+    flat_snapshots = sorted(p.stem for p in (_ROADMAP_TESTS / "__snapshots__").glob("*.ambr"))
+    assert [name for name in flat_snapshots if name.startswith(prefixes)] == []
+    for package in (*_ROADMAP_JOBS, "stores"):
+        directory = _ROADMAP_TESTS / package
+        assert list(directory.glob("test_*.py")), package
+        for snapshot in (directory / "__snapshots__").glob("*.ambr"):
+            assert (directory / f"{snapshot.stem}.py").is_file(), snapshot.name

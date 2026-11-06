@@ -10,7 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.roadmap import app
-from devops_cli.roadmap.stage_change import render_change
+from devops_cli.roadmap.stage.stage_change import render_change
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import VALID_REPORT, StageRepo, validate_args
 

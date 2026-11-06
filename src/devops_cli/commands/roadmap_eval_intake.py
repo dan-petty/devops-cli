@@ -13,7 +13,7 @@ import typer
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, write_stdout
-from devops_cli.roadmap.intake_requests import SpendMeter
+from devops_cli.roadmap.intake.intake_requests import SpendMeter
 
 
 @dry_run_class("request-plan")
@@ -25,7 +25,7 @@ def intake_cmd(
     """Score intake's duplicate judgement against the evaluation set."""
     from devops_cli.config.settings import get_ai_api_key, load_settings
     from devops_cli.roadmap import duplicate_eval
-    from devops_cli.roadmap.intake_model import GatewayIntakeModel, gateway_address
+    from devops_cli.roadmap.intake.intake_model import GatewayIntakeModel, gateway_address
 
     cases = duplicate_eval.load_cases()
     settings = load_settings()

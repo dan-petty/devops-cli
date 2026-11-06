@@ -20,7 +20,7 @@ from devops_cli.roadmap.status_sync import (
     sync_status,
     sync_statuses,
 )
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.stores.store import (
     CloseReason,
     ImplementRecordKey,
     Item,

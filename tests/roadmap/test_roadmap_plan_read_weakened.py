@@ -18,7 +18,7 @@ from devops_cli.roadmap.plan_read import (
     recorded_tests,
     weakened_checks,
 )
-from devops_cli.roadmap.stage_change import StageProposal, WeakenedCheck, render_change
+from devops_cli.roadmap.stage.stage_change import StageProposal, WeakenedCheck, render_change
 from tests.support.builders import make_stage_proposal
 from tests.support.implement_step import git
 

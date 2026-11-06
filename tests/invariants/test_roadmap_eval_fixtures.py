@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import pytest
 
-from devops_cli.roadmap.implement_eval import LoadedCase, load_cases
-from devops_cli.roadmap.implement_eval_properties import Status
-from devops_cli.roadmap.implement_eval_run import check_recorded
+from devops_cli.roadmap.implement.implement_eval import LoadedCase, load_cases
+from devops_cli.roadmap.implement.implement_eval_properties import Status
+from devops_cli.roadmap.implement.implement_eval_run import check_recorded
 from tests.support.paths import FIXTURES
 
 ROOT = FIXTURES / "roadmap_eval" / "implement"

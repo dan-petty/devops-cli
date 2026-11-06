@@ -6,10 +6,10 @@ import logging
 
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_info, print_success
-from devops_cli.roadmap import store as roadmap_store
-from devops_cli.roadmap.intake import CandidateOutcome, Filer, NewCandidate, intake_candidate
-from devops_cli.roadmap.intake_model import IntakeModel, build_intake_model
-from devops_cli.roadmap.store import RoadmapStore
+from devops_cli.roadmap.intake.intake import CandidateOutcome, Filer, NewCandidate, intake_candidate
+from devops_cli.roadmap.intake.intake_model import IntakeModel, build_intake_model
+from devops_cli.roadmap.stores import store as roadmap_store
+from devops_cli.roadmap.stores.store import RoadmapStore
 from devops_cli.survey.models import CapabilityGap
 
 logger = logging.getLogger(__name__)

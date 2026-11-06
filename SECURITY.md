@@ -46,7 +46,7 @@ All code authored in or evaluated by DevOps CLI must strictly adhere to the foll
     - **The review.** An item of a bot is text that no person wrote. It reaches Ready only after the review of refine approves the issue and the proposal (`refine.judge`). The stage, implement and alternatives jobs take it only with that approval. The approval holds only for the body that the review read. A body edit ends it, and a refine round reviews the item again.
     - **The controls.** The review is a model, and text in an item can mislead it, so it is no security control. The controls are the login, the filter for replies, and the person who merges each pull request. Refine and the alternatives job give their models only the replies of a person with write access and of the App's bot. A comment of a bot starts no `implement: retry`, because that check keeps the association test.
     - **The risk that stays.** `github-actions[bot]` is the identity of every workflow of the repository. A workflow that copies untrusted text into an issue gives that text a path to Ready, behind the review. A record block in that text would forge the approval, because the job record is a hidden block of the issue body. The audit workflow writes a fixed text, and refine neutralizes `<!` in the text that it files for a Service item (#2478). So neither gives that path today.
-    - **The tests.** `tests/roadmap/test_roadmap_trust.py` and `tests/roadmap/test_roadmap_refine_trust.py` fail when any of this breaks.
+    - **The tests.** `tests/roadmap/test_roadmap_trust.py` and `tests/roadmap/refine/test_roadmap_refine_trust.py` fail when any of this breaks.
 
 ---
 

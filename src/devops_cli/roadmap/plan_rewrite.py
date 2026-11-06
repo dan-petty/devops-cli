@@ -27,9 +27,9 @@ from typing import Final
 
 from devops_cli.exceptions import RoadmapPlanRewriteError
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement_shell_policy import verification_problem
+from devops_cli.roadmap.implement.implement_shell_policy import verification_problem
 from devops_cli.roadmap.plan_read import PlanReadError, created_paths, group_files
-from devops_cli.roadmap.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.step_files import TaskGroup, file_lines, parse_task_groups
 
 _DESIGN: Final[str] = "design.md"

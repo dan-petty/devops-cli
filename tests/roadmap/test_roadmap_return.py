@@ -17,7 +17,7 @@ from devops_cli.roadmap.return_item import (
     plan_return,
     render_return_plan,
 )
-from devops_cli.roadmap.store import ItemField
+from devops_cli.roadmap.stores.store import ItemField
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "owner/repo"

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from devops_cli.roadmap.body_hash import body_hashes
-from devops_cli.roadmap.store import JudgeVerdict, RefineRecordKey
+from devops_cli.roadmap.stores.store import JudgeVerdict, RefineRecordKey
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 

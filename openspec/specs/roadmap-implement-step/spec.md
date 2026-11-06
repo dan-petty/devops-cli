@@ -1375,7 +1375,7 @@ A negative search with `-e` options SHALL have `--` after its last literal and b
 - **THEN** the step stops with the reason that names both forms of the search, and starts no process
 
 ### Requirement: The prompt lists the local devops commands of the catalog
-The prompt of the step SHALL list each command of `LOCAL_COMMANDS` in `src/devops_cli/roadmap/implement_shell_policy.py` with its access class and its use, and `docs/ROADMAP_WORKFLOW.md` SHALL hold the same table. `LOCAL_COMMANDS` SHALL hold `ci test`, `ai repomap`, `ai ast`, `docs generate` and `openspec check`, and no command with the access `network`. A call of a listed command through `uv run` SHALL pass the shell policy and SHALL NOT count as a refusal.
+The prompt of the step SHALL list each command of `LOCAL_COMMANDS` in `src/devops_cli/roadmap/implement/implement_shell_policy.py` with its access class and its use, and `docs/ROADMAP_WORKFLOW.md` SHALL hold the same table. `LOCAL_COMMANDS` SHALL hold `ci test`, `ai repomap`, `ai ast`, `docs generate` and `openspec check`, and no command with the access `network`. A call of a listed command through `uv run` SHALL pass the shell policy and SHALL NOT count as a refusal.
 
 #### Scenario: The prompt holds the table
 - **WHEN** The prompt of the step is built.

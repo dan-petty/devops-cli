@@ -32,9 +32,9 @@ from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.roadmap import RoadmapClaimError, RoadmapItemChangedError
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap import store as roadmap_store
 from devops_cli.roadmap.request_plan import StoreRequests
-from devops_cli.roadmap.store import GitHubState, Item, ItemField, RoadmapStore
+from devops_cli.roadmap.stores import store as roadmap_store
+from devops_cli.roadmap.stores.store import GitHubState, Item, ItemField, RoadmapStore
 
 
 class Claimant(StrEnum):

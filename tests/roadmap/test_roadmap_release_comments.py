@@ -19,10 +19,10 @@ from devops_cli.exceptions import RoadmapRunError
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
-from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.release_comments import comment_releases
 from devops_cli.roadmap.release_feed import GitHubReleaseFeed
 from devops_cli.roadmap.release_roll import RolledDigests
+from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.http import WebFake

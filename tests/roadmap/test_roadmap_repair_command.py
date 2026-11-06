@@ -8,8 +8,8 @@ from typing import Any
 import pytest
 
 from devops_cli.config.constants import CONST_ROADMAP_STAGE_COMMENT_MARKER
-from devops_cli.roadmap.github_store import comments_endpoint, issues_endpoint, listing_path
-from devops_cli.roadmap.store import ItemField, RefineRecordKey
+from devops_cli.roadmap.stores.github_store import comments_endpoint, issues_endpoint, listing_path
+from devops_cli.roadmap.stores.store import ItemField, RefineRecordKey
 from tests.support.fakes.github import API
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 

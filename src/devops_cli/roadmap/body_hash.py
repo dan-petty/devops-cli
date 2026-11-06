@@ -18,7 +18,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_START_MARKER,
 )
-from devops_cli.roadmap.store import Item, RefineRecordKey
+from devops_cli.roadmap.stores.store import Item, RefineRecordKey
 
 
 def extract_section_and_outside(

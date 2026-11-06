@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.gh import milestones_app
 from devops_cli.exceptions.git import GitHubUnreadError
 from devops_cli.github.milestones import calculate_milestone_progress
-from devops_cli.roadmap.store import GitHubState, Milestone, RoadmapStore
+from devops_cli.roadmap.stores.store import GitHubState, Milestone, RoadmapStore
 from tests.support.fakes.github import API, GitHubApiFake, github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
@@ -179,7 +179,7 @@ def test_cli_milestones_list_names_a_failed_read(
     The GitHub store reads the milestones through the process's session, which GitHub answers
     with a 502 through its retries: the session's unread error names the listing and the
     status (#983)."""
-    from devops_cli.roadmap import store as roadmap_module
+    from devops_cli.roadmap.stores import store as roadmap_module
 
     listing = f"/repos/{REPO}/milestones?state=all&per_page=100"
     github_api.route("GET", listing, github_json({"message": "Server Error"}, status=502))

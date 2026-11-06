@@ -27,9 +27,9 @@ from devops_cli.core.repo import find_repo_root
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.git import GitHubFileNotFoundError
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.intake import IntakeDecision, NewCandidate, Outcome, plan_intake
-from devops_cli.roadmap.intake_model import IntakeModel
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.intake.intake import IntakeDecision, NewCandidate, Outcome, plan_intake
+from devops_cli.roadmap.intake.intake_model import IntakeModel
+from devops_cli.roadmap.stores.store import (
     Closure,
     Evidence,
     IssueComment,

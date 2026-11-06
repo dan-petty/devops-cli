@@ -100,9 +100,9 @@ from devops_cli.output import (
     write_stdout,
 )
 from devops_cli.roadmap import pull_labels
-from devops_cli.roadmap.github_store import issue_args, label_args, repository_file_args
-from devops_cli.roadmap.implement_pull import Answer, draft_readiness, read_draft
+from devops_cli.roadmap.implement.implement_pull import Answer, draft_readiness, read_draft
 from devops_cli.roadmap.pull_status import set_delivered_status
+from devops_cli.roadmap.stores.github_store import issue_args, label_args, repository_file_args
 from devops_cli.roadmap.title_labels import requested_labels
 
 logger = logging.getLogger(__name__)
@@ -1084,7 +1084,7 @@ def _labels_recorded(repo: str | None, number: int, title: str, base: str | None
     target = _target_repo(repo)
     if not target or "/" not in target:
         return True
-    from devops_cli.roadmap.store import get_roadmap_store
+    from devops_cli.roadmap.stores.store import get_roadmap_store
 
     store = get_roadmap_store(target)
     try:
@@ -1156,7 +1156,7 @@ def _form_checked(
     target = None if offline else _target_repo(repo)
     if target and "/" in target:
         from devops_cli.roadmap.pull_describe import declared_label_set
-        from devops_cli.roadmap.store import get_roadmap_store
+        from devops_cli.roadmap.stores.store import get_roadmap_store
 
         try:
             declared = declared_label_set(
@@ -1211,7 +1211,7 @@ def describe_pr(
     from datetime import date
 
     from devops_cli.roadmap.pull_describe import describe_pull
-    from devops_cli.roadmap.store import get_roadmap_store
+    from devops_cli.roadmap.stores.store import get_roadmap_store
 
     target = _target_repo(repo)
     if not target or "/" not in target:

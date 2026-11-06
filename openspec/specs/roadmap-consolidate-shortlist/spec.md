@@ -21,7 +21,7 @@ The roadmap SHALL rank items by the cosine similarity of their embeddings in one
 For each open item as an anchor, the job SHALL list the other open items that cite the same path, cite the same identifier, link to the anchor, or are among its nearest items by embedding, and SHALL keep the evidence for each member. The build SHALL make no call to a language model.
 
 #### Scenario: A shared path
-- **WHEN** two open item bodies both cite `src/devops_cli/roadmap/store.py:100`
+- **WHEN** two open item bodies both cite `src/devops_cli/roadmap/stores/store.py:100`
 - **THEN** each is a member of the shortlist of the other, with the evidence "shared path"
 
 #### Scenario: A shared path and a shared identifier
