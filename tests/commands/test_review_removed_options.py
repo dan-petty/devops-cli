@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 from typer.testing import CliRunner
 
@@ -37,20 +35,7 @@ runner = CliRunner()
 def test_removed_review_options_exit_2(subcommand: str, args: list[str]) -> None:
     """Removed options must exit 2 with an unknown option error message."""
     cmd_args = [subcommand, *args] if subcommand != "samples" else ["samples", *args]
-    with (
-        patch("devops_cli.commands.review.execute_review_workflow", return_value=[]),
-        patch(
-            "devops_cli.commands.review._prepare_pr_content",
-            return_value=([], "", [], None, None, "base", "head"),
-        ),
-        patch(
-            "devops_cli.commands.review.prepare_branch_content",
-            return_value=([], "", [], None, None),
-        ),
-        patch("devops_cli.commands.review._prepare_path_content", return_value=([], "", [])),
-        patch("devops_cli.commands.review._select_samples", return_value=[]),
-    ):
-        result = runner.invoke(app, cmd_args)
+    result = runner.invoke(app, cmd_args)
     assert result.exit_code == 2
     assert (
         "no such option" in result.output.lower()
