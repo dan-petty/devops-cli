@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/roadmap/stage_change.py`. Changes: `src/devops_cli/roadmap/stage_change.py`, `tests/roadmap/test_roadmap_stage_gates.py` (new).
 
-- [ ] 1.1 Write `tests/roadmap/test_roadmap_stage_gates.py` with cases for the problems of each gate under its name, for a key of every member of `ProposalGate`, and for the flat list of `check_proposal`
+- [x] 1.1 Write `tests/roadmap/test_roadmap_stage_gates.py` with cases for the problems of each gate under its name, for a key of every member of `ProposalGate`, and for the flat list of `check_proposal`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_gates.py` fails on the base
-- [ ] 1.2 Add the enum `ProposalGate` and the function `check_gates` to `src/devops_cli/roadmap/stage_change.py`, and make `check_proposal` join the problems of `check_gates`
+- [x] 1.2 Add the enum `ProposalGate` and the function `check_gates` to `src/devops_cli/roadmap/stage_change.py`, and make `check_proposal` join the problems of `check_gates`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_gates.py` passes
 
 ## 2. Compare a branch with the default branch
