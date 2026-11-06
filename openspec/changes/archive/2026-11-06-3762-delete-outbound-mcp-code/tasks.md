@@ -15,7 +15,3 @@
   Verification: `uv run devops ci --check --only docs`
 - [x] 2.2 Check that the change folder is valid.
   Verification: `uv run devops openspec check`
-
-## Workflow follow-up
-
-- Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
