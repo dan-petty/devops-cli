@@ -20,7 +20,7 @@
 - **Follow the `request-plan` dry-run contract with zero external requests**:
   - `devops pr evidence` carries `@dry_run_class("request-plan")`.
   - Dry run emits planned requests for reading checks, reading comments, and writing comments without dispatching network calls.
-  - Requirement `pr-commands-request-plans` in `command-dry-run-class` is updated to include `pr evidence` in the list of twenty commands.
+  - Requirement `pr-commands-request-plans` in `command-dry-run-class` is updated to include `pr evidence` as a `request-plan` command, and the requirement names no count.
 - **Expose `--attribution` as an optional flag**:
   - Accept `--attribution` to append caller-provided agent attribution footers, matching `devops pr describe --attribution`.
 - **Exclude `pr evidence` from MCP tools**:

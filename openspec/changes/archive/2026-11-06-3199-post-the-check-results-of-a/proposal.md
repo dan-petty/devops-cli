@@ -19,7 +19,7 @@ This change relates to #3032 (trace recording in pull request comments), #2585 (
 - Escape pipe characters in check run names within markdown tables.
 - Add `--attribution` option to `devops pr evidence` to append caller-specified attribution footers.
 - In dry-run mode, emit planned requests with zero external network requests, adhering to the `request-plan` dry-run class.
-- Update `command-dry-run-class` spec requirement `pr-commands-request-plans` to classify `pr evidence` with the other request-plan `pr` commands, and name `pr describe` and `pr update` in the list, which it omitted.
+- Update `command-dry-run-class` spec requirement `pr-commands-request-plans` to classify `pr evidence` with the other request-plan `pr` commands, without a count or a full list (tests enforce the full set).
 - Add new capability `pull-request-evidence` for pull request check results and sticky evidence comments.
 - Add exclusions in `tests/ai/mcp/test_mcp.py` and register the command in `PR_COMMAND_CALLBACKS` in `tests/commands/test_pr_dry_run.py`.
 - Regenerate documentation and sync `README.md`.
@@ -47,7 +47,7 @@ This change relates to #3032 (trace recording in pull request comments), #2585 (
 - In `src/devops_cli/github/client.py`, `GitHubClient` implements `create_issue_comment`. Listing and updating comments require paginated helpers.
 - In `src/devops_cli/github/check_verdict.py`, `read_check_runs` reads the check runs through `GitHubSession.paginate`. The whole command therefore uses the GitHub session, not `gh`, and a test fakes it with `github_api`. The dry run lists the session requests with no argv.
 - `src/devops_cli/github/defect_classifier.py` `is_defect_pr` decides whether a title or a label marks a fix.
-- In `openspec/specs/command-dry-run-class/spec.md:96-97`, `pr-commands-request-plans` names 17 commands, and the code also classifies `pr describe` and `pr update`; the delta lists all 20 with `pr evidence`.
+- In `openspec/specs/command-dry-run-class/spec.md:96-97`, `pr-commands-request-plans` names 17 commands, and the code also classifies `pr describe` and `pr update`; the delta drops the count and the list, which went stale, and names `pr evidence` among examples.
 - In `tests/commands/test_pr_dry_run.py:48-70`, `PR_COMMAND_CALLBACKS` registers and verifies dry-run compliance for PR commands.
 
 ## Existing Tool Considered

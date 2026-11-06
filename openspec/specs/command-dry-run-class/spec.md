@@ -94,7 +94,7 @@ The nine external-request commands in `gh api`, `gh branch-protection audit`, `g
 - **THEN** no external HTTP request is made and planned statuspage requests are printed
 
 ### Requirement: pr-commands-request-plans
-The seventeen external-request commands in `pr check-readiness`, `pr checks`, `pr close`, `pr create`, `pr diff`, `pr edit`, `pr hardening-report`, `pr list`, `pr monitor`, `pr ready`, `pr threads list`, `pr threads reply`, `pr threads resolve`, `pr threads resolve-all`, `pr threads unresolve`, `pr view`, and `pr wait` SHALL carry the `request-plan` dry-run class. Each command SHALL expose `--dry-run`, make zero external requests during a dry run, and output its planned requests.
+Each external-request command of `devops pr`, such as `pr checks`, `pr create`, `pr evidence`, `pr list`, `pr threads reply` and `pr wait`, SHALL carry the `request-plan` dry-run class. Each command SHALL expose `--dry-run`, make zero external requests during a dry run, and output its planned requests.
 
 #### Scenario: Dry run on pr list
 - **WHEN** user executes `devops pr list --dry-run`
@@ -143,6 +143,10 @@ The seventeen external-request commands in `pr check-readiness`, `pr checks`, `p
 #### Scenario: Dry run on pr threads commands
 - **WHEN** user executes `devops pr threads list 123 --dry-run` or `devops pr threads reply tid "reply" --dry-run` or `devops pr threads resolve tid --dry-run` or `devops pr threads unresolve tid --dry-run` or `devops pr threads resolve-all 123 --dry-run`
 - **THEN** no external request is made and the planned GraphQL requests are printed
+
+#### Scenario: Dry run on pr evidence
+- **WHEN** user executes `devops pr evidence 123 --dry-run`
+- **THEN** no external request is made and the planned requests are printed
 
 ### Requirement: k8s-cluster-request-plans
 The eleven external-request commands in `k8s` (`audit`, `contexts`, `logs`, `pods`, `port-forward`, `rbac-audit`, `security-stream`, `service-url`, `status`, `stream-logs`, and `switch-context`) SHALL carry the `request-plan` dry-run class. Each command SHALL expose `--dry-run`, make zero external requests during a dry run, and output its planned requests.
