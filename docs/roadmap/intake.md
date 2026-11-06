@@ -57,6 +57,7 @@ devops gh issues close <number> --reason not-planned
 - Another item gets one request to the `triage` model, and one more with the faults of the first reply. A reply that fails twice leaves the item.
 - It leaves a title that someone changed after the last comment of a job. It reads the title changes on the timeline of the item.
 - Without `--confirm` it prints the new titles and writes nothing. With `--confirm` it writes each title and one comment with the marker `<!-- devops roadmap retitle -->`. `--dry-run` makes no request.
+- The Service runs the job as the row `retitle` of the model lane. The row is due on a first run and every 61 minutes. It runs after `refine` and before `stage`, so the stage job reads the new titles in the same round. Each run takes at most 25 items and writes as `--confirm` does. The row needs no clone.
 
 ## Where the rules are
 

@@ -739,6 +739,9 @@ DEFAULT_ROADMAP_INTAKE_LIMIT: int = 5
 # `devops roadmap retitle` (#3486): the most items one run examines. A run asks the model once for
 # each item that has no plan, so the cap bounds its spend.
 DEFAULT_ROADMAP_RETITLE_LIMIT: int = 25
+# How often the Service's `retitle` row is due (#3535). It bounds the delay of the title rule of the
+# stage job to about one hour, and the model runs less often than the stage row.
+DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES: int = 61
 # `devops roadmap alternatives` (#2650): the most items one run checks, and the days after which a
 # check is old. The Service's row is due twice a day, about (#2652).
 DEFAULT_ROADMAP_ALTERNATIVES_LIMIT: int = 5

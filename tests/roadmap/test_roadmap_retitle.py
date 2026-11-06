@@ -4,6 +4,7 @@ and leaves a title that a person changed. Intake refuses a new candidate with a 
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -12,6 +13,10 @@ from typing import Any
 import pytest
 
 from devops_cli.config.constants import CONST_ROADMAP_RETITLE_COMMENT_MARKER
+from devops_cli.config.defaults import (
+    DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_RETITLE_LIMIT,
+)
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.roadmap.inbox import InboxKind, read_inbox
 from devops_cli.roadmap.intake import NewCandidate
@@ -22,6 +27,14 @@ from devops_cli.roadmap.retitle import (
     apply_retitle,
     plan_retitle,
     render_retitle_plan,
+)
+from devops_cli.roadmap.run import (
+    DEFAULT_DUE_TABLE,
+    MODEL_LANE_ROWS,
+    JobOutcome,
+    JobRow,
+    build_stub_table,
+    run_due_jobs,
 )
 from devops_cli.roadmap.store import ItemField, StageRecordKey
 
@@ -338,3 +351,106 @@ def test_the_retitle_dry_run_makes_no_request(
 
     assert result.exit_code == 0, result.output
     assert roadmap_store_repos == []
+
+
+# The Service row (#3535).
+
+
+def _retitle_row() -> JobRow:
+    return next(row for row in MODEL_LANE_ROWS if row.name == "retitle")
+
+
+def _use_model(monkeypatch: pytest.MonkeyPatch, model: FakeModel) -> None:
+    monkeypatch.setattr("devops_cli.roadmap.run.build_retitle_model", lambda: model)
+
+
+def test_the_retitle_row_sits_between_refine_and_stage_of_the_model_lane() -> None:
+    names = [row.name for row in MODEL_LANE_ROWS]
+
+    assert (names.index("refine") + 1, names.index("stage") - 1) == (
+        names.index("retitle"),
+        names.index("retitle"),
+    )
+    assert any(row.name == "retitle" for row in DEFAULT_DUE_TABLE)
+
+
+def test_the_retitle_interval_is_61_minutes_and_the_row_needs_no_clone() -> None:
+    row = _retitle_row()
+
+    assert (DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES, row.interval, row.needs_clone) == (
+        61,
+        timedelta(minutes=61),
+        False,
+    )
+
+
+def test_the_row_runs_plan_retitle_with_the_limit_and_applies_the_plan(
+    store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model = FakeModel()
+    _use_model(monkeypatch, model)
+    numbers = [_item(store) for _ in range(DEFAULT_ROADMAP_RETITLE_LIMIT + 2)]
+
+    _retitle_row().runner(store=store, repo=REPO)
+
+    retitled = [_title(store, number) != OLD for number in numbers]
+    assert (len(model.requests), retitled.count(True), retitled.count(False)) == (
+        DEFAULT_ROADMAP_RETITLE_LIMIT,
+        DEFAULT_ROADMAP_RETITLE_LIMIT,
+        2,
+    )
+
+
+def test_the_row_writes_a_title_that_passes_the_form_and_one_comment(
+    store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _use_model(monkeypatch, FakeModel())
+    number = _item(store)
+
+    _retitle_row().runner(store=store, repo=REPO)
+
+    comments = [
+        c for c in store.comments_on(number) if CONST_ROADMAP_RETITLE_COMMENT_MARKER in c.body
+    ]
+    assert (_title(store, number), title_problems(_title(store, number)), len(comments)) == (
+        f"fix(roadmap): {NEW_SUMMARY}",
+        [],
+        1,
+    )
+
+
+def test_the_row_is_due_on_a_first_run_and_after_its_interval_and_records_its_success(
+    store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _use_model(monkeypatch, FakeModel())
+    _item(store)
+    table = (_retitle_row(),)
+    start = datetime(2026, 11, 6, 12, 0, tzinfo=UTC)
+
+    def round_at(minutes: int) -> tuple[str, ...]:
+        return run_due_jobs(
+            REPO,
+            store,
+            batch={("poll", "", ""): 1},
+            table=table,
+            data_dir=tmp_path,
+            now=start + timedelta(minutes=minutes),
+        )
+
+    first, soon, later = round_at(0), round_at(60), round_at(61)
+
+    schedule = json.loads(next(tmp_path.rglob("schedule.json")).read_text(encoding="utf-8"))
+    assert (first, soon, later, "retitle" in json.dumps(schedule)) == (
+        ("retitle",),
+        (),
+        ("retitle",),
+        True,
+    )
+
+
+def test_a_default_stub_table_has_no_retitle_row_and_a_flag_or_a_runner_adds_it() -> None:
+    plain = [row.name for row in build_stub_table()]
+    flagged = [row.name for row in build_stub_table(include_retitle=True)]
+    stubbed = [row.name for row in build_stub_table({"retitle": lambda **_: JobOutcome()})]
+
+    assert ("retitle" in plain, "retitle" in flagged, "retitle" in stubbed) == (False, True, True)

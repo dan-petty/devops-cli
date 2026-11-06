@@ -76,12 +76,12 @@ def _pushed(repo: StageRepo) -> list[str]:
     return repo.origin_git("branch", "--format=%(refname:short)").split()
 
 
-def test_the_row_follows_refine_runs_on_a_clone_and_is_due_every_37_minutes_and_on_a_first_run() -> (
+def test_the_row_follows_retitle_runs_on_a_clone_and_is_due_every_37_minutes_and_on_a_first_run() -> (
     None
 ):
     names = [row.name for row in MODEL_LANE_ROWS]
     assert (
-        names[names.index("refine") + 1],
+        names[names.index("retitle") + 1],
         STAGE_ROW.needs_clone,
         STAGE_ROW.first_run_due,
         STAGE_ROW.interval,
