@@ -132,6 +132,24 @@ def check_the_gateway_has_time_to_run_its_migrations_before_the_liveness_probe_s
     ) == ({"path": "/health/liveliness", "port": 4000}, True)
 
 
+def check_a_failed_migration_ends_the_start_up_of_the_gateway() -> None:
+    """Without ENFORCE_PRISMA_MIGRATION_CHECK, LiteLLM logs a failed `prisma migrate deploy` and
+    starts on an empty schema, and nothing runs the migration again. With it, the pod exits and
+    the restart loop waits for the database."""
+    env = {item["name"]: item.get("value") for item in _gateway_container()["env"]}
+
+    assert env["ENFORCE_PRISMA_MIGRATION_CHECK"] == "true"
+
+
+def check_the_readiness_of_the_gateway_does_not_depend_on_the_database() -> None:
+    """/health/readiness answers 503 while the database is down, and Kubernetes would then take
+    every gateway pod out of the Service, also for clients of the master key. The readiness probe
+    uses the liveliness path, so a database outage refuses only the keys that need the database."""
+    probe = _gateway_container()["readinessProbe"]
+
+    assert probe["httpGet"] == {"path": "/health/liveliness", "port": 4000}
+
+
 def check_the_gateway_refuses_a_key_it_cannot_check_when_the_database_is_down() -> None:
     """The gateway is reachable from outside the cluster, so `allow_requests_on_db_unavailable`
     stays off. Models stay in git, so `store_model_in_db` stays off too."""

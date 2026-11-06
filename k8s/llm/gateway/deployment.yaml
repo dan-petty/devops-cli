@@ -82,6 +82,11 @@ spec:
                 secretKeyRef:
                   name: llm-gateway-db-app
                   key: uri
+            # A failed `prisma migrate deploy` ends the start-up. Without this variable LiteLLM
+            # logs the failure and goes on with an empty schema, and nothing runs the migration
+            # again.
+            - name: ENFORCE_PRISMA_MIGRATION_CHECK
+              value: "true"
             # LiteLLM copies its migrations here before `prisma migrate deploy`, because the root
             # file system is read-only.
             - name: LITELLM_MIGRATION_DIR
@@ -125,9 +130,13 @@ spec:
               port: 4000
             initialDelaySeconds: 15
             periodSeconds: 15
+          # Readiness does not depend on the database: /health/readiness answers 503 while the
+          # database is down, and Kubernetes would then remove every gateway pod from the Service,
+          # also for clients of the master key. The liveliness path keeps the gateway in the
+          # Service. A virtual key that the gateway cannot check is refused by the gateway itself.
           readinessProbe:
             httpGet:
-              path: /health/readiness
+              path: /health/liveliness
               port: 4000
             initialDelaySeconds: 10
             periodSeconds: 10

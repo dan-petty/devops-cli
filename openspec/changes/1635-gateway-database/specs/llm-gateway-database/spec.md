@@ -28,6 +28,20 @@ The gateway container SHALL keep `readOnlyRootFilesystem: true` and SHALL set `L
 - **WHEN** a test reads the `startupProbe` of the gateway container
 - **THEN** its path is `/health/liveliness` on port 4000, and its period times its failure threshold is at least 600 seconds
 
+### Requirement: A failed migration ends the start-up
+The gateway container SHALL set `ENFORCE_PRISMA_MIGRATION_CHECK` to `"true"`, so that a failed `prisma migrate deploy` ends the process and the restart loop waits for the database, instead of a start on an empty schema.
+
+#### Scenario: The check is on
+- **WHEN** a test reads the gateway container
+- **THEN** it sets `ENFORCE_PRISMA_MIGRATION_CHECK` to `"true"`
+
+### Requirement: The readiness of the gateway does not depend on the database
+The `readinessProbe` of the gateway container SHALL use `/health/liveliness` on port 4000. `/health/readiness` answers 503 while the database is down, and Kubernetes would then remove every gateway pod from the Service, also for the clients of the master key.
+
+#### Scenario: A database outage keeps the pods in the Service
+- **WHEN** a test reads the `readinessProbe` of the gateway container
+- **THEN** its path is `/health/liveliness` on port 4000
+
 ### Requirement: The gateway refuses a key it cannot check
 The gateway config SHALL NOT turn on `general_settings.allow_requests_on_db_unavailable`, and SHALL keep `store_model_in_db` off.
 
