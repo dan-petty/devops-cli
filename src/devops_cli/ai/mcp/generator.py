@@ -15,6 +15,7 @@ from pydantic import Field
 from devops_cli.config.constants import CONST_MCP_EXPOSURE_TABLE
 from devops_cli.core.command_resolver import module_click_command
 from devops_cli.docs.generator import _clean_text
+from devops_cli.lang import HELP
 from devops_cli.main import _COMMAND_SPECS
 
 _IGNORED_PARAM_NAMES: frozenset[str] = frozenset({"help", "install_completion", "show_completion"})
@@ -22,6 +23,13 @@ _JSON_PARAM_NAMES: frozenset[str] = frozenset({"format", "output_format", "json"
 _INTEGER_ID_PARAM_NAMES: frozenset[str] = frozenset(
     {"number", "pr_number", "issue_number", "run_id"}
 )
+# The description of an option in the schema of a tool, where the help text of the command does not
+# fit a model that calls the tool. The command keeps its own help text for a person. The key is the
+# command path and the option name.
+_PARAM_DESCRIPTIONS: dict[tuple[tuple[str, ...], str], str] = {
+    (("ai", "benchmark"), "models"): HELP.mcp.benchmark_models,
+}
+
 # The options of a command that its MCP tool publishes. A command lists an option here when the
 # other options are for a person at the command line. A URL option is input from the model that
 # calls the tool, so the tool does not publish it. The tool queries the service that the
@@ -247,10 +255,12 @@ def _normalize_default(default_val: Any) -> Any:
     return default_val
 
 
-def _build_parameter_field(param: Any, default_val: Any, is_required: bool = False) -> Any:
+def _build_parameter_field(
+    param: Any, default_val: Any, is_required: bool = False, description: str | None = None
+) -> Any:
     """Construct Pydantic Field instance for Click parameter."""
     field_kwargs: dict[str, Any] = {
-        "description": _clean_text(getattr(param, "help", None) or ""),
+        "description": description or _clean_text(getattr(param, "help", None) or ""),
     }
     type_name = type(param.type).__name__
     is_seq = _is_sequence_param(param)
@@ -285,7 +295,9 @@ def _introspect_command_parameters(
         py_type = _deduce_parameter_type(p)
         default_val = _normalize_default(getattr(p, "default", None))
         is_required = bool(p.required or (restrictions and p.name in restrictions["required"]))
-        field = _build_parameter_field(p, default_val, is_required)
+        field = _build_parameter_field(
+            p, default_val, is_required, _PARAM_DESCRIPTIONS.get((path, p.name))
+        )
         ann: Any
         if is_required:
             param_default = inspect.Parameter.empty
