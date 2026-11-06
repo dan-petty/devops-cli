@@ -1,0 +1,22 @@
+{
+ "tracked": [
+  "src/devops_cli/roadmap/implement_shell_policy.py",
+  "src/devops_cli/roadmap/stage_form.py",
+  "tests/roadmap/test_roadmap_stage_form.py",
+  "src/devops_cli/roadmap/stage_change.py",
+  "src/devops_cli/roadmap/stage.py",
+  "src/devops_cli/roadmap/plan_check.py",
+  "tests/roadmap/test_roadmap_stage_plan.py",
+  "src/devops_cli/roadmap/stage_eval_cases.py",
+  "src/devops_cli/roadmap/stage_eval_gates.py",
+  "tests/roadmap/test_roadmap_stage_eval_cases.py",
+  "tests/roadmap/test_roadmap_stage_eval_gates.py",
+  "tests/roadmap/test_roadmap_stage_move_prefix.py",
+  "src/devops_cli/ai/tasks/roadmap_stage_change.md",
+  "tests/roadmap/test_roadmap_stage_prompt_rules.py"
+ ],
+ "capabilities": [
+  "roadmap-stage",
+  "roadmap-stage-eval"
+ ]
+}

@@ -1,0 +1,124 @@
+## Problem or Motivation
+
+The stage gate checks the form and the paths of a `verify` command, but it never checks whether the command can pass on the tree that the plan produces. So a plan can give a negative search that proves nothing, or one that fails forever after the change.
+
+The plan of #3372 in pull request #3378 chose `! git grep -n -F devops_cli.roadmap.stage src/ tests/` as the whole-prefix check for a move of the `stage*` modules. The literal matches `from devops_cli.roadmap.stage import` on the staged tree. After the move it also matches every new path under `devops_cli.roadmap.stage/`, such as `devops_cli.roadmap.stage.ready`. A negative search passes only on exit 1, so this command can never pass on the tree that the plan produces, while the plan's own spec says it must.
+
+The planner has the `search_code` and `references` tools, so it can test the literal on the staged commit. The prompt asks it for a `! git grep` line but not for the evidence that the line fails before the change and passes after it. The stage gate cannot catch the fault, because `form_problems` reads the shape of the command and `path_problems` reads only the paths.
+
+## Proposed Solution & Architectural Design
+
+1. The stage job runs the literal of each negative-search `verify` on the staged tree with `git grep`, and gives the hit count to `check_proposal` as a recorded input, in the same way that `probes` carries the premise probe. The replay reads the count from the stage eval case, so it runs no git.
+2. `check_proposal` refuses a negative-search literal with no hit on the staged tree: a search that finds nothing already passes before the change and proves nothing.
+3. `check_proposal` refuses a negative-search literal whose only hits are on paths that the plan creates: the search can never pass on the produced tree.
+4. The stage prompt asks the planner to run `search_code` with the literal and to quote the hit count in `feasibility`.
+5. A stage eval case holds the plan of #3378 and asserts the two refusals and the accepted literal `devops_cli.roadmap.stage_`.
+
+## Target Subsystem
+
+`src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/stage_form.py`, `src/devops_cli/ai/tasks/roadmap_stage_change.md`
+
+## Existing Tool Considered
+
+`git grep` and the existing `search_code` and `references` stage tools cover the search need. No new scanner is needed. The cost is about 10k tokens and 1 hour to build, and nothing to keep.
+
+<!-- devops-roadmap-refine:start -->
+<!-- checked-at: sha=1643cc7a236e405ef34e7bd2cecdcf95be793949 -->
+## Proposed design
+
+### Problem statement
+The stage gate checks the form and the paths of a `verify` command. It does not check whether a negative search can pass on the tree that the plan produces. A plan can give a search that proves nothing before the change, or a search that fails forever after the change. This issue makes the stage job record `git grep` evidence and makes `check_proposal` refuse both faults.
+
+### Acceptance criteria
+
+### Requirement: Negative-search evidence is recorded
+The stage job SHALL run the literal of each negative-search `verify` command on the staged tree with `git grep` and record the matching paths and hit count.
+
+#### Scenario: A negative search has staged hits
+- **WHEN** A plan gives a negative-search `verify` command and its literal matches files on the staged tree.
+- **THEN** The stage job records each matching path and the hit count and passes the record to `check_proposal`.
+
+### Requirement: A negative search with no staged hit is refused
+`check_proposal` MUST refuse a negative-search literal when the recorded evidence holds no matching path.
+
+#### Scenario: The literal finds nothing before the change
+- **WHEN** The recorded evidence for a negative-search literal holds no matching path.
+- **THEN** `check_proposal` returns a problem that says the search already passes before the change and proves nothing.
+
+### Requirement: A negative search that a created module keeps is refused
+`check_proposal` MUST refuse a negative-search literal when the plan creates a source path whose import path contains the literal.
+
+#### Scenario: A created module matches the literal
+- **WHEN** A group creates a source path under `src/devops_cli/` whose import path contains the negative-search literal.
+- **THEN** `check_proposal` returns a problem that says the search can never pass on the produced tree.
+
+### Requirement: A negative search with a surviving hit is accepted
+`check_proposal` MUST accept a negative-search literal when the staged tree has a hit and no created source path has an import path that contains the literal.
+
+#### Scenario: A staged hit survives the change
+- **WHEN** The recorded evidence holds a matching path and no created source path has an import path that contains the literal.
+- **THEN** `check_proposal` returns no problem for that literal.
+
+### Requirement: The stage prompt asks for the search evidence
+The stage prompt MUST ask the planner to run `search_code` with the negative-search literal and quote the hit count in `feasibility`.
+
+#### Scenario: The planner reads the prompt
+- **WHEN** The stage job plans an item whose plan gives a negative-search `verify` command.
+- **THEN** The prompt tells the planner to call `search_code` with the literal and to quote the hit count in `feasibility`.
+
+### Requirement: The replay uses recorded evidence
+The stage eval replay MUST read the negative-search evidence from the eval case and MUST run no `git` command.
+
+#### Scenario: The replay judges a negative search
+- **WHEN** The stage eval replay judges a plan with a negative-search `verify` command.
+- **THEN** The replay reads the evidence from the case and runs no `git grep`.
+
+### Requirement: The eval case covers the #3378 plan
+The stage eval case MUST hold the plan of #3378 and assert the no-hit refusal, the created-module refusal, and the acceptance of `devops_cli.roadmap.stage_`.
+
+#### Scenario: The replay runs the #3378 plan
+- **WHEN** The stage eval replay runs the case that holds the plan of #3378.
+- **THEN** The replay reports the two refusals and the acceptance for `devops_cli.roadmap.stage_`.
+
+### Existing Tool Considered
+No alternatives check has run. `git grep` and the existing `search_code` and `references` stage tools cover the search need. They lack a check that the literal has a hit before the change and no hit on a path that the plan creates. The gate code costs about 10k tokens and 1 hour to build, and nothing to keep.
+
+### Key questions
+- **How does the stage job give negative-search evidence to `check_proposal` without a git call in the replay?**: The stage job runs `git grep` on the staged tree and records the matching paths and hit count for each negative-search literal. It passes that record to `check_proposal` as a recorded input, and the eval case stores the same record for the replay. (best practice) [sources: src/devops_cli/roadmap/stage.py, src/devops_cli/roadmap/stage_change.py, docs/ROADMAP_WORKFLOW.md:254]
+  - Chosen: Recorded evidence per literal. It follows the `probes` input and lets the replay run no git.
+  - Rejected: Run `git grep` in `check_proposal`. The replay calls no git, and the check must judge a recorded plan.
+  - Rejected: Record only the total hit count. A total cannot show whether a hit is on a created path.
+- **Where does the stage job run the negative-search literal?**: In the planner request, on the checkout at the staged commit, before `check_proposal` judges the reply. The job reuses the premise probe path that already reads the staged commit. (best practice) [sources: src/devops_cli/roadmap/stage.py, src/devops_cli/roadmap/stage_change.py]
+  - Chosen: In the planner request with the premise probe. It already has the checkout and the staged commit.
+  - Rejected: In `check_proposal`. It has no checkout and the replay must run no git.
+  - Rejected: In `stage_form`. The form gate has no tree and no hit evidence.
+- **How does the gate read the literal and paths of a negative-search command?**: It reuses `NEGATIVE_SEARCH_WORD` and the command grammar of `implement_shell_policy` to read the literal and the relative paths. A command of another form stays with `form_problems`. (best practice) [sources: src/devops_cli/roadmap/stage_form.py, src/devops_cli/roadmap/implement_shell_policy.py, src/devops_cli/ai/tasks/roadmap_stage_change.md]
+  - Chosen: Reuse the existing negative-search grammar. One grammar already refuses pipes, redirects and unsupported options.
+  - Rejected: Add a second `git grep` parser. It would drift from the shell policy and from `stage_form`.
+  - Rejected: Parse the command in the prompt. The gate needs the literal and paths, not a model answer.
+- **How does the gate detect a literal that the produced tree will keep?**: It maps each created source path under `src/devops_cli/` to its import path. It refuses the literal when that import path contains the literal, because the new module or its imports will match after the change. (best practice) [sources: src/devops_cli/roadmap/stage_change.py, src/devops_cli/roadmap/stage_paths.py, src/devops_cli/roadmap/stage_form.py]
+  - Chosen: Compare the literal with the import path of each created source file. It catches the #3378 package move without reading file content.
+  - Rejected: Compare only the total hit count. A count cannot show that a new module will match after the change.
+  - Rejected: Accept every literal with a staged hit. The bad #3378 literal has a staged hit and still fails after the move.
+- **What does the stage prompt ask the planner to do with the literal?**: It asks the planner to call `search_code` with the literal and to quote the hit count in `feasibility`. The quote ties the plan to the staged commit. (best practice) [sources: src/devops_cli/ai/tasks/roadmap_stage_change.md, src/devops_cli/roadmap/stage.py]
+  - Chosen: Ask for `search_code` and a quoted count. The planner has the tool, and the quote gives the evidence that the gate records.
+  - Rejected: Ask only for a `! git grep` line. The line gives no evidence that the search fails before the change and passes after it.
+  - Rejected: Leave the check to the gate only. The planner can correct the plan before the gate refuses it.
+- **How does the eval case prove the gate catches the #3378 fault?**: The case holds the plan of #3378 and its recorded `git grep` evidence. The replay asserts a refusal for the no-hit literal, a refusal for the literal that a created module keeps, and an acceptance for `devops_cli.roadmap.stage_`. (best practice) [sources: docs/ROADMAP_WORKFLOW.md:254, src/devops_cli/roadmap/stage_eval_gates.py, src/devops_cli/roadmap/stage_eval_run.py, openspec/changes/3372-the-stage-plan-of-a-module/tasks.md:18]
+  - Chosen: Replay the #3378 plan with recorded evidence. It reproduces the reported fault offline and checks both refusals and the accepted literal.
+  - Rejected: Add only a unit test of `check_proposal`. It does not show that the recorded plan and the replay judge the real fault.
+  - Rejected: Run `git grep` in the replay. The replay calls no git.
+- **Which existing tool covers the search need?**: `git grep` and the existing `search_code` and `references` stage tools cover the search need. No new scanner is needed. The gate code costs about 10k tokens and 1 hour to build, and nothing to keep. (best practice) [sources: src/devops_cli/roadmap/stage.py, src/devops_cli/roadmap/stage_form.py, src/devops_cli/ai/tasks/roadmap_stage_change.md]
+  - Chosen: `git grep` and the existing stage tools. They already run on the staged commit and give the literal evidence.
+  - Rejected: Add a new scanner. It duplicates the search and adds maintenance.
+  - Rejected: Ask the model to judge the literal. The gate must give the same answer on each run.
+
+### Fit
+Fits in one pull request.
+
+### Suspected block
+None.
+
+### Dependencies
+None.
+<!-- devops-roadmap-refine:end -->
