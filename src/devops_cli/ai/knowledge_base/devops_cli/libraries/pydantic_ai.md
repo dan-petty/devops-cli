@@ -30,7 +30,7 @@ tags:
 
 In `devops-cli`:
 - **Chat Personas**: Interactive assistant personas (`devsecops`, `architect`, `auditor`, `qa`, `pm`) operate as specialized `PydanticAgent` instances.
-- **Dynamic Toolsets**: `FunctionToolset` and `MCPToolset` dynamically expose local filesystem scanners, AST analyzers, and remote Kubernetes controllers to agent stages.
+- **Dynamic Toolsets**: `FunctionToolset` dynamically exposes local filesystem scanners, AST analyzers, and remote Kubernetes controllers to agent stages.
 - **Usage & Budget Tracking**: `AgentUsage` tracks token consumption across agent pipelines with strict maximum turn budgets.
 
 ---
@@ -49,9 +49,11 @@ In `devops-cli`:
 ## 4. Key Concepts & Core Patterns
 
 1. **`PydanticAgent`**: Core agent class coordinating LLM inference, system instructions and tool execution. It returns the model's text.
-2. **`MCPToolset`**: Seamless integration connecting remote or in-process Model Context Protocol servers:
+2. **`MCPToolset`** (`pydantic_ai.mcp`): Pydantic AI's own client for a Model Context Protocol server. devops-cli wires no outbound MCP client today. The class takes the server (a URL, a script path or a FastMCP server) as its first argument:
    ```python
-   async with MCPToolset(url="http://localhost:8000/sse") as mcp:
+   from pydantic_ai.mcp import MCPToolset
+
+   async with MCPToolset("http://localhost:8000/sse") as mcp:
        agent = PydanticAgent(name="DevSecOps", toolsets=[mcp])
        result = await agent.run("Audit Kubernetes security policies")
    ```
@@ -98,25 +100,24 @@ agent = PydanticAgent(
 ### MCP Client Sampling & Custom TLS Configuration
 ```python
 import httpx2
+from pydantic_ai.mcp import MCPToolset
+from pydantic_ai.models import Model
+
 from devops_cli.ai.agents.agent import PydanticAgent
-from devops_cli.ai.agents.tools import MCPToolset
 
-# Custom HTTP client with homelab TLS certificates
-http_client = httpx2.AsyncClient(timeout=httpx2.Timeout(15.0))
 
-async with MCPToolset(
-    url="http://localhost:8000/sse",
-    http_client=http_client,
-    client_info={"name": "DevOpsCLI", "version": "0.2.5"},
-) as mcp:
-    agent = PydanticAgent(
-        name="SecurityReviewer",
-        model="claude-sonnet-4-5",
-        toolsets=[mcp],
-    )
-    # Enable MCP sampling so the connected MCP server can request completions
-    agent.set_mcp_sampling_model("claude-sonnet-4-5")
-    result = await agent.run("Review Kubernetes ingress security")
+async def review_ingress(sampling_model: Model) -> None:
+    # Custom HTTP client with homelab TLS certificates
+    http_client = httpx2.AsyncClient(timeout=httpx2.Timeout(15.0))
+
+    # `sampling_model` lets the connected MCP server request completions
+    async with MCPToolset(
+        "http://localhost:8000/sse",
+        http_client=http_client,
+        sampling_model=sampling_model,
+    ) as mcp:
+        agent = PydanticAgent(name="SecurityReviewer", toolsets=[mcp])
+        result = await agent.run("Review Kubernetes ingress security")
 ```
 
 ---

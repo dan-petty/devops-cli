@@ -142,58 +142,6 @@ def test_abstract_custom_toolset() -> None:
 
 
 @pytest.mark.anyio
-async def test_mcp_toolset(model_fake: ModelFake) -> None:
-    """Verify MCPToolset lifecycle, tool registration, prefixing and config loading."""
-    from devops_cli.ai.agents.agent import PydanticAgent
-    from devops_cli.ai.agents.tools import AgentTool, MCPToolset
-
-    # 1. MCPToolset instantiation and lifecycle
-    tool1 = AgentTool(
-        name="mcp_query", description="Query remote MCP", func=lambda q: f"Result: {q}"
-    )
-    mcp_ts = MCPToolset(url="https://example.com/api", tools=[tool1])
-
-    assert len(mcp_ts.get_tools()) == 1
-    assert mcp_ts.get_tools()[0].name == "mcp_query"
-    instructions = mcp_ts.get_instructions()
-    assert len(instructions) == 1
-    assert "https://example.com/api" in instructions[0]
-
-    # Context manager lifecycle
-    async with mcp_ts as ts:
-        assert len(ts.get_tools()) == 1
-
-    # 2. Tool prefixing and from_config loading
-    mcp_prefix = MCPToolset(
-        "https://example.com/api",
-        tool_prefix="slack",
-        tools=[tool1],
-    )
-    prefixed_tools = mcp_prefix.get_tools()
-    assert len(prefixed_tools) == 1
-    assert prefixed_tools[0].name == "slack_mcp_query"
-
-    config = {
-        "mcpServers": {
-            "github": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"]},
-            "fetch": {"url": "http://localhost:8000/sse"},
-        }
-    }
-    loaded = MCPToolset.from_config(config)
-    assert len(loaded) == 2
-    assert loaded[0].tool_prefix == "github"
-    assert loaded[1].url == "http://localhost:8000/sse"
-
-    # 3. End-to-end execution with agent and async context manager
-    agent = PydanticAgent(name="MCPAgent", model="openai:gpt-4o", toolsets=[mcp_ts])
-    async with agent:
-        model_fake.answer("MCP processed")
-        with agent.override(model=model_fake):
-            res = agent.run("Run mcp tool")
-            assert res.content == "MCP processed"
-
-
-@pytest.mark.anyio
 async def test_embedder_and_embedding_result() -> None:
     """Verify Embedder interface and EmbeddingResult container indexing and cost calculation."""
     from unittest.mock import MagicMock

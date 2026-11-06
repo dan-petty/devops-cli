@@ -39,7 +39,7 @@ The Knowledge Base is divided into two primary structural divisions:
 | **Typer & Click** | CLI Framework | Type-annotated CLI routing, parameter parsing, and centralized help. | [typer.md](devops_cli/libraries/typer.md) |
 | **Rich** | Terminal UI | Beautiful ANSI tables, animated status spinners, and code diff highlighting. | [rich.md](devops_cli/libraries/rich.md) |
 | **Pydantic v2 & Settings** | Data Validation | Rust-core data validation, schemas, and layered configuration resolution. | [pydantic.md](devops_cli/libraries/pydantic.md) |
-| **PydanticAI** | Multi-Agent AI | Type-safe agent framework, structured models, and MCP client toolsets. | [pydantic_ai.md](devops_cli/libraries/pydantic_ai.md) |
+| **PydanticAI** | Multi-Agent AI | Type-safe agent framework and structured models. | [pydantic_ai.md](devops_cli/libraries/pydantic_ai.md) |
 | **Pydantic AI Harness** | Coding Agent | `Coder` and `LocalWorkspace` capabilities: file and shell tools for one bounded agent run. | [pydantic_ai_harness.md](devops_cli/libraries/pydantic_ai_harness.md) |
 | **HTTPX2** | HTTP/2 Client | Modern async/sync HTTP/2 client for streaming LLM provider requests. | [httpx2.md](devops_cli/libraries/httpx2.md) |
 | **FastMCP** | MCP Server | Model Context Protocol server exposing CLI tools to AI IDEs and assistants. | [fastmcp.md](devops_cli/libraries/fastmcp.md) |

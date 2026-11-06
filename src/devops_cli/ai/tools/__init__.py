@@ -47,7 +47,7 @@ from devops_cli.ai.tools.builtin_tools import (
     search_code,
     tf_lint,
 )
-from devops_cli.ai.tools.mcp_bridge import get_devops_mcp_toolset, get_mcp_agent_tools
+from devops_cli.ai.tools.mcp_bridge import get_mcp_agent_tools
 from devops_cli.ai.tools.registry import get_default_tools, get_persona_tools
 
 
@@ -298,7 +298,6 @@ __all__ = [
     "argo_apps",
     "check_threat_intel",
     "get_default_tools",
-    "get_devops_mcp_toolset",
     "get_mcp_agent_tools",
     "get_persona_tools",
     "git_diff",

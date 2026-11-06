@@ -120,20 +120,7 @@ from devops_cli.ai.review_schema import Finding
 - **Ecosystem Role**: Multi-agent framework enabling type-safe tool execution, dynamic instructions, structured output validation, model overrides, and sub-agent delegation.
 - **Codebase Integration**:
   - `devops_cli.ai.agents.agent.PydanticAgent`: High-level agent abstraction managing toolsets, usage tracking (`AgentUsage`), and async lifecycles (`async with agent:`).
-  - `devops_cli.ai.agents.tools.MCPToolset`: Connects external Model Context Protocol servers as native callable agent tools.
-
-```python
-from devops_cli.ai.agents.agent import PydanticAgent
-from devops_cli.ai.agents.tools import AgentTool, MCPToolset
-
-async with MCPToolset(url="http://localhost:8000/sse") as mcp:
-    agent = PydanticAgent(
-        name="DevSecOps",
-        model="claude-sonnet-4-5",
-        toolsets=[mcp],
-    )
-    result = await agent.run("Audit Kubernetes security policies")
-```
+  - `pydantic_ai.mcp.MCPToolset`: Pydantic AI's own client for an external Model Context Protocol server. devops-cli wires no outbound MCP client today; see the manual for the pattern.
 
 #### `httpx2` (Pydantic HTTP/2 Client) ([Dedicated Manual](libraries/httpx2.md))
 - **Pinned Version**: `httpx2==2.13.0`
