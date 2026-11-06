@@ -1323,7 +1323,7 @@ def test_a_pull_request_that_changes_the_site_builds_it_with_the_pages_builder()
 def test_a_pull_request_that_changes_an_image_pin_resolves_each_pinned_image() -> None:
     """A wrong image tag under `k8s/` fails only when Argo CD syncs, so the `image-pins` job runs
     `devops k8s image-pins` on the pull request first. It runs for every pull request and checks
-    only when the manifests, the command's two modules or `ci.yml` changed, so on any other pull
+    only when the manifests, the command's modules, the registry module or `ci.yml` changed, so on any other pull
     request it reports success. No job needs it, and it holds no write scope. It installs the
     pinned helm, which renders the chart Applications, with the lock's installer (#1994)."""
     jobs = _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"]
@@ -1348,7 +1348,7 @@ def test_a_pull_request_that_changes_an_image_pin_resolves_each_pinned_image() -
                 "uses": PATHS_FILTER,
                 "with": {
                     "filters": "pins:\n  - 'k8s/**'\n  - 'src/devops_cli/**/image_pins.py'\n"
-                    "  - '.github/workflows/ci.yml'\n"
+                    "  - 'src/devops_cli/docker/registry.py'\n  - '.github/workflows/ci.yml'\n"
                 },
             },
             {

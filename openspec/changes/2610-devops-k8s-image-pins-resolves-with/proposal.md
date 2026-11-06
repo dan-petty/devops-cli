@@ -76,6 +76,10 @@ Commands run against `origin/main` at `9def6b6a`.
 - The same `resolve_repository_name` gives `docker.io` for `index.docker.io/library/nginx`, `valkey/valkey` and `nginx`, and it does not add `library/`. So the group 2 work is smaller than planned: no `digest` field, because the tag already holds the digest, and no hand-written split.
 - `grep -n "image_reference" src/devops_cli/k8s/image_pins.py` still gives the definition and three uses. The hand-written split is still there, so the premise of the issue ("one split") stands.
 
+### Recheck on 2026-11-06, after the first CI run
+
+- The CI job `image-pins` failed for `registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0` with HTTP 307. `curl -sI` of its manifest gives `307` with a `location` on `us-west2-docker.pkg.dev`; `imagetools` followed that redirect and the client of the command did not. `tag_digest` with `http_client(EgressLevel.PUBLIC, follow_redirects=True)` gives `sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b`. The command now builds its client with `follow_redirects=True`, and a test serves such a redirect.
+
 ## Existing Tool Considered
 
 `crane digest` (go-containerregistry, Apache-2.0, maintained by Google) sends a HEAD. `regctl image digest` and `oras manifest fetch --descriptor` do the same. `skopeo inspect` and `docker manifest inspect` use a GET, as `imagetools` does.

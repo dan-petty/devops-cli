@@ -2,34 +2,37 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import Callable
+import subprocess
+from collections.abc import Callable, Iterator
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
-from docker.auth import resolve_repository_name
-from docker.utils import parse_repository_tag
 
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.exceptions.k8s import ImagePinError
+from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.k8s.image_pins import (
     collect_image_pins,
-    image_reference,
     image_values,
     is_local_registry,
     names_latest,
     resolve_image,
 )
-from tests.support.fakes.imagetools import ImagetoolsFake
-from tests.support.fakes.process import ProcessAnswer, ProcessFake
-from tests.support.imagetools_recording import RECORDED_IMAGES
+from tests.support.fakes.http import WebFake
+from tests.support.fakes.oci_registry import ANONYMOUS_TOKEN, RegistryFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 _CHART_RENDER = files("tests").joinpath("fixtures", "image_pins", "chart_render.yaml")
 _SERVICE = "ghcr.io/example/service"
 _LOCAL = "registry.example.svc:5000/team/tool:1.0"
 _ALERTMANAGER = "quay.io/example/alertmanager:v1.0.0"
+_CLOUDFLARED = "cloudflare/cloudflared:2026.10.4"
+_HUB = "registry-1.docker.io"
+_DIGEST = "sha256:" + "a" * 64
 
 _PATH_APPLICATION = """apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -64,6 +67,17 @@ spec:
   destination:
     namespace: monitoring
 """
+
+
+def _real_kustomize(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(list(call.argv), capture_output=True, text=True, check=False)
+
+
+@pytest.fixture(autouse=True)
+def _kustomize_runs_for_real(process_fake: ProcessFake) -> Iterator[None]:
+    """The renders of a path source run the real `kubectl kustomize`; helm answers from a test."""
+    process_fake.answer(("kubectl", "kustomize"), ProcessAnswer(side_effect=_real_kustomize))
+    yield
 
 
 def _tree(root: Path, *images: str) -> Path:
@@ -179,32 +193,6 @@ spec:
 
 
 @pytest.mark.parametrize(
-    "image",
-    [
-        "traefik",
-        "valkey/valkey:9.1.2-alpine",
-        "docker.io/traefik:v3.7.16",
-        "index.docker.io/library/nginx:1.27",
-        "ghcr.io/example/service",
-        "ghcr.io/example/service:latest@sha256:" + "c" * 64,
-        "quay.io/argoproj/argocd:v3.5.3",
-        "nvcr.io/nvidia/k8s/dcgm-exporter:4.6.1-4.8.4-distroless",
-        "localhost:5000/team/tool:1.0",
-        "192.0.2.10:5000/team/tool",
-        "gitea-http:3000/team/tool:1.0",
-        "registry.example.svc:5000/team/tool:1.0",
-    ],
-)
-def test_an_image_reference_splits_as_the_docker_sdk_splits_it(image: str) -> None:
-    """The registry and the repository are the Docker SDK's, whose rule is the reference grammar's.
-
-    The SDK strips only the digest of a reference that holds a tag and a digest, so its split is
-    applied twice: a repository is compared without its tag."""
-    repository, _ = parse_repository_tag(parse_repository_tag(image)[0])
-    assert image_reference(image) == resolve_repository_name(repository)
-
-
-@pytest.mark.parametrize(
     ("registry", "local"),
     [
         ("docker.io", False),
@@ -252,7 +240,7 @@ def test_an_image_with_no_digest_and_the_latest_tag_or_no_tag_names_latest(
 
 
 def test_the_pins_are_the_rendered_images_less_the_managed_and_the_local_ones(
-    tmp_path: Path, imagetools: ImagetoolsFake, process_fake: ProcessFake
+    tmp_path: Path, process_fake: ProcessFake
 ) -> None:
     """A path source renders with kustomize and a chart source with `helm template` and the value
     files of the repository, less its test manifests, which Argo CD does not apply. The image that
@@ -288,9 +276,7 @@ def test_the_pins_are_the_rendered_images_less_the_managed_and_the_local_ones(
     )
 
 
-def test_an_image_on_the_latest_tag_is_not_a_pin(
-    tmp_path: Path, imagetools: ImagetoolsFake, process_fake: ProcessFake
-) -> None:
+def test_an_image_on_the_latest_tag_is_not_a_pin(tmp_path: Path, process_fake: ProcessFake) -> None:
     """A `latest` tag, no tag, and a `latest` tag of a cluster-only registry name `latest`. The
     untagged image that the chart's ImageUpdater names does not: Image Updater sets its tag."""
     local_latest = "registry.example.svc:5000/team/tool:latest"
@@ -307,7 +293,7 @@ def test_an_image_on_the_latest_tag_is_not_a_pin(
 
 
 def test_a_value_file_that_sets_the_latest_tag_names_a_latest_image(
-    tmp_path: Path, imagetools: ImagetoolsFake, process_fake: ProcessFake
+    tmp_path: Path, process_fake: ProcessFake
 ) -> None:
     """A tag that a chart's value file sets is in the render, which a check of the raw files does
     not see."""
@@ -323,7 +309,7 @@ def test_a_value_file_that_sets_the_latest_tag_names_a_latest_image(
 
 
 def test_a_chart_that_does_not_render_stops_the_check_with_helms_error(
-    tmp_path: Path, imagetools: ImagetoolsFake, process_fake: ProcessFake
+    tmp_path: Path, process_fake: ProcessFake
 ) -> None:
     """A failed render is not an empty list of images."""
     root = _tree(tmp_path, "cloudflare/cloudflared:2026.10.4")
@@ -337,9 +323,7 @@ def test_a_chart_that_does_not_render_stops_the_check_with_helms_error(
     )
 
 
-def test_an_oci_chart_repository_stops_the_check(
-    tmp_path: Path, imagetools: ImagetoolsFake, process_fake: ProcessFake
-) -> None:
+def test_an_oci_chart_repository_stops_the_check(tmp_path: Path, process_fake: ProcessFake) -> None:
     """No Application uses an OCI chart repository yet, so the check names one instead of skipping
     its images."""
     root = _tree(tmp_path, "cloudflare/cloudflared:2026.10.4")
@@ -360,106 +344,162 @@ def test_an_oci_chart_repository_stops_the_check(
     )
 
 
-def test_each_image_resolves_to_its_digest_or_to_the_resolvers_error(
-    imagetools: ImagetoolsFake,
-) -> None:
-    """The resolver's own error line names the cause: a missing tag, a missing repository, or a
-    registry that refuses an anonymous client."""
-    resolutions = [resolve_image(image, ("app",)) for image in RECORDED_IMAGES]
+def _resolve(*images: str) -> list[tuple[str, str, str | None, str | None]]:
+    with http_client(EgressLevel.PUBLIC) as client:
+        resolutions = [resolve_image(image, ("app",), client, timeout=5.0) for image in images]
+    return [(r.image, r.registry, r.digest, r.error) for r in resolutions]
 
-    digests = {
-        image: json.loads(run.stdout)["digest"]
-        for image, run in imagetools.runs.items()
-        if run.returncode == 0
-    }
-    assert [(r.image, r.registry, r.digest, r.error) for r in resolutions] == [
-        (RECORDED_IMAGES[0], "docker.io", digests[RECORDED_IMAGES[0]], None),
-        (RECORDED_IMAGES[1], "ghcr.io", digests[RECORDED_IMAGES[1]], None),
+
+def test_each_image_resolves_to_its_digest_or_to_the_resolvers_error(web: WebFake) -> None:
+    """The error line names the cause: a missing tag, a missing repository, or a registry that
+    refuses an anonymous client. A Docker Hub image is read at the Docker Hub registry host, and
+    its registry is `docker.io`."""
+    web.serve(RegistryFake({f"{_HUB}/library/traefik:v3.7.16": _DIGEST}, host=_HUB))
+    web.serve(RegistryFake({"ghcr.io/example/service:1.0": _DIGEST}))
+    web.serve(RegistryFake({}, host="quay.io"))
+    web.serve(RegistryFake({}, host="gcr.io", anonymous=False))
+
+    assert _resolve(
+        "traefik:v3.7.16",
+        "ghcr.io/example/service:1.0",
+        "ollama/ollama:0.0.0-does-not-exist",
+        "quay.io/argoproj/argocd:v0.0.0-missing",
+        "gcr.io/example/private:1.0",
+    ) == [
+        ("traefik:v3.7.16", "docker.io", _DIGEST, None),
+        ("ghcr.io/example/service:1.0", "ghcr.io", _DIGEST, None),
         (
-            RECORDED_IMAGES[2],
+            "ollama/ollama:0.0.0-does-not-exist",
             "docker.io",
             None,
-            "docker.io/ollama/ollama:0.0.0-does-not-exist: not found",
-        ),
-        (RECORDED_IMAGES[3], "quay.io", None, "quay.io/argoproj/argocd:v0.0.0-missing: not found"),
-        (
-            RECORDED_IMAGES[4],
-            "docker.io",
-            None,
-            "pull access denied, repository does not exist or may require authorization: "
-            "server message: insufficient_scope: authorization failed",
+            "The registry gives no manifest for ollama/ollama:0.0.0-does-not-exist (HTTP 404).",
         ),
         (
-            RECORDED_IMAGES[5],
-            "ghcr.io",
+            "quay.io/argoproj/argocd:v0.0.0-missing",
+            "quay.io",
             None,
-            "failed to authorize: failed to fetch anonymous token: unexpected status from GET "
-            "request to https://ghcr.io/token?scope=repository%3Adan-petty%2Fno-such-image-1994"
-            "%3Apull&service=ghcr.io: 403 Forbidden",
+            "The registry gives no manifest for quay.io/argoproj/argocd:v0.0.0-missing (HTTP 404).",
+        ),
+        (
+            "gcr.io/example/private:1.0",
+            "gcr.io",
+            None,
+            "The registry of gcr.io/example/private:1.0 gives no anonymous pull token, so reading "
+            "it needs credentials (HTTP 401).",
         ),
     ]
 
 
-def test_each_image_resolves_as_an_anonymous_client(
-    imagetools: ImagetoolsFake, process_fake: ProcessFake
-) -> None:
-    """The cluster pulls without credentials, so the resolver runs with an empty Docker
-    configuration: a stored credential that a registry refuses does not fail the pin."""
-    resolve_image(RECORDED_IMAGES[0], ("web",))
+def test_each_image_resolves_as_an_anonymous_client(web: WebFake) -> None:
+    """The cluster pulls without credentials. The first request of a pin has no `Authorization`
+    header, and the only one sent later is the anonymous token that the registry gave."""
+    web.serve(RegistryFake({f"{_HUB}/{_CLOUDFLARED}": _DIGEST}, host=_HUB))
 
-    configs = [
-        call.env.get("DOCKER_CONFIG") if call.env else None
-        for call in process_fake.calls
-        if call.argv[:4] == ("docker", "buildx", "imagetools", "inspect")
+    _resolve(_CLOUDFLARED)
+
+    assert [(r.method, r.url.path, r.headers.get("authorization")) for r in web.sent] == [
+        ("HEAD", "/v2/cloudflare/cloudflared/manifests/2026.10.4", None),
+        ("GET", "/token", None),
+        ("HEAD", "/v2/cloudflare/cloudflared/manifests/2026.10.4", f"Bearer {ANONYMOUS_TOKEN}"),
     ]
-    assert (
-        len(configs),
-        all(config and Path(config).name.startswith("image-pins-docker-") for config in configs),
-    ) == (1, True)
 
 
-def test_a_manifest_with_no_digest_does_not_resolve(imagetools: ImagetoolsFake) -> None:
-    """Exit 0 alone is not a resolved image."""
-    imagetools.script(_ALERTMANAGER, returncode=0, stdout='{"schemaVersion": 2}')
+def test_a_manifest_with_no_digest_does_not_resolve(web: WebFake) -> None:
+    """A reply of 200 alone is not a resolved image."""
+    web.respond("HEAD", "https://quay.io/v2/example/alertmanager/manifests/v1.0.0", 200)
 
-    resolution = resolve_image(_ALERTMANAGER, ("monitoring",))
+    assert _resolve(_ALERTMANAGER) == [
+        (
+            _ALERTMANAGER,
+            "quay.io",
+            None,
+            f"The registry reply for {_ALERTMANAGER} names no digest.",
+        )
+    ]
 
-    assert (resolution.resolved, resolution.error) == (False, "the manifest names no digest")
+
+def test_a_registry_that_does_not_answer_is_an_error_of_the_pin(web: WebFake) -> None:
+    """A lost connection fails one pin with its text, and not the whole run with a traceback."""
+    web.fail(
+        "https://quay.io/v2/example/alertmanager/manifests/v1.0.0",
+        httpx2.ReadTimeout("The read operation timed out"),
+    )
+
+    [(_, _, digest, error)] = _resolve(_ALERTMANAGER)
+
+    assert (digest, error) == (None, "The read operation timed out")
+
+
+def _serve_registries(web: WebFake) -> None:
+    web.serve(RegistryFake({f"{_HUB}/{_CLOUDFLARED}": _DIGEST}, host=_HUB))
+    web.serve(RegistryFake({_ALERTMANAGER: _DIGEST}, host="quay.io"))
 
 
 def test_the_command_reports_each_pin_and_passes_when_each_resolves(
     tmp_path: Path,
-    imagetools: ImagetoolsFake,
+    web: WebFake,
     process_fake: ProcessFake,
     cli: Callable[..., Any],
 ) -> None:
-    """The managed and the local images are named, and are not resolved."""
-    root = _tree(tmp_path, "cloudflare/cloudflared:2026.10.4", _SERVICE, _LOCAL)
+    """The managed and the local images are named, and are not resolved. Every request to a
+    manifest is a HEAD, and none goes to `docker.io`, which redirects to the web site."""
+    root = _tree(tmp_path, _CLOUDFLARED, _SERVICE, _LOCAL)
     _chart_answers(process_fake)
-    imagetools.script(_ALERTMANAGER, returncode=0, stdout='{"digest": "sha256:' + "a" * 64 + '"}')
+    _serve_registries(web)
 
     result = cli("k8s", "image-pins", str(root))
 
+    manifests = [r for r in web.sent if "/manifests/" in r.url.path]
     assert (
         result.exit_code,
-        sorted(imagetools.calls),
+        sorted({r.url.host for r in web.sent}),
+        {r.method for r in manifests},
         "Each of the 2 image(s) that the Argo CD Applications pin resolves" in result.output,
         f"Image Updater moves these repositories, so they are not pins: {_SERVICE}"
         in result.output,
         _LOCAL in result.output,
-    ) == (0, sorted(["cloudflare/cloudflared:2026.10.4", _ALERTMANAGER]), True, True, True)
+    ) == (0, ["quay.io", _HUB], {"HEAD"}, True, True, True)
+
+
+def test_the_command_follows_the_redirect_of_a_registry_to_its_storage(
+    tmp_path: Path,
+    web: WebFake,
+    process_fake: ProcessFake,
+    cli: Callable[..., Any],
+) -> None:
+    """registry.k8s.io answers a manifest request with HTTP 307 to the host that stores the image."""
+    image = "registry.k8s.io/example/tool:v1.0.0"
+    root = _tree(tmp_path, image)
+    _chart_answers(process_fake)
+    web.redirect(
+        "https://registry.k8s.io/v2/example/tool/manifests/v1.0.0",
+        "https://storage.example.com/v2/example/tool/manifests/v1.0.0",
+        status=307,
+    )
+    web.serve(RegistryFake({_ALERTMANAGER: _DIGEST}, host="quay.io"))
+    web.answer(
+        "https://storage.example.com/v2/example/tool/manifests/v1.0.0",
+        200,
+        method="HEAD",
+        headers={"docker-content-digest": _DIGEST},
+    )
+
+    result = cli("k8s", "image-pins", str(root))
+
+    assert (result.exit_code, f"registry.k8s.io  {_DIGEST}" in result.output) == (0, True)
 
 
 def test_the_command_fails_on_an_image_that_its_registry_does_not_hold(
     tmp_path: Path,
-    imagetools: ImagetoolsFake,
+    web: WebFake,
     process_fake: ProcessFake,
     cli: Callable[..., Any],
 ) -> None:
     """The error names the image, its Applications, its registry and the resolver's error."""
     root = _tree(tmp_path, "ollama/ollama:0.0.0-does-not-exist")
     _chart_answers(process_fake)
-    imagetools.script(_ALERTMANAGER, returncode=0, stdout='{"digest": "sha256:' + "b" * 64 + '"}')
+    web.serve(RegistryFake({}, host=_HUB))
+    web.serve(RegistryFake({_ALERTMANAGER: _DIGEST}, host="quay.io"))
 
     result = cli("k8s", "image-pins", str(root))
 
@@ -467,27 +507,27 @@ def test_the_command_fails_on_an_image_that_its_registry_does_not_hold(
         result.exit_code,
         "1 image(s) that the Argo CD Applications pin do not resolve: "
         "ollama/ollama:0.0.0-does-not-exist (Application web, registry docker.io): "
-        "docker.io/ollama/ollama:0.0.0-does-not-exist: not found"
+        "The registry gives no manifest for ollama/ollama:0.0.0-does-not-exist (HTTP 404)."
         in " ".join(result.output.split()),
     ) == (1, True)
 
 
 def test_the_command_refuses_an_image_on_the_latest_tag_and_resolves_nothing(
     tmp_path: Path,
-    imagetools: ImagetoolsFake,
+    web: WebFake,
     process_fake: ProcessFake,
     cli: Callable[..., Any],
 ) -> None:
     """The error names each `latest` image and its Applications. No image is resolved, so the
-    refused check spends no Docker Hub pull."""
-    root = _tree(tmp_path, "example/app:latest", "cloudflare/cloudflared:2026.10.4")
+    refused check sends no request."""
+    root = _tree(tmp_path, "example/app:latest", _CLOUDFLARED)
     _chart_answers(process_fake)
 
     result = cli("k8s", "image-pins", str(root))
 
     assert (
         result.exit_code,
-        imagetools.calls,
+        web.sent,
         "1 image(s) that the Argo CD Applications name use the latest tag and no digest, so each "
         "pull can get a different image. Set a version tag or a digest: "
         "example/app:latest (Application web)" in " ".join(result.output.split()),
@@ -496,12 +536,13 @@ def test_the_command_refuses_an_image_on_the_latest_tag_and_resolves_nothing(
 
 def test_a_dry_run_renders_and_resolves_nothing(
     tmp_path: Path,
-    imagetools: ImagetoolsFake,
+    web: WebFake,
     process_fake: ProcessFake,
     cli: Callable[..., Any],
 ) -> None:
-    """The renders and the resolves are planned, not run."""
-    root = _tree(tmp_path, "cloudflare/cloudflared:2026.10.4")
+    """The renders are planned, not run, and no request goes to a registry. The output names the
+    request that a run sends for each image."""
+    root = _tree(tmp_path, _CLOUDFLARED)
     _chart_answers(process_fake)
 
     try:
@@ -511,7 +552,7 @@ def test_a_dry_run_renders_and_resolves_nothing(
 
     assert (
         result.exit_code,
-        imagetools.calls,
-        "docker buildx imagetools inspect <image> --format {{json .Manifest}}"
+        web.sent,
+        "HEAD https://<registry>/v2/<repository>/manifests/<reference>"
         in " ".join(result.output.split()),
     ) == (0, [], True)

@@ -656,7 +656,7 @@ class K8sMessages:
         "Image Updater moves these repositories, so they are not pins: {repositories}"
     )
     image_pins_local: str = "Only the cluster or this host reaches the registry of these images, so they are not resolved: {images}"
-    image_pins_dry_run: str = "Each image that the renders name is then resolved with: {command}"
+    image_pins_dry_run: str = "Each image that the renders name is then resolved with this request: HEAD https://<registry>/v2/<repository>/manifests/<reference>"
     rbac_audit_passed: str = (
         "RBAC audit passed: no broad or wildcard role granted to a non-system subject "
         "in {bindings} binding(s)."
