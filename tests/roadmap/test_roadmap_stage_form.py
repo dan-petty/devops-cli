@@ -9,7 +9,13 @@ from typing import Any
 import pytest
 
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.roadmap.stage_change import StageGroup, StageProposal, check_proposal
+from devops_cli.roadmap.stage_change import (
+    STAGE_EVAL_REPLAY,
+    STAGE_EVAL_TRIGGER_PATHS,
+    StageGroup,
+    StageProposal,
+    check_proposal,
+)
 from devops_cli.roadmap.stage_form import (
     form_problems,
     negative_search_parts,
@@ -407,3 +413,59 @@ def test_a_dependency_that_names_the_overlap_is_accepted() -> None:
     )
 
     assert _overlap_problems(plan) == []
+
+
+# ── A plan that changes a stage trigger path runs the eval replay (#3331) ─────
+
+_REPLAY_SCORE = "the score before and after the change"
+
+
+def _with_task(plan: StageProposal, text: str) -> StageProposal:
+    """The plan, with its one group task written as `text`."""
+    group = plan.groups[0].model_copy(update={"implementation": text})
+    return plan.model_copy(update={"groups": [group]})
+
+
+@pytest.mark.parametrize("path", STAGE_EVAL_TRIGGER_PATHS)
+def test_a_plan_that_changes_a_trigger_path_with_no_replay_task_is_refused(path: str) -> None:
+    (problem,) = _problems(_plan(path))
+
+    assert f"`{path}`" in problem
+    assert STAGE_EVAL_REPLAY in problem
+
+
+def test_a_plan_that_changes_the_prompt_with_no_replay_task_is_refused() -> None:
+    prompt = "src/devops_cli/ai/tasks/roadmap_stage_change.md"
+
+    (problem,) = _problems(_plan(prompt))
+
+    assert f"`{prompt}`" in problem
+    assert "must run" in problem
+
+
+def test_a_replay_task_without_the_score_is_refused() -> None:
+    plan = _with_task(
+        _plan("src/devops_cli/roadmap/stage_change.py"),
+        f"Run `{STAGE_EVAL_REPLAY}` before the merge.",
+    )
+
+    (problem,) = _problems(plan)
+
+    assert "score" in problem
+    assert "before and after" in problem
+
+
+def test_a_replay_task_with_the_score_passes() -> None:
+    path = "src/devops_cli/ai/tasks/roadmap_stage_change.md"
+    plan = _with_task(
+        _plan(path),
+        f"Run `{STAGE_EVAL_REPLAY}` and state {_REPLAY_SCORE}.",
+    )
+
+    assert _problems(plan) == []
+
+
+def test_a_plan_that_changes_no_trigger_path_has_no_replay_problem() -> None:
+    plan = _plan(CODE)
+
+    assert _problems(plan) == []

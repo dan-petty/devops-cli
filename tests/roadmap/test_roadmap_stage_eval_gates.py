@@ -107,7 +107,7 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
     assert counts[DefectType.VERIFY_FORM] == (6, 0, 12)
     assert counts[DefectType.TASK_ORDER] == (0, 0, 8)
     assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)
-    assert report.judged() == (68, 304)
+    assert report.judged() == (69, 305)
 
 
 def test_the_judged_share_counts_the_caught_and_the_missed_and_not_the_rest(
@@ -350,7 +350,18 @@ def _stage_move_case(cases: list[StageCase]) -> StageCase:
 
 
 def _with_verify(case: StageCase, verify: str) -> StageCase:
-    groups = [{**group, "verify": verify} for group in case.groups]
+    groups = [
+        {
+            **group,
+            "verify": verify,
+            "implementation": (
+                f"{group['implementation']}, and run "
+                "`uv run devops roadmap eval stage --replay` with the score before and after "
+                "the change"
+            ),
+        }
+        for group in case.groups
+    ]
     return case.model_copy(update={"plan": {**case.plan, "groups": groups}})
 
 

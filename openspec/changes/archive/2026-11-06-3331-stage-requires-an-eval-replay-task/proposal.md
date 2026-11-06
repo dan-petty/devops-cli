@@ -27,7 +27,7 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/stage_eval_cases.py`
+- Code: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`
 - Documents: `docs/ROADMAP_WORKFLOW.md`
 - Tests: `tests/roadmap/test_roadmap_stage_form.py`, `tests/fixtures/roadmap_eval/stage/3331-a-plan-that-changes-a-check/`
 

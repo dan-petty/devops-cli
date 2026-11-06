@@ -121,6 +121,28 @@ _MESSAGES_FILE: Final[str] = "src/devops_cli/lang/en/messages.py"
 _MESSAGE_NAME: Final[re.Pattern[str]] = re.compile(r"\bMESSAGES\.roadmap\b")
 _SENTENCE_END: Final[str] = f"{string.whitespace}."
 REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
+# The stage prompt and each module that holds a check of `check_proposal` or of the gates it
+# calls. A plan that changes one of these paths must measure the stage job (#3331).
+STAGE_EVAL_TRIGGER_PATHS: Final[tuple[str, ...]] = (
+    "src/devops_cli/ai/tasks/roadmap_stage_change.md",
+    "src/devops_cli/roadmap/stage_change.py",
+    "src/devops_cli/roadmap/stage_form.py",
+    "src/devops_cli/roadmap/stage_paths.py",
+    "src/devops_cli/roadmap/stage_criteria.py",
+    "src/devops_cli/roadmap/stage_eval_gates.py",
+)
+# The command that replays the golden set through the gates of the stage job.
+STAGE_EVAL_REPLAY: Final[str] = "uv run devops roadmap eval stage --replay"
+# The words that show that the replay task states the score before and after the change.
+_STAGE_EVAL_SCORE_WORDS: Final[tuple[str, ...]] = ("score", "before", "after")
+# The texts of a group that a task holds: the title and each part of the work.
+_GROUP_TASK_FIELDS: Final[tuple[str, ...]] = (
+    "title",
+    "test",
+    "implementation",
+    "documentation",
+    "verify",
+)
 
 # ── The reply ─────────────────────────────────────────────────────────────────
 
@@ -588,6 +610,48 @@ def _what_changes_problems(proposal: StageProposal, tree: StagedTree) -> list[st
     ]
 
 
+def _group_task_texts(group: StageGroup) -> list[str]:
+    """The texts of `group` that a task holds: the title and each part of the work."""
+    return [text for field in _GROUP_TASK_FIELDS if (text := getattr(group, field)) is not None]
+
+
+def eval_replay_problems(groups: Sequence[StageGroup]) -> list[str]:
+    """One problem when a group changes a path of `STAGE_EVAL_TRIGGER_PATHS` and no group task
+    runs the replay with the score before and after the change (#3331). A plan that changes no
+    trigger path adds no problem. The check reads the first changed trigger path and the group
+    that holds the replay command, so one plan gets one problem."""
+    texts = MESSAGES.roadmap
+    triggers = [
+        (number, path)
+        for number, group in enumerate(groups, start=1)
+        for path in group.changes
+        if path in STAGE_EVAL_TRIGGER_PATHS
+    ]
+    if not triggers:
+        return []
+    number, path = triggers[0]
+    replays = [
+        (number, text)
+        for number, group in enumerate(groups, start=1)
+        for text in _group_task_texts(group)
+        if STAGE_EVAL_REPLAY in text
+    ]
+    if not replays:
+        return [
+            texts.stage_problem_eval_replay.format(
+                group=number, path=path, command=STAGE_EVAL_REPLAY
+            )
+        ]
+    if any(all(word in text.casefold() for word in _STAGE_EVAL_SCORE_WORDS) for _, text in replays):
+        return []
+    replay_number = replays[0][0]
+    return [
+        texts.stage_problem_eval_score.format(
+            group=replay_number, path=path, command=STAGE_EVAL_REPLAY
+        )
+    ]
+
+
 def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> list[str]:
     """What is wrong with the text of `proposal` that no schema says (#3200): a text that is too
     short or a placeholder word (`is_placeholder` of the pull request form), a `feasibility` that
@@ -637,6 +701,7 @@ def check_proposal(
     problems = _delta_problems(proposal, known, requirements or {})
     problems.extend(content_problems(proposal, probes))
     problems.extend(form_problems(proposal.groups))
+    problems.extend(eval_replay_problems(proposal.groups))
     problems.extend(path_problems(proposal.groups, tree))
     problems.extend(_what_changes_problems(proposal, tree))
     problems.extend(move_prefix_problems(proposal.groups, tree))
