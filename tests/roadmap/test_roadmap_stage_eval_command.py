@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from devops_cli.ai.client import factory
-from devops_cli.roadmap.stage_eval_cases import CASES_DIRECTORY, StageCase, load_cases
+from devops_cli.roadmap.stage_eval_cases import CASES_DIRECTORY, NO_COMMIT, StageCase, load_cases
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_stage import VALID_REPORT, StageRepo, validate_args
@@ -295,6 +295,125 @@ def test_a_live_run_with_a_failed_case_exits_1(
 
     assert result.exit_code == 1
     assert "1 case(s) could not run" in result.output
+
+
+def _copy_of_the_live_case(folder: Path, name: str, **changes: str) -> None:
+    """Add the case `name` to the set `folder`: a copy of `live-case` with `changes` in its
+    `case.json`."""
+    shutil.copytree(folder / "live-case", folder / name)
+    path = folder / name / "case.json"
+    path.write_text(
+        json.dumps({**json.loads(path.read_text(encoding="utf-8")), **changes}), encoding="utf-8"
+    )
+
+
+def test_a_live_run_leaves_out_a_case_that_holds_no_commit_and_names_it_and_exits_0(
+    cli: Cli,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec_fake: OpenSpecFake,
+    cases: list[StageCase],
+) -> None:
+    openspec_fake.script_sequence(validate_args(CHANGE), (0, VALID_REPORT))
+    folder = _live_set(tmp_path, stage_repo, cases)
+    _copy_of_the_live_case(folder, "a-no-commit", base_commit=NO_COMMIT, merge_commit=NO_COMMIT)
+    model_fake.answer(make_stage_proposal())
+
+    result = _eval(cli, "--cases", str(folder), "--source", str(stage_repo.clone), "--model", "m-1")
+
+    assert result.exit_code == 0, result.output
+    assert "Left out of the run, as they hold no commit to check out: a-no-commit." in result.output
+    assert "Cases by end: staged 1" in result.output
+    report = _stored_report(result)
+    assert (report["cases"], report["left_out"]) == (1, ["a-no-commit"])
+    assert model_fake.call_count == 1
+
+
+def test_a_run_that_leaves_out_no_case_has_an_empty_list(
+    cli: Cli,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec_fake: OpenSpecFake,
+    cases: list[StageCase],
+) -> None:
+    openspec_fake.script_sequence(validate_args(CHANGE), (0, VALID_REPORT))
+    folder = _live_set(tmp_path, stage_repo, cases)
+    model_fake.answer(make_stage_proposal())
+
+    result = _eval(cli, "--cases", str(folder), "--source", str(stage_repo.clone))
+
+    assert result.exit_code == 0, result.output
+    assert "Left out" not in result.output
+    assert _stored_report(result)["left_out"] == []
+
+
+def test_the_dry_run_lists_the_calls_of_the_cases_with_a_commit_and_names_the_others(
+    cli: Cli,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    cases: list[StageCase],
+) -> None:
+    folder = _live_set(tmp_path, stage_repo, cases)
+    _copy_of_the_live_case(folder, "a-no-commit", base_commit=NO_COMMIT, merge_commit=NO_COMMIT)
+
+    result = _eval(cli, "--dry-run", "--cases", str(folder))
+
+    assert result.exit_code == 0, result.output
+    assert "plans 1 case(s)" in result.output
+    assert "plan of the case live-case" in result.output
+    assert "plan of the case a-no-commit" not in result.output
+    assert "Left out of the run, as they hold no commit to check out: a-no-commit." in result.output
+    assert model_fake.call_count == 0
+
+
+def test_a_selection_of_cases_that_hold_no_commit_exits_1_and_names_them(
+    cli: Cli,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    cases: list[StageCase],
+) -> None:
+    folder = _live_set(tmp_path, stage_repo, cases)
+    _copy_of_the_live_case(folder, "a-no-commit", base_commit=NO_COMMIT, merge_commit=NO_COMMIT)
+
+    result = _eval(cli, "--cases", str(folder), "--case", "a-no-commit")
+
+    assert result.exit_code == 1
+    assert "a-no-commit" in result.output
+    assert model_fake.call_count == 0
+
+
+def test_the_replay_keeps_a_case_that_holds_no_commit(cli: Cli, cases: list[StageCase]) -> None:
+    unmerged = next(case for case in cases if not case.has_commit)
+
+    result = _eval(cli, "--replay", "--case", unmerged.name)
+
+    assert result.exit_code == 0, result.output
+    assert "1 case(s)" in result.output
+
+
+def test_a_commit_that_the_repository_lacks_ends_its_case_and_the_other_case_is_stored(
+    cli: Cli,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec_fake: OpenSpecFake,
+    cases: list[StageCase],
+) -> None:
+    openspec_fake.script_sequence(validate_args(CHANGE), (0, VALID_REPORT))
+    folder = _live_set(tmp_path, stage_repo, cases)
+    _copy_of_the_live_case(folder, "z-lacking", base_commit="1" * 40)
+    model_fake.answer(make_stage_proposal())
+
+    result = _eval(cli, "--cases", str(folder), "--source", str(stage_repo.clone))
+
+    assert result.exit_code == 1
+    assert "1 case(s) could not run" in result.output
+    report = _stored_report(result)
+    assert (report["cases"], report["ended"]["staged"], report["ended"]["failed"]) == (2, 1, 1)
 
 
 def _stored_report(result: Any) -> dict[str, Any]:

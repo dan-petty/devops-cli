@@ -3408,6 +3408,14 @@ class RoadmapMessages:
         "that builds the plan's own `StageProposal` and asserts that `content_problems` returns "
         "no problem for it, because the rule that the plan adds judges the plan itself."
     )
+    # A plan states the work of each task once: a duplicate task spends the budget of the group on
+    # no change (#3456).
+    stage_group_one: str = "group {first}"
+    stage_group_two: str = "groups {first} and {second}"
+    stage_problem_duplicate_task: str = (
+        "Task {first} and task {second} of {groups} state the same work. Write the work once, in "
+        "one task."
+    )
     stage_problem_what_changes_path: str = (
         "A What Changes item names `{path}`, and no group lists it in `changes` or `creates`. List "
         "the path in the group that changes or creates it, or remove it from What Changes."
@@ -4078,6 +4086,11 @@ class RoadmapMessages:
         "The golden set has no case named {names}. Give the name of a case folder or the "
         "number of its issue."
     )
+    stage_eval_no_commit: str = (
+        "The selected case(s) hold no commit to check out: {names}. A run checks out the commit "
+        "of each case. Pick a case that holds a commit, or run the replay."
+    )
+    stage_eval_left_out: str = "Left out of the run, as they hold no commit to check out: {names}."
     stage_eval_over_budget: str = "A task group is over the step budget."
     stage_eval_no_value: str = "-"
     stage_eval_replay_title: str = (

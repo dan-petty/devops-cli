@@ -4,13 +4,15 @@ A case is a plan that the stage job staged, the issue it came from, the facts of
 gates need, and the defects a reviewer found in it. The files of a case directory are:
 
 - `case.json`: the pull request and the commits, the verdict and scores of the review, and the
-  defects. A defect has a type, a severity, the review text with its evidence, and the gate that
-  must refuse it: `paths` (#3010), `kind` (#3005), `pending` (a gate that does not exist yet) or
-  `none` (no gate judges it; a reviewer does). A `missing_path` defect lists the paths that the
-  gate must name. A `contrived_test` defect holds the `message` that the gate must give, and so
-  does a defect that `paths` refuses for another reason than a missing path (a spec delta that
-  the changed paths do not need, a `verify` command). A defect of a type that a gate catches,
-  which the recorded plan cannot show to the gate, has the gate `none` and a `reason` (#3208).
+  defects. A plan that no merge made has `NO_COMMIT` for both commits, and a note says that the
+  case reads no commit (#3688). A defect has a type, a severity, the review text with its
+  evidence, and the gate that must refuse it: `paths` (#3010), `kind` (#3005), `pending` (a gate
+  that does not exist yet) or `none` (no gate judges it; a reviewer does). A `missing_path`
+  defect lists the paths that the gate must name. A `contrived_test` defect holds the `message`
+  that the gate must give, and so does a defect that `paths` refuses for another reason than a
+  missing path (a spec delta that the changed paths do not need, a `verify` command). A defect
+  of a type that a gate catches, which the recorded plan cannot show to the gate, has the gate
+  `none` and a `reason` (#3208).
 - `issue.txt`: the body of the issue, as the stage job read it.
 - `plan.json`: the plan as a `StageProposal` holds it. The groups stay raw, as the model wrote
   them, so that a group the schema refuses is still a case. A plan fails the schema of the reply
@@ -52,7 +54,7 @@ address.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
@@ -66,6 +68,9 @@ from devops_cli.roadmap.stage_paths import StagedTree
 
 # The folder of the cases, from the root of the repository.
 CASES_DIRECTORY: Final[Path] = Path("tests/fixtures/roadmap_eval/stage")
+# The null object id of git, which stands for no object. A case that holds it as its `base_commit`
+# was staged on no commit, as the change of its plan was never merged as that plan.
+NO_COMMIT: Final[str] = "0" * 40
 _CASE_FILE: Final[str] = "case.json"
 _ISSUE_FILE: Final[str] = "issue.txt"
 _PLAN_FILE: Final[str] = "plan.json"
@@ -183,6 +188,12 @@ class StageCase(_Record):
     facts: CaseFacts
 
     @property
+    def has_commit(self) -> bool:
+        """Whether the case holds a commit that a run can check out: its `base_commit` is not
+        `NO_COMMIT`."""
+        return self.base_commit != NO_COMMIT
+
+    @property
     def groups(self) -> list[dict[str, Any]]:
         """The raw task groups of the plan."""
         groups: list[dict[str, Any]] = self.plan["groups"]
@@ -259,3 +270,24 @@ def select_cases(
             )
         cases = [case for case in cases if case.name in names or str(case.issue) in names]
     return cases[:limit] if limit else cases
+
+
+def cases_with_commit(cases: list[StageCase]) -> tuple[list[StageCase], tuple[str, ...]]:
+    """The cases that a run can check out, and the names of the cases that it leaves out because
+    they hold no commit (#3688). The rule reads no git, so a dry run applies it as well as a live
+    run. A selection with no case that holds a commit raises `ConfigurationError`."""
+    run = [case for case in cases if case.has_commit]
+    left_out = tuple(case.name for case in cases if not case.has_commit)
+    if left_out and not run:
+        raise ConfigurationError(
+            MESSAGES.roadmap.stage_eval_no_commit.format(names=", ".join(left_out)),
+            details={"cases": list(left_out)},
+        )
+    return run, left_out
+
+
+def left_out_note(left_out: Sequence[str]) -> str:
+    """The line that names the cases a run left out, or an empty text when it left none out."""
+    if not left_out:
+        return ""
+    return MESSAGES.roadmap.stage_eval_left_out.format(names=", ".join(left_out))
