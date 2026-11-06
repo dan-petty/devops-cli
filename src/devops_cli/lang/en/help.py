@@ -1489,8 +1489,9 @@ class RoadmapCommandHelp:
         "Check each change folder on the default branch again. Each folder gets one result: ok, "
         "rewrite, new-plan, delivered or cleanup, and each refusal names its gate. With --branch, "
         "list the refusals of each gate for the branch and the default branch, and mark each "
-        "refusal that the branch adds as a case to review. The command reads GitHub and git, "
-        "calls no model and writes nothing. Details: docs/roadmap/plan-recheck.md."
+        "refusal that the branch adds as a case to review. A folder gets rewrite only when the "
+        "mechanical rewrite of the plan fixes it. The command reads GitHub and git and calls no "
+        "model. It writes no file unless you give --confirm. Details: docs/roadmap/plan-recheck.md."
     )
     plan_recheck_source: str = "The clone of the repository. Without it, the model clone."
     plan_recheck_branch: str = (
@@ -1500,6 +1501,11 @@ class RoadmapCommandHelp:
     plan_recheck_json: str = (
         "Print the folders, the counts and the refusals of each gate as JSON, with the result of "
         "each folder."
+    )
+    plan_recheck_confirm: str = (
+        "Write the rewritten files of each rewrite folder of the default branch to the working "
+        "tree of --source. It needs --source. It writes no file if one differs from the default "
+        "branch, and it makes no commit. Review the diff, and open a pull request."
     )
     plan_recheck_dry_run: str = (
         "Make no request: print the reads that a run makes, in order, with placeholders."

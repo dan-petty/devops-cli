@@ -20,11 +20,12 @@ they pass.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Final
 
+from devops_cli.exceptions import RoadmapPlanRewriteError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement_shell_policy import verification_problem
 from devops_cli.roadmap.plan_read import PlanReadError, created_paths, group_files
@@ -197,4 +198,28 @@ def rewrite_plan(root: str, files: Mapping[str, str], tree: StagedTree) -> PlanR
     return PlanRewrite(rewritten, changes, tuple(notes))
 
 
-__all__ = ["FileChange", "PlanRewrite", "rewrite_plan"]
+def write_rewrite(source: Path, rewrites: Iterable[PlanRewrite]) -> tuple[str, ...]:
+    """Write the changed files of `rewrites` to the working tree of the checkout `source`, and
+    return their paths. The command makes no commit.
+
+    Every file is checked before the first is written. A file must hold the text that the default
+    branch holds (`before`), or not exist when the rewrite adds it. A file that differs holds a
+    change of a person, so the call raises `RoadmapPlanRewriteError` and writes nothing. The
+    reader of the default branch strips the white space around a file, so the comparison ignores
+    it, and each file ends with one line end."""
+    changes = [change for rewrite in rewrites for change in rewrite.changes]
+    for change in changes:
+        target = source / change.path
+        held = target.read_bytes().decode("utf-8").strip() if target.is_file() else None
+        if held != (None if change.before is None else change.before.strip()):
+            raise RoadmapPlanRewriteError(
+                MESSAGES.roadmap.plan_rewrite_file_differs.format(path=change.path)
+            )
+    for change in changes:
+        target = source / change.path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(f"{change.after.rstrip()}\n".encode())
+    return tuple(change.path for change in changes)
+
+
+__all__ = ["FileChange", "PlanRewrite", "rewrite_plan", "write_rewrite"]

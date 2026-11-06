@@ -22,9 +22,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/plan_rewrite.py`, `src/devops_cli
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/plan_rewrite.py`, `src/devops_cli/roadmap/plan_recheck.py`, `src/devops_cli/commands/roadmap.py`, `tests/roadmap/test_roadmap_plan_recheck.py`. Changes: `src/devops_cli/roadmap/plan_rewrite.py`, `src/devops_cli/commands/roadmap.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`, `tests/commands/test_roadmap_plan_recheck_cmd.py` (new).
 
-- [ ] 3.1 In `tests/commands/test_roadmap_plan_recheck_cmd.py`, write first: without `--confirm` the working tree of a checkout holds no changed file; `--confirm --source <checkout>` writes the changed files of each `rewrite` folder and makes no commit; `--confirm` without `--source` exits with an error that names `--source`; `--confirm` with `--dry-run` exits with an error; a file that differs from the default branch stops the write before any file is written and the error names it
+- [x] 3.1 In `tests/commands/test_roadmap_plan_recheck_cmd.py`, write first: without `--confirm` the working tree of a checkout holds no changed file; `--confirm --source <checkout>` writes the changed files of each `rewrite` folder and makes no commit; `--confirm` without `--source` exits with an error that names `--source`; `--confirm` with `--dry-run` exits with an error; a file that differs from the default branch stops the write before any file is written and the error names it
   - Verification: `uv run devops ci test tests/commands/test_roadmap_plan_recheck_cmd.py` fails on the base
-- [ ] 3.2 Add `write_rewrite` to `src/devops_cli/roadmap/plan_rewrite.py`. Add the option `--confirm` to `plan_recheck_cmd` in `src/devops_cli/commands/roadmap.py`, with `_one_mode` for `--dry-run` and `--confirm`, and add the help and message texts. Check every file before the first write
+- [x] 3.2 Add `write_rewrite` to `src/devops_cli/roadmap/plan_rewrite.py`. Add the option `--confirm` to `plan_recheck_cmd` in `src/devops_cli/commands/roadmap.py`, with `_one_mode` for `--dry-run` and `--confirm`, and add the help and message texts. Check every file before the first write
   - Verification: `uv run devops ci test tests/commands/test_roadmap_plan_recheck_cmd.py tests/roadmap/test_roadmap_dry_runs.py` passes
 
 ## 4. Hold the left-out reason of a Planned item
