@@ -75,28 +75,32 @@ No readiness command SHALL block a pull request because its branch is behind its
 - **WHEN** the head branch names no issue
 - **THEN** the command adds no readiness blocker and reads no item
 
-### Requirement: A long pull request body gets a warning
-`devops pr check-readiness` SHALL print one warning when the body of the pull request, without its trailer lines, is longer than 1,000 characters. The warning SHALL name the length, the limit and `CONTRIBUTING.md` section 4. A trailer line is a line that starts with `Closes`, `Change:`, `Fail-to-pass:`, `Co-authored-by:` or `Signed-off-by:`, and it SHALL NOT count toward the length. A body that GitHub reports as `null` SHALL count as empty.
+### Requirement: A pull request body must keep the form
+`devops pr check-readiness` SHALL call `body_problems` on the body of the pull request, where the base holds `openspec/changes/` and the title is no plan title. A body that GitHub reports as `null` SHALL count as empty. The command SHALL exit 1 when `body_problems` returns at least one problem.
 
-#### Scenario: The body is at the limit
-- **WHEN** the body before the trailer lines is exactly 1,000 characters
-- **THEN** the verdict holds no advisory
+#### Scenario: A body with no closing line
+- **WHEN** the body has no line `Closes #<issue>` and nothing else blocks the pull request
+- **THEN** `devops pr check-readiness` prints the missing-`Closes` problem and exits 1
 
-#### Scenario: The body is over the limit
-- **WHEN** the body before the trailer lines is 1,001 characters
-- **THEN** the verdict holds one WARNING advisory that names 1,001, 1,000 and `CONTRIBUTING.md` section 4
+#### Scenario: A body in the form
+- **WHEN** the body keeps the form and nothing else blocks the pull request
+- **THEN** `devops pr check-readiness` prints the success line and exits 0
 
-#### Scenario: Trailer lines do not count
-- **WHEN** the body is 1,000 characters of text followed by a `Closes` line, a `Change:` line, a `Fail-to-pass:` line, a `Co-authored-by:` line and a `Signed-off-by:` line
-- **THEN** the verdict holds no advisory
+#### Scenario: A base without change folders
+- **WHEN** the base holds no `openspec/changes/`
+- **THEN** the verdict holds no body blocker
 
-#### Scenario: The body is empty
-- **WHEN** the REST payload of the pull request has `body` set to `null`
-- **THEN** the verdict holds no advisory
+#### Scenario: A plan pull request
+- **WHEN** the title is a plan title
+- **THEN** the verdict holds no blocker of the kind body form
 
-### Requirement: The body warning blocks nothing
-The warning for a long body SHALL NOT change the exit code of `devops pr check-readiness`.
+### Requirement: Every problem of the body is one blocker
+The verdict SHALL hold one blocker of the kind body form for each problem that `body_problems` returns, in its order. Each blocker SHALL name the pull request number and hold the text of the problem.
 
-#### Scenario: A long body and no blocker
-- **WHEN** the body is 1,001 characters and nothing else blocks the pull request
-- **THEN** `devops pr check-readiness` prints the warning and exits 0
+#### Scenario: A body with two problems
+- **WHEN** the body has no line `Closes #<issue>` and no line `Change:`
+- **THEN** the verdict holds two blockers of the kind body form, one for each missing line
+
+#### Scenario: A long body
+- **WHEN** the text of the body is longer than 1,000 characters
+- **THEN** the verdict holds a blocker of the kind body form that names the length and the limit

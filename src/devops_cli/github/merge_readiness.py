@@ -60,6 +60,7 @@ from devops_cli.roadmap.grounding import (
     plan_blockers,
     plan_issue,
 )
+from devops_cli.roadmap.pull_form import body_problems
 
 
 @dataclass(frozen=True)
@@ -93,15 +94,11 @@ class BlockerKind(StrEnum):
     THREADS = "threads"
     THREADS_UNREAD = "threads_unread"
     GROUNDING = "grounding"
+    BODY_FORM = "body_form"
     READINESS = "readiness"
 
 
 CHECK_FAILURE_KINDS = frozenset({BlockerKind.CHECKS_FAILING, BlockerKind.CHECKS_UNREAD})
-
-# The most characters of a body before its trailers: what the squash commit keeps on `main`.
-_PR_BODY_MAX_CHARS = 1000
-# A line that starts with one of these is a trailer line that does not count toward the body.
-_TRAILER_PREFIXES = ("Closes", "Change:", "Fail-to-pass:", "Co-authored-by:", "Signed-off-by:")
 
 
 class Blocker(NamedTuple):
@@ -236,25 +233,6 @@ def _judge_draft(verdict: _Verdict, pr_data: dict[str, Any], pr_num: int, allow:
         verdict.block(
             BlockerKind.DRAFT, f"PR #{pr_num} is in draft status; GitHub refuses to merge a draft."
         )
-
-
-def _judge_body_length(verdict: _Verdict, pr_data: dict[str, Any], pr_num: int) -> None:
-    """Warn when the body, without its trailer lines, is longer than the limit (#2585).
-
-    The squash merge makes the body the commit message on `main`; the warning reaches the writer,
-    often an agent, before `devops pr ready`. It blocks nothing.
-    """
-    body = str(pr_data.get("body") or "")
-    text = "\n".join(
-        line for line in body.splitlines() if not line.startswith(_TRAILER_PREFIXES)
-    ).strip()
-    if len(text) <= _PR_BODY_MAX_CHARS:
-        return
-    verdict.warn(
-        MESSAGES.pr.pr_body_too_long.format(
-            number=pr_num, length=len(text), limit=_PR_BODY_MAX_CHARS
-        )
-    )
 
 
 def _judge_checks(
@@ -478,6 +456,8 @@ def _judge_grounding(
 ) -> None:
     """Hold a PR to the one Item it delivers, where the base holds `openspec/changes/`.
 
+    A delivery's body must keep the form of `body_problems`, one blocker for each problem (#3259).
+
     A lookup of the change directory that fails for any reason but a 404 can't rule grounding
     out, so the rules still apply and the failure is a blocker. Where grounding does not apply,
     an unread file list is a warning, since only the perimeter advisory reads it.
@@ -513,6 +493,11 @@ def _judge_grounding(
         for text in texts:
             verdict.block(BlockerKind.GROUNDING, text)
         return
+    for problem in body_problems(str(pr_data.get("body") or "")):
+        verdict.block(
+            BlockerKind.BODY_FORM,
+            MESSAGES.pr.body_form_problem.format(number=pr_num, problem=problem),
+        )
     if grounding.into_default:
         grounding = grounding._replace(
             closing=read_closing_issues(owner, repo_name, pr_num, runner=runner)
@@ -580,7 +565,6 @@ def assess_merge_readiness(
     verdict = _Verdict()
     _judge_mergeable(verdict, pr_data, pr_num, reads.options.allow_blocked_state)
     _judge_draft(verdict, pr_data, pr_num, reads.options.allow_draft)
-    _judge_body_length(verdict, pr_data, pr_num)
     head_sha = str(pr_data.get("head", {}).get("sha") or "")
     _judge_checks(verdict, head_sha, pr_num, owner, repo_name, reads)
     _judge_threads(verdict, pr_num, owner, repo_name, reads)
