@@ -15,16 +15,17 @@ from pydantic_ai.messages import RetryPromptPart, ToolReturnPart
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
-    CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
     CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS,
     CONST_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     CONST_ROADMAP_RUN_ERROR_CHARS,
 )
 from devops_cli.roadmap.failure import FailureClass, FailureEvidence, classify_failure
 from devops_cli.roadmap.implement_shell_policy import (
+    HARNESS_DENIED_OPERATORS,
     IMPLEMENT_SHELL_PROGRAMS,
     IMPLEMENT_SHELL_REPLACEMENTS,
     fill_prompt,
+    pipe_refusal,
 )
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -273,9 +274,8 @@ def test_each_shell_example_of_the_prompt_passes_the_shell_policy() -> None:
 
     assert len(examples) >= 2
     for example in examples:
-        assert [op for op in CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS if op in example] == [], (
-            example
-        )
+        assert [op for op in HARNESS_DENIED_OPERATORS if op in example] == [], example
+        assert pipe_refusal(example) is None, example
 
 
 def test_no_program_of_the_table_is_a_program_that_the_shell_allows() -> None:

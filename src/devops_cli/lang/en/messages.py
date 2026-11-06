@@ -2477,6 +2477,7 @@ class RoadmapMessages:
         "The model reply reached the output cap of {tokens} tokens, so the call ended."
     )
     implement_tool_other: str = "other"
+    implement_tool_other_digest: str = "other:{digest}"
     implement_tool_stray: str = "Removed stray files that the group does not name: {paths}."
     implement_removed_note: str = (
         " The step removed these files, because your group does not name them: {paths}. Keep a "
@@ -2491,6 +2492,10 @@ class RoadmapMessages:
         "Run one command in each call. Do not chain commands. "
         "Do not use `cd`: every command runs in the checkout."
     )
+    implement_refusal_pipe: str = (
+        "Shell operator '|' is not allowed{before}. A pipe may end in {programs}."
+    )
+    implement_refusal_pipe_before: str = " before `{program}`"
     implement_refusal_limit: str = (
         "Too many commands refused by policy in one step: the limit is {limit}."
     )

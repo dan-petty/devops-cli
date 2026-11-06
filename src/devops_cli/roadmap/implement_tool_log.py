@@ -14,9 +14,10 @@ argument of the call only when the checkout holds that path, as the model chose 
 argument. A refusal by policy and a failed validation have no reason. The program is the
 first word of the command, as the shell reads it, and only when it is a program that the project
 knows: a program of the allowlist, or a program of the table of replacements (#2773). Any other
-first word is written as "other", also a short bare word, as the model can read a password or a
-token from a file and run it as a command. The tool name and the program tell a refused program
-from a refused path.
+first word is written as "other:" and a digest of the word (#3520), also a short bare word, as the
+model can read a password or a token from a file and run it as a command. The digest is a keyed
+hash that changes with the process, so the same word has one digest in a run and a dictionary of
+passwords cannot find it. The tool name and the program tell a refused program from a refused path.
 
 It also counts the shell commands that the shell refused by its policy, by program, and the calls
 that came back as a retry for another cause. A refusal of the shell comes back to the model as a
@@ -32,6 +33,9 @@ level INFO, so such a line would never reach the Job log.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import secrets
 import shlex
 from collections import Counter, deque
 from collections.abc import Callable, Sequence
@@ -71,19 +75,25 @@ from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_ALLOWED_PROGRAMS,
     IMPLEMENT_SHELL_REPLACEMENTS,
     NEGATIVE_SEARCH_WORD,
+    without_checkout_prefix,
 )
 from devops_cli.roadmap.implement_trace import ImplementTrace, argument_digest
 from devops_cli.security.sanitizer import sanitize_command_args_for_display
 
 # The first words that the log may show. They are fixed in the code, so no text of the model
 # reaches the log, and the count of the programs in the reason stays small by design. The `!` of a
-# negative search is not one: the words after it are free text, so the log says "other".
+# negative search is not one: the words after it are free text, so the log says "other" and a digest.
 _KNOWN_PROGRAMS = frozenset(
     (
         *IMPLEMENT_ALLOWED_PROGRAMS,
         *(word for word in IMPLEMENT_SHELL_REPLACEMENTS if word != NEGATIVE_SEARCH_WORD),
     )
 )
+
+
+# The key of the digest that stands for an unknown first word. It lives in this process only.
+_DIGEST_KEY = secrets.token_bytes(16)
+_DIGEST_CHARS = 12
 
 
 class ToolOutcome(StrEnum):
@@ -125,13 +135,16 @@ def command_word(args: ValidatedToolArgs) -> str | None:
 
 def logged_program(word: str | None) -> str:
     """What the log shows for the first word of a command: the word when it is a known program,
-    else the word "other". Empty when there is no word. A first word can be an assignment with a
-    secret in it, a path, an escape sequence or a password, so no other word is written."""
+    else "other:" and the first 12 hexadecimal characters of the HMAC-SHA256 of the word, with a key
+    of this process. Empty when there is no word. A first word can be an assignment with a secret in
+    it, a path, an escape sequence or a password, so no other word is written, and the digest cannot
+    be reversed by a dictionary."""
     if word is None:
         return ""
     if word in _KNOWN_PROGRAMS:
         return word
-    return MESSAGES.roadmap.implement_tool_other
+    digest = hmac.digest(_DIGEST_KEY, word.encode("utf-8", "surrogateescape"), hashlib.sha256)
+    return MESSAGES.roadmap.implement_tool_other_digest.format(digest=digest.hex()[:_DIGEST_CHARS])
 
 
 def _logged_word(word: str) -> str:
@@ -367,6 +380,14 @@ class ToolCallLog:
         )
         print_muted(line, to_stderr=True, safe=True)
 
+    def _shown(self, args: ValidatedToolArgs) -> ValidatedToolArgs:
+        """`args`, with a command that starts with `cd <checkout> &&` cut to the command after it,
+        so the log names the program that the model asked for and not the `cd` (#3520)."""
+        command = args.get("command")
+        if self.root is None or not isinstance(command, str):
+            return args
+        return {**args, "command": without_checkout_prefix(command, self.root)}
+
     async def _execute(
         self,
         _ctx: RunContext[Any],
@@ -380,8 +401,9 @@ class ToolCallLog:
         """Run the call, write its line, and pass on the result or the error. The call that
         exceeds the limit of retries reaches here as `UnexpectedModelBehavior`. A refused call
         that passes the limit of refusals ends the run in the same way."""
-        program = logged_program(command_word(args))
-        if command := logged_command(args):
+        shown = self._shown(args)
+        program = logged_program(command_word(shown))
+        if command := logged_command(shown):
             print_muted(
                 MESSAGES.roadmap.implement_tool_started.format(
                     tool=call.tool_name, command=command

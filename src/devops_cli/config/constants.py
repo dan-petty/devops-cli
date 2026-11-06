@@ -3362,6 +3362,11 @@ CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS: Final[tuple[str, ...]] = (
     ">(",
     "\n",
 )
+# The programs that may stand to the right of a `|` in a shell command of the implement agent. Each
+# one reads its input and writes only its result: no option of these writes a file or runs a
+# program. `sort -o`, `sed -i` and `awk` do, so they are not here (#3520). A test requires each
+# program to have access `read` in `SHELL_PROGRAMS`.
+CONST_ROADMAP_IMPLEMENT_READ_PIPE_PROGRAMS: Final[tuple[str, ...]] = ("head", "tail", "grep", "wc")
 CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
 # The Service's intake record beside schedule.json: what intake decided and left (#1360).
 CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"
