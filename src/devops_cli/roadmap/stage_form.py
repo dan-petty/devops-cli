@@ -145,9 +145,12 @@ def record_search_evidence(
         if group.verify is None:
             continue
         found = negative_search_parts(group.verify)
-        if found is None or found.literal in evidence:
+        if found is None:
             continue
-        evidence[found.literal] = tuple(sorted({path for path in search(found.literal) if path}))
+        for literal in found.literals:
+            if literal in evidence:
+                continue
+            evidence[literal] = tuple(sorted({path for path in search(literal) if path}))
     return evidence
 
 
@@ -184,24 +187,25 @@ def search_problems(
         found = negative_search_parts(group.verify)
         if found is None:
             continue
-        kept = next(((path, name) for path, name in created if found.literal in name), None)
-        if kept is not None:
-            path, import_path = kept
-            problems.append(
-                texts.stage_problem_search_created.format(
-                    group=number,
-                    command=group.verify,
-                    literal=found.literal,
-                    path=path,
-                    import_path=import_path,
+        for literal in found.literals:
+            kept = next(((path, name) for path, name in created if literal in name), None)
+            if kept is not None:
+                path, import_path = kept
+                problems.append(
+                    texts.stage_problem_search_created.format(
+                        group=number,
+                        command=group.verify,
+                        literal=literal,
+                        path=path,
+                        import_path=import_path,
+                    )
                 )
-            )
-        if evidence is not None and not evidence.get(found.literal):
-            problems.append(
-                texts.stage_problem_search_no_hit.format(
-                    group=number, command=group.verify, literal=found.literal
+            if evidence is not None and not evidence.get(literal):
+                problems.append(
+                    texts.stage_problem_search_no_hit.format(
+                        group=number, command=group.verify, literal=literal
+                    )
                 )
-            )
     return problems
 
 

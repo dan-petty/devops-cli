@@ -150,9 +150,15 @@ def test_an_open_item_keeps_its_staged_branch(
     stage_repo.push_branch(BRANCH, author=STAGE_NAME)
     store = _staged_item(GitHubState.OPEN)
 
+    closed_pull.route(
+        "GET",
+        f"/repos/{STAGE_REPO}/pulls/7",
+        github_json({"state": "open", "draft": True, "merged": False}),
+    )
+
     plan = _plan(store, stage_repo)
     apply_stage(store, plan, source=stage_repo.clone)
 
     assert (plan.removals, plan.kept) == ((), ())
     assert BRANCH in _branches(stage_repo)
-    assert closed_pull.requested == []
+    assert closed_pull.requested == [f"GET {API}/repos/{STAGE_REPO}/pulls/7"]

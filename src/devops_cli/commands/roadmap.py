@@ -396,7 +396,6 @@ def stage_cmd(
         return
     if not (plan_only or confirm):
         print_info(MESSAGES.roadmap.stage_plain_note)
-    from devops_cli.ai.client import get_llm_client
     from devops_cli.ai.client.factory import get_task_model
     from devops_cli.roadmap.run import model_clone
     from devops_cli.roadmap.stage_toolbox import ToolboxModel
@@ -413,7 +412,7 @@ def stage_cmd(
             limit=limit,
             step_tokens=step_tokens,
             model=ToolboxModel(get_task_model("stage")),
-            verifier=get_llm_client(task="verification"),
+            verifier=ToolboxModel(get_task_model("verification")),
             why=why,
         )
     write_stdout(render_stage_plan(plan) + "\n")
@@ -429,6 +428,10 @@ def stage_cmd(
                 removed=len(applied.removed),
             )
         )
+        if applied.rejected:
+            print_success(
+                MESSAGES.roadmap.stage_applied_rejected.format(rejected=len(applied.rejected))
+            )
         failures += applied.failed
     else:
         print_info(MESSAGES.roadmap.preview_only)

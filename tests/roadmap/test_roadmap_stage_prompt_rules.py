@@ -94,7 +94,7 @@ def _reply_section(prompt: str) -> str:
 def test_the_top_level_keys_of_the_reply_are_the_fields_of_the_proposal() -> None:
     bullets = re.findall(r"^- `(\w+)`:", _reply_section(_PROMPT), flags=re.MULTILINE)
 
-    assert sorted(bullets) == sorted(StageProposal.model_fields)
+    assert sorted(bullets) == sorted(StageProposal.model_json_schema()["properties"])
 
 
 @pytest.mark.parametrize(
@@ -390,6 +390,17 @@ def test_the_prompt_asks_for_the_hit_count_of_a_negative_search() -> None:
     assert "can never pass after it" in _PROMPT
 
 
+# ── A citation of a line or a symbol (#3422) ─────────────────────────────────
+
+
+def test_the_prompt_states_the_citation_forms_and_prefers_a_symbol() -> None:
+    assert "`path:line:text`" in _PROMPT
+    assert "`path:def name`" in _PROMPT
+    assert "`path:class name`" in _PROMPT
+    assert "Cite a symbol instead of a line number when a line is not needed" in _PROMPT
+    assert "refuses one whose line does not hold the text" in _PROMPT
+
+
 # ── The phrases that a document and the prompt keep together ──────────────────
 
 _SHARED = [
@@ -443,3 +454,23 @@ def test_the_prompt_states_the_dependencies_rule() -> None:
 def test_the_prompt_names_a_sample_file_by_a_bare_name() -> None:
     assert "gets a bare name with no folder, such as `test_sample.py`" in _PROMPT
     assert "the check reads a name with a folder as a path of the repository" in _PROMPT
+
+
+# ── A plan that a person rejected (#3503) ─────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "task",
+    ["roadmap_stage_change.md", "roadmap_refine_proposal.md", "roadmap_refine_investigation.md"],
+)
+def test_the_prompts_name_the_key_that_holds_the_reason_of_a_rejected_plan(task: str) -> None:
+    prompt = load_task_prompt(task)
+
+    assert ("rejected_plan" if task == "roadmap_stage_change.md" else "stage_return") in prompt
+    assert "rejected" in prompt
+
+
+def test_the_stage_prompt_says_the_plan_must_not_state_the_false_premise_again() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "Do not plan again the premise that the reason shows to be false." in prompt

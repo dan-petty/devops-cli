@@ -25,13 +25,15 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from devops_cli.config.constants import CONST_OPENSPEC_CHANGES_DIR
 from devops_cli.exceptions.roadmap import ImplementEvalError
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.plan_read import PlanReadError, recorded_tests, weakened_checks
 from devops_cli.roadmap.step_files import TaskGroup, code_spans, parse_task_groups
 
 CASE_FILE = "case.json"
 ISSUE_FILE = "issue.md"
 PLAN_DIR = "plan"
 RESULTS_DIR = "results"
-PLAN_FILES = ("proposal.md", "design.md", "tasks.md")
+PROPOSAL_FILE = "proposal.md"
+PLAN_FILES = (PROPOSAL_FILE, "design.md", "tasks.md")
 _LOST_SEPARATOR = "::"
 
 
@@ -75,7 +77,8 @@ class RecordedResult(_Strict):
 class ImplementCase(_Strict):
     """The facts of one fixture. `base` is a full SHA of this repository. `changes` lists the paths
     of the `Changes:` line of the group. `tests_pass` lists the commands that name the tests that
-    must pass. `allow_lost_tests` lists the tests, as `path::name`, that the group may remove."""
+    must pass. `allow_lost_tests` lists the tests, as `path::name`, that the group may remove.
+    `load_case` adds each test that the plan of the fixture records (#3490)."""
 
     name: str = Field(min_length=1)
     source: str = Field(min_length=1)
@@ -168,6 +171,19 @@ def _check_plan(loaded: LoadedCase) -> None:
             )
 
 
+def _with_recorded_tests(case: ImplementCase, proposal_md: str) -> ImplementCase:
+    """`case` with each test that the plan records added to `allow_lost_tests`, so the step and
+    `tests_kept` read one list. Raises `ImplementEvalError` for a section that the reader refuses."""
+    try:
+        recorded = recorded_tests(weakened_checks(proposal_md))
+    except PlanReadError as error:
+        raise ImplementEvalError(
+            MESSAGES.roadmap.eval_implement_bad_record.format(name=case.name, reason=error.reason)
+        ) from error
+    allowed = tuple(dict.fromkeys((*case.allow_lost_tests, *sorted(recorded))))
+    return case.model_copy(update={"allow_lost_tests": allowed})
+
+
 def load_case(folder: Path) -> LoadedCase:
     """The fixture in `folder`. Raises `ImplementEvalError` for a file that cannot be read, a case
     that breaks the schema, a folder name that is not the name of the case, a group that the plan
@@ -179,6 +195,7 @@ def load_case(folder: Path) -> LoadedCase:
             MESSAGES.roadmap.eval_implement_name.format(name=name, given=case.name)
         )
     plan = {file: _read(name, folder / PLAN_DIR / file) for file in PLAN_FILES}
+    case = _with_recorded_tests(case, plan[PROPOSAL_FILE])
     diffs: dict[str, str] = {}
     for result in case.results:
         path = folder / RESULTS_DIR / result.diff

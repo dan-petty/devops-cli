@@ -31,7 +31,7 @@ The command refuses to start when the inputs do not fit the window of the task, 
 - For a behavior group, one of its new tests fails in its call phase on the base commit of the group. The command replays the test files that the step changed, with the tests of the checkout overlaid. A test that passes there, or that stops with an error there before its assertion runs, stops the step.
 - `ruff` on the changed Python files.
 - `mypy` on the changed files that the type check of `devops ci` covers: the files under `src`, with its options.
-- The agent made no commit, and removed or renamed no test that existed at the start of the step.
+- The agent made no commit, and removed or renamed no test that existed at the start of the step, except a test that the `proposal.md` on the default branch records in `## Weakened checks` (#3490).
 
 Before these checks, the command unstages and deletes each new file that the group does not name and that is outside `src`, `tests`, `docs` and `openspec`. Such a file is an untracked file that git does not ignore, or a file that the agent staged. A fix step applies the same rule. The report lists those files.
 

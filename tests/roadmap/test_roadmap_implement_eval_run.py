@@ -41,6 +41,7 @@ from tests.support.roadmap_eval import PLAN, case_data, eval_repo, write_fixture
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
+OLD_TEST = "tests/test_old.py"
 SIX = [
     "tests_kept",
     "diff_scope",
@@ -91,6 +92,33 @@ def test_a_step_that_does_the_group_passes_the_six_properties_and_leaves_nothing
     assert is_clean_at(checkout, base)
     assert [clone.exists() for clone in clones] == [False]
     assert {call.argv[0] for call in programs.calls} == {"git", "uv"}
+
+
+def test_the_step_of_a_fixture_reads_the_list_of_the_tests_that_it_may_lose(
+    tmp_path: Path, repo: tuple[Path, str], programs: ProcessFake
+) -> None:
+    """The base holds a test that the group removes. The step and `tests_kept` read one list."""
+    checkout, _ = repo
+    (checkout / "tests").mkdir(exist_ok=True)
+    (checkout / OLD_TEST).write_text("def test_old() -> None: ...\n", encoding="utf-8")
+    git(checkout, "add", "-A")
+    git(checkout, "commit", "-q", "-m", "add the old test")
+    base = git(checkout, "rev-parse", "HEAD")
+    script = ModelScript(
+        tool_calls(write_call(OLD_TEST, "def helper() -> None: ...\n"), *the_whole_group()),
+        say("Done."),
+    )
+    entry = f"{OLD_TEST}::test_old"
+
+    report = run_case(
+        _loaded(tmp_path, base, allow_lost_tests=[entry]),
+        repo=checkout,
+        model=script.model(),
+        window=WINDOW,
+    )
+
+    assert (report.status, report.reason) == ("done", "")
+    assert _statuses(report)["tests_kept"] == "pass"
 
 
 def test_a_step_that_stops_with_a_scratch_file_fails_the_scope_and_skips_the_commands(

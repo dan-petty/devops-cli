@@ -202,10 +202,12 @@ GITHUB_REQUESTS_TOTAL = Instrument(
     InstrumentKind.COUNTER,
     "1",
     "GitHub requests the rate limiter paced, each attempt and retry once, by resource, method, "
-    "repo and row. The resource is the rate limit resource the request spends, such as core, "
-    "graphql or search. The method is the HTTP method; a GraphQL request is a POST, and a gh "
-    "command other than gh api is a POST when it writes and a GET when it reads. The repo is the "
-    "repository of the roadmap Service worker that sent the request, one of service.repos, and "
+    "status, repo and row. The resource is the rate limit resource the request spends, such as "
+    "core, graphql or search. The method is the HTTP method; a GraphQL request is a POST, and a gh "
+    "command other than gh api is a POST when it writes and a GET when it reads. The status is the "
+    "HTTP status of the answer, such as 200 or 304. It is none for a gh command or for an attempt "
+    "that got no answer. The repo is the repository of the roadmap Service worker that sent the "
+    "request, one of service.repos, and "
     "the row is the job row that sent it, such as metrics, intake, refine or alternatives; each is "
     "other outside a worker or a row. A gh command and a request of the GitHub session both count",
 )
@@ -244,9 +246,10 @@ ROADMAP_ALTERNATIVES_TOTAL = Instrument(
     "devops_cli_roadmap_alternatives_total",
     InstrumentKind.COUNTER,
     "1",
-    "Checks of open items for an open tool that covers them, by verdict: covers, partly, none or "
-    "not-applicable. One count for each check that the alternatives job writes to an item. A "
-    "check that fails, or that the job skips because a person changed the item, counts nothing",
+    "Checks of open items for an open tool that covers them, by verdict: covers, partly, none, "
+    "not-applicable, rejected or in-use. One count for each check that the alternatives job writes "
+    "to an item. A check that fails, or that the job skips because a person changed the item, "
+    "counts nothing",
 )
 ROADMAP_STAGE_TOTAL = Instrument(
     "devops_cli_roadmap_stage_total",
@@ -256,6 +259,43 @@ ROADMAP_STAGE_TOTAL = Instrument(
     "written as a branch and a draft pull request, needs_split for an item stopped on a task "
     "group over the budget, failed for an item that failed in the plan or in the writes, and "
     "skipped for an item the job left out with a reason. A plan with no write counts nothing",
+)
+ROADMAP_TOOL_CALLS_TOTAL = Instrument(
+    "devops_cli_roadmap_tool_calls_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Tool calls of the roadmap planner and verifier, by tool, row, toolset and outcome. The outcome ok is a "
+    "call that gave its result. The outcome empty is a call that ran and found nothing, such as "
+    "a search with no match. The outcome error is a call that could not run or got no answer. "
+    "The row is the job row of the run: stage for the planner, stage_verify for the verifier. "
+    "Each run adds 0 for every tool of its toolset before its first model request. So a tool "
+    "that no run calls keeps a series",
+)
+ROADMAP_TOOL_ANSWER_CHARS = Instrument(
+    "devops_cli_roadmap_tool_answer_chars",
+    InstrumentKind.HISTOGRAM,
+    "{char}",
+    "Characters in the answer of each tool call of the roadmap planner and verifier, after the "
+    "cut of the tool, by tool, row and toolset. The text of a refusal counts. A call that got no answer "
+    "adds no observation",
+)
+ROADMAP_TOOL_CALLS_PER_RUN = Instrument(
+    "devops_cli_roadmap_tool_calls_per_run",
+    InstrumentKind.HISTOGRAM,
+    "{call}",
+    "Tool calls of each run of the roadmap planner and verifier, by row and toolset. A run that "
+    "raised "
+    "because a model call failed adds no observation",
+)
+ROADMAP_TOOL_LIMIT_HITS_TOTAL = Instrument(
+    "devops_cli_roadmap_tool_limit_hits_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Runs of the roadmap planner and verifier whose tools ended on a limit, by row, toolset and "
+    "limit. "
+    "The limit calls means fewer tool calls were left than a turn needs. The limit requests "
+    "means one model request was left. The limit window means the messages filled the context "
+    "window. One count for each run",
 )
 ROADMAP_AGE_LABELS = ("repo", "state", "plan")
 """The labels of `ROADMAP_ITEM_AGE` and `ROADMAP_OLDEST_ITEM`, in the order the dashboard names them."""
@@ -485,6 +525,10 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL,
     ROADMAP_ALTERNATIVES_TOTAL,
     ROADMAP_STAGE_TOTAL,
+    ROADMAP_TOOL_CALLS_TOTAL,
+    ROADMAP_TOOL_ANSWER_CHARS,
+    ROADMAP_TOOL_CALLS_PER_RUN,
+    ROADMAP_TOOL_LIMIT_HITS_TOTAL,
     ROADMAP_ITEM_AGE,
     ROADMAP_OLDEST_ITEM,
     ROADMAP_CLAIM_AGE,
@@ -614,6 +658,10 @@ __all__ = [
     "ROADMAP_OLDEST_ITEM",
     "ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL",
     "ROADMAP_STAGE_TOTAL",
+    "ROADMAP_TOOL_ANSWER_CHARS",
+    "ROADMAP_TOOL_CALLS_PER_RUN",
+    "ROADMAP_TOOL_CALLS_TOTAL",
+    "ROADMAP_TOOL_LIMIT_HITS_TOTAL",
     "SUBCOMMAND_DURATION",
     "SUBPROCESS_DURATION",
     "TELEMETRY_TESTS_TOTAL",

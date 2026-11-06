@@ -171,11 +171,19 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS": ("kept", "same reason as the body cap"),
     "CONST_ROADMAP_STAGE_VERIFY_MAX_FILES": ("kept", "same reason as the body cap"),
+    "CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS": (
+        "kept",
+        "planner calls that repair one plan; it bounds the cost of a plan that the review returns",
+    ),
+    "CONST_ROADMAP_VERIFY_RECALL_FLOOR": (
+        "other",
+        "the recall that the verify eval must reach; a score bar, not a limit of a job",
+    ),
     "DEFAULT_ROADMAP_STAGE_STEP_TOKENS": ("window", "was 40,000; half of the implement window"),
     "DEFAULT_ROADMAP_STAGE_LIMIT": ("setting", "items of one stage round; already a setting"),
     "DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT": (
         "setting",
-        "open Planned items at which the stage job plans no new item; already a setting",
+        "open Planned items at which the stage job plans only P0 and P1 items; already a setting",
     ),
     "DEFAULT_ROADMAP_STAGE_RETRY_HOURS": (
         "other",
@@ -191,6 +199,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS": (
         "raised",
         "was 4096; a quarter of the planner window",
+    ),
+    "CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS": (
+        "window",
+        "an eighth of the planner window; the options of the ADRs",
     ),
     "CONST_ROADMAP_ALTERNATIVES_MAX_LICENSE_CHARS": (
         "kept",
@@ -493,6 +505,17 @@ def test_a_reply_at_the_output_cap_ends_before_the_deadline_of_the_call() -> Non
 
 def test_the_body_of_an_item_in_the_alternatives_check_is_a_share_of_the_planner_window() -> None:
     assert constants.CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS <= PLANNER_WINDOW // 4
+
+
+def test_the_body_and_the_adrs_of_an_item_in_the_alternatives_check_fit_half_the_planner_window() -> (
+    None
+):
+    assert constants.CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS <= PLANNER_WINDOW // 8
+    assert (
+        constants.CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS
+        + constants.CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS
+        <= PLANNER_WINDOW // 2
+    )
 
 
 def test_the_first_plan_request_and_its_reserve_fit_below_the_limit_of_the_tools() -> None:

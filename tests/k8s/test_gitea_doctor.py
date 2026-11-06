@@ -524,8 +524,8 @@ def test_a_wrong_answer_through_the_tunnel_fails_its_check(
         ),
         pytest.param(
             GiteaServer(ssh_host=HOST, ssh_form="ssh://git@{host}:2222/gitea_admin/{name}.git"),
-            "ssh_url ssh://git@{host}:2222/gitea_admin/{name}.git names the tunnel host, which "
-            "carries no SSH",
+            "ssh_url ssh://<masked-user>@{host}:2222/gitea_admin/{name}.git names the tunnel "
+            "host, which carries no SSH",
             id="ssh-url-form-names-the-tunnel-host",
         ),
     ],

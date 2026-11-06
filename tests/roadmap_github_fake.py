@@ -90,13 +90,14 @@ class GitHubFake:
         parent_repo: str | None = None,
         pull_request: bool = False,
         author_association: str = "COLLABORATOR",
+        author_login: str | None = None,
         updated_at: datetime | None = None,
     ) -> None:
         """Issue `number` with `labels` and `body`, which may hold a record block. It has
         `sub_issues` sub-issues, which GitHub counts in each issue's `sub_issues_summary`. It is
         a sub-issue of issue `parent` of `parent_repo`, this repository by default, which GitHub
         gives in each issue's `parent_issue_url`. Its author has `author_association` with the
-        repository."""
+        repository and the login `author_login`, which GitHub gives in `user.login`."""
         self.issues[number] = {
             "id": number,
             "number": number,
@@ -114,6 +115,7 @@ class GitHubFake:
             "milestone": self._milestone(milestone),
             "node_id": f"I_{number}",
             "author_association": author_association,
+            "user": None if author_login is None else {"login": author_login},
             "created_at": "2026-10-01T00:00:00Z",
             "updated_at": _wire(updated_at or datetime(2026, 10, 2, tzinfo=UTC)),
             "sub_issues_summary": {"total": sub_issues, "completed": 0, "percent_completed": 0},

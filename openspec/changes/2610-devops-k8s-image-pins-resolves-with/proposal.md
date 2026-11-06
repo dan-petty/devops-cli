@@ -48,6 +48,12 @@ The body of the issue lists the criteria of the first proposal (`crane`). The co
 - `tagged_image` reads a name with no registry and a reference with a digest (comment of intake): group 2.
 - Pending a person: none.
 
+## Weakened checks
+
+- **`tests/k8s/test_imagetools_contract.py::test_each_run_is_of_the_command_the_code_builds`, `tests/k8s/test_imagetools_contract.py::test_the_fake_answers_a_recorded_image_with_its_recorded_result`, `tests/k8s/test_imagetools_contract.py::test_the_fake_refuses_an_image_the_record_does_not_hold`, `tests/k8s/test_imagetools_contract.py::test_the_record_holds_a_resolved_and_a_refused_run` and `tests/k8s/test_imagetools_contract.py::test_the_record_holds_each_recorded_image_and_no_other`**: Stopped: a fake that does not match the recorded runs of `docker buildx imagetools inspect`. Safeguard: No process runs after group 3, so the fake and its record go with this suite, and `RegistryFake` doubles the registry at the HTTP edge.
+- **`tests/k8s/test_image_pins.py::test_each_image_resolves_to_its_digest_or_to_the_resolvers_error`, `tests/k8s/test_image_pins.py::test_each_image_resolves_as_an_anonymous_client`, `tests/k8s/test_image_pins.py::test_a_manifest_with_no_digest_does_not_resolve`, `tests/k8s/test_image_pins.py::test_the_command_reports_each_pin_and_passes_when_each_resolves`, `tests/k8s/test_image_pins.py::test_the_command_fails_on_an_image_that_its_registry_does_not_hold`, `tests/k8s/test_image_pins.py::test_the_command_refuses_an_image_on_the_latest_tag_and_resolves_nothing` and `tests/k8s/test_image_pins.py::test_a_dry_run_renders_and_resolves_nothing`**: Stopped: a wrong digest, a request with credentials, a manifest with no digest, a command that passes on a failed pin, and a dry run that sends a request. Safeguard: Task 3.1 writes a test for each of these cases against `RegistryFake`.
+- **`tests/k8s/test_image_pins.py::test_an_image_reference_splits_as_the_docker_sdk_splits_it`**: Stopped: an image reference that `image_reference` splits in another way than the Docker SDK does. Safeguard: Task 1.1 moves the test, with its list of images, to `tests/docker/test_registry_tag_digest.py`, where it checks the same function in its new module.
+
 ## Feasibility
 
 Commands run on 2026-11-01 against `origin/main` at `6e8b4ca2` and against the real registries.

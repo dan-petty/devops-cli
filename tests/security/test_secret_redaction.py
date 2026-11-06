@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from hypothesis import example, given
 from hypothesis import strategies as st
@@ -111,13 +113,70 @@ def test_mask_secrets_expanded_patterns() -> None:
             "custom://***@myhost/path",
             id="custom-scheme-password-without-user",
         ),
-        pytest.param("custom://myuser@myhost/path", "custom://myuser@myhost/path", id="user-only"),
+        pytest.param("custom://myuser@myhost/path", "custom://***@myhost/path", id="user-only"),
+        pytest.param(
+            "https://tok_0123456789abcdef@example.com:11434/api/embed",
+            "https://***@example.com:11434/api/embed",
+            id="token-as-user",
+        ),
+        pytest.param(
+            "http://example.com:11434/api/embed",
+            "http://example.com:11434/api/embed",
+            id="no-userinfo",
+        ),
+        pytest.param(
+            "http://:@example.com/", "http://:@example.com/", id="empty-user-and-password"
+        ),
     ],
 )
-def test_a_uri_password_is_masked_and_a_user_alone_is_kept(uri: str, masked: str) -> None:
-    """Only a password is masked; with no user, the whole userinfo becomes `***` and no empty
-    user is left before it."""
+def test_a_uri_password_and_a_user_alone_are_masked(uri: str, masked: str) -> None:
+    """A user beside a password stays and the password becomes `***`. A user alone is masked
+    whole, as a user with no password can be a token: the userinfo becomes `***`, as it does
+    for a password with no user, and no empty user is left before it."""
     assert mask_uri_credentials(uri) == masked
+
+
+@pytest.mark.parametrize(
+    ("text", "masked"),
+    [
+        pytest.param(
+            "error calling http://tok_0123456789abcdef@example.com:11434/api/embed failed",
+            "error calling http://<masked-user>@example.com:11434/api/embed failed",
+            id="token-as-user",
+        ),
+        pytest.param(
+            "ssh://git@example.com/org/repo.git",
+            "ssh://<masked-user>@example.com/org/repo.git",
+            id="harmless-user-is-masked-too",
+        ),
+        pytest.param(
+            '{"url": "HTTPS://tok123@example.com/x?a=b#c"}',
+            '{"url": "HTTPS://<masked-user>@example.com/x?a=b#c"}',
+            id="inside-json-with-query-and-fragment",
+        ),
+        pytest.param(
+            "https://example.com/login?next=https://tok123@example.com/x",
+            "https://example.com/login?next=https://<masked-user>@example.com/x",
+            id="url-inside-a-query",
+        ),
+        pytest.param(
+            "http://user:pw12345@example.com/x",
+            "http://<masked-user>:<masked-password>@example.com/x",
+            id="user-and-password",
+        ),
+        pytest.param(
+            "http://example.com:11434/p?email=a@example.com",
+            "http://example.com:11434/p?email=a@example.com",
+            id="at-sign-after-the-authority",
+        ),
+        pytest.param("http://@example.com/x", "http://@example.com/x", id="empty-user"),
+    ],
+)
+@pytest.mark.parametrize("syntax", ["data", "code"])
+def test_redact_text_masks_a_url_user_with_no_password(text: str, masked: str, syntax: str) -> None:
+    """The user name of a URL is masked when the URL has no password, in data and code syntax.
+    The scheme, the host, the port, the path, the query and the fragment stay."""
+    assert redact_text(text, syntax=syntax) == masked
 
 
 def test_devops_cli_error_masks_message_and_details() -> None:
@@ -820,3 +879,127 @@ def test_tokens_enclosed_in_brackets_are_masked() -> None:
     assert mask_secrets("<ghp_token>") == "<ghp_token>"
     assert mask_secrets("<ghs_token>") == "<ghs_token>"
     assert mask_secrets("<sk-key>") == "<sk-key>"
+
+
+# =============================================================================
+# A quote that the mask did not open stays (#2569)
+# =============================================================================
+
+
+_QUERY_SECRETS = [
+    pytest.param("token", "token=<masked-token>", "AGJ4EXAMPLE1234567890", id="token"),
+    pytest.param("auth_token", "token=<masked-token>", "AGJ4EXAMPLE1234567890", id="auth-token"),
+    pytest.param("password", "password=<masked-password>", "hunter2hunter2", id="password"),
+    pytest.param(
+        "client_secret",
+        "client_secret=<masked-client-secret>",
+        "abcdefghij0123456789abcdefghij",
+        id="client-secret",
+    ),
+    pytest.param(
+        "aws_secret_access_key",
+        "aws_secret_access_key=<masked-aws-secret>",
+        "A" * 40,
+        id="aws-secret-access-key",
+    ),
+]
+
+
+@pytest.mark.parametrize("syntax", ["data", "code"])
+@pytest.mark.parametrize(("keyword", "masked", "secret"), _QUERY_SECRETS)
+def test_the_closing_quote_of_a_json_string_stays_when_a_query_secret_in_it_is_masked(
+    keyword: str, masked: str, secret: str, syntax: str
+) -> None:
+    """The reply of `devops gh api repos/<owner>/<repo>/contents/<path>` for a private
+    repository has a `download_url` with a `token=` query parameter. The mask took the quote that
+    closes the string together with the value, so the printed reply was not valid JSON."""
+    url = "https://example.com/o/r/f.txt"
+    reply = json.dumps({"download_url": f"{url}?{keyword}={secret}", "type": "file"})
+
+    out = redact_text(reply, syntax=syntax)
+
+    assert json.loads(out) == {"download_url": f"{url}?{masked}", "type": "file"}
+    assert secret not in out
+
+
+@pytest.mark.parametrize("syntax", ["data", "code"])
+@pytest.mark.parametrize(("keyword", "masked", "secret"), _QUERY_SECRETS)
+def test_the_escaped_quote_after_a_secret_in_a_json_string_stays_escaped(
+    keyword: str, masked: str, secret: str, syntax: str
+) -> None:
+    """A JSON string writes a quote mark as a backslash and the mark. The mask must leave the two
+    together. A mask of the backslash alone leaves an unescaped quote mark that ends the string
+    early. The text is the `href` of a link in the `body` field of an API reply."""
+    url = "https://example.com/o/r/f.txt"
+    reply = json.dumps({"body": f'<a href="{url}?{keyword}={secret}">f</a>', "n": 1})
+
+    out = redact_text(reply, syntax=syntax)
+
+    assert json.loads(out) == {"body": f'<a href="{url}?{masked}">f</a>', "n": 1}
+    assert secret not in out
+
+
+@pytest.mark.parametrize("syntax", ["data", "code"])
+@pytest.mark.parametrize(
+    ("keyword", "masked", "secret"),
+    [
+        pytest.param("token", "token=<masked-token>", "AGJ4EXAMPLE1234567890", id="token"),
+        pytest.param("password", "password=<masked-password>", "hunter2hunter2", id="password"),
+    ],
+)
+def test_a_double_backslash_at_the_end_of_a_secret_in_a_json_string_is_one_character(
+    keyword: str, masked: str, secret: str, syntax: str
+) -> None:
+    """A JSON string writes one backslash as two. A mask that splits the pair leaves a lone
+    backslash that escapes the quote mark closing the string."""
+    url = "https://example.com/o/r/f.txt"
+    reply = json.dumps({"url": f"{url}?{keyword}={secret}\\", "n": 1})
+
+    out = redact_text(reply, syntax=syntax)
+
+    assert json.loads(out) == {"url": f"{url}?{masked}", "n": 1}
+    assert secret not in out
+
+
+@pytest.mark.parametrize("syntax", ["data", "code"])
+@pytest.mark.parametrize(
+    ("text", "masked"),
+    [
+        pytest.param(
+            "{'download_url':'https://example.com/f?token=AGJ4EXAMPLE1234567890','type':'file'}",
+            "{'download_url':'https://example.com/f?token=<masked-token>','type':'file'}",
+            id="single-quoted-string",
+        ),
+        pytest.param(
+            '{"note": "set token=\'AGJ4EXAMPLE1234567890\' now"}',
+            '{"note": "set token=<masked-token> now"}',
+            id="a-pair-of-single-quotes-inside-a-json-string",
+        ),
+        pytest.param(
+            'token="AGJ4EXAMPLE1234567890" next',
+            "token=<masked-token> next",
+            id="a-pair-of-quotes-around-the-value",
+        ),
+        pytest.param(
+            "token='AGJ4EXAMPLE1234567890\" next",
+            'token=<masked-token>" next',
+            id="a-quote-of-the-other-kind-is-not-the-closing-quote",
+        ),
+        pytest.param(
+            "https://example.com/f?token=AGJ4EXAMPLE1234567890",
+            "https://example.com/f?token=<masked-token>",
+            id="a-bare-value-at-the-end-of-the-text",
+        ),
+        pytest.param(
+            "token=AGJ4EXAMPLE1234567890 next",
+            "token=<masked-token> next",
+            id="a-bare-value-before-a-space",
+        ),
+    ],
+)
+def test_a_quote_stays_unless_it_closes_a_quote_that_opened_the_value(
+    text: str, masked: str, syntax: str
+) -> None:
+    """The mask takes a closing quote only together with the quote that opened the value. A quote
+    of the other kind is not that quote."""
+    assert redact_text(text, syntax=syntax) == masked

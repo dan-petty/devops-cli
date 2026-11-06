@@ -65,6 +65,7 @@ class World(Protocol):
         state: GitHubState = GitHubState.OPEN,
         pull_request: bool = False,
         author_association: str = "COLLABORATOR",
+        author_login: str | None = None,
         updated_at: datetime | None = None,
     ) -> int: ...
 
@@ -107,6 +108,7 @@ class MemoryWorld:
         state: GitHubState = GitHubState.OPEN,
         pull_request: bool = False,
         author_association: str = "COLLABORATOR",
+        author_login: str | None = None,
         updated_at: datetime | None = None,
     ) -> int:
         return self._roadmap.seed_issue(
@@ -116,6 +118,7 @@ class MemoryWorld:
             state=state,
             pull_request=pull_request,
             author_association=author_association,
+            author_login=author_login,
             updated_at=updated_at,
         )
 
@@ -174,6 +177,7 @@ class GitHubWorld:
         state: GitHubState = GitHubState.OPEN,
         pull_request: bool = False,
         author_association: str = "COLLABORATOR",
+        author_login: str | None = None,
         updated_at: datetime | None = None,
     ) -> int:
         number = len(self.github.issues) + 1
@@ -185,6 +189,7 @@ class GitHubWorld:
             state=state.value,
             pull_request=pull_request,
             author_association=author_association,
+            author_login=author_login,
             updated_at=updated_at,
         )
         return number
@@ -306,6 +311,28 @@ def test_an_item_carries_its_authors_association_with_the_repository(world: Worl
         [(item.number, item.author_association) for item in world.store.backlog()],
         read(world, outside).author_association,
     ) == ([(owners, "OWNER"), (outside, "NONE")], "NONE")
+
+
+def test_an_item_carries_its_authors_login(world: World) -> None:
+    """The jobs trust a bot only by its exact login, which GitHub gives in `user.login`
+    (#3502): the listing of Items and the read of one Item give the login that the issue holds,
+    and an issue that has none gives None."""
+    app = world.seed(
+        "by the app",
+        labels=("priority/p2-medium",),
+        author_association="CONTRIBUTOR",
+        author_login="devops-cli-service[bot]",
+    )
+    anonymous = world.seed("with no login", labels=("priority/p2-medium",))
+    assert (
+        [(item.number, item.author_login) for item in world.store.backlog()],
+        read(world, app).author_login,
+        [(issue.number, issue.author_login) for issue in world.store.issues()],
+    ) == (
+        [(app, "devops-cli-service[bot]"), (anonymous, None)],
+        "devops-cli-service[bot]",
+        [(app, "devops-cli-service[bot]"), (anonymous, None)],
+    )
 
 
 def test_a_job_sets_a_field_by_replacing_the_familys_labels(world: World) -> None:
@@ -923,6 +950,23 @@ def test_a_repository_file_is_read_at_its_ref_and_a_missing_one_raises(
     assert read_back == ("- name: type/bug\n", "- name: type/feature\n")
 
 
+def test_the_files_of_a_directory_are_listed_at_its_ref_and_a_missing_directory_raises(
+    store: InMemoryRoadmapStore,
+) -> None:
+    store.seed_file("docs/adr/0002-b.md", "b")
+    store.seed_file("docs/adr/0001-a.md", "a")
+    store.seed_file("docs/adr/old/0000-z.md", "z")
+    store.seed_file("docs/adr/0003-c.md", "c", ref="feat/topic")
+    store.seed_file("docs/README.md", "r")
+    listed = (
+        store.repository_files("docs/adr"),
+        store.repository_files("docs/adr", ref="feat/topic"),
+    )
+    with pytest.raises(GitHubFileNotFoundError, match=r"no docs/none"):
+        store.repository_files("docs/none")
+    assert listed == (["docs/adr/0001-a.md", "docs/adr/0002-b.md"], ["docs/adr/0003-c.md"])
+
+
 def test_a_field_write_records_marks_with_its_value_and_a_persons_records_neither(
     store: InMemoryRoadmapStore,
 ) -> None:
@@ -961,8 +1005,43 @@ def test_a_comment_is_kept_on_its_issue_with_the_time_it_was_made(
     with pytest.raises(GitHubOperationError, match="not an issue"):
         store.comment(store.seed_issue("a pull request", pull_request=True), "no")
     assert store.comments_on(number) == [
-        IssueComment(body="Moved to the backlog.", created_at=clock.now)
+        IssueComment(
+            body="Moved to the backlog.",
+            created_at=clock.now,
+            author_association="OWNER",
+            author_login="devops-cli",
+        )
     ]
+
+
+def test_the_comments_of_the_repository_come_newest_first_from_the_time_asked(
+    store: InMemoryRoadmapStore, clock: SteppedClock
+) -> None:
+    """The comments of every issue, as GitHub's listing of the repository gives them (#2754):
+    newest first, and none made before `since`."""
+    first, second = store.seed_issue("first"), store.seed_issue("second")
+    for number, body in ((first, "one"), (second, "two"), (first, "three")):
+        clock.now += timedelta(minutes=10)
+        store.seed_comment(number, body)
+
+    assert (
+        [c.body for c in store.comments_since(None)],
+        [c.body for c in store.comments_since(clock.now - timedelta(minutes=10))],
+        [c.body for c in store.comments_since(clock.now + timedelta(minutes=1))],
+    ) == (["three", "two", "one"], ["three", "two"], [])
+
+
+def test_a_comment_on_a_pull_request_says_so(store: InMemoryRoadmapStore) -> None:
+    """GitHub's comment listings mix the issues with the pull requests (#2754)."""
+    issue = store.seed_issue("an issue")
+    pull = store.seed_pull("a pull request", head_ref="feat/1-a-change")
+    store.seed_comment(issue, "on the issue")
+    store.seed_comment(pull, "on the pull request")
+
+    assert {(c.body, c.on_pull_request) for c in store.comments_since(None)} == {
+        ("on the pull request", True),
+        ("on the issue", False),
+    }
 
 
 def test_a_path_changed_when_the_newest_commit_that_changed_it_was_made(

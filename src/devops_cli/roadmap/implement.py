@@ -112,6 +112,7 @@ from devops_cli.roadmap.store import (
     RoadmapStore,
     StageRecordKey,
 )
+from devops_cli.roadmap.trust import is_approved, is_trusted
 
 GIT_OPERATION: Final[str] = "roadmap.implement"
 
@@ -291,8 +292,13 @@ class _Judge:
         route = self._route(item)
         if route is None:
             return self._not_taken(item)
-        if item.author_association not in CONST_ROADMAP_TRUSTED_AUTHORS:
-            return texts.implement_left_author.format(association=item.author_association)
+        if not is_trusted(item):
+            return texts.implement_left_author.format(
+                author=item.author_login or texts.refine_author_unknown,
+                association=item.author_association or texts.refine_author_unknown,
+            )
+        if not is_approved(item):
+            return texts.implement_left_unjudged
         stopped = item.job_record.get(ImplementRecordKey.STOPPED)
         if stopped and not retry_asked(self._store.comments_on(item.number)):
             return texts.implement_left_stopped.format(stopped=stopped)

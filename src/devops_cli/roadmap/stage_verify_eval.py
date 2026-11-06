@@ -20,14 +20,20 @@ from pathlib import Path
 from typing import Any, Final
 
 from devops_cli.ai.client.models import AICredentialsError
+from devops_cli.config.constants import CONST_ROADMAP_VERIFY_RECALL_FLOOR
 from devops_cli.dry_run import PlannedRequest
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.stage import StageClient
+from devops_cli.openspec.tool import OpenSpecTool
+from devops_cli.roadmap.clone_git import checkout_at
+from devops_cli.roadmap.refine_investigation import task_window
+from devops_cli.roadmap.stage import StageClient, openspec_tool
 from devops_cli.roadmap.stage_eval_cases import Defect, DefectType, Severity, StageCase, Verdict
-from devops_cli.roadmap.stage_eval_run import checkout_at
-from devops_cli.roadmap.stage_verify import Finding, VerificationInput, returning, verify
+from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel, review
+from devops_cli.roadmap.stage_verify import Finding, VerificationInput, returning
 
 _DATASET_NAME: Final[str] = "stage_verification"
+_OPERATION: Final[str] = "roadmap.eval.stage-verify"
+_TASK: Final[str] = "verification"
 # The severities from the most serious, and the ones that the serious recall counts.
 _BY_SEVERITY: Final[tuple[Severity, ...]] = (
     Severity.BLOCKER,
@@ -151,10 +157,30 @@ def _recall_scores(case: StageCase, output: CaseVerification) -> dict[str, int]:
 
 
 def evaluate_cases(
-    model: str, cases: Sequence[StageCase], client: StageClient, repository: Path
+    model: str,
+    cases: Sequence[StageCase],
+    client: StageClient,
+    repository: Path,
+    *,
+    toolbox: ToolboxModel,
 ) -> VerifyScore:
     """Run the pass on each case, one at a time, and score it. A call that fails ends its case
-    as failed. Rejected credentials stop the run."""
+    as failed. Rejected credentials stop the run. The pass of each case is an agent of the `toolbox`
+    model with the read tools of the job on the checkout of the case, so the score measures the
+    pass that the job runs (#3039). `client` answers a call that is not for the pass."""
+    with openspec_tool() as tool:
+        return _scored(model, cases, client, repository, toolbox, tool)
+
+
+def _scored(
+    model: str,
+    cases: Sequence[StageCase],
+    client: StageClient,
+    repository: Path,
+    toolbox: ToolboxModel,
+    tool: OpenSpecTool | None,
+) -> VerifyScore:
+    """The score of the pass on `cases`, with `tool` for the specs that `read_spec` reads."""
     from pydantic_evals import Case, Dataset
     from pydantic_evals.evaluators import Evaluator, EvaluatorContext
 
@@ -166,19 +192,28 @@ def evaluate_cases(
             raise rejected[0]
         case = by_name[name]
         try:
-            with checkout_at(repository, case.base_commit) as source:
+            with checkout_at(repository, case.base_commit, operation=_OPERATION) as source:
                 given = VerificationInput.of(
                     number=case.issue,
                     title=case.title,
                     body=case.issue_body,
                     plan=case.plan,
                     source=source,
+                    window=task_window(_TASK),
                 )
-            findings = tuple(verify(client, given))
+                reviewer = ToolboxClient(
+                    toolbox.model,
+                    client,
+                    source,
+                    case.base_commit,
+                    window=task_window(_TASK),
+                    openspec=tool,
+                )
+                findings, read = review(reviewer, given)
         except AICredentialsError as exc:
             rejected.append(exc)
             raise
-        return CaseVerification(findings, len(returning(findings, given)))
+        return CaseVerification(tuple(findings), len(returning(findings, read)))
 
     by_name = {case.name: case for case in cases}
 
@@ -248,6 +283,20 @@ def _percent(value: float | None) -> str:
     return f"{value:.0%}" if value is not None else MESSAGES.roadmap.stage_eval_no_value
 
 
+def _floor_line(score: VerifyScore) -> str:
+    """Whether the recall of the blocker and major defects reaches the floor (#3039)."""
+    texts = MESSAGES.roadmap
+    floor = _percent(CONST_ROADMAP_VERIFY_RECALL_FLOOR)
+    if score.serious_recall is None:
+        return texts.verify_eval_floor_unscored.format(floor=floor)
+    template = (
+        texts.verify_eval_floor_met
+        if score.serious_recall >= CONST_ROADMAP_VERIFY_RECALL_FLOOR
+        else texts.verify_eval_floor_missed
+    )
+    return template.format(floor=floor, rate=_percent(score.serious_recall))
+
+
 def render_verify(score: VerifyScore, *, gateway: str) -> str:
     """The score as text: the recall by type, the two totals, the findings on the good plans and
     how the cases ended."""
@@ -271,6 +320,7 @@ def render_verify(score: VerifyScore, *, gateway: str) -> str:
             labeled=score.serious_labeled,
             rate=_percent(score.serious_recall),
         ),
+        _floor_line(score),
         texts.verify_eval_good.format(
             findings=score.good_findings, cases=score.good_cases, returning=score.good_returning
         ),
@@ -319,7 +369,7 @@ def verify_json(score: VerifyScore, *, gateway: str, taken: str) -> str:
 
 
 def planned_verify_calls(cases: Sequence[StageCase], gateway: str) -> list[PlannedRequest]:
-    """The model calls of a run, making none: one request for each case."""
+    """The model calls of a run, making none: one agent run for each case."""
     texts = MESSAGES.roadmap
     return [
         PlannedRequest(

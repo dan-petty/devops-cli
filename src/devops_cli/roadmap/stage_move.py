@@ -114,37 +114,38 @@ def move_prefix_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list
     ]
 
 
-def _literal(command: str) -> str | None:
-    """The literal of a valid `! git grep` command, or None for another command."""
+def _literals(command: str) -> tuple[str, ...]:
+    """The literals of a valid `! git grep` command, or none for another command."""
     try:
         words = shlex.split(command)
     except ValueError:
-        return None
+        return ()
     if words[:1] != [NEGATIVE_SEARCH_WORD]:
-        return None
+        return ()
     found = read_negative_search(words)
-    return None if isinstance(found, str) else found.literal
+    return () if isinstance(found, str) else found.literals
 
 
 def move_verify_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]:
-    """One sentence for each move group whose `! git grep` literal names one module of the
-    prefix, the bare prefix included."""
+    """One sentence for each move group whose `! git grep` literal, each `-e` literal included,
+    names one module of the prefix, the bare prefix included."""
     texts = MESSAGES.roadmap
     problems: list[str] = []
     for move in _moves(groups, tree):
         group = groups[move.number - 1]
-        if group.verify is None or (literal := _literal(group.verify)) is None:
+        if group.verify is None:
             continue
         stems = {PurePosixPath(path).stem for path in move.modules} | {move.prefix}
         named = {f"{move.import_path}.{stem}" for stem in stems}
-        if literal in named:
-            problems.append(
-                texts.stage_problem_move_verify.format(
-                    group=move.number,
-                    prefix=move.prefix,
-                    command=group.verify,
-                    literal=literal,
-                    expected=f"{move.import_path}.{move.prefix}_",
-                )
+        problems.extend(
+            texts.stage_problem_move_verify.format(
+                group=move.number,
+                prefix=move.prefix,
+                command=group.verify,
+                literal=literal,
+                expected=f"{move.import_path}.{move.prefix}_",
             )
+            for literal in _literals(group.verify)
+            if literal in named
+        )
     return problems

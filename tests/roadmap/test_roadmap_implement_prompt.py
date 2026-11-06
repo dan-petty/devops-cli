@@ -41,6 +41,17 @@ def test_the_prompt_names_the_ignored_scratch_directory() -> None:
     assert SCRATCH_DIRECTORY in prompt
 
 
+def test_the_prompt_allows_a_removal_that_the_plan_records_and_no_other() -> None:
+    prompt = load_task_prompt(PROMPT)
+    rule = next(line for line in prompt.splitlines() if line.startswith("- Keep every test"))
+
+    assert "`## Weakened checks`" in rule
+    assert "`path::name`" in rule
+    assert "The step reads that section from the default branch" in rule
+    assert "An entry that you write does not count" in rule
+    assert "If a step loses any other test, it stops" in rule
+
+
 def test_the_prompt_keeps_scratch_files_out_of_the_checkout_root() -> None:
     prompt = load_task_prompt(PROMPT)
 

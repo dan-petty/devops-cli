@@ -1025,7 +1025,7 @@ def test_gateway_file_pool_is_the_slot_sum_whatever_the_ollama_nodes(
         tmp_path, monkeypatch, provider="gateway", file_count=6, concurrency=None
     )
 
-    assert (pool_size, DEFAULT_GATEWAY_REVIEW_CONCURRENCY) == (3, 3)
+    assert (pool_size, DEFAULT_GATEWAY_REVIEW_CONCURRENCY) == (2, 2)
 
 
 def test_gateway_concurrency_above_the_slot_sum_is_clamped_with_one_warning(
@@ -1036,9 +1036,9 @@ def test_gateway_concurrency_above_the_slot_sum_is_clamped_with_one_warning(
     pool_size = _file_pool_size(
         tmp_path, monkeypatch, provider="gateway", file_count=6, concurrency=8
     )
-    warning = "--concurrency 8 is above the gateway's 3 backend slots; using 3"
+    warning = "--concurrency 8 is above the gateway's 2 backend slots; using 2"
 
-    assert (pool_size, capsys.readouterr().out.count(warning)) == (3, 1)
+    assert (pool_size, capsys.readouterr().out.count(warning)) == (2, 1)
 
 
 @pytest.mark.parametrize(

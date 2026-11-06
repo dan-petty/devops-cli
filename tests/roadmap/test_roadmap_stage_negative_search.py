@@ -22,7 +22,18 @@ def _case() -> StageCase:
 
 
 def _with_verify(case: StageCase, verify: str) -> StageCase:
-    groups = [{**group, "verify": verify} for group in case.groups]
+    groups = [
+        {
+            **group,
+            "verify": verify,
+            "implementation": (
+                f"{group['implementation']}, and run "
+                "`uv run devops roadmap eval stage --replay` with the score before and after "
+                "the change"
+            ),
+        }
+        for group in case.groups
+    ]
     return case.model_copy(update={"plan": {**case.plan, "groups": groups}})
 
 

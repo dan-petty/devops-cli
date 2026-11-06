@@ -2,6 +2,73 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.64.1](https://github.com/dan-petty/devops-cli/compare/v0.64.0...v0.64.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **roadmap:** a rejected plan leaves its evidence on the issue ([#3713](https://github.com/dan-petty/devops-cli/issues/3713)) ([60eb89e](https://github.com/dan-petty/devops-cli/commit/60eb89edd2f0675b05d19bcaea724de603e9ecbc))
+
+## [0.64.0](https://github.com/dan-petty/devops-cli/compare/v0.63.2...v0.64.0) (2026-11-06)
+
+
+### Features
+
+* **roadmap:** let the step guard allow a recorded test removal ([#3715](https://github.com/dan-petty/devops-cli/issues/3715)) ([f025406](https://github.com/dan-petty/devops-cli/commit/f025406f9e7db7a80dabddc7aa3a447faae9c491))
+* **roadmap:** require the eval replay for a stage check change ([#3716](https://github.com/dan-petty/devops-cli/issues/3716)) ([76e8301](https://github.com/dan-petty/devops-cli/commit/76e8301d3ed7ec7b1e7d2ee031288cf96765a1d8))
+* **roadmap:** restart a suspended job on a comment of a person ([#3699](https://github.com/dan-petty/devops-cli/issues/3699)) ([be8d18a](https://github.com/dan-petty/devops-cli/commit/be8d18ad812a6478d8514d16f6c9a3746a191684))
+* **roadmap:** the verifier reads the repository and repairs a plan twice ([#3710](https://github.com/dan-petty/devops-cli/issues/3710)) ([c1191e2](https://github.com/dan-petty/devops-cli/commit/c1191e251067057c95905e0cfc8cde60494bb7ee))
+* **service:** chart the Service and filter the CLI dashboard by job ([#3704](https://github.com/dan-petty/devops-cli/issues/3704)) ([fecc6fb](https://github.com/dan-petty/devops-cli/commit/fecc6fb96a518e79660e4c8183137a0a506299fe))
+
+
+### Bug Fixes
+
+* **deps:** upgrade oauthlib to fix GHSA-3jp2-3mrg-2vxc ([#3709](https://github.com/dan-petty/devops-cli/issues/3709)) ([6a88012](https://github.com/dan-petty/devops-cli/commit/6a88012f1596717b62f77235785ba13768844bf4)), closes [#3705](https://github.com/dan-petty/devops-cli/issues/3705)
+* **k8s:** hold the copy source until the destination ends ([#3712](https://github.com/dan-petty/devops-cli/issues/3712)) ([c7c5556](https://github.com/dan-petty/devops-cli/commit/c7c5556cf191571d04b3d83ce4ccdf8ddaa0e8bb)), closes [#3695](https://github.com/dan-petty/devops-cli/issues/3695)
+* **k8s:** the gateway stops using the 16 GiB tier ([#3697](https://github.com/dan-petty/devops-cli/issues/3697)) ([842effc](https://github.com/dan-petty/devops-cli/commit/842effc54b12f246a8fbf0ad3efd7a3c0afcdf93))
+* **roadmap:** keep angle-bracket text of a code span in refine ([#3711](https://github.com/dan-petty/devops-cli/issues/3711)) ([396962e](https://github.com/dan-petty/devops-cli/commit/396962e637c8d207f51f4b30263c3c7158604daf))
+* **roadmap:** P1 items pass the planned limit ([#3698](https://github.com/dan-petty/devops-cli/issues/3698)) ([63589f0](https://github.com/dan-petty/devops-cli/commit/63589f02face3796c63b49e3ece71dc94a955684)), closes [#3692](https://github.com/dan-petty/devops-cli/issues/3692)
+* **roadmap:** refine blocks an item with an open dependency ([#3696](https://github.com/dan-petty/devops-cli/issues/3696)) ([89fbb08](https://github.com/dan-petty/devops-cli/commit/89fbb085f01f82748624d21408a42966ac57a2c5))
+
+## [0.63.2](https://github.com/dan-petty/devops-cli/compare/v0.63.1...v0.63.2) (2026-11-05)
+
+
+### Bug Fixes
+
+* **github:** keep a quote mark that the mask did not open ([#3691](https://github.com/dan-petty/devops-cli/issues/3691)) ([ed91c67](https://github.com/dan-petty/devops-cli/commit/ed91c67c6f20fd2cd7b2e24bacc8c83d8ce3c313))
+
+## [0.63.1](https://github.com/dan-petty/devops-cli/compare/v0.63.0...v0.63.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* **mcp:** find path options by type and decide each ([#3687](https://github.com/dan-petty/devops-cli/issues/3687)) ([f7320cf](https://github.com/dan-petty/devops-cli/commit/f7320cf1c2ac7f6c75d48178844666b5854122ba))
+
+## [0.63.0](https://github.com/dan-petty/devops-cli/compare/v0.62.7...v0.63.0) (2026-11-05)
+
+
+### Features
+
+* **roadmap:** let a negative search verify check more than one name ([#3678](https://github.com/dan-petty/devops-cli/issues/3678)) ([5a4364c](https://github.com/dan-petty/devops-cli/commit/5a4364c30456765803eacc05273cc4ac34c3baa2))
+* **telemetry:** count the tool calls of the stage planner by outcome ([#3679](https://github.com/dan-petty/devops-cli/issues/3679)) ([45da6dd](https://github.com/dan-petty/devops-cli/commit/45da6dd2345a2c2154749a9b7cf272169ff53fcb))
+
+
+### Bug Fixes
+
+* **ci:** count tests and specs as hardening guardrails ([#3684](https://github.com/dan-petty/devops-cli/issues/3684)) ([1d75506](https://github.com/dan-petty/devops-cli/commit/1d7550611517a503b5dd05f7233978f5f3a6b604))
+* **security:** mask the user name of a URL with no password ([#3676](https://github.com/dan-petty/devops-cli/issues/3676)) ([bc1cd9c](https://github.com/dan-petty/devops-cli/commit/bc1cd9c9b24907cf3cddcfc16bc7e5e7c8dc540d))
+* **service:** count each GitHub request with its HTTP status ([#3686](https://github.com/dan-petty/devops-cli/issues/3686)) ([b39dcba](https://github.com/dan-petty/devops-cli/commit/b39dcba6a4488dcb6dbea0016731bd33d30401e9))
+* **telemetry:** Service counters read true across pods and repos ([#3680](https://github.com/dan-petty/devops-cli/issues/3680)) ([05544ab](https://github.com/dan-petty/devops-cli/commit/05544abc8861fd3c4e8f474af5f09e4b42676288))
+
+## [0.62.7](https://github.com/dan-petty/devops-cli/compare/v0.62.6...v0.62.7) (2026-11-05)
+
+
+### Bug Fixes
+
+* **ai:** a hosted gateway call is priced, not counted local ([#3663](https://github.com/dan-petty/devops-cli/issues/3663)) ([acdc8a9](https://github.com/dan-petty/devops-cli/commit/acdc8a9bf6872b35b55badc402d0cec149546c3a))
+* **roadmap:** plan-check measures each task group ([#3669](https://github.com/dan-petty/devops-cli/issues/3669)) ([3791bd9](https://github.com/dan-petty/devops-cli/commit/3791bd96919516cec43ce2836e206a19593f6409))
+* **roadmap:** the jobs trust the items of the two bots ([#3664](https://github.com/dan-petty/devops-cli/issues/3664)) ([41a362d](https://github.com/dan-petty/devops-cli/commit/41a362d55dd8cce6e80584b75ae87bab05728ccf))
+
 ## [0.62.6](https://github.com/dan-petty/devops-cli/compare/v0.62.5...v0.62.6) (2026-11-05)
 
 

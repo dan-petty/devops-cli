@@ -35,7 +35,14 @@ from devops_cli.git.worktree_add import issue_holder, read_remote_heads
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.openspec.tool import isolated_openspec
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.stage import StagedChange, StagePlan, parse_filters, plan_item, plan_stage
+from devops_cli.roadmap.stage import (
+    StagedChange,
+    StagePlan,
+    _read_staged_file,
+    parse_filters,
+    plan_item,
+    plan_stage,
+)
 from devops_cli.roadmap.stage_change import (
     CREATED_LINE_TOKENS,
     StageGroup,
@@ -1747,6 +1754,17 @@ def test_plan_item_plans_with_a_toolbox_client(
     assert type(planned) is StagedChange
 
 
+def test_the_citation_reader_returns_the_text_at_the_staged_commit(stage_repo: StageRepo) -> None:
+    stage_repo.track({"src/devops_cli/cited.py": "def staged(): pass\n"})
+    sha = stage_repo.git("rev-parse", "HEAD")
+    (stage_repo.clone / "src/devops_cli/cited.py").write_text("def worktree(): pass\n")
+
+    assert _read_staged_file(stage_repo.clone, sha, "src/devops_cli/cited.py") == (
+        "def staged(): pass\n"
+    )
+    assert _read_staged_file(stage_repo.clone, sha, "src/devops_cli/absent.py") is None
+
+
 def test_a_toolbox_plan_of_a_checkout_with_a_change_fails_before_any_model_call(
     store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, openspec: OpenSpecFake
 ) -> None:
@@ -1887,6 +1905,28 @@ def test_check_proposal_refuses_a_literal_that_a_created_source_path_keeps() -> 
 
 def test_check_proposal_accepts_a_recorded_hit_that_survives_the_change() -> None:
     assert _search_problems(_move_plan(DOTTED), {"devops_cli.roadmap.stage_": (STAGE_OLD,)}) == []
+
+
+E_MOVE = (
+    "! git grep -n -e devops_cli.roadmap.stage_ready -e devops_cli.roadmap.stage -- src/ tests/"
+)
+
+
+def test_a_move_group_checks_each_e_literal() -> None:
+    evidence = {
+        "devops_cli.roadmap.stage_ready": (STAGE_OLD,),
+        "devops_cli.roadmap.stage": (STAGE_OLD,),
+    }
+
+    assert _search_problems(_move_plan(E_MOVE), evidence) == [
+        f"Group 1 gives the `verify` command `{E_MOVE}` for the moved prefix `stage`, and its "
+        "literal `devops_cli.roadmap.stage` names one module of the moved prefix. Search the "
+        "dotted prefix, such as `devops_cli.roadmap.stage_`, so the check covers every module.",
+        f"Group 1 gives the `verify` command `{E_MOVE}` with the literal "
+        f"`devops_cli.roadmap.stage`, and the plan creates `{STAGE_PACKAGE}`, whose import path "
+        "`devops_cli.roadmap.stage.ready` contains the literal. The search can never pass on the "
+        "produced tree. Search a name that the plan does not keep.",
+    ]
 
 
 # ── The requirement that the base spec already has (#3013) ────────────────────

@@ -29,6 +29,11 @@ PLAN = {
     "design.md": "# Design\n\nShout in capitals.\n",
     "tasks.md": TASKS,
 }
+# The plan of a fixture that orders the removal of one test.
+RECORDS_TEST_A = (
+    "# Proposal\n\nWhy the sample shouts.\n\n## Weakened checks\n\n"
+    "- **`tests/test_sample.py::test_a`**: Stopped: an old form. Safeguard: `test_b` holds it.\n"
+)
 TEST_PATH = "tests/test_sample.py"
 CODE_PATH = "src/sample.py"
 SCRATCH_PATH = "scratch.py"
@@ -102,17 +107,18 @@ def write_fixture(
     diffs: Mapping[str, str] | None = None,
     folder: str = "sample",
     tasks: str = TASKS,
+    proposal: str = PLAN["proposal.md"],
 ) -> Path:
     """Write a fixture folder under `root`: the case, the issue body, the plan with the `tasks.md`
-    `tasks`, and the diffs by file name (the good and the scratch diff when none are given).
-    Returns the folder."""
+    `tasks` and the `proposal.md` `proposal`, and the diffs by file name (the good and the scratch
+    diff when none are given). Returns the folder."""
     given = {"good.diff": good_diff(), "scratch.diff": scratch_diff()} if diffs is None else diffs
     base = root / folder
     (base / "plan").mkdir(parents=True)
     (base / "results").mkdir()
     (base / "case.json").write_text(json.dumps(case or case_data()), encoding="utf-8")
     (base / "issue.md").write_text(BODY, encoding="utf-8")
-    for name, text in (PLAN | {"tasks.md": tasks}).items():
+    for name, text in (PLAN | {"tasks.md": tasks, "proposal.md": proposal}).items():
         (base / "plan" / name).write_text(text, encoding="utf-8")
     for name, text in given.items():
         (base / "results" / name).write_text(text, encoding="utf-8")

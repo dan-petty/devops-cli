@@ -426,7 +426,6 @@ DEFAULT_REVIEW_CONCURRENCY: int = 4
 DEFAULT_GATEWAY_REVIEW_SLOTS: dict[str, int] = {
     "http://ollama-48gib-fast.llm.svc.cluster.local:11434": 1,
     "http://ollama-64gib-standard.llm.svc.cluster.local:11434": 1,
-    "http://ollama-16gib-fast.llm.svc.cluster.local:11434": 1,
 }
 DEFAULT_GATEWAY_REVIEW_CONCURRENCY: int = sum(DEFAULT_GATEWAY_REVIEW_SLOTS.values())
 # The longest a gateway chat request waits for one of those slots, as long as an Ollama lease.
@@ -748,9 +747,9 @@ DEFAULT_PYPI_PACKAGE_URL: str = "https://pypi.org/pypi/{name}/json"
 DEFAULT_PYPI_TIMEOUT_SECONDS: float = 10.0
 # The most items one stage run takes (#2654).
 DEFAULT_ROADMAP_STAGE_LIMIT: int = 3
-# The most Planned items before the stage job plans no new item (#3487). The Service delivers about
-# two items a day, so 20 items wait about ten days: a plan that waits longer meets a changed
-# default branch, and `messages.py` and `stage_change.py` appear in most plans.
+# The most Planned items before the stage job plans only P0 and P1 items (#3487, #3692). The
+# Service delivers about two items a day, so 20 items wait about ten days: a plan that waits longer
+# meets a changed default branch, and `messages.py` and `stage_change.py` appear in most plans.
 DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT: int = 20
 # The most extra turns of an implement step (#3043): each fixes a failed check or asks for ticks.
 DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS: int = 3

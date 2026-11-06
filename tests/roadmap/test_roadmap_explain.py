@@ -3,6 +3,7 @@ on a clone with an `origin`, and GitHub is faked."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git import worktree_add
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import planned
+from devops_cli.roadmap.body_hash import body_hashes, hash_text
 from devops_cli.roadmap.explain import (
     Explanation,
     JobVerdict,
@@ -27,8 +29,8 @@ from devops_cli.roadmap.explain import (
 )
 from devops_cli.roadmap.implement import parse_implement_filters
 from devops_cli.roadmap.implement_trace import ImplementTrace
-from devops_cli.roadmap.refine import hash_text
 from devops_cli.roadmap.stage import parse_filters
+from devops_cli.roadmap.stage_rejected import RejectedPlan
 from devops_cli.roadmap.store import (
     GitHubState,
     ImplementRecordKey,
@@ -223,6 +225,25 @@ def test_a_recorded_group_over_the_budget_is_the_reason_of_the_stage_job(
     )
 
 
+def test_a_rejected_plan_is_the_reason_of_the_stage_job_and_names_the_pull_request(
+    job_world: JobWorld,
+) -> None:
+    number = _seed(job_world)
+    held = job_world.store.item(number)
+    assert held is not None
+    rejected = RejectedPlan(
+        pull=7,
+        text_hash=body_hashes(held.body)[0],
+        closed_at=datetime(2026, 11, 2, 20, 22, 45, tzinfo=UTC),
+    )
+    job_world.store.set_marks(held, {StageRecordKey.REJECTED: rejected.record})
+
+    explained = _explain(job_world, number)
+
+    assert explained.stage == JobVerdict(False, TEXTS.stage_left_rejected.format(pull=7))
+    assert "#7" in explained.stage.reason
+
+
 def test_a_closed_issue_and_a_missing_issue_give_the_shared_reasons(job_world: JobWorld) -> None:
     closed = _seed(job_world, state=GitHubState.CLOSED)
 
@@ -255,18 +276,28 @@ def test_the_planned_limit_names_the_setting_and_the_count_for_the_stage_job(
 ) -> None:
     _seed(job_world, status="Planned", title="fix(roadmap): a first plan waits")
     _seed(job_world, status="Planned", title="fix(roadmap): a second plan waits")
-    number = _seed(job_world)
+    number = _seed(job_world, priority="P2-Medium")
 
     held = _explain(job_world, number, planned_limit=2)
     free = _explain(job_world, number, planned_limit=3)
 
     assert held.stage == JobVerdict(
         False,
-        TEXTS.stage_left_planned_limit.format(count=2, limit=2, priority="P0-Critical"),
+        TEXTS.stage_left_planned_limit.format(
+            count=2, limit=2, priorities="P0-Critical or P1-High"
+        ),
     )
     assert "roadmap.stage.planned_limit" in held.stage.reason
     assert "The count of Planned items is 2" in held.stage.reason
+    assert "P0-Critical or P1-High" in held.stage.reason
     assert free.stage == JobVerdict(True)
+
+
+def test_a_p1_item_passes_the_planned_limit_for_the_stage_job(job_world: JobWorld) -> None:
+    _seed(job_world, status="Planned", title="fix(roadmap): a first plan waits")
+    number = _seed(job_world, priority="P1-High")
+
+    assert _explain(job_world, number, planned_limit=1).stage == JobVerdict(True)
 
 
 def test_the_planned_limit_is_the_setting_when_the_option_is_absent(
@@ -275,12 +306,12 @@ def test_the_planned_limit_is_the_setting_when_the_option_is_absent(
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_PLANNED_LIMIT", "1")
     settings.reset_settings_cache()
     _seed(job_world, status="Planned", title="fix(roadmap): a first plan waits")
-    number = _seed(job_world)
+    number = _seed(job_world, priority="P2-Medium")
 
     explained = _explain(job_world, number)
 
     assert explained.stage.reason == TEXTS.stage_left_planned_limit.format(
-        count=1, limit=1, priority="P0-Critical"
+        count=1, limit=1, priorities="P0-Critical or P1-High"
     )
 
 
