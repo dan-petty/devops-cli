@@ -95,6 +95,7 @@ plan reader and the same gates, and it judges the default branch as it does with
 calls no model. After the report of the default branch it prints:
 
 - the number of folders on each side;
+- the result of each folder of the branch, and the number of folders for each result;
 - for each gate, the number of refusals on each side, and one line for each refusal. The line starts
   with `both` when the two sides hold the same refusal, or with the name of the side that holds it;
 - the refusals that the branch adds, as `New refusals on <ref>`. A refusal is new when the default

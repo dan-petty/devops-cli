@@ -3,44 +3,24 @@
 from __future__ import annotations
 
 import json
-import subprocess
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.commands import roadmap as roadmap_commands
 from devops_cli.commands.roadmap import app
-from devops_cli.openspec import tool as openspec_tool
-from devops_cli.openspec.tool import OpenSpecTool
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage_change import render_change
 from tests.support.builders import make_stage_proposal
-from tests.support.roadmap_stage import VALID_REPORT, StageRepo
+from tests.support.roadmap_stage import VALID_REPORT, StageRepo, validate_args
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
+    from tests.support.fakes.openspec import OpenSpecFake
 
 REPO = "example/roadmap"
 CHANGE = "1-keep-the-last-comment"
 runner = CliRunner()
-
-
-class _AcceptingTool:
-    """An OpenSpec that accepts every change."""
-
-    def run(self, args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-        del args, cwd
-        return subprocess.CompletedProcess([], 0, VALID_REPORT, "")
-
-
-@contextmanager
-def _accepting_openspec() -> Iterator[OpenSpecTool]:
-    yield cast("OpenSpecTool", _AcceptingTool())
 
 
 def test_the_dry_run_lists_the_reads_and_makes_none(
@@ -58,12 +38,10 @@ def test_the_dry_run_lists_the_reads_and_makes_none(
     assert github_api.sent == []
 
 
-@pytest.mark.usefixtures("openspec_fake")
+@pytest.mark.usefixtures("openspec_fake", "roadmap_store")
 def test_the_json_output_holds_the_folders_and_the_counts(
     stage_repo: StageRepo, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    store = InMemoryRoadmapStore()
-    monkeypatch.setattr(roadmap_commands, "_open_store", lambda repo: (None, store))
     monkeypatch.chdir(stage_repo.clone)
 
     result = runner.invoke(
@@ -95,8 +73,9 @@ def test_the_dry_run_of_a_branch_run_lists_the_reads_of_the_branch(
     assert github_api.sent == []
 
 
+@pytest.mark.usefixtures("roadmap_store")
 def test_the_json_output_of_a_branch_run_holds_the_comparison(
-    stage_repo: StageRepo, monkeypatch: pytest.MonkeyPatch
+    stage_repo: StageRepo, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     group = make_stage_proposal().groups[0].model_copy(update={"reads": ["src/devops_cli/gone.py"]})
     plan = render_change(
@@ -112,10 +91,7 @@ def test_the_json_output_of_a_branch_run_holds_the_comparison(
     stage_repo.git("add", "-A")
     stage_repo.git("commit", "-q", "-m", "plan")
     stage_repo.git("switch", "-q", "main")
-    monkeypatch.setattr(
-        roadmap_commands, "_open_store", lambda repo: (None, InMemoryRoadmapStore())
-    )
-    monkeypatch.setattr(openspec_tool, "isolated_openspec", _accepting_openspec)
+    openspec_fake.script(validate_args(CHANGE), 0, VALID_REPORT)
     monkeypatch.chdir(stage_repo.clone)
 
     result = runner.invoke(

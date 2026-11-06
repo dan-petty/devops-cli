@@ -102,19 +102,18 @@ class PlanRecord:
     readable: bool = True
     verified: bool = True
 
-    @property
-    def reasons(self) -> tuple[str, ...]:
-        """The reasons for the result, one sentence each: the notes, then the refusals."""
-        return (*self.notes, *(refusal.message for refusal in self.refusals))
-
     def as_dict(self) -> dict[str, object]:
         return {
             "folder": self.folder,
             "issue": self.issue,
             "result": self.result.value,
-            "reasons": list(self.reasons),
+            "notes": list(self.notes),
             "refusals": [refusal.as_dict() for refusal in self.refusals],
         }
+
+
+def _count(records: Iterable[PlanRecord], result: PlanResult) -> int:
+    return sum(1 for record in records if record.result is result)
 
 
 def refusals_by_gate(records: Iterable[PlanRecord]) -> dict[str, tuple[Refusal, ...]]:
@@ -161,7 +160,7 @@ class PlanRecheck:
 
     def count(self, result: PlanResult) -> int:
         """How many folders got `result`."""
-        return sum(1 for record in self.records if record.result is result)
+        return _count(self.records, result)
 
     @property
     def unverified(self) -> int:
@@ -389,6 +388,18 @@ def _render_folders(records: Iterable[PlanRecord]) -> list[str]:
     return lines
 
 
+def _results_line(records: Iterable[PlanRecord]) -> str:
+    """The number of folders for each result."""
+    found = tuple(records)
+    return MESSAGES.roadmap.plan_recheck_results.format(
+        ok=_count(found, PlanResult.OK),
+        rewrite=_count(found, PlanResult.REWRITE),
+        new_plan=_count(found, PlanResult.NEW_PLAN),
+        delivered=_count(found, PlanResult.DELIVERED),
+        cleanup=_count(found, PlanResult.CLEANUP),
+    )
+
+
 def _gate_lines(
     on_default: Iterable[Refusal], on_branch: Iterable[Refusal], default: str, ref: str
 ) -> list[str]:
@@ -421,6 +432,11 @@ def _render_branch(recheck: PlanRecheck, branch: BranchRecheck) -> list[str]:
             branch_folders=len(branch.records),
             default_folders=len(recheck.records),
         ),
+        *(
+            texts.plan_recheck_line.format(result=record.result.value, folder=record.folder)
+            for record in branch.records
+        ),
+        _results_line(branch.records),
     ]
     on_default = refusals_by_gate(recheck.records)
     on_branch = refusals_by_gate(branch.records)
@@ -453,8 +469,8 @@ def _render_branch(recheck: PlanRecheck, branch: BranchRecheck) -> list[str]:
 
 def render_recheck(recheck: PlanRecheck) -> str:
     """The report as text: one line for each folder with its reasons below it, then the counts,
-    and with a branch, the refusals of each gate on both sides and the refusals that the branch
-    adds."""
+    and with a branch, the result of each folder of the branch and their counts, the refusals of
+    each gate on both sides, and the refusals that the branch adds."""
     texts = MESSAGES.roadmap
     lines = _render_folders(recheck.records)
     live = len(recheck.live)
@@ -464,13 +480,7 @@ def render_recheck(recheck: PlanRecheck) -> str:
             texts.plan_recheck_live.format(live=live, cleanup=recheck.count(PlanResult.CLEANUP)),
             texts.plan_recheck_unverified.format(count=recheck.unverified, live=live),
             texts.plan_recheck_unreadable.format(count=recheck.unreadable, live=live),
-            texts.plan_recheck_results.format(
-                ok=recheck.count(PlanResult.OK),
-                rewrite=recheck.count(PlanResult.REWRITE),
-                new_plan=recheck.count(PlanResult.NEW_PLAN),
-                delivered=recheck.count(PlanResult.DELIVERED),
-                cleanup=recheck.count(PlanResult.CLEANUP),
-            ),
+            _results_line(recheck.records),
             texts.plan_recheck_gates.format(counts=_joined(_gate_counts(recheck.records))),
         ]
     )
