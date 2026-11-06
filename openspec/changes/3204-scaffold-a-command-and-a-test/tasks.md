@@ -11,11 +11,11 @@ Reads: `docs/TESTING.md`, `AGENTS.md`. Changes: `docs/TESTING.md`.
 
 ## 2. Classify an unmatched docs page as hand-written
 
-Reads: `src/devops_cli/config/constants.py`, `src/devops_cli/docs/markdown_argv_collector.py`, `tests/docs/test_docs_inventory.py`. Changes: `src/devops_cli/config/constants.py`, `src/devops_cli/docs/markdown_argv_collector.py`, `tests/docs/test_docs_inventory.py`.
+Reads: `src/devops_cli/config/constants.py`, `src/devops_cli/docs/markdown_argv_collector.py`, `tests/docs/test_docs_inventory.py`, `tests/invariants/test_architectural_invariants.py`, `tests/invariants/test_agents_md_claims.py`. Changes: the same files, and `src/devops_cli/docs/inventory.py` (new).
 
 - [ ] 2.1 In `tests/docs/test_docs_inventory.py`, write first: a page at a docs path that no other class matches is classified hand-written, and a page that another class claims stays out of the hand-written class
   - Verification: `uv run devops ci test tests/docs/test_docs_inventory.py` fails on the base
-- [ ] 2.2 Make the hand-written class of `CONST_DOCS_INVENTORY` the complement of the other classes, and apply that rule in the collector that reads the constant. Delete the per-file hand-written entries that the complement now covers
+- [ ] 2.2 Make the hand-written class the complement of the other classes: delete its entries from `CONST_DOCS_INVENTORY`, add `src/devops_cli/docs/inventory.py` with the classifier, and read the hand-written documents through it in the collector, the inventory test, the task-file scan and the two-link test
   - Verification: `uv run devops ci test tests/docs/test_docs_inventory.py` passes
 
 ## 3. Derive the MCP excluded commands from the command tree

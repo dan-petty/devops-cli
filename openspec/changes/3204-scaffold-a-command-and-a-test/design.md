@@ -15,6 +15,11 @@
 
 - **Write no entry in a docs page of the group.**: The issue asks for the docs page entry when it exists, but `docs/commands/*.md` is in the `generated` class of `CONST_DOCS_INVENTORY`, so `devops docs generate --sync-readme` writes it, and a hand edit would be overwritten. The checklist names that command.
 
+- **Scaffold a command into a group that already exists, and refuse an unknown group.**: A new group also needs a catalog class in each language file, a field in each catalog and an entry in `_COMMAND_SPECS`. A person decides a new group, so the scaffold names the missing group module and writes nothing. The scaffold edits the group module and the two language files with `ast` positions, so an edit lands after the last statement of an existing class and no text search decides it.
+- **Name the command test after its behaviour in the mirror folder: `tests/commands/test_<group>_<command>.py`.**: The mirror folder of `src/devops_cli/commands/<group>.py` is `tests/commands/`, and `docs/TESTING.md` asks for one file per behaviour. A file named after the group module would exist already for most groups, and the scaffold never overwrites a file.
+- **Derive the edge fixtures of `devops new test` from the seam modules that the source module imports, with one table.**: `CONST_SCAFFOLD_EDGE_FIXTURES` pairs a seam module with its fixture and its fake class, and an invariant test holds each fixture of the table to a fixture that `tests/support/` defines.
+- **Make the hand-written class a function of the file list, in `src/devops_cli/docs/inventory.py`, and keep the other five classes as globs.**: The consumers of the hand-written globs (the argv collector, the docs inventory test, the task-file scan and the two-link reachability test) take the documents from that function. A document that no explicit class claims, such as a committed skill, is then hand-written, and the two-link test reaches it through a link in `CONTRIBUTING.md`.
+
 ## Rejected alternatives
 
 - **Copier or Cookiecutter as the template engine of the scaffold.**: Both render files and neither edits a command module, an entry of the language folder or a derived list. Copier's update mode also rewrites a file, against the no-overwrite rule of the issue.
