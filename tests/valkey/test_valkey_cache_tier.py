@@ -149,10 +149,10 @@ def _caches_of_one_process(tmp_path: Path) -> tuple[object, object, object, obje
     The imports are local, so the module loads on a base without the shared tier.
     """
     from devops_cli.ai.rag.embeddings import EmbeddingsEngine
-    from devops_cli.commands.ai_ingest import _build_runtime_vector_store
+    from devops_cli.ai.rag.library_store import build_library_vector_store
     from devops_cli.security.vulnerability_lookup import CloudflareRadarClient
 
-    store = _build_runtime_vector_store(tmp_path, semantic_needed=False)
+    store = build_library_vector_store(tmp_path, semantic_needed=False)
     return (
         EmbeddingsEngine()._l2,
         EmbeddingsEngine()._l2,

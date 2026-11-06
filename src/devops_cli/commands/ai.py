@@ -218,11 +218,11 @@ def retrieve_rag_context(
         if not load_settings().ai.rag.enabled:
             return None
 
+        from devops_cli.ai.rag.indexer import resolve_rag_components
         from devops_cli.ai.rag.investigator import investigate_rag_context
         from devops_cli.ai.rag.kb_sync import ensure_knowledge_base_ready
-        from devops_cli.commands.rag import _get_rag_components
 
-        qdrant, embedder, code_coll, docs_coll = _get_rag_components()
+        qdrant, embedder, code_coll, docs_coll = resolve_rag_components()
         ensure_knowledge_base_ready(qdrant, embedder, docs_coll, code_coll)
 
         ctx = investigate_rag_context(

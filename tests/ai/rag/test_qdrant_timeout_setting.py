@@ -18,7 +18,6 @@ from pydantic import ValidationError
 from devops_cli.ai.rag import indexer as indexer_module
 from devops_cli.ai.rag import investigator as investigator_module
 from devops_cli.ai.tools import builtin_tools
-from devops_cli.commands import rag as rag_commands
 from devops_cli.config import settings as settings_module
 from devops_cli.config.settings import QdrantConfig
 from devops_cli.exceptions import ConfigurationError
@@ -85,7 +84,7 @@ def _investigation() -> object:
 CALLERS: dict[str, Callable[[], object]] = {
     "review investigation": _investigation,
     "rag_search tool": lambda: builtin_tools.rag_search("retry policy"),
-    "devops ai rag query": rag_commands._get_rag_components,
+    "devops ai rag query": indexer_module.resolve_rag_components,
     "indexing": indexer_module.resolve_qdrant_client,
 }
 
@@ -114,7 +113,6 @@ def test_each_caller_builds_its_qdrant_client_with_the_configured_timeout(
     from devops_cli.ai.rag import qdrant as qdrant_module
 
     monkeypatch.setattr(qdrant_module, "QdrantClient", RecordingQdrant)
-    monkeypatch.setattr(investigator_module, "QdrantClient", RecordingQdrant)
     monkeypatch.setattr(indexer_module, "QdrantClient", RecordingQdrant)
     monkeypatch.setattr(investigator_module, "_RETRIEVER_CACHE", None)
 

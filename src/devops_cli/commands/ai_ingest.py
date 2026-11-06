@@ -2,25 +2,23 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import Annotated, Any
 from urllib.parse import urlsplit
 
 import typer
 
-from devops_cli.ai.rag.library_store import library_contracts_dir, load_local_contracts
+from devops_cli.ai.rag.library_store import (
+    build_library_vector_store,
+    library_contracts_dir,
+    load_local_contracts,
+)
 from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.lang import HELP
 from devops_cli.output.serialization import emit_serialized, resolve_format
-
-if TYPE_CHECKING:
-    from devops_cli.ai.rag.library_store import LibraryVectorStore
-
-logger = logging.getLogger(__name__)
 
 app = new_typer(
     help=HELP.ai.ingest,
@@ -233,58 +231,6 @@ def _render_search_results_table(results: list[Any]) -> None:
     )
 
 
-def _resolve_runtime_qdrant_and_embedder() -> tuple[Any, Any]:
-    """Attempt to resolve and connect to a live Qdrant client and EmbeddingsEngine."""
-    try:
-        from devops_cli.ai.rag.embeddings import create_embedder
-        from devops_cli.ai.rag.indexer import resolve_qdrant_client
-        from devops_cli.config.settings import get_ai_api_key, load_settings
-
-        settings = load_settings()
-        client = resolve_qdrant_client()
-        if not client.is_alive():
-            return None, None
-        embedder = create_embedder(
-            ai_config=settings.ai,
-            api_key=get_ai_api_key(settings),
-        )
-        return client, embedder
-    except Exception as exc:
-        logger.debug("Qdrant or embedder unavailable for library vector tier: %s", exc)
-        return None, None
-
-
-def build_runtime_vector_store(
-    contracts_dir: Path,
-    *,
-    semantic_needed: bool = True,
-    dry_run: bool = False,
-) -> LibraryVectorStore:
-    """Construct LibraryVectorStore wired with Qdrant, the embedder, and the Valkey tier of the process.
-
-    A dry run has no Valkey tier, so it sends no request.
-    """
-    from devops_cli.ai.rag.library_store import LibraryVectorStore
-    from devops_cli.valkey.cache import shared_cache_tier
-
-    if dry_run:
-        return LibraryVectorStore(local_contracts_dir=contracts_dir)
-
-    qdrant_client, embedder = (
-        _resolve_runtime_qdrant_and_embedder() if semantic_needed else (None, None)
-    )
-
-    return LibraryVectorStore(
-        qdrant_client=qdrant_client,
-        symbol_cache=shared_cache_tier(),
-        embedder=embedder,
-        local_contracts_dir=contracts_dir,
-    )
-
-
-_build_runtime_vector_store = build_runtime_vector_store
-
-
 @dry_run_class("request-plan")
 @app.command(name="index-libraries")
 def index_libraries(
@@ -324,7 +270,7 @@ def index_libraries(
         print_warning(f"No library contract JSON files found in {contracts_dir}.")
         return
 
-    store = _build_runtime_vector_store(contracts_dir, semantic_needed=True, dry_run=False)
+    store = build_library_vector_store(contracts_dir, semantic_needed=True, dry_run=False)
     for contract in contracts:
         store.index_contract(contract)
 
@@ -377,7 +323,7 @@ def query_library(
         return
     from devops_cli.output import print_error
 
-    store = _build_runtime_vector_store(
+    store = build_library_vector_store(
         contracts_dir or library_contracts_dir(),
         semantic_needed=not exact,
         dry_run=False,

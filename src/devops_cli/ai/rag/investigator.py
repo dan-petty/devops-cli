@@ -21,9 +21,10 @@ from pybreaker import (
     CircuitMemoryStorage,
 )
 
-from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
+from devops_cli.ai.rag.embeddings import EmbeddingsError
+from devops_cli.ai.rag.indexer import resolve_rag_components
 from devops_cli.ai.rag.models import RAGContext
-from devops_cli.ai.rag.qdrant import QdrantClient, qdrant_server_label
+from devops_cli.ai.rag.qdrant import qdrant_server_label
 from devops_cli.ai.rag.retriever import SemanticRetriever
 from devops_cli.config import settings as settings_mod
 from devops_cli.config.constants import (
@@ -31,8 +32,6 @@ from devops_cli.config.constants import (
     CONST_RAG_CIRCUIT_BREAKER_PAUSE_SECONDS,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_RAG_COLLECTION,
-    DEFAULT_RAG_DOCS_COLLECTION,
     DEFAULT_RAG_INVESTIGATION_MAX_CHARS,
     DEFAULT_RAG_INVESTIGATION_MAX_QUERY_CHARS,
 )
@@ -229,23 +228,13 @@ def _get_or_create_retriever(
         if not qdrant_url:
             logger.debug("Qdrant vector store not configured, skipping RAG investigation")
             return None
-        qdrant = QdrantClient(
-            base_url=qdrant_url,
-            api_key=settings_mod.get_qdrant_api_key(st),
-            allow_private_network=st.ai.allow_private_network,
-            timeout=st.qdrant.timeout,
-        )
-        if not qdrant.is_alive():
+        components = resolve_rag_components(st)
+        if not components.qdrant.is_alive():
             logger.debug(
                 "Qdrant vector store unreachable at %s, skipping RAG investigation",
                 qdrant_server_label(qdrant_url),
             )
             return None
-
-        embedder = EmbeddingsEngine(ai_config=st.ai, api_key=settings_mod.get_ai_api_key(st))
-        prefix = st.qdrant.collection_prefix or "devops"
-        code_coll = f"{prefix}_code" if prefix else DEFAULT_RAG_COLLECTION
-        docs_coll = f"{prefix}_docs" if prefix else DEFAULT_RAG_DOCS_COLLECTION
 
         eff_top_k = top_k if top_k is not None else st.ai.rag.top_k
         eff_threshold = (
@@ -253,10 +242,10 @@ def _get_or_create_retriever(
         )
 
         retriever = SemanticRetriever(
-            qdrant=qdrant,
-            embedder=embedder,
-            code_collection=code_coll,
-            docs_collection=docs_coll,
+            qdrant=components.qdrant,
+            embedder=components.embedder,
+            code_collection=components.code_collection,
+            docs_collection=components.docs_collection,
             default_top_k=eff_top_k,
             default_score_threshold=eff_threshold,
         )

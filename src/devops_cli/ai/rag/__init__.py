@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from devops_cli.ai.rag.indexer import (
         WorkspaceIndexer,
         resolve_qdrant_client,
+        resolve_rag_components,
     )
     from devops_cli.ai.rag.investigator import (
         format_rag_investigation_for_prompt,
@@ -60,6 +61,7 @@ __all__ = [
     "format_rag_investigation_for_prompt",
     "investigate_rag_context",
     "resolve_qdrant_client",
+    "resolve_rag_components",
 ]
 
 _ATTR_MAP: dict[str, tuple[str, str]] = {
@@ -86,6 +88,7 @@ _ATTR_MAP: dict[str, tuple[str, str]] = {
         "investigate_rag_context",
     ),
     "resolve_qdrant_client": ("devops_cli.ai.rag.indexer", "resolve_qdrant_client"),
+    "resolve_rag_components": ("devops_cli.ai.rag.indexer", "resolve_rag_components"),
 }
 
 

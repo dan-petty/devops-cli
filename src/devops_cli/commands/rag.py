@@ -11,10 +11,9 @@ import typer
 from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
-    DEFAULT_RAG_COLLECTION,
-    DEFAULT_RAG_DOCS_COLLECTION,
     DEFAULT_TABLE_FORMAT,
 )
+from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.exceptions import DevOpsCLIError
@@ -58,40 +57,6 @@ def rag_main(
 
         render_explanation("rag")
         raise typer.Exit(0)
-
-
-# =============================================================================
-# RAG Vector Components Resolution Helper
-# =============================================================================
-
-
-def load_settings(*args: Any, **kwargs: Any) -> Any:
-    from devops_cli.config.settings import load_settings as fn
-
-    return fn(*args, **kwargs)
-
-
-def _get_rag_components() -> tuple[Any, Any, str, str]:
-    """Resolve configured Qdrant client, Embeddings engine, and collection names."""
-    from devops_cli.ai.rag.embeddings import create_embedder
-    from devops_cli.ai.rag.indexer import resolve_qdrant_client
-    from devops_cli.config.settings import get_ai_api_key, load_settings
-
-    settings = load_settings()
-    qdrant_url = settings.qdrant.url
-    if not qdrant_url:
-        print_error(
-            "No Qdrant vector store URL configured. Run: devops config set qdrant.url <url>",
-            prefix=False,
-        )
-        raise typer.Exit(1)
-    prefix = settings.qdrant.collection_prefix or "devops"
-    code_coll = f"{prefix}_code" if prefix else DEFAULT_RAG_COLLECTION
-    docs_coll = f"{prefix}_docs" if prefix else DEFAULT_RAG_DOCS_COLLECTION
-
-    qdrant = resolve_qdrant_client(qdrant_url)
-    embedder = create_embedder(settings.ai, api_key=get_ai_api_key(settings))
-    return qdrant, embedder, code_coll, docs_coll
 
 
 # =============================================================================
@@ -165,7 +130,9 @@ def index_cmd(
         render_request_plan(f"Plan for AI RAG index on '{target_path}'", plan)
         return
 
-    qdrant, embedder, code_coll, docs_coll = _get_rag_components()
+    from devops_cli.ai.rag.indexer import resolve_rag_components
+
+    qdrant, embedder, code_coll, docs_coll = resolve_rag_components()
     if collection:
         code_coll = collection
         docs_coll = collection
@@ -263,7 +230,9 @@ def index_kb_cmd(
         render_request_plan("Plan for AI RAG index-kb", plan)
         return
 
-    qdrant, embedder, code_coll, docs_coll = _get_rag_components()
+    from devops_cli.ai.rag.indexer import resolve_rag_components
+
+    qdrant, embedder, code_coll, docs_coll = resolve_rag_components()
     if collection:
         docs_coll = collection
 
@@ -383,7 +352,9 @@ def search(
         render_request_plan(f"Plan for AI RAG query '{query}'", plan)
         return
 
-    qdrant, embedder, code_coll, docs_coll = _get_rag_components()
+    from devops_cli.ai.rag.indexer import resolve_rag_components
+
+    qdrant, embedder, code_coll, docs_coll = resolve_rag_components()
 
     if not qdrant.is_alive():
         print_error(f"Cannot connect to Qdrant vector store at {qdrant.base_url}", prefix=False)
@@ -545,7 +516,9 @@ def status_cmd(
         render_request_plan("Plan for AI RAG status", plan)
         return
 
-    qdrant, embedder, code_coll, docs_coll = _get_rag_components()
+    from devops_cli.ai.rag.indexer import resolve_rag_components
+
+    qdrant, embedder, code_coll, docs_coll = resolve_rag_components()
     settings = load_settings()
 
     is_alive = qdrant.is_alive()
@@ -609,7 +582,9 @@ def clear_cmd(
         render_request_plan("Plan for AI RAG clear", plan)
         return
 
-    qdrant, _, code_coll, docs_coll = _get_rag_components()
+    from devops_cli.ai.rag.indexer import resolve_rag_components
+
+    qdrant, _, code_coll, docs_coll = resolve_rag_components()
 
     if not qdrant.is_alive():
         print_error(f"Cannot connect to Qdrant vector store at {qdrant.base_url}", prefix=False)
@@ -634,7 +609,6 @@ def clear_cmd(
         CONST_INDEX_CACHE_FILENAME,
         CONST_INDEX_COUNTS_FILENAME,
     )
-    from devops_cli.config.settings import load_settings
     from devops_cli.core.repo import resolve_data_path
 
     rag_dir = resolve_data_path(load_settings().data.rag_dir)

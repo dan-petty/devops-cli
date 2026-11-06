@@ -9,7 +9,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai.rag.embeddings import install_embedder
 from devops_cli.ai.rag.models import CodeChunk, SearchResult
+from devops_cli.ai.rag.qdrant import install_qdrant_client
 from devops_cli.commands.rag import app
 from devops_cli.core.command_resolver import module_click_command, resolve_devops_argv
 from devops_cli.lang import MESSAGES
@@ -80,6 +82,29 @@ def test_rag_clear_command(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -
     assert len(deleted) >= 1
 
 
+def test_a_missing_qdrant_address_stops_each_command_with_the_setting_to_set(
+    runner: CliRunner, isolate_devops_cli_config: Path, tmp_path: Path
+) -> None:
+    config = isolate_devops_cli_config
+    config.write_text(
+        config.read_text(encoding="utf-8").replace("qdrant:\n  url: http://localhost:6333\n", ""),
+        encoding="utf-8",
+    )
+
+    results = [
+        runner.invoke(app, ["index", str(tmp_path)]),
+        runner.invoke(app, ["index-kb"]),
+        runner.invoke(app, ["query", "run_app"]),
+        runner.invoke(app, ["status"]),
+        runner.invoke(app, ["clear", "--force"]),
+    ]
+
+    assert [
+        (result.exit_code, "devops config set qdrant.url <url>" in result.output)
+        for result in results
+    ] == [(1, True)] * 5
+
+
 def test_rag_index_and_query_execution(runner: CliRunner, tmp_path: Path) -> None:
     """Test full rag index, index-kb, query, and explain subcommands."""
     sample_file = tmp_path / "app.py"
@@ -109,11 +134,9 @@ def test_rag_index_and_query_execution(runner: CliRunner, tmp_path: Path) -> Non
     mock_retriever = MagicMock()
     mock_retriever.search.return_value = [mock_chunk]
 
+    install_qdrant_client(mock_qdrant)
+    install_embedder(mock_embedder)
     with (
-        patch(
-            "devops_cli.commands.rag._get_rag_components",
-            return_value=(mock_qdrant, mock_embedder, "devops_code", "devops_docs"),
-        ),
         patch(
             "devops_cli.ai.rag.indexer.WorkspaceIndexer.index_workspace",
             return_value={"files_indexed": 1, "chunks_indexed": 2, "pruned_chunks": 0},
@@ -151,16 +174,14 @@ def test_rag_error_branches(runner: CliRunner, tmp_path: Path) -> None:
     mock_down_qdrant.is_alive.return_value = False
     mock_down_qdrant.base_url = "http://localhost:6333"
 
-    mock_embed = MagicMock()
-    with patch(
-        "devops_cli.commands.rag._get_rag_components",
-        return_value=(mock_down_qdrant, mock_embed, "code", "docs"),
-    ):
-        res_idx_down = runner.invoke(app, ["index", str(tmp_path)])
-        assert res_idx_down.exit_code == 1
+    install_qdrant_client(mock_down_qdrant)
+    install_embedder(MagicMock())
 
-        res_kb_down = runner.invoke(app, ["index-kb"])
-        assert res_kb_down.exit_code == 1
+    res_idx_down = runner.invoke(app, ["index", str(tmp_path)])
+    assert res_idx_down.exit_code == 1
+
+    res_kb_down = runner.invoke(app, ["index-kb"])
+    assert res_kb_down.exit_code == 1
 
 
 @pytest.fixture(scope="module")
@@ -180,14 +201,12 @@ def test_an_unreachable_qdrant_tip_names_a_deploy_command_the_cli_accepts(
     unreachable = MagicMock()
     unreachable.is_alive.return_value = False
     unreachable.base_url = "http://localhost:6333"
-    with patch(
-        "devops_cli.commands.rag._get_rag_components",
-        return_value=(unreachable, MagicMock(), "code", "docs"),
-    ):
-        results = [
-            runner.invoke(app, ["index", str(tmp_path)]),
-            runner.invoke(app, ["index-kb"]),
-        ]
+    install_qdrant_client(unreachable)
+    install_embedder(MagicMock())
+    results = [
+        runner.invoke(app, ["index", str(tmp_path)]),
+        runner.invoke(app, ["index-kb"]),
+    ]
 
     tip = MESSAGES.rag.cannot_connect_qdrant.format(url=unreachable.base_url)
     quoted = shlex.split(shlex.split(tip)[-1])
@@ -217,15 +236,11 @@ def test_rag_index_cmd_handles_canonical_indexer_keys(runner: CliRunner, tmp_pat
         "collections": ["code", "docs"],
     }
 
-    with (
-        patch(
-            "devops_cli.commands.rag._get_rag_components",
-            return_value=(mock_qdrant, mock_embedder, "code", "docs"),
-        ),
-        patch(
-            "devops_cli.ai.rag.indexer.WorkspaceIndexer.index_workspace",
-            return_value=canonical_results,
-        ),
+    install_qdrant_client(mock_qdrant)
+    install_embedder(mock_embedder)
+    with patch(
+        "devops_cli.ai.rag.indexer.WorkspaceIndexer.index_workspace",
+        return_value=canonical_results,
     ):
         res = runner.invoke(app, ["index", str(tmp_path)])
         assert res.exit_code == 0
@@ -245,11 +260,9 @@ def test_rag_commands_fail_with_the_embedding_error(runner: CliRunner, tmp_path:
     mock_detector = MagicMock()
     mock_detector.detect_and_sync.side_effect = failure
 
+    install_qdrant_client(mock_qdrant)
+    install_embedder(MagicMock())
     with (
-        patch(
-            "devops_cli.commands.rag._get_rag_components",
-            return_value=(mock_qdrant, MagicMock(), "code", "docs"),
-        ),
         patch("devops_cli.ai.rag.indexer.WorkspaceIndexer.index_workspace", side_effect=failure),
         patch(
             "devops_cli.ai.rag.indexer.WorkspaceIndexer.index_knowledge_base",
