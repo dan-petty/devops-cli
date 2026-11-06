@@ -2,7 +2,7 @@
 
 Ollama refuses a tool call of the model when its XML is not whole. The failure is deterministic for
 one conversation (ollama/ollama pull request 18571), so a new send of the same request fails the
-same way. The first parser failure of a step sends the request again with one more part that asks
+same way. The first parser failure on a tier sends the request again with one more part that asks
 for a smaller edit, and a second one stops the step with its work kept.
 
 The model is a pydantic-ai `FunctionModel` from `ModelScript`. Git runs for real on a checkout in
@@ -118,3 +118,32 @@ def test_the_ticked_task_of_a_step_stays_as_a_wip_commit_after_two_parser_failur
         "wip: 1 of 2 tasks of group 1, The first group (#1)"
     )
     assert git(checkout, "show", "HEAD:tests/test_sample.py") == TEST_BODY.strip()
+
+
+def test_a_new_tier_gets_its_own_smaller_edit_request_after_a_parser_stop(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A tier is a new agent with a new conversation, so the count of parser failures starts
+    again: the first parser failure on the second tier gets the message and a send, not a stop."""
+    script = ModelScript(
+        tool_calls(TEST_FILE),
+        _fails_with(XML_ERROR),
+        _fails_with(XML_ERROR),
+        _fails_with(XML_ERROR),
+        say("Done."),
+    )
+
+    outcome = run_step(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        ladder=["devops-coder", "devops-reasoning"],
+    )
+
+    asked = MESSAGES.roadmap.implement_parser_smaller_edit
+    assert outcome.tiers == ("devops-coder", "devops-reasoning")
+    assert len(script.seen) == 5
+    assert _user_texts(script.seen[4][-1])[-1] == asked

@@ -263,7 +263,8 @@ class ToolCallLog:
     this log is the one place that knows a refusal by policy from another retry. `before_request` runs
     before each model request, when the tool calls of the last reply have all returned and the
     agent is paused: the step uses it to keep the work in progress (#3054). `parser_failures` counts
-    the turns of the step that ended on a tool call that the provider could not parse (#3053)."""
+    the tool calls of the current tier that the provider could not parse (#3053); the tier loop
+    of the step sets it to 0 for each tier."""
 
     root: Path | None = None
     refused: Counter[str] = field(default_factory=Counter[str])

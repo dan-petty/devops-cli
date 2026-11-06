@@ -733,8 +733,9 @@ def _run_agent(
     step ends the loop. The turn ends with the last send.
 
     A failure of class `parser` is deterministic for one conversation, so its resend carries the
-    message that asks for a smaller edit, once in a step. The next parser failure of the step ends
-    the turn with no resend, and the step stops with class `parser` (#3053)."""
+    message that asks for a smaller edit, once on a tier. The next parser failure of the tier ends
+    the turn with no resend, and the step stops with class `parser` (#3053). A tier is a new
+    conversation, so the tier loop of `run_step` starts the count again."""
     run = _run_turn(agent, model, log, message, conversation)
     resends = CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS
     while run.resend is not None and resends > 0:
@@ -1679,6 +1680,7 @@ def _attempt(
             )
             log.fail_to_pass = None
             log.verified.clear()
+            log.parser_failures = 0
             run = _turn(agent, tier_model, log, inputs.message)
             first_request = first_request or run.first_request_tokens
             failure = (

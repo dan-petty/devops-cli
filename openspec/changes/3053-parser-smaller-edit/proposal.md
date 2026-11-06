@@ -9,9 +9,9 @@ Three stops (#2554, #2579 and #3318) had class `parser` (`XML syntax error ... u
 ## What Changes
 
 - The resend after a `parser` failure carries one more part in its last request: a message that asks for a smaller edit (one file, or one small part of a file, in each tool call). The message is `MESSAGES.roadmap.implement_parser_smaller_edit`.
-- A step asks for the smaller edit once. The next `parser` failure of the step, also after a good reply, ends the turn with no resend, and the step stops with class `parser`. The `wip:` commits of the tasks that passed their verification stay in the branch, as for any stop (#3054).
+- A step asks for the smaller edit once on each tier of the ladder, for a new tier is a new conversation. The next `parser` failure on the same tier, also after a good reply, ends the turn with no resend, and the step stops with class `parser`. The `wip:` commits of the tasks that passed their verification stay in the branch, as for any stop (#3054).
 - A failure of another kind inside a stream is still sent again with the same conversation. In practice the classifier reads every resendable failure as `parser`, for the reason of such a failure holds the line that names tool call parsing as a known cause (`implement_model_call_generation`).
-- `ToolCallLog.parser_failures` counts the parser failures of a step.
+- `ToolCallLog.parser_failures` counts the parser failures of a tier; the tier loop sets it to 0 for each tier.
 - The change carries a MODIFIED requirement in `roadmap-implement-step`, because the request that the model gets is observable.
 
 ## Capabilities
