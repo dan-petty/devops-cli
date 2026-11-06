@@ -2441,6 +2441,11 @@ class RoadmapMessages:
         "The last is `{sha}`. The job discarded only the work after it. The next run continues "
         "from it and does the tasks that are not ticked."
     )
+    implement_stop_kept_branch: str = (
+        "\n\nThe job kept the commits that passed on the branch `{branch}` on origin. The last is "
+        "`{sha}`. The pull request stays a draft. The next run continues from it, runs no group "
+        "that is ticked, and runs the scoped checks again."
+    )
     implement_stop_repair_turn_changed: str = (
         "The extra turn for the static check changed files that the step had not changed: {paths}."
     )

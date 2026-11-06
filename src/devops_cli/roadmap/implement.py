@@ -27,7 +27,8 @@ neither Staged nor Planned, a step stopped it
 and no person cleared the stop,
 its author is not the owner, a member or a collaborator, its branch is gone from `origin` or holds
 a commit by anyone but the App (a clean merge by a person does not count, #3392), a worktree holds
-the issue, its plan fails the stage gates of `check_proposal` or the reader cannot read it (#3393),
+the issue, its plan fails the stage gates of `check_proposal` or the reader cannot read it (#3393;
+a branch whose change the job archived already passed them, and a retry takes it, #3645),
 its pull request is not an open draft, or, for a Planned item, a branch of `origin` holds the issue,
 its change is archived, it has no branch name, its change has no `tasks.md` on the default branch,
 or every task of its change is ticked. A run takes at most `--limit` items,
@@ -88,7 +89,12 @@ from devops_cli.roadmap.plan_read import (
     specs_at,
     tree_files,
 )
-from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes, tasks_on_default
+from devops_cli.roadmap.planned import (
+    PlannedChanges,
+    planned_changes_at,
+    read_planned_changes,
+    tasks_on_default,
+)
 from devops_cli.roadmap.refine import inspect_checkout
 from devops_cli.roadmap.stage import (
     LeftOut,
@@ -385,6 +391,8 @@ class _Judge:
             files = self._tree(rev)
             root, folder_problems = change_root(files, item.number)
             if root is None:
+                if self._archived_at(rev, item.number):
+                    return None
                 return folder_problems[0]
             changed = [path for path in files if path.startswith(f"{root}/")]
             proposal = read_change(files_at(self._source, rev, changed, operation=GIT_OPERATION))
@@ -397,6 +405,14 @@ class _Judge:
             proposal, known, StagedTree(files), requirements=requirements, issue_body=item.body
         )
         return texts.implement_left_plan.format(problem=problems[0]) if problems else None
+
+    def _archived_at(self, rev: str, issue: int) -> bool:
+        """Whether commit `rev` holds the archived change of `issue` and no active one. The job
+        archives a change after the stage gates passed it, so a branch with an archived change
+        has nothing left to check, and a retry after a stop in the scoped checks takes it
+        (#3645)."""
+        held = planned_changes_at(self._source, rev, self._planned.default, operation=GIT_OPERATION)
+        return issue in held.archived and issue not in held.active
 
     def _branch_reason(self, item: Item, branch: str) -> str | None:
         texts = MESSAGES.roadmap

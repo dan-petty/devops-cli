@@ -32,7 +32,8 @@ with its `wip:` commits, shows the kept ticks to the agent, and its step folds t
 commit.
 
 **A stop.** A step that stops, a conflict, a failed command or a check that fails twice stops the
-item: the job pushes the commits that passed, comments the step, the reason and the last message
+item: the job pushes the commits that passed (also a stop in the scoped checks, #3645: the finished
+groups stay on the branch, and the draft is not marked ready), comments the step, the reason and the last message
 of the agent, sets Status Blocked, and records `implement.stopped`. The comment starts with the
 class of the failure, the action taken and the action left (`failure.py`, #3065), and the class is
 recorded in `implement.failure`. It does not run the item again
@@ -195,11 +196,13 @@ _NOTHING_YET = _Mark(0, 0, 0, 0, 0)
 
 class _StopError(Exception):
     """An item stops: the job's own signal, caught where the item's run ends. `push` says whether
-    the commits that passed are worth pushing. `diff` is the diff of the work that a stopped step
-    discarded, and `diff_cut` says that it was cut (#2721). `status` is the exit status of the command
-    that failed, `check` the name of the check that failed, `check_log` the log of that check,
-    `repair_rounds` the fix rounds that the job ran before it stopped, and `tier_changes` the tier
-    moves of the step: they are the evidence of the failure class (#3065, #3060, #3476).
+    the commits that passed are worth pushing. `kept_branch` says that the stop ends the scoped checks
+    of a finished item, so the comment names the branch as the kept work (#3645). `diff` is the diff
+    of the work that a stopped step discarded, and `diff_cut` says that it was cut (#2721). `status`
+    is the exit status of the command that failed, `check` the name of the check that failed,
+    `check_log` the log of that check, `repair_rounds` the fix rounds that the job ran before it
+    stopped, and `tier_changes` the tier moves of the step: they are the evidence of the failure
+    class (#3065, #3060, #3476).
     `failure_class` is the class that the site of the stop passes, when it knows its cause."""
 
     def __init__(
@@ -209,6 +212,7 @@ class _StopError(Exception):
         last_message: str = "",
         *,
         push: bool = True,
+        kept_branch: bool = False,
         diff: str = "",
         diff_cut: bool = False,
         status: int | None = None,
@@ -224,6 +228,7 @@ class _StopError(Exception):
         self.reason = reason
         self.last_message = last_message
         self.push = push
+        self.kept_branch = kept_branch
         self.diff = diff
         self.diff_cut = diff_cut
         self.status = status
@@ -970,12 +975,18 @@ class _ItemRun:
             print_muted(failed.strip(), to_stderr=True, safe=True)
         self.store.set_marks(self._fresh(), {ImplementRecordKey.WIP: _wip_record(commit)})
 
-    def _kept_note(self) -> str:
+    def _kept_note(self, *, branch: bool = False) -> str:
         """The part of the stop comment that says what the job kept and where: the branch, the
-        count of `wip:` commits on it and the last one. Empty when there is none (#3054)."""
+        count of `wip:` commits on it and the last one (#3054). With no `wip:` commit, `branch`
+        says that the groups finished, so the note names the branch and its last commit (#3645).
+        Empty when the job kept nothing to name."""
         kept = kept_commits(self._git, f"origin/{self.default}")
         if not kept:
-            return ""
+            if not (branch and self._has_new_commits()):
+                return ""
+            return MESSAGES.roadmap.implement_stop_kept_branch.format(
+                branch=self.branch, sha=self._head()
+            )
         return MESSAGES.roadmap.implement_stop_kept.format(
             count=len(kept),
             commits="commit" if len(kept) == 1 else "commits",
@@ -1043,18 +1054,19 @@ class _ItemRun:
     def _scoped_checks(self) -> None:
         """Run the checks a person runs before a push (#3043), and give a failed check to a fix
         step, at most `roadmap.implement.repair_rounds` times. The documents are generated again
-        after each fix, because a fix can change a command or an option. The job pushes only a head
-        that passed them, so any stop in this phase pushes nothing, an error or a command that ran
-        out of time too. Raises `_StopError`."""
+        after each fix, because a fix can change a command or an option. The job pushes a finished
+        item only after they pass. A stop in this phase pushes the commits that passed, as any other
+        stop does, an error or a command that ran out of time too (#3645): the finished groups stay
+        on `origin`, and the pull request stays a draft. Raises `_StopError`."""
         try:
             self._scoped_rounds()
         except _StopError as stop:
-            stop.push = False
+            stop.kept_branch = True
             raise
         except AICredentialsError, GitHubUnauthenticatedError:
             raise
         except (DevOpsCLIError, AIClientError, subprocess.TimeoutExpired) as exc:
-            raise _error_stop(self.step, exc, push=False) from exc
+            raise _error_stop(self.step, exc, kept_branch=True) from exc
 
     def _scoped_rounds(self) -> None:
         """The runs of the scoped checks, and the fix step after each failed run."""
@@ -1425,7 +1437,7 @@ class _ItemRun:
         texts = MESSAGES.roadmap
         note = self._push_passed() if stop.push else ""
         if stop.push and not note:
-            note = self._kept_note()
+            note = self._kept_note(branch=stop.kept_branch)
         if self.pull is not None and self.amendments:
             self._comment(self.pull, self.last_comment_mark)
         last = safe_text(mask_secrets(stop.last_message))[
@@ -1528,12 +1540,12 @@ def _wip_record(commit: WipCommit) -> str:
     )
 
 
-def _error_stop(step: str, exc: Exception, *, push: bool = True) -> _StopError:
+def _error_stop(step: str, exc: Exception, *, kept_branch: bool = False) -> _StopError:
     """The stop that an error ends the run with: its class and its message, secrets masked."""
     reason = MESSAGES.roadmap.implement_stop_error.format(
         error=type(exc).__name__, message=mask_secrets(str(exc))
     )
-    return _StopError(step, reason, push=push)
+    return _StopError(step, reason, kept_branch=kept_branch)
 
 
 def _implement_item(
