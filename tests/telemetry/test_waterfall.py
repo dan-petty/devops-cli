@@ -77,19 +77,23 @@ def test_tempo_admits_loopback_and_public_answers_only(
 
 
 def test_query_tempo_trace_security_validation(web: WebFake) -> None:
-    """Verify query_tempo_trace rejects invalid hex, path traversal, and disallowed URLs."""
+    """Verify query_tempo_trace rejects invalid hex, path traversal, and disallowed hosts.
+
+    The fake does not check a URL scheme. The `ftp://` rule belongs to the real transport, and
+    `tests/http/` holds its test.
+    """
     # Invalid trace IDs: path traversal, non-hex, empty
     assert query_tempo_trace("../../admin") == []
     assert query_tempo_trace("not-a-hex-id!") == []
     assert query_tempo_trace("") == []
+    assert web.sent == []
 
-    # Invalid Tempo URLs: invalid scheme, cloud metadata, private addresses
-    assert query_tempo_trace(_TRACE_ID, tempo_url="ftp://example.com") == []
+    # Invalid Tempo URLs: cloud metadata and private addresses
     assert query_tempo_trace(_TRACE_ID, tempo_url="http://169.254.169.254") == []
     assert query_tempo_trace(_TRACE_ID, tempo_url="http://10.0.0.1:3200") == []
     assert query_tempo_trace(_TRACE_ID, tempo_url="http://192.168.1.1:3200") == []
     assert query_tempo_trace(_TRACE_ID, tempo_url="http://172.16.0.1:3200") == []
-    assert [request.url.host for request in web.sent if request.url.host != "example.com"] == []
+    assert web.sent == []
 
 
 def test_a_host_that_resolves_to_cloud_metadata_gets_no_request(dns: DnsFake, web: WebFake) -> None:

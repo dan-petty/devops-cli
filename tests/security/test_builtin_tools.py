@@ -40,7 +40,9 @@ from devops_cli.ai.tools.builtin_tools import (
 from devops_cli.config.defaults import DEFAULT_TOOL_DIFF_MAX_CHARS, DEFAULT_TRIVY_SEVERITIES
 from devops_cli.review.rules_pack import RULE_PACK_DIR
 from devops_cli.security.tool_executor import KubeApiNetwork
+from devops_cli.security.vulnerability_lookup import OSVClient
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
 from tests.support.registry_cache import CACHED_RULESET_FILE_NAME
@@ -271,19 +273,17 @@ _UNSPECIFIED_IPV4 = str(ipaddress.IPv4Address(0))
         "3221225985",
     ],
 )
-def test_check_threat_intel_names_the_rfcs_of_every_target_it_excludes(target: str) -> None:
+def test_check_threat_intel_names_the_rfcs_of_every_target_it_excludes(
+    target: str, web: WebFake
+) -> None:
     """The reply names everything `is_example_or_invalid_network_target` excludes: example
     domains, documentation and benchmarking addresses, fictional phone numbers and the
     unspecified addresses, and not RFC 6890, whose reserved space is local. A documentation
     address in a numeric spelling a resolver dials (`3221225985` is 192.0.2.1) is excluded too.
     No service is asked (#1174)."""
-    with patch(
-        "devops_cli.security.vulnerability_lookup.httpx2.Client.get",
-        side_effect=AssertionError("no threat-intel request may leave"),
-    ) as http_get:
-        reply = check_threat_intel(target)
-    assert (http_get.call_count, reply) == (
-        0,
+    reply = check_threat_intel(target)
+    assert (web.sent, reply) == (
+        [],
         f"Target {target} is a documented example or an unspecified address: an example domain "
         "(RFC 2606 / RFC 6761), a documentation address (RFC 5737 / RFC 3849 / RFC 9637), a "
         "benchmarking address (RFC 2544 / RFC 5180), a fictional phone number (ATIS-0300115 / "
@@ -308,7 +308,7 @@ def test_check_threat_intel_names_the_rfcs_of_every_target_it_excludes(target: s
     ],
 )
 def test_check_threat_intel_asks_no_service_about_a_local_address(
-    target: str, address: str
+    target: str, address: str, web: WebFake
 ) -> None:
     """Multicast, shared address space, 6to4 relay anycast in either spelling and site-local
     space are local, so neither Shodan nor Cloudflare Radar is asked, and the reply says so
@@ -316,13 +316,9 @@ def test_check_threat_intel_asks_no_service_about_a_local_address(
     URL and in a numeric spelling a resolver dials (`2130706433` is 127.0.0.1). Multicast used to
     be in no class and went to Radar, as each punctuated address did; 6to4 relay anycast in its
     IPv4-mapped spelling and site-local space went to Shodan (#1174)."""
-    with patch(
-        "devops_cli.security.vulnerability_lookup.httpx2.Client.get",
-        side_effect=AssertionError("no threat-intel request may leave"),
-    ) as http_get:
-        reply = check_threat_intel(target)
-    assert (http_get.call_count, reply) == (
-        0,
+    reply = check_threat_intel(target)
+    assert (web.sent, reply) == (
+        [],
         f"Target {target} is a local address ({address}): private, loopback, link-local, shared, "
         "site-local, multicast or reserved space, which is not globally reachable. No threat "
         "intelligence service was asked.",
@@ -369,16 +365,14 @@ def test_scan_osv_names_only_the_database_it_queries() -> None:
     ) == ("No known vulnerabilities found in OSV for requests (PyPI).", False, False)
 
 
-def test_scan_osv_reports_a_failed_lookup_instead_of_a_clean_package() -> None:
+def test_scan_osv_reports_a_failed_lookup_instead_of_a_clean_package(web: WebFake) -> None:
     """A lookup that cannot reach OSV.dev says so with the reason. It used to answer "No known
     vulnerabilities", which reads as a clean package (#956)."""
     import httpx2
 
-    with patch(
-        "devops_cli.security.vulnerability_lookup.httpx2.Client.post",
-        side_effect=httpx2.ConnectError("connection refused"),
-    ):
-        reply = scan_osv("requests", "2.0.0")
+    web.fail(OSVClient.BASE_URL, httpx2.ConnectError("connection refused"))
+
+    reply = scan_osv("requests", "2.0.0")
 
     assert (reply, "No known vulnerabilities" in reply) == (
         "OSV lookup failed: connection refused",
