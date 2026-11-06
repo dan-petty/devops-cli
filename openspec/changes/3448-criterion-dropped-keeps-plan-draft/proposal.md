@@ -9,6 +9,7 @@ The first example of the issue does not hold. The plan of #3410 (pull request #3
 ## What Changes
 
 - Add `criterion_dropped` to `OPEN_TYPES` in `src/devops_cli/roadmap/stage_verify.py`. The existing rule stays: a finding with no quote that is in the input is advice, and the finding does not return the plan to the planner.
+- Keep a `criterion_dropped` finding as advice in the review of refine (`JUDGE_OPEN_TYPES` in `src/devops_cli/roadmap/refine_judge.py`), because a proposal of refine holds no task group. The review of refine keeps its open types.
 - Define in `src/devops_cli/ai/tasks/roadmap_stage_verify.md` the criterion whose group changes only test files while no group changes the code that it needs, and say that a test-only group which tests code of an earlier group is no `criterion_dropped`.
 - List `criterion_dropped` as an open finding type in `docs/roadmap/stage.md` and in the module text of `src/devops_cli/roadmap/stage.py`.
 - Add two cases to the stage eval golden set: the merged plan of #3410, which stays good, and the same plan without the group that adds the field of the case, which stays bad with one `criterion_dropped` defect and the gate `none`.
@@ -27,9 +28,9 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/stage_verify.py`, `src/devops_cli/roadmap/stage.py`
+- Code: `src/devops_cli/roadmap/stage_verify.py`, `src/devops_cli/roadmap/refine_judge.py`, `src/devops_cli/roadmap/stage.py`
 - Documents: `src/devops_cli/ai/tasks/roadmap_stage_verify.md`, `docs/roadmap/stage.md`, `docs/ROADMAP_WORKFLOW.md`
-- Tests: `tests/roadmap/test_roadmap_stage_verify.py`, `tests/roadmap/test_roadmap_stage_criterion_dropped.py`, `tests/roadmap/test_roadmap_stage_eval_cases.py`, `tests/roadmap/test_roadmap_stage_eval_gates.py`, `tests/roadmap/test_roadmap_stage_eval_command.py`, `tests/invariants/test_roadmap_stage_measure_doc.py`, and the cases `tests/fixtures/roadmap_eval/stage/3410-the-eval-field-group-is-dropped/` and `tests/fixtures/roadmap_eval/stage/good-3410-the-stage-gate-proves-a-negative/`
+- Tests: `tests/roadmap/test_roadmap_stage_verify.py`, `tests/roadmap/test_roadmap_refine_trust.py`, `tests/roadmap/test_roadmap_stage_criterion_dropped.py`, `tests/roadmap/test_roadmap_stage_eval_cases.py`, `tests/roadmap/test_roadmap_stage_eval_gates.py`, `tests/roadmap/test_roadmap_stage_eval_command.py`, `tests/invariants/test_roadmap_stage_measure_doc.py`, and the cases `tests/fixtures/roadmap_eval/stage/3410-the-eval-field-group-is-dropped/` and `tests/fixtures/roadmap_eval/stage/good-3410-the-stage-gate-proves-a-negative/`
 
 ## Feasibility
 

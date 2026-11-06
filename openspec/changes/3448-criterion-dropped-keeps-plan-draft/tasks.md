@@ -2,12 +2,12 @@
 
 ## 1. Keep a quoted dropped criterion in draft
 
-Reads: `src/devops_cli/roadmap/stage_verify.py`, `src/devops_cli/ai/tasks/roadmap_stage_verify.md`, `docs/roadmap/stage.md`, `tests/roadmap/test_roadmap_stage_verify.py`. Changes: `src/devops_cli/roadmap/stage_verify.py`, `src/devops_cli/roadmap/stage.py`, `src/devops_cli/ai/tasks/roadmap_stage_verify.md`, `docs/roadmap/stage.md`, `tests/roadmap/test_roadmap_stage_verify.py`.
+Reads: `src/devops_cli/roadmap/stage_verify.py`, `src/devops_cli/roadmap/refine_judge.py`, `src/devops_cli/ai/tasks/roadmap_stage_verify.md`, `docs/roadmap/stage.md`, `tests/roadmap/test_roadmap_stage_verify.py`, `tests/roadmap/test_roadmap_refine_trust.py`. Changes: `src/devops_cli/roadmap/stage_verify.py`, `src/devops_cli/roadmap/refine_judge.py`, `src/devops_cli/roadmap/stage.py`, `src/devops_cli/ai/tasks/roadmap_stage_verify.md`, `docs/roadmap/stage.md`, `tests/roadmap/test_roadmap_stage_verify.py`, `tests/roadmap/test_roadmap_refine_trust.py`.
 
-- [x] 1.1 Write tests/roadmap/test_roadmap_stage_verify.py first: OPEN_TYPES holds criterion_dropped, a criterion_dropped finding of a test-only group whose quote is in the issue is open, one whose quote is not in the input is advice, none of them returns the plan, and the prompt line of criterion_dropped names the group that changes only test files and the earlier group that changes the code
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_verify.py` fails on the base
-- [x] 1.2 Add criterion_dropped to OPEN_TYPES in src/devops_cli/roadmap/stage_verify.py, define the criterion whose group changes only test files while no group changes the code that it needs in src/devops_cli/ai/tasks/roadmap_stage_verify.md, and say there that a test-only group which tests code of an earlier group is no criterion_dropped
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_verify.py` passes
+- [x] 1.1 Write tests/roadmap/test_roadmap_stage_verify.py first: OPEN_TYPES holds criterion_dropped, a criterion_dropped finding of a test-only group whose quote is in the issue is open, one whose quote is not in the input is advice, none of them returns the plan, and the prompt line of criterion_dropped names the group that changes only test files and the earlier group that changes the code. Write tests/roadmap/test_roadmap_refine_trust.py first for the review of refine: a criterion_dropped finding that quotes the input is advice and the item is Ready
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_verify.py tests/roadmap/test_roadmap_refine_trust.py` fails on the base
+- [x] 1.2 Add criterion_dropped to OPEN_TYPES in src/devops_cli/roadmap/stage_verify.py, define the criterion whose group changes only test files while no group changes the code that it needs in src/devops_cli/ai/tasks/roadmap_stage_verify.md, and say there that a test-only group which tests code of an earlier group is no criterion_dropped. Remove criterion_dropped from JUDGE_OPEN_TYPES in src/devops_cli/roadmap/refine_judge.py
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_verify.py tests/roadmap/test_roadmap_refine_trust.py` passes
 - [x] 1.3 Edit docs/roadmap/stage.md and the module text of src/devops_cli/roadmap/stage.py to list criterion_dropped as an open finding type
   - Verification: `uv run devops ci docs` passes
 

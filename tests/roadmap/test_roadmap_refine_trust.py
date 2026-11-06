@@ -451,7 +451,9 @@ def test_a_finding_without_a_quote_from_the_input_is_advice_and_refuses_nothing(
     )
 
 
-@pytest.mark.parametrize("kind", [DefectType.TASK_ORDER, DefectType.VERIFY_FORM])
+@pytest.mark.parametrize(
+    "kind", [DefectType.TASK_ORDER, DefectType.VERIFY_FORM, DefectType.CRITERION_DROPPED]
+)
 def test_a_finding_on_tasks_is_advice_because_a_proposal_has_no_task_groups(
     store: InMemoryRoadmapStore, git_repo: Path, kind: DefectType
 ) -> None:
