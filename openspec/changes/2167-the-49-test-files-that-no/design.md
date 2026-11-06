@@ -29,3 +29,10 @@
 - **Move the helpers of `commands/k8s/networking.py` into a domain module in this change.** Rejected: #1323 plans that move (its task 2.1). A second plan for the same move would conflict. Group 5 uses the commands.
 - **Split the item into one pull request for each domain.** Rejected for this plan: the issue says "Fits in one pull request", and the renames of group 1 touch the files of several domains. The groups are the steps inside the one pull request.
 - **Keep the first plan.** Rejected: 39 of the 49 paths of the issue table do not exist on `main`, it names `tests/k8s_fakes.py` that does not exist, its Feasibility holds no command output, and its tasks repeat one template that fits no group.
+
+## Decisions made at implementation
+
+- **A helper that cannot ask for a fixture installs the transport itself.** `tests/llm_stream_fakes.py` has 135 callers that pass `monkeypatch`, so it calls `install_transport`. The floor of `tests/conftest.py` removes the transport after each test.
+- **A client keeps the transport chain the old helper gave.** `route_client` and `route_llm_clients` give the plain client with no retry transport, as the patched methods did. `route_retrying_client` keeps the real chain.
+- **The seam is the place for a fix when a command builds its own client.** `_get_rag_components`, `_resolve_qdrant_client` and `GatewayIntakeModel._embedder` built a Qdrant client or an embedder that no fake could replace. Each now calls `resolve_qdrant_client` or `create_embedder`, which the other commands already call.
+- **The shared fakes follow the real client.** A shared fake that raised on `wait=` or lacked `api_key` could not stand for the client that the indexer reads, so the fake gets the keyword or the attribute.

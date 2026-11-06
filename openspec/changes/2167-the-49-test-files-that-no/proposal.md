@@ -6,7 +6,7 @@ Issue #2167: the test-suite audit of 2026-10-24 found 49 test files that no chil
 
 ## What Changes
 
-- 43 of the 49 files get the fix. Six files are already clean on `main` (see Feasibility), so the plan leaves them out.
+- 42 of the 49 files get the fix. Seven files are already clean on `main` (see Feasibility), so the change leaves them out.
 - Each `patch` of a `devops_cli` name goes. The test installs the shared fake of the edge instead: `process_fake`, `git_fake`, `cluster`, `github_api_and_gh`, `model_fake`, `scanner_fake`, `qdrant`, `embedder`, `otlp`, `stub_web` and `config`, all in `tests/support/`.
 - Each import of a private name goes. The test reaches the code through its public command or class. Where a pure function of a domain package is the unit under test, the function gets a public name and its callers change.
 - Product code that only a patch kept alive goes: the forwarding function `get_k8s_client` in `src/devops_cli/k8s/volume.py` and the alias `_HELM_RELEASES_BY_STACK` in `src/devops_cli/commands/k8s/stack_lifecycle.py`.
@@ -62,3 +62,13 @@ Checked on 2026-11-01 at `origin/main` (1c20865a), in the worktree of this plan.
 ## Existing Tool Considered
 
 No external tool covers this need. The change uses what the repository and its open tools already give: the shared fakes of `tests/support/fakes/`, `typer.main.get_command` and `DocGenerator` for the command list, `httpx2.MockTransport` through `stub_web`, `ruff` rule `PLC2701` and `ast-grep` for the repeatable scans, and Hypothesis settings for the fixture health check. It builds no new helper, fake or check. It deletes the doubles that copy a shared fake (`ExtendedFakeCoreV1`, `FakeSocraticClient`, `FakeMentalModelClient`, `InMemoryQdrantClient`, `DummyEmbedder`, `_FakeAnalysisClient`) and two forwarding names in `src/`.
+
+## Re-check at implementation
+
+Checked on 2026-11-06 at `origin/main` (27c7019f), the base of the branch.
+
+- `tests/commands/test_cli_startup_imports.py` is clean: it imports no private name and patches nothing (`uv run ruff check --preview --select PLC2701 --no-fix tests/commands/test_cli_startup_imports.py` prints nothing). The change drops it, so 42 files get the fix.
+- The other plan files were checked with the three scans of `tasks.md`. Every private import and every patch of a `devops_cli` name in the 42 files is gone. The patches that stay patch a stdlib or third-party object: `socket.create_connection`, `time.sleep` and `subprocess.Popen` in `test_k8s_ipv6_and_proxy_boundaries.py`, `logfire.configure` and `logfire.instrument_pydantic_ai` in `test_telemetry_llm_content.py`, `shutil.which` in `test_review_tool_runs.py` and `time.sleep` in `tests/llm_stream_fakes.py`. The one write to an instance attribute, `_http_client` in `route_client`, sets the attribute that the `http_client=` parameter of `LLMClient` sets.
+- No inline `MagicMock` stands for a `devops_cli` dependency in the 42 files.
+- Product code changed only where no fake reached the code: `commands/rag.py`, `commands/ai_research.py` and `roadmap/intake_model.py` now resolve their Qdrant client and embedder through the seam, and the function `get_k8s_client` of `k8s/volume.py` is gone. The names of group 1, 14, 15, 16, 17, 18 and 20 are public.
+- The issue wants the pull request to name each deleted test. One is deleted: `test_volume_reclaim_confirmation_aborted`.
