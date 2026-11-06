@@ -2,7 +2,7 @@
 agent run, what the job validates in the reply, and what a run writes to the issue.
 
 The roadmap is the in-memory store. pydantic-ai's `FunctionModel` answers each model request from a
-script, so no test reaches a model. Firecrawl and PyPI are answered at the HTTP edge by `stub_web`.
+script, so no test reaches a model. Firecrawl and PyPI are answered at the HTTP edge by `web`.
 """
 
 from __future__ import annotations
@@ -61,9 +61,9 @@ from devops_cli.telemetry.instruments import FIRECRAWL_SEARCHES_TOTAL, ROADMAP_A
 from tests.roadmap_faults import ListingStore
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.scripted_model import Script, call
-from tests.web_fakes import StubWeb
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -97,19 +97,19 @@ def store() -> InMemoryRoadmapStore:
 
 
 @pytest.fixture
-def web_key(config: Callable[..., Any], monkeypatch: pytest.MonkeyPatch, stub_web: StubWeb) -> None:
+def web_key(config: Callable[..., Any], monkeypatch: pytest.MonkeyPatch, web: WebFake) -> None:
     """A Firecrawl key in the settings, and a Firecrawl that answers each search with one result."""
     for name in ("DEVOPS_CLI_FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     config(firecrawl={"api_key": "fc-test"})
-    _firecrawl(stub_web, SEARCH_URL)
+    _firecrawl(web, SEARCH_URL)
 
 
-def _firecrawl(stub_web: StubWeb, *urls: str) -> None:
+def _firecrawl(web: WebFake, *urls: str) -> None:
     """Make Firecrawl answer every search with one result for each URL."""
     results = [{"title": f"Result {url}", "url": url, "description": "A scanner."} for url in urls]
     body = json.dumps({"success": True, "data": {"web": results}}).encode()
-    stub_web.content(DEFAULT_FIRECRAWL_SEARCH_URL, body)
+    web.content(DEFAULT_FIRECRAWL_SEARCH_URL, body)
 
 
 def _item(
@@ -405,7 +405,7 @@ def test_a_closed_item_that_is_named_is_not_checked(store: InMemoryRoadmapStore)
 
 
 def test_the_recheck_window_is_a_setting(
-    store: InMemoryRoadmapStore, web_key: None, config: Callable[..., Any], stub_web: StubWeb
+    store: InMemoryRoadmapStore, web_key: None, config: Callable[..., Any], web: WebFake
 ) -> None:
     number = _item(store)
     _mark_checked(store, number, days=10)
@@ -471,9 +471,9 @@ def test_retry_delay_the_setting_defaults_to_three_and_is_at_least_one(
 
 
 def test_the_search_stops_at_its_limit_and_remembers_what_it_ran(
-    store: InMemoryRoadmapStore, stub_web: StubWeb
+    store: InMemoryRoadmapStore, web: WebFake
 ) -> None:
-    _firecrawl(stub_web, SEARCH_URL)
+    _firecrawl(web, SEARCH_URL)
     tools = AlternativesTools(store=store, firecrawl_key="fc-test")
 
     answers = [
@@ -485,7 +485,7 @@ def test_the_search_stops_at_its_limit_and_remembers_what_it_ran(
         answers[-1],
         tools.queries,
         tools.allowed_urls,
-        len(stub_web.sent),
+        len(web.sent),
         [tool.name for tool in tools.tools()],
     ) == (
         f"Result {SEARCH_URL}\n{SEARCH_URL}\nA scanner.",
@@ -589,9 +589,7 @@ def test_a_spent_github_quota_stops_the_run(
     assert raised.value.error_code == "GITHUB_RATE_LIMIT_UNKNOWN"
 
 
-def test_the_two_fact_tools_share_one_read_limit(
-    store: InMemoryRoadmapStore, stub_web: StubWeb
-) -> None:
+def test_the_two_fact_tools_share_one_read_limit(store: InMemoryRoadmapStore, web: WebFake) -> None:
     tools = AlternativesTools(store=store, firecrawl_key="fc-test")
 
     reads = CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS
@@ -603,7 +601,7 @@ def test_the_two_fact_tools_share_one_read_limit(
         answers[reads],
         after,
         tools.fact_reads,
-        stub_web.sent,
+        web.sent,
     ) == (
         True,
         "The fact read limit for this item is reached.",
@@ -614,7 +612,7 @@ def test_the_two_fact_tools_share_one_read_limit(
 
 
 def _pypi(
-    stub_web: StubWeb,
+    web: WebFake,
     name: str,
     *,
     uploads: list[str],
@@ -633,14 +631,14 @@ def _pypi(
         },
         "urls": [{"upload_time_iso_8601": stamp} for stamp in uploads],
     }
-    stub_web.content(DEFAULT_PYPI_PACKAGE_URL.format(name=name), json.dumps(payload).encode())
+    web.content(DEFAULT_PYPI_PACKAGE_URL.format(name=name), json.dumps(payload).encode())
 
 
 def test_a_pypi_read_answers_with_the_latest_upload_and_remembers_it(
-    store: InMemoryRoadmapStore, stub_web: StubWeb
+    store: InMemoryRoadmapStore, web: WebFake
 ) -> None:
     _pypi(
-        stub_web,
+        web,
         "scanner",
         uploads=["2026-10-20T01:00:00.123456Z", "2026-10-20T01:00:30.000000Z"],
         license_expression="Apache-2.0",
@@ -691,9 +689,9 @@ def test_a_pypi_read_answers_with_the_latest_upload_and_remembers_it(
     ],
 )
 def test_a_pypi_read_gives_the_license_a_package_states_in_any_of_its_fields(
-    store: InMemoryRoadmapStore, stub_web: StubWeb, fields: dict[str, Any], license_name: str
+    store: InMemoryRoadmapStore, web: WebFake, fields: dict[str, Any], license_name: str
 ) -> None:
-    _pypi(stub_web, "scanner", uploads=[NOW.isoformat()], **fields)
+    _pypi(web, "scanner", uploads=[NOW.isoformat()], **fields)
     tools = AlternativesTools(store=store, firecrawl_key="fc-test")
 
     answer = tools.pypi_package("scanner")
@@ -705,9 +703,9 @@ def test_a_pypi_read_gives_the_license_a_package_states_in_any_of_its_fields(
 
 
 def test_a_pypi_package_that_does_not_exist_or_fails_to_read_is_answered_as_text(
-    store: InMemoryRoadmapStore, stub_web: StubWeb, caplog: pytest.LogCaptureFixture
+    store: InMemoryRoadmapStore, web: WebFake, caplog: pytest.LogCaptureFixture
 ) -> None:
-    stub_web.respond("GET", DEFAULT_PYPI_PACKAGE_URL.format(name="broken"), 503)
+    web.respond("GET", DEFAULT_PYPI_PACKAGE_URL.format(name="broken"), 503)
     tools = AlternativesTools(store=store, firecrawl_key="fc-test")
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.alternatives"):
@@ -1319,9 +1317,9 @@ def test_a_second_reply_with_a_verdict_that_only_the_job_sets_is_refused(
 
 
 def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
-    store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake
 ) -> None:
-    _firecrawl(stub_web, SEARCH_URL)
+    _firecrawl(web, SEARCH_URL)
     number = _item(store, body="The job needs to read a directory.")
     before = store.item(number)
     assert before is not None
@@ -1396,9 +1394,9 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
 
 
 def test_a_second_run_inside_the_window_on_an_unchanged_body_does_nothing(
-    store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake
 ) -> None:
-    _firecrawl(stub_web, SEARCH_URL)
+    _firecrawl(web, SEARCH_URL)
     number = _item(store)
     apply_alternatives(store, _plan(store, _search_then_read_then(_covers())))
     writes = len(store.job_writes())
@@ -1417,9 +1415,9 @@ def test_a_second_run_inside_the_window_on_an_unchanged_body_does_nothing(
 
 
 def test_a_check_after_the_window_replaces_the_block_and_adds_a_comment(
-    store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake
 ) -> None:
-    _firecrawl(stub_web, SEARCH_URL)
+    _firecrawl(web, SEARCH_URL)
     number = _item(store)
     apply_alternatives(store, _plan(store, _search_then_read_then(_covers())))
 
@@ -1509,9 +1507,9 @@ def test_a_none_verdict_names_no_tool(store: InMemoryRoadmapStore, web_key: None
 
 
 def test_a_not_applicable_verdict_after_a_search_or_a_fact_read_is_refused(
-    store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake
 ) -> None:
-    _firecrawl(stub_web, SEARCH_URL)
+    _firecrawl(web, SEARCH_URL)
     searched = _item(store, "Searched")
     read = _item(store, "Read")
     answer = AlternativesReply(verdict=Verdict.NOT_APPLICABLE)
@@ -1532,7 +1530,7 @@ def test_a_not_applicable_verdict_after_a_search_or_a_fact_read_is_refused(
 
 
 def test_a_covering_tool_is_written_through_the_github_store_over_its_process_edge(
-    web_key: None, stub_web: StubWeb
+    web_key: None, web: WebFake
 ) -> None:
     """The whole flow on the GitHub store: the repository and its release are read with two `gh`
     requests, and the run writes one comment, the marker block and the record in one body write."""
@@ -1554,7 +1552,7 @@ def test_a_covering_tool_is_written_through_the_github_store_over_its_process_ed
         labels=("priority/p2-medium", "status/new"),
         body="The job needs to read a directory.",
     )
-    _firecrawl(stub_web, SEARCH_URL)
+    _firecrawl(web, SEARCH_URL)
     roadmap = GitHubRoadmapStore(REPO, runner=github, session=RunnerSession(github))
 
     plan = _plan(roadmap, _search_then_read_then(_covers()))
@@ -1589,11 +1587,11 @@ def test_a_covering_tool_is_written_through_the_github_store_over_its_process_ed
 
 @pytest.mark.parametrize("kind", ["test", "docs", "refactor", "chore", "ci", "perf"])
 def test_skip_class_an_item_of_the_type_is_not_applicable_with_no_model_call(
-    store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb, otlp: FakeCollector, kind: str
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake, otlp: FakeCollector, kind: str
 ) -> None:
     number = _item(store, f"{kind}(roadmap): a change")
     script = _searching(AlternativesReply(verdict=Verdict.NONE))
-    searches_before = len(stub_web.sent)
+    searches_before = len(web.sent)
 
     plan = _plan(store, script)
     written = apply_alternatives(store, plan)
@@ -1603,7 +1601,7 @@ def test_skip_class_an_item_of_the_type_is_not_applicable_with_no_model_call(
     assert (
         (check.verdict, check.skip_class, check.queries, check.tool),
         script.seen,
-        len(stub_web.sent) == searches_before,
+        len(web.sent) == searches_before,
         written,
         f"Class: {kind}. The check makes no search" in comment.body,
         f"Class: {kind}, no search." in store.read_issue_body(number),
@@ -1725,10 +1723,10 @@ def test_search_first_a_reply_with_no_search_gets_one_more_turn_and_the_search_c
 
 
 def test_search_first_two_replies_with_no_search_end_as_a_failed_check(
-    store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake
 ) -> None:
     number = _item(store, "feat(roadmap): point argo cd at gitea")
-    searches_before = len(stub_web.sent)
+    searches_before = len(web.sent)
     script = Script(AlternativesReply(verdict=Verdict.NONE))
 
     plan = _plan(store, script)
@@ -1738,7 +1736,7 @@ def test_search_first_two_replies_with_no_search_end_as_a_failed_check(
         len(script.seen),
         plan.checks,
         [(f.item.number, f.reason, f.error_class) for f in plan.failures],
-        len(stub_web.sent) == searches_before,
+        len(web.sent) == searches_before,
         store.comments_on(number),
     ) == (
         2,
@@ -1805,9 +1803,9 @@ def test_the_job_sets_maintained_from_the_facts_a_tool_read(
 
 
 def test_a_pypi_package_is_maintained_when_its_latest_upload_is_recent(
-    store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake
 ) -> None:
-    _pypi(stub_web, "scanner", uploads=[_days_ago(100).isoformat()], license_expression="MIT")
+    _pypi(web, "scanner", uploads=[_days_ago(100).isoformat()], license_expression="MIT")
     _item(store)
     url = "https://pypi.org/project/scanner"
     reply = _covers(tool_url=f"{url}/", sources=[])
@@ -1916,11 +1914,11 @@ def test_the_run_of_an_item_reads_the_window_of_the_analysis_task(
 def test_a_run_that_spends_its_budget_skips_its_item(
     store: InMemoryRoadmapStore,
     web_key: None,
-    stub_web: StubWeb,
+    web: WebFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(alternatives, "analysis_window", lambda: 10**9)
-    _firecrawl(stub_web, SEARCH_URL)
+    _firecrawl(web, SEARCH_URL)
     number = _item(store)
     plan = _plan(store, Script(call("search_web", query="q")))
 
@@ -2018,7 +2016,7 @@ def test_the_models_text_makes_no_live_link_mention_or_marker(
 
 
 def test_a_private_repository_turns_the_check_off(
-    store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake
 ) -> None:
     _item(store)
     store.seed_visibility(is_private=True)
@@ -2030,7 +2028,7 @@ def test_a_private_repository_turns_the_check_off(
         plan.off_reason,
         plan.checks,
         script.seen,
-        stub_web.sent,
+        web.sent,
         apply_alternatives(store, plan),
         store.job_writes(),
         "The check is off: the repository is private." in render_alternatives_plan(plan),
@@ -2506,9 +2504,9 @@ def test_failure_record_a_failed_item_is_tried_again_after_the_delay_and_its_che
 
 
 def test_each_written_check_counts_once_by_its_verdict(
-    store: InMemoryRoadmapStore, web_key: None, stub_web: StubWeb, otlp: FakeCollector
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake, otlp: FakeCollector
 ) -> None:
-    _firecrawl(stub_web, SEARCH_URL)
+    _firecrawl(web, SEARCH_URL)
     covering = _item(store, "Covering")
     nothing = _item(store, "Nothing")
     script = _by_item(

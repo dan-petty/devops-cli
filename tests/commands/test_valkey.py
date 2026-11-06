@@ -37,6 +37,7 @@ from devops_cli.valkey.client import ValkeyClient
 from devops_cli.valkey.endpoint import ValkeyEndpoint, parse_valkey_url
 from tests.support.certificates import LocalCa
 from tests.support.config_writes import written_keys
+from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
 from tests.support.fakes.valkey import (
     bulk_reply,
     serving_valkey,
@@ -44,7 +45,6 @@ from tests.support.fakes.valkey import (
     valkey_endpoint,
 )
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
-from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
 
 runner = CliRunner()
 
@@ -56,18 +56,19 @@ runner = CliRunner()
 class TestValkeyClientDestination:
     """The client resolves its host once, when it dials, vets every answer and dials a vetted address.
 
-    The resolver is the shared `ScriptedResolver`, whose answers for a name can change from one
+    The resolver is the `dns` fixture, whose answers for a name can change from one
     lookup to the next, as the answers of a rebinding DNS server do. The floor fails a test whose
     code connects to an address that is not loopback, so a refusal that a test expects opens no
     connection.
     """
 
-    def test_the_constructor_makes_no_lookup(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        resolver = scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+    def test_the_constructor_makes_no_lookup(self, dns: DnsFake) -> None:
+        dns.script("example.com", [PUBLIC_ADDRESS])
         client = ValkeyClient(valkey_endpoint("valkey://example.com"))
-        assert ((client.host, client.port), resolver.lookups) == (
-            ("example.com", 6379),
-            {"example.com": 0},
+        assert (client.host, client.port, len(dns.lookups_of("example.com"))) == (
+            "example.com",
+            6379,
+            0,
         )
 
     def test_valkey_protocol_is_satisfied_by_valkey_client(
@@ -112,29 +113,31 @@ class TestValkeyClientDestination:
         assert client is valkey
         assert client.ping() is True
 
-    def test_one_dial_makes_one_lookup_and_dials_the_address_it_vetted(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_one_dial_makes_one_lookup_and_dials_the_address_it_vetted(self, dns: DnsFake) -> None:
         """The name answers loopback first and a public address after; the client dials loopback."""
         with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
-            resolver = scripted_resolver(
-                monkeypatch, {"example.com": [["127.0.0.1"], [PUBLIC_ADDRESS]]}
-            )
+            dns.script("example.com", ["127.0.0.1"], [PUBLIC_ADDRESS])
             client = ValkeyClient(valkey_endpoint(f"valkey://example.com:{port}"))
             pinged = client.ping()
             client.close()
-        assert (pinged, resolver.lookups, received) == (True, {"example.com": 1}, [["PING"]])
+        assert (pinged, len(dns.lookups_of("example.com")), received) == (
+            True,
+            1,
+            [["PING"]],
+        )
 
-    def test_the_client_dials_the_vetted_addresses_in_answer_order(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_the_client_dials_the_vetted_addresses_in_answer_order(self, dns: DnsFake) -> None:
         """Nothing listens at the first answer, so it refuses the connection; the second accepts it."""
         with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
-            resolver = scripted_resolver(monkeypatch, {"example.com": [["127.0.0.2", "127.0.0.1"]]})
+            dns.script("example.com", ["127.0.0.2", "127.0.0.1"])
             client = ValkeyClient(valkey_endpoint(f"valkey://example.com:{port}"))
             pinged = client.ping()
             client.close()
-        assert (pinged, resolver.lookups, received) == (True, {"example.com": 1}, [["PING"]])
+        assert (pinged, len(dns.lookups_of("example.com")), received) == (
+            True,
+            1,
+            [["PING"]],
+        )
 
     @pytest.mark.parametrize(
         ("authority", "host"),
@@ -147,9 +150,9 @@ class TestValkeyClientDestination:
         ],
     )
     def test_a_host_that_answers_cloud_metadata_is_a_connection_error_with_no_dial(
-        self, authority: str, host: str, monkeypatch: pytest.MonkeyPatch
+        self, authority: str, host: str, dns: DnsFake
     ) -> None:
-        scripted_resolver(monkeypatch, {"example.com": [["169.254.169.254"]]})
+        dns.script("example.com", ["169.254.169.254"])
         client = ValkeyClient(valkey_endpoint(f"valkey://{authority}:6379"))
         with pytest.raises(ValkeyConnectionError) as raised:
             client.ping()
@@ -193,20 +196,24 @@ class TestValkeyClientTls:
     """
 
     def test_a_certificate_for_the_url_host_is_accepted(
-        self, monkeypatch: pytest.MonkeyPatch, local_ca: LocalCa
+        self, dns: DnsFake, local_ca: LocalCa
     ) -> None:
-        resolver = scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
+        dns.script("example.com", ["127.0.0.1"])
         tls = local_ca.server_context("example.com")
         with serving_valkey({"PING": b"+PONG\r\n"}, tls=tls) as (port, received):
             client = ValkeyClient(valkey_endpoint(f"valkeys://example.com:{port}"))
             pinged = client.ping()
             client.close()
-        assert (pinged, resolver.lookups, received) == (True, {"example.com": 1}, [["PING"]])
+        assert (pinged, len(dns.lookups_of("example.com")), received) == (
+            True,
+            1,
+            [["PING"]],
+        )
 
     def test_a_certificate_for_another_name_is_refused_before_a_command(
-        self, monkeypatch: pytest.MonkeyPatch, local_ca: LocalCa
+        self, dns: DnsFake, local_ca: LocalCa
     ) -> None:
-        scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
+        dns.script("example.com", ["127.0.0.1"])
         tls = local_ca.server_context("example.org")
         with serving_valkey({"PING": b"+PONG\r\n"}, tls=tls) as (port, received):
             client = ValkeyClient(valkey_endpoint(f"valkeys://example.com:{port}"))
@@ -410,15 +417,15 @@ class TestValkeyUrl:
         )
 
     def test_the_database_of_the_url_is_selected_on_each_new_connection(
-        self, cli: Callable[..., Any], config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+        self, cli: Callable[..., Any], config: Callable[..., Path], dns: DnsFake
     ) -> None:
-        resolver = scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
+        dns.script("example.com", ["127.0.0.1"])
         with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
             config(valkey={"url": f"valkey://example.com:{port}/2"})
             result = cli("valkey", "ping")
-        assert (result.exit_code, resolver.lookups, received) == (
+        assert (result.exit_code, len(dns.lookups_of("example.com")), received) == (
             0,
-            {"example.com": 1},
+            1,
             [["SELECT", "2"], ["PING"]],
         )
 
@@ -434,17 +441,17 @@ class TestValkeyUrl:
         self,
         cli: Callable[..., Any],
         config: Callable[..., Path],
-        monkeypatch: pytest.MonkeyPatch,
+        dns: DnsFake,
         local_ca: LocalCa,
     ) -> None:
-        resolver = scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
+        dns.script("example.com", ["127.0.0.1"])
         tls = local_ca.server_context("example.com")
         with serving_valkey({"PING": b"+PONG\r\n"}, tls=tls) as (port, received):
             config(valkey={"url": f"valkeys://example.com:{port}"})
             result = cli("valkey", "ping")
-        assert (result.exit_code, resolver.lookups, received) == (
+        assert (result.exit_code, len(dns.lookups_of("example.com")), received) == (
             0,
-            {"example.com": 1},
+            1,
             [["PING"]],
         )
 
@@ -452,10 +459,10 @@ class TestValkeyUrl:
         self,
         cli: Callable[..., Any],
         config: Callable[..., Path],
-        monkeypatch: pytest.MonkeyPatch,
+        dns: DnsFake,
         local_ca: LocalCa,
     ) -> None:
-        scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
+        dns.script("example.com", ["127.0.0.1"])
         tls = local_ca.server_context("example.org")
         with serving_valkey({"PING": b"+PONG\r\n"}, tls=tls) as (port, received):
             config(valkey={"url": f"valkeys://example.com:{port}"})
@@ -464,15 +471,15 @@ class TestValkeyUrl:
         assert "certificate is not valid for 'example.com'" in result.output
 
     def test_a_valkey_url_connects_in_plaintext_to_its_host(
-        self, cli: Callable[..., Any], config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+        self, cli: Callable[..., Any], config: Callable[..., Path], dns: DnsFake
     ) -> None:
-        resolver = scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
+        dns.script("example.com", ["127.0.0.1"])
         with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
             config(valkey={"url": f"valkey://example.com:{port}"})
             result = cli("valkey", "ping")
-        assert (result.exit_code, resolver.lookups, received) == (
+        assert (result.exit_code, len(dns.lookups_of("example.com")), received) == (
             0,
-            {"example.com": 1},
+            1,
             [["PING"]],
         )
 

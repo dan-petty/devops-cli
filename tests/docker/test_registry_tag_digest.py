@@ -8,10 +8,10 @@ import pytest
 
 from devops_cli.docker.registry import TaggedImage, tag_digest, tagged_image
 from devops_cli.exceptions.docker import RegistryReadError, RegistryTagNotFoundError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.oci_registry import RegistryFake
-from tests.web_fakes import StubWeb
 
 IMAGE = "ghcr.io/example/devops-cli/service"
 DIGEST = "sha256:" + "b" * 64
@@ -55,18 +55,18 @@ def test_a_reference_without_a_registry_host_or_a_tag_is_refused(reference: str)
 
 
 def test_the_tag_digest_comes_from_the_registry_with_an_anonymous_token(
-    stub_web: StubWeb,
+    web: WebFake,
 ) -> None:
     """The lookup answers the Bearer challenge and reads the digest of the tag's manifest."""
-    stub_web.serve(RegistryFake({f"{IMAGE}:latest": DIGEST}))
+    web.serve(RegistryFake({f"{IMAGE}:latest": DIGEST}))
 
-    with new_http_client(level=EgressLevel.PUBLIC) as client:
+    with http_client(EgressLevel.PUBLIC) as client:
         digest = tag_digest(f"{IMAGE}:latest", client, timeout=5.0)
 
     manifest = "https://ghcr.io/v2/example/devops-cli/service/manifests/latest"
-    token = next(request for request in stub_web.sent if request.url.path == "/token")
+    token = next(request for request in web.sent if request.url.path == "/token")
     assert digest == DIGEST
-    assert [(r.method, str(r.url).split("?")[0]) for r in stub_web.sent] == [
+    assert [(r.method, str(r.url).split("?")[0]) for r in web.sent] == [
         ("HEAD", manifest),
         ("GET", "https://ghcr.io/token"),
         ("HEAD", manifest),
@@ -75,17 +75,17 @@ def test_the_tag_digest_comes_from_the_registry_with_an_anonymous_token(
         "scope": ["repository:example/devops-cli/service:pull"],
         "service": ["ghcr.io"],
     }
-    assert "application/vnd.oci.image.index.v1+json" in stub_web.sent[-1].headers["accept"]
+    assert "application/vnd.oci.image.index.v1+json" in web.sent[-1].headers["accept"]
 
 
 def test_a_registry_that_needs_credentials_raises_a_registry_read_error(
-    stub_web: StubWeb,
+    web: WebFake,
 ) -> None:
     """A private image is a RegistryReadError that says why, and not a missing tag."""
-    stub_web.serve(RegistryFake({}, anonymous=False))
+    web.serve(RegistryFake({}, anonymous=False))
 
     with (
-        new_http_client(level=EgressLevel.PUBLIC) as client,
+        http_client(EgressLevel.PUBLIC) as client,
         pytest.raises(RegistryReadError) as caught,
     ):
         tag_digest(f"{IMAGE}:latest", client, timeout=5.0)
@@ -99,14 +99,14 @@ def test_a_registry_that_needs_credentials_raises_a_registry_read_error(
 
 
 def test_a_tag_that_the_registry_does_not_hold_raises_the_missing_tag_error(
-    stub_web: StubWeb,
+    web: WebFake,
 ) -> None:
     """HTTP 404 is a RegistryTagNotFoundError. It is also a RegistryReadError, so a caller that
     catches the base keeps its handling."""
-    stub_web.serve(RegistryFake({}))
+    web.serve(RegistryFake({}))
 
     with (
-        new_http_client(level=EgressLevel.PUBLIC) as client,
+        http_client(EgressLevel.PUBLIC) as client,
         pytest.raises(RegistryReadError) as caught,
     ):
         tag_digest(f"{IMAGE}:missing", client, timeout=5.0)
@@ -116,12 +116,12 @@ def test_a_tag_that_the_registry_does_not_hold_raises_the_missing_tag_error(
     assert caught.value.error_code == "DOCKER_REGISTRY_TAG_NOT_FOUND"
 
 
-def test_a_registry_status_other_than_404_is_not_a_missing_tag(stub_web: StubWeb) -> None:
+def test_a_registry_status_other_than_404_is_not_a_missing_tag(web: WebFake) -> None:
     """HTTP 500 raises the base error: the tag may exist, so the caller cannot wait for it."""
-    stub_web.respond("HEAD", "https://ghcr.io/v2/example/devops-cli/service/manifests/v1", 500)
+    web.respond("HEAD", "https://ghcr.io/v2/example/devops-cli/service/manifests/v1", 500)
 
     with (
-        new_http_client(level=EgressLevel.PUBLIC) as client,
+        http_client(EgressLevel.PUBLIC) as client,
         pytest.raises(RegistryReadError) as caught,
     ):
         tag_digest(f"{IMAGE}:v1", client, timeout=5.0)

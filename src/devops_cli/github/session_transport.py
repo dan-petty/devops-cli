@@ -1,7 +1,7 @@
 """The GitHub session's REST transport: gidgethub over one httpx2 client in one anyio portal (#983).
 
 gidgethub builds each request and decodes each answer; its httpx2 adapter sends them through an
-`httpx2.AsyncClient` the factory builds at the public egress level. That client follows redirects
+`httpx2.AsyncClient` the HTTP entry point builds at the public egress level. That client follows redirects
 and runs one request hook, `refuse_other_origins`, before the first request and before every hop,
 so the session's token goes to GitHub's API origin and nowhere else. An async client is bound to
 the event loop it first runs on, so the transport owns one anyio blocking portal and every
@@ -97,8 +97,9 @@ from devops_cli.github.rate_limiter import (
 )
 from devops_cli.github.request_classifier import GitHubRequest, is_write_request
 from devops_cli.github.request_scope import request_labels
-from devops_cli.http.client import ClientOptions, new_async_http_client, request_timeout
+from devops_cli.http.client import ClientOptions, request_timeout
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import async_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -148,17 +149,17 @@ async def refuse_other_origins(request: httpx2.Request) -> None:
 
 
 def session_client() -> httpx2.AsyncClient:
-    """The session's client from the egress factory at the public level, following redirects
+    """The session's client from the HTTP entry point at the public level, following redirects
     under the origin hook and pinning the REST API version. It connects within
     `DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS`, a public-internet bound, and keeps the
-    factory's read timeout; a connect that still fails is not retried."""
+    entry point's read timeout; a connect that still fails is not retried."""
     options: ClientOptions = {
         "follow_redirects": True,
         "headers": {CONST_GITHUB_HEADER_API_VERSION: CONST_GITHUB_API_VERSION},
         "event_hooks": {"request": [refuse_other_origins]},
     }
     timeout = request_timeout(connect=DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS)
-    return new_async_http_client(level=EgressLevel.PUBLIC, timeout=timeout, **options)
+    return async_http_client(EgressLevel.PUBLIC, timeout=timeout, **options)
 
 
 def _gh_api_command(url: str) -> list[str]:

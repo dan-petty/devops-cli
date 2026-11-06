@@ -655,11 +655,11 @@ def _run_release_comments_adapter(
     `release_comments.json` lies beside `schedule.json`. It fails, once both comments are
     posted, when the cluster or the registry could not be read."""
     from devops_cli.config.constants import CONST_ROADMAP_RELEASE_LEDGER_FILENAME
-    from devops_cli.http.client import new_http_client
     from devops_cli.http.egress import EgressLevel
+    from devops_cli.http.entry import http_client
     from devops_cli.k8s.cluster_job_api import ClusterJobs
 
-    with new_http_client(level=EgressLevel.PUBLIC) as client:
+    with http_client(EgressLevel.PUBLIC) as client:
         comment_releases(
             store,
             GitHubReleaseFeed(repo),

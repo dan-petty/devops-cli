@@ -2,7 +2,7 @@
 pydantic-ai run that settles a proposal's open questions, its budget, its errors and its spend.
 
 pydantic-ai's `FunctionModel` answers each model request from a script, so no test reaches a
-model. Firecrawl is answered at the HTTP edge by `stub_web`, and git runs on a temporary repository.
+model. Firecrawl is answered at the HTTP edge by `web`, and git runs on a temporary repository.
 """
 
 from __future__ import annotations
@@ -69,8 +69,8 @@ from devops_cli.roadmap.refine_investigation import (
     investigate,
 )
 from devops_cli.roadmap.store import ItemField
+from tests.support.fakes.http import WebFake
 from tests.support.scripted_model import Script, call
-from tests.web_fakes import StubWeb
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -375,10 +375,10 @@ def test_web_search_is_absent_without_a_key(git_repo: Path) -> None:
     assert [tool.name for tool in tools.tools()] == ["search_code", "list_files", "read_file"]
 
 
-def test_web_search_adds_each_url_and_stops_at_its_cap(git_repo: Path, stub_web: StubWeb) -> None:
+def test_web_search_adds_each_url_and_stops_at_its_cap(git_repo: Path, web: WebFake) -> None:
     result = {"title": "Gitleaks", "url": "https://example.com/gitleaks", "description": "Scans."}
     reply = {"success": True, "data": {"web": [result]}}
-    stub_web.content(_FIRECRAWL_URL, json.dumps(reply).encode())
+    web.content(_FIRECRAWL_URL, json.dumps(reply).encode())
     tools = InvestigationTools(
         source=git_repo, sha=inspect_checkout(git_repo, REPO), firecrawl_key="fc-test"
     )
@@ -392,7 +392,7 @@ def test_web_search_adds_each_url_and_stops_at_its_cap(git_repo: Path, stub_web:
         answers[0],
         answers[-1],
         tools.allowed_urls,
-        len(stub_web.sent),
+        len(web.sent),
     ) == (
         "search_web",
         "Gitleaks\nhttps://example.com/gitleaks\nScans.",
@@ -618,7 +618,7 @@ def test_the_function_tools_go_when_too_few_tool_calls_are_left(
 def test_a_round_on_a_public_repository_with_a_key_settles_a_fact_from_the_web(
     git_repo: Path,
     store: InMemoryRoadmapStore,
-    stub_web: StubWeb,
+    web: WebFake,
     config: Callable[..., Path],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -630,9 +630,7 @@ def test_a_round_on_a_public_repository_with_a_key_settles_a_fact_from_the_web(
     store.seed_visibility(is_private=False)
     url = "https://example.com/gitleaks"
     result = {"title": "Gitleaks", "url": url, "description": "Scans a directory."}
-    stub_web.content(
-        _FIRECRAWL_URL, json.dumps({"success": True, "data": {"web": [result]}}).encode()
-    )
+    web.content(_FIRECRAWL_URL, json.dumps({"success": True, "data": {"web": [result]}}).encode())
     sourced = _OPEN_FACT.model_copy(update={"answer": "Yes.", "sources": [url]})
     script = Script(
         call("search_web", query="gitleaks scan a directory"),
@@ -969,13 +967,13 @@ def test_a_run_with_no_limits_keeps_the_limits_and_retries_of_refine(git_repo: P
 
 
 def test_a_web_search_adds_each_http_url_it_returns_and_cuts_its_answer(
-    stub_web: StubWeb,
+    web: WebFake,
 ) -> None:
     found = [
         {"title": "Gitleaks", "url": "https://example.com/gitleaks", "description": "Scans."},
         {"title": "Local", "url": "file:///etc/passwd", "description": "Not a web page."},
     ]
-    stub_web.content(_FIRECRAWL_URL, json.dumps({"success": True, "data": {"web": found}}).encode())
+    web.content(_FIRECRAWL_URL, json.dumps({"success": True, "data": {"web": found}}).encode())
     cited: set[str] = set()
 
     answer = cited_web_search("gitleaks", "fc-test", cited, results=5)
@@ -984,10 +982,10 @@ def test_a_web_search_adds_each_http_url_it_returns_and_cuts_its_answer(
         "Gitleaks\nhttps://example.com/gitleaks\nScans.\n\nLocal\nfile:///etc/passwd\nNot a web page.",
         {"https://example.com/gitleaks"},
     )
-    assert json.loads(stub_web.sent[0].content) == {"query": "gitleaks", "limit": 5}
+    assert json.loads(web.sent[0].content) == {"query": "gitleaks", "limit": 5}
 
 
-def test_a_failed_web_search_answers_as_text(stub_web: StubWeb) -> None:
+def test_a_failed_web_search_answers_as_text(web: WebFake) -> None:
     cited: set[str] = set()
 
     answer = cited_web_search("gitleaks", "fc-test", cited, results=5)

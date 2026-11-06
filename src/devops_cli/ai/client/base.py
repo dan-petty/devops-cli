@@ -67,7 +67,7 @@ class BaseLLMProviderMixin:
     def _create_http_client(self, timeout: httpx2.Timeout | None = None) -> httpx2.Client:
         """Create a client of its own with the standard timeout and the native retry transport.
 
-        The factory builds it at the configured egress level; an error building it is raised,
+        The HTTP entry point builds it at the configured egress level; an error building it is raised,
         never answered with a client that skips the check.
         """
         if getattr(self, "_http_client", None) is not None:

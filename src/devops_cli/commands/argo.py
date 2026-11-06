@@ -1,7 +1,7 @@
 """Argo command group: cd (ArgoCD REST), workflows and rollouts (native Argo CRDs).
 
 Security & Input Validation:
-- ArgoCD REST calls dial `argocd.url` through the egress factory at the configured level, which
+- ArgoCD REST calls dial `argocd.url` through the HTTP entry point at the configured level, which
   checks each address at the connect.
 - Workflow and Rollout arguments (`name`, `namespace`) are strictly validated against the RFC 1123
   label regex before reaching the Kubernetes API.

@@ -44,8 +44,10 @@ from devops_cli.tools_lock import (
     ToolsLock,
     load_tools_lock,
 )
+from tests.support.fakes.dial import record_connects
+from tests.support.fakes.dns import DnsFake
+from tests.support.fakes.http import WebFake
 from tests.support.tools import link_at_pin
-from tests.web_fakes import StubWeb
 
 runner = CliRunner()
 
@@ -111,29 +113,29 @@ def _python_entry() -> PythonTool:
     )
 
 
-def _tool_requests(stub_web: StubWeb) -> list[str]:
+def _tool_requests(web: WebFake) -> list[str]:
     """The requests the stub received, leaving out the telemetry exporter's to the collector the
     floor configures, which a command may flush as it exits."""
     collector = urlsplit(os.environ["DEVOPS_CLI_TELEMETRY_ENDPOINT"]).netloc
-    return [url for url in stub_web.requested if urlsplit(url).netloc != collector]
+    return [url for url in web.requested if urlsplit(url).netloc != collector]
 
 
 # ── Binary tools ──────────────────────────────────────────────────────────────
 
 
 def test_a_verified_binary_is_pinned_and_linked_from_its_url_alone(
-    stub_web: StubWeb, tmp_path: Path, isolate_user_data_root: Path
+    web: WebFake, tmp_path: Path, isolate_user_data_root: Path
 ) -> None:
     """The lock's URL is the only request: no latest-release lookup and no checksum file. The
     verified binary lands in the tool's version directory and the target directory links to it."""
-    stub_web.content(ASSET_URL, EXECUTABLE)
+    web.content(ASSET_URL, EXECUTABLE)
     target = tmp_path / "bin"
 
     install_binary("mytool", _binary_entry(EXECUTABLE), target)
 
     pinned = isolate_user_data_root / "tools" / "mytool" / "1.2.3" / "mytool"
     assert (
-        _tool_requests(stub_web),
+        _tool_requests(web),
         (target / "mytool").is_symlink(),
         (target / "mytool").resolve(),
         pinned.read_bytes(),
@@ -143,11 +145,11 @@ def test_a_verified_binary_is_pinned_and_linked_from_its_url_alone(
 
 
 def test_an_install_removes_the_tools_other_versions(
-    stub_web: StubWeb, tmp_path: Path, isolate_user_data_root: Path
+    web: WebFake, tmp_path: Path, isolate_user_data_root: Path
 ) -> None:
     """Once the command links the locked version, the version directory of an earlier pin goes,
     so a pin bump does not leave the old build or virtual environment behind."""
-    stub_web.content(ASSET_URL, EXECUTABLE)
+    web.content(ASSET_URL, EXECUTABLE)
     earlier = isolate_user_data_root / "tools" / "mytool" / "1.0.0"
     earlier.mkdir(parents=True)
     (earlier / "mytool").write_bytes(b"the earlier pin")
@@ -158,11 +160,11 @@ def test_an_install_removes_the_tools_other_versions(
 
 
 def test_a_build_whose_bytes_differ_from_the_lock_is_refused(
-    stub_web: StubWeb, tmp_path: Path, isolate_user_data_root: Path
+    web: WebFake, tmp_path: Path, isolate_user_data_root: Path
 ) -> None:
     """A mismatch names the tool and leaves no version directory, no staging directory and no
     link behind."""
-    stub_web.content(ASSET_URL, b"tampered")
+    web.content(ASSET_URL, b"tampered")
     target = tmp_path / "bin"
 
     with pytest.raises(ChecksumMismatchError, match="mytool"):
@@ -187,7 +189,7 @@ def test_a_build_whose_bytes_differ_from_the_lock_is_refused(
     ids=["binary", "gzip", "tar.gz", "zip"],
 )
 def test_each_archive_format_unpacks_to_the_tool(
-    stub_web: StubWeb,
+    web: WebFake,
     tmp_path: Path,
     isolate_user_data_root: Path,
     archive_format: str,
@@ -196,7 +198,7 @@ def test_each_archive_format_unpacks_to_the_tool(
 ) -> None:
     """A bare binary, a gzip file, a tar.gz member and a zip member all become the same
     executable."""
-    stub_web.content(ASSET_URL, artifact)
+    web.content(ASSET_URL, artifact)
 
     install_binary(
         "mytool",
@@ -208,11 +210,11 @@ def test_each_archive_format_unpacks_to_the_tool(
 
 
 def test_a_zip_build_unpacks_to_an_executable_file(
-    stub_web: StubWeb, tmp_path: Path, isolate_user_data_root: Path
+    web: WebFake, tmp_path: Path, isolate_user_data_root: Path
 ) -> None:
     """tflint publishes zip archives: the member that the lock names gets the execute bit (#2427)."""
     artifact = _zip({"mytool": EXECUTABLE})
-    stub_web.content(ASSET_URL, artifact)
+    web.content(ASSET_URL, artifact)
 
     install_binary(
         "mytool", _binary_entry(artifact, archive_format="zip", member="mytool"), tmp_path
@@ -222,12 +224,12 @@ def test_a_zip_build_unpacks_to_an_executable_file(
 
 
 def test_a_zip_build_without_the_locked_member_is_refused_and_leaves_no_file(
-    stub_web: StubWeb, tmp_path: Path, isolate_user_data_root: Path
+    web: WebFake, tmp_path: Path, isolate_user_data_root: Path
 ) -> None:
     """A verified zip that lacks the member of the lock fails with the member's name, and neither
     the version directory nor the link stays (#2427)."""
     artifact = _zip({"LICENSE": b"licence"})
-    stub_web.content(ASSET_URL, artifact)
+    web.content(ASSET_URL, artifact)
     target = tmp_path / "bin"
 
     with pytest.raises(ToolExecutionError, match="mytool"):
@@ -242,12 +244,12 @@ def test_a_zip_build_without_the_locked_member_is_refused_and_leaves_no_file(
 
 
 def test_a_build_packed_unlike_the_tools_others_unpacks_by_its_own_format(
-    stub_web: StubWeb, tmp_path: Path, isolate_user_data_root: Path
+    web: WebFake, tmp_path: Path, isolate_user_data_root: Path
 ) -> None:
     """cloudflared publishes bare Linux binaries and macOS tar.gz archives: a build's own format
     wins over the tool's."""
     artifact = _tar_gz({"cloudflared": EXECUTABLE})
-    stub_web.content(ASSET_URL, artifact)
+    web.content(ASSET_URL, artifact)
 
     install_binary(
         "mytool",
@@ -258,7 +260,7 @@ def test_a_build_packed_unlike_the_tools_others_unpacks_by_its_own_format(
     assert (tmp_path / "bin" / "mytool").read_bytes() == EXECUTABLE
 
 
-def test_a_platform_the_lock_has_no_build_for_is_named(stub_web: StubWeb, tmp_path: Path) -> None:
+def test_a_platform_the_lock_has_no_build_for_is_named(web: WebFake, tmp_path: Path) -> None:
     """A platform missing from the lock fails before any request, naming the tool and platform."""
     entry = _binary_entry(EXECUTABLE).model_copy(update={"platforms": {}})
 
@@ -268,7 +270,7 @@ def test_a_platform_the_lock_has_no_build_for_is_named(stub_web: StubWeb, tmp_pa
     assert (
         "mytool" in str(raised.value),
         _PLATFORM in str(raised.value),
-        _tool_requests(stub_web),
+        _tool_requests(web),
     ) == (
         True,
         True,
@@ -654,7 +656,7 @@ def test_install_managed_tools_warns_when_a_node_tool_cannot_install(
 
 
 def test_only_missing_skips_a_tool_at_its_pin_and_reinstalls_one_linked_elsewhere(
-    stub_web: StubWeb, tmp_path: Path
+    web: WebFake, tmp_path: Path
 ) -> None:
     """`--only-missing` installs a tool unless its command links to its locked version."""
     target = tmp_path / "bin"
@@ -670,11 +672,11 @@ def test_only_missing_skips_a_tool_at_its_pin_and_reinstalls_one_linked_elsewher
             install_tools_app, ["--tool", tool, "--only-missing", "--target-dir", str(target)]
         )
 
-    assert _tool_requests(stub_web) == [osv_url]
+    assert _tool_requests(web) == [osv_url]
 
 
 def test_check_passes_only_when_every_tool_is_at_its_pin(
-    stub_web: StubWeb, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    web: WebFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`--check` makes no request, exits 0 with every tool at its pin, and exits 1 naming each
     tool that is not."""
@@ -691,7 +693,7 @@ def test_check_passes_only_when_every_tool_is_at_its_pin(
     passing = runner.invoke(install_tools_app, ["--check", "--target-dir", str(target)])
 
     named = [name for name in names if f"{name} " in failing.output]
-    assert (failing.exit_code, named, passing.exit_code, _tool_requests(stub_web)) == (
+    assert (failing.exit_code, named, passing.exit_code, _tool_requests(web)) == (
         1,
         ["k9s", "semgrep"],
         0,
@@ -705,7 +707,7 @@ def test_check_passes_only_when_every_tool_is_at_its_pin(
     ids=["verified", "tampered"],
 )
 def test_install_tools_exits_1_when_it_refuses_a_build(
-    stub_web: StubWeb,
+    web: WebFake,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     served: bytes,
@@ -714,7 +716,7 @@ def test_install_tools_exits_1_when_it_refuses_a_build(
 ) -> None:
     """A build refused for its checksum fails the command, so `install-tools && ...` stops there,
     and leaves no link."""
-    stub_web.content(ASSET_URL, served)
+    web.content(ASSET_URL, served)
     lock = ToolsLock(
         python_version="3.14", binary={"mytool": _binary_entry(EXECUTABLE)}, python={}, npm={}
     )
@@ -727,7 +729,7 @@ def test_install_tools_exits_1_when_it_refuses_a_build(
 
 
 def test_status_shows_each_pin_and_what_is_installed_without_a_request(
-    stub_web: StubWeb, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    web: WebFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`status` reads the lock and the target directory only."""
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
@@ -744,7 +746,7 @@ def test_status_shows_each_pin_and_what_is_installed_without_a_request(
         gitleaks.version in gitleaks_row,
         "at pin" in gitleaks_row,
         "not installed" in result.output,
-        _tool_requests(stub_web),
+        _tool_requests(web),
     ) == (0, True, True, True, True, [])
 
 
@@ -764,11 +766,11 @@ def test_install_tools_refuses_invalid_arguments(
 
 
 def test_install_managed_tools_reports_one_line_per_tool(
-    stub_web: StubWeb, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    web: WebFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Post-create's installer installs every tool the lock holds, and one tool's failure is one
     warning line."""
-    stub_web.content(ASSET_URL, EXECUTABLE)
+    web.content(ASSET_URL, EXECUTABLE)
     lock = ToolsLock(
         python_version="3.14",
         binary={
@@ -800,12 +802,12 @@ def test_artifact_rejects_unknown_fields() -> None:
 # ── Download egress ───────────────────────────────────────────────────────────
 
 
-def test_download_follows_an_https_redirect(stub_web: StubWeb) -> None:
+def test_download_follows_an_https_redirect(web: WebFake) -> None:
     """A release asset redirected to another https URL is fetched from there."""
-    stub_web.redirect("https://example.com/tool.tar.gz", "https://example.org/asset")
-    stub_web.page("https://example.org/asset", "binary")
+    web.redirect("https://example.com/tool.tar.gz", "https://example.org/asset")
+    web.page("https://example.org/asset", "binary")
 
-    assert (_download("https://example.com/tool.tar.gz"), stub_web.requested) == (
+    assert (_download("https://example.com/tool.tar.gz"), web.requested) == (
         b"binary",
         ["https://example.com/tool.tar.gz", "https://example.org/asset"],
     )
@@ -814,25 +816,23 @@ def test_download_follows_an_https_redirect(stub_web: StubWeb) -> None:
 @pytest.mark.parametrize(
     "url", ["http://example.com/tool.tar.gz", "https://example.com/tool.tar.gz"]
 )
-def test_download_refuses_any_hop_that_is_not_https(stub_web: StubWeb, url: str) -> None:
+def test_download_refuses_any_hop_that_is_not_https(web: WebFake, url: str) -> None:
     """An http first URL, or an https URL redirecting to http, is refused before that hop is sent."""
-    stub_web.redirect("https://example.com/tool.tar.gz", "http://example.com/tool.tar.gz")
-    stub_web.page("http://example.com/tool.tar.gz", "binary")
+    web.redirect("https://example.com/tool.tar.gz", "http://example.com/tool.tar.gz")
+    web.page("http://example.com/tool.tar.gz", "binary")
 
     with pytest.raises(ToolDownloadError, match="Only HTTPS"):
         _download(url)
 
-    assert [hop for hop in stub_web.requested if hop.startswith("http://")] == []
+    assert [hop for hop in web.requested if hop.startswith("http://")] == []
 
 
 def test_download_refuses_a_private_answer_whatever_the_flag(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake
 ) -> None:
     """Tool hosts are public: the flag that once widened this check no longer does."""
-    from tests.web_fakes import record_connects, scripted_resolver
-
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "true")
-    scripted_resolver(monkeypatch, {"example.com": [["10.0.0.1"]]})
+    dns.add("example.com", "10.0.0.1")
     recorder = record_connects(monkeypatch, [])
 
     with pytest.raises(SSRFBlockedError) as raised:

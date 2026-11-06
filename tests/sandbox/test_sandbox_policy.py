@@ -29,6 +29,7 @@ from devops_cli.sandbox.models import (
     SandboxPolicy,
 )
 from devops_cli.sandbox.registry import SandboxRegistry
+from tests.support.fakes.dns import DnsFake
 from tests.support.fakes.docker_engine import DockerEngineFake
 
 
@@ -259,7 +260,6 @@ def test_declared_controls_ask_the_engine_nothing(
     assert all("environment" not in declared and "user" not in declared for declared in controls)
 
 
-@pytest.mark.usefixtures("public_dns")
 @pytest.mark.parametrize(
     ("mode", "whitelist"),
     [
@@ -268,10 +268,15 @@ def test_declared_controls_ask_the_engine_nothing(
     ],
 )
 def test_a_whitelist_without_an_egress_proxy_declares_its_network_and_refuses_to_run(
-    tmp_path: Path, docker_daemon: DockerEngineFake, mode: str, whitelist: dict[str, list[str]]
+    tmp_path: Path,
+    docker_daemon: DockerEngineFake,
+    mode: str,
+    whitelist: dict[str, list[str]],
+    dns: DnsFake,
 ) -> None:
     """Declaring is not running: the declared network of a whitelist mode is reported, while
     creating the container still needs the proxy that enforces the whitelist."""
+    dns.answer_every_name()
     workspace = _workspace(tmp_path)
     deploy_cfg = SandboxDeployConfig(workspace_dir=workspace, network_mode=mode, **whitelist)
     workload_cfg = WorkloadSandboxConfig(

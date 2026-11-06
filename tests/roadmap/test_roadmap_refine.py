@@ -2,8 +2,8 @@
 renderer sanitization, person edit guards, size limit, intake hook, and CLI.
 
 Zero network sockets are opened, LLM and Firecrawl calls are mocked, and all tests run under 1 s.
-The model-failure cases (#1363) answer refine's own client at the HTTP edge with httpx2's
-`MockTransport`, on a private repository so no web search runs, and retry with no wait.
+The model-failure cases (#1363) answer refine's own client at the HTTP edge with the `web` fake,
+on a private repository so no web search runs, and retry with no wait.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import fnmatch
 import json
 import logging
 import re
-import time
 import traceback
 from collections import Counter
 from collections.abc import Callable, Mapping
@@ -104,8 +103,10 @@ from devops_cli.roadmap.store import (
     split_record,
 )
 from devops_cli.telemetry.instruments import ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL
-from tests.llm_stream_fakes import route_llm_clients
+from tests.llm_stream_fakes import serve_llm
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.git import GitFake
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer
 from tests.support.service_stop import stop_error
@@ -1098,22 +1099,26 @@ _INJECTION = json.dumps(
     }
 )
 
+# The retry transport of the model client sends a request that the gateway answers with a 5xx
+# five times, so a failing item costs this many requests in a round.
+_GATEWAY_ATTEMPTS = 5
+
 # What the gateway answers for an issue: the reply's text, or the HTTP response itself.
 Answer = str | httpx2.Response
 
 
 @pytest.fixture
 def scripted_gateway(
-    isolate_devops_cli_config: Path, public_dns: str, monkeypatch: pytest.MonkeyPatch
+    isolate_devops_cli_config: Path, web: WebFake, clock: ClockFake
 ) -> Callable[..., list[httpx2.Request]]:
     """Point refine's `analysis` model at a gateway whose answer to each issue is scripted.
 
-    Every request refine's client sends ends at a `MockTransport`, which reads the issue's
-    number from the JSON document the request's user message carries. Retries wait no time.
+    Every request refine's client sends ends at the `web` fake, which reads the issue's number
+    from the JSON document the request's user message carries. Retries wait no time: the `clock`
+    fixture answers each wait.
     """
     isolate_devops_cli_config.write_text(_GATEWAY_CONFIG, encoding="utf-8")
     reset_settings_cache()
-    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
 
     def script(
         answers: Mapping[int | None, Answer], default: Answer = _READY_PROPOSAL
@@ -1126,7 +1131,7 @@ def scripted_gateway(
             usage = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
             return httpx2.Response(200, json={"choices": [choice], "usage": usage})
 
-        return route_llm_clients(monkeypatch, answer)
+        return serve_llm(web, answer)
 
     return script
 
@@ -1302,7 +1307,7 @@ def test_a_gateway_timeout_on_candidate_2_still_applies_candidate_1(
         _bodies_written(store),
     ) == (
         [(second, "AIClientError", 0)],
-        {first: 1, second: 1, third: 1},
+        {first: 1, second: _GATEWAY_ATTEMPTS, third: 1},
         True,
         CONST_ROADMAP_STATUS_READY,
         [first, third],
@@ -1716,7 +1721,12 @@ def test_a_gateway_failure_records_nothing_and_the_next_round_selects_the_item_a
         _requests_per_item(sent),
         _writes_to(store, first),
         _refine_record(store, first),
-    ) == ([[first], [first]], {first: 2, second: 1, third: 1}, [], (None, None, None))
+    ) == (
+        [[first], [first]],
+        {first: 2 * _GATEWAY_ATTEMPTS, second: 1, third: 1},
+        [],
+        (None, None, None),
+    )
 
 
 # Replies that leave an item too big to refine, or failing on its own text.

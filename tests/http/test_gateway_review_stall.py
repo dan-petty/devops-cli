@@ -32,13 +32,16 @@ from devops_cli.config.defaults import (
     DEFAULT_GATEWAY_REVIEW_SLOTS,
 )
 from devops_cli.config.settings import AIConfig, load_settings, reset_settings_cache
+from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.http.pool import close_expired_connections
 from devops_cli.telemetry.tracer import reset_tracer
-from tests.llm_stream_fakes import as_requested, route_client
+from tests.llm_stream_fakes import serve_llm
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
-from tests.web_fakes import StubWeb
 
-pytestmark = pytest.mark.usefixtures("keyring_store", "public_dns")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 class TestGatewaySlotsConfig:
@@ -65,7 +68,7 @@ class TestAiGatewayConnectCommand:
         self,
         config: Callable[..., Path],
         process_fake: ProcessFake,
-        stub_web: StubWeb,
+        web: WebFake,
         cli: Callable[..., Any],
     ) -> None:
         """Verify connect command discovers NodePort, probes /health/liveliness and /model/info, and saves LAN URL."""
@@ -92,13 +95,13 @@ class TestAiGatewayConnectCommand:
             ProcessAnswer(stdout=service_json),
         )
 
-        stub_web.respond(
+        web.respond(
             "GET",
             "http://192.0.2.10:30400/health/liveliness",
             200,
             {"status": "healthy"},
         )
-        stub_web.respond(
+        web.respond(
             "GET",
             "http://192.0.2.10:30400/model/info",
             200,
@@ -112,8 +115,8 @@ class TestAiGatewayConnectCommand:
             result.exit_code,
             settings.ai.gateway_url,
             settings.ai.allow_private_network,
-            "http://192.0.2.10:30400/health/liveliness" in stub_web.requested,
-            "http://192.0.2.10:30400/model/info" in stub_web.requested,
+            "http://192.0.2.10:30400/health/liveliness" in web.requested,
+            "http://192.0.2.10:30400/model/info" in web.requested,
         ) == (
             0,
             "http://192.0.2.10:30400/v1",
@@ -155,7 +158,7 @@ class TestAiGatewayConnectCommand:
     def test_connect_fails_when_liveliness_or_model_info_returns_error(
         self,
         process_fake: ProcessFake,
-        stub_web: StubWeb,
+        web: WebFake,
         cli: Callable[..., Any],
     ) -> None:
         """Verify connect fails if /health/liveliness returns non-200."""
@@ -181,7 +184,7 @@ class TestAiGatewayConnectCommand:
             ("kubectl", "-n", "llm", "get", "service", "llm-gateway"),
             ProcessAnswer(stdout=service_json),
         )
-        stub_web.respond(
+        web.respond(
             "GET",
             "http://192.0.2.10:30400/health/liveliness",
             503,
@@ -216,7 +219,7 @@ class TestConnectionPoolPurgeOnCut:
             def close(self) -> None:
                 self.closed = True
 
-        client = httpx2.Client()
+        client = http_client(EgressLevel.PUBLIC)
         conn_active = MockConnection(expired=False)
         conn_cut = MockConnection(expired=True)
         # Inject connections into pool
@@ -235,20 +238,11 @@ class TestConnectionPoolPurgeOnCut:
 class TestSingleRetryLayerAndStatusRules:
     """Verify exactly one retry layer retries 503, 400 fails immediately, and persona retries alone."""
 
-    @pytest.fixture(autouse=True)
-    def _no_gateway_reasoning_probe(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("devops_cli.ai.gateway.fetch_model_info", lambda *a, **kw: [])
-
-    def test_transport_answers_503_sees_exactly_max_retries_plus_one_sends(self) -> None:
+    def test_transport_answers_503_sees_exactly_max_retries_plus_one_sends(
+        self, web: WebFake, clock: ClockFake
+    ) -> None:
         """Verify a call that always encounters 503 sees max_retries + 1 sends (single retry layer)."""
-        calls = 0
-
-        class Always503Transport(httpx2.BaseTransport):
-            def handle_request(self, request: httpx2.Request) -> httpx2.Response:
-                nonlocal calls
-                calls += 1
-                return httpx2.Response(503, text="Service Unavailable", request=request)
-
+        sent = serve_llm(web, lambda request: httpx2.Response(503, text="Service Unavailable"))
         config = AIConfig(
             provider="gateway",
             gateway_url="http://example.com/v1",
@@ -257,32 +251,18 @@ class TestSingleRetryLayerAndStatusRules:
             allow_private_network=True,
         )
         client = LLMClient(config)
-        # Patch client._create_retry_transport to use our Always503Transport as wrapped
-        from devops_cli.ai.retries import create_retry_transport
-        from devops_cli.http.pool import close_shared_clients
 
-        close_shared_clients()
-        retry_transport = create_retry_transport(
-            max_attempts=4, min_wait=0.01, max_wait=0.02, wrapped=Always503Transport()
-        )
-        client._create_retry_transport = lambda: retry_transport
-        shared_http = httpx2.Client(transport=retry_transport)
-        client._shared_client = lambda: shared_http
+        with pytest.raises(AIClientError) as exc_info:
+            client.chat("system prompt", "review test prompt")
 
-        try:
-            with pytest.raises(AIClientError) as exc_info:
-                client.chat("system prompt", "review test prompt")
-
-            assert (
-                calls,
-                "503" in str(exc_info.value),
-            ) == (4, True)
-        finally:
-            close_shared_clients()
+        assert (
+            len(sent),
+            "503" in str(exc_info.value),
+        ) == (4, True)
 
     @pytest.mark.usefixtures("scanner_fake")
     def test_transport_answers_400_once_fails_without_second_attempt_and_reports_status(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, web: WebFake, clock: ClockFake
     ) -> None:
         """Verify fake transport answering 400 fails persona call without a second attempt and records status in report."""
         monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
@@ -291,18 +271,12 @@ class TestSingleRetryLayerAndStatusRules:
             "devops_cli.ai.spend.ledger.get_spend_ledger",
             lambda *args, **kwargs: spend_ledger,
         )
-        calls = 0
-
-        class Answering400Transport(httpx2.BaseTransport):
-            def handle_request(self, request: httpx2.Request) -> httpx2.Response:
-                nonlocal calls
-                calls += 1
-                return httpx2.Response(
-                    400,
-                    text='{"error": "bad request: context too large or malformed prompt"}',
-                    request=request,
-                )
-
+        sent = serve_llm(
+            web,
+            lambda request: httpx2.Response(
+                400, text='{"error": "bad request: context too large or malformed prompt"}'
+            ),
+        )
         config = AIConfig(
             provider="gateway",
             gateway_url="http://example.com/v1",
@@ -313,31 +287,22 @@ class TestSingleRetryLayerAndStatusRules:
         reset_settings_cache()
         reset_llm_response_cache()
         client = LLMClient(config, cache_enabled=False)
-        from devops_cli.ai.retries import create_retry_transport
-        from devops_cli.http.pool import close_shared_clients
-
-        close_shared_clients()
-        retry_transport = create_retry_transport(max_attempts=5, wrapped=Answering400Transport())
-        client._create_retry_transport = lambda: retry_transport
-        shared_http = httpx2.Client(transport=retry_transport)
-        client._shared_client = lambda: shared_http
 
         try:
             with pytest.raises(AIClientError) as exc_info:
                 client.chat("system prompt", "review test prompt")
 
             assert (
-                calls,
+                len(sent),
                 "400" in str(exc_info.value),
             ) == (1, True)
         finally:
-            close_shared_clients()
             reset_settings_cache()
             reset_llm_response_cache()
 
     @pytest.mark.usefixtures("scanner_fake")
     def test_five_personas_with_one_transient_503_sees_exactly_six_calls(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, web: WebFake, clock: ClockFake
     ) -> None:
         """Verify 5 personas on 1 page with 1 transient 503 sees exactly 6 calls (retries alone, not 10)."""
         monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
@@ -346,9 +311,8 @@ class TestSingleRetryLayerAndStatusRules:
             "devops_cli.ai.spend.ledger.get_spend_ledger",
             lambda *args, **kwargs: spend_ledger,
         )
-        calls = 0
         transient_hit = False
-        calls_lock = threading.Lock()
+        hit_lock = threading.Lock()
 
         review_reply = json.dumps(
             {
@@ -365,26 +329,18 @@ class TestSingleRetryLayerAndStatusRules:
             }
         )
 
-        class Transient503Transport(httpx2.BaseTransport):
-            def handle_request(self, request: httpx2.Request) -> httpx2.Response:
-                nonlocal calls, transient_hit
-                with calls_lock:
-                    calls += 1
-                    first_failure = not transient_hit
-                    if first_failure:
-                        transient_hit = True
-                if first_failure:
-                    return httpx2.Response(503, text="Service Unavailable", request=request)
-                return as_requested(
-                    request,
-                    httpx2.Response(
-                        200,
-                        text=review_reply,
-                        headers={"content-type": "application/json"},
-                        request=request,
-                    ),
-                )
+        def answer(request: httpx2.Request) -> httpx2.Response:
+            nonlocal transient_hit
+            with hit_lock:
+                first_failure = not transient_hit
+                transient_hit = True
+            if first_failure:
+                return httpx2.Response(503, text="Service Unavailable")
+            return httpx2.Response(
+                200, text=review_reply, headers={"content-type": "application/json"}
+            )
 
+        sent = serve_llm(web, answer)
         config = AIConfig(
             provider="gateway",
             gateway_url="http://example.com/v1",
@@ -396,40 +352,14 @@ class TestSingleRetryLayerAndStatusRules:
         reset_tracer()
         reset_llm_response_cache()
         client = LLMClient(config, cache_enabled=False)
-        from devops_cli.ai.retries import create_retry_transport
-        from devops_cli.http.pool import close_shared_clients
-
-        close_shared_clients()
-        # A gateway request that leaves through a real transport instead of the fake fails as the
-        # session's network guard fails it, and is recorded, so a failure names it (#1609).
-        bypassing: list[str] = []
-        real_handle_request = httpx2.HTTPTransport.handle_request
-
-        def refuse_gateway(transport: httpx2.HTTPTransport, request: httpx2.Request) -> Any:
-            if request.url.host == "example.com":
-                bypassing.append(f"{request.method} {request.url.path}")
-                raise httpx2.ConnectError(
-                    "gateway request outside the fake transport", request=request
-                )
-            return real_handle_request(transport, request)
-
-        monkeypatch.setattr(httpx2.HTTPTransport, "handle_request", refuse_gateway)
-        monkeypatch.setattr("devops_cli.ai.gateway.fetch_model_info", lambda *args, **kwargs: [])
-        retry_transport = create_retry_transport(
-            max_attempts=5, min_wait=0.01, max_wait=0.02, wrapped=Transient503Transport()
-        )
-        client._create_retry_transport = lambda: retry_transport
-        shared_http = httpx2.Client(transport=retry_transport)
-        client._shared_client = lambda: shared_http
 
         try:
             # 5 calls with 1 transient 503 sees exactly 6 calls (1 failed + 1 retry + 4 successful)
             for n in range(5):
                 client.chat("system prompt", f"prompt {n}")
 
-            assert (calls, bypassing) == (6, [])
+            assert len(sent) == 6
         finally:
-            close_shared_clients()
             reset_settings_cache()
             reset_llm_response_cache()
 
@@ -469,14 +399,14 @@ class _OverlapGateway:
                 self._overfilled, timeout=max(0.0, self.window_closes - time.monotonic())
             )
             self.in_flight -= 1
-        return httpx2.Response(200, json=self.reply, request=request)
+        return httpx2.Response(200, json=self.reply)
 
 
 class TestGatewayRequestsStayWithinTheSlotSum:
     """Verify a gateway review keeps its requests in flight at or under the backend slot sum."""
 
     def test_six_files_of_two_personas_never_exceed_the_slot_sum(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, web: WebFake
     ) -> None:
         """Verify 12 persona calls over three Ollama URLs never have more than 3 requests in
         flight, on a gateway that holds requests open until a fourth joins them. Two personas a
@@ -514,7 +444,7 @@ class TestGatewayRequestsStayWithinTheSlotSum:
         reset_tracer()
         reset_llm_response_cache()
         client = LLMClient(config, cache_enabled=False)
-        route_client(client, monkeypatch, gateway.answer)
+        serve_llm(web, gateway.answer)
         import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:

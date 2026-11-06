@@ -21,6 +21,7 @@ from devops_cli.sandbox.models import (
     SandboxNetworkConfig,
     SandboxNetworkMode,
 )
+from tests.support.fakes.dns import DnsFake
 from tests.support.fakes.docker_engine import DockerEngineFake
 
 
@@ -33,9 +34,9 @@ def test_sandbox_network_mode_enum_and_constants() -> None:
     assert SandboxNetworkMode.BRIDGE.value == CONST_SANDBOX_NETWORK_BRIDGE
 
 
-@pytest.mark.usefixtures("public_dns")
-def test_sandbox_network_config_normalization_and_aliases() -> None:
+def test_sandbox_network_config_normalization_and_aliases(dns: DnsFake) -> None:
     """Verify string mode normalization and user-friendly aliases."""
+    dns.answer_every_name()
     assert SandboxNetworkConfig(mode="isolated").mode == SandboxNetworkMode.ISOLATED
     assert SandboxNetworkConfig(mode="none").mode == SandboxNetworkMode.ISOLATED
     assert SandboxNetworkConfig(mode="isolated_pod").mode == SandboxNetworkMode.ISOLATED
@@ -97,11 +98,13 @@ _DOCKER_NETWORK_BY_MODE: dict[SandboxNetworkMode, tuple[str, dict[str, list[str]
 }
 
 
-@pytest.mark.usefixtures("public_dns")
 @pytest.mark.parametrize("mode", list(SandboxNetworkMode), ids=lambda mode: mode.value)
-def test_every_network_mode_runs_on_one_docker_network(mode: SandboxNetworkMode) -> None:
+def test_every_network_mode_runs_on_one_docker_network(
+    mode: SandboxNetworkMode, dns: DnsFake
+) -> None:
     """Isolated runs on no network, the bridge on the default bridge, and the other modes on the
     egress-denied internal bridge, whether or not a proxy is set."""
+    dns.answer_every_name()
     docker_network, whitelist = _DOCKER_NETWORK_BY_MODE[mode]
 
     assert SandboxNetworkConfig(mode=mode, **whitelist).to_docker_network_mode() == docker_network
@@ -146,10 +149,10 @@ def test_sandbox_network_config_sandbox_namespace_mode() -> None:
     assert has_dns, "Sandbox namespace policy must allow CoreDNS egress on port 53"
 
 
-@pytest.mark.usefixtures("public_dns")
-def test_sandbox_deploy_config_integration(tmp_path: Path) -> None:
+def test_sandbox_deploy_config_integration(tmp_path: Path, dns: DnsFake) -> None:
     """Verify SandboxDeployConfig seamlessly integrates SandboxNetworkConfig."""
     # Default is isolated
+    dns.answer_every_name()
     deploy_cfg = SandboxDeployConfig(workspace_dir=tmp_path)
     assert deploy_cfg.network_config.mode == SandboxNetworkMode.ISOLATED
     assert deploy_cfg.network_mode == "none"
@@ -183,9 +186,10 @@ def test_workload_sandbox_config_integration(tmp_path: Path) -> None:
     assert cfg.network_mode == "none"
 
 
-@pytest.mark.usefixtures("public_dns", "docker_daemon")
-def test_docker_runner_whitelist_fail_closed_without_proxy(tmp_path: Path) -> None:
+@pytest.mark.usefixtures("docker_daemon")
+def test_docker_runner_whitelist_fail_closed_without_proxy(tmp_path: Path, dns: DnsFake) -> None:
     """Verify WorkloadSandboxRunner fails closed if whitelist modes lack an egress proxy."""
+    dns.answer_every_name()
     from devops_cli.exceptions.docker import DockerSandboxError
 
     workspace = tmp_path / "workspace"
@@ -227,11 +231,11 @@ def test_workload_sandbox_result_secret_masking() -> None:
     assert "<masked-github-token>" in res.stderr
 
 
-@pytest.mark.usefixtures("public_dns")
 def test_sandbox_engine_whitelist_fail_closed_without_proxy(
-    tmp_path: Path, docker_daemon: DockerEngineFake
+    tmp_path: Path, docker_daemon: DockerEngineFake, dns: DnsFake
 ) -> None:
     """Verify WorkloadSandboxEngine fails closed if deploy config whitelist lacks egress proxy."""
+    dns.answer_every_name()
     from devops_cli.sandbox.engine import WorkloadSandboxEngine
 
     workspace = tmp_path / "workspace"

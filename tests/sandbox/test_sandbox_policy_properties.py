@@ -30,7 +30,7 @@ from devops_cli.exceptions import (
 )
 from devops_cli.http.egress import EgressLevel, vet_addresses
 from devops_cli.sandbox.models import SandboxNetworkConfig, SandboxNetworkMode
-from tests.web_fakes import scripted_resolver
+from tests.support.fakes.dns import DnsFake
 
 # Standard derandomized settings profile for deterministic CI property runs
 _DERANDOMIZED = settings(
@@ -191,10 +191,12 @@ def test_property_absolute_tilde_and_file_schemes_denied_when_not_allowed(
 # =============================================================================
 
 
-@_DERANDOMIZED
+# The `dns` fixture lives across the examples of one test, and each example scripts its own names.
+@settings(_DERANDOMIZED, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(ip=st.ip_addresses())
 def test_property_resolve_hosts_emit_correct_prefix_lengths(
     ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
+    dns: DnsFake,
 ) -> None:
     """Property: a whitelist emits /128 for an IPv6 address and /32 for an IPv4 address.
 
@@ -210,16 +212,15 @@ def test_property_resolve_hosts_emit_correct_prefix_lengths(
     if ip.is_loopback:
         assert _whitelist_rules(SandboxNetworkMode.LOCAL_WHITELIST, [ip_str]) == []
         return
-    with pytest.MonkeyPatch.context() as patches:
-        if is_public:
-            scripted_resolver(patches, {"example.com": [[ip_str]]})
-            rules = _whitelist_rules(SandboxNetworkMode.PUBLIC_WHITELIST, [ip_str, "example.com"])
-            assert rules == [_tcp_rule(expected_cidr, 443)] * 2
-        elif ip.is_private and not is_cloud_metadata_host(ip):
-            scripted_resolver(patches, {"service.internal": [[ip_str]]})
-            entries = [ip_str, "service.internal"]
-            rules = _whitelist_rules(SandboxNetworkMode.LOCAL_WHITELIST, entries)
-            assert rules == [_tcp_rule(expected_cidr, 443)] * 2
+    if is_public:
+        dns.script("example.com", [ip_str])
+        rules = _whitelist_rules(SandboxNetworkMode.PUBLIC_WHITELIST, [ip_str, "example.com"])
+        assert rules == [_tcp_rule(expected_cidr, 443)] * 2
+    elif ip.is_private and not is_cloud_metadata_host(ip):
+        dns.script("service.internal", [ip_str])
+        entries = [ip_str, "service.internal"]
+        rules = _whitelist_rules(SandboxNetworkMode.LOCAL_WHITELIST, entries)
+        assert rules == [_tcp_rule(expected_cidr, 443)] * 2
 
 
 @_DERANDOMIZED
@@ -300,19 +301,19 @@ def test_the_properties_run_under_the_ci_profile_so_a_loaded_host_cannot_fail_th
 
 
 def test_whitelist_entries_name_a_lowercase_host_without_userinfo_and_their_port(
-    monkeypatch: pytest.MonkeyPatch,
+    dns: DnsFake,
 ) -> None:
     """Whitelist entries fold the host to lowercase, drop userinfo, and open 443 by default."""
     address = "93.184.215.14"
-    resolver = scripted_resolver(monkeypatch, {"example.com": [[address]]})
+    dns.script("example.com", [address])
 
     rules = _whitelist_rules(
         SandboxNetworkMode.PUBLIC_WHITELIST, ["Example.COM", "user@example.com:22"]
     )
 
-    assert (rules, resolver.lookups) == (
+    assert (rules, len(dns.lookups_of("example.com"))) == (
         [_tcp_rule(f"{address}/32", 443), _tcp_rule(f"{address}/32", 22)],
-        {"example.com": 2},
+        2,
     )
 
 

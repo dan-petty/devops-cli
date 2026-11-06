@@ -22,8 +22,8 @@ from devops_cli.sandbox.models import (
     SandboxDeployConfig,
 )
 from devops_cli.sandbox.registry import SandboxRegistry
+from tests.support.fakes.dns import DnsFake
 from tests.support.fakes.docker_engine import DockerEngineFake
-from tests.web_fakes import scripted_resolver
 
 
 def test_sandbox_workspace_validation_forbidden_roots(
@@ -315,17 +315,17 @@ def test_mcp_sandbox_tools_refuse_the_workspace_before_any_command_runs(
 
 
 def test_sandbox_deploy_dry_run_looks_up_no_engine_host(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Callable[..., Any]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli: Callable[..., Any], dns: DnsFake
 ) -> None:
     """The workspace check reads DOCKER_HOST without the engine's egress check, so a dry run
     neither resolves a tcp engine's host nor refuses it as private (#1115)."""
     monkeypatch.setenv("DOCKER_HOST", "tcp://example.com:2375")
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
-    resolver = scripted_resolver(monkeypatch, {"example.com": [["93.184.216.34"]]})
+    dns.script("example.com", ["93.184.216.34"])
 
     res = cli("sandbox", "deploy", "--workspace", tmp_path, "--dry-run")
 
-    assert (res.exit_code, resolver.lookups.get("example.com", 0)) == (0, 0)
+    assert (res.exit_code, len(dns.lookups_of("example.com"))) == (0, 0)
 
 
 @pytest.mark.parametrize("runner_name", sorted(_SANDBOX_DRY_RUNNERS))
@@ -367,17 +367,22 @@ def test_docker_and_test_sandbox_dry_runs_make_no_request(
     monkeypatch: pytest.MonkeyPatch,
     docker_daemon: DockerEngineFake,
     cli: Callable[..., Any],
+    dns: DnsFake,
 ) -> None:
     """A dry run with tcp DOCKER_HOST and private networks disallowed records no host lookup and no client call (#1383)."""
     monkeypatch.setenv("DOCKER_HOST", "tcp://example.com:2375")
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
-    resolver = scripted_resolver(monkeypatch, {"example.com": [["93.184.216.34"]]})
+    dns.script("example.com", ["93.184.216.34"])
 
     res = cli(
         subcommand, "sandbox", "--dry-run", "--workspace", tmp_path, "true", catch_exceptions=False
     )
 
-    assert (res.exit_code, resolver.lookups.get("example.com", 0), docker_daemon.calls) == (
+    assert (
+        res.exit_code,
+        len(dns.lookups_of("example.com")),
+        docker_daemon.calls,
+    ) == (
         0,
         0,
         [],

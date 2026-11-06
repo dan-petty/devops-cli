@@ -2,9 +2,8 @@
 
 Streams are answered by the `web` fake (`serve_llm`, `streamed`), which sits at httpx2's transport
 interface, so a reply is read through the same response, content decoders and event parser it
-would be against a real server, and no socket is opened. `route_client`, `route_llm_clients` and
-`route_retrying_client` patch a client of the LLM client instead; they stay for the packages that
-have not moved to `web` (#3758). Hosts are `example.com`, as docs/TESTING.md requires of fixtures.
+would be against a real server, and no socket is opened. Hosts are `example.com`, as
+docs/TESTING.md requires of fixtures.
 """
 
 from __future__ import annotations
@@ -15,7 +14,6 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 import httpx2
-import pytest
 
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
@@ -239,98 +237,6 @@ def serve_llm(
 
     web.servers.clear()
     web.serve(serve)
-    return sent
-
-
-def route_client(
-    client: Any,
-    monkeypatch: pytest.MonkeyPatch,
-    handler: Callable[[httpx2.Request], httpx2.Response],
-) -> list[httpx2.Request]:
-    """Send every request an LLMClient makes to `handler`; return the requests, in order."""
-    sent: list[httpx2.Request] = []
-
-    def record(request: httpx2.Request) -> httpx2.Response:
-        sent.append(request)
-        return as_requested(request, handler(request))
-
-    transport = httpx2.MockTransport(record)
-    monkeypatch.setattr(client, "_shared_client", lambda: httpx2.Client(transport=transport))
-    monkeypatch.setattr(
-        client, "_create_http_client", lambda timeout=None: httpx2.Client(transport=transport)
-    )
-    monkeypatch.setattr("devops_cli.ai.gateway._query_model_info", lambda *a, **kw: None)
-    return sent
-
-
-def route_llm_clients(
-    monkeypatch: pytest.MonkeyPatch,
-    handler: Callable[[httpx2.Request], httpx2.Response],
-) -> list[httpx2.Request]:
-    """Send every request any LLMClient makes, including one built inside the code under test,
-    to `handler`; return the requests, in order."""
-    from devops_cli.ai.client import LLMClient
-
-    sent: list[httpx2.Request] = []
-
-    def record(request: httpx2.Request) -> httpx2.Response:
-        sent.append(request)
-        return as_requested(request, handler(request))
-
-    transport = httpx2.MockTransport(record)
-    monkeypatch.setattr(
-        LLMClient, "_shared_client", lambda self: httpx2.Client(transport=transport)
-    )
-    monkeypatch.setattr(
-        LLMClient,
-        "_create_http_client",
-        lambda self, timeout=None: httpx2.Client(transport=transport),
-    )
-    monkeypatch.setattr("devops_cli.ai.gateway._query_model_info", lambda *a, **kw: None)
-    return sent
-
-
-def route_retrying_client(
-    client: Any,
-    monkeypatch: pytest.MonkeyPatch,
-    handler: Callable[[httpx2.Request], httpx2.Response],
-) -> list[httpx2.Request]:
-    """Send every request an LLMClient makes through its retry transport to `handler`,
-    replacing only the innermost transport and patching retry waits to 0."""
-    monkeypatch.setattr("devops_cli.core.clock.sleep", lambda *_: None)
-    monkeypatch.setattr("time.sleep", lambda *_: None)
-    monkeypatch.setattr("devops_cli.ai.gateway._query_model_info", lambda *a, **kw: None)
-
-    from devops_cli.ai.client import LLMClient
-    from devops_cli.ai.retries import create_retry_transport
-    from devops_cli.ai.spend.transport import AttemptRecordingTransport
-
-    sent: list[httpx2.Request] = []
-
-    def record(request: httpx2.Request) -> httpx2.Response:
-        sent.append(request)
-        return as_requested(request, handler(request))
-
-    inner = httpx2.MockTransport(record)
-    recording = AttemptRecordingTransport(inner)
-
-    def _make_client(timeout: Any = None) -> httpx2.Client:
-        retrying = create_retry_transport(
-            max_attempts=client._max_attempts(),
-            wrapped=recording,
-            min_wait=0.0,
-            max_wait=0.0,
-        )
-        return httpx2.Client(transport=retrying)
-
-    monkeypatch.setattr(client, "_shared_client", lambda: _make_client())
-    monkeypatch.setattr(client, "_create_http_client", _make_client)
-    monkeypatch.setattr(LLMClient, "_shared_client", lambda self: _make_client())
-    monkeypatch.setattr(
-        LLMClient,
-        "_create_http_client",
-        lambda self, timeout=None: _make_client(timeout),
-    )
     return sent
 
 

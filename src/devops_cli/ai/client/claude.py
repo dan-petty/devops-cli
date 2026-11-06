@@ -290,7 +290,7 @@ class ClaudeProviderMixin(BaseLLMProviderMixin):
 
     @property
     def _anthropic_client(self) -> anthropic.Anthropic:
-        """Construct Anthropic SDK client bound to the factory-built shared HTTP client."""
+        """Construct Anthropic SDK client bound to the shared HTTP client of the entry point."""
         import anthropic
 
         base = self._validate_base_url(

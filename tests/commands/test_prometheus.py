@@ -13,7 +13,8 @@ from typer.testing import CliRunner
 from devops_cli.commands.prometheus import app as prometheus_app
 from devops_cli.config.settings import Settings
 from devops_cli.main import app as main_app
-from tests.web_fakes import PUBLIC_ADDRESS, record_connects, scripted_resolver
+from tests.support.fakes.dial import record_connects
+from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
 
 runner = CliRunner()
 
@@ -185,14 +186,14 @@ def test_prometheus_errors_and_edge_cases() -> None:
 
 
 def test_a_k8s_address_in_the_prometheus_url_stops_the_query_before_a_lookup(
-    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch, dns: DnsFake
 ) -> None:
     """Old vs new (#2424): the error names the setting, and the URL check makes no lookup.
 
     `devops k8s configure-urls --addressing proxy` writes a `k8s://` address, which this command
     cannot dial. The command reads the scheme of the URL and stops before any lookup or dial.
     """
-    resolver = scripted_resolver(monkeypatch, {"monitoring": [[PUBLIC_ADDRESS]]})
+    dns.script("monitoring", [PUBLIC_ADDRESS])
     recorder = record_connects(monkeypatch, [])
 
     result = cli(
@@ -205,19 +206,19 @@ def test_a_k8s_address_in_the_prometheus_url_stops_the_query_before_a_lookup(
     assert (
         result.exit_code,
         "prometheus.url" in result.output,
-        resolver.lookups["monitoring"],
+        len(dns.lookups_of("monitoring")),
         recorder.dialled,
     ) == (1, True, 0, [])
 
 
 def test_a_refused_prometheus_address_ends_the_query_with_the_refusal(
-    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch, dns: DnsFake
 ) -> None:
     """The connect refuses a private answer without the flag, and the command prints why (#2424).
 
     The command exits with the status of `SSRFBlockedError` (`SSRF_BLOCKED`, docs/ERRORS.md).
     """
-    scripted_resolver(monkeypatch, {"example.com": [["192.0.2.10"]]})
+    dns.script("example.com", ["192.0.2.10"])
     recorder = record_connects(monkeypatch, [])
 
     result = cli(

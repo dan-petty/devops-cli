@@ -40,8 +40,8 @@ from devops_cli.dry_run import is_dry_run
 from devops_cli.dry_run.decorator import dry_run_class
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions import ChecksumMismatchError, ToolDownloadError, ToolExecutionError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
     print_error,
@@ -102,8 +102,8 @@ def _download_client() -> httpx2.Client:
     The tool hosts are public, so a name answering a private, loopback or metadata address is
     refused at the connect, whatever `ai.allow_private_network` says.
     """
-    return new_http_client(
-        level=EgressLevel.PUBLIC,
+    return http_client(
+        EgressLevel.PUBLIC,
         follow_redirects=True,
         event_hooks={"request": [_require_https]},
     )

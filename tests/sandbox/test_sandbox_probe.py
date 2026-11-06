@@ -32,8 +32,8 @@ from devops_cli.sandbox.probe import (
     probe_tcp,
     run_sandbox_probes,
 )
+from tests.support.fakes.dns import DnsFake
 from tests.support.waits import POLL_INTERVAL_SECONDS
-from tests.web_fakes import scripted_resolver
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Models Serialization Tests
@@ -497,16 +497,14 @@ def test_probe_http_refuses_a_regex_that_is_too_long_or_not_valid(
     assert message in (res.message or "")
 
 
-def test_probe_tcp_metadata_trailing_dot_and_dns_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_probe_tcp_metadata_trailing_dot_and_dns_blocked(dns: DnsFake) -> None:
     """Verify probe_tcp refuses a name that answers a metadata address, trailing dot or not.
 
     `169.254.169.254.` is a DNS name to glibc, not an address, so its answers are vetted like
     any other name's.
     """
-    scripted_resolver(
-        monkeypatch,
-        {"169.254.169.254.": [["169.254.169.254"]], "example.com": [["169.254.169.254"]]},
-    )
+    dns.script("169.254.169.254.", ["169.254.169.254"])
+    dns.script("example.com", ["169.254.169.254"])
     results = [probe_tcp("169.254.169.254.", 80), probe_tcp("example.com", 80)]
 
     assert [(result.status, "cloud metadata" in result.message) for result in results] == [
@@ -542,21 +540,21 @@ def test_endpoint_probe_result_recursive_sanitizer() -> None:
     assert result.details["list_data"][1]["key"].endswith("...")
 
 
-def test_probe_tcp_connects_to_vetted_sockaddr(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_probe_tcp_connects_to_vetted_sockaddr(dns: DnsFake) -> None:
     """Verify probe_tcp connects to the address it vetted, so a rebinding name cannot change it."""
-    resolver = scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"], ["192.0.2.1"]]})
+    dns.script("example.com", ["127.0.0.1"], ["192.0.2.1"])
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("127.0.0.1", 0))
         listener.listen(1)
         res = probe_tcp("example.com", listener.getsockname()[1], timeout=2.0)
 
-    assert (res.status, resolver.lookups["example.com"]) == (ProbeStatus.PASS, 1)
+    assert (res.status, len(dns.lookups_of("example.com"))) == (ProbeStatus.PASS, 1)
 
 
-def test_probe_http_metadata_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_probe_http_metadata_blocked(dns: DnsFake) -> None:
     """Verify probe_http refuses cloud metadata at the private level, by address or by answer."""
     literal = probe_http("http://169.254.169.254/latest/meta-data")
-    scripted_resolver(monkeypatch, {"example.com": [["169.254.169.254"]]})
+    dns.script("example.com", ["169.254.169.254"])
     answered = probe_http("http://example.com/computeMetadata/v1")
 
     assert [
@@ -567,14 +565,17 @@ def test_probe_http_metadata_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
     ]
 
 
-@pytest.mark.usefixtures("public_dns")
-def test_the_probe_timeout_bounds_every_connect(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_probe_timeout_bounds_every_connect(
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake
+) -> None:
     """`devops sandbox probe --timeout N` bounds each connect by N, for HTTP and OpenAPI as for TCP.
 
     A factory client given a bare number reads it as the read timeout and keeps a 1 s connect, so a
     probe whose first SYN was dropped would report a timeout 'after N s' it never waited.
     """
-    from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects
+    dns.answer_every_name()
+    from tests.support.fakes.dial import http_response, record_connects
+    from tests.support.fakes.dns import PUBLIC_ADDRESS
 
     schema = json.dumps({"paths": {"/healthz": {"get": {}}}})
     recorder = record_connects(

@@ -37,6 +37,7 @@ from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import GitHubSession, get_github_session, reset_github_session
 from devops_cli.http.egress import EgressLevel
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
 from tests.support.fakes.github import (
     API,
     JSON_TYPE,
@@ -50,7 +51,6 @@ from tests.support.fakes.github import (
 from tests.support.github_identity import PINNED_GITHUB_TOKEN
 from tests.support.paths import REPO_ROOT
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until, wait_while_running
-from tests.web_fakes import rebinding, scripted_resolver
 
 _SRC = REPO_ROOT / "src" / "devops_cli"
 
@@ -360,25 +360,26 @@ def test_a_token_change_closes_the_replaced_session(
 # The child sends one request through the process's session over the fake GitHub API, and again
 # through the same session after `reset_github_session()` reopened it, and never closes it: the
 # interpreter must still exit. It fakes GitHub as the `github_api` fixture does, through the
-# httpx2 client seam, and resolves GitHub's API host to a public address with the web fakes'
-# resolver, so its requests are vetted with no DNS, no network and no gh.
+# HTTP entry point's transport seam, and resolves GitHub's API host to a public address with the
+# DNS fake, so its requests are vetted with no DNS, no network and no gh.
 _EXITING_CHILD = """
-import socket
 import time
-
-import httpx2
 
 from devops_cli.core import process
 from devops_cli.github import session
 from devops_cli.github.rate_limiter import get_github_rate_limiter
+from devops_cli.http.egress import install_resolver
+from devops_cli.http.entry import install_transport
+from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
 from tests.support.fakes.github import GitHubApiFake, github_json
-from tests.web_fakes import PUBLIC_ADDRESS, ScriptedResolver
 
-socket.getaddrinfo = ScriptedResolver({"api.github.com": [[PUBLIC_ADDRESS]]}, socket.getaddrinfo)
+dns = DnsFake()
+dns.add("api.github.com", PUBLIC_ADDRESS)
+install_resolver(dns)
 process._github_token = "child-token"
 api = GitHubApiFake()
 api.route("GET", "/user", github_json({"login": "octocat"}))
-httpx2.AsyncClient = api.client_class()
+install_transport(api.transport)
 get_github_rate_limiter().update_quota(
     "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
 )
@@ -545,12 +546,12 @@ def test_braces_in_a_path_are_sent_as_literal_characters(github_api: GitHubApiFa
 
 
 def test_the_sessions_requests_are_vetted_at_the_public_egress_level(
-    github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+    github_api: GitHubApiFake, dns: DnsFake
 ) -> None:
     """The factory builds the session's client at the public egress level, and a request whose
     host comes to resolve to loopback is refused before anything reaches GitHub's fake."""
     github_api.route("GET", "/user", github_json({"login": "octocat"}))
-    scripted_resolver(monkeypatch, {"api.github.com": rebinding(1, "127.0.0.1")})
+    dns.script("api.github.com", [PUBLIC_ADDRESS], ["127.0.0.1"])
     session = get_github_session()
     first = session.rest("GET", "/user")
     with pytest.raises(SSRFBlockedError) as raised:
@@ -575,8 +576,8 @@ def test_the_sessions_client_waits_a_public_connect_timeout_and_the_factorys_rea
 
     github_api.route("GET", "/user", github_json({"login": "octocat"}))
     get_github_session().rest("GET", "/user")
-    (client,) = github_api.clients
-    assert (client.timeout.connect, client.timeout.read) == (
+    (timeout,) = github_api.timeouts
+    assert (timeout["connect"], timeout["read"]) == (
         getattr(defaults, "DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS", None),
         defaults.DEFAULT_HTTP_TIMEOUT_SECONDS,
     )

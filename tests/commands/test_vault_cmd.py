@@ -32,8 +32,9 @@ from devops_cli.models.vault import (
 )
 from devops_cli.security.secrets import reset_resolver
 from devops_cli.security.vault_broker import VaultStatus
+from tests.support.fakes.dial import http_response, record_connects
+from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
 from tests.support.fakes.http import WebFake
-from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
 
 
 def reset_lease_registry() -> None:
@@ -248,7 +249,7 @@ class TestStatusToolTakesNoAddressFromTheModel:
         ] == [["dry_run"]]
 
     async def test_an_address_argument_is_refused_and_reaches_no_socket(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, dns: DnsFake
     ) -> None:
         """A call that gives an address fails and sends no request, and no answer comes back.
 
@@ -256,7 +257,7 @@ class TestStatusToolTakesNoAddressFromTheModel:
         `GET /some/path?x=/v1/sys/health`, and the reply held the `version` and `cluster_name`
         values of the answer.
         """
-        scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+        dns.script("example.com", [PUBLIC_ADDRESS])
         recorder = record_connects(monkeypatch, [http_response(200, HEALTH_ANSWER)] * 4)
 
         failed, reply_text = await _call_status_tool(
@@ -272,10 +273,10 @@ class TestStatusToolTakesNoAddressFromTheModel:
         ) == (True, True, False, [], [])
 
     async def test_a_call_with_no_address_asks_the_configured_vault(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, dns: DnsFake
     ) -> None:
         """The request goes to `VAULT_ADDR`, and its path is `/v1/sys/health`."""
-        scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+        dns.script("example.com", [PUBLIC_ADDRESS])
         monkeypatch.setenv("VAULT_ADDR", "http://example.com:8200")
         recorder = record_connects(monkeypatch, [http_response(200, HEALTH_ANSWER)])
 
@@ -309,9 +310,11 @@ class TestStatusToolTakesNoAddressFromTheModel:
         ) == (True, True, False, [])
 
 
-def test_the_command_keeps_its_address_option(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_command_keeps_its_address_option(
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake
+) -> None:
     """A person who types `--addr` still names the Vault that the command asks."""
-    scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+    dns.script("example.com", [PUBLIC_ADDRESS])
     recorder = record_connects(monkeypatch, [http_response(200, HEALTH_ANSWER)])
 
     res = runner.invoke(app, ["status", "--addr", "http://example.com:8201"])

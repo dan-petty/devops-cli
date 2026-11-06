@@ -1,6 +1,6 @@
 """A public OCI registry answered at the HTTP edge, as GHCR answers an anonymous client (#1997).
 
-`stub_web.serve(RegistryFake(...))` installs it. A manifest request with no token gets 401 and a
+`web.serve(RegistryFake(...))` installs it. A manifest request with no token gets 401 and a
 Bearer challenge whose realm is the registry's `/token`; the token endpoint gives an anonymous pull
 token, or 401 when the registry refuses anonymous pulls; the manifest request with the token gets
 the tag's digest in `Docker-Content-Digest`, or 404 for a tag it does not hold.

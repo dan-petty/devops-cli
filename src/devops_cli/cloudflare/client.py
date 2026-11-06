@@ -32,8 +32,8 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core import clock
 from devops_cli.exceptions.cloudflare import CloudflareAPIError, CloudflareAuthError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.models.cloudflare import (
     CloudflareAccessApplication,
     CloudflareAccessPolicy,
@@ -383,8 +383,8 @@ class CloudflareClient:
         headers = _build_auth_headers(self._token)
 
         def make_request() -> httpx2.Response:
-            with new_http_client(
-                level=EgressLevel.PUBLIC, read_timeout=30.0, transport=self._transport
+            with http_client(
+                EgressLevel.PUBLIC, read_timeout=30.0, transport=self._transport
             ) as client:
                 try:
                     return client.request(

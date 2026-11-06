@@ -1,9 +1,12 @@
 id: net-raw-http-client
 valid:
-  - 'client = new_http_client(level=EgressLevel.PUBLIC)'
-  - 'client = new_async_http_client(level=EgressLevel.CONFIGURED)'
-  - 'client = get_shared_client()'
+  - 'client = http_client(EgressLevel.PUBLIC)'
+  - 'client = async_http_client(EgressLevel.CONFIGURED)'
+  - 'client = http_client(EgressLevel.PUBLIC, key="profile")'
   - 'res = httpx2.Response(200)'
+  - |
+    def _build_client():
+        return httpx2.Client()
 invalid:
   - 'client = httpx2.Client()'
   - 'client = httpx2.AsyncClient(timeout=10)'

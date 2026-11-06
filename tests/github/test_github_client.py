@@ -39,6 +39,7 @@ from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import FIXTURES
 
 if TYPE_CHECKING:
+    from tests.support.fakes.dns import DnsFake
     from tests.support.fakes.github import GitHubApiFake
 
 _RECORDED = json.loads(
@@ -527,8 +528,9 @@ def _scripted_gh(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[s
 
 
 def test_one_identity_reaches_the_pr_diff_gh_and_the_quota_refresh(
+    request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
-    public_dns: str,
+    dns: DnsFake,
     pin_github_session: str,
 ) -> None:
     """The PR diff, two run_gh calls and the quota refresh all act as token A from `gh auth token`."""
@@ -537,11 +539,13 @@ def test_one_identity_reaches_the_pr_diff_gh_and_the_quota_refresh(
     from devops_cli.core.process import reset_github_token
     from devops_cli.github.rate_limiter import run_gh
     from devops_cli.github.session import get_github_session
+    from devops_cli.http.entry import install_transport, remove_transport
     from tests.support.fakes.github import GitHubApiFake
-    from tests.web_fakes import install_async_client_fake
 
+    dns.answer_every_name()
     api = GitHubApiFake()
-    install_async_client_fake(monkeypatch, api.client_class())
+    install_transport(api.transport)
+    request.addfinalizer(remove_transport)
     reset_github_token()
     monkeypatch.setenv("GITHUB_TOKEN", "C")
     api.route(
@@ -562,8 +566,8 @@ def test_one_identity_reaches_the_pr_diff_gh_and_the_quota_refresh(
         for call in run.call_args_list
         if call.args[0][0] == CONST_GH_CLI
     ]
-    github_requests = [request for request in api.sent if request.url.host == "api.github.com"]
-    assert (diff, [request.headers["authorization"] for request in github_requests], children) == (
+    github_requests = [sent for sent in api.sent if sent.url.host == "api.github.com"]
+    assert (diff, [sent.headers["authorization"] for sent in github_requests], children) == (
         "diff --git a/f b/f",
         ["token A"],
         [

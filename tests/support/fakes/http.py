@@ -155,8 +155,8 @@ class WebFake:
 def vetted_handler[Answer](
     handler: Callable[[httpx2.Request], Answer], level: EgressLevel | None
 ) -> Callable[[httpx2.Request], Answer]:
-    """`handler`, after vetting each request's host at `level` as a factory client's connect
-    would; `handler` itself for a client the factory did not build."""
+    """`handler`, after vetting each request's host at `level` as the connect of a client of the entry point
+    would; `handler` itself when `level` is None."""
     if level is None:
         return handler
 

@@ -41,6 +41,7 @@ from devops_cli.exceptions.git import (
 from devops_cli.github.pages import get_pages_status
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session
+from tests.support.fakes.dns import DnsFake
 from tests.support.fakes.github import (
     API,
     GitHubApiDouble,
@@ -195,21 +196,22 @@ _A_REFUSED_WRITE = Case("markdown_in_an_unknown_mode", slice(0, 1), _route_refus
 
 @pytest.fixture(params=["fake", "recorded"])
 def github(
-    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, public_dns: str
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, dns: DnsFake
 ) -> Iterator[Callable[[Case], GitHubApiDouble]]:
     """Serve a case's GitHub to the process's session: the fake as the case routes it, or
     GitHub's recorded answers. A recorded answer the session never asked for fails the test."""
     served: list[RecordedGitHubApi] = []
+    dns.answer_every_name()
 
     def serve(case: Case) -> GitHubApiDouble:
         if request.param == "recorded":
             replay = RecordedGitHubApi(case.recorded())
             served.append(replay)
-            serve_github_api(monkeypatch, replay)
+            serve_github_api(request, monkeypatch, replay)
             return replay
         fake = GitHubApiFake()
         case.route(fake)
-        serve_github_api(monkeypatch, fake)
+        serve_github_api(request, monkeypatch, fake)
         return fake
 
     yield serve

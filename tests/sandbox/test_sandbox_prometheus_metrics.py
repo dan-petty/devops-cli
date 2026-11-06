@@ -14,10 +14,11 @@ from devops_cli.sandbox.metrics import (
 from devops_cli.sandbox.models import (
     PrometheusMetric,
 )
+from tests.support.fakes.dial import http_response, record_connects
+from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
 from tests.support.sandbox import (
     SAMPLE_PROMETHEUS_TEXT,
 )
-from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
 
 
 def _scraped_request(recorder: Any) -> tuple[str, str]:
@@ -66,12 +67,11 @@ def test_a_metrics_target_is_scraped_at_its_host_port_and_path(
     dialled: tuple[str, int],
     request_line: str,
     host: str,
+    dns: DnsFake,
 ) -> None:
     """A target is scraped over http at its own host and port, below its path prefix."""
-    scripted_resolver(
-        monkeypatch,
-        {"httpbin.example.com": [[PUBLIC_ADDRESS]], "example.com": [[PUBLIC_ADDRESS]]},
-    )
+    dns.script("httpbin.example.com", [PUBLIC_ADDRESS])
+    dns.script("example.com", [PUBLIC_ADDRESS])
     recorder = record_connects(monkeypatch, [http_response(200, "up 1\n")])
 
     snapshot = collect_sandbox_metrics(target, prom_endpoint=endpoint, timeout=1.0)
@@ -197,13 +197,13 @@ def test_scrape_prometheus_metrics_ssrf_protection() -> None:
     assert "SSRF" in res_rfc1918.error or "private" in res_rfc1918.error.lower()
 
 
-def test_a_scrape_looks_up_its_host_once(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_scrape_looks_up_its_host_once(monkeypatch: pytest.MonkeyPatch, dns: DnsFake) -> None:
     """A scrape resolves its host one time, at the connect, and dials the address it checked.
 
     No check before the request resolves the name again, so a rebinding DNS server gets no second
     question (#2431).
     """
-    resolver = scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+    dns.script("example.com", [PUBLIC_ADDRESS])
     recorder = record_connects(monkeypatch, [http_response(200, "up 1\n")])
 
     result = scrape_prometheus_metrics("http://example.com:9100/metrics", timeout=1.0)
@@ -211,9 +211,9 @@ def test_a_scrape_looks_up_its_host_once(monkeypatch: pytest.MonkeyPatch) -> Non
     assert (
         result.error,
         [metric.name for metric in result],
-        resolver.lookups,
+        len(dns.lookups_of("example.com")),
         [dial for dial in recorder.dialled if dial[0] == PUBLIC_ADDRESS],
-    ) == (None, ["up"], {"example.com": 1}, [(PUBLIC_ADDRESS, 9100)])
+    ) == (None, ["up"], 1, [(PUBLIC_ADDRESS, 9100)])
 
 
 def test_parse_prometheus_exposition_label_unescaping() -> None:

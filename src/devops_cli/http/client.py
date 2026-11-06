@@ -1,24 +1,27 @@
-"""The HTTP client factory: every client it builds dials only what its egress level allows.
+"""What `devops_cli.http.entry` builds a client from: the egress transports, the timeouts and the
+transport hook of a test. Every client the entry point builds dials only what its egress level
+allows.
 
-httpx2 ignores `verify`, `http2` and `limits` on a client given `transport=`, so the factory owns
-them and builds the transport itself. httpx2's transports take no network backend
-(`HTTPTransport.__init__` in httpx2 2.13.1), so the factory replaces the connection pool each one
-builds with an httpcore2 pool, httpcore2's public API, holding the vetting backend of
-`devops_cli.http.egress`. `tests/test_http_egress.py` pins that seam, so an httpx2 upgrade that
+httpx2 ignores `verify`, `http2` and `limits` on a client given `transport=`, so the entry point
+owns them and builds the transport itself. httpx2's transports take no network backend
+(`HTTPTransport.__init__` in httpx2 2.13.1), so each egress transport replaces the connection pool
+that httpx2 builds with an httpcore2 pool, httpcore2's public API, holding the vetting backend of
+`devops_cli.http.egress`. `tests/http/test_http_egress.py` pins that seam, so an httpx2 upgrade that
 moves it fails the suite instead of dropping the check.
 
-A factory client ignores HTTP_PROXY, HTTPS_PROXY and ALL_PROXY. httpx2 reads them only for a
-client without `transport=`, and a proxy would become the vetted peer in place of the destination.
+A client of the entry point ignores HTTP_PROXY, HTTPS_PROXY and ALL_PROXY. httpx2 reads them only
+for a client without `transport=`, and a proxy would become the vetted peer in place of the
+destination.
 
-Every factory client takes its transport from one place: the transport that a test
-installed with `devops_cli.http.entry.install_transport`, else the egress transport of its level.
+Every client takes its transport from one place: the transport that a test installed with
+`devops_cli.http.entry.install_transport`, else the egress transport of its level.
 """
 
 from __future__ import annotations
 
 import ssl
 from collections.abc import Callable, Mapping
-from typing import Any, TypedDict, Unpack
+from typing import Any, TypedDict
 
 import httpcore2
 import httpx2
@@ -41,7 +44,7 @@ class HTTPTimeoutTypeError(ValidationError, TypeError):
 
 
 class ClientOptions(TypedDict, total=False):
-    """httpx2 client options a factory client accepts: none of them changes where it connects."""
+    """httpx2 client options that the entry point accepts: none of them changes where it connects."""
 
     headers: Mapping[str, str]
     follow_redirects: bool
@@ -58,7 +61,7 @@ _TRANSPORT_HOOK: TransportFactory | None = None
 
 
 def set_transport_hook(factory: TransportFactory | None) -> None:
-    """Install, or with None remove, the transport that every factory client uses.
+    """Install, or with None remove, the transport that every client of the entry point uses.
 
     Callers go through `devops_cli.http.entry.install_transport`, which closes the pooled clients
     first: a client built earlier keeps the transport it was built with.
@@ -67,13 +70,18 @@ def set_transport_hook(factory: TransportFactory | None) -> None:
     _TRANSPORT_HOOK = factory
 
 
+def has_transport_hook() -> bool:
+    """Report whether a test has installed a transport."""
+    return _TRANSPORT_HOOK is not None
+
+
 def reset_transport_hook() -> None:
-    """Remove the installed transport, so every factory client takes its egress transport."""
+    """Remove the installed transport, so every client of the entry point takes its egress transport."""
     global _TRANSPORT_HOOK
     _TRANSPORT_HOOK = None
 
 
-def _hooked_transport[T: (httpx2.BaseTransport, httpx2.AsyncBaseTransport)](
+def hooked_transport[T: (httpx2.BaseTransport, httpx2.AsyncBaseTransport)](
     level: EgressLevel, kind: type[T]
 ) -> T | None:
     """The installed transport for a client at `level`, or None when none is installed.
@@ -124,7 +132,7 @@ def connection_limits() -> httpx2.Limits:
     )
 
 
-def _resolve_client_timeout(
+def resolve_client_timeout(
     timeout: httpx2.Timeout | float | None,
     read_timeout: float | None,
 ) -> httpx2.Timeout:
@@ -190,73 +198,6 @@ def async_egress_transport(
     return transport
 
 
-def new_http_client(
-    *,
-    level: EgressLevel,
-    read_timeout: float | None = None,
-    timeout: httpx2.Timeout | float | None = None,
-    verify: ssl.SSLContext | bool = True,
-    http2: bool = False,
-    limits: httpx2.Limits | None = None,
-    retries: int | None = None,
-    transport: httpx2.BaseTransport | None = None,
-    **options: Unpack[ClientOptions],
-) -> httpx2.Client:
-    """Create an httpx2.Client that dials only what `level` allows, with short-connect timeouts.
-
-    `retries` wraps the transport in the tenacity retry transport for that many attempts. That
-    transport turns every 4xx and 5xx response into httpx2.HTTPStatusError and retries 429, 5xx
-    and connect failures, so only a caller built for those semantics, as the AI clients are,
-    passes it. A refusal (SSRFBlockedError) is not an httpx2 error and is never retried.
-    """
-    if transport is None:
-        transport = _hooked_transport(level, httpx2.BaseTransport)
-    effective_transport: httpx2.BaseTransport = (
-        transport
-        if transport is not None
-        else egress_transport(level, verify=verify, http2=http2, limits=limits)
-    )
-    if retries is not None:
-        from devops_cli.ai.retries import create_retry_transport
-        from devops_cli.ai.spend.transport import AttemptRecordingTransport
-
-        effective_transport = AttemptRecordingTransport(effective_transport)
-        effective_transport = create_retry_transport(
-            max_attempts=retries, wrapped=effective_transport
-        )
-    return httpx2.Client(
-        timeout=_resolve_client_timeout(timeout, read_timeout),
-        transport=effective_transport,
-        **options,
-    )
-
-
-def new_async_http_client(
-    *,
-    level: EgressLevel,
-    read_timeout: float | None = None,
-    timeout: httpx2.Timeout | float | None = None,
-    verify: ssl.SSLContext | bool = True,
-    http2: bool = True,
-    limits: httpx2.Limits | None = None,
-    transport: httpx2.AsyncBaseTransport | None = None,
-    **options: Unpack[ClientOptions],
-) -> httpx2.AsyncClient:
-    """Create an httpx2.AsyncClient that dials only what `level` allows, with HTTP/2."""
-    if transport is None:
-        transport = _hooked_transport(level, httpx2.AsyncBaseTransport)
-    effective_transport: httpx2.AsyncBaseTransport = (
-        transport
-        if transport is not None
-        else async_egress_transport(level, verify=verify, http2=http2, limits=limits)
-    )
-    return httpx2.AsyncClient(
-        timeout=_resolve_client_timeout(timeout, read_timeout),
-        transport=effective_transport,
-        **options,
-    )
-
-
 __all__ = [
     "ClientOptions",
     "HTTPTimeoutTypeError",
@@ -264,10 +205,11 @@ __all__ = [
     "async_egress_transport",
     "connection_limits",
     "egress_transport",
-    "new_async_http_client",
-    "new_http_client",
+    "has_transport_hook",
+    "hooked_transport",
     "request_timeout",
     "reset_transport_hook",
+    "resolve_client_timeout",
     "set_transport_hook",
     "user_agent",
 ]

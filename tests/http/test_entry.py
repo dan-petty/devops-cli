@@ -130,17 +130,28 @@ def test_the_hook_gives_the_factory_the_level_of_the_client(web: WebFake) -> Non
 def test_installing_and_removing_a_transport_close_the_pooled_clients(web: WebFake) -> None:
     """A pooled client built earlier would keep the old transport, so each swap closes it first."""
     before = http_client(EgressLevel.PUBLIC, key="profile")
+    remove_transport()
+    unfaked = http_client(EgressLevel.PUBLIC, key="profile")
     install_transport(WebFake().transport)
     after_install = http_client(EgressLevel.PUBLIC, key="profile")
     remove_transport()
-    after_remove = http_client(EgressLevel.PUBLIC, key="profile")
 
     assert (
         before.is_closed,
+        unfaked.is_closed,
         after_install.is_closed,
-        after_remove is not after_install,
-        after_install is not before,
-    ) == (True, True, True, True)
+        unfaked is not before,
+        after_install is not unfaked,
+    ) == (True, True, True, True, True)
+
+
+def test_a_second_transport_is_refused_until_the_first_goes(web: WebFake) -> None:
+    """Two fakes of HTTP in one test would let the later one win with no sign."""
+    with pytest.raises(RuntimeError, match="already installed"):
+        install_transport(WebFake().transport)
+    remove_transport()
+    install_transport(WebFake().transport)
+    assert http_client(EgressLevel.PUBLIC).get(_FINAL).status_code == 404
 
 
 def test_a_removed_transport_gives_the_real_egress_transport_back(

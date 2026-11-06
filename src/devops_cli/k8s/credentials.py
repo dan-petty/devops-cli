@@ -6,7 +6,7 @@ and mints a new token only when the service refuses the stored one. When the che
 another HTTP status or a request error, the sync keeps the stored token. Every failure reaches
 the sync result with its cause (#2156).
 
-Each request dials through the egress factory at the level of its caller. The callers that read
+Each request dials through the HTTP entry point at the level of its caller. The callers that read
 the settings give the configured level: loopback, or private with `ai.allow_private_network`. An
 address that the level refuses fails the step with its cause, as a request error does.
 """
