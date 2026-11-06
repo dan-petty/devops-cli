@@ -27,6 +27,7 @@ from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PR
 from devops_cli.roadmap.implement import ImplementPlan, parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement_run import apply_implement, raise_for_failed
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from devops_cli.roadmap.stage_change import closing_keyword_in
 from devops_cli.roadmap.store import ImplementRecordKey
 from tests.support.base_replay import (
     BEHAVIOR_FIRST_TICKED,
@@ -729,6 +730,22 @@ def test_a_stop_pushes_the_commits_of_the_steps_that_passed_and_leaves_the_draft
     assert job_world.sent("PATCH", f"pulls/{PULL}") == []
     _, record = _item(job_world)
     assert record["implement.group"] == "1"
+
+
+def test_a_stop_after_the_first_group_of_a_planned_item_leaves_a_draft_that_closes_its_issue(
+    planned_world: JobWorld,
+) -> None:
+    """The draft that `_publish` opens carries the closing keyword of the delivered issue (#3273).
+    The stop never reaches the body of the final step, so the draft body is the last body, and
+    `devops pr check-readiness` must not call the pull request ungrounded."""
+    script = ModelScript(tool_calls(*group_one_calls()), say("Done."), say("Stuck."))
+
+    planned_world.run(script)
+
+    (opened,) = planned_world.sent("POST", "pulls")
+    assert closing_keyword_in(opened["body"]) == "closes"
+    assert opened["body"].count(f"#{planned_world.number}") == 1
+    assert planned_world.sent("PATCH", f"pulls/{PULL}") == []
 
 
 def test_a_conflict_on_the_rebase_stops_the_item_before_any_step(job_world: JobWorld) -> None:

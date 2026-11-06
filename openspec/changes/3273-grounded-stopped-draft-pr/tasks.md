@@ -2,9 +2,9 @@
 
 ## 1. The draft pull request closes the delivered issue (behavior)
 
-- [ ] 1.1 Add the failing test: a Planned item that stops after group 1 leaves a draft whose body holds `Closes #<issue>` once and no later body.
+- [x] 1.1 Add the failing test: a Planned item that stops after group 1 leaves a draft whose body holds `Closes #<issue>` once and no later body.
   Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_job.py -k leaves_a_draft_that_closes`
-- [ ] 1.2 Change `implement_pull_body_draft` to start with `Closes #{number}`, and update the docstring of `_publish`.
+- [x] 1.2 Change `implement_pull_body_draft` to start with `Closes #{number}`, and update the docstring of `_publish`.
   Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_job.py tests/roadmap/test_roadmap_implement_planned.py`
 
 ## 2. Documents (documents)

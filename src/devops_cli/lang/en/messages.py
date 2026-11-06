@@ -3023,7 +3023,7 @@ class RoadmapMessages:
         "Closes #{number}\n\n{why}\n\nChange: `openspec/changes/archive/{archived}/`"
     )
     implement_pull_body_draft: str = (
-        "Work on #{number}. The job closes the issue in the body when it finishes."
+        "Closes #{number}\n\nThe job is not finished. It replaces this body when it finishes."
     )
     implement_stop_draft_failed: str = (
         "GitHub did not open the draft pull request of `{branch}`: {output}. The job removed the "
