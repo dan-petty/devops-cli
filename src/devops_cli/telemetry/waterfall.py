@@ -201,13 +201,13 @@ def resolve_trace_spans_or_latest(
 ) -> tuple[str, list[dict[str, Any]]]:
     """Retrieve the spans of a trace, or the latest buffered trace when none are found.
 
-    The latest buffered trace answers when the named trace has no spans and `last` is set, or when
-    no trace is named.
+    The latest buffered trace answers when the named trace has no spans and `last` is set. With no
+    trace named, `resolve_trace_spans` already reads the latest buffered trace.
     """
     from devops_cli.telemetry.tracer import get_trace_spans
 
     active_id, spans = resolve_trace_spans(trace_id=trace_id, tempo_url=tempo_url)
-    if not spans and (last or not trace_id):
+    if not spans and last:
         buffered = get_trace_spans(None)
         if buffered:
             return str(buffered[0].get("traceId", "unknown")), buffered

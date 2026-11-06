@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-import devops_cli.main  # noqa: F401  # loaded here, not in a test: MCP dispatches through it
 from devops_cli.config.constants import (
     CONST_SANDBOX_DOCKER_INTERNAL_NET,
     CONST_SANDBOX_NETWORK_BRIDGE,

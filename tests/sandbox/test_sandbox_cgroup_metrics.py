@@ -1,4 +1,8 @@
-"""Resource use of a sandbox container: its cgroup v2 tree, or the Engine API stats."""
+"""Resource use of a sandbox container: its cgroup v2 tree, or the Engine API stats.
+
+The cgroup trees live under `tmp_path`. The cgroup path guard refuses a root such as `/var` or `/usr`,
+so these tests need a temporary directory outside those roots (the default `/tmp` is fine).
+"""
 
 from __future__ import annotations
 
