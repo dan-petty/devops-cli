@@ -172,6 +172,7 @@ from devops_cli.roadmap.stage_criteria import criterion_problems
 from devops_cli.roadmap.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage_form import form_problems, record_search_evidence, search_problems
 from devops_cli.roadmap.stage_github import StageGitHub
+from devops_cli.roadmap.stage_moved import MovedPath, moved_paths
 from devops_cli.roadmap.stage_overlap import (
     Overlap,
     PullReads,
@@ -1728,10 +1729,55 @@ def _run_report(trace: RunTrace) -> str:
     ) + (texts.stage_comment_tool_counts.format(counts=counts) if counts else "")
 
 
-def _notes(change: StagedChange) -> str:
-    """The notes that end the comment of a staged item: the open findings first, then the other
-    findings, the report of the plan runs, the read of the open pull requests, and a validation
-    that did not run (#3264, #3252)."""
+def _named_paths(change: StagedChange) -> list[str]:
+    """The paths that the plan of `change` names: the reads and the changes of each group, once
+    each, in the order of the groups (#3309)."""
+    return list(
+        dict.fromkeys(
+            path
+            for measured in change.groups
+            for path in (*measured.group.reads, *measured.group.changes)
+        )
+    )
+
+
+def _moved_section(moved: Sequence[MovedPath]) -> str:
+    """The section of the comment that lists the named paths that the default branch changed after
+    the base commit of the plan, each with its commits (#3309). It is empty when no path moved."""
+    if not moved:
+        return ""
+    texts = MESSAGES.roadmap
+    lines = "\n".join(
+        texts.stage_comment_moved_path.format(
+            path=entry.path, commits="; ".join(safe_text(commit) for commit in entry.commits)
+        )
+        for entry in moved
+    )
+    return f"{texts.stage_comment_moved}{lines}"
+
+
+def _moved_by_item(checkout: Path, plan: StagePlan) -> dict[int, tuple[MovedPath, ...]]:
+    """The named paths that the default branch changed after the base commit of `plan`, by the
+    number of each ready item (#3309). The default branch is fetched once, so the comparison holds
+    a commit that landed after the planner read the clone. A run with no ready change, or with no
+    base commit to compare, reads no git."""
+    if not plan.ready or not plan.sha:
+        return {}
+    default = default_branch(checkout, operation=_GIT_OPERATION)
+    _git(checkout, "fetch", "-q", "origin", default)
+    branch = f"origin/{default}"
+    return {
+        change.target.item.number: tuple(
+            moved_paths(checkout, plan.sha, branch, _named_paths(change))
+        )
+        for change in plan.ready
+    }
+
+
+def _notes(change: StagedChange, moved: Sequence[MovedPath] = ()) -> str:
+    """The notes that end the comment of a staged item: the named paths that moved first, then the
+    open findings, the other findings, the report of the plan runs, the read of the open pull
+    requests, and a validation that did not run (#3309, #3264, #3252)."""
     unvalidated = "" if change.validated else MESSAGES.roadmap.stage_comment_not_validated
     read = (
         MESSAGES.roadmap.stage_comment_overlaps.format(requests=change.pulls_requests)
@@ -1740,7 +1786,8 @@ def _notes(change: StagedChange) -> str:
     )
     advisory = tuple(finding for finding in change.findings if finding not in change.open_findings)
     return (
-        open_findings_section(change.open_findings)
+        _moved_section(moved)
+        + open_findings_section(change.open_findings)
         + findings_section(advisory)
         + _run_report(change.trace)
         + read
@@ -1778,11 +1825,17 @@ def _label_needs_fix(store: RoadmapStore, pull: CreatedPull, change: StagedChang
 
 
 def _stage_one(
-    store: RoadmapStore, repo: str, source: Path, base: str, change: StagedChange
+    store: RoadmapStore,
+    repo: str,
+    source: Path,
+    base: str,
+    change: StagedChange,
+    moved: Sequence[MovedPath],
 ) -> None:
     """Make the branch, the commit, the push and the draft of one item, then record them and
     post the one comment. The branch starts at the staged commit `base` (#3301). The Status of the
-    item stays as it is."""
+    item stays as it is. `moved` is the named paths that the default branch changed after `base`
+    (#3309)."""
     target = change.target
     with _worktree(source, target, base) as path:
         sha = _commit_and_push(path, change)
@@ -1813,7 +1866,7 @@ def _stage_one(
             pull=pull.number,
             budget=change.budget,
             groups=_groups_listed(change.groups),
-            notes=f"{_notes(change)}{label_note}",
+            notes=f"{_notes(change, moved)}{label_note}",
         ),
     )
 
@@ -1975,6 +2028,7 @@ def apply_stage(
     stopped: list[int] = []
     failed: list[StageFailure] = []
     staging = {change.target.item.number for change in plan.ready}
+    moved = _moved_by_item(checkout, plan)
     phases = (
         (
             [
@@ -1996,7 +2050,18 @@ def apply_stage(
         ),
         (
             [
-                (c.target.item, partial(_stage_one, store, plan.repo, checkout, plan.sha, c))
+                (
+                    c.target.item,
+                    partial(
+                        _stage_one,
+                        store,
+                        plan.repo,
+                        checkout,
+                        plan.sha,
+                        c,
+                        moved[c.target.item.number],
+                    ),
+                )
                 for c in plan.ready
             ],
             staged,

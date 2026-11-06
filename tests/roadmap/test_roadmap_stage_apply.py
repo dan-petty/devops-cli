@@ -16,6 +16,7 @@ from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_STEP_TOKENS
 from devops_cli.exceptions import GitHubOperationError, ended_by_stop
 from devops_cli.github.rate_limiter import get_github_rate_limiter
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import stage
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import (
@@ -812,3 +813,44 @@ def test_the_report_names_the_staged_commit_that_the_probe_read(
 
     assert plan.sha == stage_repo.origin_git("rev-parse", "main")
     assert plan.sha in render_stage_plan(plan)
+
+
+def test_the_comment_lists_a_named_path_that_the_default_branch_changed(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    opened: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    model_fake.answer(make_stage_proposal())
+    plan = plan_stage(store, repo=STAGE_REPO, source=stage_repo.clone, filters=parse_filters(()))
+    advance_origin(
+        stage_repo,
+        tmp_path,
+        {"src/devops_cli/sample.py": "def keep(comments):\n    return comments\n"},
+    )
+    commit = stage_repo.origin_git("log", "--format=%h", "-1", "main")
+
+    apply_stage(store, plan, source=stage_repo.clone)
+
+    (comment,) = _comments(store)
+    assert MESSAGES.roadmap.stage_comment_moved in comment
+    assert f"`src/devops_cli/sample.py`: {commit} advance main" in comment
+
+
+def test_the_comment_of_a_plan_that_names_no_moved_path_has_no_moved_section(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    opened: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    model_fake.answer(make_stage_proposal())
+    plan = plan_stage(store, repo=STAGE_REPO, source=stage_repo.clone, filters=parse_filters(()))
+    advance_origin(stage_repo, tmp_path, {"later.txt": "later\n"})
+
+    apply_stage(store, plan, source=stage_repo.clone)
+
+    (comment,) = _comments(store)
+    assert MESSAGES.roadmap.stage_comment_moved not in comment
+    assert "later.txt" not in comment

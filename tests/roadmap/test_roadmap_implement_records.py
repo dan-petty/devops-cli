@@ -7,6 +7,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+import pytest
+
 from devops_cli.config.settings import load_settings
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import parse_filters
@@ -65,7 +67,11 @@ def test_a_record_block_from_a_person_edit_is_decoded_with_the_implement_keys() 
 
 def test_the_job_runs_no_step_unless_the_setting_says_it_is_in_a_runner(
     config: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # The pod of a runner Job sets the variable, and the suite runs in that pod.
+    monkeypatch.delenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER", raising=False)
+
     assert load_settings().roadmap.implement.in_runner is False
 
     config(roadmap={"implement": {"in_runner": True}})

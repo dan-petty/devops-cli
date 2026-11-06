@@ -417,6 +417,23 @@ def test_the_prompt_states_the_citation_forms_and_prefers_a_symbol() -> None:
     assert "refuses one whose line does not hold the text" in _PROMPT
 
 
+# ── The preconditions of a called function (#3309) ───────────────────────────
+
+
+def test_the_stage_prompt_asks_for_the_precondition_of_each_called_function() -> None:
+    """A function that the plan calls can need a checkout, a client or a network. The plan in
+    #3261 named two callees that need a checkout, and the reviewer found it (#3309). The stage
+    prompt asks for that need in `feasibility`, so the plan carries it into its design."""
+    prompt = load_task_prompt(_CHANGE_PROMPT)
+    (rule,) = re.findall(r"- In `feasibility`, give one line for each function[^\n]*", prompt)
+
+    assert "need a checkout, a client or a network" in rule
+    assert "precondition of the call" in rule
+    assert "a checkout of the repository" in rule
+    assert "a client of a service" in rule
+    assert "or a network" in rule
+
+
 # ── The phrases that a document and the prompt keep together ──────────────────
 
 _SHARED = [
