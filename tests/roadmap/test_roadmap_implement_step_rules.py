@@ -136,12 +136,16 @@ def test_the_tokens_of_the_step_count_the_rules(
 def test_rules_that_do_not_fit_the_window_refuse_the_step(
     store: InMemoryRoadmapStore, checkout: Path
 ) -> None:
-    window = CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS + 3000
+    """The window fits the inputs with the rules of the checkout and leaves 100 tokens, so a
+    longer prompt of the step does not break the test."""
+    fitting = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
+    limit = fitting.tokens + 100
+    window = CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS + limit
     build_step_inputs(store, item=1, group=1, source=checkout, window=window)
     (checkout / "AGENTS.md").write_text("Rule. " * 4000, encoding="utf-8")
     git(checkout, "commit", "-q", "-am", "long rules")
 
-    with pytest.raises(RoadmapImplementError, match="The limit is 3000 tokens"):
+    with pytest.raises(RoadmapImplementError, match=f"The limit is {limit} tokens"):
         build_step_inputs(store, item=1, group=1, source=checkout, window=window)
 
 
