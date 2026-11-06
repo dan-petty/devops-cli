@@ -21,7 +21,7 @@
 
 ## 4. Archive
 
-- [ ] 4.1 Archive the change
+- [x] 4.1 Archive the change
   - Verification: `uv run devops openspec archive 3761-builtin-tool-tests-on-fakes`
 
 ## Workflow follow-up
