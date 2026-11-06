@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.67.1](https://github.com/dan-petty/devops-cli/compare/v0.67.0...v0.67.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **roadmap:** a release image not yet pushed fails no round ([#3763](https://github.com/dan-petty/devops-cli/issues/3763)) ([8d161ad](https://github.com/dan-petty/devops-cli/commit/8d161ad8b40e3610db4df354cbd6a3a019342b3a))
+
 ## [0.67.0](https://github.com/dan-petty/devops-cli/compare/v0.66.0...v0.67.0) (2026-11-06)
 
 
