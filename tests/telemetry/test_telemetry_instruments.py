@@ -28,6 +28,21 @@ from devops_cli.ai.review.runner import _record_review_metrics
 from devops_cli.ai.review_schema import Finding, ReviewResult
 from devops_cli.ai.spend.ledger import SpendLedger, track_request_spend
 from devops_cli.ai.spend.pricing import get_pricing_registry
+from devops_cli.config.constants import (
+    CONST_SERVICE_METRIC_BUDGET_HOLDS,
+    CONST_SERVICE_METRIC_BUDGET_LIMIT,
+    CONST_SERVICE_METRIC_BUDGET_SPENT,
+    CONST_SERVICE_METRIC_CHAT_COMMANDS,
+    CONST_SERVICE_METRIC_IDENTITY_REFUSED,
+    CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
+    CONST_SERVICE_METRIC_JOB_SECONDS,
+    CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
+    CONST_SERVICE_METRIC_JOB_SUSPENDED,
+    CONST_SERVICE_METRIC_JOBS,
+    CONST_SERVICE_METRIC_QUEUE_DEPTH,
+    CONST_SERVICE_METRIC_TRIGGERS,
+    CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
+)
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import instruments as instruments_module
@@ -50,9 +65,29 @@ from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
 SERIES_NAME = re.compile(r"devops_cli_[a-z0-9_]+")
-SENT_SERIES = {instrument.name for instrument in INSTRUMENTS}
+# The series of the Service, which Prometheus scrapes from its /metrics route (#2479). The label set
+# of the identity counter starts with the first refusal, so increase() loses that count. Its panel
+# reads the value, as its alert does, so the test takes it as a gauge.
+SERVICE_SERIES: dict[str, InstrumentKind] = {
+    CONST_SERVICE_METRIC_BUDGET_HOLDS: InstrumentKind.COUNTER,
+    CONST_SERVICE_METRIC_BUDGET_LIMIT: InstrumentKind.GAUGE,
+    CONST_SERVICE_METRIC_BUDGET_SPENT: InstrumentKind.GAUGE,
+    CONST_SERVICE_METRIC_CHAT_COMMANDS: InstrumentKind.COUNTER,
+    CONST_SERVICE_METRIC_IDENTITY_REFUSED: InstrumentKind.GAUGE,
+    CONST_SERVICE_METRIC_IMPLEMENT_FAILURES: InstrumentKind.COUNTER,
+    CONST_SERVICE_METRIC_JOB_SECONDS: InstrumentKind.COUNTER,
+    CONST_SERVICE_METRIC_JOB_START_TIMESTAMP: InstrumentKind.GAUGE,
+    CONST_SERVICE_METRIC_JOB_SUSPENDED: InstrumentKind.GAUGE,
+    CONST_SERVICE_METRIC_JOBS: InstrumentKind.COUNTER,
+    CONST_SERVICE_METRIC_QUEUE_DEPTH: InstrumentKind.GAUGE,
+    CONST_SERVICE_METRIC_TRIGGERS: InstrumentKind.COUNTER,
+    CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES: InstrumentKind.COUNTER,
+}
+SENT_SERIES = {instrument.name for instrument in INSTRUMENTS} | set(SERVICE_SERIES)
 # `by (labels) (rate(selector[window]))` or `increase(...)`: the labels one series is summed by.
 GROUPED_SERIES = re.compile(r"\bby\s*\(([^)]*)\)\s*\(\s*(?:rate|increase)\(\s*([^\s\[]+)\s*\[")
+# The matcher that each query of devops-cli.json starts its selector with (#2479).
+JOB_MATCHER = re.compile(r'\{job=~"\$job"\}|job=~"\$job",')
 QUANTILE_OF = re.compile(
     r"histogram_quantile\(\s*([0-9.]+)\s*,\s*sum\s*(?:by\s*\([^)]*\)\s*)?\(\s*"
     r"(?:(?:rate|increase|last_over_time)\(\s*)?([a-z0-9_]+)"
@@ -131,8 +166,9 @@ GATEWAY_SERIES_NAME = re.compile(r"\blitellm_[a-z0-9_]+")
 
 @pytest.mark.parametrize("dashboard", _devops_cli_dashboards(), ids=lambda path: path.name)
 def test_every_dashboard_query_names_a_metric_devops_cli_sends(dashboard: Path) -> None:
-    """Verify each query reads a counter or histogram series devops-cli sends over OTLP, or, on
-    the AI spend dashboard, a series of the gateway."""
+    """Verify each query reads a counter or histogram series devops-cli sends over OTLP, a series
+    that the Service gives on its /metrics route, or, on the AI spend dashboard, a series of the
+    gateway."""
     queries = _queries(dashboard)
     reads_gateway = dashboard.name in _GATEWAY_SERIES_DASHBOARDS
 
@@ -156,7 +192,7 @@ _READ_THROUGH: dict[InstrumentKind, frozenset[str]] = {
 }
 _KIND_OF: dict[str, InstrumentKind] = {
     instrument.name: instrument.kind for instrument in INSTRUMENTS
-}
+} | SERVICE_SERIES
 
 
 def _reading_function(before: str) -> str:
@@ -578,7 +614,7 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
     }
     queries = _all_queries()
     grouped = {
-        (series, label.strip())
+        (JOB_MATCHER.sub("", series), label.strip())
         for query in queries
         for labels, series in GROUPED_SERIES.findall(query)
         for label in labels.split(",")
@@ -615,18 +651,18 @@ def test_the_github_api_row_charts_requests_throttles_and_graphql_points() -> No
 
     assert {panel["title"]: _panel_queries(panel) for panel in panels} == {
         "GitHub Requests by Resource": (
-            "sum by (resource) (increase(devops_cli_github_requests_total[1h]))"
+            'sum by (resource) (increase(devops_cli_github_requests_total{job=~"$job"}[1h]))'
         ),
         "GitHub Throttles by Resource": (
             "histogram_count(sum by (resource) "
-            "(increase(devops_cli_github_throttle_wait_seconds[1h])))"
+            '(increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[1h])))'
         ),
         "GitHub Throttle Wait by Resource": (
             "histogram_sum(sum by (resource) "
-            "(increase(devops_cli_github_throttle_wait_seconds[1h])))"
+            '(increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[1h])))'
         ),
         "GitHub GraphQL Points": (
-            "sum(increase(devops_cli_github_graphql_points_total[1h])) or vector(0)"
+            'sum(increase(devops_cli_github_graphql_points_total{job=~"$job"}[1h])) or vector(0)'
         ),
     }
 
@@ -679,9 +715,9 @@ def test_the_embedding_hit_share_panel_divides_hits_by_lookups_over_an_hour() ->
     panels = {panel["title"]: panel for panel in _panels(DASHBOARDS / "devops-cli.json")}
 
     assert _panel_queries(panels["Embedding Cache Hit Share"]) == (
-        '(sum(increase(devops_cli_embedding_cache_lookups_total{result="hit"}[1h])) '
-        "or sum(increase(devops_cli_embedding_cache_lookups_total[1h])) * 0) "
-        "/ sum(increase(devops_cli_embedding_cache_lookups_total[1h]))"
+        '(sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job",result="hit"}[1h])) '
+        'or sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[1h])) * 0) '
+        '/ sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[1h]))'
     )
 
 
@@ -708,8 +744,15 @@ def _zero_fallback(query: str) -> str:
     spend, _, _ = query.partition(" or ")
     if not re.search(r"\bby\b", _outermost(spend)):
         return f"{spend} or vector(0)"
-    requests = re.sub(r"\s*\*\s*\d+$", "", spend).replace(
-        "devops_cli_ai_spend_usd_total", 'devops_cli_ai_requests_total{cached="false"}'
+    requests = re.sub(r"\s*\*\s*\d+$", "", spend)
+    requests = re.sub(
+        r"devops_cli_ai_spend_usd_total(?:\{([^}]*)\})?",
+        lambda found: (
+            "devops_cli_ai_requests_total{"
+            + (f"{found.group(1)}," if found.group(1) else "")
+            + 'cached="false"}'
+        ),
+        requests,
     )
     return f"{spend} or {requests} * 0"
 
@@ -737,11 +780,14 @@ def _skew(queries: str) -> str:
 def _missing_limits(panel: dict[str, Any]) -> list[str]:
     """The limits a panel's description should state and does not.
 
-    The limits are those of devops-cli's delta series. A panel that reads only the gateway's
-    series reads counters that Prometheus scrapes whole, so it has none of them (#1668).
+    The limits are those of devops-cli's delta series. A panel that reads only the series of the
+    gateway (#1668) or of the Service (#2479) reads counters that Prometheus scrapes whole, so it
+    has none of them.
     """
     queries = _panel_queries(panel)
-    counts_deltas = "increase(" in queries and SERIES_NAME.search(queries) is not None
+    counts_deltas = "increase(" in queries and bool(
+        set(SERIES_NAME.findall(queries)) - set(SERVICE_SERIES)
+    )
     required = ["approximate", "two samples", "#792", _skew(queries)] if counts_deltas else []
     if "devops_cli_findings_total" in queries:
         required.append("#791")
@@ -1350,7 +1396,7 @@ def test_the_planner_tool_panel_charts_the_calls_and_the_answer_size_of_the_stag
         for panel in _panels(dashboard)
         if panel.get("title") == "Planner Tool Calls and Answer Size"
     ]
-    selector = '{job="roadmap-service", row="stage"}'
+    selector = '{job=~"$job",row="stage"}'
     assert (
         [target["expr"] for target in panel["targets"]],
         panel["gridPos"],
