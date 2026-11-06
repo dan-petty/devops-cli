@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.64.0](https://github.com/dan-petty/devops-cli/compare/v0.63.2...v0.64.0) (2026-11-06)
+
+
+### Features
+
+* **roadmap:** let the step guard allow a recorded test removal ([#3715](https://github.com/dan-petty/devops-cli/issues/3715)) ([f025406](https://github.com/dan-petty/devops-cli/commit/f025406f9e7db7a80dabddc7aa3a447faae9c491))
+* **roadmap:** require the eval replay for a stage check change ([#3716](https://github.com/dan-petty/devops-cli/issues/3716)) ([76e8301](https://github.com/dan-petty/devops-cli/commit/76e8301d3ed7ec7b1e7d2ee031288cf96765a1d8))
+* **roadmap:** restart a suspended job on a comment of a person ([#3699](https://github.com/dan-petty/devops-cli/issues/3699)) ([be8d18a](https://github.com/dan-petty/devops-cli/commit/be8d18ad812a6478d8514d16f6c9a3746a191684))
+* **roadmap:** the verifier reads the repository and repairs a plan twice ([#3710](https://github.com/dan-petty/devops-cli/issues/3710)) ([c1191e2](https://github.com/dan-petty/devops-cli/commit/c1191e251067057c95905e0cfc8cde60494bb7ee))
+* **service:** chart the Service and filter the CLI dashboard by job ([#3704](https://github.com/dan-petty/devops-cli/issues/3704)) ([fecc6fb](https://github.com/dan-petty/devops-cli/commit/fecc6fb96a518e79660e4c8183137a0a506299fe))
+
+
+### Bug Fixes
+
+* **deps:** upgrade oauthlib to fix GHSA-3jp2-3mrg-2vxc ([#3709](https://github.com/dan-petty/devops-cli/issues/3709)) ([6a88012](https://github.com/dan-petty/devops-cli/commit/6a88012f1596717b62f77235785ba13768844bf4)), closes [#3705](https://github.com/dan-petty/devops-cli/issues/3705)
+* **k8s:** hold the copy source until the destination ends ([#3712](https://github.com/dan-petty/devops-cli/issues/3712)) ([c7c5556](https://github.com/dan-petty/devops-cli/commit/c7c5556cf191571d04b3d83ce4ccdf8ddaa0e8bb)), closes [#3695](https://github.com/dan-petty/devops-cli/issues/3695)
+* **k8s:** the gateway stops using the 16 GiB tier ([#3697](https://github.com/dan-petty/devops-cli/issues/3697)) ([842effc](https://github.com/dan-petty/devops-cli/commit/842effc54b12f246a8fbf0ad3efd7a3c0afcdf93))
+* **roadmap:** keep angle-bracket text of a code span in refine ([#3711](https://github.com/dan-petty/devops-cli/issues/3711)) ([396962e](https://github.com/dan-petty/devops-cli/commit/396962e637c8d207f51f4b30263c3c7158604daf))
+* **roadmap:** P1 items pass the planned limit ([#3698](https://github.com/dan-petty/devops-cli/issues/3698)) ([63589f0](https://github.com/dan-petty/devops-cli/commit/63589f02face3796c63b49e3ece71dc94a955684)), closes [#3692](https://github.com/dan-petty/devops-cli/issues/3692)
+* **roadmap:** refine blocks an item with an open dependency ([#3696](https://github.com/dan-petty/devops-cli/issues/3696)) ([89fbb08](https://github.com/dan-petty/devops-cli/commit/89fbb085f01f82748624d21408a42966ac57a2c5))
+
 ## [0.63.2](https://github.com/dan-petty/devops-cli/compare/v0.63.1...v0.63.2) (2026-11-05)
 
 
