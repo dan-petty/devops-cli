@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.67.0](https://github.com/dan-petty/devops-cli/compare/v0.66.0...v0.67.0) (2026-11-06)
+
+
+### Features
+
+* **k8s:** keep gateway virtual keys in a CloudNativePG database ([#3747](https://github.com/dan-petty/devops-cli/issues/3747)) ([44d9196](https://github.com/dan-petty/devops-cli/commit/44d9196d883d3bb61b96e9243b371daacffd40a4)), closes [#1635](https://github.com/dan-petty/devops-cli/issues/1635)
+
+
+### Bug Fixes
+
+* **docs:** rule documents name files that are gone or moved ([#3756](https://github.com/dan-petty/devops-cli/issues/3756)) ([0be8f7f](https://github.com/dan-petty/devops-cli/commit/0be8f7f619ef473a792b9d67364ae96dc1b5c708))
+
 ## [0.66.0](https://github.com/dan-petty/devops-cli/compare/v0.65.0...v0.66.0) (2026-11-06)
 
 
