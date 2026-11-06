@@ -329,17 +329,17 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             ("deployment/grafana",),
         ),
         ("monitoring/alertmanager-mattermost", "url", "infra", False, None, None, ()),
-        ("argocd/argocd-notifications-secret", "github-appID", "infra", False, None, None, ()),
+        ("argocd/argocd-notifications-secret", "github-appID", "infra", True, None, None, ()),
         (
             "argocd/argocd-notifications-secret",
             "github-installationID",
             "infra",
-            False,
+            True,
             None,
             None,
             (),
         ),
-        ("argocd/argocd-notifications-secret", "github-privateKey", "infra", False, None, None, ()),
+        ("argocd/argocd-notifications-secret", "github-privateKey", "infra", True, None, None, ()),
         (
             "argocd/argocd-notifications-secret",
             "mattermost-deploys-url",
@@ -454,17 +454,17 @@ def test_the_notifier_values_are_two_settings_and_a_managed_credential() -> None
         "argocd.github_app_id" in secret_keys(),
     ) == (
         [
-            ("github-appID", SettingSource("argocd.github_app_id"), False, None),
+            ("github-appID", SettingSource("argocd.github_app_id"), True, None),
             (
                 "github-installationID",
                 SettingSource("argocd.github_app_installation_id"),
-                False,
+                True,
                 None,
             ),
             (
                 "github-privateKey",
                 KeyringSource(NOTIFIER_KEYRING, "argocd.github_app_private_key"),
-                False,
+                True,
                 None,
             ),
             (
@@ -518,10 +518,8 @@ def test_the_notifier_dry_run_names_the_keys_with_placeholders_and_runs_nothing(
     output = result.output
     assert (
         result.exit_code,
-        '"github-appID": "<base64 of setting argocd.github_app_id, left out when it has none>"'
-        in output,
-        f'"github-privateKey": "<base64 of keyring {NOTIFIER_KEYRING}, left out when it has none>"'
-        in output,
+        '"github-appID": "<base64 of setting argocd.github_app_id>"' in output,
+        f'"github-privateKey": "<base64 of keyring {NOTIFIER_KEYRING}>"' in output,
         "no request was made" in output,
         cluster.calls,
     ) == (0, True, True, True, []), output

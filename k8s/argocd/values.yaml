@@ -153,7 +153,7 @@ notifications:
         send:
           - app-deployed
         when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
-        oncePer: app.status.sync.revision
+        oncePer: app.status.operationState?.syncResult?.revision
     trigger.on-sync-failed: |
       - description: Application syncing has failed
         send:
@@ -161,7 +161,7 @@ notifications:
         when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']
   templates:
     template.app-deployed: |
-      message: 'Deployed revision {{ dig "status" "sync" "revision" "" .app | trunc 7 }}'
+      message: 'Deployed revision {{ dig "status" "operationState" "syncResult" "revision" "" .app | trunc 7 }}'
       github:
         deployment:
           state: success
@@ -172,7 +172,7 @@ notifications:
         mattermost:
           method: POST
           body: |
-            {"text": {{ printf "Application %s deployed revision %s" .app.metadata.name (dig "status" "sync" "revision" "" .app | trunc 7) | toJson }}}
+            {"text": {{ printf "Application %s deployed revision %s" .app.metadata.name (dig "status" "operationState" "syncResult" "revision" "" .app | trunc 7) | toJson }}}
     template.app-sync-failed: |
       webhook:
         mattermost:

@@ -857,7 +857,7 @@ def test_argocd_notifications_triggers_and_templates() -> None:
 
     on_deployed = triggers.get("trigger.on-deployed", "")
     assert "app-deployed" in on_deployed
-    assert "oncePer: app.status.sync.revision" in on_deployed
+    assert "oncePer: app.status.operationState?.syncResult?.revision" in on_deployed
     assert "Succeeded" in on_deployed
     assert "Healthy" in on_deployed
 
@@ -948,6 +948,13 @@ def test_argocd_github_notifier_reads_the_keys_of_the_secret_push() -> None:
         if (secret.namespace, secret.name) == ("argocd", _NOTIFICATIONS_SECRET)
         for entry in secret.entries
     }
+    required = {
+        entry.key
+        for secret in CLUSTER_SECRETS
+        if (secret.namespace, secret.name) == ("argocd", _NOTIFICATIONS_SECRET)
+        for entry in secret.entries
+        if entry.required
+    }
     readme = (K8S_DIR / "README.md").read_text(encoding="utf-8")
     listed = set(re.findall(rf"\| `argocd/{_NOTIFICATIONS_SECRET}` \| `([\w-]+)` \|", readme))
     assert read == {
@@ -958,6 +965,25 @@ def test_argocd_github_notifier_reads_the_keys_of_the_secret_push() -> None:
     }
     assert read <= pushed
     assert read <= listed
+    # The engine builds every notifier together: one that lacks a key fails them all (#3779).
+    assert {"github-appID", "github-installationID", "github-privateKey"} <= required
+
+
+def test_argocd_deployed_trigger_keys_each_deploy_by_the_revision_the_notifier_reads() -> None:
+    """`oncePer` is the revision of the last sync, which the GitHub notifier reads (#3779).
+
+    The notifier takes the revision of a deployment from `operationState.syncResult.revision`.
+    `status.sync.revision` moves to the new commit before the sync of it runs, so a key on it
+    fires the trigger early and posts the old revision.
+    """
+    values = _load_yaml(K8S_DIR / "argocd" / "values.yaml")["notifications"]
+    trigger = yaml.safe_load(values["triggers"]["trigger.on-deployed"])
+    assert [rule["oncePer"] for rule in trigger] == [
+        "app.status.operationState?.syncResult?.revision"
+    ]
+    assert not {"revisionPath", "repoURLPath"} & set(values["notifiers"]["service.github"])
+    template = values["templates"]["template.app-deployed"]
+    assert "sync" not in template.replace("syncResult", "")
 
 
 def test_argocd_deployed_template_posts_a_github_deployment() -> None:
