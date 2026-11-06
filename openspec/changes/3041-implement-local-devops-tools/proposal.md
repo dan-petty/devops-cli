@@ -8,7 +8,7 @@ The part of #3041 that other issues hold is not in this change: the runner tools
 
 ## What Changes
 
-- `src/devops_cli/roadmap/implement_shell_policy.py` gains `LOCAL_COMMANDS`, one typed table of the `devops` commands that the agent runs through `uv run`: `ci test`, `ai repomap`, `ai ast`, `docs generate` and `openspec check`. Each entry has an access class (`read` or `write`) and a use. No entry has the access `network`.
+- `src/devops_cli/roadmap/implement_shell_policy.py` gains `LOCAL_COMMANDS`, one typed table of the `devops` commands that the agent runs through `uv run`: `ci test`, `ai repomap`, `ai ast`, `docs generate` and `openspec check`. Each entry has an access class (`read` or `write`) and a use. No entry has the access `network`. The prompt and the document read the table. The shell guard does not: it passes a call because `uv` is a program of `SHELL_PROGRAMS`.
 - `local_commands_table()` renders the table, and `fill_prompt` fills a third placeholder, `{{local_commands}}`, in `src/devops_cli/ai/tasks/roadmap_implement_step.md`.
 - `docs/ROADMAP_WORKFLOW.md` holds the same table in the section "The shell of a step".
 - Tests fail when the table, the prompt and the document differ, when a cataloged command is not a command of the `devops` app, and when a call of a cataloged command is refused or counted as a refusal.
@@ -35,7 +35,7 @@ None.
 
 - The comment of 2026-11-05 on #3041 and the refine round (moved parts to #3562, #3563 and #3565) leave this part. It was checked against `origin/main` at `be31875c`: `SHELL_PROGRAMS` and `SHELL_REFUSALS` exist in `src/devops_cli/roadmap/implement_shell_policy.py`, and the prompt names only `uv run devops ci test` as a local command. No table lists the other four.
 - `uv` is a program of `SHELL_PROGRAMS` with the access `network`, so `uv run devops ...` passes the first-word check of the shell today. A cataloged call is therefore never a refusal, and the change adds a test that pins this.
-- `uv run devops ai --help`, `uv run devops ai ast --help` (commands `parse` and `graph`), `uv run devops ai repomap --help`, `uv run devops docs generate` (listed by `uv run devops docs --help`) and `uv run devops openspec check --help` all run from this checkout. `ai ast`, `ai repomap` and `openspec check` read files and make no network call. `docs generate` writes Markdown files in the checkout. `ci test` runs the tests and writes cache files in the checkout.
+- `uv run devops ai --help`, `uv run devops ai ast --help` (commands `parse` and `graph`), `uv run devops ai repomap --help`, `uv run devops docs generate` (listed by `uv run devops docs --help`) and `uv run devops openspec check --help` all run from this checkout. `ai repomap` and `openspec check` read files and make no network call. `ai ast parse` reads one file, and `ai ast graph --output <path>` writes a file to any path (`src/devops_cli/commands/ai_ast.py`), so `ai ast` has the access `write` and its use text names the flag. `docs generate` writes Markdown files in the docs directory, and its use text says to pass no `--output-dir`. `ci test` runs the tests and writes cache files in the checkout.
 - The part of the issue that needs a sandbox or a credential is not built here: #3562, #3563 and #3565 hold it.
 
 ## Existing Tool Considered

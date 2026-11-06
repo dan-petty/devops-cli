@@ -45,7 +45,7 @@ The shell runs only the programs of this table. A program with access `read` cha
 
 {{shell_programs}}
 
-The shell has no key and no network. Use these commands of the project through `uv run`, in place of a guess. A command with access `write` changes files in the checkout only:
+The shell holds no key, and none of these commands needs one. Use these commands of the project through `uv run`, in place of a guess. A command with access `write` changes files: give it only paths in the checkout.
 
 {{local_commands}}
 

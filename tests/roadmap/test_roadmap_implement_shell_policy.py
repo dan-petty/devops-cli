@@ -485,7 +485,7 @@ def test_the_local_commands_are_the_five_commands_of_the_project_and_none_uses_t
     assert [(c.words, str(c.access)) for c in LOCAL_COMMANDS] == [
         (("ci", "test"), "write"),
         (("ai", "repomap"), "read"),
-        (("ai", "ast"), "read"),
+        (("ai", "ast"), "write"),
         (("docs", "generate"), "write"),
         (("openspec", "check"), "read"),
     ]

@@ -5,9 +5,10 @@
 (`read`, `write` or `network`: the most the program does by itself), what the agent uses it for,
 and the arguments that the shell refuses. `SHELL_REFUSALS` lists the programs that the shell
 refuses, with what to run instead. `LOCAL_COMMANDS` lists the commands of `devops` that the agent
-runs through `uv run` (#3041). The allowlist of the shell, the hint that a refusal adds, the
-prompt of the step and `docs/ROADMAP_WORKFLOW.md` all read these tables, and a test fails when one
-of them differs.
+runs through `uv run` (#3041). The allowlist of the shell and the hint that a refusal adds read
+`SHELL_PROGRAMS` and `SHELL_REFUSALS`. The prompt of the step and `docs/ROADMAP_WORKFLOW.md` read
+all three tables, and a test fails when one of them differs. The shell does not read
+`LOCAL_COMMANDS`: it passes a call of `uv run devops ...` because `uv` is a program of the table.
 
 The shell of the harness reads the first word of a command only. `refused_argument` reads the
 words of a command that starts a program of the table. A program with access `read` changes no
@@ -66,8 +67,8 @@ class ShellProgram:
 @dataclass(frozen=True)
 class LocalCommand:
     """One command of `devops` that the agent runs through `uv run`. `words` are the words after
-    `devops`. `access` is the most that the command does by itself: no command of the table uses
-    the network, because the shell holds no key."""
+    `devops`. `access` is the most that the command does by itself, with the flags that the use
+    text allows. No command of the table makes a request to a service: none needs a key."""
 
     words: tuple[str, ...]
     access: ShellAccess
@@ -155,14 +156,15 @@ LOCAL_COMMANDS: tuple[LocalCommand, ...] = (
     ),
     LocalCommand(
         ("ai", "ast"),
-        ShellAccess.READ,
-        "Parse one source file (`parse`) or build the symbol graph of the repository (`graph`).",
+        ShellAccess.WRITE,
+        "Parse one source file (`parse`) or build the symbol graph of the repository (`graph`). "
+        "`graph --output <path>` writes a file: give it a path in the checkout.",
     ),
     LocalCommand(
         ("docs", "generate"),
         ShellAccess.WRITE,
-        "Write the generated documents in the checkout. Run it with `--sync-readme` after a "
-        "change to a command or a setting.",
+        "Write the generated documents in the docs directory of the checkout: pass no "
+        "`--output-dir`. Run it with `--sync-readme` after a change to a command or a setting.",
     ),
     LocalCommand(
         ("openspec", "check"),
