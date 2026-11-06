@@ -396,9 +396,7 @@ def rag_search(
         prefix = settings.qdrant.collection_prefix or "devops"
         try:
             qdrant = resolve_qdrant_client()
-        except ConfigurationError as exc:
-            if exc.key != "qdrant.url":
-                raise
+        except ConfigurationError:
             return "RAG vector database unconfigured (qdrant.url is not set). Fallback: use search_code."
         if not qdrant.is_alive():
             return (

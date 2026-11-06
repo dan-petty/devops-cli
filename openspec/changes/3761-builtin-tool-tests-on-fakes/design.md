@@ -10,7 +10,7 @@ See proposal.md for the motivation and the scope (#3761, child C of #1330).
 - **Decision**: the tool calls `resolve_qdrant_client()` and `create_embedder(settings.ai, api_key=...)`. Both return the installed override when a test has one, else the real object built from the settings.
 - **Why**: a test then needs `install_qdrant_client` and `install_embedder` (the `qdrant` and `embedder` fixtures) and no patch.
 - **Rejected**: patch `QdrantClient` and `EmbeddingsEngine` in the test. It is the patch of a name inside the code under test, which the test rules refuse.
-- **Kept**: the "unconfigured" reply. `resolve_qdrant_client` raises `ConfigurationError` with the key `qdrant.url` when the address is unset. The tool turns that one error into the old reply. It lets any other `ConfigurationError` reach the tool's own catch, as before.
+- **Kept**: the "unconfigured" reply. `resolve_qdrant_client` raises `ConfigurationError` when the address is unset, and settings that fail to load raise earlier, at `load_settings`, into the tool's own catch. The tool turns the error of `resolve_qdrant_client` into the old reply.
 
 ### 2. The reply for a store that is down names the client's address
 - **Decision**: the reply reads `qdrant.base_url`, the address of the client in use. The client has the attribute, and so has the fake.
