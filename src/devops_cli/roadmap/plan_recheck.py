@@ -7,15 +7,17 @@ count. `devops roadmap plan-recheck` reads every numbered folder of `openspec/ch
 
 - `cleanup`: the issue of the folder is closed. No count holds the folder.
 - `delivered`: every file that the plan marks `(new)` is on the default branch.
-- `new-plan`: the plan does not read, or it fails a gate or `openspec validate`. The first problem
-  is the reason.
-- `rewrite`: the plan reads and passes every check, but it has no `design.md` or no `Verification:`
-  line. A mechanical rewrite adds them.
-- `ok`: none of the above.
+- `new-plan`: the plan does not read, or it fails a gate or `openspec validate`, also after the
+  mechanical rewrite of `plan_rewrite`. The first problem of the rewritten plan is the reason.
+- `rewrite`: the plan as it is fails the reader or lacks a file, and the mechanical rewrite fixes
+  it. The pass applies the rewrite in memory and gives `rewrite` only when the rewritten plan
+  reads and passes every check (#3556). `--confirm` writes the rewrite.
+- `ok`: none of the above. The rewrite changes nothing in the plan.
 
 The pass reads the same plan reader (`read_change`), the same gates (`check_gates`) and the same
 OpenSpec check (`validate_change`) as `devops roadmap plan-check`. It calls no model and writes
-nothing to git or to GitHub.
+nothing to git or to GitHub. It writes no file either: `plan_rewrite.write_rewrite` does that, for
+the folders with the result `rewrite`.
 
 Each refusal has a gate (#3498): `read` for a folder that the plan reader refuses, `openspec` for a
 finding of `openspec validate`, or a name of `ProposalGate`. With a branch, the pass judges the
@@ -49,6 +51,7 @@ from devops_cli.roadmap.plan_read import (
     specs_at,
     tree_files,
 )
+from devops_cli.roadmap.plan_rewrite import PlanRewrite, rewrite_plan
 from devops_cli.roadmap.planned import PlannedChanges, planned_changes_at, read_planned_changes
 from devops_cli.roadmap.stage_change import check_gates
 from devops_cli.roadmap.stage_paths import StagedTree
@@ -90,9 +93,10 @@ class Refusal:
 @dataclass(frozen=True)
 class PlanRecord:
     """The result of one change folder, the reasons for it, and the two facts that the counts
-    use. `notes` explain a result that is no refusal, and `refusals` hold the problems of a
-    `new-plan`. `readable` is false when the plan reader refuses the folder. `verified` is false
-    when no group of `tasks.md` has a `Verification:` line."""
+    use. `notes` explain a result that is no refusal (for `rewrite`, the edits), and `refusals`
+    hold the problems of a `new-plan`. `readable` is false when the plan reader refuses the folder
+    as it is on the branch. `verified` is false when no group of `tasks.md` has a `Verification:`
+    line. `rewrite` holds the rewritten files of a `rewrite` folder, and is None for any other."""
 
     folder: str
     issue: int
@@ -101,15 +105,19 @@ class PlanRecord:
     refusals: tuple[Refusal, ...] = ()
     readable: bool = True
     verified: bool = True
+    rewrite: PlanRewrite | None = None
 
     def as_dict(self) -> dict[str, object]:
-        return {
+        report: dict[str, object] = {
             "folder": self.folder,
             "issue": self.issue,
             "result": self.result.value,
             "notes": list(self.notes),
             "refusals": [refusal.as_dict() for refusal in self.refusals],
         }
+        if self.rewrite is not None:
+            report["files"] = [change.path for change in self.rewrite.changes]
+        return report
 
 
 def _count(records: Iterable[PlanRecord], result: PlanResult) -> int:
@@ -247,6 +255,17 @@ def _refused(
     )
 
 
+def _reads(files: dict[str, str], root: str) -> bool:
+    """Whether the plan reader accepts the folder as it is. A folder with no `design.md` is read
+    with an empty one: the rewrite adds the file, so its absence is no reader error."""
+    design = f"{root}/{_DESIGN}"
+    try:
+        read_change(files if design in files else {**files, design: ""})
+    except PlanReadError:
+        return False
+    return True
+
+
 def _record(shared: _Pass, issue: int, folder: str) -> PlanRecord:
     texts = MESSAGES.roadmap
     if issue in shared.closed:
@@ -263,19 +282,19 @@ def _record(shared: _Pass, issue: int, folder: str) -> PlanRecord:
         listed = ", ".join(f"`{path}`" for path in created)
         reason = texts.plan_recheck_delivered.format(paths=listed, branch=shared.name, issue=issue)
         return PlanRecord(folder, issue, PlanResult.DELIVERED, (reason,), verified=verified)
-    fixable: list[str] = []
-    if f"{root}/{_DESIGN}" not in files:
-        # The reader needs the file. A rewrite adds a stub, so the pass reads the folder with one.
-        files[f"{root}/{_DESIGN}"] = ""
-        fixable.append(texts.plan_recheck_no_design)
-    if not verified:
-        fixable.append(texts.plan_recheck_no_verification)
+    readable = _reads(files, root)
+    rewrite = rewrite_plan(root, files, shared.tree)
+    judged = rewrite.files
     try:
-        proposal = read_change(files)
+        proposal = read_change(judged)
     except PlanReadError as exc:
         reason = texts.plan_check_read.format(path=exc.path, reason=exc.reason)
         return _refused(
-            folder, issue, [Refusal(folder, GATE_READ, reason)], readable=False, verified=verified
+            folder,
+            issue,
+            [Refusal(folder, GATE_READ, reason)],
+            readable=readable,
+            verified=verified,
         )
     held = shared.open_items.get(issue)
     found = check_gates(
@@ -290,13 +309,21 @@ def _record(shared: _Pass, issue: int, folder: str) -> PlanRecord:
         for gate, problems in found.items()
         for problem in problems
     ]
-    if report := validate_change(shared.tool, shared.source, folder, files):
+    if report := validate_change(shared.tool, shared.source, folder, judged):
         message = texts.plan_recheck_openspec.format(problem=" ".join(report.split()))
         refusals.append(Refusal(folder, GATE_OPENSPEC, message))
     if refusals:
-        return _refused(folder, issue, refusals, verified=verified)
-    if fixable:
-        return PlanRecord(folder, issue, PlanResult.REWRITE, tuple(fixable), verified=verified)
+        return _refused(folder, issue, refusals, readable=readable, verified=verified)
+    if rewrite.changes:
+        return PlanRecord(
+            folder,
+            issue,
+            PlanResult.REWRITE,
+            rewrite.notes,
+            readable=readable,
+            verified=verified,
+            rewrite=rewrite,
+        )
     return PlanRecord(folder, issue, PlanResult.OK, verified=verified)
 
 

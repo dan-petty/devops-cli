@@ -3739,10 +3739,6 @@ class RoadmapMessages:
         "The plan marks {paths} as new, and `{branch}` holds them. "
         "Close issue #{issue} when it is done."
     )
-    plan_recheck_no_design: str = "The folder has no `design.md`."
-    plan_recheck_no_verification: str = (
-        "No group of `tasks.md` has a `Verification:` line, so the step runs no plan command."
-    )
     # The mechanical rewrite of a merged plan (#3556).
     plan_rewrite_design_stub: str = (
         "# Design\n\nThis plan was written before the file `design.md` was required. "

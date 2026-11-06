@@ -129,28 +129,92 @@ def test_a_plan_whose_new_file_is_on_the_default_branch_is_delivered(
     assert results == {"1-keep-the-last-comment": (PlanResult.DELIVERED, 1)}
 
 
-def test_a_plan_with_no_verification_line_is_a_rewrite_and_counts_as_unverified(
+def _without_verification(files: dict[str, str], issue: int = 1) -> dict[str, str]:
+    """`files` with every `Verification:` line of the `tasks.md` of the folder removed."""
+    path = TASKS.format(issue=issue)
+    kept = [line for line in files[path].splitlines(keepends=True) if "Verification:" not in line]
+    return {**files, path: "".join(kept)}
+
+
+def test_a_plan_that_the_rewrite_fixes_is_a_rewrite_and_counts_as_unreadable_and_unverified(
     stage_repo: StageRepo, tool: OpenSpecTool
 ) -> None:
-    files = _plan(1)
-    path = "openspec/changes/1-keep-the-last-comment/tasks.md"
-    command = "`uv run devops ci test tests/test_sample.py`"
-    files[path] = (
-        files[path]
-        .replace(
-            f"\n  - Verification: {command} fails on the base",
-            f", and verify that {command} fails on the base",
-        )
-        .replace(f"\n  - Verification: {command} passes", f", and verify that {command} passes")
+    stage_repo.track(_without_verification(_plan(1)))
+
+    recheck = recheck_plans(stage_repo.clone, _store(count=1), tool=tool)
+
+    (record,) = recheck.records
+    assert record.result is PlanResult.REWRITE
+    assert (recheck.unverified, recheck.unreadable) == (1, 1)
+    command = "uv run devops ci test tests/test_sample.py"
+    assert record.notes == (
+        f"Group 1: add the line `Verification:` with `{command}` under its first task.",
     )
+    assert record.refusals == ()
+
+
+def test_a_rewrite_record_holds_the_files_that_the_rewrite_changes(
+    stage_repo: StageRepo, tool: OpenSpecTool
+) -> None:
+    files = _without_verification(_plan(1))
+    del files["openspec/changes/1-keep-the-last-comment/design.md"]
     stage_repo.track(files)
 
     recheck = recheck_plans(stage_repo.clone, _store(count=1), tool=tool)
 
     (record,) = recheck.records
     assert record.result is PlanResult.REWRITE
-    assert recheck.unverified == 1
-    assert "No group of `tasks.md` has a `Verification:` line" in render_recheck(recheck)
+    assert record.rewrite is not None
+    assert [change.path for change in record.rewrite.changes] == [
+        "openspec/changes/1-keep-the-last-comment/design.md",
+        "openspec/changes/1-keep-the-last-comment/tasks.md",
+    ]
+    assert record.as_dict()["files"] == [change.path for change in record.rewrite.changes]
+    assert "design.md" in render_recheck(recheck)
+
+
+def test_a_plan_whose_rewritten_text_still_fails_a_gate_is_a_new_plan_with_that_refusal(
+    stage_repo: StageRepo, tool: OpenSpecTool
+) -> None:
+    stage_repo.track(_without_verification(_reading_a_missing_file(1)))
+
+    recheck = recheck_plans(stage_repo.clone, _store(count=1), tool=tool)
+
+    (record,) = recheck.records
+    assert record.result is PlanResult.NEW_PLAN
+    assert record.rewrite is None
+    assert [refusal.gate for refusal in record.refusals] == ["paths"]
+    assert "`src/devops_cli/missing.py`" in record.refusals[0].message
+
+
+def test_a_group_that_changes_no_test_and_no_document_stays_a_new_plan_with_the_reader_error(
+    stage_repo: StageRepo, tool: OpenSpecTool
+) -> None:
+    files = _without_verification(_plan(1))
+    path = TASKS.format(issue=1)
+    files[path] = files[path].replace(
+        "tests/test_sample.py` (new)", "src/devops_cli/other.py` (new)"
+    )
+    stage_repo.track(files)
+
+    recheck = recheck_plans(stage_repo.clone, _store(count=1), tool=tool)
+
+    (record,) = recheck.records
+    assert record.result is PlanResult.NEW_PLAN
+    assert [refusal.gate for refusal in record.refusals] == ["read"]
+    assert (recheck.unreadable, recheck.unverified) == (1, 1)
+
+
+def test_a_plan_that_passes_and_that_the_rewrite_does_not_change_is_ok(
+    stage_repo: StageRepo, tool: OpenSpecTool
+) -> None:
+    stage_repo.track(_plan(1))
+
+    recheck = recheck_plans(stage_repo.clone, _store(count=1), tool=tool)
+
+    (record,) = recheck.records
+    assert (record.result, record.notes, record.rewrite) == (PlanResult.OK, (), None)
+    assert (recheck.unverified, recheck.unreadable) == (0, 0)
 
 
 def test_the_first_problem_of_an_unreadable_plan_is_its_reason(
