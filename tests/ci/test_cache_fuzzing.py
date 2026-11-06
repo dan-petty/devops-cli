@@ -16,6 +16,8 @@ from hypothesis import strategies as st
 from devops_cli.ci.cache import worktree_divergent_paths
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
+# The fixture lives for the whole test, not for one example. Each test resets it at the start of
+# every example, so no example sees the answers or calls of an earlier one.
 _FUZZ_SETTINGS = settings(
     phases=[Phase.explicit, Phase.generate],
     derandomize=True,
@@ -64,6 +66,7 @@ def test_git_status_porcelain_v1_divergent_paths_specification(
     - Unstaged modifications (worktree != ' ') or untracked ('?') classify as changed
     - Quoted paths and rename targets ('old -> new') are properly unwrapped.
     """
+    process_fake.reset()
     lines: list[str] = []
     expected_changed: list[str] = []
     expected_deleted: list[str] = []
@@ -101,6 +104,7 @@ def test_git_status_porcelain_v1_short_lines_skipped_specification(
     process_fake: ProcessFake,
 ) -> None:
     """git-status(1) porcelain v1: lines shorter than 4 characters are incomplete and skipped."""
+    process_fake.reset()
     stdout_text = "\n".join(short_lines)
     process_fake.answer("git status", ProcessAnswer(stdout=stdout_text))
     changed, deleted = worktree_divergent_paths(Path("/dummy/repo"))

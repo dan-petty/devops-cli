@@ -17,6 +17,8 @@ from hypothesis import strategies as st
 from devops_cli.core.cleanup import listed_worktrees
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
+# The fixture lives for the whole test, not for one example. Each test resets it at the start of
+# every example, so no example sees the answers or calls of an earlier one.
 _FUZZ_SETTINGS = settings(
     phases=[Phase.explicit, Phase.generate],
     derandomize=True,
@@ -66,6 +68,7 @@ def test_git_worktree_porcelain_parsing_specification(
     Non-worktree lines (HEAD, branch, bare, detached, locked) must not be treated as worktrees,
     and paths must resolve correctly.
     """
+    process_fake.reset()
     records: list[str] = []
     for idx, path in enumerate(paths):
         h = hashes[idx % len(hashes)] if hashes else "0" * 40
@@ -97,6 +100,7 @@ def test_git_worktree_porcelain_failure_specification(
     exit_code: int, process_fake: ProcessFake
 ) -> None:
     """git-worktree(1): non-zero exit code indicates not a repository or git error, returning empty list."""
+    process_fake.reset()
     proc = subprocess.CompletedProcess(
         args=["git", "worktree", "list", "--porcelain", "-z"],
         returncode=exit_code,
