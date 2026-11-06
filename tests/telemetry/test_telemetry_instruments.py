@@ -560,6 +560,22 @@ def test_the_roadmap_age_gauges_are_declared_gauges_with_their_units_and_labels(
     assert all(label in gauge.description for gauge in (item_age, oldest_item) for label in labels)
 
 
+def test_the_alternatives_coverage_instruments_are_declared_with_their_kinds_and_units() -> None:
+    """The check of open items for an open tool shows its coverage (#2950): two gauges, the open
+    items with no check and the age of the oldest check, and a histogram of the searches of each
+    written check."""
+    declared = {instrument.name: instrument for instrument in INSTRUMENTS}
+    expected = {
+        "devops_cli_roadmap_alternatives_unchecked_items": (InstrumentKind.GAUGE, "1"),
+        "devops_cli_roadmap_alternatives_oldest_check_age_seconds": (InstrumentKind.GAUGE, "s"),
+        "devops_cli_roadmap_alternatives_searches": (InstrumentKind.HISTOGRAM, "1"),
+    }
+
+    assert {
+        name: (declared[name].kind, declared[name].unit) for name in expected if name in declared
+    } == expected
+
+
 def test_the_roadmap_tool_instruments_are_declared_with_their_kinds_and_units() -> None:
     """The four instruments of the tool calls of the stage planner (#3240): two counters, and two
     histograms that count characters and calls."""
@@ -719,6 +735,33 @@ def test_the_embedding_hit_share_panel_divides_hits_by_lookups_over_an_hour() ->
         'or sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[1h])) * 0) '
         '/ sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[1h]))'
     )
+
+
+def test_the_alternatives_check_row_charts_the_coverage_and_the_searches_of_a_check() -> None:
+    """The row Alternatives Check shows the items with no check, the age of the oldest check, and
+    the searches of a check by verdict (#2950). The gauges are read over a day, as long as two
+    rounds of the row, because the row sends them twice a day."""
+    panels = _row_panels(DASHBOARDS / "devops-cli.json", "Alternatives Check")
+
+    assert {panel["title"]: _panel_queries(panel) for panel in panels} == {
+        "Alternatives Unchecked Items": (
+            "sum by (repo) "
+            '(last_over_time(devops_cli_roadmap_alternatives_unchecked_items{job=~"$job"}[1d]))'
+        ),
+        "Alternatives Oldest Check Age": (
+            "max by (repo) (last_over_time("
+            'devops_cli_roadmap_alternatives_oldest_check_age_seconds{job=~"$job"}[1d]))'
+        ),
+        "Alternatives Searches per Check": (
+            "histogram_avg(sum by (verdict) "
+            '(increase(devops_cli_roadmap_alternatives_searches{job=~"$job"}[1d]))) '
+            "histogram_count(sum by (verdict) "
+            '(increase(devops_cli_roadmap_alternatives_searches{job=~"$job"}[1d])))'
+        ),
+    }
+    assert {panel["title"]: panel["fieldConfig"]["defaults"]["unit"] for panel in panels[1:2]} == {
+        "Alternatives Oldest Check Age": "s"
+    }
 
 
 def test_a_grouped_query_adds_no_unlabelled_zero_series() -> None:

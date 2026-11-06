@@ -44,6 +44,7 @@ from devops_cli.roadmap.alternatives import (
     body_hash_of,
     plan_alternatives,
     raise_for_failed_checks,
+    record_coverage,
     render_alternatives_plan,
     select_items,
 )
@@ -57,7 +58,13 @@ from devops_cli.roadmap.store import (
     RepositoryFacts,
     RoadmapStore,
 )
-from devops_cli.telemetry.instruments import FIRECRAWL_SEARCHES_TOTAL, ROADMAP_ALTERNATIVES_TOTAL
+from devops_cli.telemetry.instruments import (
+    FIRECRAWL_SEARCHES_TOTAL,
+    ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE,
+    ROADMAP_ALTERNATIVES_SEARCHES,
+    ROADMAP_ALTERNATIVES_TOTAL,
+    ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
+)
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.http import WebFake
@@ -1716,6 +1723,167 @@ def test_a_covering_tool_is_written_through_the_github_store_over_its_process_ed
     )
 
 
+# ── Coverage ──────────────────────────────────────────────────────────────────
+
+
+def _coverage(store: InMemoryRoadmapStore, **options: Any) -> Any:
+    options.setdefault("item_number", None)
+    selection = select_items(store, limit=5, recheck_days=30, retry_days=3, now=NOW, **options)
+    return selection.coverage
+
+
+def test_coverage_counts_the_eligible_items_that_have_no_check(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """10 eligible items, 4 with a check and 1 with a failed check in the retry delay: 6 have no
+    check. An item in progress and an item of an outside author are not eligible (#2950)."""
+    numbers = [_item(store, f"Item {n}") for n in range(10)]
+    for number in numbers[:4]:
+        _mark_checked(store, number, days=2)
+    _mark_failed(store, numbers[4], days=1)
+    _item(store, "Started", status="In Progress")
+    _item(store, "Outside author", association="NONE")
+
+    coverage = _coverage(store)
+
+    assert coverage.unchecked == 6
+
+
+def test_coverage_holds_the_age_of_the_oldest_check_also_of_an_item_in_the_retry_delay(
+    store: InMemoryRoadmapStore,
+) -> None:
+    newer = _item(store, "Newer")
+    older = _item(store, "Older")
+    failed_since = _item(store, "Failed since its check")
+    _mark_checked(store, newer, days=1)
+    _mark_checked(store, older, days=3)
+    _mark_checked(store, failed_since, days=2)
+    _mark_failed(store, failed_since, days=1)
+    _item(store, "Started", status="In Progress")
+
+    coverage = _coverage(store)
+
+    assert (coverage.unchecked, coverage.oldest_age) == (0, timedelta(hours=72))
+    assert coverage.oldest_age.total_seconds() == 259200
+
+
+def test_coverage_has_no_age_while_no_eligible_item_has_a_check(
+    store: InMemoryRoadmapStore,
+) -> None:
+    _item(store, "Unchecked")
+    started = _item(store, "Started", status="In Progress")
+    _mark_checked(store, started, days=40)
+
+    coverage = _coverage(store)
+
+    assert (coverage.unchecked, coverage.oldest_age) == (1, None)
+
+
+def test_coverage_counts_an_item_whose_check_is_due_as_checked(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """A stale check is still a check; the item is not one with no check."""
+    _mark_checked(store, _item(store, "Stale"), days=40)
+
+    assert _coverage(store).unchecked == 0
+
+
+def test_a_named_item_gives_no_coverage(store: InMemoryRoadmapStore) -> None:
+    number = _item(store)
+
+    assert _coverage(store, item_number=number) is None
+
+
+def test_coverage_is_the_whole_eligible_set_whatever_the_limit(
+    store: InMemoryRoadmapStore,
+) -> None:
+    for n in range(9):
+        _item(store, f"Item {n}")
+
+    selection = select_items(
+        store, item_number=None, limit=2, recheck_days=30, retry_days=3, now=NOW
+    )
+
+    assert (len(selection.selected), selection.coverage.unchecked) == (2, 9)
+
+
+def test_a_plan_holds_the_coverage_also_when_it_has_nothing_to_write(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    current = _item(store, "Current")
+    _mark_checked(store, current, days=2)
+    _mark_failed(store, _item(store, "Delayed"), days=1)
+
+    plan = _plan(store, None)
+
+    assert (plan.has_writes, plan.coverage.unchecked, plan.coverage.oldest_age) == (
+        False,
+        1,
+        timedelta(days=2),
+    )
+
+
+def test_a_plan_of_a_named_item_or_a_check_that_is_off_holds_no_coverage(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    number = _item(store)
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
+
+    named = _plan(store, script, item_number=number)
+    store.seed_visibility(is_private=True)
+    off = _plan(store, script)
+
+    assert (named.coverage, off.off_reason is not None, off.coverage) == (None, True, None)
+
+
+def test_record_coverage_sends_the_two_gauges_by_repo(
+    store: InMemoryRoadmapStore, web_key: None, otlp: FakeCollector
+) -> None:
+    _item(store, "Unchecked")
+    _mark_checked(store, _item(store, "Checked"), days=3)
+    plan = _plan(store, None)
+
+    record_coverage(plan)
+
+    assert (
+        otlp.points(ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS.name),
+        otlp.points(ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE.name),
+    ) == ([({"repo": REPO}, 1.0)], [({"repo": REPO}, 259200.0)])
+
+
+def test_record_coverage_sends_no_age_while_no_item_has_a_check(
+    store: InMemoryRoadmapStore, web_key: None, otlp: FakeCollector
+) -> None:
+    _item(store, "Unchecked")
+
+    record_coverage(_plan(store, None))
+
+    assert (
+        otlp.points(ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS.name),
+        otlp.points(ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE.name),
+    ) == ([({"repo": REPO}, 1.0)], [])
+
+
+def test_record_coverage_sends_nothing_for_a_plan_with_no_coverage(
+    store: InMemoryRoadmapStore, web_key: None, otlp: FakeCollector
+) -> None:
+    number = _item(store)
+    named = _plan(
+        store,
+        _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)),
+        item_number=number,
+    )
+    dry = alternatives.dry_run_alternatives(REPO)
+
+    record_coverage(named)
+    record_coverage(dry)
+
+    assert (
+        otlp.points(ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS.name),
+        otlp.points(ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE.name),
+    ) == ([], [])
+
+
 # ── Skip classes and the search before a verdict ──────────────────────────────
 
 
@@ -2686,3 +2854,131 @@ def test_a_check_skipped_because_the_body_changed_and_a_failed_check_count_nothi
     written = apply_alternatives(store, plan)
 
     assert (written, otlp.points(ROADMAP_ALTERNATIVES_TOTAL.name)) == (0, [])
+
+
+def test_each_written_check_observes_its_searches_by_its_verdict(
+    store: InMemoryRoadmapStore, web_key: None, otlp: FakeCollector
+) -> None:
+    """A check that ran 3 searches observes 3, and a skip-class item, which runs none, observes 0
+    (#2950)."""
+    searched = _item(store, "Searched")
+    skipped = _item(store, "docs(roadmap): a change")
+    script = _by_item(
+        {
+            searched: [
+                call("search_web", query="scanner"),
+                call("search_web", query="scanner for a directory"),
+                call("search_web", query="directory scanner tool"),
+                AlternativesReply(reason=REASON, verdict=Verdict.NONE),
+            ],
+            skipped: AlternativesReply(reason=REASON, verdict=Verdict.NONE),
+        }
+    )
+
+    plan = _plan(store, script)
+    before = otlp.points(ROADMAP_ALTERNATIVES_SEARCHES.name)
+    apply_alternatives(store, plan)
+
+    assert (before, sorted(otlp.points(ROADMAP_ALTERNATIVES_SEARCHES.name), key=str)) == (
+        [],
+        [({"verdict": "none"}, 3.0), ({"verdict": "not-applicable"}, 0.0)],
+    )
+
+
+def test_a_failed_check_and_a_check_skipped_because_the_body_changed_observe_no_searches(
+    store: InMemoryRoadmapStore, web_key: None, otlp: FakeCollector
+) -> None:
+    from pydantic_ai.exceptions import ModelHTTPError
+
+    edited = _item(store, "Edited")
+    failing = _item(store, "Failing")
+    script = _by_item(
+        {
+            edited: _after_search(AlternativesReply(reason=REASON, verdict=Verdict.NONE)),
+            failing: ModelHTTPError(500, "m"),
+        }
+    )
+
+    plan = _plan(store, script)
+    store.write_issue_body(edited, "A person rewrote the item.")
+    apply_alternatives(store, plan)
+
+    assert otlp.points(ROADMAP_ALTERNATIVES_SEARCHES.name) == []
+
+
+# ── The coverage gauges of the row ────────────────────────────────────────────
+
+
+def test_the_row_sends_both_gauges_for_a_round_that_checks_items(
+    store: InMemoryRoadmapStore,
+    web_key: None,
+    monkeypatch: pytest.MonkeyPatch,
+    otlp: FakeCollector,
+) -> None:
+    for n in range(2):
+        _item(store, f"Item {n}")
+    _mark_checked(store, _item(store, "Checked"), days=2)
+    _answer_with(monkeypatch, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
+
+    _alternatives_row().runner(store=store, repo=REPO)
+
+    assert [
+        (attributes, value > 0)
+        for attributes, value in otlp.points(ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE.name)
+    ] == [({"repo": REPO}, True)]
+    assert otlp.points(ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS.name) == [({"repo": REPO}, 2.0)]
+
+
+def test_the_row_sends_the_gauges_for_a_round_with_every_check_current(
+    store: InMemoryRoadmapStore,
+    web_key: None,
+    monkeypatch: pytest.MonkeyPatch,
+    otlp: FakeCollector,
+) -> None:
+    _mark_checked(store, _item(store, "Checked"), days=0)
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
+    _answer_with(monkeypatch, script)
+
+    _alternatives_row().runner(store=store, repo=REPO)
+
+    assert (
+        otlp.points(ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS.name),
+        len(otlp.points(ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE.name)),
+        script.seen,
+    ) == ([({"repo": REPO}, 0.0)], 1, [])
+
+
+def test_the_row_of_a_repository_with_the_check_off_sends_no_gauge(
+    store: InMemoryRoadmapStore, web_key: None, otlp: FakeCollector
+) -> None:
+    _item(store)
+    store.seed_visibility(is_private=True)
+
+    _alternatives_row().runner(store=store, repo=REPO)
+
+    assert (
+        otlp.points(ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS.name),
+        otlp.points(ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE.name),
+    ) == ([], [])
+
+
+@pytest.mark.parametrize("flags", [[], ["--confirm"], ["--item", "{number}", "--confirm"]])
+def test_the_command_sends_no_coverage_gauge(
+    flags: list[str],
+    roadmap_store: InMemoryRoadmapStore,
+    web_key: None,
+    monkeypatch: pytest.MonkeyPatch,
+    otlp: FakeCollector,
+) -> None:
+    number = _item(roadmap_store)
+    _answer_with(monkeypatch, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
+
+    CliRunner().invoke(
+        roadmap_app,
+        ["alternatives", "--repo", REPO, *(flag.format(number=number) for flag in flags)],
+    )
+
+    assert (
+        otlp.points(ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS.name),
+        otlp.points(ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE.name),
+    ) == ([], [])

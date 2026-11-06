@@ -157,3 +157,116 @@ tests:
             exp_annotations:
               summary: "Firecrawl refused web searches of the roadmap Service with HTTP 429 in the last hour"
               description: "Firecrawl refused a web search of the roadmap Service with HTTP 429: 402 when the account has no credits, 429 at its rate limit. Refine goes on without the results (k8s/README.md, Roadmap service)."
+
+  # The alert of the alternatives check (#2950). The search counter has the label result and the
+  # gauge has the label repo, so the rule sums each side to one label set before it joins them. The
+  # series run for 150 hours with one sample each hour. The wait of 1 hour ends before 150h.
+  - name: No search in 3 days fires with the repository while items have no check, also when a refused search is the only series
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", instance="roadmap-service", result="402"}'
+        values: '2x150'
+      - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", instance="roadmap-service", repo="example/app"}'
+        values: '2x150'
+    alert_rule_test:
+      - eval_time: 150h
+        alertname: RoadmapServiceAlternativesNotSearching
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+            exp_annotations:
+              summary: "The alternatives check of example/app ran no web search in 3 days, and 2 open items have no check"
+              description: "The roadmap Service made no Firecrawl web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
+
+  - name: A search one day before stays quiet
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", instance="roadmap-service", result="ok"}'
+        values: '0x125 1x25'
+      - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", instance="roadmap-service", repo="example/app"}'
+        values: '2x150'
+    alert_rule_test:
+      - eval_time: 150h
+        alertname: RoadmapServiceAlternativesNotSearching
+        exp_alerts: []
+
+  - name: No search series at all fires
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", instance="roadmap-service", repo="example/app"}'
+        values: '2x150'
+    alert_rule_test:
+      - eval_time: 150h
+        alertname: RoadmapServiceAlternativesNotSearching
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+            exp_annotations:
+              summary: "The alternatives check of example/app ran no web search in 3 days, and 2 open items have no check"
+              description: "The roadmap Service made no Firecrawl web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
+
+  - name: No unchecked item stays quiet
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", instance="roadmap-service", result="402"}'
+        values: '2x150'
+      - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", instance="roadmap-service", repo="example/app"}'
+        values: '0x150'
+    alert_rule_test:
+      - eval_time: 150h
+        alertname: RoadmapServiceAlternativesNotSearching
+        exp_alerts: []
+
+  - name: A new series with searches in its first flush stays quiet
+    interval: 1h
+    input_series:
+      # The first flush of the series at 140h holds 3 searches. increase() does not count it (#2505).
+      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", instance="roadmap-service", result="ok"}'
+        values: '_x140 3x10'
+      - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", instance="roadmap-service", repo="example/app"}'
+        values: '2x150'
+    alert_rule_test:
+      - eval_time: 150h
+        alertname: RoadmapServiceAlternativesNotSearching
+        exp_alerts: []
+
+  - name: A search of another job does not count
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_firecrawl_searches_total{job="devops-cli", instance="workstation", result="ok"}'
+        values: '0x100 5x50'
+      - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", instance="roadmap-service", repo="example/app"}'
+        values: '2x150'
+    alert_rule_test:
+      - eval_time: 150h
+        alertname: RoadmapServiceAlternativesNotSearching
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+            exp_annotations:
+              summary: "The alternatives check of example/app ran no web search in 3 days, and 2 open items have no check"
+              description: "The roadmap Service made no Firecrawl web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
+
+  - name: A gauge sample 100 hours old still fires, and one 180 hours old does not
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", instance="roadmap-service", result="402"}'
+        values: '2x250'
+      # The row stopped: the last sample of this gauge is at 100h.
+      - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", instance="roadmap-service", repo="example/app"}'
+        values: '2x100'
+      - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", instance="roadmap-service", repo="example/old"}'
+        values: '2x20'
+    alert_rule_test:
+      - eval_time: 200h
+        alertname: RoadmapServiceAlternativesNotSearching
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+            exp_annotations:
+              summary: "The alternatives check of example/app ran no web search in 3 days, and 2 open items have no check"
+              description: "The roadmap Service made no Firecrawl web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."

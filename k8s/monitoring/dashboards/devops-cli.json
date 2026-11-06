@@ -1897,6 +1897,162 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 136
+      },
+      "id": 49,
+      "title": "Alternatives Check",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Open items that the alternatives check can take and has no check for, by repository. An item in the retry delay counts. The Service sends the value twice a day, so each query reads the last value of a day. The alert RoadmapServiceAlternativesNotSearching needs a value above 0.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 137
+      },
+      "id": 50,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Alternatives Unchecked Items",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (repo) (last_over_time(devops_cli_roadmap_alternatives_unchecked_items{job=~\"$job\"}[1d]))",
+          "legendFormat": "{{repo}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Age of the oldest alternatives check among the items that the check can take, by repository. No line while no such item has a check.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 137
+      },
+      "id": 51,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Alternatives Oldest Check Age",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (repo) (last_over_time(devops_cli_roadmap_alternatives_oldest_check_age_seconds{job=~\"$job\"}[1d]))",
+          "legendFormat": "{{repo}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Web searches that the tools ran for each check written in the last day, by verdict: the average, and the number of checks. A skip-class check runs none and shows 0 under not-applicable. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 137
+      },
+      "id": 52,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Alternatives Searches per Check",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_avg(sum by (verdict) (increase(devops_cli_roadmap_alternatives_searches{job=~\"$job\"}[1d])))",
+          "legendFormat": "average {{verdict}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_count(sum by (verdict) (increase(devops_cli_roadmap_alternatives_searches{job=~\"$job\"}[1d])))",
+          "legendFormat": "checks {{verdict}}",
+          "refId": "B"
+        }
+      ]
     }
   ],
   "refresh": "10s",

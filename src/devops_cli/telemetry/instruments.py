@@ -251,6 +251,29 @@ ROADMAP_ALTERNATIVES_TOTAL = Instrument(
     "to an item. A check that fails, or that the job skips because a person changed the item, "
     "counts nothing",
 )
+ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS = Instrument(
+    "devops_cli_roadmap_alternatives_unchecked_items",
+    InstrumentKind.GAUGE,
+    "1",
+    "Open items that the alternatives check can take and has not checked, by repo. An item in "
+    "the retry delay after a failed check counts. An item in progress or from an author with no "
+    "write access does not. The Service sends it at the start of each round of the check",
+)
+ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE = Instrument(
+    "devops_cli_roadmap_alternatives_oldest_check_age_seconds",
+    InstrumentKind.GAUGE,
+    "s",
+    "Age of the oldest alternatives check among the items that the check can take, by repo. The "
+    "age is the time since the check was written. Not sent while no such item has a check",
+)
+ROADMAP_ALTERNATIVES_SEARCHES = Instrument(
+    "devops_cli_roadmap_alternatives_searches",
+    InstrumentKind.HISTOGRAM,
+    "1",
+    "Web searches that the tools ran for one alternatives check, by verdict. One observation for "
+    "each check that the alternatives job writes. A search that Firecrawl refused counts. A check "
+    "that the job skips for its item class runs no search and observes 0",
+)
 ROADMAP_STAGE_TOTAL = Instrument(
     "devops_cli_roadmap_stage_total",
     InstrumentKind.COUNTER,
@@ -524,6 +547,9 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     FIRECRAWL_SEARCHES_TOTAL,
     ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL,
     ROADMAP_ALTERNATIVES_TOTAL,
+    ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
+    ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE,
+    ROADMAP_ALTERNATIVES_SEARCHES,
     ROADMAP_STAGE_TOTAL,
     ROADMAP_TOOL_CALLS_TOTAL,
     ROADMAP_TOOL_ANSWER_CHARS,
@@ -652,7 +678,10 @@ __all__ = [
     "RAG_STOPS_TOTAL",
     "REVIEW_DURATION",
     "ROADMAP_AGE_LABELS",
+    "ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE",
+    "ROADMAP_ALTERNATIVES_SEARCHES",
     "ROADMAP_ALTERNATIVES_TOTAL",
+    "ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS",
     "ROADMAP_CLAIM_AGE",
     "ROADMAP_ITEM_AGE",
     "ROADMAP_OLDEST_ITEM",

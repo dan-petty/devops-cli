@@ -110,6 +110,7 @@ from devops_cli.roadmap.alternatives import (
     apply_alternatives,
     plan_alternatives,
     raise_for_failed_checks,
+    record_coverage,
 )
 from devops_cli.roadmap.implement_submit import run_implement_round
 from devops_cli.roadmap.intake import (
@@ -676,8 +677,11 @@ def _run_alternatives_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> 
     `roadmap.alternatives.limit` open items, for an open tool that covers them (#2652).
     A failed check is recorded in its item's job record and the others are written; the
     job fails, naming the items, only when it tried items and checked none (#2949). A repository
-    the check is off for, such as a private one, costs a visibility read and nothing else."""
+    the check is off for, such as a private one, costs a visibility read and nothing else. The
+    row sends the coverage gauges of the round before it writes, also when it writes nothing
+    (#2950)."""
     plan = plan_alternatives(store, repo=repo)
+    record_coverage(plan)
     if plan.off_reason:
         logger.info("The alternatives check of %s is off: %s", repo, plan.off_reason)
     if plan.has_writes:
