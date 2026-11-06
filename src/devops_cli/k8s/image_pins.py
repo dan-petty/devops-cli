@@ -15,17 +15,16 @@ refuses it (#2093). An image of a registry that only the cluster or this host re
 resolved from a runner: its registry host is an IP address, `localhost`, a name with no dot (a
 cluster Service), or a name under `.svc`, `.cluster.local` or `.local`.
 
-`docker buildx imagetools inspect` resolves each pinned image once, as an anonymous client, as the
-cluster pulls: it runs with an empty Docker configuration, so a stored registry credential neither
-helps nor breaks it (GHCR refuses an expired one with 403). It reads the manifest, which Docker Hub
-counts as a pull of an anonymous client (measured on 2026-10-29: three inspects took
-`ratelimit-remaining` from 100 to 97).
+`tag_digest` (`devops_cli.docker.registry`) resolves each pinned image once, as an anonymous client,
+as the cluster pulls: it sends no stored registry credential, and answers a Bearer challenge with
+an anonymous token. It sends a HEAD request of the manifest, which Docker Hub does not count as a
+pull of the anonymous client (measured on 2026-11-01: three reads left `ratelimit-remaining`
+unchanged, and a GET costs one pull).
 """
 
 from __future__ import annotations
 
 import ipaddress
-import json
 import tempfile
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -35,18 +34,19 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import dns.name
+import httpx2
 import yaml
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import PlannedProcessResult, run_subprocess
 from devops_cli.core.serialization import YAML_SAFE_LOADER
+from devops_cli.docker.registry import image_reference, tag_digest
+from devops_cli.exceptions.docker import RegistryReadError
 from devops_cli.exceptions.k8s import ImagePinError
+from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.k8s.argocd_gate import discover_argocd_applications
 from devops_cli.k8s.template import build_manifest_path
 
-# The registry of a name whose first component names none, and Docker Hub's other name.
-_DEFAULT_REGISTRY = "docker.io"
-_DEFAULT_REGISTRY_ALIAS = "index.docker.io"
 # The tag of a reference that names none.
 _DEFAULT_TAG = "latest"
 # The domains of the registries that only the cluster or this host reaches: Kubernetes Services and
@@ -86,34 +86,11 @@ class PinResolution:
     registry: str
     digest: str | None
     error: str | None
-    planned: bool = False
 
     @property
     def resolved(self) -> bool:
         """Whether the registry holds the image."""
         return self.digest is not None
-
-
-def inspect_command(image: str) -> list[str]:
-    """The command that resolves `image` without pulling it."""
-    return ["docker", "buildx", "imagetools", "inspect", image, "--format", "{{json .Manifest}}"]
-
-
-def image_reference(image: str) -> tuple[str, str]:
-    """The registry host and the repository of `image`, with no tag and no digest.
-
-    The rule is the Docker reference grammar's (`splitDockerDomain` of distribution/reference): the
-    first component names a registry when it holds a `.` or a `:` or is `localhost`. The Docker SDK's
-    `parse_repository_tag` and `resolve_repository_name` read a name the same way, and a test holds
-    the two equal; the SDK is not imported here, because it ships no type information.
-    """
-    name = image.split("@", 1)[0]
-    if ":" in name.rsplit("/", 1)[-1]:
-        name = name.rsplit(":", 1)[0]
-    first, _, rest = name.partition("/")
-    if rest and ("." in first or ":" in first or first == "localhost"):
-        return (_DEFAULT_REGISTRY if first == _DEFAULT_REGISTRY_ALIAS else first), rest
-    return _DEFAULT_REGISTRY, name
 
 
 def names_latest(image: str) -> bool:
@@ -305,35 +282,29 @@ def collect_image_pins(root: Path) -> ImagePins:
     return ImagePins(pinned, tuple(sorted(managed)), local, latest, tuple(planned))
 
 
-def _error_line(stderr: str) -> str:
-    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
-    return lines[-1].removeprefix("ERROR: ") if lines else "the resolver gave no error text"
+def resolve_image(
+    image: str, applications: tuple[str, ...], client: httpx2.Client, *, timeout: float
+) -> PinResolution:
+    """Resolve `image` in its registry as an anonymous client, without pulling it.
 
-
-def resolve_image(image: str, applications: tuple[str, ...]) -> PinResolution:
-    """Resolve `image` in its registry as an anonymous client, without pulling it."""
+    A registry that refuses the read, does not answer, or is on an address the client's egress level
+    refuses gives a resolution with its error, not an exception: the other pins are still read.
+    """
     registry, _ = image_reference(image)
-    with tempfile.TemporaryDirectory(prefix="image-pins-docker-") as anonymous:
-        proc = run_subprocess(
-            inspect_command(image),
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-            env={"DOCKER_CONFIG": anonymous},
-        )
-    if isinstance(proc, PlannedProcessResult):
-        return PinResolution(image, applications, registry, None, None, planned=True)
-    if proc.returncode != 0:
-        return PinResolution(image, applications, registry, None, _error_line(proc.stderr or ""))
     try:
-        digest = json.loads(proc.stdout or "")["digest"]
-    except json.JSONDecodeError, KeyError, TypeError:
-        return PinResolution(image, applications, registry, None, "the manifest names no digest")
-    return PinResolution(image, applications, registry, str(digest), None)
+        digest = tag_digest(image, client, timeout=timeout)
+    except (RegistryReadError, SSRFBlockedError, httpx2.HTTPError) as exc:
+        return PinResolution(image, applications, registry, None, str(exc))
+    return PinResolution(image, applications, registry, digest, None)
 
 
-def resolve_image_pins(pins: ImagePins) -> list[PinResolution]:
-    """Resolve each pinned image once, a few at a time."""
+def resolve_image_pins(
+    pins: ImagePins, client: httpx2.Client, *, timeout: float
+) -> list[PinResolution]:
+    """Resolve each pinned image once, a few at a time, with one client."""
+
+    def resolve(item: tuple[str, tuple[str, ...]]) -> PinResolution:
+        return resolve_image(item[0], item[1], client, timeout=timeout)
+
     with ThreadPoolExecutor(max_workers=_WORKERS) as pool:
-        return list(pool.map(lambda item: resolve_image(*item), pins.pinned.items()))
+        return list(pool.map(resolve, pins.pinned.items()))

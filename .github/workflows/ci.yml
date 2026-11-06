@@ -829,10 +829,9 @@ jobs:
   # manifests, the command or this workflow, so a wrong tag fails the pull request and not the
   # sync (#1994). `devops k8s image-pins` renders each Application as Argo CD does: a path source
   # with the runner's kubectl, as the Argo CD gate of the test row does, and a chart source with
-  # the pinned helm and the repository's value files. It resolves each image once with
-  # `docker buildx imagetools inspect`, an anonymous manifest read that Docker Hub counts as a
-  # pull. A pull request that changes none of the paths skips the check, and the job reports
-  # success.
+  # the pinned helm and the repository's value files. It resolves each image once with a HEAD
+  # request of its manifest (`tag_digest`), which Docker Hub does not count as a pull. A pull
+  # request that changes none of the paths skips the check, and the job reports success.
   image-pins:
     name: Image Pins
     if: github.event_name == 'pull_request'
@@ -851,6 +850,7 @@ jobs:
             pins:
               - 'k8s/**'
               - 'src/devops_cli/**/image_pins.py'
+              - 'src/devops_cli/docker/registry.py'
               - '.github/workflows/ci.yml'
 
       - name: Check out repository

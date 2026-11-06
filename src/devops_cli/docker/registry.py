@@ -6,7 +6,9 @@ an anonymous pull token from the realm its challenge names, as `crane digest` an
 do; the standard library parses the challenge. An image that needs credentials is a
 `RegistryReadError`: devops-cli reads only public images here.
 
-A reference names its registry host, as Argo CD Image Updater writes it. docker-py splits it.
+A reference names its registry host, or none, which is Docker Hub. docker-py splits it. Docker Hub
+answers a manifest at `registry-1.docker.io`, not at `docker.io`, and a HEAD of a manifest there is
+not counted against the anonymous pull allowance of the caller's address (#2610).
 """
 
 from __future__ import annotations
@@ -17,6 +19,10 @@ from urllib.request import parse_http_list, parse_keqv_list
 import httpx2
 
 from devops_cli.exceptions.docker import RegistryReadError, RegistryTagNotFoundError
+
+# The registry of a name that names none, as docker-py gives it, and the host that serves it.
+_DOCKER_HUB = "docker.io"
+_DOCKER_HUB_REGISTRY_HOST = "registry-1.docker.io"
 
 # The manifest kinds a tag can name: a multi-platform index or list, or one image's manifest. The
 # registry gives the digest of the kind it stores, which is what a pin names.
@@ -32,34 +38,46 @@ _MANIFEST_MEDIA_TYPES = ", ".join(
 
 @dataclass(frozen=True)
 class TaggedImage:
-    """An image reference `<registry>/<repository>:<tag>` split into its parts."""
+    """An image reference split into its parts; `tag` holds the digest of a reference that has one."""
 
     registry: str
     repository: str
     tag: str
 
 
-def tagged_image(reference: str) -> TaggedImage:
-    """Split `<registry>/<repository>:<tag>`; raise RegistryReadError for another form.
+def image_reference(image: str) -> tuple[str, str]:
+    """The registry host and the repository of `image`, with no tag and no digest.
 
-    docker-py splits the reference. A reference with a digest (`<repository>@sha256:...`) gives
-    the digest as the tag. docker-py is imported here, as a module-level import would slow every
-    command that imports this module.
+    docker-py splits it by the Docker reference grammar: the first component names a registry when
+    it holds a `.` or a `:` or is `localhost`; any other name, and `index.docker.io`, is
+    `docker.io`. docker-py strips only the digest of a reference that holds a tag and a digest, so
+    the split is applied twice. docker-py is imported here, as a module-level import would slow
+    every command that imports this module.
     """
     from docker.auth import resolve_repository_name
     from docker.errors import InvalidRepository
     from docker.utils import parse_repository_tag
 
-    repository, tag = parse_repository_tag(reference)
+    repository, _ = parse_repository_tag(parse_repository_tag(image)[0])
     try:
-        registry, remote = resolve_repository_name(repository)
+        return resolve_repository_name(repository)
     except InvalidRepository as exc:
-        raise RegistryReadError(f"{reference} is no valid reference: {exc}") from exc
-    if remote == repository:
-        raise RegistryReadError(f"{reference} names no registry host, so its registry is unknown.")
+        raise RegistryReadError(f"{image} is no valid reference: {exc}") from exc
+
+
+def tagged_image(reference: str) -> TaggedImage:
+    """Split `[<registry>/]<repository>[:<tag>][@<digest>]`; raise RegistryReadError for another form.
+
+    A name that names no registry is on Docker Hub, as `docker.io`. A reference with a digest gives
+    the digest as the tag, so the manifest of the digest is the one read, whatever tag it names too.
+    """
+    from docker.utils import parse_repository_tag
+
+    registry, repository = image_reference(reference)
+    _, tag = parse_repository_tag(reference)
     if not tag:
         raise RegistryReadError(f"{reference} names no tag, so it has no digest to look up.")
-    return TaggedImage(registry=registry, repository=remote, tag=tag)
+    return TaggedImage(registry=registry, repository=repository, tag=tag)
 
 
 def _anonymous_token(client: httpx2.Client, challenge: str, reference: str, timeout: float) -> str:
@@ -84,13 +102,20 @@ def _anonymous_token(client: httpx2.Client, challenge: str, reference: str, time
 def tag_digest(reference: str, client: httpx2.Client, *, timeout: float) -> str:
     """Return the digest that the tag of `reference` names now, such as `sha256:...`.
 
-    `reference` is `<registry>/<repository>:<tag>`. Raises RegistryReadError when the registry
+    `reference` is `[<registry>/]<repository>:<tag>` or has a digest (see `tagged_image`); a name
+    with no registry is on Docker Hub. Raises RegistryReadError when the registry
     gives no digest: the image needs credentials, or the reply has no `Docker-Content-Digest`.
     Raises RegistryTagNotFoundError, a RegistryReadError, when the registry answers HTTP 404: the
     tag is not there.
     """
     image = tagged_image(reference)
-    url = f"https://{image.registry}/v2/{image.repository}/manifests/{image.tag}"
+    registry, repository = image.registry, image.repository
+    if registry == _DOCKER_HUB:
+        # Docker Hub serves manifests at its registry host, and keeps an official image under
+        # `library/`.
+        registry = _DOCKER_HUB_REGISTRY_HOST
+        repository = repository if "/" in repository else f"library/{repository}"
+    url = f"https://{registry}/v2/{repository}/manifests/{image.tag}"
     headers = {"Accept": _MANIFEST_MEDIA_TYPES}
     response = client.head(url, headers=headers, timeout=timeout)
     if response.status_code == httpx2.codes.UNAUTHORIZED:

@@ -7,22 +7,17 @@ from typing import Annotated
 
 import typer
 
-from devops_cli.config.defaults import DEFAULT_CURRENT_PATH
+from devops_cli.config.defaults import DEFAULT_CURRENT_PATH, DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.exceptions.k8s import ImagePinError
-from devops_cli.k8s.image_pins import (
-    PinResolution,
-    collect_image_pins,
-    inspect_command,
-    resolve_image_pins,
-)
+from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
+from devops_cli.k8s.image_pins import PinResolution, collect_image_pins, resolve_image_pins
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import TableColumn, TablePayload, print, print_info, print_success
 
 
 def _result_text(resolution: PinResolution) -> str:
-    if resolution.planned:
-        return "planned"
     return resolution.digest or f"not resolved: {resolution.error}"
 
 
@@ -40,12 +35,11 @@ def k8s_image_pins(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Render each Argo CD Application of the repository and resolve each image it pins in its
-    registry, as an anonymous client, without pulling it. Exits 1, before it resolves an image, when
-    an image has no digest and the latest tag or no tag, unless Image Updater moves it. Exits 1 when
-    a registry does not hold an image or refuses the read. Docker Hub counts each read of a Docker
-    Hub image as an anonymous pull, from the allowance of the network's public address, which the
-    cluster's nodes may share; the CI job `image-pins` runs the check on a pull request that changes
-    k8s/."""
+    registry, as an anonymous client, without pulling it: a HEAD request of its manifest, which
+    Docker Hub does not count against the anonymous allowance of the network's public address.
+    Exits 1, before it resolves an image, when an image has no digest and the latest tag or no tag,
+    unless Image Updater moves it. Exits 1 when a registry does not hold an image or refuses the
+    read. The CI job `image-pins` runs the check on a pull request that changes k8s/."""
     set_dry_run(dry_run)
     pins = collect_image_pins(root.resolve())
     if pins.latest:
@@ -60,7 +54,11 @@ def k8s_image_pins(
                 ),
             )
         )
-    resolutions = resolve_image_pins(pins)
+    resolutions: list[PinResolution] = []
+    if pins.pinned and not dry_run:
+        # registry.k8s.io answers a manifest request with a redirect to the host that stores it.
+        with http_client(EgressLevel.PUBLIC, follow_redirects=True) as client:
+            resolutions = resolve_image_pins(pins, client, timeout=DEFAULT_HTTP_TIMEOUT_SECONDS)
     if resolutions:
         print(
             TablePayload(
@@ -82,9 +80,7 @@ def k8s_image_pins(
     if pins.local:
         print_info(MESSAGES.k8s.image_pins_local.format(images=", ".join(pins.local)))
     if dry_run:
-        print_info(
-            MESSAGES.k8s.image_pins_dry_run.format(command=" ".join(inspect_command("<image>")))
-        )
+        print_info(MESSAGES.k8s.image_pins_dry_run)
         return
     failures = [r for r in resolutions if not r.resolved]
     if failures:
