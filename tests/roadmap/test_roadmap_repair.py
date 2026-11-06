@@ -46,6 +46,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
 BODY = "Make a report."
+_ASKED = "Which module holds the readiness checks? (a person decides)"
 RETURN = (
     f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\nThe stage job returned the item to New. The premise "
     "of the issue does not hold at the staging commit, so the job planned no change and opened "
@@ -136,11 +137,12 @@ def _stub(store: InMemoryRoadmapStore, problem: str = "x", tool: str = "x") -> i
             RefineRecordKey.BODY_HASH: hash_text(outside),
             RefineRecordKey.SECTION_HASH: hash_text(inside),
             RefineRecordKey.NEXT_STEP: NextStep.PERSON.value,
+            RefineRecordKey.TRIES: "2",
+            RefineRecordKey.FAILED_CHECK: "missing_source",
+            RefineRecordKey.FAILURE: "Searched: nothing",
         },
     )
-    asked = step_comment(
-        _item(store, number), NextStep.PERSON, [MESSAGES.roadmap.refine_incomplete], SHA
-    )
+    asked = step_comment(_item(store, number), NextStep.PERSON, [_ASKED], SHA)
     store.comment(number, asked)
     return number
 

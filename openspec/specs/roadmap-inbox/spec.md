@@ -6,9 +6,9 @@ How `devops roadmap inbox` lists what waits for a person on the roadmap: the pul
 ## Requirements
 
 ### Requirement: The inbox lists the gates of the jobs in order
-`devops roadmap inbox` SHALL list, in this order: ready plan pull requests of the jobs, ready implementation pull requests of the jobs, the open release pull request, items in `status/blocked` with their cause, New items that wait on a person in refine, New items with an unapplied split, New items with an alternatives question, drafts of jobs that are old or have a failed check, old claims, and labels that the repository lacks.
+`devops roadmap inbox` SHALL list, in this order: ready plan pull requests of the jobs, ready implementation pull requests of the jobs, the open release pull request, items in `status/blocked` with their cause, New items that wait on a person in refine, New items with an unapplied split, New items with an alternatives question, New items whose refine job failed, drafts of jobs that are old or have a failed check, old claims, and labels that the repository lacks.
 #### Scenario: Each category
-- **WHEN** the repository holds a ready plan pull request, a ready implementation pull request, a release pull request, a blocked item, a New item that waits on a person in refine, a New item with an unapplied split, a New item with an alternatives question, an old draft of a job, an old claim and a missing label
+- **WHEN** the repository holds a ready plan pull request, a ready implementation pull request, a release pull request, a blocked item, a New item that waits on a person in refine, a New item with an unapplied split, a New item with an alternatives question, a New item whose refine job failed, an old draft of a job, an old claim and a missing label
 - **THEN** the output lists one line for each, in the order above
 
 ### Requirement: The inbox lists each job pull request once
@@ -169,3 +169,14 @@ Each line whose age is over the setting `roadmap.inbox.wait_days` SHALL show a m
 #### Scenario: The class filter
 - **WHEN** `--kind` names one class
 - **THEN** the output lists the lines of that class only, and the counts of all classes
+
+### Requirement: The inbox lists each item whose refine job failed at the try limit
+`devops roadmap inbox` SHALL list one line for each open New item whose `refine.next_step` is `failed`. The line SHALL show the number, the age, the failed check names, the count of tries and the last error, and SHALL show no question. The inbox SHALL list no line for an item whose `refine.next_step` is `retry`.
+
+#### Scenario: A job failure at the limit
+- **WHEN** an open New item records `refine.next_step` as `failed`, `refine.failed_check` as `problem_statement`, `refine.tries` as `3` and a `refine.failure`
+- **THEN** the output lists one line in the section "New items whose refine job failed", with the check, the count `3` and the error, and the line asks no question
+
+#### Scenario: A retry
+- **WHEN** an open New item records `refine.next_step` as `retry`
+- **THEN** the output lists no line for it

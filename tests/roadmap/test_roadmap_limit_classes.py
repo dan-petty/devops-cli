@@ -105,6 +105,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS": ("raised", "was 1024; one reply of a person"),
     "CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS": ("kept", "bounds the GitHub reads of each round"),
     "CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS": ("kept", "bounds the GitHub reads of each round"),
+    "CONST_ROADMAP_REFINE_MAX_TRIES": (
+        "kept",
+        "stops a refine job that fails on the same body, so the item waits on a body edit",
+    ),
+    "CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS": (
+        "kept",
+        "protects the job record of the issue and the inbox from a long error",
+    ),
     # ── Stage ─────────────────────────────────────────────────────────────────────────────
     "CONST_ROADMAP_STAGE_TOOL_MAX_CALLS": ("guard", "was 30; the window ends the run first"),
     "CONST_ROADMAP_STAGE_MAX_REQUESTS": ("guard", "was 40; the window ends the run first"),

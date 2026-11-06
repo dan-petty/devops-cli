@@ -67,6 +67,15 @@ and with Firecrawl web search when the repository is public and a key is set; it
 validated the same way. A decision names the options it compared, a question only a person can
 decide waits on a person, and the Ready check sets Status New → Ready only when complete. The plan
 says when web search is off, and why.
+A person waits only for a decision: a question marked `(a person decides)`. Every other failure of
+the round is a job failure (`JobFailure`, #3632): the proposal fails a form check (`form_checks`),
+a question stays open after the investigation with no verified source or no answer, or the
+investigation ends with no proposal while such a question is open. A job failure writes no body and
+no comment. The job record counts the tries on the body (`RefineRecordKey.TRIES`), names the failed
+checks and keeps the last error, with the calls of the read tools that found no source. The next
+step is `RETRY`, which a later round tries again, and `FAILED` at `CONST_ROADMAP_REFINE_MAX_TRIES`
+tries, which only a body edit ends and which the inbox lists. The plan report counts the items that
+go on without a person.
 A model call that fails skips only its item: refine writes the others, then fails with
 `RoadmapRefineError` naming each skipped item, its error's class and its schema violation count.
 Rejected credentials still stop the run at the first item.
@@ -126,6 +135,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS,
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
     CONST_ROADMAP_REFINE_END_MARKER,
+    CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS,
     CONST_ROADMAP_REFINE_HELD_STATUSES,
     CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS,
     CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
@@ -135,6 +145,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS,
     CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC,
     CONST_ROADMAP_REFINE_MAX_SPECS,
+    CONST_ROADMAP_REFINE_MAX_TRIES,
     CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS,
     CONST_ROADMAP_REFINE_NO_BLOCK_TEXTS,
     CONST_ROADMAP_REFINE_OUTSIDE_MARKER,
@@ -289,8 +300,11 @@ class NextStep(StrEnum):
     items it depends on close. A reply after refine's last comment, a body edit, or a commit on
     the default branch after that comment that changes a path the block cites (#2005) ends each
     of these waits, and a closed blocker ends `BLOCKED`. `EDIT`: refine cannot write a design
-    for the body, and only a body edit ends the wait. `NONE`: refine changes no item that is
-    closed, In Progress, Done or Blocked.
+    for the body, and only a body edit ends the wait. `RETRY`: the job failed (the proposal failed
+    a form check, or a question that is no person's stayed open) and a later round tries again.
+    `FAILED`: the job failed `CONST_ROADMAP_REFINE_MAX_TRIES` times on the same body, and only a
+    body edit ends the wait (#3632). `NONE`: refine changes no item that is closed, In Progress,
+    Done or Blocked.
     """
 
     READY = "ready"
@@ -298,7 +312,34 @@ class NextStep(StrEnum):
     SPLIT = "split"
     BLOCKED = "blocked"
     EDIT = "edit"
+    RETRY = "retry"
+    FAILED = "failed"
     NONE = "none"
+
+
+class JobCheck(StrEnum):
+    """The check that a refine round failed, as `refine.failed_check` records it (#3632). The
+    first three are the form checks of a proposal (`form_checks`). `MISSING_SOURCE` is a question
+    with no verified source that the investigation left open, `UNANSWERED_QUESTION` a question of
+    the body that no answer names, and `INVESTIGATION_STOPPED` an investigation that ended with no
+    proposal while such a question stayed open."""
+
+    PROBLEM_STATEMENT = "problem_statement"
+    EXISTING_TOOL = "existing_tool"
+    ACCEPTANCE_CRITERIA = "acceptance_criteria"
+    MISSING_SOURCE = "missing_source"
+    UNANSWERED_QUESTION = "unanswered_question"
+    INVESTIGATION_STOPPED = "investigation_stopped"
+
+
+@dataclass(frozen=True)
+class JobFailure:
+    """A round whose job failed, with no person to ask (#3632): the checks that failed and the
+    last error, which names the calls of the read tools when they found no source. It is one line
+    of text, cut to `CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS`."""
+
+    checks: tuple[JobCheck, ...]
+    error: str
 
 
 @dataclass(frozen=True)
@@ -325,7 +366,9 @@ class RefinedItem:
     (#2423). `after_stage_return` is set when the round looked again at the same body after the
     stage job returned the item, which apply records, so a second return waits on a person
     (#3483). `judge` is the verdict of the review of the proposal for an item that a bot opened,
-    which apply records, and None for the item of a person (#3502)."""
+    which apply records, and None for the item of a person (#3502). `failure` is set when the job
+    failed: apply then records it with the count of `tries` on this body and writes nothing else
+    (#3632)."""
 
     item: Item
     proposal: RefinementProposal
@@ -347,6 +390,8 @@ class RefinedItem:
     deferred: tuple[PlannedDeferral, ...] = ()
     after_stage_return: bool = False
     judge: JudgeVerdict | None = None
+    failure: JobFailure | None = None
+    tries: int = 0
 
 
 @dataclass(frozen=True)
@@ -482,10 +527,15 @@ def _covering_tool(item: Item) -> str | None:
 def _needs_second_look(item: Item) -> bool:
     """Whether the item holds a covering tool that no refine round put to a person: refine
     looks at the item again, though its body is unchanged and it waits on a person or is Ready.
-    An item that waits on a body edit alone is left to that edit (#2652)."""
+    An item that waits on a body edit alone, or whose job failed as often as the limit allows, is
+    left to that edit (#2652, #3632)."""
     tool = _covering_tool(item)
     asked = item.job_record.get(RefineRecordKey.ALTERNATIVES_ASKED)
-    return tool is not None and tool != asked and _recorded_step(item) is not NextStep.EDIT
+    return (
+        tool is not None
+        and tool != asked
+        and _recorded_step(item) not in (NextStep.EDIT, NextStep.FAILED)
+    )
 
 
 def _latest_check_comment(comments: Sequence[IssueComment]) -> IssueComment | None:
@@ -1092,8 +1142,9 @@ def validate_proposal(
         validated_qa.append(_marked(qa.model_copy(update={"sources": valid_srcs}), owner_decisions))
 
     named = {qa.body_question for qa in proposal.key_questions}
+    # A `covers` question is a decision only a person makes, also when a reply left it open (#3632).
     open_questions.extend(
-        asked
+        f"{asked} {_A_PERSON_DECIDES}" if covers is not None and asked == covers.text else asked
         for number, asked in enumerate(_asked_questions(body, covers), start=1)
         if number not in named
     )
@@ -1136,20 +1187,29 @@ def _complete(criterion: AcceptanceCriterion) -> bool:
     return all(part.strip() for part in criterion.model_dump().values())
 
 
+def form_checks(proposal: RefinementProposal) -> list[JobCheck]:
+    """The form checks that `proposal` fails (#3632): a problem statement, an answer to the
+    existing-tool question (#1849), and, for a proposal that fits one pull request, 1+ criterion
+    with every part of its requirement block. A proposal that needs a split has no criterion to
+    check: a person splits it."""
+    failed: list[JobCheck] = []
+    if not proposal.problem_statement.strip():
+        failed.append(JobCheck.PROBLEM_STATEMENT)
+    if not proposal.existing_tool.strip():
+        failed.append(JobCheck.EXISTING_TOOL)
+    criteria = proposal.acceptance_criteria
+    if proposal.fits_one_pr and not (criteria and all(_complete(c) for c in criteria)):
+        failed.append(JobCheck.ACCEPTANCE_CRITERIA)
+    return failed
+
+
 def check_ready(
     proposal: RefinementProposal, open_questions: Sequence[str], blockers: Sequence[int]
 ) -> bool:
-    """Deterministic check: a problem statement, 1+ criterion with every part of its requirement
-    block, an answer to the existing-tool question (#1849), no open questions, fits one PR, no
-    open dependency (`blockers`, #3500) and no suspected block.
+    """Deterministic check: no failed form check (`form_checks`), no open questions, fits one PR,
+    no open dependency (`blockers`, #3500) and no suspected block.
     """
-    if not proposal.problem_statement.strip() or not proposal.existing_tool.strip():
-        return False
-    if not proposal.acceptance_criteria:
-        return False
-    if not all(_complete(criterion) for criterion in proposal.acceptance_criteria):
-        return False
-    if open_questions:
+    if form_checks(proposal) or open_questions:
         return False
     if not proposal.fits_one_pr or blockers:
         return False
@@ -1177,8 +1237,8 @@ def next_step_of(
 ) -> tuple[NextStep, tuple[str, ...], tuple[int, ...]]:
     """The next step a validated proposal gives its item, with its details and the open items
     that block it, which are `blockers` (#1758): the open questions go to a person first, then
-    the split, then the open dependencies, then a suspected block, and last a proposal with no
-    checkable criterion."""
+    the split, then the open dependencies, then a suspected block, and last a proposal that fails
+    a form check, which is a job failure that a later round tries again (#3632)."""
     if is_ready:
         return NextStep.READY, (), ()
     if open_questions:
@@ -1188,7 +1248,9 @@ def next_step_of(
     if blockers:
         return NextStep.BLOCKED, tuple(f"#{dep}" for dep in blockers), blockers
     block = _suspected_block(proposal)
-    return NextStep.PERSON, (block or MESSAGES.roadmap.refine_incomplete,), ()
+    if block is None:
+        return NextStep.RETRY, (), ()
+    return NextStep.PERSON, (block,), ()
 
 
 def step_comment(
@@ -1744,6 +1806,24 @@ def _returned_wait(item: Item, comments: Sequence[IssueComment]) -> str | None:
     return texts.refine_stage_returned_twice if _returned_twice(item) else None
 
 
+def _recorded_failure(item: Item) -> str:
+    """The line that the job record of `item` holds for its failed round: the checks, the count of
+    tries and the last error (#3632)."""
+    record = item.job_record
+    texts = MESSAGES.roadmap
+    return texts.refine_failure_line.format(
+        checks=record.get(RefineRecordKey.FAILED_CHECK) or "",
+        tries=record.get(RefineRecordKey.TRIES) or "",
+        limit=CONST_ROADMAP_REFINE_MAX_TRIES,
+        error=record.get(RefineRecordKey.FAILURE) or texts.refine_failure_form,
+    )
+
+
+def _settled_wait(item: Item, step: NextStep) -> WaitingItem:
+    """The wait that only a body edit ends: `EDIT`, and `FAILED` with the line of its failure."""
+    return WaitingItem(item, step, (_recorded_failure(item),) if step is NextStep.FAILED else ())
+
+
 def _still_waiting(
     store: RoadmapStore, item: Item, comments_on: Callable[[int], list[IssueComment]]
 ) -> WaitingItem | None:
@@ -1753,15 +1833,16 @@ def _still_waiting(
     path the block cites after that comment (#2005), or, for a wait on a person, an issue or a
     file that the text of the wait names closed or changed after it (#3483). An item the stage
     job returned gets one new look, and the second return on the same body waits on a person.
-    Only a body edit ends an `EDIT` wait. `comments_on` reads the item's comments."""
+    Only a body edit ends an `EDIT` or a `FAILED` wait, and a `RETRY` is never a wait: the job
+    failed and the next round tries again (#3632). `comments_on` reads the item's comments."""
     step = _recorded_step(item)
     details: tuple[str, ...] = ()
     names_cause = step is NextStep.PERSON
     match step:
-        case None:
+        case None | NextStep.RETRY:
             return None
-        case NextStep.EDIT:
-            return WaitingItem(item, step)
+        case NextStep.EDIT | NextStep.FAILED:
+            return _settled_wait(item, step)
         case NextStep.BLOCKED:
             blockers = [number for number in recorded_blockers(item) if _is_open(store, number)]
             if not blockers:
@@ -1984,6 +2065,98 @@ def check_person_edits(item: Item, current_body: str) -> str | None:
     return None
 
 
+def _printable_line(text: str) -> str:
+    """`text` on one line, with no control character: the job record keeps it and the inbox prints
+    it, and the model chose part of it."""
+    return "".join(ch for ch in " ".join(text.split()) if ch.isprintable())
+
+
+def _job_failure(
+    proposal: RefinementProposal,
+    open_questions: Sequence[str],
+    stopped: InvestigationStopped | None,
+    searched: Sequence[str],
+) -> JobFailure | None:
+    """The job failure of a round, or None when the round has none (#3632). A person has a decision
+    to make only for a question marked `(a person decides)`. So the round failed when the proposal
+    fails a form check, or when another open question stays open after the investigation: the
+    tools found no source (`MISSING_SOURCE`), the proposal left a question of the body without an
+    answer (`UNANSWERED_QUESTION`), or the investigation ended with no proposal
+    (`INVESTIGATION_STOPPED`). The error names the open question, the stop and the calls of the
+    tools, so a person sees what they searched."""
+    texts = MESSAGES.roadmap
+    checks = form_checks(proposal)
+    parts: list[str] = []
+    searched_text = ""
+    job_open = [question for question in open_questions if not question.endswith(_A_PERSON_DECIDES)]
+    if job_open:
+        if stopped is not None:
+            checks.append(JobCheck.INVESTIGATION_STOPPED)
+            parts.append(
+                texts.run_stop_reason.format(error=stopped.reason, message=stopped.message)
+            )
+        if any(question.endswith(_MISSING_SOURCE) for question in job_open):
+            checks.append(JobCheck.MISSING_SOURCE)
+        if any(not question.endswith(_MISSING_SOURCE) for question in job_open):
+            checks.append(JobCheck.UNANSWERED_QUESTION)
+        parts.append(texts.refine_failure_open.format(question=job_open[0]))
+        searched_text = _printable_line(
+            texts.refine_failure_searched.format(calls="; ".join(searched))
+            if searched
+            else texts.refine_failure_none_searched
+        )
+    if not checks:
+        return None
+    if not parts:
+        return JobFailure(tuple(checks), texts.refine_failure_form)
+    # The searched calls are what the issue asks for: they keep half of the room at most, and the
+    # stop and the open question give way to them, so a long question cannot cut them off.
+    room = CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS
+    searched_text = searched_text[: room // 2]
+    head = _printable_line(" ".join(parts))[: room - len(searched_text) - 1]
+    return JobFailure(tuple(checks), f"{head.rstrip()} {searched_text}".strip())
+
+
+def _failed_round(
+    item: Item,
+    proposal: RefinementProposal,
+    open_questions: list[str],
+    current_body: str,
+    failure: JobFailure,
+) -> RefinedItem:
+    """The round of `item` whose job failed: nothing is written but the record (#3632). The tries
+    count on the body that the round read: a body edit starts the count at 1 again. The next step is
+    `RETRY` below `CONST_ROADMAP_REFINE_MAX_TRIES` tries and `FAILED` at the limit."""
+    seen_body_hash, seen_section_hash = body_hashes(current_body)
+    prior = item.job_record.get(RefineRecordKey.TRIES) or ""
+    same_body = item.job_record.get(RefineRecordKey.BODY_HASH) == seen_body_hash
+    tries = (int(prior) if same_body and prior.isdecimal() else 0) + 1
+    step = NextStep.FAILED if tries >= CONST_ROADMAP_REFINE_MAX_TRIES else NextStep.RETRY
+    line = MESSAGES.roadmap.refine_failure_line.format(
+        checks=",".join(failure.checks),
+        tries=tries,
+        limit=CONST_ROADMAP_REFINE_MAX_TRIES,
+        error=failure.error,
+    )
+    return RefinedItem(
+        item=item,
+        proposal=proposal,
+        open_questions=open_questions,
+        is_ready=False,
+        needs_split=False,
+        reason_comment=None,
+        new_body=current_body,
+        body_hash=seen_body_hash,
+        section_hash=seen_section_hash,
+        next_step=step,
+        step_details=(line,),
+        skip_reason=failure.error,
+        record_only=True,
+        failure=failure,
+        tries=tries,
+    )
+
+
 def refine_one_item(
     store: RoadmapStore,
     item: Item,
@@ -2060,16 +2233,22 @@ def refine_one_item(
     proposal, open_questions = validate_proposal(
         raw_proposal, current_body, allowed_urls, source, sha, store, covers
     )
+    tools = InvestigationTools(source=source, sha=sha, firecrawl_key=web.key)
+    stopped: InvestigationStopped | None = None
     if needs_investigation(proposal, open_questions):
-        tools = InvestigationTools(source=source, sha=sha, firecrawl_key=web.key)
         revised = _investigate(
             item, repo, request, raw_proposal, proposal, open_questions, tools, investigator
         )
-        if revised is not None:
+        if isinstance(revised, InvestigationStopped):
+            stopped = revised
+        else:
             allowed_urls = tools.allowed_urls
             proposal, open_questions = validate_proposal(
                 revised, current_body, allowed_urls, source, sha, store, covers
             )
+    failure = _job_failure(proposal, open_questions, stopped, tools.searched)
+    if failure is not None:
+        return _failed_round(item, proposal, open_questions, current_body, failure)
     blockers = _open_dependencies(store, proposal)
     is_ready = check_ready(proposal, open_questions, blockers)
     judge: JudgeVerdict | None = None
@@ -2234,13 +2413,13 @@ def _investigate(
     open_questions: Sequence[str],
     tools: InvestigationTools,
     investigator: Any,
-) -> RefinementProposal | None:
-    """The proposal the investigation returns for `item`, or None when it stops with none.
+) -> RefinementProposal | InvestigationStopped:
+    """The proposal the investigation returns for `item`, or the stop when it ends with none.
 
     It gets the proposal request without the context, which its tools read, with the first
     proposal and the questions the validated `proposal` leaves open: the open questions and
     each decision with no verified source (#2398). The warning for a stop names `repo` and the
-    reason, with no text of the model (#2562).
+    reason, with no text of the model (#2562). The caller reads the stop (#3632).
     """
     unsourced = [
         f"{qa.question} {_DECISION_WITHOUT_SOURCE}"
@@ -2270,7 +2449,6 @@ def _investigate(
                 ),
             )
         )
-        return None
     return revised
 
 
@@ -2497,9 +2675,23 @@ def _record_failure(store: RoadmapStore, failure: RefineFailure) -> None:
     )
 
 
+def _failure_marks(item: Item, failure: JobFailure | None, tries: int) -> JobRecord:
+    """The marks of a round's job failure: the count of tries, the failed checks and the last
+    error, or the clear of those that the record holds when the round did not fail (#3632)."""
+    if failure is None:
+        keys = (RefineRecordKey.TRIES, RefineRecordKey.FAILED_CHECK, RefineRecordKey.FAILURE)
+        return {key: None for key in keys if key in item.job_record}
+    return {
+        RefineRecordKey.TRIES: str(tries),
+        RefineRecordKey.FAILED_CHECK: ",".join(failure.checks),
+        RefineRecordKey.FAILURE: failure.error,
+    }
+
+
 def _record_unwritten(store: RoadmapStore, plan: RefinePlan) -> None:
     """Record what refine saw of the items it wrote no section to, where the next round would
-    only repeat it: an item too big to refine, and an item the model's reply never validated for."""
+    only repeat it: an item too big to refine, an item whose job failed (#3632), and an item the
+    model's reply never validated for."""
     for r in plan.refined_items:
         if r.record_only and _body_unchanged_since_read(store, r.item.number, r.body_hash):
             store.set_marks(
@@ -2508,6 +2700,7 @@ def _record_unwritten(store: RoadmapStore, plan: RefinePlan) -> None:
                     RefineRecordKey.BODY_HASH: r.body_hash,
                     RefineRecordKey.SECTION_HASH: r.section_hash,
                     RefineRecordKey.NEXT_STEP: r.next_step.value,
+                    **_failure_marks(r.item, r.failure, r.tries),
                     **_without_verdict(r.item),
                 },
             )
@@ -2603,6 +2796,7 @@ def _refine_marks(r: RefinedItem, deferred: Sequence[int]) -> JobRecord:
         RefineRecordKey.BLOCK_PATHS: ",".join(r.block_paths) or None,
         RefineRecordKey.ALTERNATIVES_ASKED: r.alternatives_asked,
         RefineRecordKey.RETURNED_BODY_HASH: r.body_hash if r.after_stage_return else None,
+        **_failure_marks(r.item, r.failure, r.tries),
     }
     if r.judge is not None or RefineRecordKey.JUDGE in r.item.job_record:
         marks[RefineRecordKey.JUDGE] = r.judge.value if r.judge is not None else None
@@ -2685,6 +2879,20 @@ def _step_lines(plan: RefinePlan, step: NextStep) -> list[str]:
     return [texts.refine_step_headings[step.value], *lines] if lines else []
 
 
+# The next steps that need no person: the item is Ready, it waits for open items to close, or its
+# job failed and the next round tries again (#3632).
+_WITHOUT_A_PERSON: Final[frozenset[NextStep]] = frozenset(
+    {NextStep.READY, NextStep.BLOCKED, NextStep.RETRY}
+)
+
+
+def _going_on(plan: RefinePlan) -> list[Item]:
+    """The items of the round that go on without a person, in the order of the plan (#3632)."""
+    return [r.item for r in plan.refined_items if r.next_step in _WITHOUT_A_PERSON] + [
+        w.item for w in plan.waiting_items if w.step in _WITHOUT_A_PERSON
+    ]
+
+
 def render_refine_plan(plan: RefinePlan) -> str:
     """Formats the refinement plan for CLI stdout report: the items grouped by next step, then
     the items whose model call failed (#1758)."""
@@ -2695,6 +2903,12 @@ def render_refine_plan(plan: RefinePlan) -> str:
         lines.append(MESSAGES.roadmap.refine_none)
         return "\n".join(lines)
 
+    going_on = _going_on(plan)
+    lines.append(MESSAGES.roadmap.refine_going_on.format(count=len(going_on)))
+    lines.extend(
+        MESSAGES.roadmap.refine_item_line.format(number=item.number, title=item.title)
+        for item in going_on
+    )
     for step in NextStep:
         lines.extend(_step_lines(plan, step))
 
@@ -2717,6 +2931,8 @@ __all__ = [
     "AcceptanceCriterion",
     "DeferredPart",
     "DesignOption",
+    "JobCheck",
+    "JobFailure",
     "NextStep",
     "PlannedDeferral",
     "QuestionAnswer",
@@ -2734,6 +2950,7 @@ __all__ = [
     "check_ready",
     "collect_context",
     "dry_run_refine",
+    "form_checks",
     "inspect_checkout",
     "needs_investigation",
     "next_step_of",

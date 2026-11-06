@@ -55,6 +55,7 @@ from devops_cli.roadmap.agent_run import (
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
+    JobCheck,
     NextStep,
     QuestionAnswer,
     RefinementProposal,
@@ -311,11 +312,11 @@ def test_the_refine_request_of_a_large_item_passes_the_tool_removal_limit(
 
 
 @pytest.mark.usefixtures("wide_window")
-def test_a_turn_whose_calls_pass_the_budget_keeps_the_first_proposal(
+def test_a_turn_whose_calls_pass_the_budget_is_a_job_failure_that_names_the_item(
     git_repo: Path, store: InMemoryRoadmapStore, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """One turn that asks for more calls than the budget holds ends the run; the item keeps its
-    open question and waits on a person, and the log names the item."""
+    """One turn that asks for more calls than the budget holds ends the run; its open question is
+    a job failure that a later round tries again, not a person wait, and the log names the item."""
     calls = [
         ToolCallPart(tool_name="read_file", args={"path": "../outside.py"})
         for _ in range(CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS + 1)
@@ -326,12 +327,18 @@ def test_a_turn_whose_calls_pass_the_budget_keeps_the_first_proposal(
         plan = _round(store, git_repo, _FIRST, script)
 
     refined = plan.refined_items[0]
+    assert refined.failure is not None
     assert (
         refined.next_step,
-        refined.step_details,
+        refined.failure.checks,
         plan.failed_items,
         any("#1" in record.getMessage() for record in caplog.records),
-    ) == (NextStep.PERSON, ("Where is the sample function? (missing verified source)",), [], True)
+    ) == (
+        NextStep.RETRY,
+        (JobCheck.INVESTIGATION_STOPPED, JobCheck.MISSING_SOURCE),
+        [],
+        True,
+    )
 
 
 def test_the_tools_read_only_the_pinned_commit(git_repo: Path) -> None:
@@ -486,7 +493,7 @@ def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
     return [r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.refine"]
 
 
-def test_a_stopped_run_keeps_the_first_proposal(
+def test_a_stopped_run_with_a_question_open_is_a_job_failure(
     git_repo: Path, store: InMemoryRoadmapStore, caplog: pytest.LogCaptureFixture
 ) -> None:
     script = Script(UnexpectedModelBehavior("Exceeded maximum output retries (3)"))
@@ -496,12 +503,11 @@ def test_a_stopped_run_keeps_the_first_proposal(
 
     refined = plan.refined_items[0]
     assert (refined.next_step, plan.failed_items, _warnings(caplog)) == (
-        NextStep.PERSON,
+        NextStep.RETRY,
         [],
         [
             "Refine's investigation of #1 in example/roadmap stopped with no proposal "
-            "(UnexpectedModelBehavior: Exceeded maximum output retries (3)); "
-            "the item keeps its open questions."
+            "(UnexpectedModelBehavior: Exceeded maximum output retries (3))."
         ],
     )
 
@@ -518,8 +524,7 @@ def test_the_warning_of_a_stopped_run_holds_no_text_of_the_model(
     assert (_warnings(caplog), "MODEL-TEXT" in render_refine_plan(plan) + caplog.text) == (
         [
             "Refine's investigation of #1 in example/roadmap stopped with no proposal "
-            "(UnexpectedModelBehavior: Invalid response from openai); "
-            "the item keeps its open questions."
+            "(UnexpectedModelBehavior: Invalid response from openai)."
         ],
         False,
     )

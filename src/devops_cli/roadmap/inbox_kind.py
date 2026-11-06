@@ -18,6 +18,7 @@ class InboxKind(StrEnum):
     REFINE = "refine"
     SPLIT = "split"
     ALTERNATIVES = "alternatives"
+    FAILED = "failed"
     DRAFT = "draft"
     CLAIM = "claim"
     LABELS = "labels"

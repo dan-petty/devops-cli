@@ -249,7 +249,7 @@ devops roadmap inbox [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--kind` | `choice (plan|implement|release|blocked|refine|split|alternatives|draft|claim|labels|queue|person)` | - | List only the lines of one class, such as refine, split, alternatives or draft. The counts of every class stay complete. |
+| `--kind` | `choice (plan|implement|release|blocked|refine|split|alternatives|failed|draft|claim|labels|queue|person)` | - | List only the lines of one class, such as refine, split, alternatives, failed or draft. The counts of every class stay complete. |
 | `--dry-run` | `boolean` | - | Make no request: print the reads that a run makes, in order, with placeholders. |
 
 ---

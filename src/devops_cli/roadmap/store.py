@@ -143,7 +143,8 @@ class RefineRecordKey(StrEnum):
     that refine filed for the deferred parts of the item, comma separated (#2423), and the body
     hash of a round that looked again at an item after the stage job returned it: a second
     return on the same body waits on a person (#3483), and the verdict of the review of an item
-    that a bot opened (`JudgeVerdict`, #3502)."""
+    that a bot opened (`JudgeVerdict`, #3502). A round whose job failed records the count of its
+    tries on the body, the names of the failed checks and the last error (#3632)."""
 
     BODY_HASH = "refine.body_hash"
     SECTION_HASH = "refine.section_hash"
@@ -157,6 +158,9 @@ class RefineRecordKey(StrEnum):
     DEFERRED = "refine.deferred"
     RETURNED_BODY_HASH = "refine.returned_body_hash"
     JUDGE = "refine.judge"
+    TRIES = "refine.tries"
+    FAILED_CHECK = "refine.failed_check"
+    FAILURE = "refine.failure"
 
 
 class JudgeVerdict(StrEnum):

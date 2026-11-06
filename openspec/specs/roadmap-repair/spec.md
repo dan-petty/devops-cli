@@ -66,7 +66,7 @@ With `--confirm`, the pass SHALL read each listed Item again and skip it when it
 - **THEN** the second run lists nothing
 
 ### Requirement: Confirm clears a stub refine block
-With `--confirm`, the pass SHALL write the body of an Item stalled by a stub refine block without the section of refine, then clear the refine marks `refine.body_hash`, `refine.section_hash`, `refine.failed_body_hash`, `refine.next_step`, `refine.blocked_by`, `refine.block_paths` and `refine.needs_split`.
+With `--confirm`, the pass SHALL write the body of an Item stalled by a stub refine block without the section of refine, then clear the refine marks `refine.body_hash`, `refine.section_hash`, `refine.failed_body_hash`, `refine.next_step`, `refine.blocked_by`, `refine.block_paths`, `refine.needs_split`, `refine.tries`, `refine.failed_check` and `refine.failure`.
 
 #### Scenario: A stub block is cleared
 - **WHEN** the pass runs with `--confirm` on an Item stalled by a stub refine block

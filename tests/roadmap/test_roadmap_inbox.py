@@ -514,6 +514,49 @@ def test_an_alternatives_question_has_one_line_naming_the_tool(
     )
 
 
+def test_a_refine_job_that_failed_at_the_limit_has_one_line_with_its_check_and_no_question(
+    store: InMemoryRoadmapStore,
+) -> None:
+    failed = _item(
+        store,
+        "failed job",
+        fields={ItemField.STATUS: "New"},
+        marks={
+            RefineRecordKey.NEXT_STEP: "failed",
+            RefineRecordKey.FAILED_CHECK: "problem_statement",
+            RefineRecordKey.TRIES: "3",
+            RefineRecordKey.FAILURE: "The reply of the model failed the form check.",
+        },
+        updated_at=_ago(days=2),
+    )
+
+    inbox = _read(store)
+
+    assert [(line.number, line.subject) for line in _lines(inbox, InboxKind.FAILED)] == [
+        (
+            failed,
+            "failed job: the refine job failed on problem_statement in 3 tries. "
+            "Last error: The reply of the model failed the form check.",
+        )
+    ]
+    assert _lines(inbox, InboxKind.REFINE) == []
+    assert "New items whose refine job failed" in render_inbox(inbox, repo=REPO)
+
+
+def test_a_refine_job_that_tries_again_has_no_line(store: InMemoryRoadmapStore) -> None:
+    _item(
+        store,
+        fields={ItemField.STATUS: "New"},
+        marks={
+            RefineRecordKey.NEXT_STEP: "retry",
+            RefineRecordKey.FAILED_CHECK: "problem_statement",
+            RefineRecordKey.TRIES: "1",
+        },
+    )
+
+    assert _lines(_read(store), InboxKind.FAILED) == []
+
+
 def test_the_split_and_alternatives_classes_follow_the_refine_class() -> None:
     kinds = list(InboxKind)
     refine = kinds.index(InboxKind.REFINE)
