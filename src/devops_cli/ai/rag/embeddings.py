@@ -403,7 +403,11 @@ def _count_cache_lookups(*, memory: int, valkey: int, misses: int) -> None:
 class EmbedderProtocol(Protocol):
     """Protocol for text embedding engines."""
 
+    model: str
+
     def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]: ...
+
+    def embed_query(self, text: str) -> list[float]: ...
 
 
 _EMBEDDER_OVERRIDE: EmbedderProtocol | None = None

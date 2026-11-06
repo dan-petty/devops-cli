@@ -61,6 +61,10 @@ class FakeEmbedder(EmbedderProtocol):
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         return self.embed_texts(texts, is_query=False)
 
+    def embed_query(self, text: str) -> list[float]:
+        """The vector of a search query, as `SemanticRetriever` asks for it."""
+        return self.embed_texts([text], is_query=True)[0]
+
     def fail(self, message: str | None = None) -> None:
         self.failing = True
         self.failure_message = message
