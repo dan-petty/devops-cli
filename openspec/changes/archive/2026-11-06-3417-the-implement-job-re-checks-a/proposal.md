@@ -8,11 +8,11 @@ The implement job runs the task groups of a Staged plan without a deterministic 
 
 - Extract the definition lookup of the stage probe into one shared function in the new module `src/devops_cli/roadmap/premise.py`.
 - Call the shared function from `src/devops_cli/roadmap/stage_probe.py` so the stage job and the implement job share one definition check.
-- Expose the group-kind inference that the plan reader already uses as `group_kind` in `src/devops_cli/roadmap/plan_read.py`.
+- Read the kind of a group from `TaskGroup.is_behavior` in `src/devops_cli/roadmap/step_files.py`, which the implement step already uses.
 - Check the premise of each behavior group at the branch tip in `src/devops_cli/roadmap/implement_run.py`, before the group step runs.
 - Return the item to New with the definition line when a behavior group task adds a guard that the branch tip defines, and run no step and write no file.
 - Add the false-premise and true-premise tests to `tests/roadmap/test_roadmap_implement_job.py`.
-- Record the new check on the implement page `docs/roadmap/implement.md`.
+- Record the new check on the implement page `docs/roadmap/implement.md` and in `docs/ROADMAP_WORKFLOW.md`.
 - Add the shared check and the behavior-group premise check as requirements of the capability `roadmap-implement-job`, so the delta holds the new behavior.
 - The change fits one pull request.
 
@@ -28,8 +28,8 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/premise.py`, `src/devops_cli/roadmap/stage_probe.py`, `src/devops_cli/roadmap/plan_read.py`, `src/devops_cli/roadmap/implement_run.py`
-- Documents: `docs/roadmap/implement.md`
+- Code: `src/devops_cli/roadmap/premise.py`, `src/devops_cli/roadmap/stage_probe.py`, `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/lang/en/messages.py`
+- Documents: `docs/roadmap/implement.md`, `docs/ROADMAP_WORKFLOW.md`
 - Tests: `tests/roadmap/test_premise.py`, `tests/roadmap/test_roadmap_implement_job.py`
 
 ## Feasibility
@@ -40,8 +40,8 @@ None.
 - The probes say of the shared module that this change adds: "The path `src/devops_cli/roadmap/premise.py` is no file of the staging commit. No commit in the history deleted or renamed it." So the module is a path to create, and the premise of the issue holds.
 - read_file `src/devops_cli/roadmap/stage_probe.py` showed the definition lookup that the change extracts: `_definition_pattern` builds the expression and `_Run.identifier` runs `git grep -n -E` with it at the staging commit.
 - read_file `src/devops_cli/roadmap/implement_run.py` showed the group loop and `_return_premise`, which runs only after the step model reports a premise request, so no deterministic check runs before a group today.
-- read_file `src/devops_cli/roadmap/step_files.py` showed that `TaskGroup` holds the tasks and the text of a group, and no kind. So the implement job cannot read the kind from the parsed group.
-- read_file `src/devops_cli/roadmap/plan_read.py` showed that `_kind` infers the kind of a group from a `Kind:` line or the `fails on the base` suffix of its first task, and that `_group` already uses the inference. The change exposes it as `group_kind`, so the implement job runs the check for a behavior group only.
+- read_file `src/devops_cli/roadmap/step_files.py` showed that `TaskGroup.is_behavior` judges the kind of a group from a `Kind:` line or the `fails on the base` suffix of its first task, the same rule as the plan reader. The implement step already uses it (`implement_step.py`).
+- read_file `src/devops_cli/roadmap/plan_read.py` showed that `_kind` applies the same rule for the plan check. So the implement job needs no new inference, and it runs the check for a behavior group only.
 - First checks against the real system: `uv run devops ci test tests/roadmap/test_premise.py tests/roadmap/test_roadmap_stage_probe.py`, then `uv run devops ci test tests/roadmap/test_roadmap_implement_job.py`, then `uv run devops ci docs`.
 
 ## Existing Tool Considered
