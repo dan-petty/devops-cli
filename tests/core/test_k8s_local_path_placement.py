@@ -29,20 +29,7 @@ OFF_CONTROL_PLANE = {"key": CONTROL_PLANE_LABEL, "operator": "DoesNotExist"}
 
 # The pods on a local-path claim that may run on the control-plane node, each with its reason. A key
 # is `<values file>:<pod>` for a chart pod or `<manifest>:<kind>/<name>` for a manifest pod.
-_CONTROL_PLANE_CLAIM_EXEMPTIONS: dict[str, str] = {
-    "k8s/logging/loki-values.yaml:singleBinary": (
-        "Volume storage-loki-0 is still on the control-plane node; with the affinity, the pod "
-        "cannot start until the volume moves (k8s/README.md, Local-Path Volume Placement)."
-    ),
-    "k8s/monitoring/grafana-values.yaml:grafana": (
-        "Volume grafana is still on the control-plane node; with the affinity, the pod cannot "
-        "start until the volume moves (k8s/README.md, Local-Path Volume Placement)."
-    ),
-    "k8s/monitoring/prometheus-values.yaml:server": (
-        "Volume prometheus-server is still on the control-plane node; with the affinity, the pod "
-        "cannot start until the volume moves (k8s/README.md, Local-Path Volume Placement)."
-    ),
-}
+_CONTROL_PLANE_CLAIM_EXEMPTIONS: dict[str, str] = {}
 
 
 @dataclass(frozen=True)
