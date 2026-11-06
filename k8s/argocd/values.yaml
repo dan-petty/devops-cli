@@ -132,11 +132,12 @@ notifications:
     # The GitHub App `devops-cli-argocd` (Deployments: read and write). The values come from
     # argocd-notifications-secret (README, Cluster Secrets). The Applications that carry the
     # annotation `notifications.argoproj.io/subscribe.on-deployed.github` use it (k8s/argocd/apps/).
-    service.github:
+    # Each value is a string: the chart copies it into `ConfigMap.data`, which holds only strings.
+    service.github: |
       appID: $github-appID
       installationID: $github-installationID
       privateKey: $github-privateKey
-    service.webhook.mattermost:
+    service.webhook.mattermost: |
       url: $mattermost-deploys-url
       headers:
         - name: Content-Type

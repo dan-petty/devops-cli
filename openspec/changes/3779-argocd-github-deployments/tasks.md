@@ -8,11 +8,14 @@ Also changes the 12 Application files of `k8s/argocd/apps/` with one GitHub sour
 - [x] 1.1 In `tests/invariants/test_k8s_argocd_apps.py`, write the failing cases:
   - the notifier keys against the secret push and the README, with the three GitHub keys required;
   - the `github.deployment` block of the template `app-deployed`;
+  - every notifier, trigger and template value as a string;
   - the `oncePer` key of the trigger `on-deployed`;
   - the set of subscribed Applications, with a case that pins the single-source rule on a Gitea source, a chart repository and a multi-source Application.
   - Verification: `uv run devops ci test tests/invariants/test_k8s_argocd_apps.py` fails on the base
 - [x] 1.2 In `k8s/argocd/values.yaml`, add the notifier `service.github`. Add the `github.deployment` block and the `message` to the template `app-deployed`. Set `oncePer` to `app.status.operationState?.syncResult?.revision`.
   - Verification: `uv run devops ci test tests/invariants/test_k8s_argocd_apps.py` passes
+- [x] 1.2a In `k8s/argocd/values.yaml`, write each notifier as a block scalar string. This repairs the ConfigMap that the sync refused.
+  - Verification: `uv run devops ci test tests/invariants/test_k8s_argocd_apps.py` passes, and `helm template` of the pinned chart renders only strings in `argocd-notifications-cm`
 - [x] 1.3 Add the annotation `notifications.argoproj.io/subscribe.on-deployed.github: ""` to the 12 Applications of `k8s/argocd/apps/` that have one `spec.source` on github.com
   - Verification: `uv run devops ci test tests/invariants/test_k8s_argocd_apps.py` passes
 - [x] 1.4 In `src/devops_cli/k8s/cluster_secrets.py`, make the three GitHub entries of `argocd/argocd-notifications-secret` required. Update `tests/k8s/test_cluster_secret_plan.py`.

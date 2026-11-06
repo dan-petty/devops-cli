@@ -843,7 +843,7 @@ def test_argocd_notifications_controller_configuration() -> None:
     assert notif.get("resources", {}).get("requests") == {"cpu": "50m", "memory": "64Mi"}
     assert notif.get("resources", {}).get("limits") == {"cpu": "200m", "memory": "128Mi"}
 
-    webhook = notif.get("notifiers", {}).get("service.webhook.mattermost", {})
+    webhook = _notifier(notif["notifiers"], "service.webhook.mattermost")
     assert webhook.get("url") == "$mattermost-deploys-url"
     assert webhook.get("headers") == [{"name": "Content-Type", "value": "application/json"}]
     assert webhook.get("retryMax") == 1
@@ -933,15 +933,35 @@ def _leaf_applications() -> dict[str, dict[str, Any]]:
     }
 
 
+def _notifier(notifiers: dict[str, Any], name: str) -> Any:
+    """The settings of a notifier, parsed from the string that the ConfigMap holds."""
+    assert isinstance(notifiers[name], str), name
+    return yaml.safe_load(notifiers[name])
+
+
+def test_argocd_notifications_values_are_strings_for_the_configmap() -> None:
+    """Each notifier, trigger and template is a string, as `ConfigMap.data` needs (#3779).
+
+    With the chart `argo-cd` 10.9.6, a mapping under `notifications.notifiers` renders as a
+    mapping in `argocd-notifications-cm`. The API server then refuses the ConfigMap with
+    `cannot unmarshal object into Go struct field ConfigMap.data of type string`, and no
+    notification posts. A render of the chart needs the network, so this test checks the values.
+    """
+    values = _load_yaml(K8S_DIR / "argocd" / "values.yaml")["notifications"]
+    for section in ("notifiers", "triggers", "templates"):
+        not_strings = [k for k, v in values[section].items() if not isinstance(v, str)]
+        assert not_strings == [], f"notifications.{section}: {not_strings}"
+
+
 def test_argocd_github_notifier_reads_the_keys_of_the_secret_push() -> None:
     """Each `$key` of a notifier is a key that the push writes and the README lists (#3779)."""
     notifiers = _load_yaml(K8S_DIR / "argocd" / "values.yaml")["notifications"]["notifiers"]
-    assert notifiers["service.github"] == {
+    assert _notifier(notifiers, "service.github") == {
         "appID": "$github-appID",
         "installationID": "$github-installationID",
         "privateKey": "$github-privateKey",
     }
-    read = set(re.findall(r"\$([\w-]+)", yaml.safe_dump(notifiers)))
+    read = set(re.findall(r"\$([\w-]+)", "\n".join(notifiers.values())))
     pushed = {
         entry.key
         for secret in CLUSTER_SECRETS
@@ -981,7 +1001,9 @@ def test_argocd_deployed_trigger_keys_each_deploy_by_the_revision_the_notifier_r
     assert [rule["oncePer"] for rule in trigger] == [
         "app.status.operationState?.syncResult?.revision"
     ]
-    assert not {"revisionPath", "repoURLPath"} & set(values["notifiers"]["service.github"])
+    assert not {"revisionPath", "repoURLPath"} & set(
+        _notifier(values["notifiers"], "service.github")
+    )
     template = values["templates"]["template.app-deployed"]
     assert "sync" not in template.replace("syncResult", "")
 

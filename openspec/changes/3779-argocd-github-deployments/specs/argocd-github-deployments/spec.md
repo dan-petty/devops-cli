@@ -12,6 +12,13 @@ The Argo CD Helm values SHALL define the notifier `service.github` with `appID: 
 - **THEN** `service.github` holds the three keys above
 - **AND** every `$key` of every notifier is a pushed key and a key in a README row of that Secret
 
+### Requirement: Each notifier value is a string
+Each value under `notifications.notifiers`, `notifications.triggers` and `notifications.templates` in `k8s/argocd/values.yaml` SHALL be a string. `ConfigMap.data` holds only strings, and the API server refuses a ConfigMap that holds a mapping.
+
+#### Scenario: A notifier written as a mapping is found
+- **WHEN** a value under `notifications.notifiers` is a YAML mapping
+- **THEN** the invariant test fails and names the notifier
+
 ### Requirement: The push requires the three GitHub keys
 The three GitHub entries of `argocd/argocd-notifications-secret` SHALL be required entries of the cluster secret push. The engine builds all notifiers together, so a notifier that lacks a key stops all notifications.
 
