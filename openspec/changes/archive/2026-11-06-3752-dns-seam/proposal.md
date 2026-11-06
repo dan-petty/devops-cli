@@ -8,7 +8,7 @@ The DNS lookup of the egress check cannot be replaced (#3752, part 1 of #1314). 
 
 - `src/devops_cli/http/egress.py` gets a resolver seam: the `Resolver` Protocol, `SystemResolver` as the one place that supplies the real lookup, and `install_resolver`, `get_resolver` and `reset_resolver`. `vet_addresses` and `avet_addresses` resolve only through it. The checks, the errors and the timeout they have today do not change.
 - `tests/support/fakes/dns.py` adds `DnsFake` and the `dns` fixture. The fixture installs the fake through the seam, also answers `socket.getaddrinfo` from it, and restores the real resolver at teardown. The root conftest keeps the reset of the seam in its list of process-wide resets.
-- `tests/core/test_dns_contract.py` adds the contract suite. It runs each case over the fake and over `SystemResolver`.
+- `tests/http/test_dns_contract.py` adds the contract suite. It runs each case over the fake and over `SystemResolver`.
 - `tests/http/test_egress_resolver.py` holds what the vetting functions do with the seam. Four tests of `tests/http/test_http_egress.py` that patched `socket.getaddrinfo` for the egress check use the `dns` fixture.
 - `docs/TESTING.md` and `ARCHITECTURE.md` name the seam.
 - The change alters no behavior that a consumer observes: the resolver makes the same call as before, and the new code is test support. So it has no spec delta and sets `skip_specs: true`.
@@ -28,7 +28,7 @@ None.
 ## Impact
 
 - Source: `src/devops_cli/http/egress.py`.
-- Tests: `tests/support/fakes/dns.py`, `tests/core/test_dns_contract.py`, `tests/http/test_egress_resolver.py`, `tests/http/test_http_egress.py`, `tests/conftest.py`.
+- Tests: `tests/support/fakes/dns.py`, `tests/http/test_dns_contract.py`, `tests/http/test_egress_resolver.py`, `tests/http/test_http_egress.py`, `tests/conftest.py`.
 - Documents: `docs/TESTING.md`, `ARCHITECTURE.md`.
 
 ## Feasibility
