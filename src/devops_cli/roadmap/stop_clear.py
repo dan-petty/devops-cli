@@ -13,7 +13,8 @@ A stop of the implement job sets the Status Blocked and records `implement.stopp
   pushed for a group with more than one task (`implement_run.py`, #3054). A group of one task that
   passed and that no push kept runs again. The record `implement.continuations` counts the Jobs
   that the Service started this way, and the setting `roadmap.implement.continuations_per_item`
-  bounds it. A stop of a step that the runner wrote has its own classes and rules, and is no
+  bounds it. Only a sign in the log gives the class `oom`, because the Service reads no pod
+  status (#3727). A stop of a step that the runner wrote has its own classes and rules, and is no
   continuation.
 - **`digest`**: the digest in the template of CronJob `devops-cli-runner` differs from
   `implement.job_digest`, the digest of the Job that left the stop, and the class of the stop has the
@@ -371,8 +372,8 @@ def clear_stops(
     of CronJob `devops-cli-runner`; the pass reads it at most one time, a read that fails
     included, and only for a stop that records a digest and a class that a retry can fix. `limits`
     default to the settings `roadmap.implement.digest_clears_per_class`, `_per_item` and
-    `continuations_per_item`, and `now` to the current time. An item that fails does not stop the others; a rate limit, rejected
-    credentials and the stop of the Service stop the pass."""
+    `continuations_per_item`, and `now` to the current time. An item that fails does not stop the
+    others; a rate limit, rejected credentials and the stop of the Service stop the pass."""
     template_digest = _TemplateDigest(digest)
     held = limits or ClearLimits.from_settings()
     moment = now or datetime.now(UTC)

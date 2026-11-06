@@ -2870,12 +2870,12 @@ class RoadmapMessages:
     implement_job_report_no_log: str = "(no log: the Job has no pod)"
     implement_job_report_stopped: str = (
         "\n\n{failure}\n\nThe Job left this item without a result. The item is Blocked. When a "
-        "retry can fix the class of the stop, the Service starts a new Job in the next round, up to "
-        "the limit of `roadmap.implement.continuations_per_item`, and the comment of that round "
-        "says so. If no continuation is left, fix the cause. Then comment `implement: retry`. The "
-        "Service also clears the stop when a new runner image rolls out, but only if a retry can "
-        "fix the class of the stop and the limits of `roadmap.implement.digest_clears_per_class` "
-        "and `roadmap.implement.digest_clears_per_item` allow it."
+        "retry can fix the class of the stop, the Service starts a new Job in the next round. The "
+        "limit is `roadmap.implement.continuations_per_item`, and the comment of that round says "
+        "so. If no continuation is left, fix the cause. Then comment `implement: retry`. A new "
+        "runner image also clears the stop. This holds only if a retry can fix the class of the "
+        "stop. The limits of `roadmap.implement.digest_clears_per_class` and "
+        "`roadmap.implement.digest_clears_per_item` must also allow it."
     )
     implement_job_report_stalled: str = (
         "\n\nThe Job made no progress for {seconds} seconds, so the Service ended it by its "
@@ -2896,14 +2896,14 @@ class RoadmapMessages:
     )
     stop_clear_continue: str = (
         "{marker}\nCleared the stop at job by the rule `{rule}`: the runner Job {job} ended without "
-        "a result, and the class `{failure_class}` of the stop is one that a new attempt can fix. "
+        "a result. The class `{failure_class}` of the stop is one that a new attempt can fix. "
         "This is continuation {used} of {limit} for this item.{left} The item is {status} again. "
         "The Service takes it in the next round. The new Job takes the branch from `origin`, so it "
         "keeps the work that the run pushed there."
     )
     stop_clear_continue_last: str = (
-        " No continuation is left: the next stop of this kind waits for a comment `implement: "
-        "retry`."
+        " No continuation is left. A comment `implement: retry` clears the next stop of this kind. "
+        "A new runner image can also clear it, within its limits."
     )
     stop_clear_digest: str = (
         "{marker}\nCleared the stop at {stopped} by the rule `{rule}`: the runner image changed "

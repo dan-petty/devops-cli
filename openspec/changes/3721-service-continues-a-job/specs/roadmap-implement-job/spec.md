@@ -1,11 +1,12 @@
 ## ADDED Requirements
 
 ### Requirement: The Service continues a Job that ended without a result
-A round SHALL clear the stop of an item that the Service set Blocked, and that no Job and no agent or person holds, with the rule `continue` when `implement.stopped` is `job`, the class in `implement.failure` has the action `retry` in `ACTION_BY_CLASS`, and `implement.continuations` is less than `roadmap.implement.continuations_per_item`. A clear SHALL remove `implement.stopped`, `implement.failure` and the failed check, and set the Status to Ready or Planned.
+A round SHALL clear the stop of an item with the rule `continue` when `implement.stopped` is `job`, the class in `implement.failure` has the action `retry` in `ACTION_BY_CLASS`, and `implement.continuations` is less than `roadmap.implement.continuations_per_item`. A clear SHALL remove `implement.stopped`, `implement.failure` and the failed check, and set the Status to Ready or Planned.
 
 #### Scenario: A Job that was killed
 - **WHEN** the Job of an item ended Failed with no result, its log shows no known cause, and `implement.continuations` is not set
-- **THEN** the round reports the Job, sets `implement.stopped` to `job` and the class to `ci_infra`, clears the stop by the rule `continue`, and makes a new Job for the same item that takes the branch from `origin`
+- **THEN** the round reports the Job and sets `implement.stopped` to `job` and the class to `ci_infra`
+- **AND** the round clears the stop by the rule `continue` and makes a new Job for the same item that takes the branch from `origin`
 
 #### Scenario: A Job that the Service ended by its stall
 - **WHEN** the Service ended a Job by its stall and the report gives the class `timeout`
@@ -18,6 +19,10 @@ A round SHALL clear the stop of an item that the Service set Blocked, and that n
 #### Scenario: A class that a new attempt cannot fix
 - **WHEN** the log of the Job that ended with no result shows an out-of-memory kill, so the class is `oom` with the action `raise_limit`
 - **THEN** the item stays Blocked, `implement.continuations` is not set, and the API receives no Job create until a comment `implement: retry`
+
+#### Scenario: An out-of-memory kill that the log does not show
+- **WHEN** a Job ends with no result and its log holds no sign of a memory limit
+- **THEN** the class is `ci_infra` and the round continues the item, because the Service reads no pod status
 
 #### Scenario: A stop that the runner wrote
 - **WHEN** an item is Blocked with `implement.stopped` as `group 1` and the class `provider`
@@ -43,7 +48,12 @@ A continuation SHALL set `implement.continuations` to the old count plus 1. The 
 
 #### Scenario: No continuation is left
 - **WHEN** a Job with a continuation count of 2 ends with no result, and ten rounds run
-- **THEN** the item stays Blocked with `implement.stopped` as `job`, the API receives no Job create, and a comment `implement: retry` of the owner still clears the stop
+- **THEN** the item stays Blocked with `implement.stopped` as `job` and the API receives no Job create
+- **AND** a comment `implement: retry` of the owner still clears the stop
+
+#### Scenario: A new image at the limit
+- **WHEN** the continuation count is at the limit and the template names a digest that differs from `implement.job_digest`
+- **THEN** the rule `digest` clears the stop within its own limits, and `implement.continuations` is unchanged
 
 #### Scenario: A count that is not a count
 - **WHEN** `implement.continuations` holds `two`, `-1` or `1.5`
@@ -68,7 +78,7 @@ The rule `continue` SHALL run before the rule `digest`, SHALL read no template a
 - **THEN** the round clears the stop by the rule `continue`, `implement.digest_clears` is not set, and the new Job records the new digest in `implement.job_digest`
 
 ### Requirement: The report of a Job with no result says what the Service does next
-The comment that reports a Job that left an item without a result SHALL say that the Service starts a new Job when a retry can fix the class of the stop, name the setting `roadmap.implement.continuations_per_item`, and name the comment `implement: retry`.
+The report of a Job with no result SHALL say that the Service starts a new Job when a retry can fix the class of the stop. It SHALL name the setting `roadmap.implement.continuations_per_item` and the comment `implement: retry`. It SHALL say that a new runner image also clears the stop within its limits.
 
 #### Scenario: A Job that failed
 - **WHEN** the round reports a Job that ended Failed and left its item In Progress
@@ -77,18 +87,22 @@ The comment that reports a Job that left an item without a result SHALL say that
 ## MODIFIED Requirements
 
 ### Requirement: A Job that leaves its item eligible stops the item
-When a reported Job leaves its item neither In Review nor stopped, the round SHALL set the Status of the item to Blocked and record `implement.stopped` as `job`, so that no Job is created for the item before a clear rule runs.
+When a reported Job leaves its item neither In Review nor stopped, the round SHALL set the item Blocked and record `implement.stopped` as `job`. No Job SHALL be created for the item before a clear rule runs.
 
 #### Scenario: A Job that failed
 - **WHEN** the Job of an item has the condition Failed, the item is In Progress, and no continuation applies to it
-- **THEN** the item gets a comment with the state `failed` and the tail of the log, `implement.job_state` is `failed`, the Status is Blocked, `implement.stopped` is `job`, and the next round creates no Job for the item
+- **THEN** the item gets a comment with the state `failed` and the tail of the log
+- **AND** `implement.job_state` is `failed`, the Status is Blocked, and `implement.stopped` is `job`
+- **AND** the next round creates no Job for the item
 
 ### Requirement: A new runner image clears a stop of a retry class
-A round SHALL clear the stop of an item that the Service set Blocked, and that no Job and no agent or person holds, when the digest in the template of CronJob `devops-cli-runner` differs from `implement.job_digest` and the class in `implement.failure` has the action `retry` in `ACTION_BY_CLASS`. A clear SHALL remove `implement.stopped`, set the Status to Ready or Planned, and comment the rule and both digests.
+A round SHALL clear the stop of an item that the Service set Blocked, and that no Job and no agent or person holds. The digest in the template of CronJob `devops-cli-runner` must differ from `implement.job_digest`. The class in `implement.failure` must have the action `retry` in `ACTION_BY_CLASS`. A clear SHALL remove `implement.stopped`, set the Status to Ready or Planned, and comment the rule and both digests.
 
 #### Scenario: The digest changed
 - **WHEN** an item is Blocked with class `provider` and `implement.job_digest` A and the template names digest B
-- **THEN** the round removes `implement.stopped`, sets the Status to Ready, records the class `provider` and the digest B in `implement.digest_clears`, comments the digest rule with A and B, and creates a Job that records B
+- **THEN** the round removes `implement.stopped` and sets the Status to Ready
+- **AND** the round records the class `provider` and the digest B in `implement.digest_clears` and comments the digest rule with A and B
+- **AND** the round creates a Job that records B
 
 #### Scenario: The digest is the same
 - **WHEN** an item is Blocked with `implement.job_digest` A and the template names A, no continuation applies, and ten rounds run

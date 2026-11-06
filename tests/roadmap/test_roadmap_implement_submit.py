@@ -438,7 +438,9 @@ def test_a_job_that_left_no_result_gets_the_class_of_its_log_in_the_record_the_c
     store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
     _end(kube, "Failed")
     kube.core.answers["list_namespaced_pod"] = [pod(f"{name}-x1", namespace="devops")]
-    kube.core.answers["read_namespaced_pod_log"] = "Killed process 4242 (python): out of memory\n"
+    kube.core.answers["read_namespaced_pod_log"] = (
+        "Traceback (most recent call last):\nMemoryError: Cannot allocate memory\n"
+    )
     before = _failures("oom")
 
     _round(store, staged_repo)
@@ -464,7 +466,9 @@ def test_a_stop_that_the_runner_writes_while_the_report_reads_the_log_keeps_its_
     store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
     _end(kube, "Failed")
     kube.core.answers["list_namespaced_pod"] = [pod(f"{name}-x1", namespace="devops")]
-    kube.core.answers["read_namespaced_pod_log"] = "Killed process 4242 (python): out of memory\n"
+    kube.core.answers["read_namespaced_pod_log"] = (
+        "Traceback (most recent call last):\nMemoryError: Cannot allocate memory\n"
+    )
     read_log = kube.core.read_namespaced_pod_log
 
     def runner_stops_then_log(*args: Any, **kwargs: Any) -> Any:
@@ -996,12 +1000,15 @@ def test_a_job_whose_log_reads_out_of_memory_is_not_continued(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:
     """The class `oom` has the action `raise_limit`, and a second run on the same limit ends the
-    same way. The item waits for a person."""
+    same way. The item waits for a person. Only a sign in the log shows this: the Service reads
+    no pod status, so a kill with no text in the log is continued as `ci_infra`."""
     number = seed_staged(store)
     _round(store, staged_repo)
     name = _jobs(kube)[0]["metadata"]["name"]
     kube.core.answers["list_namespaced_pod"] = [pod(f"{name}-x1", namespace="devops")]
-    kube.core.answers["read_namespaced_pod_log"] = "Killed process 4242 (python): out of memory\n"
+    kube.core.answers["read_namespaced_pod_log"] = (
+        "Traceback (most recent call last):\nMemoryError: Cannot allocate memory\n"
+    )
 
     _stop_with_a_failed_job(store, staged_repo, kube)
     for _ in range(3):

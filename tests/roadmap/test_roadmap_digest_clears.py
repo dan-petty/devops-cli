@@ -4,6 +4,7 @@ setting that bounds the continuations of an item (#3721) is read the same way.""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -128,32 +129,21 @@ def test_the_limits_come_from_the_variables(
     assert (implement.digest_clears_per_class, implement.digest_clears_per_item) == (2, 5)
 
 
-def test_the_continuations_default_to_two_for_an_item(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    path = tmp_path / "config.yaml"
-    path.write_text("", encoding="utf-8")
-    monkeypatch.setattr(settings, "CONFIG_PATH", path)
-    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(tmp_path / "no-project-config.yaml"))
-    monkeypatch.delenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM", raising=False)
-    settings.reset_settings_cache()
+def test_the_continuations_default_to_two_for_an_item(config: Callable[..., Path]) -> None:
+    config()
 
     assert settings.load_settings().roadmap.implement.continuations_per_item == 2
 
 
 def test_the_continuations_come_from_the_variable_and_refuse_a_negative_count(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    path = tmp_path / "config.yaml"
-    path.write_text("", encoding="utf-8")
-    monkeypatch.setattr(settings, "CONFIG_PATH", path)
-    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(tmp_path / "no-project-config.yaml"))
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM", "0")
-    settings.reset_settings_cache()
+    config()
     off = settings.load_settings().roadmap.implement.continuations_per_item
 
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM", "-1")
-    settings.reset_settings_cache()
+    config()
     with pytest.raises(ConfigurationError, match="greater than or equal to 0"):
         settings.load_settings()
 

@@ -473,13 +473,16 @@ def test_a_stop_comment_names_the_class_rule_and_the_limits_of_the_digest_clear(
     assert "roadmap.implement.digest_clears_per_item" in body
 
 
-def test_the_report_of_a_job_with_no_result_names_the_continuation_and_the_retry() -> None:
+def test_the_report_of_a_job_with_no_result_names_the_continuation_the_retry_and_the_image() -> (
+    None
+):
     """The report comes before the clear, so it says what the Service does next (#3721)."""
     body = " ".join(MESSAGES.roadmap.implement_job_report_stopped.split())
 
     assert "starts a new Job" in body
     assert "roadmap.implement.continuations_per_item" in body
     assert "comment `implement: retry`" in body
+    assert "A new runner image also clears the stop" in body
 
 
 @pytest.mark.parametrize("klass", OTHER_CLASSES)
@@ -834,6 +837,31 @@ def test_the_continuations_of_an_item_stop_at_the_limit_and_the_last_comment_say
         "2",
         [True, True],
         [2, False, True],
+    )
+
+
+def test_a_new_runner_image_clears_a_stop_at_the_continuation_limit_by_the_digest_rule(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """No continuation is left, but a new image is a retry signal: the rule `digest` clears."""
+    number = _blocked(
+        store, stopped="job", implement_failure="ci_infra", implement_continuations="2"
+    )
+
+    held = _clear(store, Template(DIGEST_A))
+    cleared = _clear(store, Template(DIGEST_B))
+
+    comment = _bodies(store, number)[-1]
+    assert (
+        held.cleared,
+        cleared.cleared,
+        "rule `digest`" in comment,
+        _continuations(store, number),
+    ) == (
+        (),
+        (number,),
+        True,
+        "2",
     )
 
 

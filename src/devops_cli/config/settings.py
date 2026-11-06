@@ -974,7 +974,7 @@ class RoadmapImplementConfig(BaseModel):
         ge=0,
     )
     continuations_per_item: Annotated[int, Variable()] = Field(
-        description="The most Jobs that the Service starts to continue the run of one item whose runner Job ended without a result: a pod that the kernel killed or evicted, a Job that the Service ended by its stall, or a Job that no longer exists. Only a stop whose failure class has the default action `retry` is continued. The new Job takes the branch from `origin` with the groups that passed and the work in progress that the run kept. A stop at the limit stays Blocked until a trusted `implement: retry` comment. 0 turns the continuation off",
+        description="The most Jobs that the Service starts to continue the run of one item whose runner Job ended with no result. These are a pod that the kernel killed or evicted, a stalled Job that the Service ended, and a Job that no longer exists. Only a stop whose failure class has the default action `retry` is continued. An out-of-memory kill stops the continuation only when the log of the Job shows it. The new Job takes the branch from `origin` with the `wip:` commits that the run pushed. At the limit, the item stays Blocked until a trusted `implement: retry` comment or a new runner image that the digest rule accepts. 0 turns the continuation off",
         default=DEFAULT_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM,
         ge=0,
     )
