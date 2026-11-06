@@ -29,4 +29,3 @@
 ## Workflow follow-up
 
 - The other items of #1333 move the tests of config, git, dry-run and root modules, http, and exceptions, lang and models, remove the accommodations, and delete dead code. The private imports and internal patches of the other core test files (`test_audit_stream.py`, `test_coverage_index.py`, `test_data_dir_worktrees.py`, `test_template_rendering.py`, `test_validation.py`, `test_process.py`) belong to those items and to the reorganization item of #1333.
-- Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
