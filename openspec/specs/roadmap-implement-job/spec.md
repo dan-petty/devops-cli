@@ -593,7 +593,7 @@ Before the first step of an item, the job SHALL run `pre-commit install-hooks` i
 - **THEN** no step runs, no model request is made, the item is stopped with the step `hooks`, and the reason holds the output
 
 ### Requirement: The job runs the scoped checks before it pushes
-After the final rebase and before the push, the job SHALL run, in this order, the `pre-push` stage of the hooks over the commits past the default branch, `devops ci --check --only constructs,docs,openspec`, and `devops ci test` with test modules. It SHALL run each outside the agent shell and without a GitHub token. The job SHALL push only a head that passed all of them.
+After the final rebase and before the push, the job SHALL run, in this order, the `pre-push` stage of the hooks over the commits past the default branch, `devops ci --check --only constructs,docs,openspec`, and `devops ci test` with test modules. It SHALL run each outside the agent shell and without a GitHub token. The job SHALL push a finished item only after all of them pass.
 
 #### Scenario: All checks pass
 - **WHEN** an item changes `src/devops_cli/shout.py`, a test module imports it, and every scoped check exits 0
@@ -629,8 +629,8 @@ Every `pre-commit` call of the job SHALL name, with `--config`, a copy of the `.
 - **WHEN** the default branch configuration holds the hook `devops-ci-workflows-pre-push` and `actionlint` is not on PATH
 - **THEN** the copy holds every other hook and not that one
 
-### Requirement: A failed scoped check gets fix steps, and an exhausted budget stops the item
-A failed scoped check SHALL start a fix step with the name and the log of the check. Then the job SHALL generate the documentation again, commit its changes, and run the scoped checks again. The job SHALL run at most `roadmap.implement.repair_rounds` fix steps for the scoped checks. When no round is left, or a fix step stops, the job SHALL stop the item at the step `scoped checks` and push nothing. An error or a command that runs out of time there SHALL push nothing too.
+### Requirement: A failed scoped check gets fix steps, and a stop in the phase keeps the work
+A failed scoped check SHALL start a fix step with the name and the log of the check. Then the job SHALL generate the documentation again, commit its changes, and run the scoped checks again, at most `roadmap.implement.repair_rounds` times. When no round is left, a fix step stops, an error occurs or a command runs out of time, the job SHALL stop the item and push the commits that passed, as at any other stop. The pull request SHALL stay a draft.
 
 #### Scenario: An ast-grep violation is repaired before the push
 - **WHEN** the scoped static check exits 1 with a `pytest.raises` that has no `match`, and the fix step of the stub model adds the `match`
@@ -638,15 +638,23 @@ A failed scoped check SHALL start a fix step with the name and the log of the ch
 
 #### Scenario: An error in the scoped checks
 - **WHEN** git fails while the job reads the hook configuration after the archive
-- **THEN** the item is stopped with the step `scoped checks`, and `origin` holds no push of this run for the item
+- **THEN** the item is stopped with the step `scoped checks`, `origin` holds the commits of both groups, and the stop comment names the branch and the last commit
 
 #### Scenario: A hook stage runs out of time in a fix step
 - **WHEN** the `pre-commit` stage of a fix step runs out of time
-- **THEN** the item is stopped with the step `fix`, the reason says that the command ran out of time, and `origin` holds no push of this run for the item
+- **THEN** the item is stopped with the step `fix`, the reason says that the command ran out of time, and `origin` holds the commits of both groups
 
 #### Scenario: A check that no fix repairs
-- **WHEN** the `pre-push` stage exits 1 after every fix step, and `repair_rounds` is 3
-- **THEN** three fix steps ran, `origin` holds no push of this run for the item, the item is stopped with the step `scoped checks`, and the reason holds the output of the check
+- **WHEN** two groups pass, the `pre-push` stage exits 1 after every fix step, and `repair_rounds` is 3
+- **THEN** three fix steps ran, `origin` holds the commits of both groups, the item is stopped with the step `scoped checks`, the reason holds the output of the check, the comment names the branch and its last commit, and the job sent no ready request
+
+#### Scenario: A fix step stops
+- **WHEN** the fix step of a failed scoped check stops
+- **THEN** `origin` holds the commits of both groups, the item is Blocked at the step `fix`, and the comment names the kept work and the action left
+
+#### Scenario: The next Job resumes from the kept work
+- **WHEN** a person comments `implement: retry` after a stop in the scoped checks, and the next Job takes the item
+- **THEN** the next Job runs no step for a group, runs the scoped checks, and its push holds the commits of the first Job
 
 ### Requirement: The comment on the pull request shows the repair rounds and the scoped checks
 The comment of the job on the pull request SHALL show a table with one row for each step: the step, its status, its attempts (the first turn and the repair rounds), its tokens in and out and its last failing command. It SHALL show one line for each run of a scoped check with its name, its result and its seconds.
@@ -1208,7 +1216,7 @@ Each stop of the job whose cause has a class SHALL pass that class, and the stop
 - **THEN** the step moves to the next tier after the first turn only, and the outcome of the step holds the class `parser` for the first and `output_cap` for the second, the class that the decision read
 
 ### Requirement: The job leaves out an item whose plan fails the check
-The implement selection SHALL run `check_proposal` on the plan of a Staged or Planned item before it returns a target, and it SHALL leave the item out with the first problem as its reason when the check returns problems.
+The implement selection SHALL run `check_proposal` on the plan of a Staged or Planned item before it returns a target, and it SHALL leave the item out with the first problem as its reason when the check returns problems. It SHALL run no plan check on a Staged item whose branch head holds the archived change of the issue and no active one, because the job archives a change only after the plan passed the check.
 
 #### Scenario: A Staged item with a placeholder task
 - **WHEN** The branch of a Staged item holds a plan with the placeholder task `1.1 x`.
@@ -1233,6 +1241,10 @@ The implement selection SHALL run `check_proposal` on the plan of a Staged or Pl
 #### Scenario: A test path that no file holds
 - **WHEN** The verification command of group 1 names a test path that the staged commit does not hold and that no group creates.
 - **THEN** `plan_implement` returns no target for the item, and its reason names the path, so no run starts to amend the path.
+
+#### Scenario: A branch whose change is archived
+- **WHEN** The branch head of a Staged item holds `openspec/changes/archive/<date>-1-<slug>/` and no `openspec/changes/1-*/`, and a person comments `implement: retry` after a stop
+- **THEN** `plan_implement` returns the item as a target
 
 ### Requirement: The plan check lists the default tree once for each run
 The implement selection SHALL list the files of `origin/<default>` one time for a run. It SHALL give that list to the plan check of every item that the run judges.

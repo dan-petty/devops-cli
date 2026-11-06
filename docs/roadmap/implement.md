@@ -67,7 +67,7 @@ For each item, the job does these things in order:
 1. It rebases the branch.
 2. It runs a step for each task group that has an unticked task.
 3. It regenerates the documentation and archives the change, each step only where the default branch of the target declares it in `.devops/roadmap.toml` (`[implement.steps]` with `docs = true` and `archive = true`). The Job reads the file from the default branch, so an edit of the checkout adds or removes no step. A default branch with no file declares no step. A step that the Job skips has a line in its comment on the pull request. devops-cli declares both steps.
-4. It runs the scoped checks: the pre-push stage of the hooks, the `devops ci` rows `constructs`, `docs` and `openspec`, and the tests that cover the changed files. A failed check gets a fix step.
+4. It runs the scoped checks: the pre-push stage of the hooks, the `devops ci` rows `constructs`, `docs` and `openspec`, and the tests that cover the changed files. A failed check gets a fix step. A stop here still pushes the commits that passed, and the draft stays a draft.
 5. It pushes.
 6. It sets the title and the body of the pull request: the title of the issue, and a body that closes it. It adds the labels of the new title and removes the labels of the staging title that do not fit. A refused label is a comment on the pull request.
 7. It watches the checks of the pull request, and runs a fix step for each failed check. The setting `roadmap.implement.repair_rounds` bounds the rounds.

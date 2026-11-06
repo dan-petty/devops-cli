@@ -15,11 +15,12 @@ from pathlib import Path
 import pytest
 from pydantic_ai.messages import ModelResponse
 
-from devops_cli.roadmap.store import ImplementRecordKey
+from devops_cli.roadmap.store import ImplementRecordKey, ItemField
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.implement_step import command_text
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
+    BRANCH,
     PULL,
     SHOUT,
     JobWorld,
@@ -99,6 +100,27 @@ def _fails_until(world: JobWorld, command: str, report: str, *, times: int) -> N
     world.programs.answer(
         lambda call: command_text(call).startswith(command), ProcessAnswer(side_effect=answer)
     )
+
+
+FINISHED = [
+    "fix(roadmap): plan",
+    "fix(roadmap): The first group (#1)",
+    "fix(roadmap): The second group (#1)",
+    "docs: regenerate the documentation (#1)",
+    "docs(openspec): archive the change (#1)",
+]
+
+
+def _assert_kept(world: JobWorld) -> str:
+    """`origin` holds the commits of both groups and the archive, and the stop comment names the
+    branch and the last commit on it (#3645). The stop comment."""
+    assert world.origin_log()[: len(FINISHED)] == FINISHED
+    (comment,) = [c for c in world.issue_comments() if "Failure class" in c]
+    tip = world.repo.origin_git("rev-parse", BRANCH)
+    assert f"The job kept the commits that passed on the branch `{BRANCH}` on origin" in comment
+    assert f"The last is `{tip}`." in comment
+    assert world.pull.ready_calls == []
+    return comment
 
 
 def _item_record(world: JobWorld) -> tuple[str | None, dict[str, str | None]]:
@@ -198,7 +220,7 @@ def test_the_documentation_is_generated_again_after_a_fix(job_world: JobWorld) -
     assert generate[1] > _position(job_world, STATIC)
 
 
-def test_a_check_that_no_fix_repairs_stops_the_item_and_pushes_nothing(
+def test_a_check_that_no_fix_repairs_stops_the_item_and_keeps_the_work_of_both_groups(
     job_world: JobWorld,
 ) -> None:
     _fails_until(job_world, PRE_PUSH, "ruff-check....Failed", times=99)
@@ -212,8 +234,8 @@ def test_a_check_that_no_fix_repairs_stops_the_item_and_pushes_nothing(
         "Blocked",
         "scoped checks",
     )
-    assert job_world.origin_log() == ["fix(roadmap): plan"]
-    assert _git_push(job_world) == []
+    _assert_kept(job_world)
+    assert len(_git_push(job_world)) == 1
     assert _count(job_world, PRE_PUSH) == 4
     assert any("ruff-check....Failed" in c for c in job_world.issue_comments())
     assert job_world.pull.ready_calls == []
@@ -244,7 +266,9 @@ def test_the_rounds_for_the_scoped_checks_come_from_the_setting(
     assert _count(job_world, PRE_PUSH) == 2
 
 
-def test_a_fix_step_that_stops_in_the_scoped_checks_pushes_nothing(job_world: JobWorld) -> None:
+def test_a_fix_step_that_stops_in_the_scoped_checks_keeps_the_work_of_both_groups(
+    job_world: JobWorld,
+) -> None:
     _fails_until(job_world, STATIC, RULE, times=1)
     script = two_groups(say("I changed nothing."))
 
@@ -256,7 +280,48 @@ def test_a_fix_step_that_stops_in_the_scoped_checks_pushes_nothing(job_world: Jo
         "Blocked",
         "fix",
     )
-    assert _git_push(job_world) == []
+    _assert_kept(job_world)
+    assert len(_git_push(job_world)) == 1
+
+
+def test_a_fix_step_that_spends_a_budget_keeps_the_work_and_names_the_action_left(
+    job_world: JobWorld, config: Callable[..., Path]
+) -> None:
+    """Each scripted request counts 50 input tokens, so the two groups spend 200. The fix step
+    finds the budget of the item spent, makes no request and stops with the class `limit_reached`."""
+    config(roadmap={"implement": {"item_token_budget": 200}})
+    _fails_until(job_world, STATIC, RULE, times=1)
+
+    applied = job_world.run(two_groups())
+
+    status, record = _item_record(job_world)
+    assert (applied.stopped, status, record["implement.stopped"]) == ((1,), "Blocked", "fix")
+    assert record["implement.failure"] == "limit_reached"
+    comment = _assert_kept(job_world)
+    assert "Action left: `raise_limit`" in comment
+
+
+def test_the_next_job_takes_the_kept_work_runs_no_group_and_runs_the_scoped_checks(
+    job_world: JobWorld,
+) -> None:
+    _fails_until(job_world, PRE_PUSH, "ruff-check....Failed", times=4)
+    job_world.run(two_groups(*_fix(1), *_fix(2), *_fix(3)))
+    kept = job_world.repo.origin_git("rev-parse", BRANCH)
+    first_checks = _count(job_world, PRE_PUSH)
+    job_world.store.seed_comment(1, "implement: retry", author_association="OWNER")
+    held = job_world.store.item(1)
+    assert held is not None
+    # The Service clears the stop and puts the item back to Ready (`clear_stops`).
+    job_world.store.set_field(held, ItemField.STATUS, "Ready")
+    script = ModelScript()
+    applied = job_world.run(script)
+
+    status, record = _item_record(job_world)
+    assert (applied.ready, applied.stopped, status) == ((1,), (), "In Review")
+    assert (script.seen, record.get("implement.stopped")) == ([], None)
+    assert _count(job_world, PRE_PUSH) == first_checks + 1
+    assert job_world.repo.origin_git("merge-base", "--is-ancestor", kept, BRANCH) == ""
+    assert job_world.pull.ready_calls != []
 
 
 TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
@@ -384,7 +449,7 @@ def _times_out_from(world: JobWorld, prefix: str, first: int, last: int = 99) ->
     )
 
 
-def test_a_hook_stage_that_runs_out_of_time_in_a_fix_step_pushes_nothing(
+def test_a_hook_stage_that_runs_out_of_time_in_a_fix_step_keeps_the_work_of_both_groups(
     job_world: JobWorld,
 ) -> None:
     """The stage of the fix step is the third run of the stage: one for each group before it."""
@@ -395,12 +460,11 @@ def test_a_hook_stage_that_runs_out_of_time_in_a_fix_step_pushes_nothing(
 
     status, record = _item_record(job_world)
     assert (applied.stopped, status, record["implement.stopped"]) == ((1,), "Blocked", "fix")
-    assert _git_push(job_world) == []
-    assert job_world.origin_log() == ["fix(roadmap): plan"]
+    _assert_kept(job_world)
     assert any("ran out of time" in c for c in job_world.issue_comments())
 
 
-def test_an_error_in_the_scoped_checks_pushes_nothing(job_world: JobWorld) -> None:
+def test_an_error_in_the_scoped_checks_keeps_the_work_of_both_groups(job_world: JobWorld) -> None:
     """The error of git comes after the archive, in the phase of the scoped checks."""
 
     def broken(call: ProcessCall) -> bool:
@@ -421,8 +485,8 @@ def test_an_error_in_the_scoped_checks_pushes_nothing(job_world: JobWorld) -> No
         "Blocked",
         "scoped checks",
     )
-    assert _git_push(job_world) == []
-    assert job_world.origin_log() == ["fix(roadmap): plan"]
+    _assert_kept(job_world)
+    assert job_world.origin_log() == FINISHED
 
 
 def test_a_tests_check_that_runs_out_of_time_is_a_failed_check(job_world: JobWorld) -> None:
