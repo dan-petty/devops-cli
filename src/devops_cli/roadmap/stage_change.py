@@ -586,6 +586,43 @@ def _message_file_problems(proposal: StageProposal) -> list[str]:
     return [MESSAGES.roadmap.stage_problem_message_file.format(path=_MESSAGES_FILE)]
 
 
+def _plan_tasks(proposal: StageProposal) -> list[tuple[int, int, str]]:
+    """The number of the group, the number of the task in it and the normalized work text of the
+    task, for each task of `proposal`, in the order of `tasks.md`."""
+    return [
+        (group_number, task_number, _squash(work).casefold())
+        for group_number, group in enumerate(proposal.groups, start=1)
+        for task_number, work in enumerate(_task_work_texts(group), start=1)
+    ]
+
+
+def _duplicate_task_problems(proposal: StageProposal) -> list[str]:
+    """One problem for each pair of tasks of `proposal` whose work text is the same, naming both
+    task numbers and the group or groups (#3456). A duplicate task can make the step repeat an
+    edit, spend the budget of its group on no change, or stop when the second edit writes no
+    file."""
+    texts = MESSAGES.roadmap
+    tasks = _plan_tasks(proposal)
+    problems: list[str] = []
+    for index, (first_group, first_task, first) in enumerate(tasks):
+        for second_group, second_task, second in tasks[index + 1 :]:
+            if first != second:
+                continue
+            groups = (
+                texts.stage_group_one.format(first=first_group)
+                if first_group == second_group
+                else texts.stage_group_two.format(first=first_group, second=second_group)
+            )
+            problems.append(
+                texts.stage_problem_duplicate_task.format(
+                    first=f"{first_group}.{first_task}",
+                    second=f"{second_group}.{second_task}",
+                    groups=groups,
+                )
+            )
+    return problems
+
+
 def _lists_path(listed: Collection[str], path: str) -> bool:
     """Whether `listed` holds `path`, a path under it or a folder above it: a group that writes a
     folder covers every file under it, and a What Changes item may name the folder of the files
@@ -656,12 +693,14 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
     """What is wrong with the text of `proposal` that no schema says (#3200): a text that is too
     short or a placeholder word (`is_placeholder` of the pull request form), a `feasibility` that
     quotes no line of `probes` when there are some, a task text that names a `MESSAGES.roadmap`
-    entry while no group changes the message file (#3405), and a plan that builds its own code and
-    gives no cost of tokens and time in `existing_tool`. The replay (`stage_eval_gates`) and the
-    job both call this through `check_proposal`, so one rule set judges both."""
+    entry while no group changes the message file (#3405), two tasks that state the same work
+    (#3456), and a plan that builds its own code and gives no cost of tokens and time in
+    `existing_tool`. The replay (`stage_eval_gates`) and the job both call this through
+    `check_proposal`, so one rule set judges both."""
     texts = MESSAGES.roadmap
     problems = [p for field, text in _plan_texts(proposal) for p in _text_problems(field, text)]
     problems.extend(_message_file_problems(proposal))
+    problems.extend(_duplicate_task_problems(proposal))
     lines = [_squash(line) for line in probes if line.strip()]
     if lines:
         feasibility = _squash(" ".join(proposal.feasibility))
@@ -864,6 +903,16 @@ def _task_texts(group: StageGroup) -> list[str]:
     if group.documentation is not None:
         tasks.append(_documents_task(group.documentation, group.changes))
     return tasks
+
+
+def _task_work_texts(group: StageGroup) -> list[str]:
+    """The work text of each task of `group`, in the order of `_task_texts`: the test task of a
+    `behavior` group, its implementation task, and its documents task. The `Verification:` line,
+    the `process` check and the fixed documents command are no work of a task, so two tasks may
+    share one and stay two tasks (#3456)."""
+    works = [group.test] if group.kind is GroupKind.BEHAVIOR else []
+    works.extend((group.implementation, group.documentation))
+    return [work for work in works if work is not None]
 
 
 def _is_document_path(word: str) -> bool:
