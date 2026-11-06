@@ -35,7 +35,9 @@ class ArgoCDApp(BaseModel):
         health = status.get("health", {})
         if not isinstance(health, dict):
             health = {}
-        source = spec.get("source", {})
+        # Argo CD reads `spec.sources` before `spec.source`, and its first entry is the primary one.
+        sources = spec.get("sources")
+        source = sources[0] if isinstance(sources, list) and sources else spec.get("source", {})
         if not isinstance(source, dict):
             source = {}
         return cls(
