@@ -8,7 +8,7 @@ A stop of the implement job sets `status/blocked` and records `implement.stopped
 
 - `set_delivered_status` replaces `status/blocked` when a job recorded it with a stop on record: the label is Blocked, the Status that a job last recorded is Blocked, and `implement.stopped` holds a step. `devops pr create` then sets In Progress and `devops pr ready` sets In Review.
 - A `status/blocked` label that a person set by hand stays, because no job recorded it.
-- `holds_service_stop` in `src/devops_cli/roadmap/status_sync.py` holds that rule once. `is_service_stop` in `src/devops_cli/roadmap/stop_clear.py` calls it and adds the state, claim and Job checks, so the two rules cannot drift apart.
+- `Item.holds_service_stop` in `src/devops_cli/roadmap/store.py` holds that rule once. `is_service_stop` in `src/devops_cli/roadmap/stop_clear.py` calls it and adds the state, claim and Job checks, so the two rules cannot drift apart.
 - The module docstring of `pull_status.py` and the Item state table in `docs/ROADMAP_WORKFLOW.md` describe the new rule.
 - The requirement "A Status moves forward only" of `roadmap-item-labels` changes, because the Status that `devops pr create` and `devops pr ready` write is observable.
 - The change fits one pull request.
@@ -25,7 +25,7 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/pull_status.py`, `src/devops_cli/roadmap/status_sync.py`, `src/devops_cli/roadmap/stop_clear.py`
+- Code: `src/devops_cli/roadmap/pull_status.py`, `src/devops_cli/roadmap/store.py`, `src/devops_cli/roadmap/stop_clear.py`
 - Tests: `tests/commands/test_pr_status.py`
 - Documents: `docs/ROADMAP_WORKFLOW.md`
 
@@ -38,7 +38,7 @@ None.
 
 ## Existing Tool Considered
 
-No open, maintained tool covers the need. The rule reads the job record of this repository's own roadmap store. The change reuses the rule of `is_service_stop`, moves it to one function and builds no new parser. It deletes the copy of that rule in `is_service_stop`. The written cost is about 3k tokens to build, keep and fix, and 30 minutes.
+No open, maintained tool covers the need. The rule reads the job record of this repository's own roadmap store. The change reuses the rule of `is_service_stop`, moves it to one method of `Item` and builds no new parser. It deletes the copy of that rule in `is_service_stop`. The written cost is about 3k tokens to build, keep and fix, and 30 minutes.
 
 ## Dependencies
 
