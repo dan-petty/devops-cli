@@ -3,13 +3,24 @@
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from devops_cli.openspec.tool import OpenSpecTool
+from devops_cli.roadmap import plan_recheck
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.plan_recheck import PlanResult, recheck_plans, render_recheck
+from devops_cli.roadmap.plan_read import read_change
+from devops_cli.roadmap.plan_recheck import (
+    PlanRecheck,
+    PlanResult,
+    recheck_plans,
+    refusals_by_gate,
+    render_recheck,
+)
 from devops_cli.roadmap.stage_change import StageProposal, render_change
 from devops_cli.roadmap.store import GitHubState, ItemField
 from tests.support.builders import make_stage_proposal
@@ -17,6 +28,8 @@ from tests.support.roadmap_stage import VALID_REPORT, StageRepo
 
 CREATED = datetime(2026, 11, 4, tzinfo=UTC).date()
 FIELDS = {ItemField.STATUS: "Planned", ItemField.PRIORITY: "P1-High"}
+MISSING = "src/devops_cli/missing.py"
+TASKS = "openspec/changes/{issue}-keep-the-last-comment/tasks.md"
 
 
 class _Tool:
@@ -139,3 +152,188 @@ def test_the_first_problem_of_an_unreadable_plan_is_its_reason(stage_repo: Stage
     assert len(record.reasons) == 1
     assert "1-keep-the-last-comment" in record.reasons[0]
     assert recheck.unreadable == 1
+
+
+class _Failing:
+    """An OpenSpec that finds a problem in every change."""
+
+    def run(self, args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        del args, cwd
+        return subprocess.CompletedProcess([], 1, "", "The change breaks a rule of OpenSpec.")
+
+
+def _reading_a_missing_file(issue: int) -> dict[str, str]:
+    """A plan whose group reads a file that no commit holds, so the gate `paths` refuses it."""
+    stock = _proposal(f"tests/test_n{issue}.py")
+    group = stock.groups[0].model_copy(update={"reads": [MISSING]})
+    return _plan(issue, make_stage_proposal(groups=[group]))
+
+
+def _unreadable(issue: int) -> dict[str, str]:
+    """A plan whose `tasks.md` holds no group, so the plan reader refuses it."""
+    files = _plan(issue, _proposal(f"tests/test_n{issue}.py"))
+    files[TASKS.format(issue=issue)] = "# Tasks\n\nNothing here.\n"
+    return files
+
+
+def _branch(
+    repo: StageRepo,
+    name: str,
+    *,
+    write: Mapping[str, str] | None = None,
+    remove: Sequence[str] = (),
+) -> None:
+    """Make the local branch `name` from `main` with `write` committed and the folders `remove`
+    deleted, and switch back to `main`. The branch is not pushed."""
+    repo.git("switch", "-q", "-c", name)
+    for path, text in (write or {}).items():
+        (repo.clone / path).parent.mkdir(parents=True, exist_ok=True)
+        (repo.clone / path).write_text(text, encoding="utf-8")
+    for folder in remove:
+        repo.git("rm", "-q", "-r", folder)
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", f"work on {name}")
+    repo.git("switch", "-q", "main")
+
+
+def _compare(repo: StageRepo, store: InMemoryRoadmapStore, branch: str) -> PlanRecheck:
+    return recheck_plans(repo.clone, store, tool=cast("OpenSpecTool", _Tool()), branch=branch)
+
+
+def test_a_refusal_names_the_gate_that_found_it(stage_repo: StageRepo) -> None:
+    stage_repo.track({**_reading_a_missing_file(1), **_unreadable(2)})
+
+    recheck = recheck_plans(stage_repo.clone, _store(count=2), tool=cast("OpenSpecTool", _Tool()))
+
+    by_folder = {r.folder: r for r in recheck.records}
+    assert {r.gate for r in by_folder["1-keep-the-last-comment"].refusals} == {"paths"}
+    assert [r.gate for r in by_folder["2-keep-the-last-comment"].refusals] == ["read"]
+    report = render_recheck(recheck)
+    assert "  [paths] Group 1 names `src/devops_cli/missing.py`" in report
+    assert (
+        "  [read] The plan reader cannot read `openspec/changes/2-keep-the-last-comment`" in report
+    )
+    assert "Refusals by gate: paths 1, read 1." in report
+
+
+def test_a_finding_of_openspec_is_a_refusal_of_the_gate_openspec(stage_repo: StageRepo) -> None:
+    stage_repo.track(_plan(1))
+
+    recheck = recheck_plans(
+        stage_repo.clone, _store(count=1), tool=cast("OpenSpecTool", _Failing())
+    )
+
+    (record,) = recheck.records
+    assert record.result is PlanResult.NEW_PLAN
+    assert [r.gate for r in record.refusals] == ["openspec"]
+    assert (
+        record.refusals[0].message
+        == "`openspec validate` finds: The change breaks a rule of OpenSpec."
+    )
+
+
+def test_a_run_with_no_branch_compares_nothing(stage_repo: StageRepo) -> None:
+    stage_repo.track(_plan(1))
+
+    recheck = recheck_plans(stage_repo.clone, _store(count=1), tool=cast("OpenSpecTool", _Tool()))
+
+    assert recheck.branch is None
+    assert recheck.new_refusals == ()
+    assert "Branch" not in render_recheck(recheck)
+    assert "branch" not in recheck.as_dict()
+
+
+def test_a_branch_run_reads_each_folder_of_both_sides_with_the_plan_reader(
+    stage_repo: StageRepo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stage_repo.track({**_plan(1), **_plan(2, _proposal("tests/test_other.py"))})
+    _branch(stage_repo, "topic", remove=["openspec/changes/2-keep-the-last-comment"])
+    reads: list[Mapping[str, str]] = []
+
+    def counting(files: Mapping[str, str]) -> StageProposal:
+        reads.append(files)
+        return read_change(files)
+
+    monkeypatch.setattr(plan_recheck, "read_change", counting)
+
+    recheck = _compare(stage_repo, _store(count=2), "topic")
+
+    assert len(reads) == 3
+    assert recheck.branch is not None
+    assert [r.folder for r in recheck.branch.records] == ["1-keep-the-last-comment"]
+    assert [r.folder for r in recheck.records] == [
+        "1-keep-the-last-comment",
+        "2-keep-the-last-comment",
+    ]
+
+
+def test_each_gate_lists_the_refusals_of_the_branch_and_of_the_default_branch(
+    stage_repo: StageRepo,
+) -> None:
+    stage_repo.track({**_reading_a_missing_file(1), **_plan(2, _proposal("tests/test_other.py"))})
+    _branch(
+        stage_repo,
+        "topic",
+        write=_reading_a_missing_file(2),
+        remove=["openspec/changes/1-keep-the-last-comment"],
+    )
+
+    recheck = _compare(stage_repo, _store(count=2), "topic")
+
+    assert recheck.branch is not None
+    on_default = refusals_by_gate(recheck.records)["paths"]
+    on_branch = refusals_by_gate(recheck.branch.records)["paths"]
+    assert [r.folder for r in on_default] == ["1-keep-the-last-comment"]
+    assert [r.folder for r in on_branch] == ["2-keep-the-last-comment"]
+    report = render_recheck(recheck)
+    assert "Branch `topic` against `main`: 1 folders on the branch, 2 on `main`." in report
+    assert "Gate paths: 1 on `main`, 1 on `topic`." in report
+    assert "  main: 1-keep-the-last-comment: Group 1 names `src/devops_cli/missing.py`" in report
+    assert "  topic: 2-keep-the-last-comment: Group 1 names `src/devops_cli/missing.py`" in report
+
+
+def test_a_refusal_that_the_branch_adds_is_a_case_to_review(stage_repo: StageRepo) -> None:
+    stage_repo.track(_plan(1))
+    _branch(stage_repo, "topic", write=_reading_a_missing_file(2))
+
+    recheck = _compare(stage_repo, _store(count=2), "topic")
+
+    (added,) = recheck.new_refusals
+    assert (added.folder, added.gate) == ("2-keep-the-last-comment", "paths")
+    assert "`src/devops_cli/missing.py`" in added.message
+    report = render_recheck(recheck)
+    assert "New refusals on `topic`: 1." in report
+    assert f"  case to review: 2-keep-the-last-comment [paths] {added.message}" in report
+    new = recheck.as_dict()["branch"]["new_refusals"]  # type: ignore[index]
+    assert new == [{**added.as_dict(), "label": "case to review"}]
+
+
+def test_a_refusal_that_both_sides_hold_is_not_new(stage_repo: StageRepo) -> None:
+    stage_repo.track(_reading_a_missing_file(1))
+    _branch(stage_repo, "topic", write=_plan(2, _proposal("tests/test_other.py")))
+
+    recheck = _compare(stage_repo, _store(count=2), "topic")
+
+    assert recheck.new_refusals == ()
+    assert "New refusals on `topic`: 0." in render_recheck(recheck)
+
+
+def test_a_folder_that_the_reader_refuses_is_not_read_and_the_run_goes_on(
+    stage_repo: StageRepo,
+) -> None:
+    stage_repo.track(_plan(1))
+    write = {**_unreadable(2), **_plan(3, _proposal("tests/test_third.py"))}
+    _branch(stage_repo, "topic", write=write)
+
+    recheck = _compare(stage_repo, _store(count=3), "topic")
+
+    assert recheck.branch is not None
+    results = {r.folder: r.result for r in recheck.branch.records}
+    assert results == {
+        "1-keep-the-last-comment": PlanResult.OK,
+        "2-keep-the-last-comment": PlanResult.NEW_PLAN,
+        "3-keep-the-last-comment": PlanResult.OK,
+    }
+    assert recheck.branch.unread == ("2-keep-the-last-comment",)
+    assert "Not read on `topic`: 2-keep-the-last-comment." in render_recheck(recheck)
+    assert recheck.as_dict()["branch"]["not_read"] == ["2-keep-the-last-comment"]  # type: ignore[index]

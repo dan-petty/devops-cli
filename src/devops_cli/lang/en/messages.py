@@ -3679,9 +3679,10 @@ class RoadmapMessages:
     # `devops roadmap plan-recheck` (#3492).
     plan_recheck_line: str = "{result} {folder}"
     plan_recheck_reason: str = "  {reason}"
+    plan_recheck_refusal: str = "  [{gate}] {message}"
     plan_recheck_closed: str = "Issue #{issue} is closed. `openspec archive` clears the folder."
     plan_recheck_delivered: str = (
-        "The plan marks {paths} as new, and the default branch `{branch}` holds them. "
+        "The plan marks {paths} as new, and `{branch}` holds them. "
         "Close issue #{issue} when it is done."
     )
     plan_recheck_no_design: str = "The folder has no `design.md`."
@@ -3698,9 +3699,26 @@ class RoadmapMessages:
     )
     plan_recheck_unverified: str = "{count} of {live} folders have no `Verification:` line."
     plan_recheck_unreadable: str = "{count} of {live} folders fail the plan reader."
+    # The refusals of each gate and the comparison with a branch (#3498).
+    plan_recheck_case: str = "case to review"
+    plan_recheck_none: str = "none"
+    plan_recheck_gates: str = "Refusals by gate: {counts}."
+    plan_recheck_branch: str = (
+        "Branch `{ref}` against `{default}`: {branch_folders} folders on the branch, "
+        "{default_folders} on `{default}`."
+    )
+    plan_recheck_gate: str = (
+        "Gate {gate}: {default_count} on `{default}`, {branch_count} on `{ref}`."
+    )
+    plan_recheck_gate_line: str = "  {side}: {folder}: {message}"
+    plan_recheck_new: str = "New refusals on `{ref}`: {count}."
+    plan_recheck_new_line: str = "  {label}: {folder} [{gate}] {message}"
+    plan_recheck_unread: str = "Not read on `{ref}`: {folders}."
     plan_recheck_request_fetch: str = "update the default branch of the model clone"
     plan_recheck_request_tree: str = "list the files of the default branch"
     plan_recheck_request_files: str = "read the files of each change folder"
+    plan_recheck_request_branch_tree: str = "list the files of the branch to compare"
+    plan_recheck_request_branch_files: str = "read the files of each change folder of the branch"
     plan_recheck_request_closed: str = "the issue of a folder that is not in the open issues"
     plan_recheck_request_closed_condition: str = "the issue is not open"
     # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.

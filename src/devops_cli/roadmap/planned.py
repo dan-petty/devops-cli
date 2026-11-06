@@ -74,23 +74,29 @@ def _folders(listing: str, pattern: re.Pattern[str]) -> dict[int, str]:
     return found
 
 
-def read_planned_changes(source: Path, *, operation: str) -> PlannedChanges:
-    """The plans on the default branch of the clone at `source`, after a fetch of that branch. One
-    `git ls-tree` reads the folders of both directories. A failed command raises
-    `GitOperationError` with the reason of git, so a job never judges an item on a tree it could
-    not read."""
-    default = default_branch(source, operation=operation)
-    git(source, "fetch", "-q", "origin", default, operation=operation)
+def planned_changes_at(source: Path, rev: str, default: str, *, operation: str) -> PlannedChanges:
+    """The plans at commit `rev` of the clone at `source`, named for the default branch `default`
+    (#3498). One `git ls-tree` reads the folders of both directories. A failed command raises
+    `GitOperationError` with the reason of git."""
     listing = git(
         source,
         "ls-tree",
         "--name-only",
-        f"origin/{default}",
+        rev,
         f"{CONST_OPENSPEC_CHANGES_DIR}/",
         f"{CONST_OPENSPEC_ARCHIVE_DIR}/",
         operation=operation,
     )
     return PlannedChanges(default, _folders(listing, _ACTIVE), _folders(listing, _ARCHIVED))
+
+
+def read_planned_changes(source: Path, *, operation: str) -> PlannedChanges:
+    """The plans on the default branch of the clone at `source`, after a fetch of that branch. A
+    failed command raises `GitOperationError` with the reason of git, so a job never judges an
+    item on a tree it could not read."""
+    default = default_branch(source, operation=operation)
+    git(source, "fetch", "-q", "origin", default, operation=operation)
+    return planned_changes_at(source, f"origin/{default}", default, operation=operation)
 
 
 def tasks_on_default(source: Path, planned: PlannedChanges, folder: str, *, operation: str) -> str:

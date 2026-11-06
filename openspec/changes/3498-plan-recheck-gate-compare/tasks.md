@@ -13,9 +13,9 @@ Reads: `src/devops_cli/roadmap/stage_change.py`. Changes: `src/devops_cli/roadma
 
 Reads: `src/devops_cli/roadmap/plan_recheck.py`, `src/devops_cli/roadmap/planned.py`. Changes: `src/devops_cli/roadmap/plan_recheck.py`, `src/devops_cli/roadmap/planned.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_plan_recheck.py`.
 
-- [ ] 2.1 Add cases to `tests/roadmap/test_roadmap_plan_recheck.py` for the gate name of a refusal, the read of both sides, the refusals of each gate for both sides, a refusal that the branch adds, and a folder that the reader refuses
+- [x] 2.1 Add cases to `tests/roadmap/test_roadmap_plan_recheck.py` for the gate name of a refusal, the read of both sides, the refusals of each gate for both sides, a refusal that the branch adds, and a folder that the reader refuses
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_plan_recheck.py` fails on the base
-- [ ] 2.2 Give each refusal its gate in `src/devops_cli/roadmap/plan_recheck.py`, judge the folders of a ref with `recheck_plans`, and list the refusals of each gate, the added refusals and the folders that are not read in `render_recheck`
+- [x] 2.2 Give each refusal its gate in `src/devops_cli/roadmap/plan_recheck.py`, judge the folders of a ref with `recheck_plans`, and list the refusals of each gate, the added refusals and the folders that are not read in `render_recheck`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_plan_recheck.py` passes
 
 ## 3. Add the option to the command
