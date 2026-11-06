@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
-import pytest
-
+from devops_cli.ai.analyze.symbols import BaseRevision
 from devops_cli.ai.review.pipeline import (
     ANALYZER_FAILED,
     ANALYZER_NOT_INSTALLED,
@@ -18,10 +17,12 @@ from devops_cli.ai.review.pipeline import (
     static_analyzer_states,
     write_base_revision_lockfiles,
 )
-from devops_cli.ai.review_schema import Finding, SavedFinding
+from devops_cli.ai.review_schema import SavedFinding
 from devops_cli.config.commands import BIN_GOLANGCI_LINT
 from devops_cli.security.base import ScanOutcome
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
 
 
 def test_static_analyzers_contains_golangci_lint() -> None:
@@ -70,14 +71,13 @@ def test_match_static_findings_to_files_filters_go_findings() -> None:
 
 def test_write_base_revision_lockfiles_preserves_gomod(tmp_path: Path) -> None:
     """write_base_revision_lockfiles copies go.mod for base revision Go files."""
-    base_rev = MagicMock()
 
     def fake_read(rel_path: str) -> str | None:
         if rel_path == "go.mod":
             return "module example.com/repo\ngo 1.23\n"
         return None
 
-    base_rev.read.side_effect = fake_read
+    base_rev = BaseRevision(changes=(), read=fake_read)
 
     written_paths = ["pkg/server/server.go"]
     extra = write_base_revision_lockfiles(base_rev, tmp_path, written_paths)
@@ -108,8 +108,8 @@ def test_static_analyzer_states_for_golangci_lint() -> None:
 
 def test_run_static_scanners_executes_golangci_lint_for_go_files(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     scanner_fake: ScannerFake,
+    process_fake: ProcessFake,
 ) -> None:
     """_run_static_scanners runs golangci-lint on go.mod root and filters findings."""
     (tmp_path / "go.mod").write_text("module example.com/test\ngo 1.23\n", encoding="utf-8")
@@ -117,29 +117,44 @@ def test_run_static_scanners_executes_golangci_lint_for_go_files(
     pkg_dir.mkdir(parents=True, exist_ok=True)
     go_file = pkg_dir / "worker.go"
     go_file.write_text("package pkg\n", encoding="utf-8")
-
-    monkeypatch.setattr("devops_cli.ai.review.pipeline._scan_secrets", lambda *_, **__: [])
-    monkeypatch.setattr("devops_cli.ai.review.pipeline._scan_semgrep", lambda *_, **__: [])
-
+    (tmp_path / "goroot" / "bin").mkdir(parents=True)
+    (tmp_path / "gomodcache").mkdir()
+    process_fake.answer(
+        lambda call: Path(call.argv[0]).name == "go" and call.argv[1:2] == ("env",),
+        ProcessAnswer(
+            stdout=json.dumps(
+                {"GOROOT": str(tmp_path / "goroot"), "GOMODCACHE": str(tmp_path / "gomodcache")}
+            )
+        ),
+    )
+    report = {
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {"driver": {"name": "golangci-lint"}},
+                "results": [
+                    {
+                        "ruleId": "govet",
+                        "level": "error",
+                        "message": {"text": "lost cancel"},
+                        "locations": [
+                            {
+                                "physicalLocation": {
+                                    "artifactLocation": {"uri": "pkg/worker.go"},
+                                    "region": {"startLine": 1},
+                                }
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    scanner_fake.script(BIN_GOLANGCI_LINT, ToolAnswer(stdout=json.dumps(report)))
     orchestrator = ReviewPipelineOrchestrator(
         session_id="test-go", target_dir=tmp_path, tool_executor=scanner_fake
     )
 
-    fake_finding = Finding(
-        severity="HIGH",
-        location="pkg/worker.go:1",
-        title="[govet] error",
-        description="lost cancel",
-        fix="call cancel",
-    )
-    fake_outcome = ScanOutcome("ran", [fake_finding])
+    findings_by_file = orchestrator._run_static_scanners(["pkg/worker.go"])
 
-    with patch(
-        "devops_cli.security.golangci_lint.GolangciLintScanner.scan",
-        return_value=fake_outcome,
-    ) as mock_scan:
-        findings_by_file = orchestrator._run_static_scanners(["pkg/worker.go"])
-        assert mock_scan.called
-        assert "pkg/worker.go" in findings_by_file
-        assert len(findings_by_file["pkg/worker.go"]) == 1
-        assert findings_by_file["pkg/worker.go"][0].title == "[govet] error"
+    assert [f.title for f in findings_by_file["pkg/worker.go"]] == ["[govet] lost cancel"]
