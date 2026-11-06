@@ -74,6 +74,15 @@ def _run_cmd(
     )
 
 
+# The addon `storage-provisioner-rancher` adds the StorageClass `local-path`, which the claims
+# of the stacks name. The default addon `storage-provisioner` serves only the class `standard`.
+_MINIKUBE_START_FLAGS = (
+    "--driver=docker",
+    "--cni=calico",
+    "--addons=storage-provisioner-rancher",
+)
+
+
 def _minikube_running() -> bool:
     try:
         result = _run_cmd(
@@ -89,26 +98,23 @@ def _start_minikube(dry_run: bool = False) -> tuple[bool, str]:
     import shutil
 
     has_gpu = bool(shutil.which("nvidia-smi"))
-    gpu_suffix = (
-        " (--driver=docker --cni=calico --gpus=all)"
-        if has_gpu
-        else " (--driver=docker --cni=calico)"
-    )
+    cpu_flags = list(_MINIKUBE_START_FLAGS)
+    gpu_flags = [*cpu_flags, "--gpus=all"]
+    cpu_text = f"Started Minikube cluster ({' '.join(cpu_flags)})"
+    gpu_text = f"Started Minikube cluster ({' '.join(gpu_flags)})"
     if dry_run:
-        return True, f"Started Minikube cluster{gpu_suffix}"
+        return True, gpu_text if has_gpu else cpu_text
 
     if has_gpu:
-        start_res = _run_cmd(
-            ["minikube", "start", "--driver=docker", "--cni=calico", "--gpus=all"], check=False
-        )
+        start_res = _run_cmd(["minikube", "start", *gpu_flags], check=False)
         if start_res.returncode == 0 and _minikube_running():
             _run_cmd(["minikube", "update-context"], check=False)
-            return True, f"Started Minikube cluster{gpu_suffix}"
+            return True, gpu_text
 
-    fallback_res = _run_cmd(["minikube", "start", "--driver=docker", "--cni=calico"], check=False)
+    fallback_res = _run_cmd(["minikube", "start", *cpu_flags], check=False)
     if fallback_res.returncode == 0 and _minikube_running():
         _run_cmd(["minikube", "update-context"], check=False)
-        return True, "Started Minikube cluster (--driver=docker --cni=calico)"
+        return True, cpu_text
 
     return False, "Failed to start Minikube cluster"
 

@@ -398,12 +398,12 @@ When developing in self-contained environments or GitHub Codespaces, the Dev Con
 #### GPU Passthrough & CPU Fallback
 On workstations equipped with NVIDIA GPUs, Minikube automatically attempts to start with hardware GPU passthrough (`--gpus all`):
 ```bash
-minikube start --driver=docker --gpus=all   # only when nvidia-smi is present; otherwise minikube start --driver=docker
+minikube start --driver=docker --cni=calico --addons=storage-provisioner-rancher --gpus=all   # --gpus=all only when nvidia-smi is present
 ```
 If the container runtime lacks NVIDIA Container Toolkit support or fails to allocate GPUs, DevOps CLI automatically detects the failure and transparently falls back to CPU mode, ensuring container startup never fails due to missing GPU drivers.
 
 #### Add-Ons
-devops-cli enables no Minikube add-ons; minikube's defaults (`default-storageclass`, `storage-provisioner`) apply. Enable others with `minikube addons enable ingress` (or `metrics-server`, `dashboard`).
+devops-cli starts Minikube with the add-on `storage-provisioner-rancher`, which gives the StorageClass `local-path`. The defaults of minikube (`default-storageclass`, `storage-provisioner`) also apply. A Minikube that already runs keeps its add-ons: run `minikube addons enable storage-provisioner-rancher` one time on it. Enable other add-ons with `minikube addons enable ingress` (or `metrics-server`, `dashboard`).
 
 ---
 

@@ -294,7 +294,10 @@ class TestDevcontainerCli:
         with docker_engine(MagicMock()):
             result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
-        assert "Started Minikube cluster (--driver=docker --cni=calico --gpus=all)" in result.output
+        assert (
+            "Started Minikube cluster (--driver=docker --cni=calico --addons=storage-provisioner-rancher --gpus=all)"
+            in result.output
+        )
         assert any(c[:2] == ["minikube", "start"] for c in calls)
 
     def test_bootstrap_k8s_minikube_falls_back_to_cpu_when_no_gpu(
@@ -331,8 +334,21 @@ class TestDevcontainerCli:
         with docker_engine(MagicMock()):
             result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path)])
         assert result.exit_code == 0
-        assert "Started Minikube cluster (--driver=docker --cni=calico)" in result.output
-        assert any(c == ["minikube", "start", "--driver=docker", "--cni=calico"] for c in calls)
+        assert (
+            "Started Minikube cluster (--driver=docker --cni=calico --addons=storage-provisioner-rancher)"
+            in result.output
+        )
+        assert any(
+            c
+            == [
+                "minikube",
+                "start",
+                "--driver=docker",
+                "--cni=calico",
+                "--addons=storage-provisioner-rancher",
+            ]
+            for c in calls
+        )
 
     def test_bootstrap_k8s_warns_when_docker_daemon_down(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
