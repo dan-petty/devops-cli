@@ -6,6 +6,10 @@ that lives on GitHub (#1844, ADR 0010, ADR 0001).
 readiness check in the switch reads the folder by path alone, so without this test an empty plan
 would count as a plan.
 
+The step runs every code span of a `Verification:` line as a command. A span that it refuses stops
+the plan at its group, so the tree test reads each one with the function that the step calls
+(#3595, #3579).
+
 A plan that records a test in `## Weakened checks` names it as the guard of the implement step does
 (#3490): `path::Class.test_x` for a test of a class. The guard compares the names exactly, so a name
 without its class waives nothing and the plan stops at the group that removes the test.
@@ -26,9 +30,11 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGE_NAME_RE,
     CONST_OPENSPEC_CHANGES_DIR,
 )
+from devops_cli.roadmap.implement_shell_policy import shown, verification_problem
 from devops_cli.roadmap.implement_test_names import defined_tests
 from devops_cli.roadmap.plan_read import PlanReadError, recorded_tests, weakened_checks
 from devops_cli.roadmap.stage_change import GroupKind, render_change
+from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
 
@@ -170,6 +176,59 @@ def tree_problems(changes_dir: Path, root: Path = REPO_ROOT) -> list[str]:
 def test_every_active_change_folder_is_a_plan() -> None:
     """The repository's own change folders pass, as does a tree with none."""
     assert tree_problems(REPO_ROOT / CONST_OPENSPEC_CHANGES_DIR) == []
+
+
+_VERIFICATION_LINE = "- Verification:"
+_COMMAND_SHOWN_CHARS = 300
+
+
+def _line_of(lines: list[str], task_line: int, command: str) -> int:
+    """The one-based line of the `Verification:` line that holds the code span `command` in the task
+    that starts at the zero-based `task_line`. It is the line of the task when none holds it."""
+    span = f"`{command}`"
+    for number in range(max(task_line, 0), len(lines)):
+        stripped = lines[number].lstrip()
+        if stripped.startswith(_VERIFICATION_LINE) and span in stripped:
+            return number + 1
+    return task_line + 1
+
+
+def _plan_verification_problems(folder: Path) -> list[str]:
+    """Each refused code span of a `Verification:` line in the `tasks.md` of `folder`."""
+    text = (folder / "tasks.md").read_text(encoding="utf-8")
+    lines = text.splitlines()
+    refused = [
+        (task.line, command, reason)
+        for group in parse_task_groups(text)
+        for task in group.tasks
+        for command in task.verification
+        if (reason := verification_problem(command)) is not None
+    ]
+    return [
+        f"{folder.name}/tasks.md:{_line_of(lines, line, command)}: "
+        f"`{shown(command, _COMMAND_SHOWN_CHARS)}` is refused: {reason}"
+        for line, command, reason in refused
+    ]
+
+
+def verification_problems(changes_dir: Path) -> list[str]:
+    """Each code span of a `Verification:` line, in the `tasks.md` of an active change under
+    `changes_dir`, that the implement step refuses, with the path, the line and the reason. The spans
+    come from `parse_task_groups` and the refusals from `read_verification`, the functions that the
+    step calls, so this holds no copy of the grammar. `archive/` is not read."""
+    entries = sorted(changes_dir.iterdir()) if changes_dir.is_dir() else []
+    return [
+        problem
+        for folder in entries
+        if folder.is_dir() and folder.name != ARCHIVE_DIR_NAME and (folder / "tasks.md").is_file()
+        for problem in _plan_verification_problems(folder)
+    ]
+
+
+def test_every_verification_line_of_an_active_plan_is_accepted_by_the_step() -> None:
+    """The step runs every code span of a `Verification:` line. A plan with a refused span stops at
+    its group, so no active plan holds one."""
+    assert verification_problems(REPO_ROOT / CONST_OPENSPEC_CHANGES_DIR) == []
 
 
 PROPOSAL = (
@@ -408,3 +467,89 @@ def test_a_section_that_the_reader_refuses_is_reported(tmp_path: Path) -> None:
         "is no entry: The test goes.. The form is "
         "`- **<check>**: Stopped: <stopped> Safeguard: <safeguard>`."
     ]
+
+
+def _plan(tmp_path: Path, name: str, verification: str) -> Path:
+    """The plan `name` under `tmp_path/changes`, whose one task has the `Verification:` line
+    `verification`. It returns the changes directory."""
+    tasks = f"## 1. Export\n\n- [ ] 1.1 Write the file\n  - Verification: {verification}\n"
+    return _folder(tmp_path, name, tasks=tasks).parent
+
+
+def test_a_verification_command_that_the_step_accepts_is_no_problem(tmp_path: Path) -> None:
+    changes = _plan(
+        tmp_path, "1900-widget-export", "`uv run devops ci test tests/test_widget.py` passes"
+    )
+
+    assert verification_problems(changes) == []
+
+
+def test_a_negative_search_with_word_boundaries_is_reported_with_path_line_and_command(
+    tmp_path: Path,
+) -> None:
+    """The grammar of the negative search has no `-E`, so the step refuses the line."""
+    changes = _plan(tmp_path, "1900-widget-export", r"`! git grep -n -E '\bfoo\b' src/`")
+
+    [problem] = verification_problems(changes)
+
+    assert problem.startswith("1900-widget-export/tasks.md:4: `! git grep -n -E '")
+    assert "bfoo" in problem
+    assert "is refused: the option `-E` is not allowed" in problem
+
+
+def test_a_prose_code_span_in_a_verification_line_is_reported(tmp_path: Path) -> None:
+    changes = _plan(tmp_path, "1900-widget-export", "`the log is empty`")
+
+    [problem] = verification_problems(changes)
+
+    assert problem.startswith("1900-widget-export/tasks.md:4: `the log is empty` is refused: ")
+
+
+def test_each_span_of_a_verification_line_is_read_not_only_the_first(tmp_path: Path) -> None:
+    changes = _plan(
+        tmp_path,
+        "1900-widget-export",
+        "`uv run devops ci test tests/test_widget.py` passes, and `test -z x` holds",
+    )
+
+    [problem] = verification_problems(changes)
+
+    assert problem.startswith("1900-widget-export/tasks.md:4: `test -z x` is refused: ")
+
+
+def test_the_line_of_a_problem_is_the_verification_line_of_its_own_task(tmp_path: Path) -> None:
+    tasks = (
+        "## 1. Export\n\n"
+        "- [ ] 1.1 Write the file\n  - Verification: `uv run devops ci docs` passes\n"
+        "- [ ] 1.2 Document it\n  - Verification: `docker buildx` passes\n"
+    )
+    changes = _folder(tmp_path, tasks=tasks).parent
+
+    [problem] = verification_problems(changes)
+
+    assert problem.startswith("1900-widget-export/tasks.md:6: `docker buildx` is refused: ")
+
+
+def test_a_plan_under_the_archive_directory_is_not_read(tmp_path: Path) -> None:
+    changes = _plan(tmp_path, "1900-widget-export", "`uv run devops ci docs` passes")
+    archived = changes / ARCHIVE_DIR_NAME / "2026-11-01-1901-old-plan"
+    archived.mkdir(parents=True)
+    (archived / "tasks.md").write_text(
+        "## 1. Old\n\n- [x] 1.1 Done\n  - Verification: `docker buildx` passes\n", encoding="utf-8"
+    )
+
+    assert verification_problems(changes) == []
+
+
+def test_every_active_plan_is_read(tmp_path: Path) -> None:
+    _plan(tmp_path, "1900-widget-export", "`docker buildx` passes")
+    changes = _plan(tmp_path, "1901-widget-import", "`test -d src` passes")
+
+    assert [problem.split(":")[0] for problem in verification_problems(changes)] == [
+        "1900-widget-export/tasks.md",
+        "1901-widget-import/tasks.md",
+    ]
+
+
+def test_a_changes_directory_that_does_not_exist_has_no_problem(tmp_path: Path) -> None:
+    assert verification_problems(tmp_path / "missing") == []
