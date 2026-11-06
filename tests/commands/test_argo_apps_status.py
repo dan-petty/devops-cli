@@ -1,6 +1,6 @@
 """`devops argo cd apps status` reports the images an Application pins against their registry (#1997).
 
-The Argo CD API and the OCI registry are faked at the HTTP edge with `stub_web`.
+The Argo CD API and the OCI registry are faked at the HTTP edge with `web`.
 """
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ from typing import Any
 
 import pytest
 
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.oci_registry import RegistryFake
-from tests.web_fakes import StubWeb
 
 ARGOCD = "https://argocd.example.com"
 APPLICATION = f"{ARGOCD}/api/v1/applications/devops"
@@ -43,11 +43,11 @@ def argocd(config: Callable[..., Path], keyring_store: Any) -> None:
 
 
 def test_status_exits_1_when_the_registry_moved_a_pinned_tag(
-    cli: Callable[..., Any], stub_web: StubWeb
+    cli: Callable[..., Any], web: WebFake
 ) -> None:
     """A pin whose tag now names another digest is reported with both digests."""
-    stub_web.respond("GET", APPLICATION, 200, _application([f"{IMAGE}:latest@{PINNED}"]))
-    stub_web.serve(RegistryFake({f"{IMAGE}:latest": MOVED}))
+    web.respond("GET", APPLICATION, 200, _application([f"{IMAGE}:latest@{PINNED}"]))
+    web.serve(RegistryFake({f"{IMAGE}:latest": MOVED}))
 
     result = cli("argo", "cd", "apps", "status", "devops")
 
@@ -59,11 +59,11 @@ def test_status_exits_1_when_the_registry_moved_a_pinned_tag(
 
 
 def test_status_exits_0_when_each_pin_is_the_digest_of_its_tag(
-    cli: Callable[..., Any], stub_web: StubWeb
+    cli: Callable[..., Any], web: WebFake
 ) -> None:
     """A pin that names its tag's current digest is in step."""
-    stub_web.respond("GET", APPLICATION, 200, _application([f"{IMAGE}:latest@{PINNED}"]))
-    stub_web.serve(RegistryFake({f"{IMAGE}:latest": PINNED}))
+    web.respond("GET", APPLICATION, 200, _application([f"{IMAGE}:latest@{PINNED}"]))
+    web.serve(RegistryFake({f"{IMAGE}:latest": PINNED}))
 
     result = cli("argo", "cd", "apps", "status", "devops")
 
@@ -72,23 +72,23 @@ def test_status_exits_0_when_each_pin_is_the_digest_of_its_tag(
 
 
 def test_status_of_an_application_with_no_pins_reads_only_argo_cd(
-    cli: Callable[..., Any], stub_web: StubWeb
+    cli: Callable[..., Any], web: WebFake
 ) -> None:
     """With no pinned image, the command sends no registry request."""
-    stub_web.respond("GET", APPLICATION, 200, _application(None))
+    web.respond("GET", APPLICATION, 200, _application(None))
 
     result = cli("argo", "cd", "apps", "status", "devops")
 
     assert result.exit_code == 0
-    assert stub_web.requested == [APPLICATION]
+    assert web.requested == [APPLICATION]
 
 
 def test_status_exits_1_when_the_registry_gives_no_digest(
-    cli: Callable[..., Any], stub_web: StubWeb
+    cli: Callable[..., Any], web: WebFake
 ) -> None:
     """A pin that the registry does not give a digest for is reported, not taken as in step."""
-    stub_web.respond("GET", APPLICATION, 200, _application([f"{IMAGE}:latest@{PINNED}"]))
-    stub_web.serve(RegistryFake({}, anonymous=False))
+    web.respond("GET", APPLICATION, 200, _application([f"{IMAGE}:latest@{PINNED}"]))
+    web.serve(RegistryFake({}, anonymous=False))
 
     result = cli("argo", "cd", "apps", "status", "devops")
 
@@ -97,10 +97,10 @@ def test_status_exits_1_when_the_registry_gives_no_digest(
 
 
 def test_status_exits_1_when_argo_cd_refuses_the_read(
-    cli: Callable[..., Any], stub_web: StubWeb
+    cli: Callable[..., Any], web: WebFake
 ) -> None:
     """A status that shows an error exits 1, so a script can tell it from a healthy status."""
-    stub_web.respond("GET", APPLICATION, 401, {"error": "invalid session"})
+    web.respond("GET", APPLICATION, 401, {"error": "invalid session"})
 
     result = cli("argo", "cd", "apps", "status", "devops")
 
@@ -108,16 +108,16 @@ def test_status_exits_1_when_argo_cd_refuses_the_read(
     assert "401" in result.output
 
 
-def test_status_dry_run_sends_no_request(cli: Callable[..., Any], stub_web: StubWeb) -> None:
+def test_status_dry_run_sends_no_request(cli: Callable[..., Any], web: WebFake) -> None:
     """`--dry-run` names the action and reads neither Argo CD nor a registry."""
     result = cli("argo", "cd", "apps", "status", "devops", "--dry-run")
 
     assert result.exit_code == 0
     assert "Plan for Argo CD application 'devops' status" in result.output
-    assert stub_web.sent == []
+    assert web.sent == []
 
 
-def _refusing_argocd(stub_web: StubWeb) -> None:
+def _refusing_argocd(web: WebFake) -> None:
     """Answer HTTP 401 to the stored token, the token `fresh` to the session request, and the
     application to a read with `fresh`."""
     import httpx2
@@ -131,15 +131,15 @@ def _refusing_argocd(stub_web: StubWeb) -> None:
             return httpx2.Response(200, json=_application(None))
         return httpx2.Response(401, json={"error": "invalid session"})
 
-    stub_web.serve(server)
+    web.serve(server)
 
 
 def test_status_replaces_a_refused_token_and_shows_the_application(
-    cli: Callable[..., Any], stub_web: StubWeb, keyring_store: Any
+    cli: Callable[..., Any], web: WebFake, keyring_store: Any
 ) -> None:
     """Old vs new (#2576): a 401 with the admin password stored mints a token and reads again."""
     keyring_store.values["argocd_password"] = "admin-pw"
-    _refusing_argocd(stub_web)
+    _refusing_argocd(web)
 
     result = cli("argo", "cd", "apps", "status", "devops")
 
@@ -148,10 +148,10 @@ def test_status_replaces_a_refused_token_and_shows_the_application(
 
 
 def test_status_with_a_refused_token_and_no_password_names_the_setting(
-    cli: Callable[..., Any], stub_web: StubWeb
+    cli: Callable[..., Any], web: WebFake
 ) -> None:
     """The panel tells how to set the token, and the status exits 1."""
-    _refusing_argocd(stub_web)
+    _refusing_argocd(web)
 
     result = cli("argo", "cd", "apps", "status", "devops")
 

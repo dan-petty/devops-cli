@@ -30,8 +30,8 @@ from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.git.operations import git_show_toplevel
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import configured_level
+from devops_cli.http.entry import http_client
 from devops_cli.k8s.credentials import get_or_mint_argocd_token
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
 from devops_cli.security.sanitizer import mask_secrets
@@ -395,7 +395,7 @@ def trigger_argocd_sync(
             if token and not token.startswith("*"):
                 headers["Authorization"] = f"Bearer {token}"
 
-            with new_http_client(level=configured_level(settings.ai)) as client:
+            with http_client(configured_level(settings.ai)) as client:
                 resp = client.post(
                     url,
                     headers=headers,

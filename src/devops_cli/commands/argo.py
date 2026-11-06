@@ -49,8 +49,8 @@ from devops_cli.core.validation import validate_k8s_name
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions.argo import ArgoError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel, configured_level
+from devops_cli.http.entry import http_client
 from devops_cli.http.urls import service_base_url
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.argo import ArgoCDApp, ArgoRolloutState, ArgoWorkflowState
@@ -205,7 +205,7 @@ def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
 
 def _argocd_client(settings: Any) -> httpx2.Client:
     """An Argo CD client that dials the configured level: loopback, or private with the flag."""
-    return new_http_client(level=configured_level(settings.ai))
+    return http_client(configured_level(settings.ai))
 
 
 # =============================================================================
@@ -398,7 +398,7 @@ def _check_image_pins(item: dict[str, Any]) -> list[PinCheck]:
     pins = kustomize_image_pins(item)
     if not pins:
         return []
-    with new_http_client(level=EgressLevel.PUBLIC) as client:
+    with http_client(EgressLevel.PUBLIC) as client:
         return check_pins(pins, client, timeout=DEFAULT_HTTP_TIMEOUT_SECONDS)
 
 

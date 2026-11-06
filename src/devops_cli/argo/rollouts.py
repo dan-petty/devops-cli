@@ -82,8 +82,8 @@ def _fetch_metric_value(query: str) -> float | None:
     A refused address (SSRFBlockedError, a ValueError) leaves the metric unavailable.
     """
     from devops_cli.config.settings import load_settings
-    from devops_cli.http.client import new_http_client
     from devops_cli.http.egress import configured_level
+    from devops_cli.http.entry import http_client
 
     settings = load_settings()
     prom_url = getattr(settings, "prometheus", None) and getattr(settings.prometheus, "url", None)
@@ -93,7 +93,7 @@ def _fetch_metric_value(query: str) -> float | None:
     import httpx2
 
     try:
-        with new_http_client(level=configured_level(settings.ai)) as client:
+        with http_client(configured_level(settings.ai)) as client:
             resp = client.get(
                 f"{prom_url.rstrip('/')}/api/v1/query",
                 params={"query": query},

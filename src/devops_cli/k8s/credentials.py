@@ -280,12 +280,12 @@ def mint_argocd_token(
     """
     import httpx2
 
-    from devops_cli.http.client import new_http_client
+    from devops_cli.http.entry import http_client
 
     clean_base = service_base_url(base_url, "argocd.url")
     url = f"{clean_base}/api/v1/session"
     try:
-        with new_http_client(level=level, timeout=httpx2.Timeout(timeout)) as client:
+        with http_client(level, timeout=httpx2.Timeout(timeout)) as client:
             resp = client.post(url, json={"username": "admin", "password": password})
     except (httpx2.RequestError, SSRFBlockedError) as exc:
         raise StackCredentialError(
@@ -410,11 +410,11 @@ def mint_grafana_token(
     """
     import httpx2
 
-    from devops_cli.http.client import new_http_client
+    from devops_cli.http.entry import http_client
 
     clean_base = service_base_url(base_url, "grafana.url")
     try:
-        with new_http_client(level=level, timeout=httpx2.Timeout(timeout)) as client:
+        with http_client(level, timeout=httpx2.Timeout(timeout)) as client:
             client.auth = httpx2.BasicAuth("admin", password)
             account_id = _find_or_create_grafana_sa(client, clean_base)
             old_token_ids = _list_grafana_sa_token_ids(client, clean_base, account_id)
@@ -497,10 +497,10 @@ def _check_token(
     """
     import httpx2
 
-    from devops_cli.http.client import new_http_client
+    from devops_cli.http.entry import http_client
 
     try:
-        with new_http_client(level=level, timeout=httpx2.Timeout(timeout)) as client:
+        with http_client(level, timeout=httpx2.Timeout(timeout)) as client:
             resp = client.get(url, headers={"Authorization": f"Bearer {token}"})
     except (httpx2.RequestError, SSRFBlockedError) as exc:
         raise StackCredentialError(

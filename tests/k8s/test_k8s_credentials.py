@@ -1,7 +1,7 @@
 """Tests of the Argo CD and Grafana credential sync (#2156).
 
 The sync reaches three edges, and each test fakes them where they leave the process: kubectl
-through `process_fake`, the two services over HTTP through `stub_web`, and the keyring through
+through `process_fake`, the two services over HTTP through the `web` fake, and the keyring through
 `keyring_store`. No test patches a devops-cli name.
 
 A verify tells three outcomes apart: the service accepted the token, the service refused it, or
@@ -33,9 +33,10 @@ from devops_cli.k8s.credentials import (
     mint_grafana_token,
     sync_k8s_credentials,
 )
+from tests.support.fakes.dns import DnsFake
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
-from tests.web_fakes import StubWeb, scripted_resolver
 
 ARGOCD = "https://argocd.example.com"
 GRAFANA = "https://grafana.example.com"
@@ -50,7 +51,7 @@ NOT_FOUND = 'Error from server (NotFound): secrets "argocd-initial-admin-secret"
 KEPT = "; the stored token stays in the keyring"
 LOOPBACK = EgressLevel.LOOPBACK
 
-pytestmark = pytest.mark.usefixtures("keyring_store", "public_dns")
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 Outcomes = dict[str, tuple[str, str | None]]
 
@@ -78,21 +79,21 @@ def _outcomes(results: Mapping[str, Any]) -> Outcomes:
     return {name: (outcome.state, outcome.cause) for name, outcome in results.items()}
 
 
-def _requests(stub_web: StubWeb) -> list[tuple[str, str]]:
-    return [(request.method, str(request.url)) for request in stub_web.sent]
+def _requests(web: WebFake) -> list[tuple[str, str]]:
+    return [(request.method, str(request.url)) for request in web.sent]
 
 
 def _sync() -> Outcomes:
     return _outcomes(sync_k8s_credentials(stack="infra", argocd_url=ARGOCD, grafana_url=GRAFANA))
 
 
-def _serve_grafana_mint(stub_web: StubWeb, old_tokens: list[dict[str, Any]]) -> None:
+def _serve_grafana_mint(web: WebFake, old_tokens: list[dict[str, Any]]) -> None:
     """Serve the devops-cli service account 7, its `old_tokens` and a new token."""
-    stub_web.respond("POST", GRAFANA_ACCOUNTS, 201, {"id": 7, "name": "devops-cli"})
-    stub_web.respond("GET", GRAFANA_TOKENS, 200, old_tokens)
+    web.respond("POST", GRAFANA_ACCOUNTS, 201, {"id": 7, "name": "devops-cli"})
+    web.respond("GET", GRAFANA_TOKENS, 200, old_tokens)
     for token in old_tokens:
-        stub_web.respond("DELETE", f"{GRAFANA_TOKENS}/{token['id']}", 200, {"message": "deleted"})
-    stub_web.respond("POST", GRAFANA_TOKENS, 200, {"id": 9, "key": "new-grafana-token"})
+        web.respond("DELETE", f"{GRAFANA_TOKENS}/{token['id']}", 200, {"message": "deleted"})
+    web.respond("POST", GRAFANA_TOKENS, 200, {"id": 9, "key": "new-grafana-token"})
 
 
 GRAFANA_MINT_REQUESTS = [
@@ -102,15 +103,15 @@ GRAFANA_MINT_REQUESTS = [
     ("DELETE", f"{GRAFANA_TOKENS}/3"),
 ]
 
-FailedCheck = Callable[[StubWeb, str], None]
+FailedCheck = Callable[[WebFake, str], None]
 
 
-def _answer_502(stub_web: StubWeb, url: str) -> None:
-    stub_web.respond("GET", url, 502, {"message": "bad gateway"})
+def _answer_502(web: WebFake, url: str) -> None:
+    web.respond("GET", url, 502, {"message": "bad gateway"})
 
 
-def _time_out(stub_web: StubWeb, url: str) -> None:
-    stub_web.fail(url, httpx2.ReadTimeout("timed out"))
+def _time_out(web: WebFake, url: str) -> None:
+    web.fail(url, httpx2.ReadTimeout("timed out"))
 
 
 FAILED_CHECKS = pytest.mark.parametrize(
@@ -129,19 +130,19 @@ FAILED_CHECKS = pytest.mark.parametrize(
 @FAILED_CHECKS
 def test_a_failed_grafana_check_keeps_the_stored_token_and_sends_no_revoke_or_create(
     process_fake: ProcessFake,
-    stub_web: StubWeb,
+    web: WebFake,
     keyring_store: FakeKeyring,
     failed_check: FailedCheck,
     cause: str,
 ) -> None:
     _cluster_password(process_fake, None)
     keyring_store.values.update({"grafana_token": "stored-token", "grafana_password": "admin-pw"})
-    failed_check(stub_web, GRAFANA_ORG)
-    _serve_grafana_mint(stub_web, [{"id": 3}])
+    failed_check(web, GRAFANA_ORG)
+    _serve_grafana_mint(web, [{"id": 3}])
 
     outcomes = _sync()
 
-    assert (outcomes["grafana_token"], _requests(stub_web), keyring_store.values) == (
+    assert (outcomes["grafana_token"], _requests(web), keyring_store.values) == (
         ("failed", f"The Grafana token check at {GRAFANA_ORG} {cause}{KEPT}"),
         [("GET", GRAFANA_ORG)],
         {"grafana_token": "stored-token", "grafana_password": "admin-pw"},
@@ -150,20 +151,20 @@ def test_a_failed_grafana_check_keeps_the_stored_token_and_sends_no_revoke_or_cr
 
 @pytest.mark.parametrize("status", [401, 403])
 def test_a_refused_grafana_token_is_replaced_by_a_new_one(
-    process_fake: ProcessFake, stub_web: StubWeb, keyring_store: FakeKeyring, status: int
+    process_fake: ProcessFake, web: WebFake, keyring_store: FakeKeyring, status: int
 ) -> None:
     _cluster_password(process_fake, None)
     keyring_store.values.update({"grafana_token": "stored-token", "grafana_password": "admin-pw"})
-    stub_web.respond("GET", GRAFANA_ORG, status, {"message": "Invalid API key"})
-    _serve_grafana_mint(stub_web, [{"id": 3}])
+    web.respond("GET", GRAFANA_ORG, status, {"message": "Invalid API key"})
+    _serve_grafana_mint(web, [{"id": 3}])
 
     outcomes = _sync()
 
     assert (
         outcomes["grafana_token"],
-        _requests(stub_web),
-        stub_web.sent[0].headers["authorization"],
-        stub_web.sent[1].headers["authorization"],
+        _requests(web),
+        web.sent[0].headers["authorization"],
+        web.sent[1].headers["authorization"],
         keyring_store.values["grafana_token"],
     ) == (
         ("synced", None),
@@ -175,16 +176,16 @@ def test_a_refused_grafana_token_is_replaced_by_a_new_one(
 
 
 def test_an_accepted_grafana_token_is_kept(
-    process_fake: ProcessFake, stub_web: StubWeb, keyring_store: FakeKeyring
+    process_fake: ProcessFake, web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     _cluster_password(process_fake, None)
     keyring_store.values.update({"grafana_token": "stored-token", "grafana_password": "admin-pw"})
-    stub_web.respond("GET", GRAFANA_ORG, 200, {"id": 1, "name": "Main Org."})
-    _serve_grafana_mint(stub_web, [{"id": 3}])
+    web.respond("GET", GRAFANA_ORG, 200, {"id": 1, "name": "Main Org."})
+    _serve_grafana_mint(web, [{"id": 3}])
 
     outcomes = _sync()
 
-    assert (outcomes, _requests(stub_web), keyring_store.values["grafana_token"]) == (
+    assert (outcomes, _requests(web), keyring_store.values["grafana_token"]) == (
         {
             "argocd": ("missing", None),
             "grafana": ("synced", None),
@@ -196,15 +197,15 @@ def test_an_accepted_grafana_token_is_kept(
 
 
 def test_a_refused_grafana_token_with_no_admin_password_reports_the_cause(
-    process_fake: ProcessFake, stub_web: StubWeb, keyring_store: FakeKeyring
+    process_fake: ProcessFake, web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     _cluster_password(process_fake, None)
     keyring_store.values["grafana_token"] = "stored-token"
-    stub_web.respond("GET", GRAFANA_ORG, 401, {"message": "Invalid API key"})
+    web.respond("GET", GRAFANA_ORG, 401, {"message": "Invalid API key"})
 
     outcomes = _sync()
 
-    assert (outcomes["grafana_token"], _requests(stub_web)) == (
+    assert (outcomes["grafana_token"], _requests(web)) == (
         (
             "failed",
             "Grafana refused the stored token, and no admin password is available to mint a "
@@ -220,21 +221,21 @@ def test_a_refused_grafana_token_with_no_admin_password_reports_the_cause(
 @FAILED_CHECKS
 def test_a_failed_argocd_check_keeps_the_stored_token_and_opens_no_session(
     process_fake: ProcessFake,
-    stub_web: StubWeb,
+    web: WebFake,
     keyring_store: FakeKeyring,
     failed_check: FailedCheck,
     cause: str,
 ) -> None:
     _cluster_password(process_fake, "argo-admin-pw")
     keyring_store.values["argocd_token"] = "stored-token"
-    failed_check(stub_web, ARGOCD_USERINFO)
-    stub_web.respond("POST", ARGOCD_SESSION, 200, {"token": "new-argocd-token"})
+    failed_check(web, ARGOCD_USERINFO)
+    web.respond("POST", ARGOCD_SESSION, 200, {"token": "new-argocd-token"})
 
     outcomes = _sync()
 
     assert (
         outcomes["argocd_token"],
-        _requests(stub_web),
+        _requests(web),
         keyring_store.values["argocd_token"],
     ) == (
         ("failed", f"The Argo CD token check at {ARGOCD_USERINFO} {cause}{KEPT}"),
@@ -250,7 +251,7 @@ def test_a_failed_argocd_check_keeps_the_stored_token_and_opens_no_session(
 )
 def test_a_refused_argocd_token_is_replaced_by_a_new_one(
     process_fake: ProcessFake,
-    stub_web: StubWeb,
+    web: WebFake,
     keyring_store: FakeKeyring,
     status: int,
     body: object,
@@ -258,15 +259,15 @@ def test_a_refused_argocd_token_is_replaced_by_a_new_one(
     """Argo CD answers its userinfo with HTTP 200 and `loggedIn: false` for a token it refuses."""
     _cluster_password(process_fake, "argo-admin-pw")
     keyring_store.values["argocd_token"] = "stored-token"
-    stub_web.respond("GET", ARGOCD_USERINFO, status, body)
-    stub_web.respond("POST", ARGOCD_SESSION, 200, {"token": "new-argocd-token"})
+    web.respond("GET", ARGOCD_USERINFO, status, body)
+    web.respond("POST", ARGOCD_SESSION, 200, {"token": "new-argocd-token"})
 
     outcomes = _sync()
 
     assert (
         outcomes["argocd_token"],
-        _requests(stub_web),
-        json.loads(stub_web.sent[1].content),
+        _requests(web),
+        json.loads(web.sent[1].content),
         keyring_store.values["argocd_token"],
     ) == (
         ("synced", None),
@@ -277,16 +278,16 @@ def test_a_refused_argocd_token_is_replaced_by_a_new_one(
 
 
 def test_an_accepted_argocd_token_is_kept(
-    process_fake: ProcessFake, stub_web: StubWeb, keyring_store: FakeKeyring
+    process_fake: ProcessFake, web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     _cluster_password(process_fake, "argo-admin-pw")
     keyring_store.values["argocd_token"] = "stored-token"
-    stub_web.respond("GET", ARGOCD_USERINFO, 200, {"loggedIn": True, "username": "admin"})
-    stub_web.respond("POST", ARGOCD_SESSION, 200, {"token": "new-argocd-token"})
+    web.respond("GET", ARGOCD_USERINFO, 200, {"loggedIn": True, "username": "admin"})
+    web.respond("POST", ARGOCD_SESSION, 200, {"token": "new-argocd-token"})
 
     outcomes = _sync()
 
-    assert (outcomes, _requests(stub_web), keyring_store.values) == (
+    assert (outcomes, _requests(web), keyring_store.values) == (
         {
             "argocd": ("synced", None),
             "argocd_token": ("synced", None),
@@ -298,15 +299,15 @@ def test_an_accepted_argocd_token_is_kept(
 
 
 def test_an_argocd_check_answer_that_is_not_json_is_a_failed_check(
-    process_fake: ProcessFake, stub_web: StubWeb, keyring_store: FakeKeyring
+    process_fake: ProcessFake, web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     _cluster_password(process_fake, "argo-admin-pw")
     keyring_store.values["argocd_token"] = "stored-token"
-    stub_web.page(ARGOCD_USERINFO, "<html>sign in</html>")
+    web.page(ARGOCD_USERINFO, "<html>sign in</html>")
 
     outcomes = _sync()
 
-    assert (outcomes["argocd_token"], _requests(stub_web)) == (
+    assert (outcomes["argocd_token"], _requests(web)) == (
         ("failed", f"Argo CD sent an answer at {ARGOCD_USERINFO} that is not a JSON object{KEPT}"),
         [("GET", ARGOCD_USERINFO)],
     )
@@ -316,10 +317,10 @@ def test_an_argocd_check_answer_that_is_not_json_is_a_failed_check(
 
 
 def test_a_refused_admin_session_reports_the_cause(
-    process_fake: ProcessFake, stub_web: StubWeb, keyring_store: FakeKeyring
+    process_fake: ProcessFake, web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     _cluster_password(process_fake, "wrong-pw")
-    stub_web.respond("POST", ARGOCD_SESSION, 401, {"error": "Invalid username or password"})
+    web.respond("POST", ARGOCD_SESSION, 401, {"error": "Invalid username or password"})
 
     outcomes = _sync()
 
@@ -330,10 +331,10 @@ def test_a_refused_admin_session_reports_the_cause(
 
 
 def test_an_admin_session_with_no_token_reports_the_cause(
-    process_fake: ProcessFake, stub_web: StubWeb
+    process_fake: ProcessFake, web: WebFake
 ) -> None:
     _cluster_password(process_fake, "argo-admin-pw")
-    stub_web.respond("POST", ARGOCD_SESSION, 200, {"token": ""})
+    web.respond("POST", ARGOCD_SESSION, 200, {"token": ""})
 
     assert _sync()["argocd_token"] == (
         "failed",
@@ -342,10 +343,10 @@ def test_an_admin_session_with_no_token_reports_the_cause(
 
 
 def test_a_lost_connection_during_the_mint_reports_the_cause(
-    process_fake: ProcessFake, stub_web: StubWeb
+    process_fake: ProcessFake, web: WebFake
 ) -> None:
     _cluster_password(process_fake, "argo-admin-pw")
-    stub_web.fail(ARGOCD_SESSION, httpx2.ConnectError("connection refused"))
+    web.fail(ARGOCD_SESSION, httpx2.ConnectError("connection refused"))
 
     assert _sync()["argocd_token"] == (
         "failed",
@@ -353,22 +354,22 @@ def test_a_lost_connection_during_the_mint_reports_the_cause(
     )
 
 
-def _account_not_created(stub_web: StubWeb) -> None:
-    stub_web.respond("POST", GRAFANA_ACCOUNTS, 500, {"message": "internal error"})
+def _account_not_created(web: WebFake) -> None:
+    web.respond("POST", GRAFANA_ACCOUNTS, 500, {"message": "internal error"})
 
 
-def _account_not_found(stub_web: StubWeb) -> None:
-    stub_web.respond("POST", GRAFANA_ACCOUNTS, 400, {"message": "service account already exists"})
-    stub_web.respond("GET", GRAFANA_SEARCH, 200, {"serviceAccounts": [{"id": 2, "name": "other"}]})
+def _account_not_found(web: WebFake) -> None:
+    web.respond("POST", GRAFANA_ACCOUNTS, 400, {"message": "service account already exists"})
+    web.respond("GET", GRAFANA_SEARCH, 200, {"serviceAccounts": [{"id": 2, "name": "other"}]})
 
 
-def _search_refused(stub_web: StubWeb) -> None:
-    stub_web.respond("POST", GRAFANA_ACCOUNTS, 409, {"message": "service account already exists"})
-    stub_web.respond("GET", GRAFANA_SEARCH, 403, {"message": "forbidden"})
+def _search_refused(web: WebFake) -> None:
+    web.respond("POST", GRAFANA_ACCOUNTS, 409, {"message": "service account already exists"})
+    web.respond("GET", GRAFANA_SEARCH, 403, {"message": "forbidden"})
 
 
-def _account_with_no_id(stub_web: StubWeb) -> None:
-    stub_web.respond("POST", GRAFANA_ACCOUNTS, 201, {"name": "devops-cli"})
+def _account_with_no_id(web: WebFake) -> None:
+    web.respond("POST", GRAFANA_ACCOUNTS, 201, {"name": "devops-cli"})
 
 
 @pytest.mark.parametrize(
@@ -395,39 +396,37 @@ def _account_with_no_id(stub_web: StubWeb) -> None:
 )
 def test_a_failed_account_lookup_reports_the_cause_and_creates_no_token(
     process_fake: ProcessFake,
-    stub_web: StubWeb,
+    web: WebFake,
     keyring_store: FakeKeyring,
-    lookup: Callable[[StubWeb], None],
+    lookup: Callable[[WebFake], None],
     cause: str,
 ) -> None:
     _cluster_password(process_fake, None)
     keyring_store.values["grafana_password"] = "admin-pw"
-    lookup(stub_web)
+    lookup(web)
 
     outcomes = _sync()
 
-    assert (outcomes["grafana_token"], ("POST", GRAFANA_TOKENS) in _requests(stub_web)) == (
+    assert (outcomes["grafana_token"], ("POST", GRAFANA_TOKENS) in _requests(web)) == (
         ("failed", cause),
         False,
     )
 
 
 def test_an_existing_account_found_by_the_search_gets_the_new_token(
-    process_fake: ProcessFake, stub_web: StubWeb, keyring_store: FakeKeyring
+    process_fake: ProcessFake, web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     _cluster_password(process_fake, None)
     keyring_store.values["grafana_password"] = "admin-pw"
-    _serve_grafana_mint(stub_web, [])
-    stub_web.respond("POST", GRAFANA_ACCOUNTS, 409, {"message": "service account already exists"})
-    stub_web.respond(
-        "GET", GRAFANA_SEARCH, 200, {"serviceAccounts": [{"id": 7, "name": "devops-cli"}]}
-    )
+    _serve_grafana_mint(web, [])
+    web.respond("POST", GRAFANA_ACCOUNTS, 409, {"message": "service account already exists"})
+    web.respond("GET", GRAFANA_SEARCH, 200, {"serviceAccounts": [{"id": 7, "name": "devops-cli"}]})
 
     outcomes = _sync()
 
     assert (
         outcomes["grafana_token"],
-        _requests(stub_web),
+        _requests(web),
         keyring_store.values["grafana_token"],
     ) == (
         ("synced", None),
@@ -441,40 +440,40 @@ def test_an_existing_account_found_by_the_search_gets_the_new_token(
     )
 
 
-def _revoke_refused(stub_web: StubWeb) -> None:
-    stub_web.respond("DELETE", f"{GRAFANA_TOKENS}/3", 500, {"message": "internal error"})
+def _revoke_refused(web: WebFake) -> None:
+    web.respond("DELETE", f"{GRAFANA_TOKENS}/3", 500, {"message": "internal error"})
 
 
-def _list_refused(stub_web: StubWeb) -> None:
-    stub_web.respond("GET", GRAFANA_TOKENS, 403, {"message": "forbidden"})
+def _list_refused(web: WebFake) -> None:
+    web.respond("GET", GRAFANA_TOKENS, 403, {"message": "forbidden"})
 
 
-def _list_not_an_array(stub_web: StubWeb) -> None:
-    stub_web.respond("GET", GRAFANA_TOKENS, 200, {"tokens": []})
+def _list_not_an_array(web: WebFake) -> None:
+    web.respond("GET", GRAFANA_TOKENS, 200, {"tokens": []})
 
 
 def test_a_listed_token_with_no_id_is_not_revoked(
-    process_fake: ProcessFake, stub_web: StubWeb, keyring_store: FakeKeyring
+    process_fake: ProcessFake, web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     _cluster_password(process_fake, None)
     keyring_store.values["grafana_password"] = "admin-pw"
-    _serve_grafana_mint(stub_web, [{"id": 3}])
-    stub_web.respond("GET", GRAFANA_TOKENS, 200, [{"name": "no-id"}, {"id": 3}])
+    _serve_grafana_mint(web, [{"id": 3}])
+    web.respond("GET", GRAFANA_TOKENS, 200, [{"name": "no-id"}, {"id": 3}])
 
     outcomes = _sync()
 
-    assert (outcomes["grafana_token"], _requests(stub_web)) == (
+    assert (outcomes["grafana_token"], _requests(web)) == (
         ("synced", None),
         GRAFANA_MINT_REQUESTS,
     )
 
 
 def test_a_lost_connection_during_the_grafana_mint_reports_the_cause(
-    process_fake: ProcessFake, stub_web: StubWeb, keyring_store: FakeKeyring
+    process_fake: ProcessFake, web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     _cluster_password(process_fake, None)
     keyring_store.values["grafana_password"] = "admin-pw"
-    stub_web.fail(GRAFANA_ACCOUNTS, httpx2.ReadTimeout("timed out"))
+    web.fail(GRAFANA_ACCOUNTS, httpx2.ReadTimeout("timed out"))
 
     assert _sync()["grafana_token"] == (
         "failed",
@@ -498,19 +497,19 @@ def test_a_lost_connection_during_the_grafana_mint_reports_the_cause(
 )
 def test_a_failed_token_list_reports_the_cause_and_changes_nothing(
     process_fake: ProcessFake,
-    stub_web: StubWeb,
+    web: WebFake,
     keyring_store: FakeKeyring,
-    list_failure: Callable[[StubWeb], None],
+    list_failure: Callable[[WebFake], None],
     cause: str,
 ) -> None:
     _cluster_password(process_fake, None)
     keyring_store.values["grafana_password"] = "admin-pw"
-    _serve_grafana_mint(stub_web, [{"id": 3}])
-    list_failure(stub_web)
+    _serve_grafana_mint(web, [{"id": 3}])
+    list_failure(web)
 
     outcomes = _sync()
 
-    assert (outcomes["grafana_token"], _requests(stub_web), keyring_store.writes) == (
+    assert (outcomes["grafana_token"], _requests(web), keyring_store.writes) == (
         ("failed", cause),
         [("POST", GRAFANA_ACCOUNTS), ("GET", GRAFANA_TOKENS)],
         {},
@@ -518,19 +517,19 @@ def test_a_failed_token_list_reports_the_cause_and_changes_nothing(
 
 
 def test_a_failed_create_sends_no_revoke_and_keeps_the_stored_token(
-    process_fake: ProcessFake, stub_web: StubWeb, keyring_store: FakeKeyring
+    process_fake: ProcessFake, web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     _cluster_password(process_fake, None)
     keyring_store.values.update({"grafana_token": "stored-token", "grafana_password": "admin-pw"})
-    stub_web.respond("GET", GRAFANA_ORG, 401, {"message": "Invalid API key"})
-    _serve_grafana_mint(stub_web, [{"id": 3}])
-    stub_web.respond("POST", GRAFANA_TOKENS, 500, {"message": "internal error"})
+    web.respond("GET", GRAFANA_ORG, 401, {"message": "Invalid API key"})
+    _serve_grafana_mint(web, [{"id": 3}])
+    web.respond("POST", GRAFANA_TOKENS, 500, {"message": "internal error"})
 
     outcomes = _sync()
 
     assert (
         outcomes["grafana_token"],
-        [request for request in _requests(stub_web) if request[0] == "DELETE"],
+        [request for request in _requests(web) if request[0] == "DELETE"],
         keyring_store.values["grafana_token"],
     ) == (
         (
@@ -543,7 +542,7 @@ def test_a_failed_create_sends_no_revoke_and_keeps_the_stored_token(
 
 
 def test_the_mint_creates_stores_then_revokes(
-    process_fake: ProcessFake, stub_web: StubWeb, keyring_store: FakeKeyring
+    process_fake: ProcessFake, web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     _cluster_password(process_fake, None)
     keyring_store.values["grafana_password"] = "admin-pw"
@@ -553,8 +552,8 @@ def test_the_mint_creates_stores_then_revokes(
     def record(request: httpx2.Request) -> None:
         events.append(f"{request.method} {request.url.path}")
 
-    stub_web.serve(record)
-    _serve_grafana_mint(stub_web, [{"id": 3}])
+    web.serve(record)
+    _serve_grafana_mint(web, [{"id": 3}])
 
     outcomes = _sync()
 
@@ -570,14 +569,14 @@ def test_the_mint_creates_stores_then_revokes(
 
 def test_a_refused_revoke_keeps_the_new_token_and_logs_the_cause(
     process_fake: ProcessFake,
-    stub_web: StubWeb,
+    web: WebFake,
     keyring_store: FakeKeyring,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     _cluster_password(process_fake, None)
     keyring_store.values["grafana_password"] = "admin-pw"
-    _serve_grafana_mint(stub_web, [{"id": 3}])
-    _revoke_refused(stub_web)
+    _serve_grafana_mint(web, [{"id": 3}])
+    _revoke_refused(web)
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.k8s.credentials"):
         outcomes = _sync()
@@ -609,15 +608,15 @@ def test_a_refused_revoke_keeps_the_new_token_and_logs_the_cause(
 )
 def test_a_failed_token_create_reports_the_cause(
     process_fake: ProcessFake,
-    stub_web: StubWeb,
+    web: WebFake,
     keyring_store: FakeKeyring,
     answer: object,
     cause: str,
 ) -> None:
     _cluster_password(process_fake, None)
     keyring_store.values["grafana_password"] = "admin-pw"
-    _serve_grafana_mint(stub_web, [])
-    stub_web.respond("POST", GRAFANA_TOKENS, 500 if answer is None else 200, answer)
+    _serve_grafana_mint(web, [])
+    web.respond("POST", GRAFANA_TOKENS, 500 if answer is None else 200, answer)
 
     assert _sync()["grafana_token"] == ("failed", cause)
 
@@ -628,13 +627,13 @@ def test_a_failed_token_create_reports_the_cause(
     ids=["not-base64", "not-utf-8"],
 )
 def test_an_undecodable_secret_field_reports_the_cause_and_mints_nothing(
-    process_fake: ProcessFake, stub_web: StubWeb, raw: str
+    process_fake: ProcessFake, web: WebFake, raw: str
 ) -> None:
     _cluster_secret(process_fake, {"password": raw})
 
     outcomes = _sync()
 
-    assert (outcomes["argocd"], "argocd_token" in outcomes, stub_web.sent) == (
+    assert (outcomes["argocd"], "argocd_token" in outcomes, web.sent) == (
         (
             "failed",
             "Field password of Secret argocd/argocd-initial-admin-secret is not base64-encoded "
@@ -646,7 +645,7 @@ def test_an_undecodable_secret_field_reports_the_cause_and_mints_nothing(
 
 
 def test_a_failed_secret_read_reports_the_kubectl_error(
-    process_fake: ProcessFake, stub_web: StubWeb
+    process_fake: ProcessFake, web: WebFake
 ) -> None:
     forbidden = 'Error from server (Forbidden): secrets "argocd-initial-admin-secret" is forbidden'
     process_fake.answer(ARGOCD_SECRET_READ, ProcessAnswer(returncode=1, stderr=f"{forbidden}\n"))
@@ -671,14 +670,14 @@ def test_a_secret_read_that_is_not_json_reports_the_cause(
 
 
 def test_a_locked_keyring_reports_the_cause(
-    process_fake: ProcessFake, stub_web: StubWeb, keyring_store: FakeKeyring
+    process_fake: ProcessFake, web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     _cluster_password(process_fake, "argo-admin-pw")
     keyring_store.locked = True
 
     state, cause = _sync()["argocd"]
 
-    assert (state, (cause or "").startswith("Cannot store argocd_password:"), stub_web.sent) == (
+    assert (state, (cause or "").startswith("Cannot store argocd_password:"), web.sent) == (
         "failed",
         True,
         [],
@@ -687,19 +686,19 @@ def test_a_locked_keyring_reports_the_cause(
 
 def test_an_accepted_token_that_the_keyring_cannot_store_reports_the_cause(
     process_fake: ProcessFake,
-    stub_web: StubWeb,
+    web: WebFake,
     keyring_store: FakeKeyring,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A token from the environment is copied into the keyring; a locked keyring refuses it."""
     monkeypatch.setenv("DEVOPS_CLI_ARGOCD_TOKEN", "environment-token")
     _cluster_password(process_fake, None)
-    stub_web.respond("GET", ARGOCD_USERINFO, 200, {"loggedIn": True})
+    web.respond("GET", ARGOCD_USERINFO, 200, {"loggedIn": True})
     keyring_store.locked = True
 
     state, cause = _sync()["argocd_token"]
 
-    assert (state, (cause or "").startswith("Cannot store argocd_token:"), _requests(stub_web)) == (
+    assert (state, (cause or "").startswith("Cannot store argocd_token:"), _requests(web)) == (
         "failed",
         True,
         [("GET", ARGOCD_USERINFO)],
@@ -708,8 +707,9 @@ def test_an_accepted_token_that_the_keyring_cannot_store_reports_the_cause(
 
 def test_a_private_address_without_the_flag_fails_the_check_and_keeps_the_stored_token(
     process_fake: ProcessFake,
-    stub_web: StubWeb,
+    web: WebFake,
     keyring_store: FakeKeyring,
+    dns: DnsFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Old vs new (#2424): the check dials at the configured level, as the Grafana commands do.
@@ -719,7 +719,7 @@ def test_a_private_address_without_the_flag_fails_the_check_and_keeps_the_stored
     and the refusal is a failed check with its cause.
     """
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
-    scripted_resolver(monkeypatch, {"grafana.example.com": [["192.0.2.10"]]})
+    dns.add("grafana.example.com", "192.0.2.10")
     _cluster_password(process_fake, None)
     keyring_store.values["grafana_token"] = "stored-token"
 
@@ -729,29 +729,29 @@ def test_a_private_address_without_the_flag_fails_the_check_and_keeps_the_stored
         state,
         (cause or "").startswith(f"The Grafana token check at {GRAFANA_ORG} failed: SSRFBlocked"),
         (cause or "").endswith(KEPT),
-        stub_web.sent,
+        web.sent,
         keyring_store.values["grafana_token"],
     ) == ("failed", True, True, [], "stored-token")
 
 
 def test_a_service_with_no_url_gets_no_token_step(
-    process_fake: ProcessFake, stub_web: StubWeb, keyring_store: FakeKeyring
+    process_fake: ProcessFake, web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     _cluster_password(process_fake, "argo-admin-pw")
     keyring_store.values.update({"grafana_token": "stored-token", "grafana_password": "admin-pw"})
 
-    assert (_outcomes(sync_k8s_credentials(stack="infra")), stub_web.sent) == (
+    assert (_outcomes(sync_k8s_credentials(stack="infra")), web.sent) == (
         {"argocd": ("synced", None), "grafana": ("synced", None)},
         [],
     )
 
 
 def test_no_stored_token_and_no_admin_password_send_no_request(
-    process_fake: ProcessFake, stub_web: StubWeb
+    process_fake: ProcessFake, web: WebFake
 ) -> None:
     _cluster_password(process_fake, None)
 
-    assert (_sync(), stub_web.sent) == (
+    assert (_sync(), web.sent) == (
         {"argocd": ("missing", None), "grafana": ("missing", None)},
         [],
     )
@@ -759,19 +759,19 @@ def test_no_stored_token_and_no_admin_password_send_no_request(
 
 def test_the_service_urls_come_from_the_settings(
     process_fake: ProcessFake,
-    stub_web: StubWeb,
+    web: WebFake,
     keyring_store: FakeKeyring,
     config: Callable[..., Any],
 ) -> None:
     config(argocd={"url": ARGOCD}, grafana={"url": GRAFANA})
     _cluster_password(process_fake, None)
     keyring_store.values.update({"argocd_token": "argo-token", "grafana_token": "grafana-token"})
-    stub_web.respond("GET", ARGOCD_USERINFO, 200, {"loggedIn": True})
-    stub_web.respond("GET", GRAFANA_ORG, 200, {"id": 1})
+    web.respond("GET", ARGOCD_USERINFO, 200, {"loggedIn": True})
+    web.respond("GET", GRAFANA_ORG, 200, {"id": 1})
 
     outcomes = _outcomes(sync_k8s_credentials(stack="infra"))
 
-    assert (outcomes, _requests(stub_web)) == (
+    assert (outcomes, _requests(web)) == (
         {
             "argocd": ("missing", None),
             "argocd_token": ("synced", None),
@@ -786,8 +786,8 @@ def test_the_service_urls_come_from_the_settings(
 
 
 @pytest.mark.usefixtures("keyring_store")
-def test_a_failed_mint_raises_its_cause(stub_web: StubWeb) -> None:
-    stub_web.respond("POST", ARGOCD_SESSION, 401, {"error": "Invalid username or password"})
+def test_a_failed_mint_raises_its_cause(web: WebFake) -> None:
+    web.respond("POST", ARGOCD_SESSION, 401, {"error": "Invalid username or password"})
 
     with pytest.raises(KubernetesError) as caught:
         mint_argocd_token(ARGOCD, "wrong-pw", level=LOOPBACK)
@@ -797,7 +797,7 @@ def test_a_failed_mint_raises_its_cause(stub_web: StubWeb) -> None:
     )
 
 
-def test_mint_tokens_refuse_a_url_with_no_scheme(stub_web: StubWeb) -> None:
+def test_mint_tokens_refuse_a_url_with_no_scheme(web: WebFake) -> None:
     with pytest.raises(ConfigurationError) as argocd_error:
         mint_argocd_token("argocd.example.com", "admin-pw", level=LOOPBACK)
     with pytest.raises(ConfigurationError) as grafana_error:
@@ -806,13 +806,13 @@ def test_mint_tokens_refuse_a_url_with_no_scheme(stub_web: StubWeb) -> None:
     assert (
         "argocd.url" in str(argocd_error.value),
         "grafana.url" in str(grafana_error.value),
-        stub_web.sent,
+        web.sent,
     ) == (True, True, [])
 
 
-def test_mint_tokens_use_a_lowercase_scheme(stub_web: StubWeb, keyring_store: FakeKeyring) -> None:
-    stub_web.respond("POST", ARGOCD_SESSION, 200, {"token": "new-argocd-token"})
-    _serve_grafana_mint(stub_web, [])
+def test_mint_tokens_use_a_lowercase_scheme(web: WebFake, keyring_store: FakeKeyring) -> None:
+    web.respond("POST", ARGOCD_SESSION, 200, {"token": "new-argocd-token"})
+    _serve_grafana_mint(web, [])
 
     tokens = (
         mint_argocd_token(
@@ -823,7 +823,7 @@ def test_mint_tokens_use_a_lowercase_scheme(stub_web: StubWeb, keyring_store: Fa
         ),
     )
 
-    assert (tokens, _requests(stub_web), keyring_store.writes) == (
+    assert (tokens, _requests(web), keyring_store.writes) == (
         ("new-argocd-token", "new-grafana-token"),
         [
             ("POST", ARGOCD_SESSION),
@@ -836,17 +836,17 @@ def test_mint_tokens_use_a_lowercase_scheme(stub_web: StubWeb, keyring_store: Fa
 
 
 def test_get_or_mint_argocd_token_returns_the_stored_token(
-    stub_web: StubWeb, keyring_store: FakeKeyring
+    web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     keyring_store.values.update({"argocd_token": "stored-token", "argocd_password": "admin-pw"})
     settings = Settings()
     settings.argocd.url = ARGOCD
 
-    assert (get_or_mint_argocd_token(settings), stub_web.sent) == ("stored-token", [])
+    assert (get_or_mint_argocd_token(settings), web.sent) == ("stored-token", [])
 
 
 def test_get_or_mint_returns_nothing_with_no_token_and_no_admin_password(
-    stub_web: StubWeb,
+    web: WebFake,
 ) -> None:
     settings = Settings()
     settings.argocd.url = ARGOCD
@@ -855,15 +855,15 @@ def test_get_or_mint_returns_nothing_with_no_token_and_no_admin_password(
     assert (
         get_or_mint_argocd_token(settings),
         get_or_mint_grafana_auth(settings),
-        stub_web.sent,
+        web.sent,
     ) == (None, (None, None), [])
 
 
 def test_get_or_mint_argocd_token_mints_a_missing_token(
-    stub_web: StubWeb, keyring_store: FakeKeyring
+    web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     keyring_store.values["argocd_password"] = "admin-pw"
-    stub_web.respond("POST", ARGOCD_SESSION, 200, {"token": "new-argocd-token"})
+    web.respond("POST", ARGOCD_SESSION, 200, {"token": "new-argocd-token"})
     settings = Settings()
     settings.argocd.url = ARGOCD
 
@@ -874,17 +874,17 @@ def test_get_or_mint_argocd_token_mints_a_missing_token(
 
 
 def test_get_or_mint_grafana_auth_prefers_a_stored_then_a_minted_token(
-    stub_web: StubWeb, keyring_store: FakeKeyring
+    web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     settings = Settings()
     settings.grafana.url = GRAFANA
     keyring_store.values["grafana_password"] = "admin-pw"
-    _serve_grafana_mint(stub_web, [])
+    _serve_grafana_mint(web, [])
 
     minted = get_or_mint_grafana_auth(settings)
     stored = get_or_mint_grafana_auth(settings)
 
-    assert (minted, stored, len(stub_web.sent)) == (
+    assert (minted, stored, len(web.sent)) == (
         ("new-grafana-token", None),
         ("new-grafana-token", None),
         3,
@@ -892,12 +892,12 @@ def test_get_or_mint_grafana_auth_prefers_a_stored_then_a_minted_token(
 
 
 def test_get_or_mint_grafana_auth_falls_back_to_basic_auth_and_logs_the_cause(
-    stub_web: StubWeb, keyring_store: FakeKeyring, caplog: pytest.LogCaptureFixture
+    web: WebFake, keyring_store: FakeKeyring, caplog: pytest.LogCaptureFixture
 ) -> None:
     settings = Settings()
     settings.grafana.url = GRAFANA
     keyring_store.values["grafana_password"] = "admin-pw"
-    _account_not_created(stub_web)
+    _account_not_created(web)
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.k8s.credentials"):
         auth = get_or_mint_grafana_auth(settings)
@@ -975,11 +975,11 @@ def test_fetch_grafana_password_returns_none_when_no_secret_holds_one(
 
 @pytest.mark.usefixtures("process_fake")
 def test_sync_secrets_dry_run_makes_no_request(
-    cli: Callable[..., Any], stub_web: StubWeb, keyring_store: FakeKeyring
+    cli: Callable[..., Any], web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     result = cli("k8s", "sync-secrets", "--dry-run")
 
-    assert (result.exit_code, "sync_stack_secrets" in result.output, stub_web.sent) == (
+    assert (result.exit_code, "sync_stack_secrets" in result.output, web.sent) == (
         0,
         True,
         [],
@@ -990,13 +990,13 @@ def test_sync_secrets_shows_each_failure_with_its_cause_and_exits_1(
     cli: Callable[..., Any],
     config: Callable[..., Any],
     process_fake: ProcessFake,
-    stub_web: StubWeb,
+    web: WebFake,
     keyring_store: FakeKeyring,
 ) -> None:
     config(argocd={"url": ARGOCD}, grafana={"url": GRAFANA})
     _cluster_password(process_fake, None)
     keyring_store.values.update({"grafana_token": "stored-token", "grafana_password": "admin-pw"})
-    _answer_502(stub_web, GRAFANA_ORG)
+    _answer_502(web, GRAFANA_ORG)
 
     result = cli("k8s", "sync-secrets")
 
@@ -1013,7 +1013,7 @@ def test_sync_secrets_names_the_keyring_entry_and_the_commands_for_a_missing_gra
     cli: Callable[..., Any],
     config: Callable[..., Any],
     process_fake: ProcessFake,
-    stub_web: StubWeb,
+    web: WebFake,
 ) -> None:
     config(argocd={"url": ARGOCD}, grafana={"url": GRAFANA})
     _cluster_password(process_fake, "argocd-pw")

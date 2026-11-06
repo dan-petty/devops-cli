@@ -6,8 +6,9 @@ import ssl
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+import httpx2
 import pytest
 
 from devops_cli.k8s.service_http import describe_endpoint, get_json
@@ -19,6 +20,7 @@ from devops_cli.k8s.service_proxy import (
     resolve_proxy_target,
     ssl_context,
 )
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster
 
 PROM = "k8s://monitoring/prometheus:9090"
@@ -254,56 +256,43 @@ def test_a_configuration_without_a_host_is_an_error(cluster: FakeCluster) -> Non
 # =============================================================================
 
 
-def _response(payload: str = '{"status": "success"}') -> Any:
-    """Build an httpx response stub."""
-    response = MagicMock()
-    response.text = payload
-    response.raise_for_status = MagicMock()
-    return response
-
-
-def test_a_service_url_is_fetched_through_the_api_server(cluster: FakeCluster) -> None:
+def test_a_service_url_is_fetched_through_the_api_server(
+    cluster: FakeCluster, web: WebFake
+) -> None:
     """No local port is involved, which is the property this exists for."""
-    client = MagicMock()
-    client.__enter__ = MagicMock(return_value=client)
-    client.__exit__ = MagicMock(return_value=False)
-    client.get.return_value = _response('{"status": "success", "data": [1, 2]}')
+    proxy = f"{cluster.configuration.host}/api/v1/namespaces/monitoring/services/prometheus:9090"
+    web.respond("GET", f"{proxy}/proxy/api/v1/label/__name__/values", 200, {"status": "success"})
 
-    with patch("httpx2.Client", return_value=client):
-        payload = get_json(PROM, "api/v1/label/__name__/values")
+    payload = get_json(PROM, "api/v1/label/__name__/values")
 
-    requested = client.get.call_args[0][0]
-    assert (payload["status"], "/proxy/api/v1/label/__name__/values" in requested) == (
-        "success",
-        True,
+    assert (payload, [request.url for request in web.recorded]) == (
+        {"status": "success"},
+        [f"{proxy}/proxy/api/v1/label/__name__/values"],
     )
 
 
-def test_an_ordinary_url_is_fetched_directly() -> None:
+def test_an_ordinary_url_is_fetched_directly(web: WebFake) -> None:
     """Direct addressing is unchanged for endpoints that are not cluster services."""
-    client = MagicMock()
-    client.__enter__ = MagicMock(return_value=client)
-    client.__exit__ = MagicMock(return_value=False)
-    client.get.return_value = _response()
+    url = "http://prometheus.example.com:9090/api/v1/status"
+    web.respond("GET", url, 200, {"status": "success"})
 
-    with patch("httpx2.Client", return_value=client):
-        get_json("http://prometheus.internal:9090", "api/v1/status")
+    payload = get_json("http://prometheus.example.com:9090", "api/v1/status")
 
-    assert client.get.call_args[0][0] == "http://prometheus.internal:9090/api/v1/status"
+    assert (payload, [request.url for request in web.recorded]) == ({"status": "success"}, [url])
 
 
-def test_a_failing_request_raises_rather_than_returning_empty(cluster: FakeCluster) -> None:
+def test_a_failing_request_raises_rather_than_returning_empty(
+    cluster: FakeCluster, web: WebFake
+) -> None:
     """An empty result would read as "the service has no data"."""
-    client = MagicMock()
-    client.__enter__ = MagicMock(return_value=client)
-    client.__exit__ = MagicMock(return_value=False)
-    response = _response()
-    response.raise_for_status.side_effect = RuntimeError("404 Not Found")
-    client.get.return_value = response
+    web.respond(
+        "GET",
+        f"{cluster.configuration.host}/api/v1/namespaces/monitoring/services/prometheus:9090/proxy",
+        404,
+    )
 
-    with patch("httpx2.Client", return_value=client):
-        with pytest.raises(RuntimeError, match="404"):
-            get_json(PROM)
+    with pytest.raises(httpx2.HTTPStatusError, match="404"):
+        get_json(PROM)
 
 
 def test_an_endpoint_is_described_in_its_configuration_form() -> None:

@@ -7,10 +7,10 @@ from typing import Any
 import pytest
 
 from devops_cli.argo.image_pins import ImagePin, PinCheck, check_pins, kustomize_image_pins
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.oci_registry import RegistryFake
-from tests.web_fakes import StubWeb
 
 IMAGE = "ghcr.io/example/devops-cli/service"
 PINNED = "sha256:" + "a" * 64
@@ -66,16 +66,16 @@ def test_an_application_with_no_kustomize_images_has_no_pins() -> None:
     assert kustomize_image_pins(_application(None)) == []
 
 
-def test_each_pin_is_checked_against_the_digest_its_tag_names_now(stub_web: StubWeb) -> None:
+def test_each_pin_is_checked_against_the_digest_its_tag_names_now(web: WebFake) -> None:
     """A pin in step, a moved tag and a tag the registry lacks each give their own check."""
-    stub_web.serve(RegistryFake({f"{IMAGE}:latest": PINNED, f"{IMAGE}:next": MOVED}))
+    web.serve(RegistryFake({f"{IMAGE}:latest": PINNED, f"{IMAGE}:next": MOVED}))
     pins = [
         ImagePin(f"{IMAGE}:latest", PINNED),
         ImagePin(f"{IMAGE}:next", PINNED),
         ImagePin(f"{IMAGE}:gone", PINNED),
     ]
 
-    with new_http_client(level=EgressLevel.PUBLIC) as client:
+    with http_client(EgressLevel.PUBLIC) as client:
         checks = check_pins(pins, client, timeout=5.0)
 
     assert checks == [

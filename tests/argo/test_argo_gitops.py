@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.argo import app
-from devops_cli.config.settings import Settings
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
+from tests.support.fakes.http import WebFake
 from tests.support.waits import wait_until
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
+
+ARGOCD = "https://example.com/argo"
+SYNC_URL = f"{ARGOCD}/api/v1/applications/root-app/sync"
 
 runner = CliRunner()
 
@@ -120,100 +126,72 @@ def test_trigger_argocd_sync_dry_run() -> None:
     assert "Simulated" in result.message
 
 
-@pytest.mark.usefixtures("public_dns")
-def test_trigger_argocd_sync_api_success() -> None:
+@pytest.fixture
+def argocd(config: Callable[..., Path], keyring_store: Any) -> str:
+    """Point devops-cli at a fake Argo CD with the stored token `test-token`; return its URL."""
+    config(argocd={"url": ARGOCD})
+    keyring_store.values["argocd_token"] = "test-token"
+    return ARGOCD
+
+
+def test_trigger_argocd_sync_api_success(web: WebFake, argocd: str) -> None:
     """Ensure API sync succeeds with valid mock ArgoCD endpoint."""
     from devops_cli.argo.gitops import trigger_argocd_sync
 
-    settings = Settings()
-    settings.argocd.url = "https://example.com/argo"
+    web.respond("POST", SYNC_URL, 200, {})
 
-    mock_resp = MagicMock()
-    mock_resp.raise_for_status = MagicMock()
+    result = trigger_argocd_sync(
+        app_name="root-app",
+        changed_files=["k8s/deployment.yaml"],
+        prune=True,
+        force=True,
+        sync_mode="api",
+    )
 
-    mock_client = MagicMock()
-    mock_client.__enter__.return_value = mock_client
-    mock_client.__exit__.return_value = None
-    mock_client.post.return_value = mock_resp
-
-    with (
-        patch("devops_cli.argo.gitops.load_settings", return_value=settings),
-        patch("devops_cli.argo.gitops.get_argocd_token", return_value="test-token"),
-        patch("httpx2.Client", return_value=mock_client),
-    ):
-        result = trigger_argocd_sync(
-            app_name="root-app",
-            changed_files=["k8s/deployment.yaml"],
-            prune=True,
-            force=True,
-            sync_mode="api",
-        )
-        assert result.status == "Synced"
-        assert result.success is True
-        sync_calls = [c for c in mock_client.post.call_args_list if "example.com" in str(c)]
-        assert len(sync_calls) == 1
-        call_args = sync_calls[0]
-        assert "/api/v1/applications/root-app/sync" in call_args[0][0]
-        assert call_args[1]["json"] == {
-            "prune": True,
-            "strategy": {"apply": {"force": True}},
-        }
-        assert "sync" not in call_args[1]["json"]
-        assert call_args[1]["headers"]["Authorization"] == "Bearer test-token"
+    assert (result.status, result.success) == ("Synced", True)
+    [sent] = web.recorded
+    assert (sent.method, sent.url, sent.json, sent.headers["authorization"]) == (
+        "POST",
+        SYNC_URL,
+        {"prune": True, "strategy": {"apply": {"force": True}}},
+        "Bearer test-token",
+    )
 
 
-@pytest.mark.usefixtures("public_dns")
-def test_trigger_argocd_sync_webhook_success() -> None:
-    """Ensure webhook sync succeeds with valid mock ArgoCD endpoint."""
+def test_trigger_argocd_sync_webhook_success(
+    web: WebFake, config: Callable[..., Path], keyring_store: Any
+) -> None:
+    """Ensure webhook sync succeeds with valid mock ArgoCD endpoint, with no token stored."""
     from devops_cli.argo.gitops import trigger_argocd_sync
 
-    settings = Settings()
-    settings.argocd.url = "https://example.com/argo"
+    config(argocd={"url": ARGOCD})
+    web.respond("POST", f"{ARGOCD}/api/webhook", 200, {})
 
-    mock_resp = MagicMock()
-    mock_resp.raise_for_status = MagicMock()
+    result = trigger_argocd_sync(
+        app_name="root-app",
+        changed_files=["k8s/values.yaml"],
+        sync_mode="webhook",
+    )
 
-    mock_client = MagicMock()
-    mock_client.__enter__.return_value = mock_client
-    mock_client.__exit__.return_value = None
-    mock_client.post.return_value = mock_resp
-
-    with (
-        patch("devops_cli.argo.gitops.load_settings", return_value=settings),
-        patch("devops_cli.argo.gitops.get_argocd_token", return_value=""),
-        patch("httpx2.Client", return_value=mock_client),
-    ):
-        result = trigger_argocd_sync(
-            app_name="root-app",
-            changed_files=["k8s/values.yaml"],
-            sync_mode="webhook",
-        )
-        assert result.status == "Triggered"
-        assert result.success is True
-        sync_calls = [c for c in mock_client.post.call_args_list if "example.com" in str(c)]
-        assert len(sync_calls) == 1
-        assert "/api/webhook" in sync_calls[0][0][0]
+    assert (result.status, result.success) == ("Triggered", True)
+    assert [(r.method, r.url, "authorization" in r.headers) for r in web.recorded] == [
+        ("POST", f"{ARGOCD}/api/webhook", False)
+    ]
 
 
-@pytest.mark.usefixtures("public_dns")
-def test_trigger_argocd_sync_failure() -> None:
+def test_trigger_argocd_sync_failure(web: WebFake, argocd: str) -> None:
     """Ensure network failure is captured gracefully with status Failed."""
     from devops_cli.argo.gitops import trigger_argocd_sync
 
-    settings = Settings()
-    settings.argocd.url = "https://example.com/argo"
+    web.refuse(SYNC_URL)
 
-    with (
-        patch("devops_cli.argo.gitops.load_settings", return_value=settings),
-        patch("httpx2.Client.post", side_effect=RuntimeError("Connection refused")),
-    ):
-        result = trigger_argocd_sync(
-            app_name="root-app",
-            changed_files=["k8s/deployment.yaml"],
-        )
-        assert result.status == "Failed"
-        assert result.success is False
-        assert "Connection refused" in result.message
+    result = trigger_argocd_sync(
+        app_name="root-app",
+        changed_files=["k8s/deployment.yaml"],
+    )
+
+    assert (result.status, result.success) == ("Failed", False)
+    assert "Connection refused" in result.message
 
 
 def test_gitops_watcher_lifecycle(tmp_path: Path) -> None:
@@ -426,23 +404,18 @@ def test_cli_gitops_invalid_app_name() -> None:
     assert result.exit_code != 0
 
 
-@pytest.mark.usefixtures("public_dns")
-def test_trigger_argocd_sync_secret_masking() -> None:
+def test_trigger_argocd_sync_secret_masking(web: WebFake, argocd: str) -> None:
     """Ensure sensitive credentials and URLs in error messages are masked."""
     from devops_cli.argo.gitops import trigger_argocd_sync
 
-    settings = Settings()
-    settings.argocd.url = "https://example.com/argo"
-
     sensitive_error = "Connection failed to https://admin:SuperSecretPassword123@example.com/argo"
-    with (
-        patch("devops_cli.argo.gitops.load_settings", return_value=settings),
-        patch("httpx2.Client.post", side_effect=RuntimeError(sensitive_error)),
-    ):
-        result = trigger_argocd_sync(app_name="root-app")
-        assert result.status == "Failed"
-        assert "SuperSecretPassword123" not in result.message
-        assert "<masked-password>" in result.message or "***" in result.message
+    web.fail(SYNC_URL, httpx2.ConnectError(sensitive_error))
+
+    result = trigger_argocd_sync(app_name="root-app")
+
+    assert result.status == "Failed"
+    assert "SuperSecretPassword123" not in result.message
+    assert "<masked-password>" in result.message or "***" in result.message
 
 
 def test_manifest_state_persistence(tmp_path: Path) -> None:

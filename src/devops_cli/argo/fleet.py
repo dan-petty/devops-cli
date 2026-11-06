@@ -14,8 +14,8 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.config import ConfigurationError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import configured_level
+from devops_cli.http.entry import http_client
 from devops_cli.models.argo import ArgoFleetAppTarget, ArgoFleetSyncResult
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import trace_span
@@ -58,7 +58,7 @@ def _execute_cluster_sync(
     url = f"{base}/api/v1/applications/{target_app}/sync"
     payload = build_sync_request_body(prune=prune, force=force, app_namespace="argocd")
 
-    with new_http_client(level=configured_level(settings.ai)) as client:
+    with http_client(configured_level(settings.ai)) as client:
         resp = client.post(
             url,
             headers=headers,
