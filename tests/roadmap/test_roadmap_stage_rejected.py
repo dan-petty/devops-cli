@@ -4,6 +4,7 @@ on the issue, returns the item to New and holds it until its text or a named fil
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -14,6 +15,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_REJECTED_MARKER,
 )
+from devops_cli.exceptions import GitHubUnauthenticatedError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
@@ -108,9 +110,11 @@ def _staged(
     merged: bool = False,
     body: str = "The job drops the last comment of a thread.",
     status: str = "Ready",
+    hashed: bool = True,
 ) -> tuple[int, int]:
     """A staged item with the plan pull request it records, and the two numbers. The pull request
-    is marked ready, as the row `stage_ready` leaves it."""
+    is marked ready, as the row `stage_ready` leaves it. The record holds the hash of the text that
+    the plan came from, as `_stage_one` writes it, unless `hashed` is False."""
     number = seed_stageable(store, body=body)
     if status != "Ready":
         store.set_field(_item(store, number), ItemField.STATUS, status)
@@ -123,6 +127,7 @@ def _staged(
             StageRecordKey.READY: str(pull),
             StageRecordKey.SHA: "abc",
             StageRecordKey.GROUPS: json.dumps([["Group", 100]]),
+            StageRecordKey.TEXT_HASH: body_hashes(body)[0] if hashed else None,
         },
     )
     _pull_state(api, pull, state=state, merged=merged)
@@ -380,6 +385,24 @@ def test_the_staged_branch_of_a_rejected_plan_stays_when_another_author_wrote_to
     assert set(_record(store, number)) == {StageRecordKey.REJECTED.value}
 
 
+def test_a_commit_pushed_after_the_plan_keeps_the_branch_and_the_rest_is_still_written(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    number, pull = _staged(store, github_api)
+    _comment(store, pull, EVIDENCE)
+    stage_repo.push_branch(BRANCH, author=STAGE_NAME)
+    plan = _round(store, stage_repo)
+
+    stage_repo.push_branch(BRANCH, author="Person")
+    applied = apply_stage(store, plan, source=stage_repo.clone)
+
+    assert applied.rejected == (number,)
+    assert applied.failed == ()
+    assert _branches(stage_repo) == [BRANCH, "main"]
+    assert f"> {EVIDENCE}" in _last_comment(store, number)
+    assert set(_record(store, number)) == {StageRecordKey.REJECTED.value}
+
+
 def test_a_branch_that_is_gone_needs_no_delete(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, github_api: GitHubApiFake
 ) -> None:
@@ -467,6 +490,32 @@ def test_a_rewrite_of_the_section_of_refine_does_not_end_the_hold(
     assert [left.number for left in selection.left_out] == [number]
 
 
+def test_an_edit_made_before_the_first_look_of_the_job_ends_the_hold(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    number, pull = _staged(store, github_api)
+    store.write_issue_body(number, "The job drops the last comment of a thread, in a reply only.")
+    _comment(store, pull, EVIDENCE)
+    stage_repo.push_branch(BRANCH, author=STAGE_NAME)
+    _applied(store, stage_repo)
+    store.set_field(_item(store, number), ItemField.STATUS, "Ready")
+
+    selection = _selection(store, stage_repo)
+
+    assert [target.item.number for target in selection.selected] == [number]
+
+
+def test_a_record_with_no_hash_of_the_planned_text_holds_from_the_text_of_the_first_look(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    number, pull = _staged(store, github_api, hashed=False)
+    _comment(store, pull, EVIDENCE)
+    _applied(store, stage_repo)
+    store.set_field(_item(store, number), ItemField.STATUS, "Ready")
+
+    assert _selection(store, stage_repo).selected == ()
+
+
 def test_a_commit_that_changed_a_file_the_reason_names_ends_the_hold(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, github_api: GitHubApiFake
 ) -> None:
@@ -498,6 +547,41 @@ def test_a_person_who_names_the_item_takes_it_though_its_plan_was_rejected(
     selection = _selection(store, stage_repo, item=number)
 
     assert [target.item.number for target in selection.selected] == [number]
+
+
+@pytest.mark.parametrize("pushed", [False, True], ids=["branch gone", "branch pushed"])
+def test_a_run_that_names_the_item_stages_a_new_plan_and_the_item_stays_ready(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    github_api: GitHubApiFake,
+    model_fake: ModelFake,
+    pushed: bool,
+) -> None:
+    number, pull = _staged(store, github_api)
+    _comment(store, pull, EVIDENCE)
+    if pushed:
+        stage_repo.push_branch(BRANCH, author=STAGE_NAME)
+    github_api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls",
+        github_json({"number": 9, "html_url": "https://example.com/pull/9"}, status=201),
+    )
+    no_findings(model_fake)
+    model_fake.answer(make_stage_proposal())
+
+    plan = plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(("status=ready",)),
+        item_number=number,
+    )
+    applied = apply_stage(store, plan, source=stage_repo.clone)
+
+    assert applied.staged == (number,)
+    assert _item(store, number).status == "Ready"
+    assert _record(store, number)[StageRecordKey.PR.value] == "9"
+    assert f"> {EVIDENCE}" in store.comments_on(number)[-2].body
 
 
 def test_the_run_that_finds_a_rejection_leaves_the_item_out_though_its_branch_is_gone(
@@ -566,6 +650,20 @@ def test_a_plan_pull_request_that_cannot_be_read_fails_that_item_and_the_run_goe
 
     assert [f.number for f in plan.failed] == [number]
     assert [r.number for r in plan.rejections] == [other]
+
+
+def test_rejected_credentials_stop_the_run_at_the_read_of_a_plan_pull_request(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    _, pull = _staged(store, github_api)
+    github_api.route(
+        "GET",
+        f"/repos/{STAGE_REPO}/pulls/{pull}",
+        github_json({"message": "Bad credentials"}, status=401),
+    )
+
+    with pytest.raises(GitHubUnauthenticatedError, match=re.escape("refused the session's token")):
+        _round(store, stage_repo)
 
 
 def _staged_second(store: InMemoryRoadmapStore, api: GitHubApiFake) -> tuple[int, int]:
@@ -637,7 +735,8 @@ def test_a_staged_plan_clears_the_record_of_the_rejection(
     model_fake: ModelFake,
 ) -> None:
     number = _rejected_item(store, stage_repo, github_api)
-    store.write_issue_body(number, "The job drops the last comment of a thread, in a reply only.")
+    edited = "The job drops the last comment of a thread, in a reply only."
+    store.write_issue_body(number, edited)
     github_api.route(
         "POST",
         f"/repos/{STAGE_REPO}/pulls",
@@ -654,6 +753,7 @@ def test_a_staged_plan_clears_the_record_of_the_rejection(
     record = _record(store, number)
     assert StageRecordKey.REJECTED.value not in record
     assert record[StageRecordKey.PR.value] == "9"
+    assert record[StageRecordKey.TEXT_HASH.value] == body_hashes(edited)[0]
 
 
 def test_the_request_of_a_run_that_names_the_item_holds_the_reason_that_the_run_finds(

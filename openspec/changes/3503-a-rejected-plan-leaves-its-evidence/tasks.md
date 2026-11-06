@@ -34,6 +34,15 @@ Reads: `docs/roadmap/stage.md`, `docs/roadmap/refine.md`, `docs/ROADMAP_WORKFLOW
 - [x] 4.1 In `docs/roadmap/stage.md`, add a section that tells what the job does for a plan pull request that closed with no merge: the reason, the return to New, the branch, the hold and what ends it, and `--item`. In `docs/roadmap/refine.md`, say that `stage_return` can hold the reason of a rejected plan. In `docs/ROADMAP_WORKFLOW.md`, add the transition of a rejected plan to the table of transitions
   - Verification: `uv run devops ci docs`
 
+## 5. The hold, the branch and the Status survive a late edit, a late push and a named run
+
+Reads: `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/stage_rejected.py`, `src/devops_cli/roadmap/refine.py`. Changes: `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/stage_rejected.py`, `src/devops_cli/roadmap/refine.py`, `src/devops_cli/roadmap/store.py`, `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/config/constants.py`, `tests/roadmap/test_roadmap_stage_rejected.py`, `tests/roadmap/test_roadmap_dry_runs.py`, `docs/roadmap/stage.md`, `docs/ROADMAP_WORKFLOW.md`.
+
+- [x] 5.1 In `tests/roadmap/test_roadmap_stage_rejected.py`, write tests that an edit made before the first look of the job ends the hold, that a commit pushed after the plan keeps the branch while the comment and the record are written, that a run with `--item` stages a new plan and leaves the item Ready with the branch gone and with the branch pushed, that the stage record holds `stage.text_hash`, and that rejected credentials stop the run at the read
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_rejected.py` fails on the code of group 4
+- [x] 5.2 Record `stage.text_hash` in `_stage_one` and use it in `ClosedPlan.rejection`. Delete the branch with `--force-with-lease`. Remove the branch from the heads that the selection reads. Write only the record for an item that the same run stages. Replace the two lists of markers with `CONST_ROADMAP_STAGE_COMMENT_MARKERS` and `stage_comment_text`, and keep one `_STOP_THE_RUN`. Reword the sentences of the documents and the requirement "The stage reply has no return path"
+  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_rejected.py tests/roadmap/test_roadmap_dry_runs.py tests/roadmap/test_roadmap_refine.py` passes
+
 ## Workflow follow-up
 
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

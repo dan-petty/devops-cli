@@ -59,9 +59,10 @@ it on each case (`stage_eval_run`, #3028). The plan writes nothing to git or to 
 that fails skips its item; rejected credentials stop the run.
 
 **Rejected plans.** Before it selects, the job reads the plan pull request of each staged New or
-Ready item (`stage_rejected.closed_plans`). One that closed with no merge is a rejected plan: the
+Ready item (`stage_rejected.closed_plans`). One that closed with no merge is a rejected plan. The
 write deletes the staged branch when only the session identity wrote to it, posts the reason on the
-issue, returns the item to New and records `stage.rejected` (`_reject_plan`).
+issue, and records `stage.rejected`. It returns the item to New, unless the same run stages the item
+again (`_reject_plan`).
 
 **Why.** `--why` adds to the plan the open items that the filter does not name, under their own
 heading, each with the family it misses (`StageFilter.mismatch`). They are not "left out": no rule
@@ -110,6 +111,7 @@ from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import (
     DevOpsCLIError,
     GitHubOperationError,
+    GitHubRateLimitError,
     GitHubUnauthenticatedError,
     GitOperationError,
     RoadmapStageError,
@@ -128,6 +130,7 @@ from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
 from devops_cli.roadmap.agent_run import RunTrace
+from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_summary, commit_type
@@ -147,6 +150,7 @@ from devops_cli.roadmap.refine import (
     collect_context,
     inspect_checkout,
     recorded_blockers,
+    stage_comment_text,
 )
 from devops_cli.roadmap.refine_investigation import task_window
 from devops_cli.roadmap.stage_change import (
@@ -184,7 +188,6 @@ from devops_cli.roadmap.stage_rejected import (
     RejectedPlan,
     closed_plans,
     hold_reason,
-    reason_in,
     reasons_of,
     recorded_rejection,
     staged_plans,
@@ -761,13 +764,15 @@ class Removal:
 @dataclass(frozen=True)
 class Rejection:
     """The plan pull request of an item that a person closed with no merge (#3503): the record to
-    write, the comment that holds the reason, and the staged `branch` to delete, or None when the
-    branch is gone or another author wrote to it."""
+    write, the comment that holds the reason, and the staged `branch` to delete with the commit
+    `branch_sha` that the job judged, or None when the branch is gone or another author wrote to
+    it."""
 
     item: Item
     plan: RejectedPlan
     comment: str
     branch: str | None = None
+    branch_sha: str = ""
 
     @property
     def number(self) -> int:
@@ -1305,23 +1310,34 @@ def _rejections(
     """Find the staged plans that a person closed with no merge (#3503). The staged branch goes
     with the rule of a closed item: it is deleted when every commit past the default branch is the
     identity of the session's or a clean merge by a person, and kept when another author wrote to
-    it. The read writes nothing."""
+    it. The job deletes it only while it ends at the commit judged here. The read writes nothing."""
     pushed = set(remote_branches(heads))
-    read = closed_plans(store, repo, staged_plans(store.items(), planned, item_number))
+    staged = staged_plans(store.items(), planned, item_number)
+    read = closed_plans(store, repo, staged, stop=(*_STOP_THE_RUN, GitHubRateLimitError))
     found: list[Rejection] = []
     kept: list[KeptBranch] = []
     for closed in read.closed:
         plan, comment = closed.rejection()
         branch = closed.item.job_record.get(StageRecordKey.BRANCH) or ""
-        delete = None
+        delete, tip = None, ""
         if branch in pushed:
             if (foreign := _foreign_commits(source, branch)) == 0:
-                delete = branch
+                delete, tip = branch, _git(source, "rev-parse", f"origin/{branch}")
             else:
                 reason = MESSAGES.roadmap.stage_kept_reason.format(count=foreign)
                 kept.append(KeptBranch(closed.item.number, branch, reason))
-        found.append(Rejection(closed.item, plan, comment, delete))
+        found.append(Rejection(closed.item, plan, comment, delete, tip))
     return Rejections(tuple(found), tuple(kept), read.failures)
+
+
+def _heads_after(heads: str, rejections: Iterable[Rejection]) -> str:
+    """The heads of `origin` (`git ls-remote --heads`) without the branches that the writes of
+    `rejections` delete. An item whose branch the run deletes is no more held by it, so a run can
+    stage the item at once."""
+    deleted = {found.branch for found in rejections if found.branch is not None}
+    return "\n".join(
+        line for line in heads.splitlines() if not deleted.intersection(remote_branches(line))
+    )
 
 
 class StageRead(NamedTuple):
@@ -1416,7 +1432,7 @@ def plan_stage(
         limit=limit or settings.roadmap.stage.limit,
         planned_limit=settings.roadmap.stage.planned_limit,
         item_number=item_number,
-        heads=heads,
+        heads=_heads_after(heads, rejections.found),
         planned=planned,
         now=now,
         rejected={found.number: found.plan for found in rejections.found},
@@ -1458,7 +1474,7 @@ def plan_stage(
             repo=repo,
             open_creates=creators,
             rejected={
-                **{found.number: reason_in(found.comment) for found in rejections.found},
+                **{found.number: stage_comment_text(found.comment) for found in rejections.found},
                 **reasons_of(store, (target.item for target in selection.selected)),
             },
         )
@@ -1766,6 +1782,7 @@ def _stage_one(
             StageRecordKey.PR: str(pull.number),
             StageRecordKey.SHA: sha,
             StageRecordKey.GROUPS: _groups_recorded(change.groups),
+            StageRecordKey.TEXT_HASH: body_hashes(target.item.body)[0],
             StageRecordKey.NEEDS_SPLIT: None,
             StageRecordKey.FILE_CAP: None,
             StageRecordKey.FAILED_AT: None,
@@ -1836,16 +1853,33 @@ def _remove_staged(store: RoadmapStore, repo: str, source: Path, removal: Remova
     store.set_marks(removal.item, {key: None for key in StageRecordKey})
 
 
-def _reject_plan(store: RoadmapStore, source: Path, rejection: Rejection) -> None:
+def _delete_rejected_branch(source: Path, branch: str, tip: str) -> None:
+    """Delete `branch` of `origin` while it ends at `tip`, the commit that the plan judged. A
+    commit that someone pushed since keeps the branch: the lease refuses the delete, and the job
+    goes on with the rest of the rejection (#3503). A refused delete with the branch at `tip` is a
+    real failure and stops the item."""
+    try:
+        ref = f"refs/heads/{branch}"
+        _git(source, "push", f"--force-with-lease={ref}:{tip}", "origin", f":{ref}")
+    except GitOperationError:
+        remote = _git(source, "ls-remote", "--heads", "origin", f"refs/heads/{branch}").split()
+        if remote and remote[0] == tip:
+            raise
+        if remote:
+            logger.warning("The branch %s changed after the plan judged it, so it stays.", branch)
+
+
+def _reject_plan(store: RoadmapStore, source: Path, rejection: Rejection, *, staged: bool) -> None:
     """Write a rejected plan (#3503): delete the staged branch, post the comment with the reason,
-    then return the item to New with the record of the rejection and no other stage key. The
-    branch goes first and the comment second, so a failed write never leaves a record that no one
-    was told about, and the next run tries the whole rejection again."""
+    then record the rejection and clear every other stage key. The branch goes first and the
+    comment second, so a failed write never leaves a record that no one was told about, and the
+    next run tries the whole rejection again. The item returns to New, unless the same run stages
+    it (`staged`): then its Status stays as it is."""
     if rejection.branch is not None:
-        _git(source, "push", "origin", "--delete", rejection.branch)
+        _delete_rejected_branch(source, rejection.branch, rejection.branch_sha)
     store.comment(rejection.number, rejection.comment)
     marks = {key: None for key in StageRecordKey} | {StageRecordKey.REJECTED: rejection.plan.record}
-    if rejection.item.status == CONST_ROADMAP_STATUS_NEW:
+    if staged or rejection.item.status == CONST_ROADMAP_STATUS_NEW:
         store.set_marks(rejection.item, marks)
     else:
         store.set_field(rejection.item, ItemField.STATUS, CONST_ROADMAP_STATUS_NEW, marks=marks)
@@ -1928,6 +1962,7 @@ def apply_stage(
     staged: list[int] = []
     stopped: list[int] = []
     failed: list[StageFailure] = []
+    staging = {change.target.item.number for change in plan.ready}
     phases = (
         (
             [
@@ -1937,7 +1972,10 @@ def apply_stage(
             removed,
         ),
         (
-            [(r.item, partial(_reject_plan, store, checkout, r)) for r in plan.rejections],
+            [
+                (r.item, partial(_reject_plan, store, checkout, r, staged=r.number in staging))
+                for r in plan.rejections
+            ],
             rejected,
         ),
         (

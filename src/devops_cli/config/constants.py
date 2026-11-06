@@ -3452,6 +3452,11 @@ CONST_ROADMAP_STAGE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap stage -->"
 # The second marker of the stage job's comment that carries the reason of a rejected plan (#3503):
 # a plan pull request that a person closed with no merge. The comment also holds the stage marker.
 CONST_ROADMAP_STAGE_REJECTED_MARKER: Final[str] = "<!-- devops roadmap stage: rejected plan -->"
+# Both markers of a comment of the stage job: a reader that gives its text to a model removes them.
+CONST_ROADMAP_STAGE_COMMENT_MARKERS: Final[tuple[str, ...]] = (
+    CONST_ROADMAP_STAGE_COMMENT_MARKER,
+    CONST_ROADMAP_STAGE_REJECTED_MARKER,
+)
 # The comment marker of `devops roadmap retitle` (#3486).
 CONST_ROADMAP_RETITLE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap retitle -->"
 # The marker of every roadmap job's comment: a comment that holds none of them is a person's.

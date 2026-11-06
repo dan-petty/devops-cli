@@ -3069,9 +3069,8 @@ class RoadmapMessages:
     )
     stage_rejected_comment: str = (
         "{marker}\n{rejected_marker}\n\n"
-        "Plan pull request #{pull} closed with no merge. The stage job returns this item to New. "
-        "It plans the item again only after a person edits the text of the item, or after a "
-        "commit changes a file that the reason names.\n\n{reason}"
+        "Plan pull request #{pull} closed with no merge. The job waits for an edit of the text of "
+        "this item, or for a commit that changes a file that the reason names.\n\n{reason}"
     )
     stage_rejected_reason: str = (
         "The reason, from the last comment of {author} on the pull request:\n\n{quote}"

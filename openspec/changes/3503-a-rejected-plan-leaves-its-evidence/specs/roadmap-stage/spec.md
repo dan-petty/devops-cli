@@ -35,18 +35,22 @@ The reason SHALL be the text of the last comment on the closed pull request that
 - **THEN** the comment on the issue holds the masked text
 
 ### Requirement: A rejected plan returns the item to New
-After the comment, the job SHALL set the item to New when it is Ready, clear every key of the stage record, and write `stage.rejected` as JSON that holds the number of the pull request, the hash of the text of the item outside the refine section, the time at which the pull request closed, and the files that the reason names. The job SHALL make each write for one item in the order: the delete of the branch, the comment, the Status with the record.
+After the comment, the job SHALL clear every key of the stage record, write `stage.rejected` as JSON, and set a Ready item to New. An item that the same run stages again SHALL keep its Status. The job SHALL make each write for one item in the order: the delete of the branch, the comment, the Status with the record.
 
 #### Scenario: A Ready item with a rejected plan
 - **WHEN** a Ready item has a plan pull request that closed with no merge
-- **THEN** the item is New, its record holds no `stage.branch`, no `stage.pr` and no `stage.ready`, and `stage.rejected` holds the number of the pull request and the hash of its text
+- **THEN** the item is New, its record holds no `stage.branch`, no `stage.pr` and no `stage.ready`, and `stage.rejected` holds the number of the pull request, the hash of the text that the plan came from, the time of the close and the files that the reason names
 
 #### Scenario: A person already returned the item
 - **WHEN** an item that is New has a plan pull request that closed with no merge
 - **THEN** the job posts the comment and writes the record, and the Status stays New
 
+#### Scenario: A named Ready item is planned again
+- **WHEN** a person runs the job with `--item` for a Ready item whose plan pull request closed with no merge, and the run stages a new plan for it
+- **THEN** the item is still Ready, the record holds the new `stage.pr`, and the record holds no `stage.rejected`
+
 ### Requirement: A rejected plan loses its staged branch when only the Service wrote to it
-For a rejected plan the job SHALL delete the staged branch of the record with the rule of a closed item: every commit of the branch past `origin/<default branch>` has the identity of the session as author or is a clean merge. When any other commit exists, the job SHALL keep the branch and say so in the plan. A branch that is gone needs no delete.
+For a rejected plan the job SHALL delete the staged branch of the record with the rule of a closed item: every commit of the branch past `origin/<default branch>` has the identity of the session as author or is a clean merge. When any other commit exists, the job SHALL keep the branch and say so in the plan. The job SHALL delete the branch only while it ends at the commit that the plan judged. A branch that is gone needs no delete.
 
 #### Scenario: Only the Service wrote to the branch
 - **WHEN** a plan pull request closed with no merge and its branch holds one commit by the session identity
@@ -56,8 +60,16 @@ For a rejected plan the job SHALL delete the staged branch of the record with th
 - **WHEN** a plan pull request closed with no merge and its branch holds a commit by another author
 - **THEN** the job keeps the branch, the plan lists it with its reason, and the comment and the record are still written
 
+#### Scenario: A person pushed a commit after the plan
+- **WHEN** a person pushes a commit to the branch after the plan judged it and before the job deletes it
+- **THEN** the job keeps the branch, and the comment and the record are still written
+
+#### Scenario: A named run with the branch pushed
+- **WHEN** a person runs the job with `--item` for an item whose branch holds only commits of the session identity
+- **THEN** the run deletes the branch, and the same run can stage the item
+
 ### Requirement: The job leaves out an item whose plan was rejected until its text or a named file changes
-The job SHALL leave out an item that holds a `stage.rejected` record, with a reason that names the pull request. The leave-out SHALL end when the hash of the text of the item outside the refine section differs from the recorded hash, or when a commit on the default branch changed a file of the record at or after the recorded time. The rule SHALL apply to the rejections that the same run finds. `--item` SHALL overrule the rule.
+The job SHALL leave out an item that holds a `stage.rejected` record, and the reason SHALL name the pull request. The leave-out SHALL end when the hash of the text outside the refine section differs from the recorded hash, or when a commit on the default branch changed a file of the record after the close. The recorded hash SHALL be `stage.text_hash`. The rule SHALL apply to the rejections that the same run finds. `--item` SHALL overrule the rule.
 
 #### Scenario: Nothing changed
 - **WHEN** an item is Ready again, holds a `stage.rejected` record, its text hashes as recorded and no named file changed
@@ -70,6 +82,10 @@ The job SHALL leave out an item that holds a `stage.rejected` record, with a rea
 #### Scenario: A named file changes
 - **WHEN** a commit on the default branch changed a file that the reason names, after the pull request closed
 - **THEN** the job takes the item
+
+#### Scenario: A person edited the text before the job read the closed pull request
+- **WHEN** a person edits the body of an item, and then closes its plan pull request, and the job reads the closed pull request in its next round
+- **THEN** the job takes the item after the rejection, and does not wait for a second edit
 
 #### Scenario: A refine round rewrites its section
 - **WHEN** refine writes its section in the body and the text outside the section is the same
@@ -97,3 +113,35 @@ The request of a plan call SHALL hold the key `rejected_plan` for an item whose 
 #### Scenario: An item that was never rejected
 - **WHEN** the job plans an item with no `stage.rejected` record
 - **THEN** the request holds no `rejected_plan` key
+
+### Requirement: A staged item records the hash of its text
+When the job stages an item, it SHALL record `stage.text_hash`: the hash of the text of the item outside the refine section that the plan came from. A rejected plan SHALL clear it, and a record that holds none SHALL take the hash of the text at the time of the read.
+
+#### Scenario: The job stages an item
+- **WHEN** the job stages a Ready item
+- **THEN** the record holds `stage.text_hash` with the hash of the body outside the refine section
+
+## MODIFIED Requirements
+
+### Requirement: The stage reply has no return path
+The reply schema of the stage job SHALL hold no key `premise_failed`, and SHALL require the keys `summary`, `pull_request_body`, `why`, `what_changes`, `skip_specs`, `feasibility`, `existing_tool` and `groups`. A reply that breaks the schema SHALL go back to the model once, and a second such reply SHALL fail the item with no change to its Status and no comment. No reply of the model SHALL return an item to New. The job itself returns an item to New only where another requirement says so.
+
+#### Scenario: A reply with only premise_failed
+- **WHEN** a reply is `{"premise_failed": "x"}`
+- **THEN** the schema refuses it and names the key `premise_failed` as unknown
+
+#### Scenario: A filler value of premise_failed
+- **WHEN** a reply sets `premise_failed` to each of `placeholder`, `x`, `none`, `probe`, `__PROBE__` and "Not yet: I need to inspect the repository first." and holds a valid plan
+- **THEN** the schema refuses each reply, and the job does not return the item
+
+#### Scenario: A premise text that states the premise holds
+- **WHEN** a reply sets `premise_failed` to the text of #3193, #3109 or #3255, and #3109 quotes a probe line
+- **THEN** the schema refuses each reply, and the job does not return the item
+
+#### Scenario: A reply with no plan
+- **WHEN** a reply is `{}`
+- **THEN** the schema refuses it and names each missing key
+
+#### Scenario: The job returns no item
+- **WHEN** the job plans an item and the model answers with a refused reply twice
+- **THEN** the item fails, its Status is unchanged, and the job writes no comment on it

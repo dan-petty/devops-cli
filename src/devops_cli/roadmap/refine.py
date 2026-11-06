@@ -140,7 +140,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_OUTSIDE_MARKER,
     CONST_ROADMAP_REFINE_START_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
-    CONST_ROADMAP_STAGE_REJECTED_MARKER,
+    CONST_ROADMAP_STAGE_COMMENT_MARKERS,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
 )
@@ -2274,15 +2274,18 @@ def _investigate(
     return revised
 
 
+def stage_comment_text(body: str) -> str:
+    """The text of a comment of the stage job without its markers, cut to the token cap of a
+    reply: what a model reads of it (#3483, #3503)."""
+    for marker in CONST_ROADMAP_STAGE_COMMENT_MARKERS:
+        body = body.replace(marker, "")
+    return truncate_to_token_limit(body.strip(), max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
+
+
 def _stage_evidence(returned: IssueComment | None) -> str | None:
-    """The text of the comment of the stage job that returned the item, without its marker and cut
-    to the token cap of a reply, or None when the job returned no item (#3483)."""
-    if returned is None:
-        return None
-    text = returned.body
-    for marker in (CONST_ROADMAP_STAGE_COMMENT_MARKER, CONST_ROADMAP_STAGE_REJECTED_MARKER):
-        text = text.replace(marker, "")
-    return truncate_to_token_limit(text.strip(), max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
+    """The text of the comment of the stage job that returned the item, or None when the job
+    returned no item (#3483)."""
+    return None if returned is None else stage_comment_text(returned.body)
 
 
 def _replies_for_model(comments: Sequence[IssueComment]) -> list[str]:

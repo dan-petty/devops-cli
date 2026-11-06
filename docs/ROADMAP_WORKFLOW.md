@@ -47,7 +47,7 @@ Each row is one change of the Status label of an Item. A job never reverts a lab
 | `status/new` | Refine finds the Item whole | `status/ready` | Service job or person |
 | `status/ready` | Refine finds the proposal not ready: a gap, an open question, a split or a block | `status/new` | Service job |
 | `status/ready` or `status/planned` | A person returns the Item with evidence | `status/new` | Person or agentic coder |
-| `status/ready` or `status/new` | A person closes the plan pull request with no merge, and the stage job finds it | `status/new`, with `stage.rejected` | Service job |
+| `status/ready` or `status/new` | The stage job finds a plan pull request that a person closed with no merge | `status/new`, with `stage.rejected` | Service job |
 | `status/ready` | The stage job opens a draft plan pull request | `status/ready` | Service job |
 | `status/ready` | A person merges the plan pull request (G1) and the Service finds the change folder on the default branch | `status/planned` | Service job |
 | `status/ready` or `status/planned` | The Service makes a runner Job for the Item | `status/in-progress` | Service job |
@@ -80,7 +80,7 @@ A claim of an agent or a person ends a running Job at its next task group. The J
 
 When the premise probe finds a cited path that the staging commit lacks, the stage job checks the open plans. If the plan of an open item marks that path `(new)`, the job returns the item to New. It records that open item in `refine.blocked_by`. It sets `refine.next_step` to `blocked`. It comments the dependency on the item. It makes no model call for the item.
 
-A person who closes a plan pull request with no merge rejects the plan. The stage job reads the plan pull request of each staged Item, copies the reason to the issue, returns the Item to New, deletes the staged branch when only the Service wrote to it, and records the rejection in `stage.rejected`. [The stage page](roadmap/stage.md#a-plan-that-a-person-rejected) tells how.
+A person who closes a plan pull request with no merge rejects the plan. The stage job reads the plan pull request of each staged Item and copies the reason to the issue. It returns the Item to New and records the rejection in `stage.rejected`. It deletes the staged branch when only the Service wrote to it. A run that stages the Item again keeps its Status. [The stage page](roadmap/stage.md#a-plan-that-a-person-rejected) tells how.
 
 The stage selection leaves out the item while a recorded blocker is open. Refine waits in the same way, until each recorded blocker closes. A closed item and an archived change create no dependency. The stage check refuses a plan that creates a path that another open plan also creates. The problem names that item and that path.
 
@@ -116,7 +116,8 @@ These are all the keys of the job record, by the job that writes them:
 | Stage | `stage.groups`, `stage.needs_split`, `stage.file_cap` | The task groups with their size, the group over the budget, and the cap of that measure |
 | Stage | `stage.ready` | The plan pull request that the Service has seen leave the draft state |
 | Stage | `stage.needs_fix` | The plan pull request that the Service told about the label `plan/needs-fix` |
-| Stage | `stage.rejected` | The plan pull request that a person closed with no merge, the hash of the text of the Item, the time of the close and the files that the reason names, as JSON. The job leaves the Item out until the text or one of those files changes. A staged plan clears it |
+| Stage | `stage.text_hash` | The hash of the text of the Item that the plan came from |
+| Stage | `stage.rejected` | A plan that a person rejected, as JSON. It holds the pull request, the time of the close, the files that the reason names, and the text hash. The job leaves the Item out until the text or one of those files changes. A staged plan clears it |
 | Stage | `stage.failed_at`, `stage.failed_error` | When the last plan or write of the Item failed and the class of its error. The job leaves the Item out for `roadmap.stage.retry_hours` hours; a staged Item or an Item stopped on the budget clears both |
 | Implement | `implement.group`, `implement.sha`, `implement.branch`, `implement.pr` | The last group that passed, the last commit, the branch and the pull request |
 | Implement | `implement.stopped`, `implement.failure`, `implement.spend`, `implement.trace` | The step that stopped the Item, the class of its failure, the spend of its steps with the input tokens of the first request of each step (`steps`, kept apart from the trace, which drops its oldest events), and the trace of its last run |

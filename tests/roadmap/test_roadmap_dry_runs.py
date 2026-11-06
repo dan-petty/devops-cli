@@ -630,6 +630,13 @@ def test_the_stage_plan_lists_the_reads_and_the_writes_of_a_rejected_plan() -> N
         texts.stage_request_conditions["rejected_comments"]
     ]
     deletes = [w for w in writes if w.target == texts.stage_requests["delete_rejected"]]
-    assert [w.argv[-4:] for w in deletes] == [("push", "origin", "--delete", "<branch>")]
+    assert [w.argv[-4:] for w in deletes] == [
+        (
+            "push",
+            "--force-with-lease=refs/heads/<branch>:<remote tip>",
+            "origin",
+            ":refs/heads/<branch>",
+        )
+    ]
     of_a_rejection = [w for w in writes if w.repeat == texts.plan_repeat["stage_rejected"]]
     assert len(of_a_rejection) == 4

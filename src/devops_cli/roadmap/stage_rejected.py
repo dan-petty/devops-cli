@@ -36,17 +36,12 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.exceptions import (
-    DevOpsCLIError,
-    GitHubRateLimitError,
-    GitHubUnauthenticatedError,
-    ServiceStoppingError,
-)
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.planned import PlannedChanges
-from devops_cli.roadmap.refine import changed_since, text_paths
+from devops_cli.roadmap.refine import changed_since, stage_comment_text, text_paths
 from devops_cli.roadmap.store import (
     GitHubState,
     IssueComment,
@@ -61,16 +56,11 @@ logger = logging.getLogger(__name__)
 
 # A comment of this many characters or fewer is no reason for a rejection: `rejected` is one.
 EVIDENCE_MIN_CHARS: Final[int] = 60
-_STOP_THE_RUN: Final[tuple[type[DevOpsCLIError], ...]] = (
-    GitHubUnauthenticatedError,
-    GitHubRateLimitError,
-    ServiceStoppingError,
-)
 
 
 class RejectedPlan(BaseModel):
     """The record `stage.rejected`: the plan pull request that a person closed with no merge, the
-    hash of the text of the item outside the refine section when the job found it, the time at
+    hash of the text of the item outside the refine section when the plan was made, the time at
     which the pull request closed, and the files that the reason names."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -158,21 +148,11 @@ def comment_text(pull: int, reason: IssueComment | None) -> str:
     )
 
 
-def reason_in(comment: str) -> str:
-    """The text of the comment of a rejected plan without its two markers, cut to the token cap of
-    a refine reply: what a request holds."""
-    for marker in (CONST_ROADMAP_STAGE_COMMENT_MARKER, CONST_ROADMAP_STAGE_REJECTED_MARKER):
-        comment = comment.replace(marker, "")
-    return truncate_to_token_limit(
-        comment.strip(), max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS
-    )
-
-
 def rejected_reason(comments: Sequence[IssueComment]) -> str | None:
     """The text of the newest comment of a trusted author on the issue that holds the marker of a
-    rejected plan, as `reason_in` gives it, or None."""
+    rejected plan, as `stage_comment_text` gives it, or None."""
     marked = [c for c in trusted_replies(comments) if CONST_ROADMAP_STAGE_REJECTED_MARKER in c.body]
-    return reason_in(marked[-1].body) if marked else None
+    return stage_comment_text(marked[-1].body) if marked else None
 
 
 @dataclass(frozen=True)
@@ -186,11 +166,14 @@ class ClosedPlan:
     reason: IssueComment | None
 
     def rejection(self) -> tuple[RejectedPlan, str]:
-        """The record and the comment of the rejection."""
+        """The record and the comment of the rejection. The hash is the one of the text that the
+        plan came from (`stage.text_hash`), so an edit made before the job looks at the closed
+        pull request ends the hold. A record that holds none has the hash of the text now."""
         paths = text_paths(_reason_text(self.reason)) if self.reason is not None else []
+        planned = self.item.job_record.get(StageRecordKey.TEXT_HASH)
         plan = RejectedPlan(
             pull=self.pull,
-            text_hash=body_hashes(self.item.body)[0],
+            text_hash=planned or body_hashes(self.item.body)[0],
             closed_at=self.closed_at,
             paths=tuple(paths),
         )
@@ -232,10 +215,16 @@ def staged_plans(
     return found
 
 
-def closed_plans(store: RoadmapStore, repo: str, staged: Sequence[tuple[Item, int]]) -> ClosedPlans:
+def closed_plans(
+    store: RoadmapStore,
+    repo: str,
+    staged: Sequence[tuple[Item, int]],
+    *,
+    stop: tuple[type[DevOpsCLIError], ...],
+) -> ClosedPlans:
     """Read each staged pull request in `staged`, and the comments of each one that closed with no
-    merge. A read that fails stops that item only. Rejected credentials, the rate limit and the
-    stop of the Service stop the run."""
+    merge. A read that fails stops that item only, and a failure of a class in `stop` stops the
+    run."""
     closed: list[ClosedPlan] = []
     failures: list[ReadFailure] = []
     service = load_settings().service.github_app.bot_login
@@ -245,7 +234,7 @@ def closed_plans(store: RoadmapStore, repo: str, staged: Sequence[tuple[Item, in
             if status.state != "closed" or status.merged:
                 continue
             reason = reason_comment(store.comments_on(pull), service_login=service)
-        except _STOP_THE_RUN:
+        except stop:
             raise
         except DevOpsCLIError as exc:
             failures.append(ReadFailure(item, exc))
