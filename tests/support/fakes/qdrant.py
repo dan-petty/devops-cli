@@ -6,8 +6,13 @@ upserts, cosine search, payload filtering, and simulated unreachable / refusing 
 
 from __future__ import annotations
 
+import json
 import math
+import threading
 from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 import pytest
@@ -282,6 +287,105 @@ def seed_knowledge_base(fake: FakeQdrantClient, docs_collection: str = "devops_d
             }
         ],
     )
+
+
+def seed_chunk(
+    fake: FakeQdrantClient,
+    embedder: Any,
+    content: str,
+    *,
+    collection: str = "devops_code",
+    file_path: str = "src/main.py",
+    point_id: str | None = None,
+    **payload: Any,
+) -> str:
+    """Hold one chunk in `collection`, as the indexer stores it, and return its point id.
+
+    The vector is the embedder's vector of `content`, so a search for that text scores 1.0.
+    """
+    point = point_id or f"{file_path}:{len(fake.collections.get(collection, []))}"
+    vector = embedder.embed_texts([content], is_query=False)[0]
+    fake.ensure_collection(collection, len(vector))
+    fake.upsert_points(
+        collection,
+        [
+            {
+                "id": point,
+                "vector": vector,
+                "payload": {
+                    "file_path": file_path,
+                    "start_line": 1,
+                    "end_line": 10,
+                    "content": content,
+                    "language": "python",
+                    "project_name": "devops-cli",
+                    "embedding_model": embedder.model,
+                    **payload,
+                },
+            }
+        ],
+    )
+    return point
+
+
+@dataclass
+class ServedQdrant:
+    """The address of a loopback Qdrant REST server, and the requests it received."""
+
+    url: str
+    requests: list[tuple[str, str, dict[str, str]]] = field(default_factory=list)
+
+    def headers_of_requests(self) -> list[dict[str, str]]:
+        """The headers of each request, in the order the server received them."""
+        return [headers for _, _, headers in self.requests]
+
+
+@contextmanager
+def serving_qdrant(*, prefix: str = "", collections: Sequence[str] = ()) -> Iterator[ServedQdrant]:
+    """A loopback server that speaks the Qdrant REST API the native client calls to list collections.
+
+    It answers `GET <prefix>/collections` with `collections` and every other path with 404, and
+    records each request's method, path and headers. A test of what the real native client sends,
+    such as its API key header or the proxy prefix of a cluster address, reads the record. The
+    prefix is the path that a Kubernetes API server proxies a Service under.
+    """
+    served = ServedQdrant(url="")
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            served.requests.append(
+                ("GET", self.path, {k.lower(): v for k, v in self.headers.items()})
+            )
+            if self.path.split("?")[0] == f"{prefix}/collections":
+                body = json.dumps(
+                    {
+                        "result": {"collections": [{"name": name} for name in collections]},
+                        "status": "ok",
+                        "time": 0.0,
+                    }
+                ).encode()
+                status = 200
+            else:
+                body, status = b"{}", 404
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    served.url = f"http://127.0.0.1:{server.server_address[1]}"
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield served
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
 
 
 @pytest.fixture
