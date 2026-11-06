@@ -10,76 +10,116 @@ Verifies #1111:
 from __future__ import annotations
 
 import json
+import os
+import re
+from contextlib import nullcontext
+from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from urllib.parse import urlsplit
 
 import httpx2
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.k8s import app as k8s_app
-from devops_cli.commands.k8s.networking import (
-    _configure_infra_stack_urls,
-    _dry_run_preview,
-    _extract_service_ingress_or_nodeport,
-    _resolve_accessible_url,
-    _resolve_k8s_node_port_url,
-    _search_ingress_hosts,
-    port_forward,
-)
-from devops_cli.config.settings import Settings
+from devops_cli.k8s.port_forward_daemon import get_daemon_manager
 from devops_cli.k8s.service import KubernetesService
 from devops_cli.k8s.service_http import get_json, transport_key
 from devops_cli.k8s.service_proxy import (
     ServiceAddressError,
     ServiceRef,
     parse_service_url,
+    reset_configuration_cache,
     resolve_proxy_connection,
     resolve_proxy_target,
 )
 from devops_cli.sandbox.models import ProbeProtocol
-from devops_cli.sandbox.probe import _dispatch_probes_for_port, _parse_target_endpoint
+from devops_cli.sandbox.probe import run_sandbox_probes
 from devops_cli.telemetry.collector import collector_endpoint
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster, node, service
-
-runner = CliRunner()
-
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 # =============================================================================
-# 1. IPv6 Builders & Bracketing Table Test
+# 1. IPv6 Builders & Bracketing
 # =============================================================================
 
 
-def test_ipv6_builders_and_bracketing() -> None:
-    """Verify IPv6 addresses produce bracketed URLs across all discovery and probe sites."""
-    # 1. networking.py node address via _resolve_k8s_node_port_url
-    node_res = MagicMock(
-        returncode=0,
-        stdout=json.dumps(
-            {
-                "items": [
-                    {
-                        "status": {
-                            "conditions": [{"type": "Ready", "status": "True"}],
-                            "addresses": [{"type": "InternalIP", "address": "2001:db8::1"}],
-                        }
-                    }
-                ]
-            }
-        ),
+def _reachable_unless_loopback(addr_tuple: tuple[str, int], timeout: float = 1.0) -> Any:
+    """A `socket.create_connection` that reaches every host but the loopback names."""
+    host, _port = addr_tuple
+    if host in ("localhost", "127.0.0.1", "::1"):
+        raise OSError("Connection refused")
+    return nullcontext()
+
+
+def _configured_url(key: str) -> str | None:
+    """The URL that `configure-urls` saved for a settings key."""
+    from devops_cli.config.settings import dotted_get, load_settings, reset_settings_cache
+
+    reset_settings_cache()
+    return dotted_get(load_settings(), key)
+
+
+def _answer_kubectl_service(process_fake: ProcessFake, name: str, svc: dict[str, Any]) -> None:
+    """Answer `kubectl get svc <name> -o json` with `svc`, as the fallback of a cluster that the
+    native client cannot resolve reads it."""
+    process_fake.answer(
+        lambda call: call.argv[:4] == ("kubectl", "get", "svc", name),
+        ProcessAnswer(stdout=json.dumps(svc)),
     )
-    with patch("devops_cli.commands.k8s.networking.runtime.run_subprocess", return_value=node_res):
-        node_url = _resolve_k8s_node_port_url([], 30080)
 
-    # 2. networking.py LoadBalancer ingress via _extract_service_ingress_or_nodeport
-    lb_svc_data = {
-        "spec": {"ports": [{"port": 9090}]},
-        "status": {"loadBalancer": {"ingress": [{"ip": "2001:db8::1"}]}},
+
+def test_kubectl_fallback_brackets_a_ipv6_load_balancer_address(
+    cli: Any, cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
+    """A LoadBalancer ingress with an IPv6 address becomes a bracketed `grafana.url`."""
+    _answer_kubectl_service(
+        process_fake,
+        "grafana",
+        {
+            "spec": {"ports": [{"port": 9090}]},
+            "status": {"loadBalancer": {"ingress": [{"ip": "2001:db8::1"}]}},
+        },
+    )
+
+    with patch("socket.create_connection", side_effect=_reachable_unless_loopback):
+        result = cli(["k8s", "configure-urls", "--stack", "infra"])
+
+    assert (result.exit_code, _configured_url("grafana.url")) == (0, "http://[2001:db8::1]:9090")
+
+
+def test_kubectl_fallback_brackets_a_ipv6_node_address(
+    cli: Any, cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
+    """A NodePort service on a node with an IPv6 address becomes a bracketed `grafana.url`."""
+    _answer_kubectl_service(
+        process_fake,
+        "grafana",
+        {"spec": {"ports": [{"port": 9090, "nodePort": 30080}]}, "status": {}},
+    )
+    nodes = {
+        "items": [
+            {
+                "status": {
+                    "conditions": [{"type": "Ready", "status": "True"}],
+                    "addresses": [{"type": "InternalIP", "address": "2001:db8::1"}],
+                }
+            }
+        ]
     }
-    lb_url = _extract_service_ingress_or_nodeport(lb_svc_data, [])
+    process_fake.answer(
+        lambda call: call.argv[:3] == ("kubectl", "get", "nodes"),
+        ProcessAnswer(stdout=json.dumps(nodes)),
+    )
 
-    # 3. k8s/service.py list_nodes node address and LoadBalancer ingress
+    with patch("socket.create_connection", side_effect=_reachable_unless_loopback):
+        result = cli(["k8s", "configure-urls", "--stack", "infra"])
+
+    assert (result.exit_code, _configured_url("grafana.url")) == (0, "http://[2001:db8::1]:30080")
+
+
+def test_native_service_endpoint_brackets_ipv6() -> None:
+    """KubernetesService brackets a LoadBalancer address and a node address in an endpoint."""
     mgr = KubernetesService(FakeCluster(contexts=("ipv6",), current="ipv6"))
     fake_core = mgr.core_api("ipv6")
     fake_core.answers["list_node"] = [node("node-a", addresses={"InternalIP": "2001:db8::1"})]
@@ -93,32 +133,47 @@ def test_ipv6_builders_and_bracketing() -> None:
     ]
     k8s_np_url = mgr.resolve_service_endpoint("prom", "monitoring", context="ipv6")
 
-    # 4. telemetry/collector.py endpoint
-    with patch(
-        "devops_cli.telemetry.collector.node_port_address", return_value=("2001:db8::1", 30080)
-    ):
-        collector_url = collector_endpoint(None, "otel", "collector")
+    assert (k8s_lb_url, k8s_np_url) == ("http://[2001:db8::1]:9090", "http://[2001:db8::1]:30080")
 
-    # 5. Ingress host builder in networking.py
-    ingress_url = _search_ingress_hosts(
-        [("monitoring:grafana", ["2001:db8::1"])], "grafana", preferred_domain=None
+
+def test_collector_endpoint_brackets_an_ipv6_cluster_host(process_fake: ProcessFake) -> None:
+    """The collector endpoint takes the IPv6 host of the API server and brackets it."""
+    svc = {"spec": {"type": "NodePort", "ports": [{"port": 4318, "nodePort": 30080}]}}
+    process_fake.answer(lambda call: "service" in call.argv, ProcessAnswer(stdout=json.dumps(svc)))
+    process_fake.answer(
+        lambda call: "config" in call.argv, ProcessAnswer(stdout="https://[2001:db8::1]:6443")
     )
 
-    assert (
-        node_url,
-        lb_url,
-        k8s_lb_url,
-        k8s_np_url,
-        collector_url,
-        ingress_url,
-    ) == (
-        "http://[2001:db8::1]:30080",
-        "http://[2001:db8::1]:9090",
-        "http://[2001:db8::1]:9090",
-        "http://[2001:db8::1]:30080",
-        "http://[2001:db8::1]:30080",
-        "https://[2001:db8::1]",
+    assert collector_endpoint(None, "otel", "collector") == "http://[2001:db8::1]:30080"
+
+
+def test_fqdn_addressing_brackets_an_ipv6_ingress_host(
+    cli: Any, cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
+    """An Ingress whose host is an IPv6 address becomes a bracketed `https` URL."""
+    ingress = {
+        "items": [
+            {
+                "metadata": {"namespace": "monitoring"},
+                "spec": {
+                    "rules": [
+                        {
+                            "host": "2001:db8::1",
+                            "http": {"paths": [{"backend": {"service": {"name": "grafana"}}}]},
+                        }
+                    ]
+                },
+            }
+        ]
+    }
+    process_fake.answer(
+        lambda call: call.argv[:3] == ("kubectl", "get", "ingress"),
+        ProcessAnswer(stdout=json.dumps(ingress)),
     )
+
+    result = cli(["k8s", "configure-urls", "--stack", "infra", "--addressing", "fqdn"])
+
+    assert (result.exit_code, _configured_url("grafana.url")) == (0, "https://[2001:db8::1]")
 
 
 def test_special_ipv6_and_scoped_address_parsing() -> None:
@@ -141,39 +196,32 @@ def test_special_ipv6_and_scoped_address_parsing() -> None:
         )
 
 
-def test_tempo_to_otel_endpoint_conversion() -> None:
-    """Verify Tempo URL with userinfo and query string yields clean otel.endpoint."""
-    settings = Settings()
-    configured: dict[str, str] = {}
-    tempo_raw = "http://user:pass@[2001:db8::2]:3200/?x=1"
+def test_tempo_to_otel_endpoint_conversion(
+    cli: Any, cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
+    """A Tempo service at an IPv6 address yields `tempo.url` and a matching `otel.endpoint`."""
+    cluster.core.answers["list_namespaced_service"] = [
+        service("tempo", "otel", port=3200, load_balancer="2001:db8::2")
+    ]
 
-    with (
-        patch(
-            "devops_cli.commands.k8s.networking._detect_service_url",
-            side_effect=lambda svc, ns, context=None: tempo_raw if svc == "tempo" else None,
-        ),
-        patch(
-            "devops_cli.commands.k8s.networking._resolve_accessible_url",
-            side_effect=lambda raw, **kw: raw,
-        ),
-    ):
-        _configure_infra_stack_urls(None, settings, configured)
+    with patch("socket.create_connection", side_effect=_reachable_unless_loopback):
+        result = cli(["k8s", "configure-urls", "--stack", "infra"])
 
     assert (
-        configured.get("tempo.url"),
-        configured.get("otel.endpoint"),
-    ) == (
-        tempo_raw,
-        "http://[2001:db8::2]:4318",
-    )
+        result.exit_code,
+        _configured_url("tempo.url"),
+        "http://[2001:db8::2]:4318" in result.output,
+    ) == (0, "http://[2001:db8::2]:3200", True)
 
 
-def test_dry_run_preview_matches_service_ref_describe() -> None:
+def test_dry_run_preview_matches_service_ref_describe(cli: Any) -> None:
     """Verify proxy-mode dry-run preview exactly matches ServiceRef.describe()."""
-    preview = _dry_run_preview(["infra", "llm"], "proxy")
-    for _key, addr in preview.items():
-        ref = parse_service_url(addr)
-        assert ref.describe() == addr
+    result = cli(["k8s", "configure-urls", "--stack", "all", "--addressing", "proxy", "--dry-run"])
+
+    addresses = re.findall(r"k8s://[\w.:/-]+", result.output)
+    assert (result.exit_code, len(addresses) > 0) == (0, True)
+    for addr in addresses:
+        assert parse_service_url(addr).describe() == addr
 
 
 # =============================================================================
@@ -181,34 +229,28 @@ def test_dry_run_preview_matches_service_ref_describe() -> None:
 # =============================================================================
 
 
-def test_port_forward_message_formatting() -> None:
-    """Verify port-forward messages handle IPv6 and lists without raising."""
-    cases = [
+@pytest.mark.parametrize(
+    ("addr", "expected_target"),
+    [
         ("::1", "http://[::1]:8080"),
         ("0.0.0.0", "http://0.0.0.0:8080"),  # nosec B104  # formats the bind-all address
         ("localhost,::1", "localhost,::1:8080"),
-    ]
-    for addr, expected_target in cases:
-        mock_proc = MagicMock(pid=12345)
-        saved: list[Any] = []
-        mock_mgr = MagicMock()
-        mock_mgr.load_forwards.return_value = []
-        mock_mgr.locked.return_value = MagicMock(__enter__=MagicMock(), __exit__=MagicMock())
-        mock_mgr.save_forwards.side_effect = saved.extend
+    ],
+)
+def test_port_forward_message_formatting(
+    addr: str, expected_target: str, cli: Any, cluster: FakeCluster
+) -> None:
+    """Verify port-forward messages handle IPv6 and lists without raising."""
+    with (
+        patch("time.sleep"),
+        patch("subprocess.Popen", return_value=SimpleNamespace(pid=os.getpid())),
+    ):
+        result = cli(
+            ["k8s", "port-forward", "--stack", "infra", "--argocd-port", "8080", "--address", addr]
+        )
 
-        with (
-            patch(
-                "devops_cli.commands.k8s.networking.runtime._cluster_reachable", return_value=True
-            ),
-            patch("time.sleep"),
-            patch("subprocess.Popen", return_value=mock_proc),
-            patch("devops_cli.k8s.port_forward_daemon.process_start_ticks", return_value=100),
-            patch("devops_cli.k8s.port_forward_daemon.get_daemon_manager", return_value=mock_mgr),
-            patch("devops_cli.commands.k8s.networking.print_success") as mock_print,
-        ):
-            port_forward(stack="infra", argocd_port=8080, address=addr)
-            all_printed = " ".join(call[0][0] for call in mock_print.call_args_list)
-            assert (expected_target in all_printed, len(saved) > 0) == (True, True)
+    assert (result.exit_code, expected_target in result.output) == (0, True)
+    assert len(get_daemon_manager().load_forwards()) > 0
 
 
 # =============================================================================
@@ -216,38 +258,33 @@ def test_port_forward_message_formatting() -> None:
 # =============================================================================
 
 
-def test_configure_urls_on_ipv6_cluster_and_fallbacks() -> None:
-    """Verify configure-urls handles IPv6 NodePort and LoadBalancer fallbacks."""
-    # 1. Reachable IPv6 node
-    with patch("socket.create_connection") as mock_conn:
+def test_configure_urls_keeps_a_reachable_ipv6_node(
+    cli: Any, cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
+    """A LoadBalancer at a reachable IPv6 address stays the configured URL."""
+    cluster.core.answers["list_namespaced_service"] = [
+        service("grafana", "monitoring", port=9090, load_balancer="2001:db8::1")
+    ]
 
-        def mock_connect(addr_tuple: tuple[str, int], timeout: float = 1.0) -> Any:
-            host, _port = addr_tuple
-            if host in ("localhost", "127.0.0.1", "::1"):
-                raise OSError("Connection refused")
-            return MagicMock()
+    with patch("socket.create_connection", side_effect=_reachable_unless_loopback):
+        result = cli(["k8s", "configure-urls", "--stack", "infra"])
 
-        mock_conn.side_effect = mock_connect
+    assert (result.exit_code, _configured_url("grafana.url")) == (0, "http://[2001:db8::1]:9090")
 
-        assert (
-            _resolve_accessible_url("http://[2001:db8::1]:30080", preferred_localhost_ports=[8080]),
-            _resolve_accessible_url("http://[2001:db8::1]:9090", preferred_localhost_ports=[9090]),
-        ) == (
-            "http://[2001:db8::1]:30080",
-            "http://[2001:db8::1]:9090",
-        )
 
-    # 2. Unreachable IPv6 node falls back to loopback
+def test_configure_urls_falls_back_to_loopback_for_an_unreachable_ipv6_node(
+    cli: Any, cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
+    """A NodePort at an unreachable IPv6 address falls back to localhost and the same port."""
+    cluster.core.answers["list_node"] = [node("node-a", addresses={"InternalIP": "2001:db8::1"})]
+    cluster.core.answers["list_namespaced_service"] = [
+        service("grafana", "monitoring", port=9090, node_port=30080)
+    ]
+
     with patch("socket.create_connection", side_effect=OSError("Refused")):
-        assert (
-            _resolve_accessible_url("http://[2001:db8::1]:30080", preferred_localhost_ports=[8080]),
-            _resolve_accessible_url("http://2001:db8::1:30080", preferred_localhost_ports=[8080]),
-            _resolve_accessible_url("http://[2001:db8::1]:80", preferred_localhost_ports=[80]),
-        ) == (
-            "http://localhost:30080",
-            "http://localhost:30080",
-            "http://localhost:80",
-        )
+        result = cli(["k8s", "configure-urls", "--stack", "infra"])
+
+    assert (result.exit_code, _configured_url("grafana.url")) == (0, "http://localhost:30080")
 
 
 # =============================================================================
@@ -255,16 +292,18 @@ def test_configure_urls_on_ipv6_cluster_and_fallbacks() -> None:
 # =============================================================================
 
 
-def test_proxy_target_resolution_and_path_prefix() -> None:
+def test_proxy_target_resolution_and_path_prefix(cluster: FakeCluster) -> None:
     """Verify resolve_proxy_target and resolve_proxy_connection preserve API server paths."""
-    mock_config = MagicMock()
-    mock_config.host = "https://example.com/k8s/clusters/c-1"
-    mock_config.api_key = {}
-    mock_config.api_key_prefix = {}
-    mock_config.ssl_ca_cert = None
-    mock_config.cert_file = None
-    mock_config.key_file = None
-    mock_config.verify_ssl = False
+    cluster.configuration = SimpleNamespace(
+        host="https://example.com/k8s/clusters/c-1",
+        api_key={},
+        api_key_prefix={},
+        ssl_ca_cert=None,
+        cert_file=None,
+        key_file=None,
+        verify_ssl=False,
+    )
+    reset_configuration_cache()
 
     ref = ServiceRef(
         namespace="monitoring",
@@ -274,9 +313,8 @@ def test_proxy_target_resolution_and_path_prefix() -> None:
         query="query=up",
     )
 
-    with patch("devops_cli.k8s.service_proxy.kube_configuration", return_value=mock_config):
-        target = resolve_proxy_target(ref)
-        conn = resolve_proxy_connection(ref)
+    target = resolve_proxy_target(ref)
+    conn = resolve_proxy_connection(ref)
 
     assert (
         target.url,
@@ -356,9 +394,9 @@ def test_proxy_boundaries_refuse_dot_segments_and_escapes() -> None:
         assert raised.value.error_code == "K8S_ERROR"
 
 
-def test_service_url_cli_command_refuses_invalid_identifier_with_exit_1() -> None:
+def test_service_url_cli_command_refuses_invalid_identifier_with_exit_1(cli: Any) -> None:
     """devops k8s service-url .. -n .. prints the error and exits 1 with no traceback."""
-    res = runner.invoke(k8s_app, ["service-url", "..", "-n", ".."])
+    res = cli(["k8s", "service-url", "..", "-n", ".."])
     assert res.exit_code == 1
     assert res.exception is not None
     assert isinstance(res.exception, SystemExit)
@@ -381,77 +419,44 @@ def test_transport_key_unification() -> None:
 # =============================================================================
 
 
-def test_probe_https_scheme_and_paths() -> None:
+def test_probe_https_scheme_and_paths(web: WebFake) -> None:
     """Verify HTTPS targets are probed over HTTPS and probe paths preserve relative semantics."""
-    collected: list[Any] = []
-    with (
-        patch("devops_cli.sandbox.probe.probe_tcp") as mock_tcp,
-        patch("devops_cli.sandbox.probe.probe_http") as mock_http,
-        patch("devops_cli.sandbox.probe.probe_openapi", return_value=[]) as mock_openapi,
-    ):
-        origin_https = _parse_target_endpoint("https://example.com:8443")
-        _dispatch_probes_for_port(
-            origin=origin_https,
-            protocols=[ProbeProtocol.TCP, ProbeProtocol.HTTP, ProbeProtocol.OPENAPI],
-            http_paths=[
-                "health",
-                "/health",
-                "api?x=1",
-                "foo:bar",
-                "//other.example.com/x",
-                "http://other.example.com/x",
-            ],
-            expected_statuses=None,
-            regex=None,
-            timeout=5.0,
-            latency_budget_ms=None,
-            collector=collected,
-        )
+    run_sandbox_probes(
+        "https://example.com:8443",
+        protocols=[ProbeProtocol.HTTP, ProbeProtocol.OPENAPI],
+        http_paths=[
+            "health",
+            "/health",
+            "api?x=1",
+            "foo:bar",
+            "//other.example.com/x",
+            "http://other.example.com/x",
+        ],
+        timeout=5.0,
+    )
 
-        mock_tcp.assert_called_once_with("example.com", 8443, timeout=5.0)
-        mock_openapi.assert_called_once_with("https://example.com:8443", timeout=5.0)
-
-        http_calls = [call[0][0] for call in mock_http.call_args_list]
-        assert (
-            http_calls[0],
-            http_calls[1],
-            http_calls[2],
-            http_calls[3],
-            http_calls[4],
-        ) == (
-            "https://example.com:8443/health",
-            "https://example.com:8443/health",
-            "https://example.com:8443/api?x=1",
-            "https://example.com:8443/foo:bar",
-            "https://example.com:8443/other.example.com/x",
-        )
-        assert http_calls[5].startswith("https://example.com:8443/")
+    requested = web.requested
+    assert requested[:5] == [
+        "https://example.com:8443/health",
+        "https://example.com:8443/health",
+        "https://example.com:8443/api?x=1",
+        "https://example.com:8443/foo:bar",
+        "https://example.com:8443/other.example.com/x",
+    ]
+    assert requested[5].startswith("https://example.com:8443/")
+    assert requested[-1] == "https://example.com:8443/openapi.json"
 
 
-def test_probe_ipv6_target_url_construction() -> None:
+def test_probe_ipv6_target_url_construction(web: WebFake) -> None:
     """Verify IPv6 probe targets build bracketed URLs."""
-    collected: list[Any] = []
-    with (
-        patch("devops_cli.sandbox.probe.probe_tcp"),
-        patch("devops_cli.sandbox.probe.probe_http") as mock_http,
-        patch("devops_cli.sandbox.probe.probe_openapi", return_value=[]) as mock_openapi,
-    ):
-        origin_v6 = _parse_target_endpoint("[2001:db8::1]:8080")
-        _dispatch_probes_for_port(
-            origin=origin_v6,
-            protocols=[ProbeProtocol.HTTP, ProbeProtocol.OPENAPI],
-            http_paths=["health"],
-            expected_statuses=None,
-            regex=None,
-            timeout=5.0,
-            latency_budget_ms=None,
-            collector=collected,
-        )
+    run_sandbox_probes(
+        "[2001:db8::1]:8080",
+        protocols=[ProbeProtocol.HTTP, ProbeProtocol.OPENAPI],
+        http_paths=["health"],
+        timeout=5.0,
+    )
 
-        assert (
-            mock_http.call_args[0][0],
-            mock_openapi.call_args[0][0],
-        ) == (
-            "http://[2001:db8::1]:8080/health",
-            "http://[2001:db8::1]:8080",
-        )
+    assert web.requested == [
+        "http://[2001:db8::1]:8080/health",
+        "http://[2001:db8::1]:8080/openapi.json",
+    ]
