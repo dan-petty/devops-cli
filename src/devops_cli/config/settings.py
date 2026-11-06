@@ -378,6 +378,15 @@ class ValkeyConfig(BaseModel):
         )
 
 
+class LokiConfig(BaseModel):
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    url: Annotated[HttpUrlStr | None, Variable()] = Field(
+        default=None,
+        description="Loki service endpoint that a log query dials; unset, it is "
+        "`http://localhost:3100`",
+    )
+
+
 class TempoConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     url: ServiceUrlStr | None = None
@@ -1311,6 +1320,7 @@ class Settings(BaseSettings):
     qdrant: QdrantConfig = QdrantConfig()
     valkey: ValkeyConfig = ValkeyConfig()
     runs: RunsConfig = RunsConfig()
+    loki: LokiConfig = LokiConfig()
     tempo: TempoConfig = TempoConfig()
     pyroscope: PyroscopeConfig = PyroscopeConfig()
     telemetry: TelemetryConfig = TelemetryConfig()

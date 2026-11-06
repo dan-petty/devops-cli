@@ -541,6 +541,33 @@ class TestLogsToolTakesNoLokiUrlFromTheModel:
             True,
         )
 
+    async def test_a_call_queries_the_configured_loki(
+        self, web: WebFake, config: Callable[..., Any]
+    ) -> None:
+        """With `loki.url` set, the tool dials that address and not the localhost default."""
+        config(loki={"url": "http://example.com:3100"})
+        web.serve(lambda _request: httpx2.Response(200, text=LOKI_ANSWER))
+
+        failed, reply = await _call_logs_tool({"query": '{app="web"}'})
+
+        assert (
+            failed,
+            [request.url.split("?")[0] for request in web.recorded],
+            "LOG-LINE-2635 from the default loki" in reply,
+        ) == (False, ["http://example.com:3100/loki/api/v1/query_range"], True)
+
+    async def test_a_loki_url_argument_is_refused_when_the_setting_is_set(
+        self, web: WebFake, config: Callable[..., Any]
+    ) -> None:
+        """A URL from the model still fails, and no socket is reached, when `loki.url` is set."""
+        config(loki={"url": "http://example.com:3100"})
+
+        failed, reply = await _call_logs_tool(
+            {"query": '{app="web"}', "loki_url": "http://127.0.0.1:3100"}
+        )
+
+        assert (failed, "HALLUCINATED_PARAM" in reply, web.recorded) == (True, True, [])
+
 
 def test_the_command_keeps_its_loki_url_option(web: WebFake, cli: Callable[..., Any]) -> None:
     """A person who types `--loki-url` still names the Loki that the command queries."""

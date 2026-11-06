@@ -15,8 +15,8 @@ from devops_cli.config.commands import (
     build_popeye_cmd,
     build_stern_cmd,
 )
-from devops_cli.config.defaults import DEFAULT_LOKI_URL
 from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.k8s.logql import resolve_loki_url
 
 
 def plan_k8s_audit(
@@ -109,7 +109,7 @@ def plan_k8s_logs(
 ) -> list[PlannedRequest]:
     """Plan pod log retrieval either via Loki HTTP query or kubectl logs."""
     if query:
-        url = loki_url or DEFAULT_LOKI_URL
+        url = resolve_loki_url(loki_url)
         return [
             PlannedRequest(
                 method="GET",

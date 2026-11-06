@@ -132,7 +132,7 @@ devops k8s logs [OPTIONS] <pod> <query_arg>
 | `--tail` | `integer` | `100` | Number of recent lines to display. |
 | `--limit` | `integer` | `100` | Max lines for LogQL query |
 | `--since` | `string` | `1h` | Time range for LogQL query |
-| `--loki-url` | `string` | - | Loki service endpoint |
+| `--loki-url` | `string` | - | Loki service endpoint; overrides the `loki.url` setting (default: http://localhost:3100) |
 | `--format` | `string` | `text` | Output format (text, json) |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
