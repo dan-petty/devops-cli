@@ -44,7 +44,7 @@ The sentences point at checks that already exist. The change adds no check and c
 
 - `build_uv_audit_cmd` in `src/devops_cli/config/commands.py` and `tests/security/test_security_uv_audit.py` (#2106).
 - `origin_label` and `authority_label` in `src/devops_cli/ai/client/models.py`, and `tests/ai/client/test_reply_server.py` (#1110).
-- `vet_addresses` in `src/devops_cli/http/egress.py`, `src/devops_cli/sandbox/metrics.py`, `src/devops_cli/sandbox/models.py`, `tests/sandbox/test_sandbox_metrics.py` and `tests/commands/test_sandbox_networking.py` (#2431). Item 2 of `SECURITY.md` already names `vet_addresses` for the kept pre-flight checks: the new sentence extends that item and removes nothing.
+- `vet_addresses` in `src/devops_cli/http/egress.py`, `src/devops_cli/sandbox/metrics.py`, `src/devops_cli/sandbox/models.py`, `tests/sandbox/test_sandbox_prometheus_metrics.py` and `tests/commands/test_sandbox_network_policy.py` (#2431). Item 2 of `SECURITY.md` already names `vet_addresses` for the kept pre-flight checks: the new sentence extends that item and removes nothing.
 - `tests/invariants/test_k8s_manifests.py` (`_TOKEN_EXCEPTIONS`) and the Service Account Tokens section of `k8s/README.md` (#1652).
 - `test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729` in `tests/invariants/test_k8s_manifests.py`, and the spec `openspec/specs/loki-release-pin/spec.md` (#1632).
 - `config_layer_paths` in `src/devops_cli/config/settings.py` and `tests/commands/test_config_audit_keys.py` (#2426).
