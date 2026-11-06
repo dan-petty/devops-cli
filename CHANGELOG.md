@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.72.0](https://github.com/dan-petty/devops-cli/compare/v0.71.1...v0.72.0) (2026-11-06)
+
+
+### Features
+
+* **roadmap:** rewrite a merged plan with plan-recheck ([#3832](https://github.com/dan-petty/devops-cli/issues/3832)) ([7ea287b](https://github.com/dan-petty/devops-cli/commit/7ea287be421f85c1154b8e377f5815144cfc6f40))
+
+
+### Bug Fixes
+
+* **roadmap:** refine job failure is no person wait ([#3833](https://github.com/dan-petty/devops-cli/issues/3833)) ([378579a](https://github.com/dan-petty/devops-cli/commit/378579a8c43169e108d81634b8d3159aa2b62f0f)), closes [#3632](https://github.com/dan-petty/devops-cli/issues/3632)
+* **roadmap:** the draft of a stopped step closes its issue ([#3831](https://github.com/dan-petty/devops-cli/issues/3831)) ([5ca91e0](https://github.com/dan-petty/devops-cli/commit/5ca91e0928b6cc9df9f7046b45f2890d5318509e))
+
+
+### Code Refactoring
+
+* **mcp:** MCP tool tests install a dispatcher ([#3834](https://github.com/dan-petty/devops-cli/issues/3834)) ([e50d0dc](https://github.com/dan-petty/devops-cli/commit/e50d0dca736ead179a44eb65552b17bd46f2324d)), closes [#3760](https://github.com/dan-petty/devops-cli/issues/3760)
+
 ## [0.71.1](https://github.com/dan-petty/devops-cli/compare/v0.71.0...v0.71.1) (2026-11-06)
 
 
