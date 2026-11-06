@@ -48,5 +48,5 @@ Reads: nothing. Changes: `openspec/changes/2610-devops-k8s-image-pins-resolves-w
 
 - [x] 5.1 Run the fail-to-pass check on the new tests, and check that the job needs no new binary
   - Verification: `uv run devops ci fail-to-pass --base origin/main`, and `git diff --exit-code origin/main -- src/devops_cli/tools_lock/tools.lock`
-- [ ] 5.2 Archive the change
+- [x] 5.2 Archive the change
   - Verification: `uv run devops openspec archive 2610-devops-k8s-image-pins-resolves-with` and `uv run devops openspec check`
