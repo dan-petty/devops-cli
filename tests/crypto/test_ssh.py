@@ -123,6 +123,8 @@ def test_parse_key_date_invalid() -> None:
 def test_get_ssh_key_prefix_resolution(tmp_path: Path, config: Callable[..., Path]) -> None:
     from devops_cli.crypto.ssh_keys import format_managed_key_filename, get_ssh_key_prefix
 
+    (tmp_path / ".git").mkdir()  # The config search ends here, so no file of the host counts.
+
     # 1. Config setting override
     config(ssh={"key_prefix": "custom-prod"})
     assert get_ssh_key_prefix(tmp_path) == "custom-prod"
