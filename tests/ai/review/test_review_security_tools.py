@@ -158,6 +158,10 @@ def test_pipeline_multi_scanner_aggregation(
             stdout="Dockerfile\0src/main.py\0k8s/app.yaml\0.devops/review.toml\0",
         ),
     )
+    git_fake.answer(
+        lambda call: bool(call.argv and "config" in call.argv),
+        ProcessAnswer(returncode=1),
+    )
     workspace = _scanned_workspace(tmp_path / "workspace")
     _script_scanner_reports(scanner_fake, workspace)
     orchestrator = ReviewPipelineOrchestrator(

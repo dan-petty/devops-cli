@@ -367,7 +367,7 @@ def test_the_run_of_a_tool_holds_each_record_of_that_tool_in_its_property_bag() 
     """A consumer of the document reads which binary, config and ruleset gave a result. Each
     record goes in the run of its tool with the field names of `ToolRun`, in the order of the
     runs. A record that its caller did not settle holds nothing that an invocation requires, and
-    no record holds what an artifact or `versionControlProvenance` requires."""
+    no record of this test holds a repository URI, so the run writes no provenance."""
     first = _record(targets_digest="1111111111111111")
     second = _record(targets_digest="2222222222222222", commit=None)
     document = to_sarif(
@@ -379,6 +379,87 @@ def test_the_run_of_a_tool_holds_each_record_of_that_tool_in_its_property_bag() 
         [ToolRun.model_validate(record) for record in run["properties"]["tool_runs"]],
         sorted(set(run) - {"tool", "results", "properties"}),
     ) == ([first, second], [])
+    _assert_valid_sarif(document)
+
+
+def test_a_run_writes_the_repository_and_the_clean_commit_of_its_tool() -> None:
+    """A clean commit of a checkout with a repository is a revision of the scanned files, so the
+    run names the pair in `versionControlProvenance` (SARIF 2.1.0, 3.23.3 and 3.23.4)."""
+    record = _record(repository_uri="https://example.com/a/b.git")
+
+    document = to_sarif([], tool_runs=[record])
+
+    assert _run_of(document, "gitleaks")["versionControlProvenance"] == [
+        {"repositoryUri": "https://example.com/a/b.git", "revisionId": "0" * 40}
+    ]
+    _assert_valid_sarif(document)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {
+            "repository_uri": "https://example.com/a/b.git",
+            "commit": "0" * 40 + "-dirty",
+        },
+        {"repository_uri": None, "commit": "0" * 40},
+        {"repository_uri": "https://example.com/a/b.git", "commit": None},
+    ],
+    ids=["dirty", "no-repository", "no-commit"],
+)
+def test_a_run_writes_no_provenance_without_a_clean_commit_and_a_repository(
+    changes: dict[str, Any],
+) -> None:
+    """A `-dirty` commit identifies no revision, and the entry requires a `repositoryUri`. A record
+    with neither a clean commit nor a repository adds no entry."""
+    record = _record(**changes)
+
+    document = to_sarif([], tool_runs=[record])
+
+    assert "versionControlProvenance" not in _run_of(document, "gitleaks")
+    _assert_valid_sarif(document)
+
+
+def test_a_run_writes_one_provenance_entry_for_each_distinct_repository_and_commit() -> None:
+    """A tool can run more than once at more than one commit. The run names each pair once, in the
+    order of the first record that gave it."""
+    uri = "https://example.com/a/b.git"
+    first = "a" * 40
+    second = "b" * 40
+
+    document = to_sarif(
+        [],
+        tool_runs=[
+            _record(repository_uri=uri, commit=first),
+            _record(repository_uri=uri, commit=second),
+            _record(repository_uri=uri, commit=first),
+        ],
+    )
+
+    assert _run_of(document, "gitleaks")["versionControlProvenance"] == [
+        {"repositoryUri": uri, "revisionId": first},
+        {"repositoryUri": uri, "revisionId": second},
+    ]
+    _assert_valid_sarif(document)
+
+
+def test_a_dirty_record_adds_no_provenance_entry_to_a_clean_one() -> None:
+    """A dirty record scans the tree as it is, which no revision names. The clean record still
+    gives the run its entry."""
+    uri = "https://example.com/a/b.git"
+    clean = "a" * 40
+
+    document = to_sarif(
+        [],
+        tool_runs=[
+            _record(repository_uri=uri, commit=clean),
+            _record(repository_uri=uri, commit="b" * 40 + "-dirty"),
+        ],
+    )
+
+    assert _run_of(document, "gitleaks")["versionControlProvenance"] == [
+        {"repositoryUri": uri, "revisionId": clean}
+    ]
     _assert_valid_sarif(document)
 
 

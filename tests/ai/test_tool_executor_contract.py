@@ -29,6 +29,7 @@ import resource
 import shutil
 import subprocess
 from collections.abc import Callable, Iterator
+from configparser import ConfigParser
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -223,12 +224,30 @@ def _handle_git_status(call: ProcessCall) -> ProcessAnswer:
     return ProcessAnswer(stdout="".join(dirty_lines))
 
 
+def _handle_git_config(call: ProcessCall) -> ProcessAnswer:
+    argv = call.argv
+    if "broken" in str(call.cwd) or any("broken" in arg for arg in argv):
+        return ProcessAnswer(returncode=128, stderr="fatal: not a git repository\n")
+    if "-C" in argv:
+        root = Path(argv[argv.index("-C") + 1]).resolve()
+    else:
+        root = Path(call.cwd or Path.cwd()).resolve()
+    config = ConfigParser()
+    config.read(root / ".git" / "config", encoding="utf-8")
+    url = config.get('remote "origin"', "url", fallback=None)
+    if url is None:
+        return ProcessAnswer(returncode=1)
+    return ProcessAnswer(stdout=f"{url}\n")
+
+
 def _handle_tool_executor_git(call: ProcessCall) -> ProcessAnswer:
     argv = call.argv
     if "--version" in argv:
         return ProcessAnswer(stdout="git version 2.43.0\n")
     if "rev-parse" in argv:
         return _handle_git_rev_parse(call)
+    if "config" in argv:
+        return _handle_git_config(call)
     if "hash-object" in argv:
         return ProcessAnswer(stdout="e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\n")
     if "var" in argv and "GIT_AUTHOR_IDENT" in argv:
@@ -440,6 +459,62 @@ def test_a_tree_outside_any_repository_records_no_commit(
     request = scenario.request().model_copy(update={"workdir": plain, "targets": (plain / "src",)})
 
     assert executor.run(request).run.commit is None
+
+
+def _set_origin(scenario: Scenario, url: str) -> None:
+    """Give the scenario's checkout the `origin` remote `url`."""
+    (scenario.tree / ".git" / "config").write_text(
+        f'[remote "origin"]\n\turl = {url}\n', encoding="utf-8"
+    )
+
+
+def test_a_run_records_the_repository_uri_with_no_credentials(
+    executor: ToolExecutor, scenario: Scenario
+) -> None:
+    """The record names the repository of the checkout, and no credential of the remote."""
+    _set_origin(scenario, "https://user:token@example.com/a/b.git")
+
+    assert executor.run(scenario.request()).run.repository_uri == "https://example.com/a/b.git"
+
+
+def test_a_run_records_an_ssh_repository_uri_with_no_user_name(
+    executor: ToolExecutor, scenario: Scenario
+) -> None:
+    """An `ssh` remote keeps its host and path, and loses its user name."""
+    _set_origin(scenario, "ssh://git@example.com/a/b.git")
+
+    assert executor.run(scenario.request()).run.repository_uri == "ssh://example.com/a/b.git"
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["git@example.com:a/b.git", "/srv/a.git", "file:///srv/a.git", "https://[bad/a.git"],
+)
+def test_a_remote_that_is_not_an_absolute_uri_with_a_host_records_no_repository_uri(
+    url: str, executor: ToolExecutor, scenario: Scenario
+) -> None:
+    """A scp-style remote, a local path, a `file:` URL and a malformed URL give no URI."""
+    _set_origin(scenario, url)
+
+    assert executor.run(scenario.request()).run.repository_uri is None
+
+
+def test_a_checkout_with_no_remote_records_no_repository_uri(
+    executor: ToolExecutor, scenario: Scenario
+) -> None:
+    """A checkout with no `origin` remote has no repository URI for the record."""
+    assert executor.run(scenario.request()).run.repository_uri is None
+
+
+def test_a_tree_outside_any_repository_records_no_repository_uri(
+    executor: ToolExecutor, scenario: Scenario, tmp_path: Path
+) -> None:
+    """A directory that is no git checkout has no repository, so the record holds none."""
+    plain = tmp_path / "plain"
+    (plain / "src").mkdir(parents=True)
+    request = scenario.request().model_copy(update={"workdir": plain, "targets": (plain / "src",)})
+
+    assert executor.run(request).run.repository_uri is None
 
 
 def _directory_outside_the_tree(scenario: Scenario) -> Path:
@@ -911,6 +986,21 @@ def test_the_direct_executor_records_no_commit_for_a_checkout_that_git_cannot_re
     result = direct_executor.run(request)
 
     assert (result.exit_code, result.run.commit) == (0, None)
+
+
+def test_the_direct_executor_records_no_repository_uri_for_a_checkout_that_git_cannot_read(
+    direct_executor: ToolExecutor, scenario: Scenario, tmp_path: Path
+) -> None:
+    """The direct executor starts the tool over a checkout that git cannot read and records no
+    repository URI, as it records no commit. The fake that stands in for it records the same."""
+    broken = tmp_path / "broken"
+    (broken / "src").mkdir(parents=True)
+    (broken / ".git").mkdir()
+    request = _git_request(scenario, "--version", workdir=broken, targets=(broken / "src",))
+
+    result = direct_executor.run(request)
+
+    assert (result.exit_code, result.run.repository_uri) == (0, None)
 
 
 @pytest.mark.parametrize("unreadable", ["config_files", "ruleset_files"])
