@@ -36,6 +36,6 @@ devops-cli is a Python command-line tool, `devops`, that automates workstation, 
 | file an issue | `devops roadmap intake`, in the shape of [bug_report.yml](.github/ISSUE_TEMPLATE/bug_report.yml) or [feature_request.yml](.github/ISSUE_TEMPLATE/feature_request.yml) |
 | run a routine task or audit | [docs/ROUTINE_TASKS.md](docs/ROUTINE_TASKS.md) |
 | use a project term, or need the reason for a decision | [CONTEXT.md](CONTEXT.md), [docs/adr/](docs/adr/) |
-| run a review, or work on verdicts and suppressions | [docs/SELF_IMPROVEMENT.md](docs/SELF_IMPROVEMENT.md); review guards are in `.devops/review.md` |
+| run a review, or work on verdicts | [docs/SELF_IMPROVEMENT.md](docs/SELF_IMPROVEMENT.md); `.devops/review.toml` holds suppressions and severity caps |
 | change a manifest, the cluster or OpenTofu | [k8s/README.md](k8s/README.md), [tf/README.md](tf/README.md) |
 | learn a subsystem, library or tool | [knowledge base](src/devops_cli/ai/knowledge_base/README.md), `devops <command> --help` |
