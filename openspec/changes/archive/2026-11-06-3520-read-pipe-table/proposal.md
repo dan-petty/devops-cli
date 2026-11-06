@@ -13,7 +13,7 @@
 - `wc` joins `SHELL_PROGRAMS` with access `read`, so the log and the prompt know it.
 - `logged_program` writes a known program by name. For any other first word it writes `other:` and the first 12 hexadecimal characters of the HMAC-SHA256 of the word, with a random key of the process, never the word. The line of a call that starts with `cd <checkout> &&` names the program after the prefix.
 - `python -c` and `uv run python -c` need no change. The Job log of #2116 shows that `uv run python -c` runs. A bare `python -c` gets the refusal that names `uv run python`.
-- The change modifies three requirements of `roadmap-implement-step`: the shell policy, the line of each tool call, and the bang line.
+- The change adds one requirement to `roadmap-implement-step` (the read pipe and the checkout prefix) and modifies two: the line of each tool call, and the bang line.
 - The change fits one pull request.
 
 ## Capabilities
