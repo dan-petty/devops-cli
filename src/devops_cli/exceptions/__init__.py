@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from devops_cli.exceptions.argo import ArgoError, ArgoResourceNotFoundError
+from devops_cli.exceptions.argo import (
+    ArgoError,
+    ArgoResourceNotFoundError,
+    ArgoWorkflowTimeoutError,
+)
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.cloudflare import (
     CloudflareAPIError,
@@ -104,6 +108,7 @@ from devops_cli.exceptions.vault import (
 __all__ = [
     "ArgoError",
     "ArgoResourceNotFoundError",
+    "ArgoWorkflowTimeoutError",
     "BranchAlreadyExistsError",
     "ChaosExecutionError",
     "ChecksumMismatchError",

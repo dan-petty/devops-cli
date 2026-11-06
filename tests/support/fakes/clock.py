@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import timedelta
 
@@ -30,6 +30,7 @@ class ClockFake:
         self._monotonic = 0.0
         self._lock = threading.Lock()
         self._sleep_barrier: threading.Barrier | None = None
+        self._after_sleep: Callable[[], None] | None = None
         self.waits: list[float] = []
 
     def sleep(self, seconds: float) -> None:
@@ -42,6 +43,13 @@ class ClockFake:
             self.waits.append(duration)
             self._traveller.shift(duration)
             self._monotonic += duration
+        if self._after_sleep is not None:
+            self._after_sleep()
+
+    def after_each_sleep(self, action: Callable[[], None]) -> None:
+        """Run `action` after each wait, once the clocks moved, so the world changes while the
+        code under test waits. An exception from `action` leaves the wait, as an interrupt does."""
+        self._after_sleep = action
 
     def monotonic(self) -> float:
         """The monotonic reading the clock seam reads."""

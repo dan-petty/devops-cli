@@ -16,7 +16,7 @@ from typing import Annotated, Any
 import httpx2
 import typer
 
-from devops_cli.argo.crd import ArgoCRDService, get_argo_crd_service, is_not_found_error
+from devops_cli.argo.crd import get_argo_crd_service, is_not_found_error
 from devops_cli.argo.credentials import argocd_api_request
 from devops_cli.argo.helm_records import (
     HelmRelease,
@@ -27,11 +27,11 @@ from devops_cli.argo.helm_records import (
 )
 from devops_cli.argo.image_pins import PinCheck, check_pins, kustomize_image_pins
 from devops_cli.argo.sync import build_sync_request_body
+from devops_cli.argo.workflows import await_workflow
 from devops_cli.config.constants import (
     CONST_ARGO_DEFAULT_LOG_CONTAINER,
     CONST_ARGO_POD_NAME_V1,
     CONST_ARGO_WORKFLOW_FAILURE_PHASES,
-    CONST_ARGO_WORKFLOW_TERMINAL_PHASES,
     CONST_OUTPUT_FORMAT_TABLE,
 )
 from devops_cli.config.defaults import (
@@ -40,20 +40,18 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_NAMESPACE,
     DEFAULT_ROLLOUT_WATCH_INTERVAL_SECONDS,
     DEFAULT_TABLE_FORMAT,
-    DEFAULT_WORKFLOW_POLL_INTERVAL_SECONDS,
-    DEFAULT_WORKFLOW_WAIT_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
-from devops_cli.exceptions.argo import ArgoError
+from devops_cli.exceptions.argo import ArgoError, ArgoWorkflowTimeoutError
 from devops_cli.http.egress import EgressLevel, configured_level
 from devops_cli.http.entry import http_client
 from devops_cli.http.urls import service_base_url
 from devops_cli.lang import HELP, MESSAGES
-from devops_cli.models.argo import ArgoCDApp, ArgoRolloutState, ArgoWorkflowState
+from devops_cli.models.argo import ArgoCDApp, ArgoRolloutState
 from devops_cli.output import (
     PanelPayload,
     TablePayload,
@@ -129,26 +127,6 @@ def _load_manifest(path: Path) -> dict[str, Any]:
         print_error(f"Manifest '{path}' must contain a single resource document", prefix=False)
         raise typer.Exit(1)
     return manifest
-
-
-def _await_workflow(service: ArgoCRDService, name: str, namespace: str) -> ArgoWorkflowState:
-    """Poll a Workflow until it reaches a terminal phase or the wait budget expires."""
-    import time
-
-    deadline = time.monotonic() + DEFAULT_WORKFLOW_WAIT_TIMEOUT_SECONDS
-    state = service.get_workflow(name, namespace)
-    while state.phase not in CONST_ARGO_WORKFLOW_TERMINAL_PHASES:
-        if time.monotonic() >= deadline:
-            print_error(
-                MESSAGES.argo.workflow_wait_timeout.format(
-                    name=name, seconds=DEFAULT_WORKFLOW_WAIT_TIMEOUT_SECONDS
-                ),
-                prefix=False,
-            )
-            raise typer.Exit(1)
-        time.sleep(DEFAULT_WORKFLOW_POLL_INTERVAL_SECONDS)
-        state = service.get_workflow(name, namespace)
-    return state
 
 
 def _rollout_status_table(state: ArgoRolloutState) -> TablePayload:
@@ -661,7 +639,11 @@ def workflows_submit(
         MESSAGES.argo.workflow_submitted.format(name=submitted.name, phase=submitted.phase)
     )
     if wait:
-        final = _await_workflow(service, submitted.name, target_ns)
+        try:
+            final = await_workflow(service, submitted.name, target_ns)
+        except ArgoWorkflowTimeoutError as exc:
+            print_error(str(exc), prefix=False)
+            raise typer.Exit(1) from exc
         print_info(MESSAGES.argo.workflow_finished.format(name=final.name, phase=final.phase))
         if final.phase in CONST_ARGO_WORKFLOW_FAILURE_PHASES:
             raise typer.Exit(1)

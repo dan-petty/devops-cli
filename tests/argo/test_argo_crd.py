@@ -1,44 +1,67 @@
-"""Unit tests for the native Argo custom resource engine and typed state projections."""
+"""Tests for the native Argo custom resource engine and typed state projections.
+
+The engine runs over `cluster`, the Kubernetes API's fake (`tests/support/fakes/kubernetes.py`):
+a test seeds the custom objects that the API server holds, calls `ArgoCRDService`, and reads
+the objects back or the calls that the fake recorded. A refusal of the API server is a failure
+that the fake raises (`fail`, `unreachable`), so the service's own error translation runs.
+"""
 
 from __future__ import annotations
 
 import re
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devops_cli.argo.crd import ArgoCRDService, _is_not_found, get_argo_crd_service
+from devops_cli.argo.crd import ArgoCRDService, get_argo_crd_service, is_not_found_error
 from devops_cli.config.constants import (
     CONST_ARGO_API_GROUP,
     CONST_ARGO_API_VERSION,
+    CONST_ARGO_PLURAL_ANALYSIS_RUNS,
+    CONST_ARGO_PLURAL_APPLICATION_SETS,
     CONST_ARGO_PLURAL_APPLICATIONS,
     CONST_ARGO_PLURAL_ROLLOUTS,
     CONST_ARGO_PLURAL_WORKFLOWS,
 )
 from devops_cli.exceptions.argo import ArgoError, ArgoResourceNotFoundError
 from devops_cli.models.argo import ArgoResourceState, ArgoRolloutState, ArgoWorkflowState
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.kubernetes import FakeCluster, api_exception
 
 
-class _ApiError(Exception):
-    """Stand-in for kubernetes.client.rest.ApiException carrying an HTTP status."""
+def _seed(cluster: FakeCluster, plural: str, *objects: dict[str, Any]) -> None:
+    """Put custom objects of `plural` in the cluster, as the API server holds them."""
+    key = (CONST_ARGO_API_GROUP, CONST_ARGO_API_VERSION, plural)
+    cluster.custom_objects.objects.setdefault(key, []).extend(objects)
 
-    def __init__(self, status: int) -> None:
-        super().__init__(f"api error {status}")
-        self.status = status
+
+def _stored(cluster: FakeCluster, plural: str, name: str) -> dict[str, Any]:
+    """The object that the cluster holds under `name`."""
+    key = (CONST_ARGO_API_GROUP, CONST_ARGO_API_VERSION, plural)
+    return next(
+        obj for obj in cluster.custom_objects.objects[key] if obj["metadata"]["name"] == name
+    )
+
+
+def _sent(cluster: FakeCluster, method: str) -> list[dict[str, Any]]:
+    """The arguments of each call of `method` that reached the fake API, in order."""
+    return [kwargs for name, kwargs in cluster.custom_objects.calls if name == method]
+
+
+def _rollout(name: str = "web", namespace: str = "apps", **fields: Any) -> dict[str, Any]:
+    """A Rollout as the API server holds it."""
+    return {"metadata": {"name": name, "namespace": namespace}, **fields}
+
+
+def _workflow(name: str, namespace: str = "argo", **fields: Any) -> dict[str, Any]:
+    """A Workflow as the API server holds it."""
+    return {"metadata": {"name": name, "namespace": namespace}, **fields}
 
 
 @pytest.fixture
-def crd_api() -> Any:
-    """Provide a mock CustomObjectsApi bound to an ArgoCRDService."""
-    return MagicMock()
-
-
-def _service(api: Any) -> ArgoCRDService:
-    """Build a service whose API accessor returns the supplied mock."""
-    service = ArgoCRDService()
-    service._api = lambda: api  # type: ignore[method-assign]
-    return service
+def service(cluster: FakeCluster) -> ArgoCRDService:
+    """The Argo custom resource service over the fake cluster's current context."""
+    return get_argo_crd_service()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -46,13 +69,15 @@ def _service(api: Any) -> ArgoCRDService:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_api_delegates_to_kubernetes_service() -> None:
-    """The CRD service resolves its client from the shared KubernetesService."""
-    mock_service = MagicMock()
-    with patch("devops_cli.k8s.service.KubernetesService.get_instance", return_value=mock_service):
-        ArgoCRDService(context="staging")._api()
+def test_service_connects_to_the_context_it_is_bound_to(cluster: FakeCluster) -> None:
+    """The service reaches the API of its own kubeconfig context through the shared service."""
+    cluster.context_names.append("staging")
 
-    mock_service.custom_objects_api.assert_called_once_with(context="staging")
+    get_argo_crd_service(context="staging").list_resources(
+        CONST_ARGO_PLURAL_APPLICATIONS, namespace="argocd"
+    )
+
+    assert cluster.connects == ["staging"]
 
 
 def test_get_argo_crd_service_binds_context() -> None:
@@ -63,16 +88,17 @@ def test_get_argo_crd_service_binds_context() -> None:
 
 def test_is_not_found_detects_http_404() -> None:
     """A 404 is recognised without importing the Kubernetes client at module scope."""
-    assert (_is_not_found(_ApiError(404)), _is_not_found(_ApiError(500))) == (True, False)
-    assert _is_not_found(RuntimeError("no status attribute")) is False
+    assert (
+        is_not_found_error(api_exception(404, "Not Found")),
+        is_not_found_error(api_exception(500, "Internal Server Error")),
+    ) == (True, False)
+    assert is_not_found_error(RuntimeError("no status attribute")) is False
 
 
-def test_missing_resource_raises_typed_not_found(crd_api: Any) -> None:
+def test_missing_resource_raises_typed_not_found(service: ArgoCRDService) -> None:
     """A 404 from the API server becomes an annotated ArgoResourceNotFoundError."""
-    crd_api.get_namespaced_custom_object.side_effect = _ApiError(404)
-
     with pytest.raises(ArgoResourceNotFoundError) as exc_info:
-        _service(crd_api).get_resource(CONST_ARGO_PLURAL_ROLLOUTS, "web", namespace="apps")
+        service.get_resource(CONST_ARGO_PLURAL_ROLLOUTS, "web", namespace="apps")
 
     assert (exc_info.value.details["resource"], exc_info.value.details["namespace"]) == (
         "web",
@@ -80,58 +106,80 @@ def test_missing_resource_raises_typed_not_found(crd_api: Any) -> None:
     )
 
 
-def test_transport_failure_raises_typed_argo_error(crd_api: Any) -> None:
+def test_transport_failure_raises_typed_argo_error(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
     """A non-404 failure becomes an ArgoError rather than a bare shell-style status."""
-    crd_api.get_namespaced_custom_object.side_effect = _ApiError(503)
+    cluster.custom_objects.fail(
+        "get_namespaced_custom_object", api_exception(503, "Service Unavailable")
+    )
 
     with pytest.raises(ArgoError, match="Failed fetching Argo rollout"):
-        _service(crd_api).get_resource(CONST_ARGO_PLURAL_ROLLOUTS, "web", namespace="apps")
+        service.get_resource(CONST_ARGO_PLURAL_ROLLOUTS, "web", namespace="apps")
 
 
-def test_listing_failure_raises_typed_argo_error(crd_api: Any) -> None:
+def test_listing_failure_raises_typed_argo_error(cluster: FakeCluster) -> None:
     """A failed list call is reported as a typed error naming the namespace."""
-    crd_api.list_namespaced_custom_object.side_effect = RuntimeError("apiserver down")
+    cluster.unreachable()
 
-    with pytest.raises(ArgoError, match="Failed listing Argo"):
-        _service(crd_api).list_resources(CONST_ARGO_PLURAL_APPLICATIONS, namespace="argocd")
+    with pytest.raises(ArgoError, match="Failed listing Argo") as raised:
+        get_argo_crd_service().list_resources(CONST_ARGO_PLURAL_APPLICATIONS, namespace="argocd")
+
+    assert raised.value.details["namespace"] == "argocd"
 
 
-def test_patch_missing_resource_raises_typed_not_found(crd_api: Any) -> None:
+def test_patch_missing_resource_raises_typed_not_found(service: ArgoCRDService) -> None:
     """Patching an absent resource reports not-found rather than a generic failure."""
-    crd_api.patch_namespaced_custom_object.side_effect = _ApiError(404)
-
     with pytest.raises(ArgoResourceNotFoundError) as raised:
-        _service(crd_api).patch_resource(
-            CONST_ARGO_PLURAL_ROLLOUTS, "web", {"status": {}}, namespace="apps"
-        )
+        service.patch_resource(CONST_ARGO_PLURAL_ROLLOUTS, "web", {"status": {}}, namespace="apps")
+
     assert raised.value.error_code == "ARGO_RESOURCE_NOT_FOUND"
 
 
-def test_patch_transport_failure_raises_typed_argo_error(crd_api: Any) -> None:
+def test_patch_transport_failure_raises_typed_argo_error(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
     """A rejected patch surfaces as a typed ArgoError."""
-    crd_api.patch_namespaced_custom_object.side_effect = _ApiError(409)
+    cluster.custom_objects.fail("patch_namespaced_custom_object", api_exception(409, "Conflict"))
 
     with pytest.raises(ArgoError, match="Failed patching Argo rollout"):
-        _service(crd_api).patch_resource(
-            CONST_ARGO_PLURAL_ROLLOUTS, "web", {"status": {}}, namespace="apps"
-        )
+        service.patch_resource(CONST_ARGO_PLURAL_ROLLOUTS, "web", {"status": {}}, namespace="apps")
 
 
-def test_invalid_names_are_rejected_before_reaching_the_api(crd_api: Any) -> None:
+def test_status_patch_of_a_missing_resource_raises_typed_not_found(
+    service: ArgoCRDService,
+) -> None:
+    """A status patch of an absent resource reports not-found."""
+    with pytest.raises(ArgoResourceNotFoundError, match="'web' not found in namespace 'apps'"):
+        service.abort_rollout("web", "apps")
+
+
+def test_status_patch_transport_failure_raises_typed_argo_error(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
+    """A rejected status patch surfaces as a typed ArgoError."""
+    cluster.custom_objects.fail(
+        "patch_namespaced_custom_object_status", api_exception(500, "Internal Server Error")
+    )
+
+    with pytest.raises(ArgoError, match="Failed patching Argo rollout 'web' status"):
+        service.abort_rollout("web", "apps")
+
+
+def test_invalid_names_are_rejected_before_reaching_the_api(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
     """Name validation runs before any API call and raises a domain error, not a CLI exit.
 
     This service is consumed by FastMCP tools and the TUI as well as the CLI, so it must
     not abort the process the way `validate_k8s_name` does at the command boundary.
     """
-    service = _service(crd_api)
-
     with pytest.raises(ArgoError, match="Must be a valid RFC 1123 name"):
         service.get_resource(CONST_ARGO_PLURAL_ROLLOUTS, "Invalid Name!", namespace="apps")
     with pytest.raises(ArgoError, match="Must be a valid RFC 1123 name"):
         service.list_resources(CONST_ARGO_PLURAL_ROLLOUTS, namespace="Not A Namespace")
 
-    assert crd_api.get_namespaced_custom_object.called is False
-    assert crd_api.list_namespaced_custom_object.called is False
+    assert cluster.custom_objects.calls == []
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -139,36 +187,33 @@ def test_invalid_names_are_rejected_before_reaching_the_api(crd_api: Any) -> Non
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_list_applications_projects_typed_states(crd_api: Any) -> None:
+def test_list_applications_projects_typed_states(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
     """Applications are returned as typed states carrying sync and health status."""
-    crd_api.list_namespaced_custom_object.return_value = {
-        "items": [
-            {
-                "kind": "Application",
-                "metadata": {"name": "guestbook", "namespace": "argocd"},
-                "spec": {
-                    "project": "default",
-                    "source": {"repoURL": "https://example.com/org/repo.git"},
-                },
-                "status": {
-                    "sync": {"status": "Synced", "revision": "abcdef1234567890"},
-                    "health": {"status": "Healthy"},
-                },
-            }
-        ]
-    }
-    apps = _service(crd_api).list_applications(namespace="argocd")
+    _seed(
+        cluster,
+        CONST_ARGO_PLURAL_APPLICATIONS,
+        {
+            "kind": "Application",
+            "metadata": {"name": "guestbook", "namespace": "argocd"},
+            "spec": {
+                "project": "default",
+                "source": {"repoURL": "https://example.com/org/repo.git"},
+            },
+            "status": {
+                "sync": {"status": "Synced", "revision": "abcdef1234567890"},
+                "health": {"status": "Healthy"},
+            },
+        },
+    )
 
-    assert len(apps) == 1
-    assert (
-        apps[0].name,
-        apps[0].project,
-        apps[0].sync_status,
-        apps[0].health_status,
-        apps[0].revision,
-    ) == ("guestbook", "default", "Synced", "Healthy", "abcdef12")
+    apps = service.list_applications(namespace="argocd")
 
-    call = crd_api.list_namespaced_custom_object.call_args.kwargs
+    assert [(a.name, a.project, a.sync_status, a.health_status, a.revision) for a in apps] == [
+        ("guestbook", "default", "Synced", "Healthy", "abcdef12")
+    ]
+    call = _sent(cluster, "list_namespaced_custom_object")[0]
     assert (call["group"], call["version"], call["plural"]) == (
         CONST_ARGO_API_GROUP,
         CONST_ARGO_API_VERSION,
@@ -176,44 +221,56 @@ def test_list_applications_projects_typed_states(crd_api: Any) -> None:
     )
 
 
-def test_list_application_sets_and_analysis_runs(crd_api: Any) -> None:
+def test_list_application_sets_and_analysis_runs(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
     """ApplicationSets and AnalysisRuns project through the same typed state model."""
-    crd_api.list_namespaced_custom_object.return_value = {"items": [{"metadata": {"name": "r1"}}]}
-    service = _service(crd_api)
+    for plural in (CONST_ARGO_PLURAL_APPLICATION_SETS, CONST_ARGO_PLURAL_ANALYSIS_RUNS):
+        _seed(cluster, plural, {"metadata": {"name": "r1", "namespace": "argocd"}})
 
     assert [a.name for a in service.list_application_sets(namespace="argocd")] == ["r1"]
     assert [a.name for a in service.list_analysis_runs(namespace="argocd")] == ["r1"]
 
 
-def test_apply_application_creates_when_absent(crd_api: Any) -> None:
+def test_apply_application_creates_when_absent(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
     """A new Application manifest is created directly through the API server."""
     manifest = {"metadata": {"name": "root-app"}, "spec": {"project": "default"}}
-    crd_api.create_namespaced_custom_object.return_value = {
-        "metadata": {"name": "root-app", "namespace": "argocd"}
+
+    applied = service.apply_application(manifest, namespace="argocd")
+
+    assert applied.name == "root-app"
+    assert _stored(cluster, CONST_ARGO_PLURAL_APPLICATIONS, "root-app")["spec"] == {
+        "project": "default"
     }
-
-    applied = _service(crd_api).apply_application(manifest, namespace="argocd")
-
-    assert applied.name == "root-app"
-    assert crd_api.patch_namespaced_custom_object.called is False
+    assert _sent(cluster, "patch_namespaced_custom_object") == []
 
 
-def test_apply_application_patches_when_already_present(crd_api: Any) -> None:
+def test_apply_application_patches_when_already_present(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
     """An Application that already exists is patched in place rather than failing."""
+    _seed(
+        cluster,
+        CONST_ARGO_PLURAL_APPLICATIONS,
+        {"metadata": {"name": "root-app", "namespace": "argocd"}, "spec": {"project": "old"}},
+    )
     manifest = {"metadata": {"name": "root-app"}, "spec": {"project": "default"}}
-    crd_api.create_namespaced_custom_object.side_effect = _ApiError(409)
-    crd_api.patch_namespaced_custom_object.return_value = {"metadata": {"name": "root-app"}}
 
-    applied = _service(crd_api).apply_application(manifest, namespace="argocd")
+    applied = service.apply_application(manifest, namespace="argocd")
 
     assert applied.name == "root-app"
-    crd_api.patch_namespaced_custom_object.assert_called_once()
+    assert _stored(cluster, CONST_ARGO_PLURAL_APPLICATIONS, "root-app")["spec"] == {
+        "project": "default"
+    }
+    assert len(_sent(cluster, "patch_namespaced_custom_object")) == 1
 
 
-def test_apply_resource_requires_manifest_name(crd_api: Any) -> None:
+def test_apply_resource_requires_manifest_name(service: ArgoCRDService) -> None:
     """A manifest without metadata.name is rejected with an actionable message."""
     with pytest.raises(ArgoError, match=re.escape("missing 'metadata.name'")):
-        _service(crd_api).apply_resource(CONST_ARGO_PLURAL_APPLICATIONS, {}, namespace="argocd")
+        service.apply_resource(CONST_ARGO_PLURAL_APPLICATIONS, {}, namespace="argocd")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -221,94 +278,103 @@ def test_apply_resource_requires_manifest_name(crd_api: Any) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_promote_rollout_clears_pause_conditions(crd_api: Any) -> None:
+def test_promote_rollout_clears_pause_conditions(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
     """Promotion clears the pause conditions the rollouts controller watches."""
-    crd_api.get_namespaced_custom_object.return_value = {"metadata": {"name": "web"}, "spec": {}}
-    crd_api.patch_namespaced_custom_object_status.return_value = {"metadata": {"name": "web"}}
-    _service(crd_api).promote_rollout("web", "apps")
-
-    body = crd_api.patch_namespaced_custom_object_status.call_args.kwargs["body"]
-    assert body["status"] == {"pauseConditions": None, "controllerPause": False}
-    assert crd_api.patch_namespaced_custom_object.called is False
-
-
-def test_promote_rollout_full_sets_promote_full(crd_api: Any) -> None:
-    """A full promotion additionally sets the promoteFull control-plane field."""
-    crd_api.get_namespaced_custom_object.return_value = {"metadata": {"name": "web"}, "spec": {}}
-    crd_api.patch_namespaced_custom_object_status.return_value = {"metadata": {"name": "web"}}
-    _service(crd_api).promote_rollout("web", "apps", full=True)
-
-    assert (
-        crd_api.patch_namespaced_custom_object_status.call_args.kwargs["body"]["status"][
-            "promoteFull"
-        ]
-        is True
+    _seed(
+        cluster,
+        CONST_ARGO_PLURAL_ROLLOUTS,
+        _rollout(spec={}, status={"pauseConditions": [{"reason": "CanaryPauseStep"}]}),
     )
 
+    service.promote_rollout("web", "apps")
 
-def test_promote_rollout_clears_spec_paused_when_set(crd_api: Any) -> None:
-    """Promotion clears spec.paused on the main resource when it was set."""
-    crd_api.get_namespaced_custom_object.return_value = {
-        "metadata": {"name": "web"},
-        "spec": {"paused": True},
+    body = _sent(cluster, "patch_namespaced_custom_object_status")[0]["body"]
+    assert body["status"] == {"pauseConditions": None, "controllerPause": False}
+    assert _stored(cluster, CONST_ARGO_PLURAL_ROLLOUTS, "web")["status"] == {
+        "controllerPause": False
     }
-    crd_api.patch_namespaced_custom_object.return_value = {"metadata": {"name": "web"}}
-    crd_api.patch_namespaced_custom_object_status.return_value = {"metadata": {"name": "web"}}
-    _service(crd_api).promote_rollout("web", "apps")
+    assert _sent(cluster, "patch_namespaced_custom_object") == []
 
-    assert crd_api.patch_namespaced_custom_object.call_args.kwargs["body"] == {
+
+def test_promote_rollout_full_sets_promote_full(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
+    """A full promotion additionally sets the promoteFull control-plane field."""
+    _seed(cluster, CONST_ARGO_PLURAL_ROLLOUTS, _rollout(spec={}))
+
+    service.promote_rollout("web", "apps", full=True)
+
+    assert _stored(cluster, CONST_ARGO_PLURAL_ROLLOUTS, "web")["status"]["promoteFull"] is True
+
+
+def test_promote_rollout_clears_spec_paused_when_set(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
+    """Promotion clears spec.paused on the main resource when it was set."""
+    _seed(cluster, CONST_ARGO_PLURAL_ROLLOUTS, _rollout(spec={"paused": True}))
+
+    service.promote_rollout("web", "apps")
+
+    assert _sent(cluster, "patch_namespaced_custom_object")[0]["body"] == {
         "spec": {"paused": False}
     }
-    assert (
-        crd_api.patch_namespaced_custom_object_status.call_args.kwargs["body"]["status"][
-            "controllerPause"
-        ]
-        is False
-    )
+    stored = _stored(cluster, CONST_ARGO_PLURAL_ROLLOUTS, "web")
+    assert (stored["spec"]["paused"], stored["status"]["controllerPause"]) == (False, False)
 
 
-def test_abort_rollout_sets_abort_flag(crd_api: Any) -> None:
+def test_abort_rollout_sets_abort_flag(cluster: FakeCluster, service: ArgoCRDService) -> None:
     """Aborting sets status.abort, reverting traffic to the stable revision."""
-    crd_api.patch_namespaced_custom_object_status.return_value = {"metadata": {"name": "web"}}
-    _service(crd_api).abort_rollout("web", "apps")
+    _seed(cluster, CONST_ARGO_PLURAL_ROLLOUTS, _rollout())
 
-    assert crd_api.patch_namespaced_custom_object_status.call_args.kwargs["body"] == {
+    service.abort_rollout("web", "apps")
+
+    assert _sent(cluster, "patch_namespaced_custom_object_status")[0]["body"] == {
         "status": {"abort": True}
     }
-    assert crd_api.patch_namespaced_custom_object.called is False
+    assert _sent(cluster, "patch_namespaced_custom_object") == []
 
 
-def test_restart_rollout_stamps_restart_at(crd_api: Any) -> None:
-    """Restarting stamps spec.restartAt with an RFC 3339 UTC timestamp."""
-    crd_api.patch_namespaced_custom_object.return_value = {"metadata": {"name": "web"}}
-    _service(crd_api).restart_rollout("web", "apps")
+def test_restart_rollout_stamps_restart_at(
+    cluster: FakeCluster, service: ArgoCRDService, clock: ClockFake
+) -> None:
+    """Restarting stamps spec.restartAt with an RFC 3339 UTC timestamp of the clock's time."""
+    clock.move_to("2026-09-21T12:00:00Z")
+    _seed(cluster, CONST_ARGO_PLURAL_ROLLOUTS, _rollout())
 
-    restart_at = crd_api.patch_namespaced_custom_object.call_args.kwargs["body"]["spec"][
-        "restartAt"
-    ]
-    assert restart_at.endswith("Z")
-    assert len(restart_at) == len("2026-09-21T12:00:00Z")
+    service.restart_rollout("web", "apps")
 
-
-def test_get_rollout_projects_canary_progress(crd_api: Any) -> None:
-    """A Rollout projects into a typed progressive delivery state."""
-    crd_api.get_namespaced_custom_object.return_value = {
-        "metadata": {"name": "web", "namespace": "apps"},
-        "spec": {
-            "replicas": 4,
-            "strategy": {"canary": {"steps": [{"setWeight": 25}, {"pause": {}}]}},
-        },
-        "status": {
-            "phase": "Paused",
-            "message": "waiting at step 1",
-            "currentStepIndex": 1,
-            "readyReplicas": 3,
-            "updatedReplicas": 1,
-            "availableReplicas": 3,
-            "pauseConditions": [{"reason": "CanaryPauseStep"}],
-        },
+    assert _stored(cluster, CONST_ARGO_PLURAL_ROLLOUTS, "web")["spec"] == {
+        "restartAt": "2026-09-21T12:00:00Z"
     }
-    state = _service(crd_api).get_rollout("web", "apps")
+
+
+def test_get_rollout_projects_canary_progress(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
+    """A Rollout projects into a typed progressive delivery state."""
+    _seed(
+        cluster,
+        CONST_ARGO_PLURAL_ROLLOUTS,
+        _rollout(
+            spec={
+                "replicas": 4,
+                "strategy": {"canary": {"steps": [{"setWeight": 25}, {"pause": {}}]}},
+            },
+            status={
+                "phase": "Paused",
+                "message": "waiting at step 1",
+                "currentStepIndex": 1,
+                "readyReplicas": 3,
+                "updatedReplicas": 1,
+                "availableReplicas": 3,
+                "pauseConditions": [{"reason": "CanaryPauseStep"}],
+            },
+        ),
+    )
+
+    state = service.get_rollout("web", "apps")
 
     assert (
         state.name,
@@ -323,15 +389,18 @@ def test_get_rollout_projects_canary_progress(crd_api: Any) -> None:
     ) == ("web", "canary", "Paused", 1, 2, 4, 3, True, False)
 
 
-def test_list_rollouts_projects_each_item(crd_api: Any) -> None:
+def test_list_rollouts_projects_each_item(cluster: FakeCluster, service: ArgoCRDService) -> None:
     """Every Rollout in the namespace is projected into a typed state."""
-    crd_api.list_namespaced_custom_object.return_value = {
-        "items": [
-            {"metadata": {"name": "a"}, "status": {"phase": "Healthy"}},
-            {"metadata": {"name": "b"}, "status": {"phase": "Degraded"}},
-        ]
-    }
-    states = _service(crd_api).list_rollouts(namespace="apps")
+    _seed(
+        cluster,
+        CONST_ARGO_PLURAL_ROLLOUTS,
+        _rollout("a", status={"phase": "Healthy"}),
+        _rollout("b", status={"phase": "Degraded"}),
+        _rollout("elsewhere", "other", status={"phase": "Healthy"}),
+    )
+
+    states = service.list_rollouts(namespace="apps")
+
     assert [(s.name, s.phase) for s in states] == [("a", "Healthy"), ("b", "Degraded")]
 
 
@@ -340,34 +409,39 @@ def test_list_rollouts_projects_each_item(crd_api: Any) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_submit_workflow_creates_resource(crd_api: Any) -> None:
+def test_submit_workflow_creates_resource(cluster: FakeCluster, service: ArgoCRDService) -> None:
     """Workflow submission posts the manifest directly, without the argo CLI."""
-    crd_api.create_namespaced_custom_object.return_value = {
-        "metadata": {"name": "build"},
-        "status": {"phase": "Running"},
-    }
-    state = _service(crd_api).submit_workflow({"metadata": {"name": "build"}}, namespace="argo")
+    state = service.submit_workflow(
+        {"metadata": {"name": "build"}, "status": {"phase": "Running"}}, namespace="argo"
+    )
 
     assert (state.name, state.phase) == ("build", "Running")
-    assert crd_api.create_namespaced_custom_object.call_args.kwargs["plural"] == (
+    assert _sent(cluster, "create_namespaced_custom_object")[0]["plural"] == (
         CONST_ARGO_PLURAL_WORKFLOWS
     )
 
 
-def test_get_workflow_projects_execution_state(crd_api: Any) -> None:
+def test_get_workflow_projects_execution_state(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
     """A Workflow projects phase, timing, progress, and node count."""
-    crd_api.get_namespaced_custom_object.return_value = {
-        "metadata": {"name": "build", "namespace": "argo"},
-        "status": {
-            "phase": "Succeeded",
-            "message": "all steps completed",
-            "startedAt": "2026-09-21T10:00:00Z",
-            "finishedAt": "2026-09-21T10:05:00Z",
-            "progress": "3/3",
-            "nodes": {"n1": {"type": "Pod"}, "n2": {"type": "DAG"}},
-        },
-    }
-    state = _service(crd_api).get_workflow("build", "argo")
+    _seed(
+        cluster,
+        CONST_ARGO_PLURAL_WORKFLOWS,
+        _workflow(
+            "build",
+            status={
+                "phase": "Succeeded",
+                "message": "all steps completed",
+                "startedAt": "2026-09-21T10:00:00Z",
+                "finishedAt": "2026-09-21T10:05:00Z",
+                "progress": "3/3",
+                "nodes": {"n1": {"type": "Pod"}, "n2": {"type": "DAG"}},
+            },
+        ),
+    )
+
+    state = service.get_workflow("build", "argo")
 
     assert (state.phase, state.progress, state.node_count, state.finished_at) == (
         "Succeeded",
@@ -377,107 +451,138 @@ def test_get_workflow_projects_execution_state(crd_api: Any) -> None:
     )
 
 
-def test_workflow_pod_names_selects_only_pod_nodes(crd_api: Any) -> None:
+def test_workflow_pod_names_selects_only_pod_nodes(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
     """Only Pod-type DAG nodes back log streaming, returned in stable order."""
-    crd_api.get_namespaced_custom_object.return_value = {
-        "metadata": {
-            "name": "build",
-            "annotations": {"workflows.argoproj.io/pod-name-format": "v1"},
+    _seed(
+        cluster,
+        CONST_ARGO_PLURAL_WORKFLOWS,
+        {
+            "metadata": {
+                "name": "build",
+                "namespace": "argo",
+                "annotations": {"workflows.argoproj.io/pod-name-format": "v1"},
+            },
+            "status": {
+                "nodes": {
+                    "build-2": {"type": "Pod"},
+                    "build-1": {"type": "Pod"},
+                    "build-dag": {"type": "DAG"},
+                }
+            },
         },
-        "status": {
-            "nodes": {
-                "build-2": {"type": "Pod"},
-                "build-1": {"type": "Pod"},
-                "build-dag": {"type": "DAG"},
-            }
-        },
-    }
-    assert _service(crd_api).workflow_pod_names("build", "argo") == ["build-1", "build-2"]
+    )
+
+    assert service.workflow_pod_names("build", "argo") == ["build-1", "build-2"]
 
 
-def test_workflow_pod_names_v2_derived_with_hash(crd_api: Any) -> None:
+def test_workflow_pod_names_v2_derived_with_hash(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
     """Under v2 naming, pod names follow <workflow>-<templateName>-<hash>."""
-    crd_api.get_namespaced_custom_object.return_value = {
-        "metadata": {
-            "name": "build",
-            "annotations": {"workflows.argoproj.io/pod-name-format": "v2"},
+    _seed(
+        cluster,
+        CONST_ARGO_PLURAL_WORKFLOWS,
+        {
+            "metadata": {
+                "name": "build",
+                "namespace": "argo",
+                "annotations": {"workflows.argoproj.io/pod-name-format": "v2"},
+            },
+            "status": {
+                "nodes": {
+                    "build-1": {
+                        "id": "build-1",
+                        "name": "build[0].step-compile",
+                        "templateName": "compile",
+                        "type": "Pod",
+                        "phase": "Succeeded",
+                    },
+                    "build-2": {
+                        "id": "build-2",
+                        "name": "build[0].step-test",
+                        "templateName": "test",
+                        "type": "Pod",
+                        "phase": "Running",
+                    },
+                }
+            },
         },
-        "status": {
-            "nodes": {
-                "build-1": {
-                    "id": "build-1",
-                    "name": "build[0].step-compile",
-                    "templateName": "compile",
-                    "type": "Pod",
-                    "phase": "Succeeded",
-                },
-                "build-2": {
-                    "id": "build-2",
-                    "name": "build[0].step-test",
-                    "templateName": "test",
-                    "type": "Pod",
-                    "phase": "Running",
-                },
-            }
-        },
-    }
-    assert _service(crd_api).workflow_pod_names("build", "argo") == [
+    )
+
+    assert service.workflow_pod_names("build", "argo") == [
         "build-compile-172156865",
         "build-test-3950655536",
     ]
 
 
-def test_workflow_pod_names_v2_single_container_matches_workflow(crd_api: Any) -> None:
+def test_workflow_pod_names_v2_single_container_matches_workflow(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
     """When a single container node name matches workflow name, pod name equals workflow name."""
-    crd_api.get_namespaced_custom_object.return_value = {
-        "metadata": {"name": "hello-wf"},
-        "status": {
-            "nodes": {
-                "hello-wf": {
-                    "id": "hello-wf",
-                    "name": "hello-wf",
-                    "type": "Pod",
-                    "phase": "Succeeded",
+    _seed(
+        cluster,
+        CONST_ARGO_PLURAL_WORKFLOWS,
+        _workflow(
+            "hello-wf",
+            status={
+                "nodes": {
+                    "hello-wf": {
+                        "id": "hello-wf",
+                        "name": "hello-wf",
+                        "type": "Pod",
+                        "phase": "Succeeded",
+                    }
                 }
-            }
-        },
-    }
-    assert _service(crd_api).workflow_pod_names("hello-wf", "argo") == ["hello-wf"]
+            },
+        ),
+    )
+
+    assert service.workflow_pod_names("hello-wf", "argo") == ["hello-wf"]
 
 
-def test_workflow_pod_names_excludes_skipped_and_omitted_nodes(crd_api: Any) -> None:
+def test_workflow_pod_names_excludes_skipped_and_omitted_nodes(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
     """Nodes with phase Skipped or Omitted are excluded from pod names."""
-    crd_api.get_namespaced_custom_object.return_value = {
-        "metadata": {
-            "name": "wf",
-            "annotations": {"workflows.argoproj.io/pod-name-format": "v1"},
+    _seed(
+        cluster,
+        CONST_ARGO_PLURAL_WORKFLOWS,
+        {
+            "metadata": {
+                "name": "wf",
+                "namespace": "argo",
+                "annotations": {"workflows.argoproj.io/pod-name-format": "v1"},
+            },
+            "status": {
+                "nodes": {
+                    "wf-ran": {"id": "wf-ran", "type": "Pod", "phase": "Succeeded"},
+                    "wf-skipped": {"id": "wf-skipped", "type": "Pod", "phase": "Skipped"},
+                    "wf-omitted": {"id": "wf-omitted", "type": "Pod", "phase": "Omitted"},
+                    "wf-dag": {"id": "wf-dag", "type": "DAG", "phase": "Running"},
+                }
+            },
         },
-        "status": {
-            "nodes": {
-                "wf-ran": {"id": "wf-ran", "type": "Pod", "phase": "Succeeded"},
-                "wf-skipped": {"id": "wf-skipped", "type": "Pod", "phase": "Skipped"},
-                "wf-omitted": {"id": "wf-omitted", "type": "Pod", "phase": "Omitted"},
-                "wf-dag": {"id": "wf-dag", "type": "DAG", "phase": "Running"},
-            }
-        },
-    }
-    assert _service(crd_api).workflow_pod_names("wf", "argo") == ["wf-ran"]
+    )
+
+    assert service.workflow_pod_names("wf", "argo") == ["wf-ran"]
 
 
-def test_workflow_pod_names_handles_absent_nodes(crd_api: Any) -> None:
+def test_workflow_pod_names_handles_absent_nodes(
+    cluster: FakeCluster, service: ArgoCRDService
+) -> None:
     """A Workflow that has not scheduled any node yields no pods rather than raising."""
-    crd_api.get_namespaced_custom_object.return_value = {"metadata": {"name": "build"}}
-    assert _service(crd_api).workflow_pod_names("build", "argo") == []
+    _seed(cluster, CONST_ARGO_PLURAL_WORKFLOWS, _workflow("build"))
+
+    assert service.workflow_pod_names("build", "argo") == []
 
 
-def test_list_workflows_projects_each_item(crd_api: Any) -> None:
+def test_list_workflows_projects_each_item(cluster: FakeCluster, service: ArgoCRDService) -> None:
     """Workflow listings project into typed execution states."""
-    crd_api.list_namespaced_custom_object.return_value = {
-        "items": [{"metadata": {"name": "w1"}, "status": {"phase": "Running"}}]
-    }
-    assert [(w.name, w.phase) for w in _service(crd_api).list_workflows("argo")] == [
-        ("w1", "Running")
-    ]
+    _seed(cluster, CONST_ARGO_PLURAL_WORKFLOWS, _workflow("w1", status={"phase": "Running"}))
+
+    assert [(w.name, w.phase) for w in service.list_workflows("argo")] == [("w1", "Running")]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
