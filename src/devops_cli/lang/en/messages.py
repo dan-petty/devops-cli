@@ -2397,8 +2397,15 @@ class RoadmapMessages:
     alternatives_comment_maintained: str = "- Maintained: {answer}"
     alternatives_comment_covers: str = "Covers:"
     alternatives_comment_lacks: str = "Lacks:"
+    alternatives_comment_reason: str = "Reason: {reason}"
+    alternatives_comment_considered: str = "Tools considered:"
+    alternatives_comment_considered_tool: str = (
+        "{name} ({url}), license {license}, last activity {date}"
+    )
     alternatives_comment_queries: str = "Searches run:"
+    alternatives_comment_search: str = "{query}, results: {results}"
     alternatives_comment_sources: str = "Sources:"
+    alternatives_comment_sources_left_out: str = "{count} more sources are left out"
     alternatives_comment_item: str = "- {text}"
     alternatives_comment_footer: str = (
         "Checked on {date}. A person decides what this means for the item. "

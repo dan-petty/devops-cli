@@ -19,8 +19,8 @@ three tools: a Firecrawl web search, a GitHub repository read and a PyPI package
 that follows no search gets one more turn to search; the job refuses a second reply that follows
 no search, and refuses `not-applicable` from the model. The tools are the only sources. They
 keep the URLs they returned, the facts they read and the searches they ran, and the job writes
-those into the record: the model writes only the verdict, the URL of the tool, and what it covers
-and lacks. The job refuses a reply that cites a URL no tool returned, and sets `maintained` from
+those into the record: the model writes only the verdict, its reason, the URL of the tool, and what it
+covers and lacks. The job refuses a reply that cites a URL no tool returned, and sets `maintained` from
 the facts. A failed model call, a stopped run or a refused reply skips its item, and the others are
 written. The run fails, naming each skipped item, only when it tried items and checked none.
 Rejected credentials stop the run at the first item.
@@ -41,8 +41,11 @@ it gets one more turn, and then the job refuses the reply. Refine asks no questi
 
 **Writes.** With `--confirm` a check replaces the job's block in the body, records
 `alternatives.*` in the job record, and posts one comment that carries
-`CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER`. It changes no label and closes no issue. A comment
-after the job's last one reaches the next check as a reply. A skipped item gets only
+`CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER`. It changes no label and closes no issue. The comment
+gives the verdict, the model's reason for it, the tool, what it covers and lacks, every tool whose
+facts the run read, each search with its number of results, and at most
+`CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES` sources (#2944). A check adds a comment and never
+changes an earlier one. A comment after the job's last one reaches the next check as a reply. A skipped item gets only
 `alternatives.failed_at` and `alternatives.failed_error` in its job record; a written check
 clears both.
 
@@ -76,6 +79,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_MAINTAINED_DAYS,
     CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS,
     CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS,
+    CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES,
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_LICENSE_CHARS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
@@ -151,9 +155,11 @@ class AlternativesReply(BaseModel):
     `rejected` with `adr`, the number of the ADR that rejected the tool of a `covers` or `partly`
     verdict, and the verdict `in-use` with `in_use`, when the item already names that tool.
     `tool_name` is the name that the ADR or the item writes for the tool. The job confirms each
-    proposal against the text, and keeps the verdict of the reply when it cannot (#3505)."""
+    proposal against the text, and keeps the verdict of the reply when it cannot (#3505).
+    `reason` is the reason of the verdict in one or two sentences (#2944)."""
 
     verdict: Verdict
+    reason: str = Field(min_length=1)
     tool_url: str | None = None
     tool_name: str | None = None
     adr: int | None = None
@@ -258,6 +264,15 @@ def _yes_no(answer: bool) -> str:
     return texts.alternatives_yes if answer else texts.alternatives_no
 
 
+@dataclass(frozen=True)
+class Search:
+    """One search that ran: its query, and how many results with an http or https URL it
+    returned. A failed search returned none (#2944)."""
+
+    query: str
+    results: int
+
+
 @dataclass
 class AlternativesTools:
     """The tools of one item's check. `search_web` runs at most
@@ -272,8 +287,13 @@ class AlternativesTools:
     firecrawl_key: str
     allowed_urls: set[str] = field(default_factory=set)
     facts: dict[str, ToolFacts] = field(default_factory=dict)
-    queries: list[str] = field(default_factory=list)
+    searches: list[Search] = field(default_factory=list)
     fact_reads: int = 0
+
+    @property
+    def queries(self) -> list[str]:
+        """The query of each search that ran."""
+        return [search.query for search in self.searches]
 
     def search_web(self, query: str) -> str:
         """Search the web. Cite a result by its URL.
@@ -281,9 +301,8 @@ class AlternativesTools:
         Args:
             query: A short search query.
         """
-        if len(self.queries) >= CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES:
+        if len(self.searches) >= CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES:
             return MESSAGES.roadmap.alternatives_search_limit
-        self.queries.append(query)
         found: set[str] = set()
         answer = cited_web_search(
             query,
@@ -291,6 +310,7 @@ class AlternativesTools:
             found,
             results=CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS,
         )
+        self.searches.append(Search(query, len(found)))
         self.allowed_urls |= {_key(url) for url in found}
         return answer
 
@@ -424,7 +444,7 @@ class Check:
     tool: CheckedTool | None
     covers: tuple[str, ...]
     lacks: tuple[str, ...]
-    queries: tuple[str, ...]
+    searches: tuple[Search, ...]
     sources: tuple[str, ...]
     checked_at: datetime
     body_hash: str
@@ -432,6 +452,8 @@ class Check:
     comment: str
     skip_class: str | None = None
     adr: int | None = None
+    reason: str = ""
+    considered: tuple[CheckedTool, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -655,7 +677,11 @@ def _checked_tool(
     """The tool of a tool verdict, from the facts read; None for any other verdict."""
     if reply.verdict not in _TOOL_VERDICTS or reply.tool_url is None:
         return None
-    facts = tools.facts[_key(reply.tool_url)]
+    return _checked(tools.facts[_key(reply.tool_url)], now)
+
+
+def _checked(facts: ToolFacts, now: datetime) -> CheckedTool:
+    """`facts` as the job writes them: the model wrote none of them."""
     return CheckedTool(
         name=facts.name,
         url=facts.url,
@@ -694,6 +720,46 @@ def _basis(check: Check) -> list[str]:
     return []
 
 
+def _considered_section(tools: Sequence[CheckedTool]) -> list[str]:
+    """The tools whose facts a tool read, each with its license and its last activity (#2944)."""
+    texts = MESSAGES.roadmap
+    return _list_section(
+        texts.alternatives_comment_considered,
+        [
+            texts.alternatives_comment_considered_tool.format(
+                name=tool.name,
+                url=tool.url,
+                license=tool.license or texts.alternatives_not_stated,
+                date=_day(tool.last_activity),
+            )
+            for tool in tools
+        ],
+    )
+
+
+def _search_section(searches: Sequence[Search]) -> list[str]:
+    """The searches that ran, each with its result count (#2944)."""
+    texts = MESSAGES.roadmap
+    return _list_section(
+        texts.alternatives_comment_queries,
+        [
+            texts.alternatives_comment_search.format(query=search.query, results=search.results)
+            for search in searches
+        ],
+    )
+
+
+def _source_section(sources: Sequence[str]) -> list[str]:
+    """At most `CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES` sources, each a URL that GitHub
+    shows as a link, and a line that says how many the comment leaves out (#2944)."""
+    texts = MESSAGES.roadmap
+    shown = list(sources[:CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES])
+    left_out = len(sources) - len(shown)
+    if left_out:
+        shown.append(texts.alternatives_comment_sources_left_out.format(count=left_out))
+    return _list_section(texts.alternatives_comment_sources, shown)
+
+
 def _list_section(title: str, lines: Sequence[str]) -> list[str]:
     item = MESSAGES.roadmap.alternatives_comment_item
     return [title, *(item.format(text=line) for line in lines)] if lines else []
@@ -712,15 +778,18 @@ def _comment_of(check: Check) -> str:
         if check.skip_class
         else []
     )
+    reason = [texts.alternatives_comment_reason.format(reason=check.reason)] if check.reason else []
     sections = [
         heading,
         skip,
+        reason,
         _basis(check),
         _tool_section(check.tool),
         _list_section(texts.alternatives_comment_covers, check.covers),
         _list_section(texts.alternatives_comment_lacks, check.lacks),
-        _list_section(texts.alternatives_comment_queries, check.queries),
-        _list_section(texts.alternatives_comment_sources, check.sources),
+        _considered_section(check.considered),
+        _search_section(check.searches),
+        _source_section(check.sources),
         [texts.alternatives_comment_footer.format(date=check.checked_at.date().isoformat())],
     ]
     return "\n\n".join("\n".join(section) for section in sections if section)
@@ -811,7 +880,7 @@ def _skip_check(item: Item, skip_class: str, now: datetime) -> Check | CheckFail
             tool=None,
             covers=(),
             lacks=(),
-            queries=(),
+            searches=(),
             sources=(),
             checked_at=now,
             body_hash=body_hash_of(item.body),
@@ -883,7 +952,12 @@ def validate_reply(
             tool=tool,
             covers=_clean(reply.covers, allowed),
             lacks=_clean(reply.lacks, allowed),
-            queries=_clean(tools.queries, allowed),
+            searches=tuple(
+                Search(_clean([search.query], allowed)[0], search.results)
+                for search in tools.searches
+            ),
+            considered=tuple(_checked(facts, now) for facts in tools.facts.values()),
+            reason=_clean([reply.reason], allowed)[0],
             sources=tuple(dict.fromkeys(_key(url) for url in reply.sources)),
             checked_at=now,
             body_hash=body_hash_of(item.body),
@@ -1116,6 +1190,7 @@ __all__ = [
     "Check",
     "CheckFailure",
     "CheckedTool",
+    "Search",
     "Selection",
     "ToolFacts",
     "Verdict",

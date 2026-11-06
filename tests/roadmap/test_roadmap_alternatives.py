@@ -25,6 +25,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
     CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS,
+    CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES,
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
@@ -71,6 +72,7 @@ NOW = datetime(2026, 10, 29, 12, 0, tzinfo=UTC)
 TOOL_URL = "https://github.com/example/scanner"
 SEARCH_URL = "https://example.com/scanner"
 PLACED = {ItemField.PRIORITY: "P2-Medium"}
+REASON = "The tool reads a directory, and the item needs that."
 
 
 def _days_ago(days: int) -> datetime:
@@ -174,6 +176,7 @@ def _failure_record(store: RoadmapStore, number: int) -> tuple[str | None, str |
 
 def _covers(**changes: Any) -> AlternativesReply:
     reply = AlternativesReply(
+        reason=REASON,
         verdict=Verdict.COVERS,
         tool_url=TOOL_URL,
         covers=["Scans a directory."],
@@ -408,7 +411,7 @@ def test_the_recheck_window_is_a_setting(
 ) -> None:
     number = _item(store)
     _mark_checked(store, number, days=10)
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     default_window = _plan(store, script)
     config(roadmap={"alternatives": {"recheck_days": 7}})
@@ -482,14 +485,14 @@ def test_the_search_stops_at_its_limit_and_remembers_what_it_ran(
     assert (
         answers[0],
         answers[-1],
-        tools.queries,
+        [(search.query, search.results) for search in tools.searches],
         tools.allowed_urls,
         len(web.sent),
         [tool.name for tool in tools.tools()],
     ) == (
         f"Result {SEARCH_URL}\n{SEARCH_URL}\nA scanner.",
         "The search limit for this item is reached.",
-        [f"query {n}" for n in range(CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES)],
+        [(f"query {n}", 1) for n in range(CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES)],
         {SEARCH_URL},
         CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
         ["search_web", "github_repository", "pypi_package"],
@@ -737,7 +740,7 @@ def test_the_request_holds_the_item_the_replies_and_the_budget(
     store.comment(number, f"{CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER}\nThe last check.")
     store.comment(number, "Keep this item: the scanner lacks a feature.")
     store.comment(number, "A second reply.")
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     _plan(store, script)
 
@@ -759,7 +762,7 @@ def test_the_request_holds_every_comment_when_the_job_left_none(
 ) -> None:
     number = _item(store)
     store.comment(number, "A person's note.")
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     _plan(store, script)
 
@@ -784,7 +787,7 @@ def test_the_request_holds_no_comment_of_an_account_that_the_jobs_do_not_trust(
         author_association="NONE",
     )
     store.seed_comment(number, "The collaborator: add a test.", author_association="COLLABORATOR")
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     _plan(store, script)
 
@@ -822,7 +825,7 @@ def test_the_request_holds_the_titles_status_and_options_of_the_adrs_in_force_ne
     )
     store.seed_file("docs/adr/README.md", "# Decisions\n")
     _item(store)
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     _plan(store, script)
 
@@ -847,7 +850,7 @@ def test_the_decisions_are_cut_by_whole_entries_the_oldest_go_first_and_a_warnin
     _adr(store, 8, "Older decision", _long_options("Eight"))
     _adr(store, 9, "Newest decision", _long_options("Nine"))
     _item(store)
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.adr"):
         _plan(store, script)
@@ -877,7 +880,7 @@ def test_a_repository_with_no_adr_directory_sends_no_decisions(
 ) -> None:
     store.seed_file("README.md", "# Project\n")
     _item(store)
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     _plan(store, script)
 
@@ -888,12 +891,12 @@ def test_a_run_reads_the_adrs_once_and_only_for_an_item_that_is_no_skip_class(
     store: InMemoryRoadmapStore, web_key: None
 ) -> None:
     _item(store, "docs(roadmap): explain the check")
-    _plan(store, Script(AlternativesReply(verdict=Verdict.NONE)))
+    _plan(store, Script(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
     skip_only = list(store.listed)
     _item(store, "First change")
     _item(store, "Second change")
 
-    _plan(store, _searching(AlternativesReply(verdict=Verdict.NONE)))
+    _plan(store, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
 
     assert (skip_only, store.listed) == ([], ["docs/adr"])
 
@@ -903,7 +906,7 @@ def test_a_failed_read_of_the_adrs_stops_the_run_before_any_model_call(
 ) -> None:
     store.fail_listing(GitHubOperationError("GitHub answered 502.", operation="roadmap.read"))
     _item(store)
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     with pytest.raises(GitHubOperationError, match="502"):
         _plan(store, script)
@@ -944,6 +947,7 @@ def _seed_temporal(store: InMemoryRoadmapStore) -> None:
 
 def _temporal(**changes: Any) -> AlternativesReply:
     reply = AlternativesReply(
+        reason=REASON,
         verdict=Verdict.COVERS,
         tool_url=TEMPORAL_URL,
         covers=["Runs durable workflows."],
@@ -1200,7 +1204,10 @@ def test_an_adr_number_with_a_verdict_of_no_tool_keeps_the_verdict(
     _seed_temporal(store)
     _item(store)
 
-    plan = _plan(store, _searching(AlternativesReply(verdict=Verdict.NONE, adr=8, in_use=True)))
+    plan = _plan(
+        store,
+        _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE, adr=8, in_use=True)),
+    )
 
     assert [(check.verdict, check.adr, check.tool) for check in plan.checks] == [
         (Verdict.NONE, None, None)
@@ -1344,6 +1351,8 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
                     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
                     "## Alternatives check: covers",
                     "",
+                    f"Reason: {REASON}",
+                    "",
                     f"Tool: example/scanner ({TOOL_URL})",
                     "- License: MIT",
                     f"- Last activity: {_days_ago(5).date()}",
@@ -1355,8 +1364,11 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
                     "Lacks:",
                     "- No SARIF output.",
                     "",
+                    "Tools considered:",
+                    f"- example/scanner ({TOOL_URL}), license MIT, last activity {_days_ago(5).date()}",
+                    "",
                     "Searches run:",
-                    "- scanner for a directory",
+                    "- scanner for a directory, results: 1",
                     "",
                     "Sources:",
                     f"- {TOOL_URL}",
@@ -1418,7 +1430,7 @@ def test_a_check_after_the_window_replaces_the_block_and_adds_a_comment(
     apply_alternatives(store, _plan(store, _search_then_read_then(_covers())))
 
     later = NOW + timedelta(days=31)
-    again = _searching(AlternativesReply(verdict=Verdict.NONE))
+    again = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
     apply_alternatives(store, _plan(store, again, now=later))
 
     body = store.read_issue_body(number)
@@ -1431,11 +1443,135 @@ def test_a_check_after_the_window_replaces_the_block_and_adds_a_comment(
     ) == (1, 1, True, False, 2)
 
 
+def test_a_search_remembers_how_many_results_it_found_and_a_failed_search_found_none(
+    store: InMemoryRoadmapStore, web: WebFake
+) -> None:
+    _firecrawl(web, SEARCH_URL, TOOL_URL)
+    tools = AlternativesTools(store=store, firecrawl_key="fc-test")
+    tools.search_web("two results")
+    _firecrawl(web)
+    tools.search_web("no result")
+
+    assert [(search.query, search.results) for search in tools.searches] == [
+        ("two results", 2),
+        ("no result", 0),
+    ]
+
+
+def test_the_comment_lists_each_query_with_its_result_count_and_the_reason(
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake
+) -> None:
+    _firecrawl(web, SEARCH_URL, TOOL_URL)
+    number = _item(store)
+    script = Script(
+        call("search_web", query="first query"),
+        call("search_web", query="second query"),
+        call("github_repository", name="example/scanner"),
+        _covers(),
+    )
+
+    apply_alternatives(store, _plan(store, script))
+
+    (comment,) = [c.body for c in store.comments_on(number)]
+    assert (
+        f"Reason: {REASON}" in comment,
+        "Searches run:\n- first query, results: 2\n- second query, results: 2" in comment,
+    ) == (True, True)
+
+
+def test_the_comment_lists_every_tool_the_run_read_with_its_license_and_last_activity(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    store.seed_repository(
+        RepositoryFacts(
+            full_name="example/other",
+            url="https://github.com/example/other",
+            license=None,
+            pushed_at=_days_ago(400),
+            stars=3,
+            latest_release=None,
+            released_at=None,
+        )
+    )
+    number = _item(store)
+    script = Script(
+        _SEARCH,
+        call("github_repository", name="example/scanner"),
+        call("github_repository", name="example/other"),
+        _covers(),
+    )
+
+    apply_alternatives(store, _plan(store, script))
+
+    (comment,) = [c.body for c in store.comments_on(number)]
+    assert (
+        "Tools considered:\n"
+        f"- example/scanner ({TOOL_URL}), license MIT, last activity {_days_ago(5).date()}\n"
+        f"- example/other (https://github.com/example/other), license not stated, "
+        f"last activity {_days_ago(400).date()}"
+    ) in comment
+
+
+def test_a_reply_with_no_reason_is_refused_by_its_schema() -> None:
+    with pytest.raises(ValueError, match="reason"):
+        AlternativesReply.model_validate({"verdict": "none"})
+
+
+def test_the_comment_shows_at_most_the_bound_of_sources_and_says_how_many_it_left_out(
+    store: InMemoryRoadmapStore,
+) -> None:
+    urls = [
+        f"https://example.com/source-{n}"
+        for n in range(CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES + 3)
+    ]
+    tools = AlternativesTools(store=store, firecrawl_key="fc-test", allowed_urls=set(urls))
+    tools.searches.append(alternatives.Search("scanner", len(urls)))
+    number = _item(store)
+    item = store.item(number)
+    assert item is not None
+    reply = AlternativesReply(reason=REASON, verdict=Verdict.NONE, sources=urls)
+
+    check = alternatives.validate_reply(item, reply, tools, NOW, ())
+
+    assert not isinstance(check, alternatives.CheckFailure)
+    shown = [line for line in check.comment.splitlines() if line.startswith("- https://")]
+    assert (shown, "- 3 more sources are left out" in check.comment) == (
+        [f"- {url}" for url in urls[:CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES]],
+        True,
+    )
+
+
+def test_a_later_check_adds_a_comment_and_leaves_the_comment_of_the_first_unchanged(
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake
+) -> None:
+    _firecrawl(web, SEARCH_URL)
+    number = _item(store)
+    apply_alternatives(store, _plan(store, _search_then_read_then(_covers())))
+    (first,) = store.comments_on(number)
+
+    later = NOW + timedelta(days=31)
+    apply_alternatives(
+        store,
+        _plan(
+            store,
+            _searching(AlternativesReply(reason="Nothing fits.", verdict=Verdict.NONE)),
+            now=later,
+        ),
+    )
+
+    comments = store.comments_on(number)
+    assert (len(comments), comments[0].body, "Reason: Nothing fits." in comments[1].body) == (
+        2,
+        first.body,
+        True,
+    )
+
+
 def test_a_person_changing_the_body_after_the_plan_stops_its_write(
     store: InMemoryRoadmapStore, web_key: None, caplog: pytest.LogCaptureFixture
 ) -> None:
     number = _item(store)
-    plan = _plan(store, _searching(AlternativesReply(verdict=Verdict.NONE)))
+    plan = _plan(store, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
     store.as_actor("alice").write_issue_body(number, "A new text.")
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.alternatives"):
@@ -1470,7 +1606,7 @@ def test_a_body_with_an_unpaired_marker_is_skipped_and_a_persons_text_is_kept(
 ) -> None:
     number = _item(store, "Unpaired", body=body)
 
-    plan = _plan(store, _searching(AlternativesReply(verdict=Verdict.NONE)))
+    plan = _plan(store, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
     written = apply_alternatives(store, plan)
 
     assert (
@@ -1488,7 +1624,7 @@ def test_a_body_with_an_unpaired_marker_is_skipped_and_a_persons_text_is_kept(
 
 def test_a_none_verdict_names_no_tool(store: InMemoryRoadmapStore, web_key: None) -> None:
     number = _item(store)
-    reply = AlternativesReply(verdict=Verdict.NONE)
+    reply = AlternativesReply(reason=REASON, verdict=Verdict.NONE)
 
     apply_alternatives(store, _plan(store, _searching(reply)))
 
@@ -1508,7 +1644,7 @@ def test_a_not_applicable_verdict_after_a_search_or_a_fact_read_is_refused(
     _firecrawl(web, SEARCH_URL)
     searched = _item(store, "Searched")
     read = _item(store, "Read")
-    answer = AlternativesReply(verdict=Verdict.NOT_APPLICABLE)
+    answer = AlternativesReply(reason=REASON, verdict=Verdict.NOT_APPLICABLE)
     script = _by_item(
         {
             searched: [call("search_web", query="scanner for a directory"), answer],
@@ -1553,7 +1689,9 @@ def test_a_covering_tool_is_written_through_the_github_store_over_its_process_ed
 
     plan = _plan(roadmap, _search_then_read_then(_covers()))
     written = apply_alternatives(roadmap, plan)
-    unchanged = _plan(roadmap, _searching(AlternativesReply(verdict=Verdict.NONE)), now=NOW)
+    unchanged = _plan(
+        roadmap, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)), now=NOW
+    )
 
     body = github.body(7)
     (comment,) = github.comments[7]
@@ -1586,7 +1724,7 @@ def test_skip_class_an_item_of_the_type_is_not_applicable_with_no_model_call(
     store: InMemoryRoadmapStore, web_key: None, web: WebFake, otlp: FakeCollector, kind: str
 ) -> None:
     number = _item(store, f"{kind}(roadmap): a change")
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
     searches_before = len(web.sent)
 
     plan = _plan(store, script)
@@ -1595,7 +1733,7 @@ def test_skip_class_an_item_of_the_type_is_not_applicable_with_no_model_call(
     (check,) = plan.checks
     (comment,) = store.comments_on(number)
     assert (
-        (check.verdict, check.skip_class, check.queries, check.tool),
+        (check.verdict, check.skip_class, check.searches, check.tool),
         script.seen,
         len(web.sent) == searches_before,
         written,
@@ -1620,7 +1758,7 @@ def test_skip_class_a_fix_with_a_stack_trace_is_not_applicable_with_no_model_cal
 ) -> None:
     body = 'It crashes.\n\nTraceback (most recent call last):\n  File "x.py", line 1\nValueError'
     number = _item(store, "fix(roadmap): a crash", body=body)
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     plan = _plan(store, script)
     apply_alternatives(store, plan)
@@ -1649,7 +1787,7 @@ def test_skip_class_an_item_of_another_type_goes_to_the_model(
     from devops_cli.roadmap.alternatives import skip_class_of
 
     number = _item(store, title, body=body)
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     plan = _plan(store, script)
 
@@ -1667,7 +1805,7 @@ def test_skip_class_an_item_with_an_unpaired_marker_is_a_failure_and_nothing_is_
 ) -> None:
     body = f"Intro\n{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nPERSON TEXT\n"
     number = _item(store, "docs(roadmap): a page", body=body)
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     plan = _plan(store, script)
     written = apply_alternatives(store, plan)
@@ -1703,7 +1841,7 @@ def test_search_first_a_reply_with_no_search_gets_one_more_turn_and_the_search_c
     store: InMemoryRoadmapStore, web_key: None, otlp: FakeCollector
 ) -> None:
     number = _item(store, "feat(roadmap): point argo cd at gitea")
-    answer = AlternativesReply(verdict=Verdict.NONE)
+    answer = AlternativesReply(reason=REASON, verdict=Verdict.NONE)
     script = Script(answer, _SEARCH, answer)
 
     plan = _plan(store, script)
@@ -1712,10 +1850,10 @@ def test_search_first_a_reply_with_no_search_gets_one_more_turn_and_the_search_c
     assert (
         len(script.seen),
         check.item.number,
-        check.queries,
+        [search.query for search in check.searches],
         any("Call search_web at least once" in text for text in _retry_prompts(script)),
         len(otlp.points(FIRECRAWL_SEARCHES_TOTAL.name)) > 0,
-    ) == (3, number, ("scanner",), True, True)
+    ) == (3, number, ["scanner"], True, True)
 
 
 def test_search_first_two_replies_with_no_search_end_as_a_failed_check(
@@ -1723,7 +1861,7 @@ def test_search_first_two_replies_with_no_search_end_as_a_failed_check(
 ) -> None:
     number = _item(store, "feat(roadmap): point argo cd at gitea")
     searches_before = len(web.sent)
-    script = Script(AlternativesReply(verdict=Verdict.NONE))
+    script = Script(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     plan = _plan(store, script)
     apply_alternatives(store, plan)
@@ -1747,7 +1885,7 @@ def test_search_first_a_not_applicable_reply_from_the_model_is_refused(
     store: InMemoryRoadmapStore, web_key: None
 ) -> None:
     number = _item(store, "feat(roadmap): point argo cd at gitea")
-    answer = AlternativesReply(verdict=Verdict.NOT_APPLICABLE)
+    answer = AlternativesReply(reason=REASON, verdict=Verdict.NOT_APPLICABLE)
     script = Script(answer, _SEARCH, answer)
 
     plan = _plan(store, script)
@@ -1847,7 +1985,10 @@ def test_a_refused_reply_skips_its_item_and_the_others_are_written(
     refused = _item(store, "Refused")
     kept = _item(store, "Kept")
     script = _by_item(
-        {refused: steps, kept: _after_search(AlternativesReply(verdict=Verdict.NONE))}
+        {
+            refused: steps,
+            kept: _after_search(AlternativesReply(reason=REASON, verdict=Verdict.NONE)),
+        }
     )
 
     plan = _plan(store, script)
@@ -1873,7 +2014,7 @@ def test_a_failed_model_call_skips_its_item_and_names_the_error_class(
     script = _by_item(
         {
             failing: ModelHTTPError(500, "m"),
-            kept: _after_search(AlternativesReply(verdict=Verdict.NONE)),
+            kept: _after_search(AlternativesReply(reason=REASON, verdict=Verdict.NONE)),
         }
     )
 
@@ -1953,7 +2094,7 @@ def test_failure_record_the_reason_of_a_stopped_run_holds_its_message(
         lambda *_args, **_kwargs: InvestigationStopped("UsageLimitExceeded", message),
     )
 
-    plan = _plan(store, _searching(AlternativesReply(verdict=Verdict.NONE)))
+    plan = _plan(store, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
     apply_alternatives(store, plan)
 
     assert (
@@ -2016,7 +2157,7 @@ def test_a_private_repository_turns_the_check_off(
 ) -> None:
     _item(store)
     store.seed_visibility(is_private=True)
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     plan = _plan(store, script)
 
@@ -2038,7 +2179,7 @@ def test_a_missing_firecrawl_key_turns_the_check_off(
         monkeypatch.delenv(name, raising=False)
     config(firecrawl={"api_key": None})
     _item(store)
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     plan = _plan(store, script)
 
@@ -2062,7 +2203,7 @@ def test_the_report_names_each_check_each_current_item_and_each_failure(
     _mark_checked(store, current, days=2)
     script = _by_item(
         {
-            checked: _after_search(AlternativesReply(verdict=Verdict.NONE)),
+            checked: _after_search(AlternativesReply(reason=REASON, verdict=Verdict.NONE)),
             failed: [_SEARCH, _READ_THE_TOOL, _covers(sources=["https://example.com/invented"])],
         }
     )
@@ -2085,7 +2226,7 @@ def test_the_command_previews_a_check_and_writes_it_with_confirm(
     roadmap_store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     number = _item(roadmap_store)
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
     monkeypatch.setattr(
         "devops_cli.roadmap.alternatives.get_task_model", lambda _task: script.model()
     )
@@ -2133,7 +2274,7 @@ def test_total_failure_the_command_exits_0_when_one_item_fails_and_one_is_checke
     script = _by_item(
         {
             failing: [_SEARCH, _READ_THE_TOOL, _covers(sources=["https://example.com/invented"])],
-            kept: _after_search(AlternativesReply(verdict=Verdict.NONE)),
+            kept: _after_search(AlternativesReply(reason=REASON, verdict=Verdict.NONE)),
         }
     )
     monkeypatch.setattr(
@@ -2164,7 +2305,7 @@ def test_the_command_checks_the_one_item_it_names(
 ) -> None:
     named = _item(roadmap_store, "Named")
     other = _item(roadmap_store, "Other")
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
     monkeypatch.setattr(
         "devops_cli.roadmap.alternatives.get_task_model", lambda _task: script.model()
     )
@@ -2207,7 +2348,7 @@ def test_the_row_checks_at_most_the_limit_of_the_setting_and_the_command_uses_it
     for number in numbers:
         _mark_checked(store, number, days=40)
     config(roadmap={"alternatives": {"limit": 2}})
-    _answer_with(monkeypatch, _searching(AlternativesReply(verdict=Verdict.NONE)))
+    _answer_with(monkeypatch, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
 
     planned = plan_alternatives(store, repo=REPO, now=NOW)
     explicit = plan_alternatives(store, repo=REPO, limit=3, now=NOW)
@@ -2256,7 +2397,7 @@ def test_the_row_checks_the_first_pass_limit_while_items_lack_a_check(
 ) -> None:
     numbers = [_item(store, f"Item {n}") for n in range(25)]
     config()
-    _answer_with(monkeypatch, _searching(AlternativesReply(verdict=Verdict.NONE)))
+    _answer_with(monkeypatch, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
 
     _alternatives_row().runner(store=store, repo=REPO)
 
@@ -2273,7 +2414,7 @@ def test_the_row_checks_the_limit_when_every_item_has_a_check(
     for number in numbers:
         _mark_checked(store, number, days=40)
     config()
-    _answer_with(monkeypatch, _searching(AlternativesReply(verdict=Verdict.NONE)))
+    _answer_with(monkeypatch, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
 
     _alternatives_row().runner(store=store, repo=REPO)
 
@@ -2289,7 +2430,7 @@ def test_an_explicit_limit_replaces_the_first_pass_limit(
     for n in range(25):
         _item(store, f"Item {n}")
     config()
-    _answer_with(monkeypatch, _searching(AlternativesReply(verdict=Verdict.NONE)))
+    _answer_with(monkeypatch, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
 
     plan = plan_alternatives(store, repo=REPO, limit=3, now=NOW)
 
@@ -2308,7 +2449,7 @@ def test_total_failure_a_failed_check_records_its_item_and_the_row_succeeds(
         _by_item(
             {
                 failing: ModelHTTPError(500, "m"),
-                kept: _after_search(AlternativesReply(verdict=Verdict.NONE)),
+                kept: _after_search(AlternativesReply(reason=REASON, verdict=Verdict.NONE)),
             }
         ),
     )
@@ -2355,7 +2496,7 @@ def test_total_failure_a_round_with_no_item_to_check_makes_no_model_call_and_suc
     delayed = _item(store, "Delayed")
     _mark_checked(store, current, days=2)
     _mark_failed(store, delayed, days=1)
-    script = _searching(AlternativesReply(verdict=Verdict.NONE))
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
     _answer_with(monkeypatch, script)
 
     plan = plan_alternatives(store, repo=REPO, now=NOW)
@@ -2381,7 +2522,7 @@ def test_the_row_runs_in_a_round_and_records_its_success_until_the_interval_pass
     store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     number = _item(store)
-    _answer_with(monkeypatch, _searching(AlternativesReply(verdict=Verdict.NONE)))
+    _answer_with(monkeypatch, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
     table = (_alternatives_row(),)
 
     def round_at(now: datetime) -> tuple[str, ...]:
@@ -2411,7 +2552,7 @@ def test_the_commands_limit_option_has_no_default_of_its_own(
     for number in numbers:
         _mark_checked(roadmap_store, number, days=40)
     config(roadmap={"alternatives": {"limit": 1}})
-    _answer_with(monkeypatch, _searching(AlternativesReply(verdict=Verdict.NONE)))
+    _answer_with(monkeypatch, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
 
     result = CliRunner().invoke(roadmap_app, ["alternatives", "--repo", REPO, "--confirm"])
 
@@ -2433,7 +2574,7 @@ def test_failure_record_one_of_five_checks_fails_and_the_round_records_it_and_su
         {
             n: ModelHTTPError(500, "m")
             if n == failing
-            else _after_search(AlternativesReply(verdict=Verdict.NONE))
+            else _after_search(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
             for n in numbers
         }
     )
@@ -2476,8 +2617,8 @@ def test_failure_record_a_failed_item_is_tried_again_after_the_delay_and_its_che
 
     number = _item(store)
     apply_alternatives(store, _plan(store, Script(ModelHTTPError(500, "m"))))
-    soon = _searching(AlternativesReply(verdict=Verdict.NONE))
-    later = _searching(AlternativesReply(verdict=Verdict.NONE))
+    soon = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
+    later = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     early = _plan(store, soon, now=NOW + timedelta(days=1))
     apply_alternatives(store, early)
@@ -2512,7 +2653,7 @@ def test_each_written_check_counts_once_by_its_verdict(
                 call("github_repository", name="example/scanner"),
                 _covers(),
             ],
-            nothing: _after_search(AlternativesReply(verdict=Verdict.NONE)),
+            nothing: _after_search(AlternativesReply(reason=REASON, verdict=Verdict.NONE)),
         }
     )
 
@@ -2535,7 +2676,7 @@ def test_a_check_skipped_because_the_body_changed_and_a_failed_check_count_nothi
     failing = _item(store, "Failing")
     script = _by_item(
         {
-            edited: _after_search(AlternativesReply(verdict=Verdict.NONE)),
+            edited: _after_search(AlternativesReply(reason=REASON, verdict=Verdict.NONE)),
             failing: ModelHTTPError(500, "m"),
         }
     )

@@ -3180,6 +3180,8 @@ CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER: Final[str] = "<!-- devops roadmap alt
 CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES: Final[int] = 10
 CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS: Final[int] = 30
 CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS: Final[int] = 5
+# The most sources that the comment of a check shows (#2944).
+CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES: Final[int] = 5
 CONST_ROADMAP_ALTERNATIVES_MAINTAINED_DAYS: Final[int] = 365
 # A PyPI package states its license in `license_expression`, in `license` (a name when it is short,
 # else the whole text) or in a classifier that starts with the prefix.
