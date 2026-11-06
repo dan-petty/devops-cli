@@ -1257,6 +1257,7 @@ class RoadmapCommandHelp:
         "and no tool. It calls the model through the gateway, one call per case at least. "
         "With --replay it calls no model: it runs the recorded plans through the "
         "gates and exits 1 when a gate stops refusing a known-bad plan or refuses a good plan. "
+        "A live run leaves out a case that holds no commit and names it in the report. "
         "A change to the stage prompt or to the checks states this score before and after."
     )
     eval_stage_case: str = (
@@ -1291,8 +1292,9 @@ class RoadmapCommandHelp:
         "defects reaches the floor, the recall for each type, and the findings on the good plans. "
         "It matches each finding to one labeled defect of the same type. It stores the report as "
         "JSON under the data directory. It calls the model of the verification task through the "
-        "gateway, one agent run per case, with one request for each model reply. A change of the "
-        "model or of the prompt states this score."
+        "gateway, one agent run per case, with one request for each model reply. It leaves out "
+        "a case that holds no commit and names it in the report. A change of the model or of "
+        "the prompt states this score."
     )
     eval_verify_model: str = "Model for the verification task. Without it, the configured model."
     run: str = (

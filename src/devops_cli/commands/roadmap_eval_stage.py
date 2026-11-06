@@ -53,7 +53,12 @@ def _run(
     from devops_cli.config.settings import load_settings
     from devops_cli.roadmap.implement_eval_run import eval_model
     from devops_cli.roadmap.intake_model import gateway_address
-    from devops_cli.roadmap.stage_eval_cases import load_cases, select_cases
+    from devops_cli.roadmap.stage_eval_cases import (
+        cases_with_commit,
+        left_out_note,
+        load_cases,
+        select_cases,
+    )
     from devops_cli.roadmap.stage_eval_render import (
         planned_calls,
         render_score,
@@ -63,7 +68,7 @@ def _run(
     from devops_cli.roadmap.stage_eval_score import score_runs
     from devops_cli.roadmap.stage_eval_usage import RunUsage
 
-    cases = select_cases(load_cases(cases_dir), names, limit)
+    cases, left_out = cases_with_commit(select_cases(load_cases(cases_dir), names, limit))
     settings = load_settings()
     gateway = gateway_address(settings.ai.for_task("stage"))
     if dry_run:
@@ -76,6 +81,7 @@ def _run(
                 else MESSAGES.roadmap.stage_eval_mode_plain,
             ),
             planned_calls(cases, gateway, toolbox=toolbox),
+            [note] if (note := left_out_note(left_out)) else [],
         )
         return
     client = get_llm_client(task="stage", settings=settings, model=model)
@@ -84,7 +90,7 @@ def _run(
     usage = RunUsage()
     with observe_llm_calls(usage.add):
         runs = run_cases(cases, client, source or find_repo_root(), toolbox=planner)
-    score = score_runs(name, cases, runs)
+    score = score_runs(name, cases, runs, left_out=left_out)
     now = datetime.now(UTC)
     report = score_json(
         score, gateway=gateway, taken=now.isoformat(timespec="seconds"), usage=usage

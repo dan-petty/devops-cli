@@ -3,8 +3,8 @@
  "pull": 3378,
  "title": "docs(openspec): plan #3372 check every module of a moved prefix",
  "change": "3372-the-stage-plan-of-a-module",
- "merge_commit": "6c15a64a00000000000000000000000000000000",
- "base_commit": "89682e4100000000000000000000000000000000",
+ "merge_commit": "6c15a64a614941629669a181e3220ae8bc7e27d0",
+ "base_commit": "ecfc9b80816c7e1deeceb24a588a6139bf12ef77",
  "verdict": "needs-fix",
  "scores": {
   "premise_ok": 4,
