@@ -1102,8 +1102,9 @@ class _ItemRun:
     def _publish(self) -> int:
         """The first push of a Planned item: push the new branch with `-u`, open its draft pull
         request, and record both. The first body already closes the delivered issue, so a stop
-        leaves a grounded draft (#3273); the final body comes after the archive. A draft that GitHub refuses takes the branch off `origin` again, so no branch
-        stays without a pull request, and stops the item with nothing left to push."""
+        leaves a grounded draft (#3273); the final body comes after the archive. A draft that GitHub
+        refuses takes the branch off `origin` again, so no branch stays without a pull request, and
+        stops the item with nothing left to push."""
         texts = MESSAGES.roadmap
         title = self._delivery_title()
         self._git("push", "-u", "origin", self.branch)
