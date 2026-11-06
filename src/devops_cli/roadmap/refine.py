@@ -1228,10 +1228,14 @@ def step_comment(
 # ── Rendering & Sanitization ──────────────────────────────────────────────────
 
 _IMAGE_RE = re.compile(r"!\[.*?\](?:\(.*?\)|\[.*?\])")
-_HTML_TAG_RE = re.compile(r"<[a-zA-Z/][^>]*>")
+# The `<` that opens an HTML tag, open or close. A letter or a slash comes after it. An even number
+# of backslashes, or none, comes before it: an odd number escapes the `<`.
+_HTML_TAG_OPENER_RE = re.compile(r"(?<!\\)(?:\\\\)*(<)(?=[a-zA-Z/])")
 # The `<` that opens an HTML comment, declaration, CDATA section or processing instruction:
 # GitHub hides the text after an unclosed one, and `<!--` can forge a marker or a record block.
 _RAW_HTML_OPENER_RE = re.compile(r"<(?=[!?])")
+# The most passes that the step for tags makes in code, before it escapes each tag.
+_TAG_PASSES: Final = 3
 # The URL holds no backtick or space, so the code span that replaces the link closes on its own
 # backticks.
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)`]+)\)")
@@ -1356,37 +1360,86 @@ def _neutralized(match: re.Match[str], allowed_urls: set[str], fence: Callable[[
     return f"{ticks}{link}{ticks}{raw[len(link) :]}"
 
 
-def sanitize_text(text: str, allowed_urls: set[str]) -> str:
-    """Strips images and HTML tags, turns the `<` of a comment opener into an entity, and wraps
-    handles, unallowed URLs and `www.` links, and cross-repository references in code spans.
+def _shows_stray_backtick(text: str) -> bool:
+    """Whether `text` shows a backtick as text."""
+    return "`" in text and _shown_code(text).stray_backtick
 
-    The opener is neutralized after the tags are stripped, so a stripped tag cannot build one
-    again (#2478), and also in code, since the record block and the markers are found in the raw
-    text. A link, handle or reference in code stays as it is. An added code span takes one
-    backtick more than the longest run in the text, so it closes on its own backticks and on no
-    backtick of the model's (#2525).
 
-    A backtick that the text shows as text makes GitHub's parser, cmark, take a later code span
-    of a length it has already closed as text, and makes markdown-it miss a code span after an
-    unclosed `[`. In such a text each added code span takes a length of its own, and a link,
-    handle or reference in a code span is wrapped too (#2525).
+def _escape_tag_opener(match: re.Match[str]) -> str:
+    """The match of `_HTML_TAG_OPENER_RE` with its `<` as an entity: the backslashes stay."""
+    return f"{match[0][:-1]}&lt;"
+
+
+def _escaped_tags(text: str) -> str:
+    """`text` with the `<` of each tag outside code as an entity.
+
+    An escaped tag can hold a backtick that opens a code span, and the span then takes in or
+    leaves out a tag after it. So the step repeats while the text changes, up to `_TAG_PASSES`
+    times. A text that still changes after that is not one that a person wrote, and its time
+    would grow with the square of its length. So its tags become entities also in code, in one
+    more step that takes time in proportion to the text.
+    """
+    for _ in range(_TAG_PASSES):
+        if not _HTML_TAG_OPENER_RE.search(text):
+            return text
+        escaped = _replace_outside_code(
+            text,
+            _HTML_TAG_OPENER_RE,
+            1,
+            _escape_tag_opener,
+            spans_are_code=not _shows_stray_backtick(text),
+        )
+        if escaped == text:
+            return text
+        text = escaped
+    return _HTML_TAG_OPENER_RE.sub(_escape_tag_opener, text)
+
+
+def _without_raw_html(text: str, *, escape_tags: bool) -> str:
+    """`text` with the `<` of each comment opener as an entity, and that of each tag outside code
+    too when `escape_tags`."""
+    opened = _RAW_HTML_OPENER_RE.sub("&lt;", text)
+    return _escaped_tags(opened) if escape_tags else opened
+
+
+def sanitize_text(text: str, allowed_urls: set[str], *, escape_tags: bool = True) -> str:
+    """Strips images, turns the `<` of a comment opener and of a tag outside code into an entity,
+    and wraps handles, unallowed URLs and `www.` links, and cross-repository references in code
+    spans.
+
+    The `<` of a comment opener becomes an entity after the images go, and also in code, since the
+    record block and the markers are found in the raw text. The `<` of a tag becomes one outside
+    code only. A tag in code is text that GitHub shows, with its words (#3504). A `<` that an odd
+    number of backslashes escapes stays as it is. A tag loses its `<` and nothing else, so no text
+    around a tag builds an opener. The rewrite of a link drops characters, so the look for tags and
+    openers runs again after it (#2478).
+
+    A link, handle or reference in code stays as it is. An added code span takes one backtick more
+    than the longest run in the text. So it closes on its own backticks and on no backtick of the
+    model's (#2525).
+
+    A backtick that the text shows as text makes GitHub's parser, cmark, take a later code span of
+    a length it has already closed as text. It also makes markdown-it miss a code span after an
+    unclosed `[`. In such a text no span is code for a tag, each added code span takes a length of
+    its own, and a link, handle or reference in a code span is wrapped too (#2525).
+
+    `escape_tags` is false for a title. A title is plain text, so each tag stays as it is
+    (`safe_title`). The comment opener still becomes an entity.
     """
     # 1. Remove end markers inside text
     t = text.replace(CONST_ROADMAP_REFINE_END_MARKER, "[end-marker]")
     # 2. Remove images
     t = _IMAGE_RE.sub("", t)
-    # 3. Remove HTML tags
-    t = _HTML_TAG_RE.sub("", t)
-    # 4. Neutralize comment, declaration and processing instruction openers
-    t = _RAW_HTML_OPENER_RE.sub("&lt;", t)
+    # 3. Neutralize comment, declaration and processing instruction openers, and tags outside code
+    t = _without_raw_html(t, escape_tags=escape_tags)
     shortest = max(map(len, _BACKTICK_RUN_RE.findall(t)), default=0) + 1
-    stray = "`" in t and _shown_code(t).stray_backtick
+    stray = _shows_stray_backtick(t)
     lengths = itertools.count(shortest) if stray else itertools.repeat(shortest)
 
     def _fence() -> str:
         return "`" * next(lengths)
 
-    # 5. Process markdown links outside code
+    # 4. Process markdown links outside code
     def _link_sub(m: re.Match[str]) -> str:
         label, url = m.group(1), m.group(2)
         if url in allowed_urls:
@@ -1395,8 +1448,11 @@ def sanitize_text(text: str, allowed_urls: set[str]) -> str:
         return f"{label} ({ticks}{url}{ticks})"
 
     t = _replace_outside_code(t, _MARKDOWN_LINK_RE, 2, _link_sub, spans_are_code=not stray)
+    # 4b. The rewrite of a link drops the `[` and the `](` of a label, so the text around the label
+    # can build a tag or an opener that step 3 did not find
+    t = _without_raw_html(t, escape_tags=escape_tags)
 
-    # 6. Wrap handles, unallowed URLs and `www.` links, and references outside code
+    # 5. Wrap handles, unallowed URLs and `www.` links, and references outside code
     return _replace_outside_code(
         t,
         _LIVE_TEXT_RE,

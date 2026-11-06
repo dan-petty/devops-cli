@@ -424,13 +424,13 @@ class StageProposal(_Reply):
     @field_validator("summary")
     @classmethod
     def _summary_fits_the_title(cls, summary: str) -> str:
-        """The title shows the summary as `safe_text` writes it: on one line, and with a code span
+        """The title shows the summary as `safe_title` writes it: on one line, and with a code span
         for a handle or a link. The limit counts that text in the units of the check `Semantic PR
         title` (`summary_length`), so spare whitespace costs nothing, a handle costs its code span
         and an emoji costs two. A summary with no text left is refused too. The reply that breaks
         it goes back to the model with the count and the limit, and `staging_title` cuts no summary
         that the schema accepts."""
-        text = safe_text(summary)
+        text = safe_title(summary)
         shown = summary_length(text)
         if not any(_shows_something(char) for char in text):
             raise ValueError(MESSAGES.roadmap.stage_summary_blank)
@@ -919,7 +919,7 @@ def staging_title(number: int, summary: str) -> str:
     digits or fewer. The title is never cut, because a cut text ends with `...` and the form check
     refuses it (#3249): a summary that does not fit stops the item with `RoadmapStageError`."""
     lead = MESSAGES.roadmap.stage_title_lead.format(number=number)
-    shown = safe_text(summary)
+    shown = safe_title(summary)
     length = summary_length(lead + shown)
     if length > SUMMARY_MAX_CHARS:
         raise RoadmapStageError(
@@ -944,7 +944,7 @@ def delivery_title(issue_title: str, declared: Collection[str]) -> str:
     scope = commit_scope(issue_title)
     if scope and f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" not in declared:
         head = head.partition("(")[0]
-    return f"{head}: {safe_text(summary)}"
+    return f"{head}: {safe_title(summary)}"
 
 
 def pull_request_body(number: int, change: str, proposal: StageProposal) -> str:
@@ -956,8 +956,17 @@ def pull_request_body(number: int, change: str, proposal: StageProposal) -> str:
 
 def safe_text(text: str) -> str:
     """The model's `text` on one line, with a handle, a link or a reference to another repository
-    in a code span, so it pings no one and links nothing in a pull request or a comment."""
+    in a code span, so it pings no one and links nothing in a pull request or a comment, and with
+    the `<` of each tag outside code as an entity, so it shows as text and acts as no tag."""
     return sanitize_text(" ".join(text.split()), set())
+
+
+def safe_title(text: str) -> str:
+    """The model's `text` as `safe_text` writes it, but with each tag as it is. A title is plain
+    text: GitHub shows `<section>` as text and counts its characters, and the squash commit takes
+    the title as it is, so an entity would show as the text `&lt;` (#3504). The `<` of a comment
+    opener is still an entity, since the job puts a title in a comment too."""
+    return sanitize_text(" ".join(text.split()), set(), escape_tags=False)
 
 
 # ── The measure ───────────────────────────────────────────────────────────────
