@@ -19,6 +19,7 @@ each refusal, and the log counts it and ends the step at `CONST_ROADMAP_IMPLEMEN
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from pydantic_ai import RunContext
@@ -32,7 +33,9 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement_shell_policy import (
     IMPLEMENT_SHELL_PROGRAMS,
     IMPLEMENT_SHELL_REPLACEMENTS,
+    pipe_refusal,
     refused_argument,
+    without_checkout_prefix,
 )
 from devops_cli.roadmap.implement_tool_log import ToolCallLog, command_word
 
@@ -55,22 +58,30 @@ class _RefusingToolset(WrapperToolset[None]):
     """The toolset of the agent, with the refusals of a command returned as tool results."""
 
     log: ToolCallLog
+    checkout: Path | None = None
 
     async def call_tool(
         self, name: str, tool_args: dict[str, Any], ctx: RunContext[None], tool: ToolsetTool[None]
     ) -> Any:
         """Run the call. A command with a refused argument, and a command that the shell refuses
         by policy (a `PermissionError` is the cause of its `ModelRetry`), come back as text and
-        are noted in the log. Any other result or error passes on."""
+        are noted in the log. Any other result or error passes on. The exact prefix
+        `cd <checkout> &&` is removed, and a pipe is read here and not by the harness (#3520)."""
         command = tool_args.get("command")
-        if isinstance(command, str) and (found := refused_argument(command)) is not None:
-            program, argument = found
-            return self._refused(
-                ctx,
-                MESSAGES.roadmap.implement_refusal_argument.format(
-                    program=program.name, argument=argument, instead=program.argument_instead
-                ),
-            )
+        if isinstance(command, str):
+            if self.checkout is not None:
+                command = without_checkout_prefix(command, self.checkout)
+                tool_args = {**tool_args, "command": command}
+            if (text := pipe_refusal(command)) is not None:
+                return self._refused(ctx, text)
+            if (found := refused_argument(command)) is not None:
+                program, argument = found
+                return self._refused(
+                    ctx,
+                    MESSAGES.roadmap.implement_refusal_argument.format(
+                        program=program.name, argument=argument, instead=program.argument_instead
+                    ),
+                )
         try:
             return await self.wrapped.call_tool(name, tool_args, ctx, tool)
         except ModelRetry as retry:
@@ -89,9 +100,11 @@ class _RefusingToolset(WrapperToolset[None]):
 @dataclass
 class ShellRefusal(AbstractCapability[None]):
     """The capability that returns a refusal of the shell as a tool result with the hint. It adds
-    no tool retry. `log` counts the refusals and ends the step when they pass the limit."""
+    no tool retry. `log` counts the refusals and ends the step when they pass the limit. `checkout`
+    is the checkout of the step: a command may start with `cd <checkout> &&`."""
 
     log: ToolCallLog
+    checkout: Path | None = None
 
     def get_wrapper_toolset(self, toolset: AbstractToolset[None]) -> AbstractToolset[None]:
-        return _RefusingToolset(toolset, self.log)
+        return _RefusingToolset(toolset, self.log, self.checkout)

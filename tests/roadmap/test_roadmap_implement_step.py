@@ -57,7 +57,7 @@ from devops_cli.roadmap.implement_step import (
     run_step,
     shell_environment,
 )
-from devops_cli.roadmap.implement_tool_log import ToolCallLog
+from devops_cli.roadmap.implement_tool_log import ToolCallLog, logged_program
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
@@ -1245,7 +1245,8 @@ def test_a_first_word_that_is_no_known_program_is_counted_as_other_and_never_sho
 
     outcome = _step(store, checkout, script)
 
-    assert outcome.reason.endswith("\nRefused commands: other 1. Other retries: 0.")
+    shown = logged_program("API_KEY=hunter2")
+    assert outcome.reason.endswith(f"\nRefused commands: {shown} 1. Other retries: 0.")
     assert "hunter2" not in outcome.reason
 
 
@@ -1258,7 +1259,8 @@ def test_a_short_word_that_is_no_known_program_is_counted_as_other_and_never_sho
 
     outcome = _step(store, checkout, script)
 
-    assert outcome.reason.endswith("\nRefused commands: other 1. Other retries: 0.")
+    shown = logged_program("hunter2password")
+    assert outcome.reason.endswith(f"\nRefused commands: {shown} 1. Other retries: 0.")
     assert "hunter2password" not in outcome.reason
 
 

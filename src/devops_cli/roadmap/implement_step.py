@@ -79,7 +79,6 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_PRE_COMMIT_COMMIT_STAGE,
     CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS,
-    CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
     CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
     CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS,
     CONST_ROADMAP_IMPLEMENT_FIX_GROUP,
@@ -129,6 +128,7 @@ from devops_cli.roadmap.implement_hooks import commit_stage
 from devops_cli.roadmap.implement_limits import ItemSpend, StepBudget, limit_hooks
 from devops_cli.roadmap.implement_output_cap import output_cap_hooks
 from devops_cli.roadmap.implement_shell_policy import (
+    HARNESS_DENIED_OPERATORS,
     IMPLEMENT_SHELL_PROGRAMS,
     fill_prompt,
     read_verification,
@@ -461,14 +461,15 @@ def _tune(
     capability: AbstractCapability[None], window: int, home: Path
 ) -> AbstractCapability[None]:
     """One part of `Coder`, changed for a step: the shell takes the allowlist, the scratch home
-    and the refusal of the operators that start a second command, the tool results get the cap of
+    and the refusal of the operators that start a second command (the pipe is read by `ShellRefusal`),
+    the tool results get the cap of
     a step, and the context controls get the window of the task, in place of the registry's."""
     if isinstance(capability, Shell):
         return replace(
             capability,
             allowed_commands=list(IMPLEMENT_SHELL_PROGRAMS),
             denied_commands=[],
-            denied_operators=list(CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS),
+            denied_operators=list(HARNESS_DENIED_OPERATORS),
             allow_interactive=False,
             env=shell_environment(home),
         )
@@ -565,7 +566,7 @@ def build_agent(
         capabilities=[
             LocalWorkspace(source),
             tuned,
-            ShellRefusal(log),
+            ShellRefusal(log, source),
             log.hooks(),
             output_cap_hooks(output_cap(window)),
             limit_hooks(budget),

@@ -17,11 +17,11 @@ from typer.testing import CliRunner
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
-    CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
     CONST_ROADMAP_IMPLEMENT_MAX_REFUSALS,
 )
 from devops_cli.main import app
 from devops_cli.roadmap.implement_shell_policy import (
+    HARNESS_DENIED_OPERATORS,
     IMPLEMENT_ALLOWED_PROGRAMS,
     IMPLEMENT_SHELL_PROGRAMS,
     IMPLEMENT_SHELL_REPLACEMENTS,
@@ -37,6 +37,7 @@ from devops_cli.roadmap.implement_shell_policy import (
     ShellAccess,
     fill_prompt,
     local_commands_table,
+    pipe_refusal,
     programs_table,
     read_negative_search,
     refusals_table,
@@ -52,7 +53,7 @@ from tests.support.paths import REPO_ROOT
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
-READ_ONLY = ("grep", "cat", "ls", "head", "tail", "find")
+READ_ONLY = ("grep", "cat", "ls", "head", "tail", "wc", "find")
 FIND_ARGUMENTS = (
     "-exec",
     "-execdir",
@@ -460,9 +461,8 @@ def test_each_shell_example_of_the_prompt_passes_the_shell_policy() -> None:
 
     assert len(examples) >= 2
     for example in examples:
-        assert [op for op in CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS if op in example] == [], (
-            example
-        )
+        assert [op for op in HARNESS_DENIED_OPERATORS if op in example] == [], example
+        assert pipe_refusal(example) is None, example
         assert refused_argument(example) is None, example
 
 

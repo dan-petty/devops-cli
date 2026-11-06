@@ -15,6 +15,14 @@ words of a command that starts a program of the table. A program with access `re
 file, so it refuses a redirect to a file. `find` also refuses the arguments that run a program or
 change a file, and refuses a word with `$`, because the shell expands `-ex${U}ec` after the check.
 
+A pipe is the one operator that the policy reads word by word (#3520). The harness matches an
+operator as plain text, so it cannot tell a pipe from the escaped pipe of a `grep` pattern, and it cannot
+admit `| head` and refuse `| sh`. `HARNESS_DENIED_OPERATORS` is the tuple of denied operators without
+`|`. `pipe_refusal` splits a command into stages and admits a pipe only when each stage after the
+first starts a program of `CONST_ROADMAP_IMPLEMENT_READ_PIPE_PROGRAMS` that does not redirect to a
+file. `without_checkout_prefix` removes the exact prefix `cd <checkout> &&`, which changes to the
+directory that every command already has.
+
 The step runs a verification command as a list of words, never through a shell. One form starts
 with `!`: the negative search `! git grep [options] <literal> [--] <path>...`, which passes when
 git finds no match (#3263). `read_negative_search` reads its words against one table: the
@@ -29,6 +37,7 @@ import shlex
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 
 from devops_cli.config.commands import (
     BIN_DEVOPS,
@@ -39,7 +48,11 @@ from devops_cli.config.commands import (
     BIN_RUFF,
     BIN_UV,
 )
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS
+from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS,
+    CONST_ROADMAP_IMPLEMENT_READ_PIPE_PROGRAMS,
+    CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS,
+)
 from devops_cli.lang import MESSAGES
 
 
@@ -119,6 +132,12 @@ SHELL_PROGRAMS: tuple[ShellProgram, ...] = (
     ),
     ShellProgram(
         "tail", ShellAccess.READ, "Print the end of a file.", argument_instead=_READ_INSTEAD
+    ),
+    ShellProgram(
+        "wc",
+        ShellAccess.READ,
+        "Count the lines, words and bytes of files.",
+        argument_instead=_READ_INSTEAD,
     ),
     ShellProgram(
         BIN_FIND,
@@ -227,6 +246,7 @@ def _words(command: str) -> list[str] | None:
     cannot be read."""
     lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
+    lexer.commenters = ""
     try:
         return list(lexer)
     except ValueError:
@@ -241,6 +261,16 @@ def _file_redirect(words: list[str]) -> str | None:
         if word == ">&" and target != _NULL_DEVICE and not (target.isdigit() or target == "-"):
             return word
     return None
+
+
+PIPE = "|"
+# The denied operators that the harness checks as plain text: all but the pipe, which
+# `pipe_refusal` reads word by word.
+HARNESS_DENIED_OPERATORS: tuple[str, ...] = tuple(
+    operator for operator in CONST_ROADMAP_IMPLEMENT_DENIED_OPERATORS if operator != PIPE
+)
+# The characters that `shlex` splits into words of their own, with `punctuation_chars=True`.
+_PUNCTUATION = frozenset(shlex.shlex("", punctuation_chars=True).punctuation_chars)
 
 
 def _refused_word(program: ShellProgram, words: list[str]) -> str | None:
@@ -267,6 +297,56 @@ def refused_argument(command: str) -> tuple[ShellProgram, str] | None:
         return None
     word = _refused_word(program, words)
     return None if word is None else (program, word)
+
+
+def _pipe_text(program: str | None = None) -> str:
+    """The refusal of a pipe, with the program after it when there is one, and the programs that a
+    pipe may end in."""
+    texts = MESSAGES.roadmap
+    names = [f"`{name}`" for name in CONST_ROADMAP_IMPLEMENT_READ_PIPE_PROGRAMS]
+    return texts.implement_refusal_pipe.format(
+        before=texts.implement_refusal_pipe_before.format(program=shown(program))
+        if program
+        else "",
+        programs=f"{', '.join(names[:-1])} or {names[-1]}",
+    )
+
+
+def pipe_refusal(command: str) -> str | None:
+    """The text that refuses the pipes of `command`, or None when it holds no pipe or each stage
+    after the first is a program of `CONST_ROADMAP_IMPLEMENT_READ_PIPE_PROGRAMS` that writes no file.
+    A `|` in quotes or after a backslash is part of a word and starts no stage. A word made of
+    operator characters that holds a `|` (`|&`, `||`, `)|`) is no plain pipe, so it is refused. A
+    command that `shlex` cannot read is refused when it holds a `|` anywhere."""
+    words = _words(command)
+    if words is None:
+        return _pipe_text() if PIPE in command else None
+    stages: list[list[str]] = [[]]
+    for word in words:
+        if word == PIPE:
+            stages.append([])
+        elif PIPE in word and set(word) <= _PUNCTUATION:
+            return _pipe_text()
+        else:
+            stages[-1].append(word)
+    for stage in stages[1:]:
+        program = next((p for p in SHELL_PROGRAMS if stage and p.name == stage[0]), None)
+        if program is None or program.name not in CONST_ROADMAP_IMPLEMENT_READ_PIPE_PROGRAMS:
+            return _pipe_text(stage[0] if stage else None)
+        if (refused := _refused_word(program, stage)) is not None:
+            return MESSAGES.roadmap.implement_refusal_argument.format(
+                program=program.name, argument=refused, instead=program.argument_instead
+            )
+    return None
+
+
+def without_checkout_prefix(command: str, checkout: Path | str) -> str:
+    """`command` without the prefix `cd <checkout> &&`, when it starts with exactly that: the path
+    of the checkout alone, in plain or in quotes. Every command runs in the checkout, so the prefix
+    changes nothing. Any other `cd` and any other `&&` stay, and the shell refuses them."""
+    path = re.escape(str(checkout))
+    found = re.match(rf"""\s*cd +(?:{path}|'{path}'|"{path}") +&& +""", command)
+    return command if found is None else command[found.end() :]
 
 
 def _is_path(word: str) -> bool:

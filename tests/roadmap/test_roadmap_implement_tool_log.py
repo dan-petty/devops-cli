@@ -6,6 +6,8 @@ line goes to the standard error stream, which `capsys` reads.
 
 from __future__ import annotations
 
+import hashlib
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -17,7 +19,7 @@ from devops_cli.config import constants
 from devops_cli.roadmap.implement_shell_policy import IMPLEMENT_SHELL_REPLACEMENTS
 from devops_cli.roadmap.implement_shell_refusal import ShellRefusal
 from devops_cli.roadmap.implement_step import StepOutcome, run_step
-from devops_cli.roadmap.implement_tool_log import ToolCallLog
+from devops_cli.roadmap.implement_tool_log import ToolCallLog, logged_program
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessFake
 from tests.support.implement_step import TEST_BODY, WINDOW, write_call
@@ -134,10 +136,43 @@ def test_a_program_of_the_allowlist_is_logged_by_name(
         "PYTHON",
     ],
 )
-def test_a_first_word_that_is_no_known_program_is_logged_as_other(
+def test_a_first_word_that_is_no_known_program_is_logged_as_other_with_a_digest(
     capsys: pytest.CaptureFixture[str], command: str
 ) -> None:
-    assert _program_line(command, capsys) == "Tool call: shell, program other, ok."
+    line = _program_line(command, capsys)
+
+    assert re.fullmatch(r"Tool call: shell, program other:[0-9a-f]{12}, ok\.", line)
+
+
+@pytest.mark.parametrize("program", ["head", "tail", "grep", "wc", "git", "python"])
+def test_a_known_first_word_is_logged_by_name_and_never_as_other(program: str) -> None:
+    assert logged_program(program) == program
+
+
+def test_an_unknown_first_word_is_logged_as_other_and_the_digest_of_the_word() -> None:
+    word = "secret-tool"
+
+    shown = logged_program(word)
+
+    assert re.fullmatch(r"other:[0-9a-f]{12}", shown)
+    assert word not in shown
+
+
+def test_the_digest_is_not_the_plain_hash_of_the_word_so_a_dictionary_cannot_find_a_password() -> (
+    None
+):
+    word = "hunter2password"
+
+    assert hashlib.sha256(word.encode()).hexdigest()[:12] not in logged_program(word)
+
+
+def test_two_unknown_words_have_two_digests_and_one_word_has_one() -> None:
+    assert logged_program("sed") == logged_program("sed")
+    assert logged_program("sed") != logged_program("awk")
+
+
+def test_no_word_has_no_program_and_a_word_that_shlex_cannot_read_is_other() -> None:
+    assert (logged_program(None), logged_program("").startswith("other:")) == ("", True)
 
 
 @pytest.mark.parametrize("word", sorted(set(IMPLEMENT_SHELL_REPLACEMENTS) - {"!"}))
@@ -155,7 +190,8 @@ def test_a_command_that_starts_with_a_bang_is_logged_as_other_and_shows_no_word_
 ) -> None:
     lines = _call_lines(command, capsys)
 
-    assert lines[-1] == "Tool call: shell, program other, ok."
+    assert lines[-1] == f"Tool call: shell, program {logged_program('!')}, ok."
+    assert logged_program("!").startswith("other:")
     assert "Bearer" not in "".join(lines)
 
 
@@ -178,7 +214,7 @@ def test_a_secret_as_the_first_word_never_reaches_the_log_of_a_step(
 
     assert _lines(capsys) == [
         "Tool call: shell, started: other",
-        "Tool call: shell, program other, refused.",
+        f"Tool call: shell, program {logged_program('API_KEY=hunter2')}, refused.",
     ]
 
 
@@ -638,3 +674,21 @@ def test_a_refusal_by_policy_and_a_failed_validation_log_no_reason(
 
     assert sorted(_lines(capsys)) == ["Tool call: outside, retry.", "Tool call: typed, retry."]
     assert log.retried == 2
+
+
+def test_the_log_names_the_program_after_the_prefix_cd_checkout_and_not_the_cd(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The prefix `cd <checkout> &&` is dropped before the command runs (#3520), so the log shows
+    the program that the model asked for."""
+    script = ModelScript(tool_call("shell", command=f"cd {checkout} && python -V"), say("Done."))
+
+    _step(store, checkout, script)
+
+    assert _lines(capsys) == [
+        "Tool call: shell, started: python -V",
+        "Tool call: shell, program python, refused.",
+    ]
