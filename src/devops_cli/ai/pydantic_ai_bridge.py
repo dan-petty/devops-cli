@@ -142,16 +142,6 @@ def _resolve_ollama_model(model_str: str, active_settings: Settings) -> Any:
     )
 
 
-def _is_testing_mode_active() -> bool:
-    """Check if model network requests are disabled for testing."""
-    import devops_cli.ai.agents.agent as agent_module
-    import devops_cli.ai.agents.testing as testing_module
-
-    return not getattr(testing_module, "ALLOW_MODEL_REQUESTS", True) or not getattr(
-        agent_module, "ALLOW_MODEL_REQUESTS", True
-    )
-
-
 def _resolve_string_model(model_str: str, active_settings: Settings) -> Any:
     """Resolve a model name: a gateway-prefixed one at its gateway under any provider, an
     `ollama:` one or any other under provider `ollama` on Ollama, the rest remotely."""
@@ -186,7 +176,7 @@ def resolve_pydantic_ai_model(
             seq, settings=settings, model_concurrency=model_concurrency
         )
 
-    if _is_testing_mode_active() or model == "test":
+    if model == "test":
         from pydantic_ai.models.test import TestModel
 
         return _wrap_model_concurrency(TestModel(), model_concurrency)

@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
 
-from devops_cli.ai.agents.testing import TestModel
 from devops_cli.config.settings import Settings
+
+if TYPE_CHECKING:
+    from tests.support.fakes.model import ModelFake
 
 pytestmark = pytest.mark.usefixtures("public_dns")
 
@@ -234,15 +236,8 @@ def test_resolve_pydantic_ai_model_ollama() -> None:
     assert isinstance(m2, OllamaModel)
     assert m2.model_name == "llama3.2:3b"
 
-    # Offline test mode bypass
-    from pydantic_ai.models.test import TestModel as PyAITestModel
 
-    with patch("devops_cli.ai.agents.testing.ALLOW_MODEL_REQUESTS", False):
-        m3 = resolve_pydantic_ai_model("ollama:qwen2.5-coder:14b", settings=settings)
-        assert isinstance(m3, PyAITestModel)
-
-
-def test_pydantic_agent_with_ollama_model() -> None:
+def test_pydantic_agent_with_ollama_model(model_fake: ModelFake) -> None:
     """Verify PydanticAgent accepts OllamaModel and executes lifecycle with test model override."""
     from devops_cli.ai.agents.agent import PydanticAgent
     from devops_cli.ai.models.ollama import create_ollama_model
@@ -254,7 +249,8 @@ def test_pydantic_agent_with_ollama_model() -> None:
         instructions="You are an Ollama-powered test assistant.",
     )
 
-    with agent.override(model=TestModel(custom_output_text="Ollama response text")):
+    model_fake.answer("Ollama response text")
+    with agent.override(model=model_fake):
         res = agent.run("Hello Ollama")
         assert res.content == "Ollama response text"
 

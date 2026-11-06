@@ -259,13 +259,6 @@ def test_domain_specific_exceptions_exist() -> None:
     assert sb_nf_err.error_code == "SANDBOX_NOT_FOUND_ERROR"
 
 
-def test_test_model_pytest_collection_disabled() -> None:
-    """Ensure TestModel in testing.py disables Pytest collection to avoid PytestCollectionWarning."""
-    from devops_cli.ai.agents.testing import TestModel
-
-    assert getattr(TestModel, "__test__", None) is False
-
-
 def _parse_src() -> dict[Path, ast.Module]:
     """Parse every module under src/devops_cli once, for the whole-tree invariants."""
     return parse_source_trees(REPO_ROOT)

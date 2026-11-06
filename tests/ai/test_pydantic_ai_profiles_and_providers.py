@@ -105,13 +105,12 @@ _EXAMPLE_OLLAMA = "http://example.com:11434"
 
 @pytest.fixture
 def remote_bridge(monkeypatch: pytest.MonkeyPatch, public_dns: str) -> Any:
-    """The bridge with model requests allowed and the AI key fixed, so nothing reads a keyring.
+    """The bridge with the AI key fixed, so nothing reads a keyring.
 
     The example.com endpoints resolve to a public address, as they do outside tests.
     """
     from devops_cli.ai import pydantic_ai_bridge
 
-    monkeypatch.setattr(pydantic_ai_bridge, "_is_testing_mode_active", lambda: False)
     monkeypatch.setattr(pydantic_ai_bridge, "get_ai_api_key", lambda _settings: "sk-test")
     return pydantic_ai_bridge
 
