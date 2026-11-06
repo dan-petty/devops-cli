@@ -88,7 +88,8 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `OverWindowError` | `ROADMAP_IMPLEMENT_REFUSED` | `1` | Roadmap | Raised when the inputs of an implement step measure more than the window allows (#3057). |
 | `PoolLoadError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.pool_load | Prometheus could not answer a pool load query. |
 | `QdrantClientError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.rag.qdrant | Raised when an interaction with Qdrant fails. |
-| `RegistryReadError` | `DOCKER_REGISTRY_READ_ERROR` | `1` | Docker | Raised when an image registry gives no digest for a tag: no anonymous pull, or no tag. |
+| `RegistryReadError` | `DOCKER_REGISTRY_READ_ERROR` | `1` | Docker | Raised when an image registry gives no digest for a tag: no anonymous pull, or a reply with no digest. |
+| `RegistryTagNotFoundError` | `DOCKER_REGISTRY_TAG_NOT_FOUND` | `1` | Docker | Raised when an image registry answers HTTP 404 for a tag: the tag is not there (yet). |
 | `ReplyRejectedError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when the caller's validator refused a reply; it carries the reply, never cached. |
 | `ReviewHandOffRefusedError` | `REVIEW_HAND_OFF_REFUSED` | `1` | Ai | Raised when `devops review intake` refuses a session that is not on merged code. |
 | `ReviewPoolError` | `REVIEW_POOL_ERROR` | `1` | Ai | Raised when an error occurs during parallel review worker pool execution. |

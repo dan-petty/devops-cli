@@ -18,7 +18,7 @@ from urllib.request import parse_http_list, parse_keqv_list
 
 import httpx2
 
-from devops_cli.exceptions.docker import RegistryReadError
+from devops_cli.exceptions.docker import RegistryReadError, RegistryTagNotFoundError
 
 # The manifest kinds a tag can name: a multi-platform index or list, or one image's manifest. The
 # registry gives the digest of the kind it stores, which is what a pin names.
@@ -80,8 +80,9 @@ def tag_digest(reference: str, client: httpx2.Client, *, timeout: float) -> str:
     """Return the digest that the tag of `reference` names now, such as `sha256:...`.
 
     `reference` is `<registry>/<repository>:<tag>`. Raises RegistryReadError when the registry
-    gives no digest: the image needs credentials, the tag is not there, or the reply has no
-    `Docker-Content-Digest`.
+    gives no digest: the image needs credentials, or the reply has no `Docker-Content-Digest`.
+    Raises RegistryTagNotFoundError, a RegistryReadError, when the registry answers HTTP 404: the
+    tag is not there.
     """
     image = tagged_image(reference)
     url = f"https://{image.registry}/v2/{image.repository}/manifests/{image.tag}"
@@ -94,7 +95,12 @@ def tag_digest(reference: str, client: httpx2.Client, *, timeout: float) -> str:
         headers["Authorization"] = f"Bearer {token}"
         response = client.head(url, headers=headers, timeout=timeout)
     if response.status_code != httpx2.codes.OK:
-        raise RegistryReadError(
+        error = (
+            RegistryTagNotFoundError
+            if response.status_code == httpx2.codes.NOT_FOUND
+            else RegistryReadError
+        )
+        raise error(
             f"The registry gives no manifest for {reference} (HTTP {response.status_code})."
         )
     digest = response.headers.get("docker-content-digest", "")

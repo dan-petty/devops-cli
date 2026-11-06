@@ -3368,6 +3368,12 @@ CONST_ROADMAP_RELEASE_COMMENTS_LIST: Final[int] = 30
 CONST_ROADMAP_RELEASE_MARKER: Final[str] = "<!-- devops roadmap release {tag} {kind} -->"
 # The Service and runner images that a release publishes, as `<prefix>/<image>:<tag>` (#2917).
 CONST_ROADMAP_RELEASE_IMAGE_PREFIX: Final[str] = "ghcr.io/dan-petty/devops-cli"
+# How long after its publication a release may lack an image tag with no fault (#3507). The build
+# of the images takes about 6 minutes (measured 5 min 40 s to 6 min 4 s) and the release workflow
+# may queue, so a tag that the registry does not hold yet is "not yet" inside this time. Past it,
+# the missing tag is a fault. 20 minutes is one 11-minute round of the row past the build and the
+# queue.
+CONST_ROADMAP_RELEASE_IMAGE_GRACE_MINUTES: Final[int] = 20
 # The Deployment of the Service and the container in it that run the Service image (#2917).
 CONST_ROADMAP_SERVICE_DEPLOYMENT: Final[str] = "roadmap-service"
 CONST_ROADMAP_SERVICE_CONTAINER: Final[str] = "service"

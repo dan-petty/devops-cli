@@ -298,3 +298,107 @@ def test_a_round_sends_only_reads_and_comments(
     for args in github.writes():
         assert args[args.index("-X") + 1] == "POST"
         assert any(arg.endswith("/comments") for arg in args)
+
+
+# ── A release whose images are not pushed yet ──
+
+
+def _new_release(github: GitHubFake) -> None:
+    """Release `v1.1.0` of 5 minutes ago, with issue 103."""
+    github.seed_issue(13, "pull", state="closed", body="Closes #103", pull_request=True)
+    github.seed_issue(103, "three", state="closed")
+    github.seed_release("v1.1.0", _changelog(13), NOW - timedelta(minutes=5))
+
+
+def _live_round(
+    github: GitHubFake,
+    ledger: Path,
+    stub_web: StubWeb,
+    *,
+    absent: tuple[str, ...] = (),
+    rolled: str = "v1.0.0",
+) -> None:
+    """A round over a registry that holds every digest but the references in `absent`."""
+    stub_web.serve(RegistryFake({k: v for k, v in DIGESTS.items() if k not in absent}))
+    with new_http_client(level=EgressLevel.PUBLIC) as client:
+        _round(github, ledger, roll=lambda: _rolled(rolled), client=client)
+
+
+def test_a_404_on_a_release_younger_than_the_limit_fails_no_round(
+    github: GitHubFake, ledger: Path, stub_web: StubWeb
+) -> None:
+    _new_release(github)
+
+    _live_round(github, ledger, stub_web, absent=(f"{PREFIX}/service:v1.1.0",), rolled="v1.1.0")
+
+    assert _live_comments(github, 103, "v1.1.0") == []
+    assert len(github.comments[103]) == 1
+    assert json.loads(ledger.read_text("utf-8"))["releases"]["v1.1.0"] == {
+        "released": True,
+        "live": False,
+    }
+
+
+def test_a_404_on_a_new_release_leaves_the_older_releases_checked_in_the_same_round(
+    github: GitHubFake, ledger: Path, stub_web: StubWeb
+) -> None:
+    _new_release(github)
+
+    _live_round(
+        github,
+        ledger,
+        stub_web,
+        absent=(f"{PREFIX}/service:v1.1.0", f"{PREFIX}/runner:v1.1.0"),
+    )
+
+    assert len(_live_comments(github, 101, "v1.0.0")) == 1
+    assert _live_comments(github, 103, "v1.1.0") == []
+
+
+def test_a_404_on_the_runner_tag_of_a_new_release_is_also_not_yet(
+    github: GitHubFake, ledger: Path, stub_web: StubWeb
+) -> None:
+    _new_release(github)
+
+    _live_round(github, ledger, stub_web, absent=(f"{PREFIX}/runner:v1.1.0",), rolled="v1.1.0")
+
+    assert _live_comments(github, 103, "v1.1.0") == []
+
+
+def test_a_new_release_gets_its_live_comment_in_the_round_after_its_images_are_pushed(
+    github: GitHubFake, ledger: Path, stub_web: StubWeb
+) -> None:
+    _new_release(github)
+    _live_round(github, ledger, stub_web, absent=(f"{PREFIX}/service:v1.1.0",), rolled="v1.1.0")
+    stub_web.servers.clear()
+
+    _live_round(github, ledger, stub_web, rolled="v1.1.0")
+
+    assert len(_live_comments(github, 103, "v1.1.0")) == 1
+
+
+def test_a_404_on_a_release_at_the_limit_fails_the_round(
+    github: GitHubFake, ledger: Path, stub_web: StubWeb
+) -> None:
+    """v1.0.0 is 150 minutes old, far past the limit of 20 minutes."""
+    stub_web.serve(RegistryFake({}))
+
+    with (
+        new_http_client(level=EgressLevel.PUBLIC) as client,
+        pytest.raises(RoadmapRunError, match=r"v1\.0\.0"),
+    ):
+        _round(github, ledger, roll=lambda: _rolled("v1.0.0"), client=client)
+
+
+def test_a_registry_status_other_than_404_fails_the_round_for_a_new_release(
+    github: GitHubFake, ledger: Path, stub_web: StubWeb
+) -> None:
+    _new_release(github)
+    manifest = "https://ghcr.io/v2/dan-petty/devops-cli/service/manifests/v1.1.0"
+    stub_web.respond("HEAD", manifest, 500)
+
+    with (
+        new_http_client(level=EgressLevel.PUBLIC) as client,
+        pytest.raises(RoadmapRunError, match=r"v1\.1\.0"),
+    ):
+        _round(github, ledger, roll=lambda: _rolled("v1.1.0"), client=client)
