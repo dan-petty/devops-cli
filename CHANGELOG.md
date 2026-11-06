@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.70.1](https://github.com/dan-petty/devops-cli/compare/v0.70.0...v0.70.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **k8s:** key claim table by chart version ([#3812](https://github.com/dan-petty/devops-cli/issues/3812)) ([555280f](https://github.com/dan-petty/devops-cli/commit/555280ffddc54d4518d2e261b700b47b1aadddaa))
+* **openspec:** accept every Verification line of an active plan ([#3809](https://github.com/dan-petty/devops-cli/issues/3809)) ([e999bfe](https://github.com/dan-petty/devops-cli/commit/e999bfe5a651fc1de1dbd04ee43d912073e383cc))
+
 ## [0.70.0](https://github.com/dan-petty/devops-cli/compare/v0.69.1...v0.70.0) (2026-11-06)
 
 
