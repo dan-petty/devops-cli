@@ -5,6 +5,12 @@ as Ruff's C901 does (standard McCabe), so the scanner flags what `ruff check` fl
 `with`, conditional expressions and boolean operands add nothing; a closure adds 1 plus its own
 count to the function that defines it and is reported on its own too. Ruff's PLR1702 caps nesting
 in `ruff check` (#1876), so this module measures no nesting depth.
+
+The module does not call Ruff. Ruff is a development dependency, not a runtime one. `ruff check`
+gives the figure only inside a message string, and only for a function above `max-complexity`.
+`tests/core/test_code_metrics.py` holds 12 figures that were taken from `ruff check --select C901`
+with `max-complexity=0`. The test does not run Ruff, so a later change of Ruff counting does not
+fail it (#2600).
 """
 
 from __future__ import annotations
