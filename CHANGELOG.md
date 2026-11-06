@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.64.3](https://github.com/dan-petty/devops-cli/compare/v0.64.2...v0.64.3) (2026-11-06)
+
+
+### Bug Fixes
+
+* **devcontainer:** raise the process limit of the container ([#3730](https://github.com/dan-petty/devops-cli/issues/3730)) ([61459d8](https://github.com/dan-petty/devops-cli/commit/61459d80e53e459bc5c1368ca039a0a34c90d6a0))
+* **roadmap:** leave out a golden case with no commit ([#3728](https://github.com/dan-petty/devops-cli/issues/3728)) ([17666eb](https://github.com/dan-petty/devops-cli/commit/17666ebfab19e6468f098d24f0ef4bedbe35b418))
+* **roadmap:** the plan check refuses two tasks that state the same work ([#3628](https://github.com/dan-petty/devops-cli/issues/3628)) ([fe37f21](https://github.com/dan-petty/devops-cli/commit/fe37f215343eac70e82f89ec356b66ed0301af18))
+
 ## [0.64.2](https://github.com/dan-petty/devops-cli/compare/v0.64.1...v0.64.2) (2026-11-06)
 
 
