@@ -1,9 +1,9 @@
-# Loki Helm values, SingleBinary mode. Argo CD's Application `loki` installs them on the k3s
+# Loki Helm values, Monolithic mode. Argo CD's Application `loki` installs them on the k3s
 # homelab, and `devops k8s deploy-stack --stack logging` installs them on either cluster.
 # Chart: grafana-community/loki
 # Repo:  https://grafana-community.github.io/helm-charts
 
-deploymentMode: SingleBinary
+deploymentMode: Monolithic
 
 loki:
   auth_enabled: false
@@ -106,7 +106,12 @@ chunksCache:
 resultsCache:
   enabled: false
 
-# Disable rule sidecar container in dev-mode SingleBinary cluster to eliminate k8s API watch crashloop
+# The chart renders the memcached ServiceAccount by default, and no pod uses it while chunksCache
+# and resultsCache are off.
+memcached:
+  enabled: false
+
+# Disable rule sidecar container in dev-mode Monolithic cluster to eliminate k8s API watch crashloop
 sidecar:
   rules:
     enabled: false
@@ -121,7 +126,7 @@ defaults:
 serviceAccount:
   automountServiceAccountToken: false
 
-# Zero out scalable targets to satisfy SingleBinary deploymentMode validation
+# Zero out scalable targets to satisfy Monolithic deploymentMode validation
 read:
   replicas: 0
 

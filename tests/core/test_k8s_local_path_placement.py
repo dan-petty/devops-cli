@@ -47,16 +47,27 @@ def _on(*switches: tuple[str, Any]) -> Callable[[dict[str, Any]], bool]:
 
 
 def _loki_mode(values: dict[str, Any]) -> bool:
-    """Loki's single binary mounts a claim in Monolithic mode, the default of the
-    grafana-community chart, which also takes SingleBinary as the old name of that mode.
+    """Loki's single binary mounts a claim in Monolithic mode, the mode of the
+    grafana-community chart.
 
     The other modes run write and backend StatefulSets with claims of their own, which this table
     does not name, so the test fails on them until it does.
     """
     mode = value_at(values, "deploymentMode", "Monolithic")
-    if mode not in ("Monolithic", "SingleBinary"):
+    if mode != "Monolithic":
         pytest.fail(f"Loki deploymentMode {mode}: name its claims in CHART_CLAIMS")
     return bool(value_at(values, "singleBinary.persistence.enabled", True))
+
+
+def test_loki_mode_rejects_the_old_name() -> None:
+    """The deprecated SingleBinary name is not the mode the values use."""
+    with pytest.raises(pytest.fail.Exception, match="Loki deploymentMode SingleBinary"):
+        _loki_mode({"deploymentMode": "SingleBinary"})
+
+
+def test_loki_mode_accepts_the_current_name() -> None:
+    """Monolithic with persistence on mounts a claim."""
+    assert _loki_mode({"deploymentMode": "Monolithic"}) is True
 
 
 def _alloy_collectors(values: dict[str, Any]) -> tuple[ClaimSite, ...]:

@@ -1602,7 +1602,7 @@ def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:
         logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/audit"],
     ) == ("baseline", "baseline", "baseline")
 
-    # 2. Loki values: zeroed scalable target replicas for SingleBinary mode
+    # 2. Loki values: zeroed scalable target replicas for Monolithic mode
     loki_values = yaml.safe_load(
         (REPO_ROOT / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
     )
