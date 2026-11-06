@@ -243,10 +243,8 @@ def test_the_fixture_installs_the_fake_and_the_reset_brings_the_real_dispatcher_
     installed = get_mcp_dispatcher()
     reset_mcp_dispatcher()
 
-    assert (installed is mcp_dispatcher, isinstance(get_mcp_dispatcher(), InProcessDispatcher)) == (
-        True,
-        True,
-    )
+    assert installed is mcp_dispatcher
+    assert type(get_mcp_dispatcher()) is InProcessDispatcher
 
 
 def test_a_dispatcher_installed_by_hand_is_the_one_the_getter_returns() -> None:
