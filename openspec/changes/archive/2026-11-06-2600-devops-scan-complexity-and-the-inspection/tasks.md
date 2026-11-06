@@ -11,5 +11,5 @@ Reads: `src/devops_cli/core/code_metrics.py`. Changes: `src/devops_cli/core/code
 
 ## 2. Archive
 
-- [ ] 2.1 Archive the change
+- [x] 2.1 Archive the change
   - Verification: `uv run devops openspec archive 2600-devops-scan-complexity-and-the-inspection`
