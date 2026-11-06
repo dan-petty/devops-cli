@@ -241,7 +241,28 @@ def _run_for(
         run["properties"] = {
             _TOOL_RUNS_PROPERTY: [record.model_dump(mode="json") for record in records]
         }
+    provenance = _provenance_for(records)
+    if provenance:
+        run["versionControlProvenance"] = provenance
     return run
+
+
+def _provenance_for(records: Sequence[ToolRun]) -> list[dict[str, str]]:
+    """The `versionControlProvenance` entries of the records of one tool.
+
+    A record adds an entry when its repository URI is set and its commit is set and does not end
+    with `-dirty`: a dirty commit identifies no revision of the scanned files (SARIF 2.1.0,
+    3.23.4), and each entry requires a `repositoryUri` (3.23.3). A pair of the two stands once, in
+    the order of the first record that gave it.
+    """
+    provenance: dict[tuple[str, str], dict[str, str]] = {}
+    for record in records:
+        uri = record.repository_uri
+        commit = record.commit
+        if not uri or not commit or commit.endswith("-dirty"):
+            continue
+        provenance.setdefault((uri, commit), {"repositoryUri": uri, "revisionId": commit})
+    return list(provenance.values())
 
 
 def _execution_window(started: str | None, ended: str | None) -> dict[str, str]:
