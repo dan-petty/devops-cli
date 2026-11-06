@@ -7008,6 +7008,28 @@ devops pr checks [OPTIONS] <number>
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops pr evidence`
+
+**Post the check results of a pull request as one comment: the head commit, a table of the checks with their conclusion and link, the fail-to-pass run of a fix, and the skipped checks. Every number comes from GitHub. A new head commit updates the comment.**
+
+```bash
+devops pr evidence [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--attribution` | `string` | - | A paragraph for the end of the comment. Repeat the option for more. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ### `devops pr wait`
 
 **Wait until the checks of a PR settle, then name every blocker of its merge.**
@@ -8264,6 +8286,28 @@ devops gh pr checks [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+#### `devops gh pr evidence`
+
+**Post the check results of a pull request as one comment: the head commit, a table of the checks with their conclusion and link, the fail-to-pass run of a fix, and the skipped checks. Every number comes from GitHub. A new head commit updates the comment.**
+
+```bash
+devops gh pr evidence [OPTIONS] <number>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<number>` | `integer` | Yes | Pull request number. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--attribution` | `string` | - | A paragraph for the end of the comment. Repeat the option for more. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

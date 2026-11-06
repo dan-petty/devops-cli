@@ -1202,6 +1202,12 @@ class PRMessages:
         "Run this command again after `devops openspec archive` if the date changes."
     )
     describe_dry_run_heading: str = "Would read the issue and the labels file to build the form:"
+    # `devops pr evidence` (#3199).
+    evidence_dry_run_heading: str = (
+        "Would read the checks of the head commit and write one check-results comment:"
+    )
+    evidence_created: str = "Created the check-results comment on PR #{number}."
+    evidence_updated: str = "Updated the check-results comment on PR #{number}."
     gh_cli_required: str = (
         "GitHub CLI ('gh') is required for pull request operations. "
         "Please install gh or ensure it is in PATH."
