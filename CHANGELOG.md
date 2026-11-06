@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.64.1](https://github.com/dan-petty/devops-cli/compare/v0.64.0...v0.64.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **roadmap:** a rejected plan leaves its evidence on the issue ([#3713](https://github.com/dan-petty/devops-cli/issues/3713)) ([60eb89e](https://github.com/dan-petty/devops-cli/commit/60eb89edd2f0675b05d19bcaea724de603e9ecbc))
+
 ## [0.64.0](https://github.com/dan-petty/devops-cli/compare/v0.63.2...v0.64.0) (2026-11-06)
 
 
