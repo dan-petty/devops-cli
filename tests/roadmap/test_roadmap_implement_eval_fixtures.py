@@ -147,3 +147,11 @@ def test_a_chosen_name_that_no_fixture_has_is_refused_and_the_known_names_are_li
     with pytest.raises(ImplementEvalError) as raised:
         choose_cases(cases, ("c-case",))
     assert str(raised.value) == "No fixture is named c-case. The fixtures are: a-case, b-case."
+
+
+def test_a_plan_whose_section_the_reader_refuses_is_refused_and_named(tmp_path: Path) -> None:
+    proposal = "# Proposal\n\n## Weakened checks\n\nThe test goes.\n"
+    with pytest.raises(ImplementEvalError) as caught:
+        load_case(write_fixture(tmp_path, proposal=proposal))
+
+    assert "The test goes." in str(caught.value)

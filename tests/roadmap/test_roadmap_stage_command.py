@@ -10,6 +10,7 @@ import pytest
 from devops_cli.ai.client import factory
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import dry_run_stage
+from devops_cli.roadmap.stage_verify import Verification
 from devops_cli.roadmap.store import StageRecordKey
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
@@ -116,22 +117,23 @@ def test_the_command_plans_with_the_model_of_the_stage_task_as_a_toolbox_model(
 ) -> None:
     seed_stageable(roadmap_store)
     script = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
+    review = Script(Verification())
+    models = {"stage": script, "verification": review}
     tasks: list[str] = []
 
     def task_model(task: str) -> Any:
         tasks.append(task)
-        return script.model()
+        return models[task].model()
 
     monkeypatch.setattr(factory, "get_task_model", task_model)
-    no_findings(model_fake)
 
     result = _stage(cli, stage_repo, "--plan")
 
     assert result.exit_code == 0, result.output
-    assert (tasks, script.tools_offered[0][:2], model_fake.call_count) == (
-        ["stage"],
+    assert (tasks, script.tools_offered[0][:2], review.tools_offered[0][:1]) == (
+        ["stage", "verification"],
         ["list_files", "read_file"],
-        1,
+        ["list_files"],
     )
     assert "## To stage" in result.output
 

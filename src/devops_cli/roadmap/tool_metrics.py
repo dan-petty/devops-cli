@@ -1,6 +1,6 @@
-"""The metrics of the tool calls of a plan run (#3240).
+"""The metrics of the tool calls of a run of the stage job (#3240).
 
-A plan run of the stage planner calls read-only tools. `start_run` adds 0 to
+A run of the stage planner or of its verifier calls read-only tools. `start_run` adds 0 to
 `devops_cli_roadmap_tool_calls_total` for each tool of the toolset before the run calls any, so a
 tool that no run calls keeps a series, and an alert can find it. `end_run` sends what the
 `RunTrace` of the run holds: one count and one answer size for each call, the calls of the run, and
@@ -33,9 +33,8 @@ def start_run(tools: Iterable[str], *, row: str, toolset: str) -> None:
 
 
 def end_run(trace: RunTrace, *, row: str, toolset: str, finished: bool) -> None:
-    """Send the calls of one plan run. A call that got no answer adds no answer size. A run that
-    did not finish, because a model call failed, made no plan run: it adds its calls, and no count
-    of calls for the run, so a model that is down does not make each tool look unused."""
+    """Send the calls of one run. A call that got no answer adds no answer size. A run that did not
+    finish, because a model call failed, adds its calls, and no count of calls for the run, so a model that is down does not make each tool look unused."""
     for record in trace.tool_calls:
         labels = {"tool": record.name, "row": row, "toolset": toolset}
         emit(ROADMAP_TOOL_CALLS_TOTAL, 1, {**labels, "outcome": record.outcome.value})

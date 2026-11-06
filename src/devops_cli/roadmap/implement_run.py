@@ -149,6 +149,7 @@ from devops_cli.roadmap.implement_trace import (
     summary_table,
 )
 from devops_cli.roadmap.implement_wip import WipCommit, kept_commits
+from devops_cli.roadmap.plan_read import PlanReadError, merged_recorded_tests
 from devops_cli.roadmap.pull_form import title_problems
 from devops_cli.roadmap.pull_labels import (
     add_pull_labels,
@@ -619,6 +620,22 @@ class _ItemRun:
         (#3043)."""
         return trusted_config(self.path, f"origin/{self.default}")
 
+    def _recorded_tests(self) -> frozenset[str]:
+        """The tests that the plan on the default branch records (#3490). A person merged that
+        text, so it holds what the owner allows under rule 5 of `AGENTS.md`. The job never reads the
+        file of the checkout, which the agent can edit, and a plan that is only on its staged branch
+        records none. A section that the reader refuses stops the item: the plan is at fault."""
+        try:
+            return merged_recorded_tests(
+                self.path, f"origin/{self.default}", self.number, operation=GIT_OPERATION
+            )
+        except PlanReadError as error:
+            raise _StopError(
+                self.step,
+                MESSAGES.roadmap.plan_check_read.format(path=error.path, reason=error.reason),
+                failure_class=FailureClass.PLAN_DEFECT,
+            ) from error
+
     def _install_hooks(self) -> None:
         """Fetch the hook environments before the first model request, so that no network failure
         wastes a step. A failure stops the item with nothing to push (#3043)."""
@@ -903,6 +920,7 @@ class _ItemRun:
                     trace=self.trace,
                     on_wip=self._keep,
                     spend=self._item_spend(),
+                    recorded_tests=self._recorded_tests(),
                 )
             except OverWindowError as err:
                 self._handle_over_window(group, err, change, tasks_text, tasks_file, tasks)
@@ -1296,6 +1314,7 @@ class _ItemRun:
             model_for_tier=self.model_for_tier,
             trace=self.trace,
             spend=self._item_spend(),
+            recorded_tests=self._recorded_tests(),
         )
         self.outcomes.append(outcome)
         if outcome.status is StepStatus.STOPPED:

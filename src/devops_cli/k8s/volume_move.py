@@ -309,22 +309,37 @@ def _copy_argv(plan: VolumeMovePlan, context: str | None) -> list[str]:
 
     `run_subprocess` starts one program, so bash holds the pipe; `pipefail` fails the copy when
     either side fails, and `shlex.join` quotes every word of the two kubectl commands.
+
+    The end of the source's stdout loses the data that still waits on the path to a slower
+    destination (#3695), so the source keeps its stdout open until the destination has ended. GNU
+    tar ends the extract at the end-of-archive marker with its stdin still open. A named pipe joins
+    the destination's stdout to the source's stdin: when the destination ends, `cat` gets the end
+    of its input and the source ends. When the source's tar fails, the source ends at once, so the
+    destination gets the end of its input and fails too.
     """
     source = build_kubectl_cmd(
         [
             "exec",
+            "-i",
             plan.source_pod,
             "-n",
             plan.namespace,
             "--",
-            "tar",
-            "-C",
-            CONST_K8S_VOLUME_MOVE_SOURCE_DIR,
-            "--numeric-owner",
-            "--sparse",
-            "-cpf",
-            "-",
-            ".",
+            "bash",
+            "-c",
+            shlex.join(
+                [
+                    "tar",
+                    "-C",
+                    CONST_K8S_VOLUME_MOVE_SOURCE_DIR,
+                    "--numeric-owner",
+                    "--sparse",
+                    "-cpf",
+                    "-",
+                    ".",
+                ]
+            )
+            + " && exec cat",
         ],
         context,
     )
@@ -345,7 +360,9 @@ def _copy_argv(plan: VolumeMovePlan, context: str | None) -> list[str]:
         ],
         context,
     )
-    return [BIN_BASH, "-o", "pipefail", "-c", f"{shlex.join(source)} | {shlex.join(destination)}"]
+    hold = """hold=$(mktemp -d) && trap 'rm -rf "$hold"' EXIT && mkfifo "$hold/end" && """
+    pipe = f'{shlex.join(source)} <"$hold/end" | {shlex.join(destination)} >"$hold/end"'
+    return [BIN_BASH, "-o", "pipefail", "-c", hold + pipe]
 
 
 def delete_old_volume_command(plan: VolumeMovePlan, context: str | None) -> str:

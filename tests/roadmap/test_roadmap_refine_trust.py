@@ -451,6 +451,21 @@ def test_a_finding_without_a_quote_from_the_input_is_advice_and_refuses_nothing(
     )
 
 
+@pytest.mark.parametrize("kind", [DefectType.TASK_ORDER, DefectType.VERIFY_FORM])
+def test_a_finding_on_tasks_is_advice_because_a_proposal_has_no_task_groups(
+    store: InMemoryRoadmapStore, git_repo: Path, kind: DefectType
+) -> None:
+    number = _seed(store)
+    finding = _FALSE_PREMISE.model_copy(update={"type": kind})
+
+    _round(store, git_repo, _Proposer(), _Verifier(finding))
+
+    assert (_status(store, number), _record(store, number, RefineRecordKey.JUDGE)) == (
+        "Ready",
+        "approved",
+    )
+
+
 # ── The other accounts ────────────────────────────────────────────────────────
 
 

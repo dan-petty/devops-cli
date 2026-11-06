@@ -550,7 +550,7 @@ def test_the_comment_lists_the_tool_calls_and_the_counts_of_the_plan_run(
 
     (comment,) = _comments(store)
     assert applied.staged == (1,)
-    assert "The plan run made 2 model request(s)" in comment
+    assert "The runs of the planner and the review made 2 model request(s)" in comment
     assert '1. `read_file({"path":"src/devops_cli/sample.py"})`' in comment
     assert "input tokens" in comment
     assert "output tokens" in comment
@@ -634,7 +634,7 @@ def test_the_comment_of_an_item_that_made_no_tool_call_says_so(
     _stage(store, stage_repo, toolbox=Script(make_stage_proposal()))
 
     (comment,) = _comments(store)
-    assert "The plan run made 1 model request(s)" in comment
+    assert "The runs of the planner and the review made 1 model request(s)" in comment
     assert "The model made no tool call." in comment
 
 
@@ -703,7 +703,7 @@ def test_the_comment_of_an_item_with_two_plan_runs_lists_the_calls_of_both_and_s
     _stage(store, stage_repo, toolbox=script)
 
     (comment,) = _comments(store)
-    assert "The plan run made 4 model request(s)" in comment
+    assert "The runs of the planner and the review made 4 model request(s)" in comment
     first = comment.index("1. `list_files(")
     second = comment.index("2. `read_file(")
     assert first < second

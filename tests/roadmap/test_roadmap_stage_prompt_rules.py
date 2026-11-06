@@ -94,7 +94,7 @@ def _reply_section(prompt: str) -> str:
 def test_the_top_level_keys_of_the_reply_are_the_fields_of_the_proposal() -> None:
     bullets = re.findall(r"^- `(\w+)`:", _reply_section(_PROMPT), flags=re.MULTILINE)
 
-    assert sorted(bullets) == sorted(StageProposal.model_fields)
+    assert sorted(bullets) == sorted(StageProposal.model_json_schema()["properties"])
 
 
 @pytest.mark.parametrize(

@@ -308,6 +308,12 @@ class InvestigationTools:
         return [Tool(method, takes_ctx=False) for method in methods]
 
 
+def tool_stop(window: int) -> int:
+    """The tokens of the messages at which a run of `window` offers no more tools: the window less
+    its share for the reply (`CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE`)."""
+    return window - window // CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE
+
+
 def _limit_reached(ctx: RunContext[None], window: int | None) -> RunLimit | None:
     """The limit that takes the tools from this request, or None while the run has budget for one
     more turn of calls and an answer after it, and its messages and a share of the `window` for
@@ -321,10 +327,8 @@ def _limit_reached(ctx: RunContext[None], window: int | None) -> RunLimit | None
         return RunLimit.CALLS
     if (limits.request_limit or 0) - ctx.usage.requests <= 1:
         return RunLimit.REQUESTS
-    if window is not None:
-        reserve = window // CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE
-        if _tokens_of(ctx.messages) + reserve >= window:
-            return RunLimit.WINDOW
+    if window is not None and tokens_of(ctx.messages) >= tool_stop(window):
+        return RunLimit.WINDOW
     return None
 
 
@@ -347,7 +351,7 @@ def _offering(
     return hook
 
 
-def _tokens_of(messages: Sequence[ModelMessage]) -> int:
+def tokens_of(messages: Sequence[ModelMessage]) -> int:
     """The tokens of every message of a run: its instructions, requests, replies and tool answers.
     The JSON form is a little longer than the text a model reads, so the count errs high."""
     return count_tokens(ModelMessagesTypeAdapter.dump_json(list(messages)).decode())
@@ -479,4 +483,6 @@ __all__ = [
     "investigate",
     "repository_path",
     "task_window",
+    "tokens_of",
+    "tool_stop",
 ]

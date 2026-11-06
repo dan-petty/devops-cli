@@ -2543,7 +2543,8 @@ class RoadmapMessages:
     implement_stop_tick_unreadable: str = "The job cannot tick group {group}. The tasks.md of the change has no readable group {group}."
     implement_stop_tests_lost: str = (
         "The agent removed tests that existed at the start of the step. "
-        "A step may add tests. It may not remove or rename one.\n{files}"
+        "A step may add tests. It may remove or rename a test only when the plan on the default "
+        "branch names it in `## Weakened checks`.\n{files}"
     )
     implement_tests_lost_file: str = "{path}: {tests}"
     implement_stop_head_moved: str = (
@@ -2598,6 +2599,7 @@ class RoadmapMessages:
         "Fixture {name}: the result {result} names the diff results/{file}, which is missing."
     )
     eval_implement_lost_form: str = "allow_lost_tests holds {entry}, which is not path::name."
+    eval_implement_bad_record: str = "The plan of fixture {name} cannot be read: {reason}"
     eval_implement_unknown: str = "No fixture is named {names}. The fixtures are: {known}."
     # The details of the properties.
     eval_implement_more: str = " and {count} more"
@@ -3075,6 +3077,11 @@ class RoadmapMessages:
     stage_violations: str = "{count} schema violation(s)"
     # The plan run of the toolbox stopped with no plan; `reason` is the fixed text of its stop.
     stage_run_stopped: str = "The plan run stopped before it gave a plan: {reason}."
+    # The review run of a plan that passed the gates stopped with no findings (#3039).
+    stage_verify_stopped: str = (
+        "The verification run stopped before it gave its findings: {reason}. The plan passed the "
+        "gates, and no draft opened."
+    )
     # The checkout of a plan run with tools is not the staged commit with no change (#3037).
     stage_checkout_moved: str = "The checkout is not at the staged commit {sha}."
     # A clone with a commit that origin lacks keeps its HEAD after a fast-forward (#3301).
@@ -3099,10 +3106,11 @@ class RoadmapMessages:
         "\n\nThe stage job read the open pull requests and their files in {requests} GraphQL "
         "request(s)."
     )
-    # The report of the plan run of the toolbox (#3037), after the task groups.
+    # The report of the runs of the toolbox for this plan, the planner and the review (#3037,
+    # #3039), after the task groups.
     stage_comment_run: str = (
-        "\n\nThe plan run made {requests} model request(s), and used {input_tokens} input tokens "
-        "and {output_tokens} output tokens. {calls}"
+        "\n\nThe runs of the planner and the review made {requests} model request(s), and used "
+        "{input_tokens} input tokens and {output_tokens} output tokens. {calls}"
     )
     stage_comment_calls: str = "The tool calls, in order:\n\n{calls}"
     # A run with no tool call states why (#3477): no request offered a tool, because the request
@@ -3376,6 +3384,10 @@ class RoadmapMessages:
         'The criterion "{criterion}" is pending-person and has no reason.'
     )
     stage_criteria_title: str = "Criteria"
+    # The section of a proposal that records a weakened check (#3320, #3490). The plan reader reads
+    # a bullet of the section by this form, and `{check}` names a test as `path::name`.
+    stage_weakened_checks_title: str = "Weakened checks"
+    stage_weakened_entry: str = "**{check}**: Stopped: {stopped} Safeguard: {safeguard}"
     # A line starts with a fixed word, so that a criterion cannot start a block (a heading or a task).
     stage_criteria_line: str = "Group {group}: {criterion}"
     stage_criteria_pending: str = "Pending person: {criterion}, {reason}"
@@ -3544,6 +3556,10 @@ class RoadmapMessages:
     # problems that the command reports.
     plan_read_missing_file: str = "The change folder has no `{name}`."
     plan_read_bad_proposal: str = "`proposal.md` has no `## Why` section."
+    plan_read_bad_weakened: str = (
+        "`proposal.md` holds a line in `## Weakened checks` that is no entry: {text}. The form is "
+        "`- **<check>**: Stopped: <stopped> Safeguard: <safeguard>`."
+    )
     plan_read_bad_tasks: str = "`tasks.md` holds a group with no `Reads: ... Changes: ...` line."
     plan_read_bad_task: str = "`tasks.md` holds a task that the reader cannot read: {text}"
     plan_read_bad_group: str = "Group `{title}` breaks a rule of the plan: {reason}"
@@ -4059,6 +4075,16 @@ class RoadmapMessages:
     verify_eval_serious: str = (
         "Recall of the blocker and major defects: {found} of {labeled} ({rate})."
     )
+    verify_eval_floor_met: str = (
+        "Floor of the blocker and major defects: {floor}. The recall of {rate} reaches it."
+    )
+    verify_eval_floor_missed: str = (
+        "Floor of the blocker and major defects: {floor}. The recall of {rate} does not reach it."
+    )
+    verify_eval_floor_unscored: str = (
+        "Floor of the blocker and major defects: {floor}. The golden set labels no such defect, "
+        "so the floor is not scored."
+    )
     verify_eval_good: str = (
         "Findings on the good plans: {findings} on {cases} plan(s). {returning} of them would "
         "return a plan to the planner."
@@ -4069,7 +4095,9 @@ class RoadmapMessages:
         "model at {gateway}, one case at a time:"
     )
     verify_eval_dry_run_case: str = "verification of the case {name}"
-    verify_eval_dry_run_repeat: str = "one request for each case"
+    verify_eval_dry_run_repeat: str = (
+        "one agent run for each case. Each run makes one request for each model reply"
+    )
     verify_eval_failed: str = (
         "{failed} case(s) could not run. The score counts their defects as not found."
     )

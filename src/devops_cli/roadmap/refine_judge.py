@@ -3,8 +3,8 @@
 The Service App and the workflows of the repository open items that no person wrote, so refine
 sets such an item Ready only when a review approves the issue and the proposal. The review is the
 verification pass of the stage job (`stage_verify`) with the task slot `ai.tasks.verification`:
-it gets the issue and the proposal, and an open finding, one of a type that keeps a plan in draft
-and that quotes a text of its input, refuses the item. A refusal keeps the item New and waits for
+it gets the issue and the proposal with no tool, and an open finding, one of `JUDGE_OPEN_TYPES` or a
+placeholder, that quotes a text of its input, refuses the item. A refusal keeps the item New and waits for
 a body edit, and one comment lists each finding with its evidence. An approval is recorded in the
 job record of the item (`RefineRecordKey.JUDGE`), and the stage job, the implement job and the
 alternatives job take the item only with it.
@@ -17,15 +17,29 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from devops_cli.roadmap.body_hash import extract_section_and_outside
-from devops_cli.roadmap.stage_verify import VerificationInput, finding_line, open_findings, verify
+from devops_cli.roadmap.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage_verify import (
+    OPEN_TYPES,
+    VerificationInput,
+    finding_line,
+    open_findings,
+    verify,
+)
 from devops_cli.roadmap.store import Item, JudgeVerdict, RefineRecordKey
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.refine import RefinementProposal
     from devops_cli.roadmap.stage import StageClient
+
+# The open types of this review (#3039). A proposal of refine holds no task group and no verify
+# command, so a `task_order` or a `verify_form` finding on it is advice and refuses no item.
+JUDGE_OPEN_TYPES: Final[frozenset[DefectType]] = OPEN_TYPES - {
+    DefectType.TASK_ORDER,
+    DefectType.VERIFY_FORM,
+}
 
 
 def judge(
@@ -52,7 +66,7 @@ def judge(
         plan=proposal.model_dump(mode="json"),
         source=source,
     )
-    findings = open_findings(verify(client_of(), given), given)
+    findings = open_findings(verify(client_of(), given), given, types=JUDGE_OPEN_TYPES)
     if not findings:
         return JudgeVerdict.APPROVED, ()
     return JudgeVerdict.REFUSED, tuple(finding_line(f).removeprefix("- ") for f in findings)
