@@ -44,6 +44,25 @@ commit, whatever the working tree of the checkout holds.
 - The check `Semantic PR title`: it must exist and it must pass.
 - A `MODIFIED` requirement whose text in the base spec changed, or went, since the plan commit.
 
+## The job in CI
+
+The job `Plan Check` of the workflow `.github/workflows/pr-title.yml` runs the command for each plan
+pull request of the Service. Its condition selects a pull request that the bot of the Service App
+opened (`service.github_app.bot_login`) and whose title starts with `docs(openspec): plan #`. The
+condition reads the author of the pull request, not the actor of the event. A job that its
+condition skips reports Success, so the pull requests of a person, of another bot and of the
+release pass.
+
+The job needs `Semantic PR title` and runs after it, also when it failed, because the command then
+reports that check as a problem. The job holds the permissions `checks`, `contents` and
+`pull-requests`, all read. It posts no status and makes no review. A new push gives a new run.
+
+The job is advisory. It shows form problems of the plan in its check run. It is not the independent
+review of the Service pull request, which runs outside this repository, and its pass does not mean
+that the plan is vetted. Only a person can make `Plan Check` a required check, in the ruleset of
+`main` ([ADR 0014](../adr/0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md)).
+Make it required after the plan reader gives no false alarm.
+
 ## Output and exit code
 
 The command prints one line for each problem, with the path, the rule and the message. It prints
@@ -55,6 +74,23 @@ finds none.
 | `--repo <owner/name>` | The repository. Without it, the origin of the checkout. |
 | `--json` | Print a JSON array of objects with `path`, `rule` and `message`. |
 | `--dry-run` | Make no request: print the reads that a run makes, with placeholders. |
+
+## A new gate gives its result
+
+A plan or a pull request that adds a gate to the stage job gives two results before it merges:
+
+- The refusals of the gate over the merged plans. Run [plan-recheck](plan-recheck.md) in the checkout
+  of the branch: `uv run devops roadmap plan-recheck --source . --branch HEAD`. The new gate has its
+  own name in `ProposalGate`, so the report lists its refusals under that name, for the branch and
+  for the default branch. A person marks each refusal as a hit or as a false refusal. A refusal on a
+  merged plan is a case to review, and no tool proves it false.
+- A replay of the defect that the gate cites. `uv run devops roadmap eval stage --replay` shows that
+  the gate catches the defect.
+
+`plan-recheck` judges less than the stage job: it gives the gates no premise probe, no open pull
+request, no recorded search and no plan of another open item, and it measures no group. A gate that
+needs one of these has no hits in `plan-recheck`. [The plan-recheck page](plan-recheck.md) lists
+the rest.
 
 ## Where the rules are
 

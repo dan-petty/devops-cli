@@ -2869,11 +2869,13 @@ class RoadmapMessages:
     implement_job_report_digest: str = "\nImage digest: {digest}"
     implement_job_report_no_log: str = "(no log: the Job has no pod)"
     implement_job_report_stopped: str = (
-        "\n\n{failure}\n\nThe Job left this item without a result. The item is Blocked, and the job "
-        "will not run it. Fix the cause. Then comment `implement: retry`. The Service clears the "
-        "stop on its own when a new runner image rolls out, but only if a retry can fix the class "
-        "of the stop and the limits of `roadmap.implement.digest_clears_per_class` and "
-        "`roadmap.implement.digest_clears_per_item` allow it."
+        "\n\n{failure}\n\nThe Job left this item without a result. The item is Blocked. When a "
+        "retry can fix the class of the stop, the Service starts a new Job in the next round. The "
+        "limit is `roadmap.implement.continuations_per_item`, and the comment of that round says "
+        "so. If no continuation is left, fix the cause. Then comment `implement: retry`. A new "
+        "runner image also clears the stop. This holds only if a retry can fix the class of the "
+        "stop. The limits of `roadmap.implement.digest_clears_per_class` and "
+        "`roadmap.implement.digest_clears_per_item` must also allow it."
     )
     implement_job_report_stalled: str = (
         "\n\nThe Job made no progress for {seconds} seconds, so the Service ended it by its "
@@ -2891,6 +2893,17 @@ class RoadmapMessages:
         "{marker}\nCleared the stop at {stopped} by the rule `{rule}`: a person commented "
         "`implement: retry`. The item is {status} again, and the Service takes it in the next "
         "round."
+    )
+    stop_clear_continue: str = (
+        "{marker}\nCleared the stop at job by the rule `{rule}`: the runner Job {job} ended without "
+        "a result. The class `{failure_class}` of the stop is one that a new attempt can fix. "
+        "This is continuation {used} of {limit} for this item.{left} The item is {status} again. "
+        "The Service takes it in the next round. The new Job takes the branch from `origin`, so it "
+        "keeps the work that the run pushed there."
+    )
+    stop_clear_continue_last: str = (
+        " No continuation is left. A comment `implement: retry` clears the next stop of this kind. "
+        "A new runner image can also clear it, within its limits."
     )
     stop_clear_digest: str = (
         "{marker}\nCleared the stop at {stopped} by the rule `{rule}`: the runner image changed "
@@ -2943,6 +2956,14 @@ class RoadmapMessages:
         "{marker}\nThe implement job returned the item to New. A step found that the premise "
         "of the issue does not hold, so the job wrote no compensating code.\n\n"
         "Evidence:\n\n{evidence}"
+    )
+    implement_comment_premise_defined: str = (
+        "{marker}\nThe implement job returned the item to New. A task of a behavior group adds "
+        "a guard that the branch already defines, so the job ran no step and wrote no code.\n\n"
+        "Evidence:\n\n{evidence}"
+    )
+    premise_guard_defined: str = (
+        '- The task "{task}" adds `{name}`. The branch already defines it: {line}'
     )
     implement_stop_question_empty_premise: str = (
         "The agent asked to return the item on a premise failure, but gave no evidence."
@@ -3401,6 +3422,21 @@ class RoadmapMessages:
         "A task text names `MESSAGES.roadmap`, and no group lists `{path}` in `changes`. Add the "
         "message to that file, and list the file in the group that adds it."
     )
+    # A plan that adds a rule of the plan check gives the test that accepts its own plan (#3404).
+    stage_problem_self_acceptance: str = (
+        "A behavior group changes `{path}`, and no group test builds the plan's own "
+        "`StageProposal` and asserts that `content_problems` returns no problem. Add a group test "
+        "that builds the plan's own `StageProposal` and asserts that `content_problems` returns "
+        "no problem for it, because the rule that the plan adds judges the plan itself."
+    )
+    # A plan states the work of each task once: a duplicate task spends the budget of the group on
+    # no change (#3456).
+    stage_group_one: str = "group {first}"
+    stage_group_two: str = "groups {first} and {second}"
+    stage_problem_duplicate_task: str = (
+        "Task {first} and task {second} of {groups} state the same work. Write the work once, in "
+        "one task."
+    )
     stage_problem_what_changes_path: str = (
         "A What Changes item names `{path}`, and no group lists it in `changes` or `creates`. List "
         "the path in the group that changes or creates it, or remove it from What Changes."
@@ -3681,9 +3717,10 @@ class RoadmapMessages:
     # `devops roadmap plan-recheck` (#3492).
     plan_recheck_line: str = "{result} {folder}"
     plan_recheck_reason: str = "  {reason}"
+    plan_recheck_refusal: str = "  [{gate}] {message}"
     plan_recheck_closed: str = "Issue #{issue} is closed. `openspec archive` clears the folder."
     plan_recheck_delivered: str = (
-        "The plan marks {paths} as new, and the default branch `{branch}` holds them. "
+        "The plan marks {paths} as new, and `{branch}` holds them. "
         "Close issue #{issue} when it is done."
     )
     plan_recheck_no_design: str = "The folder has no `design.md`."
@@ -3700,9 +3737,27 @@ class RoadmapMessages:
     )
     plan_recheck_unverified: str = "{count} of {live} folders have no `Verification:` line."
     plan_recheck_unreadable: str = "{count} of {live} folders fail the plan reader."
+    # The refusals of each gate and the comparison with a branch (#3498).
+    plan_recheck_case: str = "case to review"
+    plan_recheck_none: str = "none"
+    plan_recheck_gates: str = "Refusals by gate: {counts}."
+    plan_recheck_branch: str = (
+        "Branch `{ref}` against `{default}`: {branch_folders} folders on the branch, "
+        "{default_folders} on `{default}`."
+    )
+    plan_recheck_gate: str = (
+        "Gate {gate}: {default_count} on `{default}`, {branch_count} on `{ref}`."
+    )
+    plan_recheck_gate_line: str = "  {side}: {folder}: {message}"
+    plan_recheck_both: str = "both"
+    plan_recheck_new: str = "New refusals on `{ref}`: {count}."
+    plan_recheck_new_line: str = "  {label}: {folder} [{gate}] {message}"
+    plan_recheck_unread: str = "Not read on `{ref}`: {folders}."
     plan_recheck_request_fetch: str = "update the default branch of the model clone"
     plan_recheck_request_tree: str = "list the files of the default branch"
     plan_recheck_request_files: str = "read the files of each change folder"
+    plan_recheck_request_branch_tree: str = "list the files of the branch to compare"
+    plan_recheck_request_branch_files: str = "read the files of each change folder of the branch"
     plan_recheck_request_closed: str = "the issue of a folder that is not in the open issues"
     plan_recheck_request_closed_condition: str = "the issue is not open"
     # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.
@@ -4081,6 +4136,11 @@ class RoadmapMessages:
         "The golden set has no case named {names}. Give the name of a case folder or the "
         "number of its issue."
     )
+    stage_eval_no_commit: str = (
+        "The selected case(s) hold no commit to check out: {names}. A run checks out the commit "
+        "of each case. Pick a case that holds a commit, or run the replay."
+    )
+    stage_eval_left_out: str = "Left out of the run, as they hold no commit to check out: {names}."
     stage_eval_over_budget: str = "A task group is over the step budget."
     stage_eval_no_value: str = "-"
     stage_eval_replay_title: str = (

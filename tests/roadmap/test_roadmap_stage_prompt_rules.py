@@ -258,6 +258,22 @@ def test_the_prompt_forbids_a_group_writing_a_change_folder_path() -> None:
     assert "refuses a `changes` or `creates` path" in _PROMPT
 
 
+# ── The self-acceptance test of a plan rule (#3404) ──────────────────────────
+
+
+def test_the_prompt_states_the_self_acceptance_rule_of_a_plan() -> None:
+    """A plan that adds a rule of the plan check gives the test that accepts its own plan (#3404).
+    The rule does not exist when the stage job reads the plan, so the plan gives the test itself,
+    and the implement step runs it."""
+    prompt = load_task_prompt(_CHANGE_PROMPT)
+
+    assert "`StageProposal`" in prompt
+    assert "`content_problems`" in prompt
+    assert "A `behavior` group that changes `src/devops_cli/roadmap/stage_change.py`" in prompt
+    assert "builds the plan's own `StageProposal`" in prompt
+    assert "asserts that `content_problems` returns no problem" in prompt
+
+
 # ── The spec delta ────────────────────────────────────────────────────────────
 
 

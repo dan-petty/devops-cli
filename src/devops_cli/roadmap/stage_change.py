@@ -134,6 +134,15 @@ _SYMBOL_CITATION: Final[re.Pattern[str]] = re.compile(
 # The fewest characters of the cited text that the check judges: a shorter text matches almost any
 # line, so the check refuses it and asks for a longer one.
 _CITATION_MIN_CHARS: Final[int] = 3
+# The plan check itself. A plan that adds a rule of it writes the text that the new rule judges,
+# so the plan gives a group test that builds its own `StageProposal` and asserts that
+# `content_problems` returns no problem for it (#3404).
+_PLAN_CHECK_FILE: Final[str] = "src/devops_cli/roadmap/stage_change.py"
+_SELF_ACCEPTANCE_MARKS: Final[tuple[str, ...]] = (
+    "StageProposal",
+    "content_problems",
+    "no problem",
+)
 _SENTENCE_END: Final[str] = f"{string.whitespace}."
 REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
 # The stage prompt and each module that holds a check of `check_proposal` or of the gates it
@@ -601,6 +610,62 @@ def _message_file_problems(proposal: StageProposal) -> list[str]:
     return [MESSAGES.roadmap.stage_problem_message_file.format(path=_MESSAGES_FILE)]
 
 
+def _adds_plan_rule(group: StageGroup) -> bool:
+    """Whether `group` adds or changes a rule of the plan check, which judges the plan that
+    proposes it (#3404). An `other` group refactors or documents a rule, so it adds none."""
+    return group.kind is GroupKind.BEHAVIOR and _PLAN_CHECK_FILE in group.changes
+
+
+def _self_acceptance_problems(proposal: StageProposal) -> list[str]:
+    """One problem for a plan that adds a rule of the plan check and gives no group test that
+    builds the plan's own `StageProposal` and asserts that `content_problems` returns no problem
+    (#3404). The rule that the plan adds does not exist when the stage job reads the plan, so no
+    check can run it on the plan: the plan gives the test itself, and the implement step runs it."""
+    if not any(_adds_plan_rule(group) for group in proposal.groups):
+        return []
+    tests = [group.test for group in proposal.groups if group.test is not None]
+    if any(all(mark in test for mark in _SELF_ACCEPTANCE_MARKS) for test in tests):
+        return []
+    return [MESSAGES.roadmap.stage_problem_self_acceptance.format(path=_PLAN_CHECK_FILE)]
+
+
+def _plan_tasks(proposal: StageProposal) -> list[tuple[int, int, str]]:
+    """The number of the group, the number of the task in it and the normalized work text of the
+    task, for each task of `proposal`, in the order of `tasks.md`."""
+    return [
+        (group_number, task_number, _squash(work).casefold())
+        for group_number, group in enumerate(proposal.groups, start=1)
+        for task_number, work in enumerate(_task_work_texts(group), start=1)
+    ]
+
+
+def _duplicate_task_problems(proposal: StageProposal) -> list[str]:
+    """One problem for each pair of tasks of `proposal` whose work text is the same, naming both
+    task numbers and the group or groups (#3456). A duplicate task can make the step repeat an
+    edit, spend the budget of its group on no change, or stop when the second edit writes no
+    file."""
+    texts = MESSAGES.roadmap
+    tasks = _plan_tasks(proposal)
+    problems: list[str] = []
+    for index, (first_group, first_task, first) in enumerate(tasks):
+        for second_group, second_task, second in tasks[index + 1 :]:
+            if first != second:
+                continue
+            groups = (
+                texts.stage_group_one.format(first=first_group)
+                if first_group == second_group
+                else texts.stage_group_two.format(first=first_group, second=second_group)
+            )
+            problems.append(
+                texts.stage_problem_duplicate_task.format(
+                    first=f"{first_group}.{first_task}",
+                    second=f"{second_group}.{second_task}",
+                    groups=groups,
+                )
+            )
+    return problems
+
+
 def _lists_path(listed: Collection[str], path: str) -> bool:
     """Whether `listed` holds `path`, a path under it or a folder above it: a group that writes a
     folder covers every file under it, and a What Changes item may name the folder of the files
@@ -763,12 +828,16 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
     """What is wrong with the text of `proposal` that no schema says (#3200): a text that is too
     short or a placeholder word (`is_placeholder` of the pull request form), a `feasibility` that
     quotes no line of `probes` when there are some, a task text that names a `MESSAGES.roadmap`
-    entry while no group changes the message file (#3405), and a plan that builds its own code and
-    gives no cost of tokens and time in `existing_tool`. The replay (`stage_eval_gates`) and the
-    job both call this through `check_proposal`, so one rule set judges both."""
+    entry while no group changes the message file (#3405), two tasks that state the same work
+    (#3456), a plan that builds its own code and gives no cost of tokens and time in
+    `existing_tool`, and a plan that adds a rule of the plan check and gives no test that accepts
+    its own plan (#3404). The replay (`stage_eval_gates`) and the job both call this through
+    `check_proposal`, so one rule set judges both."""
     texts = MESSAGES.roadmap
     problems = [p for field, text in _plan_texts(proposal) for p in _text_problems(field, text)]
     problems.extend(_message_file_problems(proposal))
+    problems.extend(_duplicate_task_problems(proposal))
+    problems.extend(_self_acceptance_problems(proposal))
     lines = [_squash(line) for line in probes if line.strip()]
     if lines:
         feasibility = _squash(" ".join(proposal.feasibility))
@@ -779,6 +848,63 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
     ):
         problems.append(texts.stage_problem_no_cost)
     return problems
+
+
+class ProposalGate(StrEnum):
+    """The name of each gate of `check_proposal` (#3498). A gate finds one type of problem in a
+    plan, and the name tells a person which rule refused a plan. `devops roadmap plan-recheck`
+    prints it with each refusal. The replay of `devops roadmap eval stage` runs all of them as its
+    one gate `paths`, so these names are finer than its gate names. A new gate adds a member here
+    and a line to `check_gates`."""
+
+    SPEC_DELTA = "spec-delta"
+    CONTENT = "content"
+    CITATION = "citation"
+    FORM = "form"
+    EVAL_REPLAY = "eval-replay"
+    PATHS = "paths"
+    WHAT_CHANGES = "what-changes"
+    MOVE_PREFIX = "move-prefix"
+    MOVE_VERIFY = "move-verify"
+    SEARCH = "search"
+    CRITERIA = "criteria"
+    DEPENDENCIES = "dependencies"
+    CREATES = "creates"
+
+
+def check_gates(
+    proposal: StageProposal,
+    known: Collection[str],
+    tree: StagedTree,
+    *,
+    requirements: Mapping[str, Collection[str]] | None = None,
+    issue_body: str = "",
+    probes: Sequence[str] = (),
+    overlaps: Sequence[Overlap] = (),
+    search_evidence: Mapping[str, Sequence[str]] | None = None,
+    plan_creates: Mapping[str, int] | None = None,
+    read_text: Callable[[str], str | None] | None = None,
+) -> dict[ProposalGate, list[str]]:
+    """What each gate of `check_proposal` finds wrong in `proposal`, one sentence each, under the
+    name of the gate. Every gate has a key, and a gate that finds nothing has an empty list. The
+    keys follow the order of `ProposalGate`. The arguments are those of `check_proposal`."""
+    return {
+        ProposalGate.SPEC_DELTA: _delta_problems(proposal, known, requirements or {}),
+        ProposalGate.CONTENT: content_problems(proposal, probes),
+        ProposalGate.CITATION: _plan_citation_problems(proposal, read_text),
+        ProposalGate.FORM: form_problems(proposal.groups),
+        ProposalGate.EVAL_REPLAY: eval_replay_problems(proposal.groups),
+        ProposalGate.PATHS: path_problems(proposal.groups, tree),
+        ProposalGate.WHAT_CHANGES: _what_changes_problems(proposal, tree),
+        ProposalGate.MOVE_PREFIX: move_prefix_problems(proposal.groups, tree),
+        ProposalGate.MOVE_VERIFY: move_verify_problems(proposal.groups, tree),
+        ProposalGate.SEARCH: search_problems(proposal.groups, search_evidence),
+        ProposalGate.CRITERIA: criterion_problems(
+            proposal.criteria, issue_body, len(proposal.groups)
+        ),
+        ProposalGate.DEPENDENCIES: _overlap_problems(proposal.dependencies, overlaps),
+        ProposalGate.CREATES: creates_problems(proposal.groups, plan_creates or {}),
+    }
 
 
 def check_proposal(
@@ -808,21 +934,21 @@ def check_proposal(
     maps each path that the plan of an open item creates to that item's number (#3418). `read_text`
     returns the text of a cited file at the staged commit, or None when the commit holds no such
     file: the stage job passes the reader of its checkout and commit, and a check with none judges
-    no citation (#3422)."""
-    problems = _delta_problems(proposal, known, requirements or {})
-    problems.extend(content_problems(proposal, probes))
-    problems.extend(_plan_citation_problems(proposal, read_text))
-    problems.extend(form_problems(proposal.groups))
-    problems.extend(eval_replay_problems(proposal.groups))
-    problems.extend(path_problems(proposal.groups, tree))
-    problems.extend(_what_changes_problems(proposal, tree))
-    problems.extend(move_prefix_problems(proposal.groups, tree))
-    problems.extend(move_verify_problems(proposal.groups, tree))
-    problems.extend(search_problems(proposal.groups, search_evidence))
-    problems.extend(criterion_problems(proposal.criteria, issue_body, len(proposal.groups)))
-    problems.extend(_overlap_problems(proposal.dependencies, overlaps))
-    problems.extend(creates_problems(proposal.groups, plan_creates or {}))
-    return problems
+    no citation (#3422). The problems are those of `check_gates`, joined in the order of the
+    gates."""
+    found = check_gates(
+        proposal,
+        known,
+        tree,
+        requirements=requirements,
+        issue_body=issue_body,
+        probes=probes,
+        overlaps=overlaps,
+        search_evidence=search_evidence,
+        plan_creates=plan_creates,
+        read_text=read_text,
+    )
+    return [problem for problems in found.values() for problem in problems]
 
 
 def creates_problems(groups: Sequence[StageGroup], creators: Mapping[str, int]) -> list[str]:
@@ -976,6 +1102,16 @@ def _task_texts(group: StageGroup) -> list[str]:
     if group.documentation is not None:
         tasks.append(_documents_task(group.documentation, group.changes))
     return tasks
+
+
+def _task_work_texts(group: StageGroup) -> list[str]:
+    """The work text of each task of `group`, in the order of `_task_texts`: the test task of a
+    `behavior` group, its implementation task, and its documents task. The `Verification:` line,
+    the `process` check and the fixed documents command are no work of a task, so two tasks may
+    share one and stay two tasks (#3456)."""
+    works = [group.test] if group.kind is GroupKind.BEHAVIOR else []
+    works.extend((group.implementation, group.documentation))
+    return [work for work in works if work is not None]
 
 
 def _is_document_path(word: str) -> bool:

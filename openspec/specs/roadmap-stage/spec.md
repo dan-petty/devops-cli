@@ -2025,6 +2025,35 @@ The job SHALL start the branch of a staged item at the staged commit of its roun
 - **WHEN** `origin/main` gains a commit after the round read it, and the job stages an item
 - **THEN** the parent of the commit of the new branch is the staged commit of the round, and the new commit of `origin/main` is not an ancestor of the new branch
 
+### Requirement: A plan that adds a text rule carries its self-acceptance test
+A plan with a behavior group that changes `src/devops_cli/roadmap/stage_change.py` SHALL give a group test text that names `StageProposal`, `content_problems` and no problem, so the plan holds no text that its own rule refuses.
+
+#### Scenario: Plan without the test is refused
+- **WHEN** `check_proposal` receives a valid proposal with a behavior group that changes `src/devops_cli/roadmap/stage_change.py` and no group test text that names `StageProposal`, `content_problems` and no problem.
+- **THEN** `check_proposal` returns one problem that names `StageProposal` and `content_problems`.
+
+#### Scenario: Plan with the test is accepted
+- **WHEN** `check_proposal` receives a valid proposal with a behavior group that changes `src/devops_cli/roadmap/stage_change.py` and a group test text that names `StageProposal`, `content_problems` and no problem.
+- **THEN** `check_proposal` returns no self-acceptance problem.
+
+### Requirement: A plan that changes no plan check needs no self-acceptance test
+A plan whose groups change no path in `src/devops_cli/roadmap/stage_change.py` MUST NOT be refused by the self-acceptance rule.
+
+#### Scenario: Plan that changes another file is accepted
+- **WHEN** `check_proposal` receives a valid proposal whose groups change only `src/devops_cli/roadmap/stage.py`.
+- **THEN** `check_proposal` returns no self-acceptance problem.
+
+#### Scenario: Plan that only refactors the plan check is accepted
+- **WHEN** `check_proposal` receives a valid proposal with an other group that changes `src/devops_cli/roadmap/stage_change.py`.
+- **THEN** `check_proposal` returns no self-acceptance problem.
+
+### Requirement: The staging prompt states the self-acceptance test rule
+The staging prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` MUST state the self-acceptance test rule beside the other checks of a plan.
+
+#### Scenario: Prompt names the self-acceptance test
+- **WHEN** A test loads the prompt with `load_task_prompt`.
+- **THEN** The prompt text contains `StageProposal`, `content_problems` and the self-acceptance test rule.
+
 ### Requirement: The stage job checks each literal of a negative search
 The stage job SHALL record the staged hits of each `-e` literal of a negative-search verify command, and check_proposal SHALL apply the rules of the negative search to each literal, the rule of the staged hit and the rule of the created module alike.
 
@@ -2419,3 +2448,26 @@ The stage prompt MUST tell the planner to cite a symbol instead of a line number
 #### Scenario: The prompt states the symbol form
 - **WHEN** a test reads `src/devops_cli/ai/tasks/roadmap_stage_change.md`.
 - **THEN** the text holds the `path:def name` form and the instruction to prefer it.
+
+### Requirement: Two tasks of a plan state different work
+`check_proposal` SHALL refuse two tasks whose normalized work text is the same, and SHALL name both task numbers and the group or groups of those tasks.
+
+#### Scenario: Duplicate task in one group
+- **WHEN** group 2 holds task 2.1 and task 2.3 with the same normalized work text
+- **THEN** `check_proposal` returns a problem that names task 2.1, task 2.3 and group 2
+
+#### Scenario: Duplicate task across two groups
+- **WHEN** group 2 task 2.1 and group 4 task 4.2 hold the same normalized work text
+- **THEN** `check_proposal` returns a problem that names task 2.1, task 4.2, group 2 and group 4
+
+#### Scenario: Two tasks share a verification command
+- **WHEN** group 3 task 3.1 and task 3.2 hold different work text and the same `Verification:` command
+- **THEN** `check_proposal` returns no duplicate-task problem for task 3.1 and task 3.2
+
+#### Scenario: A documentation task repeats an implementation task
+- **WHEN** an `other` group 3 holds task 3.1 that adds a paragraph and task 3.2 that adds the same paragraph with the docs command
+- **THEN** `check_proposal` returns a duplicate-task problem that names task 3.1 and task 3.2
+
+#### Scenario: Work text that differs only in spacing and case
+- **WHEN** group 1 task 1.1 and task 1.2 hold the same words with different runs of spaces and different case
+- **THEN** `check_proposal` returns a duplicate-task problem for task 1.1 and task 1.2

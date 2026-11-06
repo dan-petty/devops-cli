@@ -888,11 +888,12 @@ def explain_requests(
 
 
 def plan_recheck_requests(
-    repo: str,
+    repo: str, branch: str | None = None
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap plan-recheck` reads, in order (#3492): the default branch of the
     clone, the files of the change folders, the open issues, and the issue of each folder that is
-    not open. It makes no write and calls no model."""
+    not open. With `branch`, a ref of the clone, it also reads the files of that ref (#3498). It
+    makes no write and calls no model."""
     texts = MESSAGES.roadmap
     clone = "<model-clone>"
     store = StoreRequests(repo)
@@ -920,6 +921,26 @@ def plan_recheck_requests(
             repeat=texts.plan_repeat["recheck_folder"],
         ),
     ]
+    if branch is not None:
+        git_reads += [
+            PlannedRequest(
+                "git",
+                texts.plan_recheck_request_branch_tree,
+                argv=("git", "-C", clone, "ls-tree", "-r", "--name-only", branch),
+            ),
+            PlannedRequest(
+                "git",
+                texts.plan_recheck_request_branch_files,
+                argv=(
+                    "git",
+                    "-C",
+                    clone,
+                    "show",
+                    f"{branch}:openspec/changes/{_p('change')}/<file>",
+                ),
+                repeat=texts.plan_repeat["recheck_folder"],
+            ),
+        ]
     closed = within(
         store.issue(_p("item")),
         texts.plan_recheck_request_closed_condition,

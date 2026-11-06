@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.65.0](https://github.com/dan-petty/devops-cli/compare/v0.64.3...v0.65.0) (2026-11-06)
+
+
+### Features
+
+* **roadmap:** compare a branch and name the gate in plan-recheck ([#3732](https://github.com/dan-petty/devops-cli/issues/3732)) ([363ba6a](https://github.com/dan-petty/devops-cli/commit/363ba6aefed003efedabd544523b7c39f68eaa6c))
+* **roadmap:** the Service continues a Job that has no result ([#3731](https://github.com/dan-petty/devops-cli/issues/3731)) ([4a2d958](https://github.com/dan-petty/devops-cli/commit/4a2d958e887c937cc2f9d5315e281f6d39021ba5))
+
+## [0.64.3](https://github.com/dan-petty/devops-cli/compare/v0.64.2...v0.64.3) (2026-11-06)
+
+
+### Bug Fixes
+
+* **devcontainer:** raise the process limit of the container ([#3730](https://github.com/dan-petty/devops-cli/issues/3730)) ([61459d8](https://github.com/dan-petty/devops-cli/commit/61459d80e53e459bc5c1368ca039a0a34c90d6a0))
+* **roadmap:** leave out a golden case with no commit ([#3728](https://github.com/dan-petty/devops-cli/issues/3728)) ([17666eb](https://github.com/dan-petty/devops-cli/commit/17666ebfab19e6468f098d24f0ef4bedbe35b418))
+* **roadmap:** the plan check refuses two tasks that state the same work ([#3628](https://github.com/dan-petty/devops-cli/issues/3628)) ([fe37f21](https://github.com/dan-petty/devops-cli/commit/fe37f215343eac70e82f89ec356b66ed0301af18))
+
+## [0.64.2](https://github.com/dan-petty/devops-cli/compare/v0.64.1...v0.64.2) (2026-11-06)
+
+
+### Bug Fixes
+
+* **k8s:** keep grafana, prometheus and loki off the control-plane node ([#3723](https://github.com/dan-petty/devops-cli/issues/3723)) ([34010d6](https://github.com/dan-petty/devops-cli/commit/34010d6041ca9127243748c8fb3acfe90224b5cd))
+* **roadmap:** keep a plan with a dropped criterion in draft ([#3718](https://github.com/dan-petty/devops-cli/issues/3718)) ([dacaf57](https://github.com/dan-petty/devops-cli/commit/dacaf57ff0f1345007757ccabfe7d6ac73d6780c))
+* **roadmap:** the alternatives check reads the ADRs and the item ([#3714](https://github.com/dan-petty/devops-cli/issues/3714)) ([a22260c](https://github.com/dan-petty/devops-cli/commit/a22260c44849a2a66960461f1b6c701ada54a619))
+
 ## [0.64.1](https://github.com/dan-petty/devops-cli/compare/v0.64.0...v0.64.1) (2026-11-06)
 
 

@@ -235,9 +235,10 @@ class ImplementRecordKey(StrEnum):
     and, once the Job ended, its state (#2667), and the digest of the runner image that the template
     named when it made the Job (#2912): the digest of the stop that the Job leaves. The Service
     keeps the digest clears of an item as a JSON list, and the time of the last comment of a clear
-    (#3481); a clear of a stop does not remove them. `implement.wip` holds the work in progress that
-    a step kept (#3054): its group, the tasks done, the tasks of the group and the last commit, as
-    JSON. The job removes it when the group passes."""
+    (#3481); a clear of a stop does not remove them. The Service also keeps the count of the Jobs
+    that it started to continue a run that ended without a result (#3721). `implement.wip` holds
+    the work in progress that a step kept (#3054): its group, the tasks done, the tasks of the
+    group and the last commit, as JSON. The job removes it when the group passes."""
 
     GROUP = "implement.group"
     SHA = "implement.sha"
@@ -255,6 +256,7 @@ class ImplementRecordKey(StrEnum):
     JOB_DIGEST = "implement.job_digest"
     DIGEST_CLEARS = "implement.digest_clears"
     DIGEST_CLEAR_COMMENTED_AT = "implement.digest_clear_commented_at"
+    CONTINUATIONS = "implement.continuations"
 
 
 JobRecord = dict[

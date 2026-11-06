@@ -1,8 +1,10 @@
 """The record of the digest clears of an item (#3481): a list of the class, the digest and the time
-of each clear, the time of the last clear comment, and the two settings that bound the clears."""
+of each clear, the time of the last clear comment, and the two settings that bound the clears. The
+setting that bounds the continuations of an item (#3721) is read the same way."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -10,6 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from devops_cli.config import settings
+from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.roadmap.digest_clears import (
     DigestClear,
     encode_clears,
@@ -124,3 +127,24 @@ def test_the_limits_come_from_the_variables(
     implement = settings.load_settings().roadmap.implement
 
     assert (implement.digest_clears_per_class, implement.digest_clears_per_item) == (2, 5)
+
+
+def test_the_continuations_default_to_two_for_an_item(config: Callable[..., Path]) -> None:
+    config()
+
+    assert settings.load_settings().roadmap.implement.continuations_per_item == 2
+
+
+def test_the_continuations_come_from_the_variable_and_refuse_a_negative_count(
+    config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM", "0")
+    config()
+    off = settings.load_settings().roadmap.implement.continuations_per_item
+
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM", "-1")
+    config()
+    with pytest.raises(ConfigurationError, match="greater than or equal to 0"):
+        settings.load_settings()
+
+    assert off == 0

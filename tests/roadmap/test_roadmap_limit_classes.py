@@ -378,6 +378,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "setting",
         "already a setting; the clears by a new runner image for one item",
     ),
+    "DEFAULT_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM": (
+        "setting",
+        "already a setting; the Jobs that continue the run of one item",
+    ),
     "CONST_ROADMAP_STOP_CLEAR_COMMENT_WINDOW_HOURS": (
         "kept",
         "the period of one comment of a clear by digest for an item",

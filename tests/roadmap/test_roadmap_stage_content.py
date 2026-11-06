@@ -1,6 +1,7 @@
 """`devops roadmap stage`: a plan holds no placeholder text, quotes its probe, gives the cost of
-its own code, keeps its summary whole (#3200) and names no What Changes path that no group lists
-(#3411)."""
+its own code, keeps its summary whole (#3200), names no What Changes path that no group lists
+(#3411), states the work of each task once (#3456) and gives the test that accepts its own plan
+when it adds a rule of the plan check (#3404)."""
 
 from __future__ import annotations
 
@@ -11,6 +12,8 @@ from pydantic import ValidationError
 
 from devops_cli.roadmap.stage_change import (
     PLAN_FIELD_MIN_CHARS,
+    GroupKind,
+    StageGroup,
     StageProposal,
     check_proposal,
     content_problems,
@@ -24,12 +27,30 @@ from tests.support.builders import make_stage_proposal
 PROBE = "def f(): pass"
 TREE = StagedTree(["src/devops_cli/sample.py", "tests/test_sample.py"])
 MESSAGES_FILE = "src/devops_cli/lang/en/messages.py"
+PLAN_CHECK_FILE = "src/devops_cli/roadmap/stage_change.py"
+SELF_ACCEPTANCE_TEST = (
+    "Write a test that builds the plan's own `StageProposal` and asserts that `content_problems` "
+    "returns no problem for it"
+)
 LIVING_SPEC = "openspec/specs/roadmap-stage/spec.md"
 LIVING_SPEC_TREE = TREE.with_files([LIVING_SPEC])
 
 
 def _check(proposal: StageProposal, **keywords: Any) -> list[str]:
     return check_proposal(proposal, ["comment-thread"], TREE, **keywords)
+
+
+def _plan_that_adds_a_rule(test: str) -> StageProposal:
+    sample = make_stage_proposal()
+    group = sample.groups[0].model_copy(
+        update={"changes": [*sample.groups[0].changes, PLAN_CHECK_FILE], "test": test}
+    )
+    return make_stage_proposal(groups=[group])
+
+
+def _group(**updates: Any) -> StageGroup:
+    """The sample group with `updates`, which the schema does not check again."""
+    return make_stage_proposal().groups[0].model_copy(update=updates)
 
 
 def test_the_sample_plan_has_no_content_problem() -> None:
@@ -339,3 +360,98 @@ def test_a_citation_holds_when_the_white_space_differs() -> None:
     problems = _cited(f"The probe shows `{CITED}:4:def   f():` at the commit.")
 
     assert not any(CITED in p for p in problems)
+
+
+def test_a_rule_of_the_plan_check_needs_its_self_acceptance_test() -> None:
+    plan = _plan_that_adds_a_rule(
+        "Write `test_the_rule_refuses_the_plan` in `tests/roadmap/test_roadmap_stage_content.py`"
+    )
+
+    problems = content_problems(plan)
+
+    assert any("StageProposal" in p and "content_problems" in p for p in problems)
+
+
+def test_a_rule_of_the_plan_check_with_its_self_acceptance_test_is_accepted() -> None:
+    assert content_problems(_plan_that_adds_a_rule(SELF_ACCEPTANCE_TEST)) == []
+
+
+def test_a_plan_check_change_of_another_kind_needs_no_self_acceptance_test() -> None:
+    sample = make_stage_proposal()
+    group = sample.groups[0].model_copy(
+        update={
+            "kind": "other",
+            "changes": [*sample.groups[0].changes, PLAN_CHECK_FILE],
+            "test": None,
+        }
+    )
+
+    assert content_problems(make_stage_proposal(groups=[group])) == []
+
+
+def test_two_tasks_of_one_group_that_state_the_same_work_are_refused() -> None:
+    group = _group(documentation="Keep the last comment in `src/devops_cli/sample.py`")
+
+    problems = _check(make_stage_proposal(groups=[group]))
+
+    assert any(
+        "state the same work" in p and "1.2" in p and "1.3" in p and "group 1" in p
+        for p in problems
+    )
+
+
+def test_two_tasks_of_two_groups_that_state_the_same_work_are_refused() -> None:
+    first = _group()
+    second = _group(
+        title="Keep the first comment",
+        test="Write `test_the_job_keeps_the_first_comment` in `tests/test_sample.py`",
+    )
+
+    problems = _check(make_stage_proposal(groups=[first, second]))
+
+    assert any(
+        "state the same work" in p and "1.2" in p and "2.2" in p and "groups 1 and 2" in p
+        for p in problems
+    )
+
+
+def test_two_tasks_that_share_a_verification_command_are_accepted() -> None:
+    first = _group()
+    second = _group(
+        title="Keep the first comment",
+        test="Write `test_the_job_keeps_the_first_comment` in `tests/test_sample.py`",
+        implementation="Keep the first comment in `src/devops_cli/sample.py`",
+    )
+
+    problems = _check(make_stage_proposal(groups=[first, second]))
+
+    assert not any("state the same work" in p for p in problems)
+
+
+def test_a_documents_task_that_repeats_a_work_text_is_refused() -> None:
+    work = "Add the duplicate-task message to the roadmap catalog of `MESSAGES.roadmap`"
+    group = _group(
+        kind=GroupKind.OTHER,
+        test=None,
+        changes=[MESSAGES_FILE],
+        creates=[],
+        creates_lines={},
+        implementation=work,
+        documentation=work,
+        verify="uv run devops ci test tests/roadmap/test_roadmap_stage_content.py",
+    )
+    plan = make_stage_proposal(
+        what_changes=[f"`{MESSAGES_FILE}` gains the duplicate-task message."], groups=[group]
+    )
+
+    problems = check_proposal(plan, ["comment-thread"], TREE.with_files([MESSAGES_FILE]))
+
+    assert any("state the same work" in p and "1.1" in p and "1.2" in p for p in problems)
+
+
+def test_work_text_that_differs_only_in_case_and_spacing_is_refused() -> None:
+    group = _group(documentation="keep  the LAST comment in `src/devops_cli/sample.py`")
+
+    problems = _check(make_stage_proposal(groups=[group]))
+
+    assert any("state the same work" in p and "1.2" in p and "1.3" in p for p in problems)

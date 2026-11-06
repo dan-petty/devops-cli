@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: The job checks the premise of a behavior group at the branch tip
-Before the job runs a behavior group, the job SHALL check each guard or check identifier that a task of the group adds against the branch tip, and SHALL return the item to New with the definition line when the branch tip defines it. The job SHALL read the kind of the group from `group_kind` of `src/devops_cli/roadmap/plan_read.py`.
+Before the job runs a behavior group, the job SHALL check each guard or check identifier that a task of the group adds against the branch tip, and SHALL return the item to New with the definition line when the branch tip defines it. The job SHALL read the kind of the group from `TaskGroup.is_behavior` of `src/devops_cli/roadmap/step_files.py`.
 
 #### Scenario: A task adds a guard that the base already runs
 - **WHEN** A behavior group task says to add the guard `_delivery_title` and the branch tip defines `_delivery_title`

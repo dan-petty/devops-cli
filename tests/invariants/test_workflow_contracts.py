@@ -1633,3 +1633,173 @@ def test_only_a_file_of_an_active_change_folder_counts_as_plan_only(
         not _outside_plan(path, PLAN_FILTERS),
         re.fullmatch(CONST_OPENSPEC_CHANGE_FOLDER_RE, path) is not None,
     ) == (is_plan_file, is_plan_file)
+
+
+# ── The plan check of a Service plan pull request (#3103) ─────────────────────
+
+PR_TITLE_PATH = WORKFLOWS_DIR / "pr-title.yml"
+PLAN_CHECK_JOB = "plan-check"
+# The paths of the expressions that the condition of the job reads, and a path it must not read.
+EVENT_AUTHOR = "github.event.pull_request.user.login"
+EVENT_TITLE = "github.event.pull_request.title"
+EVENT_ACTOR = "github.actor"
+# A real plan pull request of the Service: the title of #3261, which its App's bot opened.
+SERVICE_PLAN_TITLE = "docs(openspec): plan #3201 add a plan-check command for a plan pull request"
+_EQUALS_TERM = re.compile(r"(?P<path>[\w.]+) == '(?P<value>[^']*)'")
+_STARTS_WITH_TERM = re.compile(r"startsWith\((?P<path>[\w.]+), '(?P<prefix>[^']*)'\)")
+
+
+def _plan_check_job() -> dict[str, Any]:
+    """The job `plan-check` of the workflow `pr-title.yml`."""
+    return dict(_load_workflow(PR_TITLE_PATH)["jobs"][PLAN_CHECK_JOB])
+
+
+def _condition_terms(job: dict[str, Any]) -> list[str]:
+    """The terms of the `if` of `job`, which the test reads as terms joined with `&&`."""
+    expression = str(job["if"]).strip().removeprefix("${{").removesuffix("}}").strip()
+    return [term.strip() for term in expression.split("&&")]
+
+
+def _runs(job: dict[str, Any], event: dict[str, str]) -> bool:
+    """Whether the `if` of `job` is true for `event`, which maps an expression path to its value.
+    The condition may hold only `always()`, `==` and `startsWith` terms, joined with `&&`: any
+    other term fails the test. GitHub compares strings with no regard to case in both operators."""
+    for term in _condition_terms(job):
+        equals, starts = _EQUALS_TERM.fullmatch(term), _STARTS_WITH_TERM.fullmatch(term)
+        if term == "always()":
+            continue
+        if equals is not None:
+            holds = event[equals["path"]].lower() == equals["value"].lower()
+        elif starts is not None:
+            holds = event[starts["path"]].lower().startswith(starts["prefix"].lower())
+        else:
+            raise AssertionError(f"the condition holds a term the test cannot read: {term}")
+        if not holds:
+            return False
+    return True
+
+
+def test_the_plan_check_job_waits_for_the_title_check_and_runs_after_a_failed_one() -> None:
+    """The command reads the check `Semantic PR title` and reports a problem when it is missing
+    or has not passed (`plan_check.py`), so the job runs after it. `always()` lets the job run
+    when that check fails, since the command then reports the title as a problem. Without it,
+    GitHub skips a job whose needed job failed. The job that the command reads has the name that
+    the command looks for (#3103)."""
+    from devops_cli.roadmap.plan_check import SEMANTIC_TITLE_CHECK
+
+    jobs = _load_workflow(PR_TITLE_PATH)["jobs"]
+    job = jobs[PLAN_CHECK_JOB]
+
+    assert (
+        job["needs"],
+        _condition_terms(job)[0],
+        jobs["semantic-title"]["name"],
+    ) == ("semantic-title", "always()", SEMANTIC_TITLE_CHECK)
+
+
+def test_the_plan_check_job_reads_checks_contents_and_pull_requests_only() -> None:
+    """The workflow grants nothing by default. The job reads the check runs for the title check,
+    the repository for the head of the pull request, and the pull request for its title and body.
+    The planned issue is public, so the job needs no `issues` permission. It writes nothing, and
+    it holds no `statuses` permission: a status is the design that #3103 gave up (#3103)."""
+    workflow = _load_workflow(PR_TITLE_PATH)
+
+    assert (workflow["permissions"], workflow["jobs"][PLAN_CHECK_JOB]["permissions"]) == (
+        {},
+        {"checks": "read", "contents": "read", "pull-requests": "read"},
+    )
+
+
+@pytest.mark.parametrize(
+    ("author", "title", "runs"),
+    [
+        ("devops-cli-service[bot]", SERVICE_PLAN_TITLE, True),
+        ("devops-cli-service[bot]", SERVICE_PLAN_TITLE.upper(), True),
+        (
+            "devops-cli-service[bot]",
+            "fix(roadmap): the plan check fails a citation of a line that moved",
+            False,
+        ),
+        ("devops-cli-service[bot]", "docs(openspec): archive the change 3103", False),
+        ("dan-petty", SERVICE_PLAN_TITLE, False),
+        ("github-actions[bot]", SERVICE_PLAN_TITLE, False),
+        ("dan-petty-release[bot]", "chore(main): release 0.64.1", False),
+    ],
+)
+def test_the_plan_check_job_runs_for_a_plan_of_the_service_and_for_no_other_pull_request(
+    author: str, title: str, runs: bool
+) -> None:
+    """The job runs for the plan pull request of the Service's bot, and is skipped for its
+    implement pull request, for a plan of a person or of another bot, and for the release pull
+    request. A skipped job reports Success, so these pull requests pass (#3103). The event holds
+    a person as the actor and the author as the bot, as the run of #3261 did: the condition reads
+    the author, not the actor."""
+    event = {EVENT_ACTOR: "dan-petty", EVENT_AUTHOR: author, EVENT_TITLE: title}
+
+    assert _runs(_plan_check_job(), event) is runs
+
+
+def test_the_plan_check_job_names_the_login_of_the_bot_of_the_service_app() -> None:
+    """The login in the condition is `<slug>[bot]` for the slug of the Service App, which the
+    example ConfigMap of the cluster sets and ADR 0015 records. The pull request API gives the
+    login of #3261, `devops-cli-service[bot]`, with the user type `Bot` (#3103)."""
+    from devops_cli.config.settings import Settings
+
+    configmap = yaml.safe_load(
+        Path("k8s/devops/configmap.example.yaml").read_text(encoding="utf-8")
+    )
+    config = yaml.safe_load(configmap["data"]["devops-cli.yaml"])
+    login = Settings.model_validate(config).service.github_app.bot_login
+    logins = [
+        match["value"]
+        for match in map(_EQUALS_TERM.fullmatch, _condition_terms(_plan_check_job()))
+        if match is not None and match["path"] == EVENT_AUTHOR
+    ]
+
+    assert (login, logins) == ("devops-cli-service[bot]", ["devops-cli-service[bot]"])
+
+
+def test_the_plan_check_job_selects_the_title_that_the_stage_job_gives_a_plan() -> None:
+    """The stage job opens a plan pull request with `staging_title`, and the plan check reads
+    that form. So the title prefix of the condition is the start of every title that the stage job
+    gives: the type, then `plan #` (#3103)."""
+    from devops_cli.roadmap.stage_change import staging_title
+
+    job = _plan_check_job()
+    event = {
+        EVENT_ACTOR: "dan-petty",
+        EVENT_AUTHOR: "devops-cli-service[bot]",
+        EVENT_TITLE: staging_title(3103, "run the plan check on a plan pull request"),
+    }
+
+    assert _runs(job, event) is True
+
+
+def test_the_plan_check_job_checks_out_the_history_and_runs_the_command_for_the_pull_request() -> (
+    None
+):
+    """The command fetches `refs/pull/<number>/head`, reads the log of the change folder and runs
+    the pinned OpenSpec, so the job checks out the whole history with no kept credentials, puts
+    Node and OpenSpec in place before the command, and gives the command the number of the pull
+    request and the token of the job through `env`, never through an expression in `run`."""
+    steps = _plan_check_job()["steps"]
+    names = [step.get("name") for step in steps]
+    checkout = steps[names.index("Check out repository")]
+    check = steps[names.index("Check the Plan")]
+
+    assert (
+        checkout["with"],
+        names.index("Set up Node.js")
+        < names.index("Install OpenSpec")
+        < names.index("Check the Plan"),
+        check["env"],
+        check["run"],
+    ) == (
+        {"persist-credentials": False, "fetch-depth": 0},
+        True,
+        {
+            "PR_NUMBER": "${{ github.event.pull_request.number }}",
+            "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
+        },
+        'uv run devops roadmap plan-check "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"',
+    )

@@ -19,6 +19,7 @@
  "notes": [
   "Group 3, which adds the `search_evidence` field, is the group that the twin lacks.",
   "The merged plan came before the rule of #3331. The last group has the added task to run `uv run devops roadmap eval stage --replay` with the score before and after, so that the gate `paths` accepts the plan. The twin has the same task.",
+  "Group 2 has the test that builds the plan's own `StageProposal` and asserts that `content_problems` returns no problem, which the rule of #3404 asks. The twin has the same test.",
   "The scores are set by hand. No review scored this plan."
  ],
  "defects": []

@@ -6712,7 +6712,7 @@ devops roadmap plan-check [OPTIONS] <pull_request>
 
 ### `devops roadmap plan-recheck`
 
-**Check each change folder on the default branch again. Each folder gets one result: ok, rewrite, new-plan, delivered or cleanup. The command reads GitHub and git, calls no model and writes nothing. Details: docs/roadmap/plan-recheck.md.**
+**Check each change folder on the default branch again. Each folder gets one result: ok, rewrite, new-plan, delivered or cleanup, and each refusal names its gate. With --branch, list the refusals of each gate for the branch and the default branch, and mark each refusal that the branch adds as a case to review. The command reads GitHub and git, calls no model and writes nothing. Details: docs/roadmap/plan-recheck.md.**
 
 ```bash
 devops roadmap plan-recheck [OPTIONS]
@@ -6724,7 +6724,8 @@ devops roadmap plan-recheck [OPTIONS]
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--source` | `path` | - | The clone of the repository. Without it, the model clone. |
-| `--json` | `boolean` | - | Print the folders and the counts as JSON, with the result of each folder. |
+| `--branch` | `string` | - | A ref of the clone, such as HEAD or origin/\<branch\>. The command judges its change folders on its own tree and compares them with the default branch. |
+| `--json` | `boolean` | - | Print the folders, the counts and the refusals of each gate as JSON, with the result of each folder. |
 | `--dry-run` | `boolean` | - | Make no request: print the reads that a run makes, in order, with placeholders. |
 
 ### `devops roadmap explain`
@@ -6863,7 +6864,7 @@ devops roadmap eval COMMAND [ARGS]...
 
 #### `devops roadmap eval stage`
 
-**Score the stage job on its golden set, the plans of 2026-11-01 with their known defects. For each case the job plans from the issue text, with the checks it runs in a Job. The command prints, for each type of defect that a gate catches, how often the first reply of the model avoids it, and a total score. It stores the report as JSON under the data directory. The model plans with the read-only toolbox of the job, which reads the code of the staging commit; with --no-toolbox it plans with one call and no tool. It calls the model through the gateway, one call per case at least. With --replay it calls no model: it runs the recorded plans through the gates and exits 1 when a gate stops refusing a known-bad plan or refuses a good plan. A change to the stage prompt or to the checks states this score before and after.**
+**Score the stage job on its golden set, the plans of 2026-11-01 with their known defects. For each case the job plans from the issue text, with the checks it runs in a Job. The command prints, for each type of defect that a gate catches, how often the first reply of the model avoids it, and a total score. It stores the report as JSON under the data directory. The model plans with the read-only toolbox of the job, which reads the code of the staging commit; with --no-toolbox it plans with one call and no tool. It calls the model through the gateway, one call per case at least. With --replay it calls no model: it runs the recorded plans through the gates and exits 1 when a gate stops refusing a known-bad plan or refuses a good plan. A live run leaves out a case that holds no commit and names it in the report. A change to the stage prompt or to the checks states this score before and after.**
 
 ```bash
 devops roadmap eval stage [OPTIONS]
@@ -6920,7 +6921,7 @@ devops roadmap eval intake [OPTIONS]
 
 #### `devops roadmap eval verify`
 
-**Score the model verification pass of the stage job on the golden set. For each case the pass gets the issue, the recorded plan and the start of each file that the plan cites, reads the staging commit with the read tools of the planner, and returns findings of the nine defect types. The command prints the recall of the labeled defects (all, and the blocker and major ones), whether the recall of the blocker and major defects reaches the floor, the recall for each type, and the findings on the good plans. It matches each finding to one labeled defect of the same type. It stores the report as JSON under the data directory. It calls the model of the verification task through the gateway, one agent run per case, with one request for each model reply. A change of the model or of the prompt states this score.**
+**Score the model verification pass of the stage job on the golden set. For each case the pass gets the issue, the recorded plan and the start of each file that the plan cites, reads the staging commit with the read tools of the planner, and returns findings of the nine defect types. The command prints the recall of the labeled defects (all, and the blocker and major ones), whether the recall of the blocker and major defects reaches the floor, the recall for each type, and the findings on the good plans. It matches each finding to one labeled defect of the same type. It stores the report as JSON under the data directory. It calls the model of the verification task through the gateway, one agent run per case, with one request for each model reply. It leaves out a case that holds no commit and names it in the report. A change of the model or of the prompt states this score.**
 
 ```bash
 devops roadmap eval verify [OPTIONS]

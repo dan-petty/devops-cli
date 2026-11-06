@@ -18,6 +18,7 @@
  "notes": [
   "Synthetic case: the plan is the merged plan of #3435 with group 3 removed and the What Changes item of that group worded without the paths.",
   "The last group has the task to run `uv run devops roadmap eval stage --replay` with the score before and after, which the rule of #3331 asks. The good twin has the same task.",
+  "Group 2 has the test that builds the plan's own `StageProposal` and asserts that `content_problems` returns no problem, which the rule of #3404 asks. The twin has the same test.",
   "The scores are set by hand. No review scored this plan."
  ],
  "defects": [
