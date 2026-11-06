@@ -13,5 +13,5 @@ Reads: `tests/invariants/test_change_folders.py`, `src/devops_cli/roadmap/implem
 
 Reads: nothing. Changes: `openspec/changes/3595-every-active-plan-verification-line-is-accepted` (moved by the archive command).
 
-- [ ] 2.1 Archive the change
+- [x] 2.1 Archive the change
   - Verification: `uv run devops openspec archive 3595-every-active-plan-verification-line-is-accepted` and `uv run devops openspec check`
