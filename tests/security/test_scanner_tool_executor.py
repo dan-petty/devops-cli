@@ -11,12 +11,10 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -86,15 +84,19 @@ ScanOver = Callable[[Path, ToolExecutor], ScanOutcome]
 
 
 @pytest.fixture(autouse=True)
-def scanners_installed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every review tool is on PATH, so the scanners start theirs. Nothing starts: the fake runs."""
-    real_which = shutil.which
-    installed = {tool for tool, _ in _REVIEW_SCANS}
+def scanners_installed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every review tool is on PATH as an executable stand-in, so the scanners start theirs.
 
-    def which(cmd: str, *args: Any, **kwargs: Any) -> str | None:
-        return f"/opt/scanners/{cmd}" if cmd in installed else real_which(cmd, *args, **kwargs)
-
-    monkeypatch.setattr(shutil, "which", which)
+    Nothing runs a stand-in: the fake starts the tool. The stand-ins only make each tool findable,
+    as `scanner_fake` does.
+    """
+    bin_dir = tmp_path / "scanner-bin"
+    bin_dir.mkdir()
+    for tool, _ in _REVIEW_SCANS:
+        stand_in = bin_dir / tool
+        stand_in.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        stand_in.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
 
 
 @pytest.fixture
