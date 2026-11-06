@@ -36,7 +36,9 @@ The review is a model, so text in the item can mislead it. The control is the lo
 
 When a fact or a decision has no verified source, or a key question of the body has no answer, refine investigates it. It uses tools that read the code. For a public repository with a Firecrawl key, it also searches the web. The plan says when web search is off.
 
-A design question gets the best-practice option, with the options that refine compared. Only a decision that a person must make waits on a person.
+A design question gets the best-practice option, with the options that refine compared. Only a decision that a person must make waits on a person: a question marked `(a person decides)`.
+
+When the investigation ends with no proposal, for example with `Exceeded maximum output retries (2)`, and a question that is not a person's is still open, the round is a job failure (see below). When the stop leaves only person questions and decisions marked `(proposed)`, the first proposal stands.
 
 ## Which items refine takes
 
@@ -64,6 +66,27 @@ Two kinds of item wait for a person. Only `--item` refines them:
 A part of an item can be one that nobody can build or decide now. When the rest of the item is Ready, refine moves that part to new issues through intake. Each new issue starts with `Split from #<issue>.`. Refine names the new issues in its Ready comment and records them as `refine.deferred`.
 
 An item that is too big for one pull request still waits for a person to split it.
+
+## Job failures
+
+A person has nothing to do for a failed job. These cases are job failures, not person waits:
+
+- The proposal fails a form check. The checks are `problem_statement`, `existing_tool` and `acceptance_criteria`. A proposal that needs a split has no criterion to check.
+- A question has no verified source after the investigation (`missing_source`), or a question of the body has no answer (`unanswered_question`).
+- The investigation ended with no proposal while such a question is open (`investigation_stopped`).
+
+A job failure writes no body and no comment. The job record shows it:
+
+| Key | Value |
+| :--- | :--- |
+| `refine.next_step` | `retry` below the limit of tries, then `failed` |
+| `refine.tries` | The count of rounds that failed on this body. A body edit starts it at 1 again |
+| `refine.failed_check` | The names of the failed checks, comma separated |
+| `refine.failure` | The last error, with the calls of the read tools when they found no source |
+
+With the step `retry`, the next round refines the item again. At 3 tries (`CONST_ROADMAP_REFINE_MAX_TRIES`) the step is `failed`: refine sends no model request for the item until a person edits its body, and [the inbox](inbox.md) lists it in the class `failed` with the checks, the count and the last error. A proposal that passes clears the keys. A job failure comes before a question for a person: a proposal that is not valid asks nobody.
+
+The plan report starts with the count of the items that go on without a person: the items that are Ready, blocked or in `retry`.
 
 ## Failures
 

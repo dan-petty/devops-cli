@@ -22,7 +22,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/inbox.py`. Changes: `src/devops_c
 
 Kind: documents. Reads: `docs/roadmap/refine.md`, `docs/roadmap/inbox.md`, `docs/ROADMAP_WORKFLOW.md`. Changes: `docs/roadmap/refine.md`, `docs/roadmap/inbox.md`, `docs/ROADMAP_WORKFLOW.md`, `docs/commands/roadmap.md`, `docs/CLI_REFERENCE.md`, `README.md`.
 
-- [ ] 3.1 Write the job failure, the try limit, the new record keys and the inbox class in the three documents, and regenerate the command reference with `uv run devops docs generate --sync-readme`
+- [x] 3.1 Write the job failure, the try limit, the new record keys and the inbox class in the three documents, and regenerate the command reference with `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci docs` passes
 
 ## Criteria

@@ -19,10 +19,11 @@ The lines come in this order of classes:
 5. New items that wait on a person in refine, one line for each, class `refine`. The line comes from the job record: the last refine round left a question for a person, or the stage job returned the item twice on the same body. A reply shows in the list until the next refine round. `devops roadmap explain <number>` gives the cause.
 6. New items with a split that no person has applied, one line for each, class `split`. Refine proposed the split in a comment.
 7. New items whose refine round put a covering tool to a person, one line for each, class `alternatives`. The line names the tool.
-8. Drafts of jobs, class `draft`. A draft of a job is listed when its head commit has a failed check run, or when it is older than `roadmap.inbox.draft_days`. A newer draft with no failed check is not listed. A pull request that a runner Job holds is not listed either.
-9. Claims with no activity for 7 days, class `claim`.
-10. Labels of `.github/labels.yml` that the repository lacks, class `labels`.
-11. The state of the Planned queue, when the count of Planned items is at `roadmap.stage.planned_limit`, class `queue`. The stage job then plans only items with the priority `P0-Critical` or `P1-High`. The line has no number and no age.
+8. New items whose refine job failed as often as the limit allows, one line for each, class `failed`. The line names the failed checks, the count of tries and the last error, and asks no question. An item that refine will try again has no line. A body edit makes refine try again.
+9. Drafts of jobs, class `draft`. A draft of a job is listed when its head commit has a failed check run, or when it is older than `roadmap.inbox.draft_days`. A newer draft with no failed check is not listed. A pull request that a runner Job holds is not listed either.
+10. Claims with no activity for 7 days, class `claim`.
+11. Labels of `.github/labels.yml` that the repository lacks, class `labels`.
+12. The state of the Planned queue, when the count of Planned items is at `roadmap.stage.planned_limit`, class `queue`. The stage job then plans only items with the priority `P0-Critical` or `P1-High`. The line has no number and no age.
 
 A second list holds the other open pull requests, those of people and agents, class `person`. It marks the drafts.
 
