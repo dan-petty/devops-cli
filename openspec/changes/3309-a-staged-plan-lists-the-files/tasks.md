@@ -22,7 +22,7 @@ Reads: `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/stage_moved.py
 
 Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`. Changes: `src/devops_cli/ai/tasks/roadmap_stage_change.md`.
 
-- [ ] 3.1 Add one rule to the `feasibility` section of the stage prompt: give one line for each function that the plan calls whose arguments need a checkout, a client or a network, and name that need in the line. Run `uv run devops roadmap eval stage --replay` and state the score of the model before and after the prompt change
+- [x] 3.1 Add one rule to the `feasibility` section of the stage prompt: give one line for each function that the plan calls whose arguments need a checkout, a client or a network, and name that need in the line. Run `uv run devops roadmap eval stage --replay` and state the score of the model before and after the prompt change
   - Verification: `uv run devops openspec check` passes
 
 ## 4. Check the prompt rule and the changed code together
