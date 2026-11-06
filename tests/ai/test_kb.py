@@ -242,3 +242,29 @@ def test_kb_front_matter_sources_validation() -> None:
             sources=("ftp://example.com/guide",),
             reviewed="2026-10-21",
         )
+
+
+def test_harness_manual_names_the_maintained_repository() -> None:
+    """The harness manual points at pydantic/pydantic-ai, not the archived repository (#3106)."""
+    from devops_cli.ai.kb import parse_manual_front_matter
+
+    page = get_knowledge_base_dir() / "devops_cli" / "libraries" / "pydantic_ai_harness.md"
+    front_matter, body, error = parse_manual_front_matter(page.read_text(encoding="utf-8"))
+
+    assert error is None
+    assert front_matter is not None
+    assert "https://github.com/pydantic/pydantic-ai" in front_matter.sources
+    row = next(line for line in body.splitlines() if "Public Git Repository" in line)
+    assert "](https://github.com/pydantic/pydantic-ai)" in row
+    assert "src/pydantic_ai_harness" in row
+
+
+def test_no_manual_names_the_archived_harness_repository() -> None:
+    """No manual links the archived pydantic/pydantic-ai-harness repository (#3106)."""
+    kb_dir = get_knowledge_base_dir()
+    offenders = [
+        str(path.relative_to(kb_dir))
+        for path in kb_dir.rglob("*.md")
+        if "pydantic/pydantic-ai-harness" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
