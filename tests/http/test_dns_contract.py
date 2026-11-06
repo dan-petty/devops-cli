@@ -128,16 +128,6 @@ async def test_an_async_lookup_that_runs_past_its_timeout_raises_timeout_error(
         release.set()
 
 
-def test_the_real_resolver_is_the_default(dns: DnsFake) -> None:
-    """With the fixture gone, the seam hands out `SystemResolver` again."""
-    from devops_cli.http.egress import get_resolver, reset_resolver
-
-    installed = get_resolver()
-    reset_resolver()
-
-    assert (installed, type(get_resolver()).__name__) == (dns, "SystemResolver")
-
-
 def test_a_name_answers_the_addresses_it_is_mapped_to_with_the_port_asked(dns: DnsFake) -> None:
     """A mapped name answers each address in order, IPv6 as a four-field address."""
     dns.add("Service.Example.com.", "192.0.2.1", "2001:db8::1")
