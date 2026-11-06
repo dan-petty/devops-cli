@@ -28,6 +28,10 @@ Each pod that mounts a claim SHALL have a required node affinity in which every 
 - **WHEN** the check reads an affinity with no node affinity, with the expression only as a preference, or with a second required term without it
 - **THEN** the check reports that the pod can run on the control-plane node
 
+#### Scenario: Grafana, the Prometheus server and Loki keep off the control-plane node
+- **WHEN** a test reads `k8s/monitoring/grafana-values.yaml`, `k8s/monitoring/prometheus-values.yaml` and `k8s/logging/loki-values.yaml`, and the table of exemptions names none of their pods
+- **THEN** the pods `grafana`, `server` and `singleBinary` each have the expression in every required node selector term
+
 ### Requirement: A warning before image garbage collection on a node with local-path volumes
 The Prometheus alert rules SHALL include `LocalPathNodeDiskHigh`, severity `warning`, which fires when the root filesystem of a node that runs a pod on a `local-path` claim has been over 85% used for 15 minutes. The rule SHALL join its series with `and` only, and SHALL carry the node in its `node` label.
 
