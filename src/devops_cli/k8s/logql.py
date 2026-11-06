@@ -17,6 +17,7 @@ from devops_cli.config.defaults import (
     DEFAULT_LOG_QUERY_SINCE,
     DEFAULT_LOKI_URL,
 )
+from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import is_valid_k8s_name
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
@@ -442,6 +443,16 @@ def execute_loki_query(
     )
 
 
+def resolve_loki_url(loki_url: str | None = None) -> str:
+    """The Loki address: the option, else the `loki.url` setting, else the default Loki."""
+    if loki_url:
+        return loki_url
+    configured = load_settings().loki.url
+    if configured:
+        return configured
+    return DEFAULT_LOKI_URL
+
+
 def execute_logql_query(
     query: LogQLQuery | str,
     namespace: str | None = None,
@@ -470,7 +481,7 @@ def execute_logql_query(
             )
 
     target_ns = parsed.selectors.get("namespace", namespace or "default")
-    url = loki_url or DEFAULT_LOKI_URL
+    url = resolve_loki_url(loki_url)
 
     if dry_run or is_dry_run():
         render_dry_run_result(

@@ -406,7 +406,12 @@ def logs(
     limit: Annotated[int, typer.Option("--limit", help="Max lines for LogQL query")] = 100,
     since: Annotated[str, typer.Option("--since", help="Time range for LogQL query")] = "1h",
     loki_url: Annotated[
-        str | None, typer.Option("--loki-url", help="Loki service endpoint")
+        str | None,
+        typer.Option(
+            "--loki-url",
+            help="Loki service endpoint; overrides the `loki.url` setting "
+            "(default: http://localhost:3100)",
+        ),
     ] = None,
     format: Annotated[str, typer.Option("--format", help="Output format (text, json)")] = "text",
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,

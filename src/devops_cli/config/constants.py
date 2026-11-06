@@ -103,6 +103,10 @@ CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
         "Shared Run Index (`runs`)",
         "PostgreSQL connection settings for the shared AI run index.",
     ),
+    "loki": (
+        "Loki Configuration (`loki`)",
+        "Grafana Loki log query endpoint and service addressing settings.",
+    ),
     "tempo": (
         "Tempo Configuration (`tempo`)",
         "Grafana Tempo distributed tracing query endpoint and service addressing settings.",

@@ -26,7 +26,7 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/config/settings.py`, `src/devops_cli/k8s/logql.py`, `src/devops_cli/k8s/cluster_plans.py`, `src/devops_cli/commands/k8s/cluster_context.py` (help text only).
+- Code: `src/devops_cli/config/settings.py`, `src/devops_cli/config/constants.py` (the section title of the generated table only), `src/devops_cli/k8s/logql.py`, `src/devops_cli/k8s/cluster_plans.py`, `src/devops_cli/commands/k8s/cluster_context.py` (help text only).
 - Tests: `tests/config/test_loki_url.py`, `tests/k8s/test_loki_url_setting.py`, `tests/commands/k8s/test_k8s_logs_loki_url.py` (all new), `tests/ai/mcp/test_k8s_logql.py` and `tests/security/test_config_declarations.py` (edited).
 - Documents (generated): `docs/CONFIGURATION.md`, `docs/ENV_VARS.md`, `docs/CLI_REFERENCE.md`, `docs/commands/k8s.md`.
 - Egress and trust: the Loki client dials at the private level (`src/devops_cli/k8s/logql.py:396`, `EgressLevel.PRIVATE`), and the setting keeps that level. A person writes `loki.url`. The MCP exposure table holds no `config set` (`src/devops_cli/config/constants.py:301-303` lists `config audit-keys`, `output` and `show`), so a model cannot change the address.

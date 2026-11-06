@@ -113,6 +113,14 @@ PostgreSQL connection settings for the shared AI run index.
 |---|---|---|---|---|
 | `index_url` | `Union` | - | `DEVOPS_CLI_RUNS_INDEX_URL` | Valkey holding the run index shared by workstations (set by `devops ai runs connect`) |
 
+## Loki Configuration (`loki`)
+
+Grafana Loki log query endpoint and service addressing settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `url` | `Union` | - | `DEVOPS_CLI_LOKI_URL` | Loki service endpoint that a log query dials; unset, it is `http://localhost:3100` |
+
 ## Tempo Configuration (`tempo`)
 
 Grafana Tempo distributed tracing query endpoint and service addressing settings.
