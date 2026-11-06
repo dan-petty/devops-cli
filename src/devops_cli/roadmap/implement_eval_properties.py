@@ -12,9 +12,10 @@ the two command properties skipped.
 `tests_kept` reads the hunks of each Python file under `tests/`. It fails for a test name that the
 diff removes and does not add, and for a test that is weakened: it loses assertion lines on balance
 (`assert`, `pytest.raises`, `.assert_...`), or it gets a skip or xfail mark or call while its `def`
-stays. A fixture waives a test with `allow_lost_tests`. A hunk shows no class, so a test that moves to
-another class of its file is kept. The check reads lines and not the tree of the file, so a test that
-keeps its assertion lines and loses their meaning is not found.
+stays. A fixture waives a test with `allow_lost_tests`, which also holds each test that its plan
+records. A hunk shows no class, so a test that moves to another class of its file is kept. The
+check reads lines and not the tree of the file, so a test that keeps its assertion lines and loses
+their meaning is not found.
 """
 
 from __future__ import annotations

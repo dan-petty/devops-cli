@@ -131,7 +131,7 @@ The log comment, the suspension of a row and the other details are in [k8s/READM
 4. The Service records the digest of the runner image in `implement.job_digest` when it makes a Job. The report comment of the Job names that digest. This is the digest of the stop.
 5. The Service makes no Job for a Blocked Item. Two rules take it out of Blocked, and a comment of the Service names the rule that ran:
    - **retry**: a trusted person comments `implement: retry` after the stop comment. The next round clears the stop at once, whatever the digest.
-   - **digest**: the digest in the template of CronJob `devops-cli-runner` is not the digest in `implement.job_digest`, and the class of the stop in `implement.failure` has the action `retry` in `ACTION_BY_CLASS`. A new image may fix the cause of such a stop, so the Service clears it. A new image cannot fix a plan, a premise, a refused tool or a failed test, so a stop of another class waits for the retry rule.
+   - **digest**: the digest in the template of CronJob `devops-cli-runner` is not the digest in `implement.job_digest`, and the class of the stop in `implement.failure` has the action `retry` in `ACTION_BY_CLASS`. A new image may fix the cause of such a stop, so the Service clears it. A new image cannot fix a plan, a premise, a refused tool, a failed test or a lost test, so a stop of another class waits for the retry rule.
 6. A clear removes `implement.stopped` and sets `status/ready`, or `status/planned` when the plan is on the default branch. The same round takes the Item again, with its branch and its draft pull request.
 
 Each new Job overwrites `implement.job_digest`. So a second stop on the same image finds equal digests, and only a retry clears it. A stop with no digest on record, a stop with no class on record, and a template with no digest, are cleared by a retry only.
@@ -157,7 +157,7 @@ A stop has a class (`roadmap/failure.py`, #3065). A stop site that knows its cau
 | `conflict` | `wait` | A rebase or the pull request has a merge conflict |
 | `ci_infra` | `retry` | The infrastructure failed, and every failure that no other class matches |
 | `no_change_in_fix` | `wait` | A fix step changed no file, so the failed check is as it was. A person reads the failed check in the stop |
-| `tests_lost` | `retry` | The agent removed or renamed a test that existed at the start of the step |
+| `tests_lost` | `wait` | The agent removed or renamed a test that existed at the start of the step, and the plan on the default branch does not record it in `## Weakened checks` |
 | `head_moved` | `retry` | The agent moved HEAD, and a step makes the only commit |
 | `output_cap` | `raise_limit` | A model reply reached the output cap of the step |
 | `limit_reached` | `raise_limit` | A step spent a token budget or a time limit of `roadmap.implement`. The reason names the setting and its value. See [the budgets](#checks-of-the-implement-job) |
@@ -168,6 +168,8 @@ The Job runs these actions by itself:
 - `amend` for a request of the kinds `path`, `command` and `task`,
 - `return` for a `premise` request,
 - the split of a group whose inputs exceed the context window.
+
+A plan can order the removal or the rename of a test (#3490). Its `proposal.md` names the old test as `path::name` in the `check` of an entry of `## Weakened checks`, and the entry says what the test stopped and what safeguard takes its place: `- **<check>**: Stopped: <stopped> Safeguard: <safeguard>`. The step guard allows that test. It refuses any other lost test, with the class `tests_lost`. AGENTS.md rule 5 lets only the owner lower a threshold, and only a person merges a pull request, so the Job reads the record from `origin/<default>` and never from its checkout. An entry that the agent writes waives nothing, and a plan that is only on its staged branch records nothing. A step that a person runs with `devops roadmap implement --item <number> --group <group>` reads no record, so it refuses each lost test. The plan reader refuses a line of the section in another form.
 
 The action left is the default of the class, or `wait` when the Job took that default already. A person runs the other actions. The issues #3060, #3062 and #3098 own their dispatch.
 
@@ -349,7 +351,7 @@ The implement job has a baseline score. The command that gives it calls a model 
 | Property | It passes when |
 | :--- | :--- |
 | `tests_pass` | The commands that name the tests of the fixture exit 0 in the tree of the result |
-| `tests_kept` | The diff deletes no test, renames none, takes no assertion line from a test on balance, and adds no skip or xfail to an existing test |
+| `tests_kept` | The diff deletes no test, renames none, takes no assertion line from a test on balance, and adds no skip or xfail to an existing test. `allow_lost_tests` of the fixture and the `## Weakened checks` section of its plan waive a test by `path::name` |
 | `diff_scope` | The diff touches only the paths of the `Changes:` line of the group, and the `tasks.md` of the change |
 | `verify_passes` | The verification commands of the group exit 0 in the tree of the result |
 | `no_scratch` | The diff adds no file at the root, under `.data/`, or with a scratch suffix |

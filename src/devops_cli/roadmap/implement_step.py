@@ -129,7 +129,7 @@ from devops_cli.roadmap.implement_shell_policy import (
 )
 from devops_cli.roadmap.implement_shell_refusal import ShellRefusal
 from devops_cli.roadmap.implement_strays import stray_files
-from devops_cli.roadmap.implement_test_names import lost_since
+from devops_cli.roadmap.implement_test_names import lost_since, unrecorded_tests
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.implement_trace import ImplementTrace
 from devops_cli.roadmap.implement_wip import WipCommit, WipKeeper, restore_sources
@@ -232,7 +232,7 @@ class StepInputs:
     read with its line ends. The job writes that text back after each turn. `item_title` is the
     title of the item, which gives the type and the scope of the step commit. `hooks` is the
     trusted configuration of the hooks (`trusted_config`), or None when the repository has no hook
-    (#3043)."""
+    (#3043). `recorded_tests` holds each test, as `path::name`, that the step may lose (#3490)."""
 
     group: TaskGroup
     change: Path
@@ -243,6 +243,7 @@ class StepInputs:
     tokens: int
     fix: FixRequest | None = None
     hooks: Path | None = None
+    recorded_tests: frozenset[str] = frozenset()
 
 
 def _files_section(source: Path, group: TaskGroup) -> str:
@@ -1058,11 +1059,12 @@ def _paths_text(
     return paths
 
 
-def _tests_failure(source: Path, start: str) -> str | None:
-    """Why the step stops when a test file lost a test that it had at `start`, else None. The reason
-    names each file with up to `CONST_ROADMAP_IMPLEMENT_REASON_TESTS` of its tests. A file that does
-    not parse is skipped: `_static_failure` reports its error."""
-    lost = lost_since(lambda *args: _git_output(source, *args), start)
+def _tests_failure(source: Path, start: str, recorded: frozenset[str]) -> str | None:
+    """Why the step stops when a test file lost a test that it had at `start`, and `recorded` does
+    not name that test, else None. The reason names each file with up to
+    `CONST_ROADMAP_IMPLEMENT_REASON_TESTS` of its tests. A file that does not parse is skipped:
+    `_static_failure` reports its error."""
+    lost = unrecorded_tests(lost_since(lambda *args: _git_output(source, *args), start), recorded)
     if not lost:
         return None
     texts = MESSAGES.roadmap
@@ -1317,7 +1319,7 @@ def _exit_failure(
             FailureClass.NO_CHANGE_IN_FIX if inputs.fix is not None else FailureClass.PLAN_DEFECT
         )
         return _Failure(MESSAGES.roadmap.implement_stop_no_change, klass=no_change)
-    lost = _tests_failure(source, keeper.base)
+    lost = _tests_failure(source, keeper.base, inputs.recorded_tests)
     if lost:
         return _Failure(lost, klass=FailureClass.TESTS_LOST)
     early = _format_failure(source, changed, log.trace) or commands_failure(
@@ -1720,10 +1722,11 @@ def _attempt(
     )
 
 
-def _unkeepable(source: Path, base: str) -> str | None:
+def _unkeepable(source: Path, base: str, recorded: frozenset[str]) -> str | None:
     """Why the staged work must not become a `wip:` commit (#3054), else None: it loses a test
-    that existed at `base`, or it holds a symbolic link, which the step refuses at its exit."""
-    lost = _tests_failure(source, base)
+    that existed at `base` and that `recorded` does not name, or it holds a symbolic link, which
+    the step refuses at its exit."""
+    lost = _tests_failure(source, base, recorded)
     if lost:
         return lost
     names = _git_output(source, "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z")
@@ -1752,7 +1755,7 @@ def _keeper(
         verify=lambda commands: commands_failure(source, commands, log.trace),
         strays=lambda: _strays(source, inputs),
         moved=lambda: _index_adds(source)[1],
-        blocked=lambda: _unkeepable(source, keeper.base),
+        blocked=lambda: _unkeepable(source, keeper.base, inputs.recorded_tests),
         on_commit=on_wip,
     )
     if inputs.fix is None and keep:
@@ -1778,6 +1781,7 @@ def run_step(
     on_wip: Callable[[WipCommit], None] | None = None,
     keep: bool = True,
     spend: ItemSpend | None = None,
+    recorded_tests: frozenset[str] = frozenset(),
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
@@ -1804,10 +1808,14 @@ def run_step(
     The step stops before a model request when it has spent a budget of `roadmap.implement`
     (#3053): the input tokens or the seconds of the step, or those of the run of the item. `spend`
     is what the run spent before this step; without it the item has spent nothing.
+
+    `recorded_tests` holds each test, as `path::name`, that the step may lose (#3490). The caller
+    reads it from a text that the agent cannot edit. With no value, each lost test stops the step.
     """
     inputs = replace(
         build_step_inputs(store, item=item, group=group, source=source, window=window, fix=fix),
         hooks=hooks,
+        recorded_tests=recorded_tests,
     )
     if model is None and model_for_tier is None:
         raise RoadmapImplementError(MESSAGES.roadmap.implement_no_model)
@@ -1851,6 +1859,7 @@ def run_fix_step(
     tier_health: Callable[[Sequence[str]], Mapping[str, bool]] | None = None,
     trace: ImplementTrace | None = None,
     spend: ItemSpend | None = None,
+    recorded_tests: frozenset[str] = frozenset(),
 ) -> StepOutcome:
     """Run the fix of the failed check `fix` for item `item` in the checkout `source`: a step
     whose group is "Make check <name> pass". It commits with the type and the scope of the item,
@@ -1871,6 +1880,7 @@ def run_fix_step(
         tier_health=tier_health,
         trace=trace,
         spend=spend,
+        recorded_tests=recorded_tests,
     )
 
 

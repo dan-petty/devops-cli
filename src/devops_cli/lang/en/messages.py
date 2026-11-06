@@ -2543,7 +2543,8 @@ class RoadmapMessages:
     implement_stop_tick_unreadable: str = "The job cannot tick group {group}. The tasks.md of the change has no readable group {group}."
     implement_stop_tests_lost: str = (
         "The agent removed tests that existed at the start of the step. "
-        "A step may add tests. It may not remove or rename one.\n{files}"
+        "A step may add tests. It may remove or rename a test only when the plan on the default "
+        "branch names it in `## Weakened checks`.\n{files}"
     )
     implement_tests_lost_file: str = "{path}: {tests}"
     implement_stop_head_moved: str = (
@@ -2598,6 +2599,7 @@ class RoadmapMessages:
         "Fixture {name}: the result {result} names the diff results/{file}, which is missing."
     )
     eval_implement_lost_form: str = "allow_lost_tests holds {entry}, which is not path::name."
+    eval_implement_bad_record: str = "The plan of fixture {name} cannot be read: {reason}"
     eval_implement_unknown: str = "No fixture is named {names}. The fixtures are: {known}."
     # The details of the properties.
     eval_implement_more: str = " and {count} more"
@@ -3382,6 +3384,10 @@ class RoadmapMessages:
         'The criterion "{criterion}" is pending-person and has no reason.'
     )
     stage_criteria_title: str = "Criteria"
+    # The section of a proposal that records a weakened check (#3320, #3490). The plan reader reads
+    # a bullet of the section by this form, and `{check}` names a test as `path::name`.
+    stage_weakened_checks_title: str = "Weakened checks"
+    stage_weakened_entry: str = "**{check}**: Stopped: {stopped} Safeguard: {safeguard}"
     # A line starts with a fixed word, so that a criterion cannot start a block (a heading or a task).
     stage_criteria_line: str = "Group {group}: {criterion}"
     stage_criteria_pending: str = "Pending person: {criterion}, {reason}"
@@ -3541,6 +3547,10 @@ class RoadmapMessages:
     # problems that the command reports.
     plan_read_missing_file: str = "The change folder has no `{name}`."
     plan_read_bad_proposal: str = "`proposal.md` has no `## Why` section."
+    plan_read_bad_weakened: str = (
+        "`proposal.md` holds a line in `## Weakened checks` that is no entry: {text}. The form is "
+        "`- **<check>**: Stopped: <stopped> Safeguard: <safeguard>`."
+    )
     plan_read_bad_tasks: str = "`tasks.md` holds a group with no `Reads: ... Changes: ...` line."
     plan_read_bad_task: str = "`tasks.md` holds a task that the reader cannot read: {text}"
     plan_read_bad_group: str = "Group `{title}` breaks a rule of the plan: {reason}"

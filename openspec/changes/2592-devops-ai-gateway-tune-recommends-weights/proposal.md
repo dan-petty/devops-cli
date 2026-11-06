@@ -38,6 +38,11 @@ The issue has no acceptance list. Its "Expected" text and its "Proposed design" 
 | `ai.gateway_weights` is gone | Group 4 |
 | `ai.gateway_concurrency` is gone | Not delivered. The RAG embedder reads it (see Feasibility). This is a correction of the refine design, which said that no code reads it. |
 
+## Weakened checks
+
+- **`tests/ai/test_ai_gateway_tune.py::test_weights_are_throughput_relative_to_the_slowest_deployment`, `tests/ai/test_ai_gateway_tune.py::test_recommend_weights_with_overrides`, `tests/ai/test_ai_gateway_tune.py::test_calculate_hardware_weights_and_concurrency`, `tests/ai/test_ai_gateway_tune.py::test_calculate_weights_with_backend_label_overrides` and `tests/ai/test_ai_gateway_tune.py::test_tune_pool_applies_concurrency_overrides`**: Stopped: a wrong weight or concurrency from the functions that group 2 deletes. Safeguard: The functions go with their tests, and the search of task 2.3 finds no name of them in the command or in the module.
+- **`tests/ai/test_ai_gateway_tune.py::test_tune_command_weighs_capacity_against_cost`**: Stopped: a wrong capacity or cost in the report of the command. Safeguard: Task 2.3 renames the test and keeps its assertions of capacity and cost.
+
 ## Feasibility
 
 Checked on 2026-11-01 against `origin/main` (`0d2d0723`).

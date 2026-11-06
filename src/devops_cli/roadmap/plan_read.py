@@ -9,6 +9,11 @@ with the same inputs as the reply of the model. The reader refuses a file that i
 The writer drops a few facts that no file holds: the kind of a task group, the estimated lines of a
 file that a group creates, and whether the plan builds its own code. The reader infers the kind
 from the tasks, gives each created path one estimated line, and sets `builds_own` to false.
+
+The reader also reads `## Weakened checks` of `proposal.md` (#3490). `recorded_tests` gives the
+tests that its entries name, and `merged_recorded_tests` gives them for the plan at one commit. The
+step guard trusts only the plan on the default branch: a person merged that text, so the record
+holds what the owner allows under rule 5 of `AGENTS.md`.
 """
 
 from __future__ import annotations
@@ -35,6 +40,7 @@ from devops_cli.roadmap.stage_change import (
     StageRequirement,
     StageScenario,
     StageSpec,
+    WeakenedCheck,
 )
 from devops_cli.roadmap.stage_criteria import StageCriterion
 from devops_cli.roadmap.stage_specs import BaseSpec, read_spec
@@ -69,6 +75,11 @@ _DOCUMENTS_MARK: Final[str] = MESSAGES.roadmap.stage_task_regenerate.format(
     command=REGENERATE_DOCUMENTS
 )
 _CRITERIA_TITLE: Final[str] = MESSAGES.roadmap.stage_criteria_title
+_WEAKENED_TITLE: Final[str] = MESSAGES.roadmap.stage_weakened_checks_title
+_WEAKENED_ENTRY: Final[re.Pattern[str]] = re.compile(
+    re.sub(r"\\\{(\w+)\\\}", r"(?P<\1>.+?)", re.escape(MESSAGES.roadmap.stage_weakened_entry))
+)
+_RECORDED_TEST: Final[re.Pattern[str]] = re.compile(r"[\w./-]+\.py::\w+(?:\.\w+)*")
 _PENDING_PREFIX: Final[str] = "Pending person: "
 
 
@@ -191,6 +202,30 @@ def _proposal(text: str) -> tuple[str, list[str], list[str], str]:
     feasibility = _bullets(_section(text, "Feasibility"))
     existing_tool = _section(text, "Existing Tool Considered")
     return _one_line(why), what_changes, feasibility, _one_line(existing_tool)
+
+
+def _weakened_check(line: str) -> WeakenedCheck:
+    entry = _WEAKENED_ENTRY.fullmatch(line.removeprefix("- ").strip())
+    reason = MESSAGES.roadmap.plan_read_bad_weakened.format(text=line.strip())
+    if entry is None or not line.startswith("- "):
+        raise PlanReadError(_PROPOSAL, reason)
+    try:
+        return WeakenedCheck(**entry.groupdict())
+    except ValidationError as exc:
+        raise PlanReadError(_PROPOSAL, reason) from exc
+
+
+def weakened_checks(proposal_md: str) -> list[WeakenedCheck]:
+    """The entries of `## Weakened checks` in the text of `proposal.md`. A line of the section in
+    another form raises `PlanReadError`: a lost entry would stop a removal that a person allowed."""
+    section = _section(proposal_md, _WEAKENED_TITLE)
+    return [_weakened_check(line) for line in section.splitlines() if line.strip()]
+
+
+def recorded_tests(checks: Sequence[WeakenedCheck]) -> frozenset[str]:
+    """The tests that the `check` texts of `checks` name as `path::name`. A path alone or a name
+    alone records no test: a path would also waive a test that a later commit adds to the file."""
+    return frozenset(name for entry in checks for name in _RECORDED_TEST.findall(entry.check))
 
 
 def _design(text: str) -> tuple[list[StageDecision], list[StageRejection]]:
@@ -426,7 +461,8 @@ def read_change(files: Mapping[str, str]) -> StageProposal:
     root. A file that the reader cannot parse raises `PlanReadError` that names it, and no other
     error leaves the reader for a plan that is wrong in form."""
     root = _header(files)
-    why, what_changes, feasibility, existing_tool = _proposal(files[f"{root}/{_PROPOSAL}"])
+    proposal_md = files[f"{root}/{_PROPOSAL}"]
+    why, what_changes, feasibility, existing_tool = _proposal(proposal_md)
     decisions, rejected = _design(files[f"{root}/{_DESIGN}"])
     groups = [_read_group(group) for group in parse_task_groups(files[f"{root}/{_TASKS}"])]
     specs = [
@@ -449,6 +485,7 @@ def read_change(files: Mapping[str, str]) -> StageProposal:
             specs=specs,
             groups=groups,
             criteria=criteria,
+            weakened_checks=weakened_checks(proposal_md),
         )
     except ValidationError as exc:
         raise PlanReadError(root, _reasons(exc)) from exc
@@ -488,6 +525,20 @@ def change_root(files: Sequence[str], issue: int) -> tuple[str | None, list[str]
             count=len(names), issue=issue, folders=", ".join(f"`{name}`" for name in names)
         )
     ]
+
+
+def merged_recorded_tests(source: Path, rev: str, issue: int, *, operation: str) -> frozenset[str]:
+    """The tests that the plan of `issue` at commit `rev` records (`recorded_tests`). A commit with
+    no active plan of `issue`, or with no `proposal.md` in that plan, records none. It reads only
+    `proposal.md`, so a defect in another file of the plan does not change the guard. Raises
+    `PlanReadError` for a section that the reader refuses."""
+    files = tree_files(source, rev, operation=operation)
+    root, _ = change_root(files, issue)
+    path = f"{root}/{_PROPOSAL}"
+    if root is None or path not in files:
+        return frozenset()
+    text = files_at(source, rev, [path], operation=operation)[path]
+    return recorded_tests(weakened_checks(text))
 
 
 def specs_at(

@@ -2,22 +2,22 @@
 
 ## 1. Refuse a plan that deletes a guard check
 
-Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/test_roadmap_stage_plan.py`, `tests/roadmap/test_roadmap_stage_prompt_rules.py`. Changes: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/test_roadmap_stage_weakened_checks.py` (new), `tests/roadmap/test_roadmap_stage_prompt_rules.py`.
+Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/test_roadmap_stage_plan.py`, `tests/roadmap/test_roadmap_stage_prompt_rules.py`. Changes: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/test_roadmap_stage_weakened_checks.py` (new), `tests/roadmap/test_roadmap_stage_prompt_rules.py`, `tests/roadmap/test_roadmap_plan_read_weakened.py`.
 
 - [ ] 1.1 Write `tests/roadmap/test_roadmap_stage_weakened_checks.py` with a reply whose task deletes `test_all_cli_commands_are_either_exposed_or_excluded` and no entry, and assert that `check_proposal` names it
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_weakened_checks.py` fails on the base
-- [ ] 1.2 Add `WeakenedCheck` with `check`, `stopped` and `safeguard`, and the field `weakened_checks` on `StageProposal`. Add `_guard_deletions` and the check that calls it from `check_proposal`, with the texts in `MESSAGES.roadmap`
+- [ ] 1.2 Add `_guard_deletions` and the check that calls it from `check_proposal`, with the texts in `MESSAGES.roadmap`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_weakened_checks.py` passes
-- [ ] 1.3 Add the `weakened_checks` key and its rule to `src/devops_cli/ai/tasks/roadmap_stage_change.md`, and add `WeakenedCheck` to the models of `tests/roadmap/test_roadmap_stage_prompt_rules.py` that must list their keys
+- [ ] 1.3 Remove `SkipJsonSchema` from the field `weakened_checks` of `StageProposal`, so the reply schema shows it, and delete `test_the_reply_schema_of_the_stage_model_does_not_show_the_field` from `tests/roadmap/test_roadmap_plan_read_weakened.py`. Add the `weakened_checks` key and its rule to `src/devops_cli/ai/tasks/roadmap_stage_change.md`, and add `WeakenedCheck` to the models of `tests/roadmap/test_roadmap_stage_prompt_rules.py` that must list their keys
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_prompt_rules.py` passes
 
 ## 2. Write the weakened checks into the proposal file
 
 Reads: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_weakened_checks.py`. Changes: `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_weakened_checks.py`.
 
-- [ ] 2.1 Add a case to `tests/roadmap/test_roadmap_stage_weakened_checks.py` that renders one entry and asserts the `## Weakened checks` section, and one that renders none and asserts no section
+- [ ] 2.1 Add a case to `tests/roadmap/test_roadmap_stage_weakened_checks.py` that renders one entry, asserts the `## Weakened checks` section and reads the entry back with `read_change`, and one that renders none and asserts no section
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_weakened_checks.py` fails on the base
-- [ ] 2.2 Render the section in `_proposal_file` between `## Impact` and `## Feasibility` when `weakened_checks` is not empty, and add its heading text to `MESSAGES.roadmap`
+- [ ] 2.2 Render the section in `_proposal_file` between `## Impact` and `## Feasibility` when `weakened_checks` is not empty, with `stage_weakened_checks_title` and `stage_weakened_entry` of `MESSAGES.roadmap`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_weakened_checks.py` passes
 
 ## 3. Ask for the section in the proposal rules
