@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -414,30 +414,24 @@ def test_tiered_synthesis_symbol_catalog_report(sample_repo_path: Path) -> None:
     assert "0 discovered symbol(s)" not in result.summary
 
 
-def test_tiered_synthesis_partial_status() -> None:
-    """Verify tiered execution returns partial status when some sub-agent steps fail."""
-    # Inject a failing sub-agent result alongside a successful one
-    success_res = SubAgentResult(
-        subagent_id="scout_1",
-        role="explorer",
-        status="success",
-        data={"matches": [{"name": "Foo", "kind": "class", "signature": "()", "file": "a.py"}]},
-    )
-    failed_res = SubAgentResult(
-        subagent_id="scout_2",
-        role="explorer",
-        status="failed",
-        error="ConnectionTimeout",
+def test_tiered_synthesis_reports_every_failed_search(tmp_path: Path) -> None:
+    """Verify a run whose two searches both fail reports the failed status and both errors."""
+    harness = AgentHarness.from_config()
+    missing = tmp_path / "missing_repo"
+
+    result = harness.execute_tiered(
+        task="Investigate missing repo",
+        repo_path=missing,
+        symbol_query="Foo",
+        file_pattern="*.py",
     )
 
-    from devops_cli.ai.harness.slots import _evaluate_tiered_status, _summarize_search
-
-    status = _evaluate_tiered_status([success_res, failed_res])
-    assert status == "partial"
-
-    report = _summarize_search("Test partial task", status, [success_res, failed_res])
-    assert (
-        report == "Some searches failed; found 1 discovered symbol(s) for task 'Test partial task'."
+    assert (result.status, result.summary, result.files_scanned, result.matches) == (
+        "failed",
+        f"Search failed for task 'Investigate missing repo': "
+        f"NotADirectoryError: {missing}; NotADirectoryError: {missing}",
+        0,
+        0,
     )
 
 
@@ -452,11 +446,12 @@ def test_cli_ai_harness_status(runner: CliRunner) -> None:
     assert "SubAgentSlot" in result.stdout
 
 
-def test_cli_ai_harness_status_reads_the_configured_model(runner: CliRunner) -> None:
+def test_cli_ai_harness_status_reads_the_configured_model(
+    runner: CliRunner, config: Callable[..., Path]
+) -> None:
     """Changing the configured model changes what status shows; no slot claims attached."""
-    settings = MagicMock(ai=AIConfig(provider="openai", model="gpt-4.1"))
-    with patch("devops_cli.ai.harness.slots.load_settings", return_value=settings):
-        result = runner.invoke(ai_app, ["harness", "status"])
+    config(ai={"provider": "openai", "model": "gpt-4.1"})
+    result = runner.invoke(ai_app, ["harness", "status"])
     assert (
         result.exit_code,
         "openai" in result.stdout,

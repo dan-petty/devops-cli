@@ -66,38 +66,6 @@ def test_agent_stream() -> None:
     assert chunks == ["Hello", " ", "world!"]
 
 
-def test_ollama_stream_400_raises_client_error(mocker: MagicMock) -> None:
-    import httpx2
-    import pytest
-
-    from devops_cli.ai.client import AIClientError
-    from devops_cli.config.settings import AIConfig
-
-    config = AIConfig(
-        provider="ollama", model="qwen2.5-coder:7b", ollama_urls=["http://localhost:11434"]
-    )
-    client = LLMClient(config)
-
-    mock_resp_400 = MagicMock()
-    mock_resp_400.status_code = 400
-    mock_resp_400.text = "model 'qwen2.5-coder:7b' does not support thinking"
-    mock_resp_400.read.return_value = None
-
-    exc_400 = httpx2.HTTPStatusError("400 Bad Request", request=MagicMock(), response=mock_resp_400)
-
-    mock_stream_req = mocker.patch.object(
-        client,
-        "_ollama_stream_request",
-        side_effect=exc_400,
-    )
-
-    with pytest.raises(AIClientError, match="HTTP 400"):
-        list(
-            client._ollama_stream("sys", [{"role": "user", "content": "hi"}], enable_thinking=True)
-        )
-    assert mock_stream_req.call_count == 1
-
-
 def test_multi_agent_pipeline() -> None:
     from devops_cli.ai.agents.agent import PydanticAgent
     from devops_cli.ai.agents.pipeline import MultiAgentPipeline

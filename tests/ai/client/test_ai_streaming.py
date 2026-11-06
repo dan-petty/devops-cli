@@ -788,6 +788,38 @@ def test_an_ollama_stream_failing_after_output_is_not_replayed_on_another_host(
     assert (chunks, len(sent), type(raised.value)) == (["Hi"], 1, AIClientError)
 
 
+def test_ollama_stream_400_raises_client_error(web: WebFake) -> None:
+    """Verify an Ollama 400 on a thinking stream raises `AIClientError` with the status and body."""
+    client = LLMClient(
+        AIConfig(
+            provider="ollama",
+            model="qwen2.5-coder:7b",
+            ollama_urls=["http://example.com:11434"],
+            allow_private_network=True,
+        ),
+        cache_enabled=False,
+    )
+    sent = serve_llm(
+        web,
+        lambda request: httpx2.Response(
+            400, json={"error": "model 'qwen2.5-coder:7b' does not support thinking"}
+        ),
+    )
+
+    with pytest.raises(AIClientError, match="HTTP 400") as raised:
+        list(
+            client.chat_messages_stream(
+                "sys", [ChatMessage(role="user", content="hi")], enable_thinking=True
+            )
+        )
+
+    assert (len(sent), raised.value.status, "does not support thinking" in str(raised.value)) == (
+        1,
+        400,
+        True,
+    )
+
+
 def test_openai_stream_sends_stream_options_and_records_provider_usage(
     monkeypatch: pytest.MonkeyPatch,
     web: WebFake,
