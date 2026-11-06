@@ -3,11 +3,19 @@
 
 from __future__ import annotations
 
-from devops_cli.roadmap.stage_change import ProposalGate, StageProposal, check_gates, check_proposal
+from devops_cli.roadmap.stage_change import (
+    STAGE_EVAL_REPLAY,
+    ProposalGate,
+    StageProposal,
+    check_gates,
+    check_proposal,
+)
 from devops_cli.roadmap.stage_paths import StagedTree
 from tests.support.builders import make_stage_proposal
 
-TREE = StagedTree(["src/devops_cli/sample.py"])
+TREE_FILES = ["src/devops_cli/sample.py"]
+TREE = StagedTree(TREE_FILES)
+STAGE_CHANGE = "src/devops_cli/roadmap/stage_change.py"
 KNOWN = ["comment-thread"]
 MISSING = "src/devops_cli/missing.py"
 NO_SPEC_DELTA = "skip_specs is false, and the reply gives no spec delta."
@@ -39,6 +47,18 @@ def test_a_path_that_no_commit_holds_is_a_problem_of_the_gate_paths() -> None:
 
     assert any(MISSING in problem for problem in found[ProposalGate.PATHS])
     assert not found[ProposalGate.SPEC_DELTA]
+
+
+def test_a_stage_check_change_with_no_replay_task_is_a_problem_of_the_gate_eval_replay() -> None:
+    group = make_stage_proposal().groups[0]
+    update = {"changes": [*group.changes, STAGE_CHANGE]}
+    plan = make_stage_proposal(groups=[group.model_copy(update=update)])
+
+    found = check_gates(plan, KNOWN, StagedTree([*TREE_FILES, STAGE_CHANGE]))
+
+    (problem,) = found[ProposalGate.EVAL_REPLAY]
+    assert STAGE_EVAL_REPLAY in problem
+    assert [gate for gate, problems in found.items() if problems] == [ProposalGate.EVAL_REPLAY]
 
 
 def test_check_proposal_joins_the_problems_of_the_gates_in_the_order_of_the_gates() -> None:

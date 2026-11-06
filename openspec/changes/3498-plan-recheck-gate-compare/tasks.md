@@ -8,6 +8,8 @@ Reads: `src/devops_cli/roadmap/stage_change.py`. Changes: `src/devops_cli/roadma
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_gates.py` fails on the base
 - [x] 1.2 Add the enum `ProposalGate` and the function `check_gates` to `src/devops_cli/roadmap/stage_change.py`, and make `check_proposal` join the problems of `check_gates`
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_gates.py` passes
+- [x] 1.3 Run `uv run devops roadmap eval stage --replay` on the base and on the branch, and state the score before and after the change in a pull request comment: `check_proposal` returns the same problems, so the two scores are equal
+  - Verification: `uv run devops roadmap eval stage --replay` exits 0
 
 ## 2. Compare a branch with the default branch
 
