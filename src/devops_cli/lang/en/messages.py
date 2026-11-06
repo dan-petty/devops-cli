@@ -3418,6 +3418,15 @@ class RoadmapMessages:
         "and its literal `{literal}` names one module of the moved prefix. Search the dotted "
         "prefix, such as `{expected}`, so the check covers every module."
     )
+    stage_problem_eval_replay: str = (
+        "Group {group} changes `{path}`. A plan that changes the stage prompt or a check of the "
+        "stage job must run `{command}` in one group task and state the score before and after "
+        "the change. Add that task."
+    )
+    stage_problem_eval_score: str = (
+        "Group {group} runs `{command}` for `{path}`, and the task does not state the score "
+        "before and after the change. Add the words `score`, `before` and `after` to that task."
+    )
     stage_problem_search_no_hit: str = (
         "Group {group} gives the `verify` command `{command}` with the literal `{literal}`, and "
         "the staged tree holds no match. A search that finds nothing already passes before the "
