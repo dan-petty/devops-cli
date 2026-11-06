@@ -12,7 +12,7 @@ The cause: the destination is slower than the source, so data waits in buffers o
 - The pipe is made in the same bash program that holds the copy, and bash removes it on exit. The command still starts one program through `run_subprocess`, and the plan, the dry run and the run list the same steps.
 - The digest comparison and the one retry stay.
 - The step 4 text of `k8s/README.md` (Move a volume to another node) states the rule.
-- The rule of the copy is observable, so the change has a spec delta: one MODIFIED requirement of the capability `local-path-volume-placement`.
+- The rule of the copy is observable, so the change has a spec delta: one ADDED requirement of the capability `local-path-volume-placement`.
 - The change fits in one pull request.
 
 ## Capabilities
