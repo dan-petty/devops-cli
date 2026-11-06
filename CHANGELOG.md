@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.67.2](https://github.com/dan-petty/devops-cli/compare/v0.67.1...v0.67.2) (2026-11-06)
+
+
+### Code Refactoring
+
+* **ai:** test-only model request hooks leave src ([#3768](https://github.com/dan-petty/devops-cli/issues/3768)) ([9b01821](https://github.com/dan-petty/devops-cli/commit/9b018214bfa7675b54a55f76f3719d5693f3135b))
+* **tests:** one DNS seam with a shared fake and contract suite ([#3773](https://github.com/dan-petty/devops-cli/issues/3773)) ([10c7896](https://github.com/dan-petty/devops-cli/commit/10c789660bd3e011a8d7240aa680b16c394159da)), closes [#3752](https://github.com/dan-petty/devops-cli/issues/3752)
+
 ## [0.67.1](https://github.com/dan-petty/devops-cli/compare/v0.67.0...v0.67.1) (2026-11-06)
 
 
