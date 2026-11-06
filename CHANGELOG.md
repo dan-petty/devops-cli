@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.71.1](https://github.com/dan-petty/devops-cli/compare/v0.71.0...v0.71.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **argo:** show repo for multi-source Argo apps ([#3821](https://github.com/dan-petty/devops-cli/issues/3821)) ([3b156dd](https://github.com/dan-petty/devops-cli/commit/3b156ddc8bd0226f8ec29e778190c4e3e9b86e62))
+* **devcontainer:** add local-path addon to minikube start ([#3819](https://github.com/dan-petty/devops-cli/issues/3819)) ([d93892d](https://github.com/dan-petty/devops-cli/commit/d93892d0b0fb33afc5d5f5c02aa62f9509b36c88))
+* **roadmap:** a stop in the scoped checks keeps the finished work ([#3818](https://github.com/dan-petty/devops-cli/issues/3818)) ([a6110ef](https://github.com/dan-petty/devops-cli/commit/a6110efabd1fcff21f102199579a5f03c1f60598))
+* **roadmap:** pr create and pr ready replace a Blocked stop of a job ([#3826](https://github.com/dan-petty/devops-cli/issues/3826)) ([454edb8](https://github.com/dan-petty/devops-cli/commit/454edb86fa3762d89089b76bd4c60d8f8518e557))
+
 ## [0.71.0](https://github.com/dan-petty/devops-cli/compare/v0.70.2...v0.71.0) (2026-11-06)
 
 
