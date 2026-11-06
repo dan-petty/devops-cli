@@ -13,9 +13,9 @@ import pytest
 from devops_cli.ai.client import factory
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, render_outcome
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ImplementRecordKey, ItemField
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import BODY, DOCS, command_text, git, the_whole_group
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import BRANCH, PULL, TITLE, JobWorld, two_groups

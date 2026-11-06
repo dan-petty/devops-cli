@@ -24,9 +24,9 @@ from devops_cli.roadmap.implement_step import (
 from devops_cli.roadmap.implement_strays import stray_files
 from devops_cli.roadmap.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.implement_wip import WipCommit
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
     REPO,
     SHOUT_CODE,

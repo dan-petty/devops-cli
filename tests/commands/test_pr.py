@@ -19,11 +19,6 @@ from typing import Any
 
 import pytest
 
-from devops_cli.roadmap.memory_store import (
-    InMemoryRoadmapStore,
-    encode_job_record,
-    with_record,
-)
 from devops_cli.roadmap.store import ImplementRecordKey, ItemField
 from tests.copilot_review_payloads import (
     CHANGES_RECOMMENDED,
@@ -38,6 +33,11 @@ from tests.copilot_review_payloads import (
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import GitHubApiFake, github_json, route_file
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.fakes.roadmap_store import (
+    InMemoryRoadmapStore,
+    encode_job_record,
+    with_record,
+)
 
 pytestmark = pytest.mark.usefixtures("roadmap_store")
 

@@ -778,6 +778,31 @@ def select_candidates(issues: Iterable[IssueRecord]) -> list[Candidate]:
 # ── Interface ─────────────────────────────────────────────────────────────────
 
 
+class IntakeReads(Protocol):
+    """What the plan of intake reads from a roadmap, and nothing more (#3744).
+
+    `RoadmapStore` has all of these reads. A plan takes this narrower type, so the type checker
+    shows that a plan writes nothing and that a roadmap which answers these five reads, such as
+    the one of the duplicate evaluation, is enough for it.
+    """
+
+    def issues(self) -> list[IssueRecord]:
+        """Every issue, open and closed, Item or not; never pull requests."""
+
+    def repository_file(self, path: str, *, ref: str | None = None) -> str:
+        """The text of the repository file at `path` on `ref` (the default branch when None),
+        raising `GitHubFileNotFoundError` when there is no such file."""
+
+    def closures(self, number: int) -> list[Closure]:
+        """Every close and reopen of issue `number`, oldest first, from its timeline."""
+
+    def comments_on(self, number: int) -> list[IssueComment]:
+        """Every comment on issue `number`, oldest first."""
+
+    def evidence_holds(self, evidence: Evidence) -> bool:
+        """Whether GitHub confirms the evidence."""
+
+
 @runtime_checkable
 class RoadmapStore(Protocol):
     """Reads and writes the roadmap: its milestones, its Items and their fields."""
@@ -973,6 +998,7 @@ __all__ = [
     "EvidenceKind",
     "GitHubState",
     "ImplementRecordKey",
+    "IntakeReads",
     "IssueComment",
     "IssueRecord",
     "Item",

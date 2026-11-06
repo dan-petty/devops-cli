@@ -10,8 +10,11 @@ from typing import Any
 
 import pytest
 
+from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
+from devops_cli.exceptions.git import GitHubFileNotFoundError
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.duplicate_eval import Verdict, load_cases
+from devops_cli.roadmap.duplicate_eval import SeededRoadmap, Verdict, load_cases
+from devops_cli.roadmap.store import IssueRecord, ItemField, field_label
 from tests.support.fakes.model import ModelFake
 
 CASES = load_cases()
@@ -168,3 +171,41 @@ def test_the_dry_run_lists_each_case_and_its_call_and_makes_none(
         TEXTS.intake_eval_dry_run_calls.format(calls=16) in lines,
         model_fake.calls,
     ) == (0, True, True, [])
+
+
+def test_a_seeded_roadmap_holds_the_case_item_and_the_labels_file_and_nothing_else() -> None:
+    case = CASES[0]
+    roadmap = SeededRoadmap(item=case.item, labels="- name: type/feature\n")
+    issues = roadmap.issues()
+    assert (
+        [(issue.number, issue.title, issue.body) for issue in issues],
+        field_label(ItemField.PRIORITY, "P3-Low") in issues[0].labels,
+        roadmap.repository_file(CONST_ROADMAP_LABELS_PATH),
+        roadmap.closures(1),
+        roadmap.comments_on(1),
+    ) == (
+        [(1, case.item.title, case.item.body)],
+        True,
+        "- name: type/feature\n",
+        [],
+        [],
+    )
+
+
+def test_a_seeded_roadmap_has_no_other_file_and_offers_only_reads() -> None:
+    roadmap = SeededRoadmap(item=CASES[0].item, labels="")
+    offered = {name for name in dir(roadmap) if not name.startswith("_")}
+    with pytest.raises(GitHubFileNotFoundError, match="pyproject\\.toml"):
+        roadmap.repository_file("pyproject.toml")
+    assert (offered, roadmap.issues()[0].__class__) == (
+        {
+            "closures",
+            "comments_on",
+            "evidence_holds",
+            "issues",
+            "item",
+            "labels",
+            "repository_file",
+        },
+        IssueRecord,
+    )

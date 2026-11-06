@@ -22,13 +22,13 @@ from devops_cli.k8s.cluster_job import repository_label
 from devops_cli.k8s.cluster_job_api import ClusterJobs
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement_deadline import manage_deadlines
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import STATUS_LANE_ROWS
 from devops_cli.roadmap.store import ImplementRecordKey
 from devops_cli.telemetry.tracer import get_tracer, reset_tracer
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.kubernetes import FakeCluster, pod
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import route_pull_status, seed_staged
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo

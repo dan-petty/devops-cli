@@ -17,7 +17,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.pr import app
 from devops_cli.core.process import PlannedProcessResult
 from devops_cli.dry_run.state import set_dry_run
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 LABELS = "".join(

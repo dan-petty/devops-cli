@@ -22,9 +22,9 @@ from tests.support.fakes.github import github_json, next_page
 from tests.support.fakes.process import ProcessAnswer
 
 if TYPE_CHECKING:
-    from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.process import ProcessFake
+    from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 
 @pytest.fixture(autouse=True)

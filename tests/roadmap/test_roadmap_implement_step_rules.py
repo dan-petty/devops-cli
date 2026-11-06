@@ -17,10 +17,10 @@ from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOK
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.roadmap.implement_shell_policy import fill_prompt
 from devops_cli.roadmap.implement_step import FixRequest, build_step_inputs, run_step
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.step_rules import RULES_HEADING, route_heading, rules_sections
 from tests.support.fakes.process import ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import WINDOW, git, make_checkout
 from tests.support.model_script import ModelScript, say
 

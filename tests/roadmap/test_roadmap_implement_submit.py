@@ -24,12 +24,12 @@ from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement import parse_implement_filters, plan_implement
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, JobOutcome
 from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.kubernetes import FakeCluster, pod
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import (
     PULL,

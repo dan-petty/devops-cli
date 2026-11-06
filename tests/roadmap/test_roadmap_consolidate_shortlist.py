@@ -32,8 +32,8 @@ from devops_cli.roadmap.consolidate_shortlist import (
     read_blockers,
     shortlists,
 )
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import GitHubState, IssueRecord
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 PRIORITY = ("priority/p2-medium",)
 

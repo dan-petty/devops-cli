@@ -1,9 +1,9 @@
 """The evaluation of intake's duplicate judgement against the set of cases a person judged (#1989).
 
 Each case is a candidate, the item intake compared it with, and whether a person judged the
-candidate a duplicate of the item (#1755). A run seeds an in-memory roadmap that holds the
-case's item, plans intake for the candidate with no write, and reads intake's verdict from the
-decision, so intake's own code reads the model's reply. pydantic-evals scores each verdict
+candidate a duplicate of the item (#1755). A run seeds a roadmap that holds the case's item,
+plans intake for the candidate with no write, and reads intake's verdict from the decision, so
+intake's own code reads the model's reply. pydantic-evals scores each verdict
 against the person's and counts the verdicts; it is imported only when a run starts.
 
 The run makes no embedding call: the roadmap of a case holds one item, so that item is the whole
@@ -23,14 +23,20 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
-from devops_cli.config.defaults import DEFAULT_ROADMAP_MEMORY_REPO
 from devops_cli.core.repo import find_repo_root
 from devops_cli.exceptions import ConfigurationError
+from devops_cli.exceptions.git import GitHubFileNotFoundError
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.intake import IntakeDecision, NewCandidate, Outcome, intake_candidate
+from devops_cli.roadmap.intake import IntakeDecision, NewCandidate, Outcome, plan_intake
 from devops_cli.roadmap.intake_model import IntakeModel
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.store import ItemField
+from devops_cli.roadmap.store import (
+    Closure,
+    Evidence,
+    IssueComment,
+    IssueRecord,
+    ItemField,
+    field_label,
+)
 
 # The evaluation set, shipped with the package so an installed command can read it.
 DUPLICATE_CASES = files("devops_cli.roadmap").joinpath("intake_duplicate_cases.json")
@@ -38,6 +44,9 @@ DUPLICATE_CASES = files("devops_cli.roadmap").joinpath("intake_duplicate_cases.j
 # The Priority that makes a case's item an Item, so intake compares the candidate with it.
 _ITEM_PRIORITY = "P3-Low"
 _DATASET_NAME = "intake_duplicates"
+# The repository a case's roadmap stands for, and the number of its one issue.
+_EVAL_REPO = "example/roadmap"
+_ITEM_NUMBER = 1
 
 
 class Verdict(StrEnum):
@@ -151,22 +160,64 @@ def _reason(decision: IntakeDecision) -> str:
     return decision.duplicate_reason or decision.related_reason or "; ".join(decision.notes)
 
 
+@dataclass(frozen=True)
+class SeededRoadmap:
+    """The roadmap of one case, read-only: the case's item as an issue of the repository, and
+    the text of its `.github/labels.yml`. It answers the five reads that the plan of intake
+    makes (`IntakeReads`) and has no write, so a run cannot change a roadmap. It holds no
+    close, no comment and no evidence."""
+
+    item: CaseText
+    labels: str
+
+    def issues(self) -> list[IssueRecord]:
+        """The one issue, an Item of Priority `P3-Low`, so intake compares the candidate with it."""
+        return [
+            IssueRecord(
+                id=_ITEM_NUMBER,
+                number=_ITEM_NUMBER,
+                title=self.item.title,
+                url=f"https://github.com/{_EVAL_REPO}/issues/{_ITEM_NUMBER}",
+                body=self.item.body,
+                labels=(field_label(ItemField.PRIORITY, _ITEM_PRIORITY),),
+                author_association="OWNER",
+            )
+        ]
+
+    def repository_file(self, path: str, *, ref: str | None = None) -> str:
+        """The labels file, the one file the roadmap holds."""
+        if path != CONST_ROADMAP_LABELS_PATH:
+            raise GitHubFileNotFoundError(
+                f"{_EVAL_REPO} has no {path} on {ref or 'its default branch'}.",
+                operation="roadmap.read",
+                details={"path": path[:256], "ref": (ref or "")[:256]},
+            )
+        return self.labels
+
+    def closures(self, number: int) -> list[Closure]:
+        """No issue was closed or reopened."""
+        return []
+
+    def comments_on(self, number: int) -> list[IssueComment]:
+        """No issue has a comment."""
+        return []
+
+    def evidence_holds(self, evidence: Evidence) -> bool:
+        """No evidence holds, so no case can set P0."""
+        return False
+
+
 def judge_case(case: DuplicateCase, model: IntakeModel, labels: str) -> tuple[Verdict, str]:
     """Intake's verdict for one case, and its reason: plan intake for the candidate in a roadmap
     that holds the case's item and nothing else, and write nothing."""
-    store = InMemoryRoadmapStore(repo=DEFAULT_ROADMAP_MEMORY_REPO)
-    store.seed_file(CONST_ROADMAP_LABELS_PATH, labels)
-    number = store.seed_issue(
-        case.item.title, body=case.item.body, fields={ItemField.PRIORITY: _ITEM_PRIORITY}
-    )
+    roadmap = SeededRoadmap(item=case.item, labels=labels)
     candidate = NewCandidate(title=case.candidate.title, body=case.candidate.body)
-    decision = intake_candidate(
-        store, candidate, repo=DEFAULT_ROADMAP_MEMORY_REPO, model=model
-    ).decision
+    plan = plan_intake(roadmap, repo=_EVAL_REPO, model=model, new=candidate)
+    (decision,) = plan.decisions
     if decision.outcome is Outcome.SKIP:
         return Verdict.SKIPPED, _reason(decision)
-    verdict = Verdict.DUPLICATE if decision.possible_duplicate == number else Verdict.NEW_ITEM
-    return verdict, _reason(decision)
+    duplicate = decision.possible_duplicate == _ITEM_NUMBER
+    return (Verdict.DUPLICATE if duplicate else Verdict.NEW_ITEM), _reason(decision)
 
 
 def _duplicate_counts(matrix: Any) -> tuple[int, int, int]:

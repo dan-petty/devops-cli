@@ -19,7 +19,6 @@ from devops_cli.config.constants import (
 from devops_cli.exceptions import GitHubOperationError, GitHubRateLimitError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.refine import (
     NextStep,
     RefinementProposal,
@@ -40,6 +39,7 @@ from devops_cli.roadmap.store import (
     ItemField,
     RefineRecordKey,
 )
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import STAGE_REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store")

@@ -16,10 +16,10 @@ from devops_cli.roadmap.implement import (
     parse_implement_filters,
     plan_implement,
 )
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import CloseReason, ImplementRecordKey, StageRecordKey
 from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import git_for_real
 from tests.support.roadmap_implement import (
     BRANCH,

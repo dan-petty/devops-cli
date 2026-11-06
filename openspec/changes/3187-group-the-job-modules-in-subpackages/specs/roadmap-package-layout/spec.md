@@ -11,17 +11,17 @@ The roadmap package SHALL hold one subpackage for each job, `intake`, `refine`, 
 - **THEN** No top-level name starts with `intake`, `refine`, `stage` or `implement`, and each of the four job subpackages holds at least one module.
 
 ### Requirement: The store modules sit under stores
-The roadmap package SHALL hold the store interface, the GitHub adapter and the in-memory adapter in `src/devops_cli/roadmap/stores/`.
+The roadmap package SHALL hold the store interface and the GitHub adapter in `src/devops_cli/roadmap/stores/`.
 
 #### Scenario: Every store module is under stores
 - **WHEN** A test lists the module names of `src/devops_cli/roadmap/stores/` and of the top level of `src/devops_cli/roadmap/`.
-- **THEN** The `stores` folder holds `store.py`, `github_store.py` and `memory_store.py`, and the top level holds no module with one of those names.
+- **THEN** The `stores` folder holds `store.py` and `github_store.py`, and the top level holds no module with one of those names.
 
 ### Requirement: Every caller imports a roadmap module by its path
 Every import of a roadmap module under `src/` and `tests/` SHALL name the module path in the package, and every string that names a roadmap module SHALL name the same path.
 
 #### Scenario: No old roadmap module path remains
-- **WHEN** A test searches `src/` and `tests/` for an import, a `monkeypatch.setattr` path or a logger name that names `store`, `github_store`, `memory_store`, an `intake` module, a `refine` module, a `stage` module or an `implement` module as a direct child of `devops_cli.roadmap`.
+- **WHEN** A test searches `src/` and `tests/` for an import, a `monkeypatch.setattr` path or a logger name that names `store`, `github_store`, an `intake` module, a `refine` module, a `stage` module or an `implement` module as a direct child of `devops_cli.roadmap`.
 - **THEN** The search finds no match.
 
 ### Requirement: The roadmap package module exports no name

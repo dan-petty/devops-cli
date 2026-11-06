@@ -12,7 +12,6 @@ from __future__ import annotations
 import pytest
 
 from devops_cli.exceptions import GitHubOperationError, GitHubRateLimitError
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.status_sync import (
     StatusFacts,
@@ -28,6 +27,7 @@ from devops_cli.roadmap.store import (
     ItemField,
 )
 from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import STAGE_REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store")

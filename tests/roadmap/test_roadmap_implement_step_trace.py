@@ -14,7 +14,6 @@ import pytest
 
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
 from devops_cli.roadmap.implement_trace import ImplementTrace, TraceEvent, TraceEventKind
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.base_replay import (
     BEHAVIOR_TASKS,
     BEHAVIOR_TICKED,
@@ -23,6 +22,7 @@ from tests.support.base_replay import (
     junit,
 )
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
     SHOUT_CODE,
     TASKS_PATH,

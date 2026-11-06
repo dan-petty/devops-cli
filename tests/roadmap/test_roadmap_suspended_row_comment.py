@@ -20,14 +20,13 @@ import pytest
 from devops_cli.config.defaults import (
     DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES,
-    DEFAULT_ROADMAP_MEMORY_ACTOR,
     DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
 )
 from devops_cli.exceptions import RoadmapRunError
 from devops_cli.exceptions.git import GitHubOperationError
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import FailureLedger, JobOutcome, build_stub_table, run_due_jobs
 from devops_cli.roadmap.store import IssueComment
+from tests.support.fakes.roadmap_store import DEFAULT_ROADMAP_MEMORY_ACTOR, InMemoryRoadmapStore
 
 REPO = "example-org/repo1"
 START = datetime(2026, 11, 5, 12, tzinfo=UTC)

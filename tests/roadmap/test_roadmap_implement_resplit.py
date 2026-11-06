@@ -10,9 +10,9 @@ from pydantic import BaseModel
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS
 from devops_cli.exceptions.roadmap import OverWindowError, RoadmapImplementError
 from devops_cli.roadmap.implement_step import build_step_inputs
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage_change import GroupKind, StageGroup, StageSplit
 from devops_cli.roadmap.stage_criteria import StageCriterion
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
     BRANCH,

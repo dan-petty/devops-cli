@@ -16,8 +16,8 @@ import pytest
 from devops_cli.ci.typecheck import TYPECHECK_PATHS
 from devops_cli.commands.ci import get_check_spec
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, run_step
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
     SHOUT_CODE,
     TASKS_PATH,

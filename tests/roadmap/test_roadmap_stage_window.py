@@ -24,11 +24,11 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS,
 )
 from devops_cli.roadmap import stage
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import openspec_tool, parse_filters, plan_item, plan_stage
 from devops_cli.roadmap.stage_eval_run import RecordingClient
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from tests.support.builders import make_stage_proposal
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_stage import (
     STAGE_REPO,

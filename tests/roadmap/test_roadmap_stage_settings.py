@@ -17,9 +17,9 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
 )
 from devops_cli.exceptions import ConfigurationError
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ItemField
 from tests.support.builders import make_stage_proposal
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_stage import (
     STAGE_REPO,

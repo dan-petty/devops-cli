@@ -10,7 +10,6 @@ import pytest
 
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT
 from devops_cli.exceptions.roadmap import RoadmapStageError
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.pull_form import title_problems
 from devops_cli.roadmap.stage import parse_filters, plan_stage, select_stageable
@@ -22,6 +21,7 @@ from devops_cli.roadmap.stage_change import (
 )
 from devops_cli.roadmap.store import ItemField
 from tests.support.builders import make_stage_proposal, stage_summary_limit
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo
 
 if TYPE_CHECKING:

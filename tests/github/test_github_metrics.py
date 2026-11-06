@@ -46,7 +46,6 @@ from devops_cli.github.metrics import (
     reset_refused_paths,
 )
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import Change, ItemField, RoadmapStore, StageRecordKey
 from devops_cli.telemetry.instruments import (
     PROJECT_FORKS,
@@ -68,6 +67,7 @@ from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 if TYPE_CHECKING:
     from tests.support.cli import CliRunnerFixture

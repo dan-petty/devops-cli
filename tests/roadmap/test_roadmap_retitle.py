@@ -20,7 +20,6 @@ from devops_cli.config.defaults import (
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.roadmap.inbox import InboxKind, read_inbox
 from devops_cli.roadmap.intake import NewCandidate
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
 from devops_cli.roadmap.retitle import (
     RetitleReply,
@@ -37,6 +36,7 @@ from devops_cli.roadmap.run import (
     run_due_jobs,
 )
 from devops_cli.roadmap.store import ItemField, StageRecordKey
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 LONG = "Shorten the title of an item that a job leaves out because it is too long"

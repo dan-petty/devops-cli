@@ -13,7 +13,6 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.exceptions import ValidationError
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stage import (
     LeftOut,
@@ -28,6 +27,7 @@ from devops_cli.roadmap.store import (
     RefineRecordKey,
     StageRecordKey,
 )
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 BUG = ("type/bug",)

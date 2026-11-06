@@ -73,7 +73,6 @@ from devops_cli.roadmap.intake_model import (
     ProposalRequest,
     UnusableProposalError,
 )
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
     MODEL_LANE_ROWS,
@@ -115,7 +114,6 @@ from devops_cli.telemetry.instruments import (
     ROADMAP_OLDEST_ITEM,
 )
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
-from tests.roadmap_faults import Fault, StoppingStore
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
@@ -124,6 +122,7 @@ from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.oci_registry import RegistryFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.paths import REPO_ROOT
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
@@ -1608,14 +1607,14 @@ def test_a_failed_placement_is_decided_again_after_the_fresh_candidates_and_its_
     store, _, titles = _candidates(7)
     model = _IntakeModel()
     table = _intake_table(model, [])
-    stopping = StoppingStore(store, Fault(at=1, write="label_issue"))
+    store.fail_write(write="label_issue")
     with pytest.raises(RoadmapRunError) as raised:
-        _poll_round(stopping.as_store(), tmp_path, table=table)
+        _poll_round(store, tmp_path, table=table)
     assert raised.value.error_code == "DEVOPS_CLI_ERROR"
     placed = tuple(store.item(number) is not None for number in range(1, 6))
     asked = len(model.asked)
     _poll_round(store, tmp_path, now=NOW + timedelta(minutes=5), table=table)
-    assert (stopping.writes[:1], placed, tuple(model.asked[asked:])) == (
+    assert (store.writes[:1], placed, tuple(model.asked[asked:])) == (
         ["label_issue"],
         (False, True, True, True, True),
         (*titles[5:], titles[0]),

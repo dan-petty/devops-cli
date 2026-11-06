@@ -9,7 +9,6 @@ import pytest
 
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
 from devops_cli.roadmap.github_store import listing_path, pulls_endpoint
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import (
     ItemField,
     RefineRecordKey,
@@ -18,6 +17,7 @@ from devops_cli.roadmap.store import (
     with_record,
 )
 from tests.support.fakes.github import API
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 

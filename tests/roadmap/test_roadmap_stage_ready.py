@@ -18,7 +18,6 @@ from devops_cli.exceptions import GitHubRateLimitError, RoadmapStageError
 from devops_cli.github.client import GitHubClient
 from devops_cli.roadmap import stage_ready
 from devops_cli.roadmap.implement_pull import Answer, Readiness
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, JobOutcome
 from devops_cli.roadmap.stage_ready import mark_stage_ready
 from devops_cli.roadmap.stage_verify import PLAN_NEEDS_FIX_LABEL
@@ -31,6 +30,7 @@ from devops_cli.roadmap.store import (
 )
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_implement import FAIL, PASS, PULL, RUNNING, seed_staged
 from tests.support.roadmap_stage import STAGE_REPO
 

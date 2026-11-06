@@ -13,7 +13,7 @@ import pytest
 
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.roadmap.adr import Adr, adr_of, fit_to_budget, names, read_adrs
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 ADR_DIRECTORY = "docs/adr"
 ADR = """# Argo Workflows runs the jobs

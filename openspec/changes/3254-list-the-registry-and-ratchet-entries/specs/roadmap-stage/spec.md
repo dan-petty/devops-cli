@@ -12,8 +12,8 @@ The stage job SHALL build the registry and ratchet table from the module-level `
 - **THEN** The context names `tests/roadmap/test_roadmap_limit_classes.py` and `check_proposal` returns a missing-path problem for it.
 
 #### Scenario: New job write without one registry task
-- **WHEN** A plan adds a write method and has no task for `tests/roadmap_faults.py`.
-- **THEN** The context names `tests/roadmap/test_roadmap_dry_runs.py`, the `WRITES` table in `tests/roadmap_faults.py`, `tests/roadmap/test_roadmap_store_contract.py` and `src/devops_cli/roadmap/request_plan.py`, and `check_proposal` returns a problem for the fault-test path.
+- **WHEN** A plan adds a write method and has no task for `tests/support/fakes/roadmap_store.py`.
+- **THEN** The context names `tests/roadmap/test_roadmap_dry_runs.py`, the `WRITES` table in `tests/support/fakes/roadmap_store.py`, `tests/roadmap/test_roadmap_store_contract.py` and `src/devops_cli/roadmap/request_plan.py`, and `check_proposal` returns a problem for the fault-test path.
 
 #### Scenario: A plan that names every listed place passes
 - **WHEN** A plan adds a counted item and holds a task whose text names each declared path.

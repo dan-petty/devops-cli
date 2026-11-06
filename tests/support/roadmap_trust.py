@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from devops_cli.roadmap.body_hash import body_hashes
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import JudgeVerdict, RefineRecordKey
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 
 def approval_of(body: str) -> dict[RefineRecordKey, str]:

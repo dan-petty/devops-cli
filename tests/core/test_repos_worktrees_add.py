@@ -17,7 +17,7 @@ import pytest
 
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.git.worktree_add import add_worktree
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 # The command claims the issue on the roadmap of the repository of `origin` (#2910). The roadmap
 # is in memory: it reaches no GitHub.

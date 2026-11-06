@@ -3,7 +3,7 @@
 ## Decisions
 
 - **Move every module whose name starts with a job prefix, not only the five entry modules.**: The issue forbids a top-level module name that starts with `intake`, `refine`, `stage` or `implement`. A move of `intake.py`, `refine.py`, `stage.py`, `implement.py` and `implement_step.py` alone leaves 32 job modules at the top level. The change moves all 47 job modules: 3 intake, 2 refine, 22 stage and 20 implement.
-- **One subpackage for each job, and one `stores/` for `store.py`, `github_store.py` and `memory_store.py`.**: The module prefixes already name the jobs, and the three store modules share one role: the store interface, the GitHub adapter and the in-memory adapter that the contract suite runs against it.
+- **One subpackage for each job, and one `stores/` for `store.py` and `github_store.py`.**: The module prefixes already name the jobs, and the two store modules share one role: the store interface and the GitHub adapter.
 - **Move each module whole, with no split of a module over 1,000 lines in this change.**: The issue forbids a split for size alone. A whole move keeps the diff a set of renames and keeps the merge conflict small, and a module splits later when it shows two independent public parts.
 - **Move each file with `git mv`.**: Git records a rename, so `git log --follow` keeps the history of the module. A copy and a delete would show a new file and a deleted file.
 - **Rewrite the import of each caller to the new module path, and keep no re-export in `devops_cli.roadmap.__init__`.**: `src/devops_cli/roadmap/__init__.py` holds only a docstring, so the package exports no name and every caller imports a submodule. A re-export would add an export layer the package does not have and leave two paths for one module.

@@ -46,7 +46,6 @@ from devops_cli.github import rate_limiter, session_transport
 from devops_cli.github.request_scope import request_labels
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.run import (
     FailureLedger,
     JobOutcome,
@@ -62,6 +61,7 @@ from devops_cli.telemetry.tracer import reset_tracer
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import GitHubApiFake, github_json, quota_headers
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.service_stop import stop_error
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 

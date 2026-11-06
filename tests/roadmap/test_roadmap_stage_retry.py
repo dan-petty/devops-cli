@@ -10,7 +10,6 @@ from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_RETRY_HOURS
 from devops_cli.exceptions import RoadmapStageError
 from devops_cli.roadmap.explain import JobVerdict, explain_item
 from devops_cli.roadmap.implement import parse_implement_filters
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stage import (
     StageApplied,
@@ -22,6 +21,7 @@ from devops_cli.roadmap.stage import (
     select_stageable,
 )
 from devops_cli.roadmap.store import ItemField, StageRecordKey
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_implement import JobWorld
 from tests.support.roadmap_stage import STAGE_REPO, seed_stageable
 

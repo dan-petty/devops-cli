@@ -20,10 +20,10 @@ from devops_cli.roadmap.implement import (
     plan_implement,
     render_implement_plan,
 )
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ImplementRecordKey
 from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.process import ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_implement import (
     BRANCH,
     PULL,

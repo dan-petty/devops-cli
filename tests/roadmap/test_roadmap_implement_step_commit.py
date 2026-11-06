@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 
 from devops_cli.roadmap.implement_step import StepStatus, run_step
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.store import ItemField
 from tests.support.fakes.process import ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
     BODY,
     REPO,

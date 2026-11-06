@@ -10,7 +10,6 @@ from typing import Any
 import pytest
 
 from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.return_item import (
     ReturnPlan,
     apply_return,
@@ -19,6 +18,7 @@ from devops_cli.roadmap.return_item import (
     render_return_plan,
 )
 from devops_cli.roadmap.store import ItemField
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "owner/repo"
 
