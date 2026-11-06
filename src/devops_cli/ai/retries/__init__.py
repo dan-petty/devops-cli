@@ -77,16 +77,22 @@ class ExpiringConnectionTransport(httpx2.BaseTransport):
 
 
 def create_retry_transport(
+    *,
+    wrapped: httpx2.BaseTransport,
     config: RetryConfig | None = None,
     max_attempts: int = 5,
     min_wait: float = 1.0,
     max_wait: float = 60.0,
     retry_statuses: tuple[int, ...] = DEFAULT_RETRYABLE_STATUS_CODES,
     validate_response: Callable[[httpx2.Response], Any] | None = None,
-    wrapped: httpx2.BaseTransport | None = None,
     **kwargs: Any,
 ) -> HTTPX2TenacityTransport:
-    """Construct a synchronous HTTPX2TenacityTransport with automatic Retry-After inspection."""
+    """Construct a synchronous HTTPX2TenacityTransport with automatic Retry-After inspection.
+
+    `wrapped` is the transport that sends each attempt. It has no default, because a default
+    transport would dial without the egress check: a caller passes the one that
+    `devops_cli.http.client` builds.
+    """
     base_config = config or create_retry_config(
         max_attempts=max_attempts,
         min_wait=min_wait,
@@ -101,11 +107,10 @@ def create_retry_transport(
             resp.raise_for_status()
 
     validator = validate_response or default_validate
-    inner_wrapped = wrapped or httpx2.HTTPTransport()
     return HTTPX2TenacityTransport(
         active_config,
         validate_response=validator,
-        wrapped=ExpiringConnectionTransport(inner_wrapped),
+        wrapped=ExpiringConnectionTransport(wrapped),
     )
 
 

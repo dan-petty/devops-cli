@@ -246,7 +246,7 @@ def test_cli_profile_memory_http_pool(mock_run: MagicMock, runner: CliRunner) ->
         socket_leak_count=0,
         top_allocations=[
             MemoryAllocationItem(
-                filename="src/devops_cli/http/broker.py",
+                filename="src/devops_cli/http/entry.py",
                 line_number=88,
                 size_kb=256.0,
                 size_human="256.00 KB",

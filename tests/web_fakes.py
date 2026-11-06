@@ -1,16 +1,16 @@
 """Canned web pages and connects for tests that fetch over HTTP and must not reach the network.
 
-`StubWeb` answers pages through httpx2's own `MockTransport`, so a client under test follows
-redirects and runs its request hooks exactly as it would against a real server. `ConnectRecorder`
-and `ScriptedResolver` sit one layer lower, at the socket: they stand in for httpcore2's dial and
-for `socket.getaddrinfo`, so a test sees which address a client dialled after which lookups.
+`StubWeb`, which is `WebFake` of `tests/support/fakes/http.py`, answers pages through httpx2's own
+`MockTransport`, so a client under test follows redirects and runs its request hooks exactly as it
+would against a real server. `ConnectRecorder` and `ScriptedResolver` sit one layer lower, at the
+socket: they stand in for httpcore2's dial and for `socket.getaddrinfo`, so a test sees which
+address a client dialled after which lookups.
 Hosts are `example.com`, as docs/TESTING.md requires of fixtures, and `example.org` where a second
 hostname is the point of the test.
 """
 
 from __future__ import annotations
 
-import json
 import socket
 import ssl
 from collections.abc import Callable, Iterable, Sequence
@@ -21,7 +21,8 @@ import h11
 import httpcore2
 import httpx2
 
-from devops_cli.http.egress import AsyncVettingBackend, EgressLevel, VettingBackend, vet_addresses
+from devops_cli.http.egress import AsyncVettingBackend, EgressLevel, VettingBackend
+from tests.support.fakes.http import WebFake
 
 PUBLIC_ADDRESS = "93.184.215.14"
 # What a fake client says faked httpx2.AsyncClient, so a second fake in one test is refused.
@@ -236,88 +237,6 @@ def egress_level_of(transport: Any) -> EgressLevel | None:
     return None
 
 
-class StubWeb:
-    """Canned pages answered by httpx2's MockTransport, recording every request it receives."""
-
-    def __init__(self) -> None:
-        self.routes: dict[str, tuple[int, dict[str, str], bytes]] = {}
-        self.servers: list[Callable[[httpx2.Request], httpx2.Response | None]] = []
-        self.method_routes: dict[tuple[str, str], tuple[int, dict[str, str], bytes]] = {}
-        self.failures: dict[str, httpx2.TransportError] = {}
-        self.sent: list[httpx2.Request] = []
-
-    @property
-    def requested(self) -> list[str]:
-        """Return the URL of each request the transport received, in order."""
-        return [str(request.url) for request in self.sent]
-
-    def page(self, url: str, html: str, headers: dict[str, str] | None = None) -> None:
-        """Serve `html` at `url`, with any extra response `headers`."""
-        self.routes[url] = (
-            200,
-            {"content-type": "text/html; charset=utf-8", **(headers or {})},
-            html.encode(),
-        )
-
-    def content(self, url: str, body: bytes) -> None:
-        """Serve the raw `body` bytes at `url`, as a release asset or an archive is served."""
-        self.routes[url] = (200, {"content-type": "application/octet-stream"}, body)
-
-    def redirect(self, url: str, location: str, status: int = 302) -> None:
-        """Answer `url` with a redirect to `location`; a 307 or 308 keeps the method and body."""
-        self.routes[url] = (status, {"location": location}, b"")
-
-    def serve(self, server: Callable[[httpx2.Request], httpx2.Response | None]) -> None:
-        """Answer each request that `server` answers before the routes. A server gives None for
-        a request it does not serve. It stands in for a service whose answer depends on the
-        method or the body, such as an API that makes a resource under a name in the body."""
-        self.servers.append(server)
-
-    def respond(self, method: str, url: str, status: int, body: object = None) -> None:
-        """Answer `method` requests to `url` with `status` and `body` as JSON.
-
-        A route for a method comes before the page of its URL, so one URL can list on GET and
-        create on POST, as a REST collection does. A `body` of None sends no content.
-        """
-        content = b"" if body is None else json.dumps(body).encode()
-        self.method_routes[(method, url)] = (status, {"content-type": "application/json"}, content)
-
-    def fail(self, url: str, error: httpx2.TransportError) -> None:
-        """Raise `error` for each request to `url`, as a client sees a timeout or a lost connection."""
-        self.failures[url] = error
-
-    def handle(self, request: httpx2.Request) -> httpx2.Response:
-        """Record `request` and answer it from the failures, the servers, then the routes, or with
-        a 404."""
-        self.sent.append(request)
-        url = str(request.url)
-        if (error := self.failures.get(url)) is not None:
-            error.request = request
-            raise error
-        for server in self.servers:
-            if (response := server(request)) is not None:
-                return response
-        route = self.method_routes.get((request.method, url)) or self.routes.get(url)
-        status, headers, body = route or (404, {}, b"")
-        return httpx2.Response(status, headers=headers, content=body)
-
-    def vetting_handler(
-        self, level: EgressLevel | None
-    ) -> Callable[[httpx2.Request], httpx2.Response]:
-        """`handle`, after vetting the request's host at `level` as the connect would."""
-        return vetted_handler(self.handle, level)
-
-
-def vetted_handler[Answer](
-    handler: Callable[[httpx2.Request], Answer], level: EgressLevel | None
-) -> Callable[[httpx2.Request], Answer]:
-    """`handler`, after vetting each request's host at `level` as a factory client's connect
-    would; `handler` itself for a client the factory did not build."""
-    if level is None:
-        return handler
-
-    def handle_vetted(request: httpx2.Request) -> Answer:
-        vet_addresses(request.url.host, request.url.port or 0, level)
-        return handler(request)
-
-    return handle_vetted
+# The name that the 32 test files and the `stub_web` fixture use until their packages move to the
+# `web` fixture (#1314).
+StubWeb = WebFake

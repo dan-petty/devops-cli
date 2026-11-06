@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -31,6 +32,7 @@ from devops_cli.models.vault import (
 )
 from devops_cli.security.secrets import reset_resolver
 from devops_cli.security.vault_broker import VaultStatus
+from tests.support.fakes.http import WebFake
 from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
 
 
@@ -49,7 +51,6 @@ runner = CliRunner()
 VAULT_ADDR = "https://example.com:8200"
 STORED_TOKEN = "s.stored-login-token"
 ENV_TOKEN = "s.environment-token"
-_REQUEST = "devops_cli.http.broker.HttpClientBroker.request"
 _FALLBACK = "devops_cli.security.vault_broker.get_keyring_secret"
 _TOKEN_SOURCES = ("devops vault login", "VAULT_TOKEN", "DEVOPS_CLI_VAULT_TOKEN")
 
@@ -87,6 +88,24 @@ def store_login(monkeypatch: pytest.MonkeyPatch, vault_addr: str = VAULT_ADDR) -
 def reply(status: int = 200, payload: Any = None) -> httpx2.Response:
     """Build a Vault HTTP reply."""
     return httpx2.Response(status, json=payload if payload is not None else {})
+
+
+@contextmanager
+def vault_answers(
+    web: WebFake, answer: httpx2.Response | Exception | None = None
+) -> Iterator[WebFake]:
+    """Answer each Vault request with `answer`, or fail it with `answer` when that is an error.
+
+    With no answer the fake gives its 404; a test with no answer asserts that `recorded` stays empty.
+    """
+
+    def serve(request: httpx2.Request) -> httpx2.Response | None:
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    web.serve(serve)
+    yield web
 
 
 def _mock_broker(**attributes: Any) -> MagicMock:
@@ -156,39 +175,40 @@ def test_vault_status_degraded_with_error() -> None:
     assert all(text in res.output for text in ("Connection refused", "Sealed", "Degraded"))
 
 
-def test_vault_status_names_the_stored_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_vault_status_names_the_stored_token(monkeypatch: pytest.MonkeyPatch, web: WebFake) -> None:
     """After a login, status shows the token comes from the keyring."""
     store_login(monkeypatch)
-    with patch(_REQUEST, return_value=reply(200, {"initialized": True})):
+    with vault_answers(web, reply(200, {"initialized": True})):
         res = runner.invoke(app, ["status"])
     assert (res.exit_code, bool(re.search(r"Token\s+keyring", res.output))) == (0, True)
 
 
 def test_vault_status_names_the_address_a_skipped_token_was_issued_for(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """With VAULT_ADDR moved elsewhere, status says the stored token is not used and why."""
     store_login(monkeypatch)
     monkeypatch.setenv("VAULT_ADDR", "https://example.com:8201")
-    with patch(_REQUEST, return_value=reply(200, {"initialized": True})):
+    with vault_answers(web, reply(200, {"initialized": True})):
         res = runner.invoke(app, ["status"])
     assert res.exit_code == 0
     assert f"none (stored token not used: issued for {VAULT_ADDR})" in res.output
 
 
 @pytest.mark.parametrize("source", ["stored", "environment"])
-def test_mcp_vault_status_never_sends_a_token(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
+def test_mcp_vault_status_never_sends_a_token(
+    monkeypatch: pytest.MonkeyPatch, source: str, web: WebFake
+) -> None:
     """The health request carries no token, whether it comes from the keyring or the environment."""
     store_login(monkeypatch)
     if source == "environment":
         monkeypatch.setenv("VAULT_TOKEN", ENV_TOKEN)
 
-    with patch(_REQUEST, return_value=reply(200, {"initialized": True})) as mock_request:
+    with vault_answers(web, reply(200, {"initialized": True})) as vault:
         vault_status()
 
-    assert [
-        call.kwargs["headers"].get("X-Vault-Token") for call in mock_request.call_args_list
-    ] == [None]
+    assert [request.headers.get("x-vault-token") for request in vault.recorded] == [None]
 
 
 HEALTH_ANSWER = json.dumps(
@@ -307,14 +327,14 @@ def test_the_command_keeps_its_address_option(monkeypatch: pytest.MonkeyPatch) -
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_vault_get_not_found_names_only_the_sources_checked() -> None:
+def test_vault_get_not_found_names_only_the_sources_checked(web: WebFake) -> None:
     """With no token, the not-found message names the keyring alone and says Vault was skipped."""
-    with patch(_REQUEST) as mock_request, patch(_FALLBACK, return_value=None):
+    with vault_answers(web) as vault, patch(_FALLBACK, return_value=None):
         res = runner.invoke(app, ["get", "secret/data/missing"])
 
     assert res.exit_code == 1
     assert "checked: keyring; Vault was not consulted: no usable token" in res.output
-    mock_request.assert_not_called()
+    assert vault.recorded == []
 
 
 def test_vault_get_dict_masked_and_show() -> None:
@@ -347,22 +367,24 @@ def test_vault_get_scalar_masked_and_show() -> None:
 
 def test_vault_get_answers_from_vault_with_the_stored_token(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """After a login, get reads Vault with the stored token and says Vault answered."""
     store_login(monkeypatch)
-    with patch(_REQUEST, return_value=reply(200, {"data": {"data": {"k": "v"}}})) as mock_request:
+    with vault_answers(web, reply(200, {"data": {"data": {"k": "v"}}})) as vault:
         res = runner.invoke(app, ["get", "secret/data/app", "--key", "k", "--show"])
 
     assert (res.exit_code, "k (from vault): v" in res.output) == (0, True)
-    assert mock_request.call_args.kwargs["headers"]["X-Vault-Token"] == STORED_TOKEN
+    assert vault.recorded[-1].headers["x-vault-token"] == STORED_TOKEN
 
 
 def test_vault_get_on_a_rejected_token_exits_without_reading_the_keyring(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """A 403 is reported with its source and status; the keyring fallback is not read."""
     monkeypatch.setenv("VAULT_TOKEN", ENV_TOKEN)
-    with patch(_REQUEST, return_value=reply(403)), patch(_FALLBACK) as keyring_fallback:
+    with vault_answers(web, reply(403)), patch(_FALLBACK) as keyring_fallback:
         res = runner.invoke(app, ["get", "secret/data/app", "--key", "k"])
 
     assert res.exit_code == 1
@@ -372,9 +394,10 @@ def test_vault_get_on_a_rejected_token_exits_without_reading_the_keyring(
 
 def test_vault_get_on_a_404_answers_from_the_keyring_and_says_so(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     monkeypatch.setenv("VAULT_TOKEN", ENV_TOKEN)
-    with patch(_REQUEST, return_value=reply(404)), patch(_FALLBACK, return_value="cached"):
+    with vault_answers(web, reply(404)), patch(_FALLBACK, return_value="cached"):
         res = runner.invoke(app, ["get", "secret/data/app", "--key", "k", "--show"])
 
     assert res.exit_code == 0
@@ -416,14 +439,16 @@ def test_vault_set_failure_reports_the_status() -> None:
         ["leases", "--revoke", "lease-1"],
     ],
 )
-def test_commands_needing_a_token_exit_before_any_request_without_one(command: list[str]) -> None:
+def test_commands_needing_a_token_exit_before_any_request_without_one(
+    command: list[str], web: WebFake
+) -> None:
     """With no usable token, set, sync and leases --revoke name the token sources and stop."""
-    with patch(_REQUEST) as mock_request:
+    with vault_answers(web) as vault:
         res = runner.invoke(app, command)
 
     assert res.exit_code == 1
     assert all(source in res.output for source in _TOKEN_SOURCES)
-    mock_request.assert_not_called()
+    assert vault.recorded == []
 
 
 def test_vault_sync_success() -> None:
@@ -450,10 +475,10 @@ def test_vault_sync_reports_the_skipped_login_key_and_missing_fields() -> None:
     assert "Vault has no value for: absent" in res.output
 
 
-def test_vault_sync_of_an_empty_path_exits_1(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_vault_sync_of_an_empty_path_exits_1(monkeypatch: pytest.MonkeyPatch, web: WebFake) -> None:
     """A path with no secret fails instead of reporting zero secrets synchronized."""
     monkeypatch.setenv("VAULT_TOKEN", ENV_TOKEN)
-    with patch(_REQUEST, return_value=reply(404)):
+    with vault_answers(web, reply(404)):
         res = runner.invoke(app, ["sync", "secret/data/app"])
     assert (res.exit_code, "Vault has no secret at 'secret/data/app'" in res.output) == (1, True)
 
@@ -474,16 +499,19 @@ def test_vault_sync_of_an_empty_path_exits_1(monkeypatch: pytest.MonkeyPatch) ->
 )
 @pytest.mark.parametrize("token_env", [None, ENV_TOKEN])
 def test_dry_runs_name_the_token_source_and_make_no_request(
-    monkeypatch: pytest.MonkeyPatch, command: list[str], token_env: str | None
+    monkeypatch: pytest.MonkeyPatch,
+    command: list[str],
+    token_env: str | None,
+    web: WebFake,
 ) -> None:
     """A dry run prints planned requests and sends nothing."""
     if token_env:
         monkeypatch.setenv("VAULT_TOKEN", token_env)
-    with patch(_REQUEST) as mock_request:
+    with vault_answers(web) as vault:
         res = runner.invoke(app, command, env={"DEVOPS_CLI_DRY_RUN": "true"})
 
     assert (res.exit_code, "Planned requests for devops vault" in res.output) == (0, True)
-    mock_request.assert_not_called()
+    assert vault.recorded == []
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -491,27 +519,30 @@ def test_dry_runs_name_the_token_source_and_make_no_request(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_leases_revoke_succeeds_with_a_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_leases_revoke_succeeds_with_a_token(monkeypatch: pytest.MonkeyPatch, web: WebFake) -> None:
     monkeypatch.setenv("VAULT_TOKEN", ENV_TOKEN)
-    with patch(_REQUEST, return_value=httpx2.Response(204)) as mock_request:
+    with vault_answers(web, httpx2.Response(204)) as vault:
         res = runner.invoke(app, ["leases", "--revoke", "lease-1"])
 
     assert (res.exit_code, "Revoked lease" in res.output) == (0, True)
-    assert mock_request.call_args.kwargs["headers"]["X-Vault-Token"] == ENV_TOKEN
+    assert vault.recorded[-1].headers["x-vault-token"] == ENV_TOKEN
 
 
-def test_leases_revoke_refusal_names_the_status(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_leases_revoke_refusal_names_the_status(
+    monkeypatch: pytest.MonkeyPatch, web: WebFake
+) -> None:
     monkeypatch.setenv("VAULT_TOKEN", ENV_TOKEN)
-    with patch(_REQUEST, return_value=reply(400)):
+    with vault_answers(web, reply(400)):
         res = runner.invoke(app, ["leases", "--revoke", "lease-1"])
     assert (res.exit_code, "status 400" in res.output) == (1, True)
 
 
 def test_leases_revoke_with_a_rejected_token_names_its_source(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     monkeypatch.setenv("VAULT_TOKEN", ENV_TOKEN)
-    with patch(_REQUEST, return_value=reply(403)):
+    with vault_answers(web, reply(403)):
         res = runner.invoke(app, ["leases", "--revoke", "lease-1"])
     assert res.exit_code == 1
     assert "Vault rejected the token from the environment (HTTP 403)" in res.output
@@ -561,10 +592,12 @@ def usable_keyring() -> Iterator[MagicMock]:
 
 
 def test_login_stores_one_record_bound_to_the_issuing_vault(
-    monkeypatch: pytest.MonkeyPatch, usable_keyring: MagicMock
+    monkeypatch: pytest.MonkeyPatch,
+    usable_keyring: MagicMock,
+    web: WebFake,
 ) -> None:
     monkeypatch.setenv("VAULT_NAMESPACE", "team-a")
-    with patch(_REQUEST, return_value=reply(200, _LOGIN_REPLY)):
+    with vault_answers(web, reply(200, _LOGIN_REPLY)):
         res = runner.invoke(app, _LOGIN)
 
     assert (res.exit_code, "s.issued" in res.output) == (0, False)
@@ -574,32 +607,36 @@ def test_login_stores_one_record_bound_to_the_issuing_vault(
     assert (record.token, record.vault_addr, record.namespace) == ("s.issued", VAULT_ADDR, "team-a")
 
 
-def test_login_fails_when_the_keyring_refuses_the_token(usable_keyring: MagicMock) -> None:
+def test_login_fails_when_the_keyring_refuses_the_token(
+    usable_keyring: MagicMock, web: WebFake
+) -> None:
     usable_keyring.side_effect = KeyringLockedError("Cannot store vault_token: locked")
-    with patch(_REQUEST, return_value=reply(200, _LOGIN_REPLY)):
+    with vault_answers(web, reply(200, _LOGIN_REPLY)):
         res = runner.invoke(app, _LOGIN)
     assert (res.exit_code, "could not keep the Vault token" in res.output) == (1, True)
 
 
 def test_login_without_a_persistent_keyring_exits_before_logging_in(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Under DEVOPS_CLI_HEADLESS_AUTH the token would be lost, so no login request is made."""
     monkeypatch.setenv("DEVOPS_CLI_HEADLESS_AUTH", "1")
-    with patch(_REQUEST) as mock_request:
+    with vault_answers(web) as vault:
         res = runner.invoke(app, _LOGIN)
 
     assert res.exit_code == 1
     assert all(text in res.output for text in ("--no-store", "VAULT_TOKEN", "CI runners"))
-    mock_request.assert_not_called()
+    assert vault.recorded == []
 
 
 def test_login_with_no_store_checks_credentials_and_keeps_nothing(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     monkeypatch.setenv("DEVOPS_CLI_HEADLESS_AUTH", "1")
     with (
-        patch(_REQUEST, return_value=reply(200, _LOGIN_REPLY)),
+        vault_answers(web, reply(200, _LOGIN_REPLY)),
         patch("devops_cli.commands.vault.keyring_write") as write,
     ):
         res = runner.invoke(app, [*_LOGIN, "--no-store"])
@@ -609,8 +646,8 @@ def test_login_with_no_store_checks_credentials_and_keeps_nothing(
     assert get_keyring_secret(CONST_VAULT_LOGIN_KEYRING_KEY) is None
 
 
-def test_login_refused_by_vault_exits_1(usable_keyring: MagicMock) -> None:
-    with patch(_REQUEST, return_value=reply(400)):
+def test_login_refused_by_vault_exits_1(usable_keyring: MagicMock, web: WebFake) -> None:
+    with vault_answers(web, reply(400)):
         res = runner.invoke(app, _LOGIN)
     assert (res.exit_code, "status 400" in res.output) == (1, True)
     usable_keyring.assert_not_called()
@@ -644,16 +681,19 @@ def stored_entry() -> Iterator[dict[str, Any]]:
 
 
 def test_logout_revokes_at_the_stored_address_then_deletes(
-    monkeypatch: pytest.MonkeyPatch, stored_entry: dict[str, Any]
+    monkeypatch: pytest.MonkeyPatch,
+    stored_entry: dict[str, Any],
+    web: WebFake,
 ) -> None:
     monkeypatch.setenv("VAULT_ADDR", "https://example.com:9999")
-    with patch(_REQUEST, return_value=httpx2.Response(204)) as mock_request:
+    with vault_answers(web, httpx2.Response(204)) as vault:
         res = runner.invoke(app, ["logout"])
 
-    call = mock_request.call_args
+    (revoke,) = vault.recorded
     assert res.exit_code == 0
-    assert (call.args, call.kwargs["headers"]["X-Vault-Token"]) == (
-        ("POST", f"{VAULT_ADDR}/v1/auth/token/revoke-self"),
+    assert (revoke.method, revoke.url, revoke.headers["x-vault-token"]) == (
+        "POST",
+        f"{VAULT_ADDR}/v1/auth/token/revoke-self",
         STORED_TOKEN,
     )
     stored_entry["delete"].assert_called_once_with(CONST_VAULT_LOGIN_KEYRING_KEY)
@@ -661,41 +701,46 @@ def test_logout_revokes_at_the_stored_address_then_deletes(
 
 def test_logout_deletes_the_local_copy_when_vault_is_unreachable(
     stored_entry: dict[str, Any],
+    web: WebFake,
 ) -> None:
-    with patch(_REQUEST, side_effect=httpx2.ConnectError("refused")):
+    with vault_answers(web, httpx2.ConnectError("refused")):
         res = runner.invoke(app, ["logout"])
 
     assert (res.exit_code, "did not revoke it" in res.output) == (0, True)
     stored_entry["delete"].assert_called_once_with(CONST_VAULT_LOGIN_KEYRING_KEY)
 
 
-def test_logout_without_a_stored_token_says_so(stored_entry: dict[str, Any]) -> None:
+def test_logout_without_a_stored_token_says_so(stored_entry: dict[str, Any], web: WebFake) -> None:
     stored_entry["value"] = None
-    with patch(_REQUEST) as mock_request:
+    with vault_answers(web) as vault:
         res = runner.invoke(app, ["logout"])
 
     assert (res.exit_code, "No Vault token is stored" in res.output) == (0, True)
-    mock_request.assert_not_called()
+    assert vault.recorded == []
     stored_entry["delete"].assert_not_called()
 
 
-def test_logout_deletes_a_bare_token_without_sending_it(stored_entry: dict[str, Any]) -> None:
+def test_logout_deletes_a_bare_token_without_sending_it(
+    stored_entry: dict[str, Any], web: WebFake
+) -> None:
     """An entry that names no Vault is never sent anywhere, but it is removed."""
     stored_entry["value"] = "s.bare-token"
-    with patch(_REQUEST) as mock_request:
+    with vault_answers(web) as vault:
         res = runner.invoke(app, ["logout"])
 
     assert (res.exit_code, "did not revoke it" in res.output) == (0, True)
-    mock_request.assert_not_called()
+    assert vault.recorded == []
     stored_entry["delete"].assert_called_once_with(CONST_VAULT_LOGIN_KEYRING_KEY)
 
 
-def test_logout_dry_run_sends_and_deletes_nothing(stored_entry: dict[str, Any]) -> None:
-    with patch(_REQUEST) as mock_request:
+def test_logout_dry_run_sends_and_deletes_nothing(
+    stored_entry: dict[str, Any], web: WebFake
+) -> None:
+    with vault_answers(web) as vault:
         res = runner.invoke(app, ["logout"], env={"DEVOPS_CLI_DRY_RUN": "true"})
 
     assert (res.exit_code, f"{VAULT_ADDR}/v1/auth/token/revoke-self" in res.output) == (0, True)
-    mock_request.assert_not_called()
+    assert vault.recorded == []
     stored_entry["delete"].assert_not_called()
 
 

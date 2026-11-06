@@ -9,9 +9,8 @@ import httpx2
 
 from devops_cli.ai.client.models import AIClientError
 from devops_cli.config.settings import AIConfig
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel, configured_level
-from devops_cli.http.pool import get_shared_client
+from devops_cli.http.entry import http_client
 
 
 def _clean_http_error_body(raw_body: str) -> str:
@@ -74,12 +73,12 @@ class BaseLLMProviderMixin:
         if getattr(self, "_http_client", None) is not None:
             return cast("httpx2.Client", self._http_client)
         if getattr(self, "_transport", None) is not None:
-            return new_http_client(
+            return http_client(
                 level=self._egress_level(),
                 transport=cast("httpx2.BaseTransport", self._transport),
                 timeout=timeout or self._request_timeout(),
             )
-        return new_http_client(
+        return http_client(
             level=self._egress_level(),
             timeout=timeout or self._request_timeout(),
             http2=True,
@@ -100,7 +99,7 @@ class BaseLLMProviderMixin:
             return cast("httpx2.Client", self._http_client)
         if getattr(self, "_transport", None) is not None:
             if getattr(self, "_transport_client", None) is None:
-                self._transport_client = new_http_client(
+                self._transport_client = http_client(
                     level=self._egress_level(),
                     transport=cast("httpx2.BaseTransport", self._transport),
                     timeout=self._request_timeout(),
@@ -111,7 +110,7 @@ class BaseLLMProviderMixin:
         except Exception:
             b_type = "default"
         key = f"llm:{type(self).__name__}:{b_type}"
-        return get_shared_client(key, self._egress_level(), retries=self._max_attempts())
+        return http_client(self._egress_level(), key=key, retries=self._max_attempts())
 
     def _format_status_error(self, exc: httpx2.HTTPError, status: int) -> AIClientError:
         """Extract response body preview for HTTP status errors."""

@@ -157,19 +157,6 @@ def test_the_error_for_a_label_with_no_origin_does_not_read_as_a_url() -> None:
     )
 
 
-def test_the_broker_veto_of_a_scheme_says_which_problem_it_is() -> None:
-    from devops_cli.http.broker import HttpClientBroker
-    from devops_cli.http.egress import EgressLevel
-
-    with HttpClientBroker() as broker:
-        client = broker.get_client(EgressLevel.PUBLIC)
-        request = client.build_request("GET", "file:///etc/passwd")
-        with pytest.raises(InvalidURLError) as raised:
-            client.send(request)
-
-    assert str(raised.value) == "Invalid URL: Only http and https URLs may be requested"
-
-
 @pytest.mark.parametrize("url", [_HTTP_URL, _K8S_URL], ids=["http", "k8s"])
 def test_the_search_cache_key_names_the_server_by_label_and_digest(
     monkeypatch: pytest.MonkeyPatch, url: str

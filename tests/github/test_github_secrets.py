@@ -157,18 +157,14 @@ class VaultApiFake:
 
 @pytest.fixture
 def vault_api() -> Iterator[VaultApiFake]:
-    from devops_cli.http.broker import get_broker, reset_broker
-    from devops_cli.http.egress import EgressLevel
+    from devops_cli.http.entry import install_transport, remove_transport
 
     api = VaultApiFake()
-    transport = httpx2.MockTransport(api.handle)
-    broker = get_broker()
-    client = httpx2.Client(transport=transport)
-    broker._sync_clients[EgressLevel.PRIVATE] = client
+    install_transport(lambda level: httpx2.MockTransport(api.handle))
     try:
         yield api
     finally:
-        reset_broker()
+        remove_transport()
 
 
 def test_resolve_secret_vault_reads_path_through_http(vault_api: VaultApiFake) -> None:

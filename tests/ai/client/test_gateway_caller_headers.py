@@ -20,7 +20,7 @@ from devops_cli import __version__
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.config.settings import AIConfig, Settings
-from devops_cli.http.broker import HttpClientBroker
+from devops_cli.http.entry import request_headers
 from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, route_llm_clients
 from tests.web_fakes import StubWeb
 
@@ -158,6 +158,6 @@ def test_a_pydantic_ai_agent_call_to_the_gateway_names_devops_cli_and_its_servic
     assert [_caller(request) for request in stub_web.sent] == [(USER_AGENT, service_name)]
 
 
-def test_the_broker_names_this_release_of_devops_cli_as_its_user_agent() -> None:
-    """The broker's user agent is the installed release, not a release named in the code."""
-    assert HttpClientBroker().build_headers()["User-Agent"] == USER_AGENT
+def test_the_request_headers_name_this_release_of_devops_cli_as_the_user_agent() -> None:
+    """The user agent is the installed release, not a release named in the code."""
+    assert request_headers()["User-Agent"] == USER_AGENT

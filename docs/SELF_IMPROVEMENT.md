@@ -330,7 +330,6 @@ This session evaluated repository review telemetry `/workspaces/devops-cli/.data
 | Predictable static temporary file in `KubernetesService.switch_context` | **Remediated**: `switch_context` writes no file. `kubectl config use-context` owns the kubeconfig, and the service only points its in-process clients at the context (#1315). |
 | Inverted return value in `LibraryVectorStore.ensure_collection_exists` | **Remediated**: returned `True` when collection exists (`if info: return True`). |
 | Unbounded refresh calculation in `LiveResourceWatcher` | **Remediated**: bounded refresh rate calculation with `min(30, max(1, int(1.0 / max(0.01, self.interval_seconds))))`. |
-| Dangling client reference on close in `HttpClientBroker` | **Remediated**: guaranteed `_sync_client = None` and `_async_client = None` are always cleared on `close()` and `aclose()`. |
 | Missing async client cleanup helper in `http/pool.py` | **Remediated**: added `aclose_shared_clients()` helper. |
 | Missing dictionary support in `ResourceInformer._normalize_event` | **Remediated**: extracted metadata cleanly via `_extract_event_metadata` supporting both objects and raw event dictionaries. |
 | Broad exception handling in `_fetch_metric_value` in `argo/rollouts.py` | **Remediated**: narrowed `except Exception:` to `(httpx2.HTTPError, ValueError, KeyError, IndexError, TypeError)`. |

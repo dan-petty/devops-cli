@@ -59,7 +59,7 @@ ROUTES: Final[tuple[Route, ...]] = (
             "1. Declarative CLI Command Dispatch & OpenTelemetry Instrumentation",
             "2. End-to-End Pydantic Resource Model Interoperability",
             "3. Safe Subprocess Execution & Process Group Management",
-            "5. HTTP Connection Management & Security Broker",
+            "5. HTTP Connection Management & Security",
         ),
     ),
     Route(
