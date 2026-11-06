@@ -12,7 +12,9 @@ from typing import Any
 
 import pytest
 
+from devops_cli.ai.kb import knowledge_base_digest
 from devops_cli.ai.rag.qdrant import QdrantClientError, QdrantProtocol
+from devops_cli.config.constants import CONST_RAG_KB_PROJECT
 
 
 def _cosine_similarity(vec_a: Sequence[float], vec_b: Sequence[float]) -> float:
@@ -258,6 +260,28 @@ class FakeQdrantClient(QdrantProtocol):
                 if p.get("payload", {}).get("project_name") != project_name
             ]
         return True
+
+
+def seed_knowledge_base(fake: FakeQdrantClient, docs_collection: str = "devops_docs") -> None:
+    """Hold the installed knowledge base's digest in `docs_collection`, as an indexed store does.
+
+    A RAG search checks the knowledge base before it searches, and rebuilds it when the store
+    holds none of its points. With this point the check finds the knowledge base current and
+    rebuilds nothing. The point's vector is empty, so it matches no query.
+    """
+    fake.upsert_points(
+        docs_collection,
+        [
+            {
+                "id": "knowledge-base-seed",
+                "vector": [0.0] * fake.vector_sizes.get(docs_collection, 4),
+                "payload": {
+                    "project_name": CONST_RAG_KB_PROJECT,
+                    "kb_digest": knowledge_base_digest(),
+                },
+            }
+        ],
+    )
 
 
 @pytest.fixture

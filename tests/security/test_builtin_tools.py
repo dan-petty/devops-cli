@@ -8,13 +8,11 @@ import os
 import time
 from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
 
 import pytest
 
 from devops_cli.ai.tools.builtin_tools import (
-    _is_safe_workspace_path,
-    _run_tool_cmd,
+    argo_app_status,
     argo_apps,
     check_threat_intel,
     git_diff,
@@ -23,6 +21,7 @@ from devops_cli.ai.tools.builtin_tools import (
     k8s_tempo_status,
     k8s_validate_manifests,
     list_files,
+    rag_search,
     read_file,
     scan_bandit,
     scan_gitleaks,
@@ -38,11 +37,15 @@ from devops_cli.ai.tools.builtin_tools import (
     tf_lint,
 )
 from devops_cli.config.defaults import DEFAULT_TOOL_DIFF_MAX_CHARS, DEFAULT_TRIVY_SEVERITIES
+from devops_cli.lang import ERRORS, MESSAGES
 from devops_cli.review.rules_pack import RULE_PACK_DIR
 from devops_cli.security.tool_executor import KubeApiNetwork
-from devops_cli.security.vulnerability_lookup import OSVClient
+from devops_cli.security.vulnerability_lookup import OSVClient, ShodanInternetDBClient
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.embeddings import FakeEmbedder
 from tests.support.fakes.http import WebFake
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.fakes.qdrant import FakeQdrantClient, seed_knowledge_base
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
 from tests.support.registry_cache import CACHED_RULESET_FILE_NAME
@@ -50,56 +53,91 @@ from tests.support.registry_cache import CACHED_RULESET_FILE_NAME
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
-def test_is_safe_workspace_path(tmp_path: Path) -> None:
-    """Verify _is_safe_workspace_path allows workspace paths and denies external/symlinked paths."""
+def test_a_path_outside_the_workspace_is_denied_and_so_is_a_link_out_of_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`read_file` and `list_files` read inside the workspace only. A symbolic link in the
+    workspace that points outside it is outside, so the tools deny it."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    inside_file = workspace / "test.txt"
-    inside_file.touch()
+    monkeypatch.chdir(workspace)
+    inside_file = workspace / "inside.txt"
+    inside_file.write_text("in", encoding="utf-8")
     outside_file = tmp_path / "outside.txt"
-    outside_file.touch()
+    outside_file.write_text("out", encoding="utf-8")
+    outside_dir = tmp_path / "outside_dir"
+    outside_dir.mkdir()
+    (outside_dir / "secret.txt").write_text("out", encoding="utf-8")
+    (workspace / "link_in.txt").symlink_to(inside_file)
+    (workspace / "link_out.txt").symlink_to(outside_file)
+    (workspace / "link_out_dir").symlink_to(outside_dir)
 
-    # Symlink
-    symlink_file = workspace / "link.txt"
-    try:
-        symlink_file.symlink_to(inside_file)
-        assert _is_safe_workspace_path(symlink_file, workspace_root=workspace) is False
-    except OSError:
-        pass
-
-    assert _is_safe_workspace_path(inside_file, workspace_root=workspace) is True
-    assert _is_safe_workspace_path(outside_file, workspace_root=workspace) is False
-
-
-def test_run_tool_cmd(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify _run_tool_cmd execution, truncating, and fallback messages."""
-    # 1. Successful execution
-    mock_ok = MagicMock(stdout="Sample Output")
-    monkeypatch.setattr("devops_cli.ai.tools.builtin_tools.run_subprocess", lambda *a, **k: mock_ok)
-    assert _run_tool_cmd(["echo", "hi"]) == "Sample Output"
-
-    # 2. Fallback message on empty stdout
-    mock_empty = MagicMock(stdout="")
-    monkeypatch.setattr(
-        "devops_cli.ai.tools.builtin_tools.run_subprocess", lambda *a, **k: mock_empty
+    assert (
+        read_file(str(inside_file)),
+        read_file(str(workspace / "link_in.txt")),
+        read_file(str(outside_file)),
+        read_file(str(workspace / "link_out.txt")),
+        list_files(str(outside_dir)),
+        list_files(str(workspace / "link_out_dir")),
+    ) == (
+        "in",
+        "in",
+        ERRORS.tools.access_denied_outside_workspace.format(path=str(outside_file)),
+        ERRORS.tools.access_denied_outside_workspace.format(path=str(workspace / "link_out.txt")),
+        [],
+        [],
     )
-    assert _run_tool_cmd(["echo"], fallback_msg="No output") == "No output"
 
-    # 3. Truncated output
-    mock_long = MagicMock(stdout="A" * 50)
-    monkeypatch.setattr(
-        "devops_cli.ai.tools.builtin_tools.run_subprocess", lambda *a, **k: mock_long
+
+def test_a_tool_that_starts_a_process_replies_with_its_trimmed_output(
+    process_fake: ProcessFake,
+) -> None:
+    """`git_status` runs `git status -s` and replies with what git printed, without the
+    whitespace around it."""
+    process_fake.answer("git status", ProcessAnswer(stdout=" M src/main.py\n"))
+
+    reply = git_status()
+
+    assert ([call.argv for call in process_fake.calls], reply) == (
+        [("git", "status", "-s")],
+        "M src/main.py",
     )
-    res = _run_tool_cmd(["long"], max_chars=20)
-    assert "truncated at 20 chars" in res
-    assert res.startswith("A" * 20)
 
-    # 4. Command exception
-    def mock_raise(*a, **k):
-        raise OSError("Executable not found")
 
-    monkeypatch.setattr("devops_cli.ai.tools.builtin_tools.run_subprocess", mock_raise)
-    assert "failed" in _run_tool_cmd(["invalid_cmd"]).lower()
+def test_a_tool_that_starts_a_process_names_a_clean_result_when_it_prints_nothing(
+    process_fake: ProcessFake,
+) -> None:
+    """A command with no output gives the tool's own sentence, not an empty reply."""
+    process_fake.answer("git", ProcessAnswer(stdout=""))
+
+    assert (git_status(), git_diff()) == (
+        MESSAGES.tools.working_tree_clean,
+        MESSAGES.tools.no_unstaged_changes,
+    )
+
+
+def test_a_tool_that_starts_a_process_cuts_a_long_reply_and_says_where(
+    process_fake: ProcessFake,
+) -> None:
+    """`git_diff` keeps the first `DEFAULT_TOOL_DIFF_MAX_CHARS` characters and ends the reply
+    with a line that says where it cut."""
+    process_fake.answer("git diff", ProcessAnswer(stdout="A" * (DEFAULT_TOOL_DIFF_MAX_CHARS + 50)))
+
+    assert git_diff() == (
+        "A" * DEFAULT_TOOL_DIFF_MAX_CHARS
+        + f"\n... [truncated at {DEFAULT_TOOL_DIFF_MAX_CHARS} chars]"
+    )
+
+
+def test_a_tool_that_cannot_start_its_program_replies_with_the_failure(
+    process_fake: ProcessFake,
+) -> None:
+    """A program that is not installed gives a reply that names it and the cause."""
+    process_fake.answer("git status", ProcessAnswer(side_effect=OSError("Executable not found")))
+
+    assert git_status() == ERRORS.tools.tool_execution_failed.format(
+        tool="git", exc="Executable not found"
+    )
 
 
 def test_list_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -163,17 +201,6 @@ def test_read_file_paging_and_safety(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert "Access Denied" in read_file(str(outside))
 
 
-def test_git_status_and_diff(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify git_status and git_diff tool wrappers."""
-    mock_run = MagicMock(stdout=" M src/main.py")
-    monkeypatch.setattr(
-        "devops_cli.ai.tools.builtin_tools.run_subprocess", lambda *a, **k: mock_run
-    )
-
-    assert "src/main.py" in git_status()
-    assert "src/main.py" in git_diff()
-
-
 def test_search_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify search_code scans text files and returns matching file paths."""
     monkeypatch.chdir(tmp_path)
@@ -191,71 +218,114 @@ def test_search_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert search_code("nonexistent_symbol", str(tmp_path)) == []
 
 
-def test_devops_subcommand_wrappers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify the external DevOps tool wrappers that run no scanner adapter execute expected
-    commands."""
-    called_cmds: list[list[str]] = []
-
-    def mock_tool_cmd(cmd: list[str], *args, **kwargs) -> str:
-        called_cmds.append(cmd)
-        return "OK"
-
-    monkeypatch.setattr("devops_cli.ai.tools.builtin_tools._run_tool_cmd", mock_tool_cmd)
-
+def test_the_cluster_tools_run_kubectl_and_argocd_with_their_arguments(
+    process_fake: ProcessFake,
+) -> None:
+    """The Kubernetes and Argo CD tools, which run no scanner adapter, start the program with
+    the namespace or the application they are given."""
     k8s_pods("kube-system")
-    assert called_cmds[-1][:3] == ["kubectl", "get", "pods"]
-
     k8s_tempo_status("default")
-    assert called_cmds[-1][:3] == ["kubectl", "get", "deployments,statefulsets,services"]
-
     argo_apps()
-    assert called_cmds[-1][:3] == ["argocd", "app", "list"]
+    argo_app_status("web")
+
+    assert [call.argv for call in process_fake.calls] == [
+        ("kubectl", "get", "pods", "-n", "kube-system"),
+        ("kubectl", "get", "deployments,statefulsets,services", "-n", "default"),
+        ("argocd", "app", "list"),
+        ("argocd", "app", "get", "web"),
+    ]
 
 
-def test_scan_osv_and_threat_intel(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify scan_osv and check_threat_intel functions."""
-    from devops_cli.models.vulnerability import (
-        NetworkReputationRecord,
-        PackageLookupResult,
-        VulnerabilityRecord,
+def test_scan_osv_lists_the_advisories_that_osv_answers(web: WebFake) -> None:
+    """`scan_osv` asks OSV.dev about the package and version, and lists each advisory with its
+    severity and its fixed version."""
+    web.respond(
+        "POST",
+        OSVClient.BASE_URL,
+        200,
+        {
+            "vulns": [
+                {
+                    "id": "GHSA-abcd-1234",
+                    "summary": "Sample vulnerability in pydantic",
+                    "database_specific": {"severity": "HIGH"},
+                }
+            ]
+        },
     )
 
-    mock_rec = VulnerabilityRecord(
-        id="CVE-2026-0001",
-        cve_id="CVE-2026-0001",
-        title="Test Vuln",
-        severity="HIGH",
-        package_name="pydantic",
-        ecosystem="PyPI",
+    reply = scan_osv("pydantic", version="2.0.0")
+
+    assert ([(request.method, request.url) for request in web.recorded], reply) == (
+        [("POST", OSVClient.BASE_URL)],
+        "Found 1 vulnerability record(s) for pydantic:\n"
+        "- [GHSA-abcd-1234] Severity: HIGH | Fixed: None\n"
+        "  Summary: Sample vulnerability in pydantic",
     )
-    with patch(
-        "devops_cli.security.vulnerability_lookup.OSVClient.query_package",
-        return_value=PackageLookupResult(status="ok", vulnerabilities=[mock_rec]),
-    ):
-        res_osv = scan_osv("pydantic", version="2.0.0")
-        assert "CVE-2026-0001" in res_osv
+    assert web.recorded[0].json == {
+        "package": {"name": "pydantic", "ecosystem": "PyPI"},
+        "version": "2.0.0",
+    }
 
-    mock_rep = NetworkReputationRecord(
-        target="1.1.1.1",
-        reference_type="ip",
-        is_suspicious=False,
-        threat_level="CLEAN",
-        ports=[53, 443],
-        reputation_summary="Safe / Clean IP",
-        outcome="ok",
+
+def test_check_threat_intel_replies_with_what_shodan_knows_about_a_public_address(
+    web: WebFake,
+) -> None:
+    """The reply for a public address lists the open ports, the CVEs and the summary that
+    Shodan InternetDB gives."""
+    web.respond(
+        "GET",
+        f"{ShodanInternetDBClient.BASE_URL}/1.1.1.1",
+        200,
+        {
+            "ip": "1.1.1.1",
+            "ports": [53, 443],
+            "vulns": [],
+            "hostnames": ["one.one.one.one"],
+            "tags": [],
+        },
     )
-    with patch(
-        "devops_cli.security.vulnerability_lookup.ShodanInternetDBClient.check_ip",
-        return_value=mock_rep,
-    ):
-        res_intel = check_threat_intel("1.1.1.1")
-        assert "Safe / Clean IP" in res_intel
 
-    res_ex_domain = check_threat_intel("example.com")
-    assert "is a documented example" in res_ex_domain
+    reply = check_threat_intel("1.1.1.1")
 
-    res_ex_ip = check_threat_intel("192.0.2.1")
-    assert "is a documented example" in res_ex_ip
+    assert (web.requested, reply) == (
+        [f"{ShodanInternetDBClient.BASE_URL}/1.1.1.1"],
+        "Shodan Intelligence for IP 1.1.1.1:\n"
+        "- Hostnames: one.one.one.one\n"
+        "- Open Ports: 53, 443\n"
+        "- Known CVEs: None detected\n"
+        "- Reputation Summary: Open ports detected: [53, 443]",
+    )
+
+
+def test_check_threat_intel_replies_with_what_radar_knows_about_a_domain(
+    monkeypatch: pytest.MonkeyPatch, web: WebFake
+) -> None:
+    """The reply for a domain lists the categories that Cloudflare Radar gives, and the request
+    carries the configured token."""
+    monkeypatch.setenv("DEVOPS_CLI_CLOUDFLARE_API_TOKEN", "cf-test-token")
+    url = "https://api.cloudflare.com/client/v4/radar/ranking/domain/service-domain.org"
+    web.respond(
+        "GET",
+        url,
+        200,
+        {"success": True, "result": {"categories": [{"name": "Technology"}]}},
+    )
+
+    reply = check_threat_intel("service-domain.org")
+
+    assert (
+        [(request.method, request.url) for request in web.recorded],
+        web.recorded[0].headers.get("authorization"),
+        reply.splitlines()[:2],
+    ) == (
+        [("GET", url)],
+        "Bearer cf-test-token",
+        [
+            "Cloudflare Radar Intelligence for Domain service-domain.org:",
+            "- Threat Categories: Technology",
+        ],
+    )
 
 
 # 0.0.0.0, the unspecified IPv4 address, as a value under test rather than a bind address.
@@ -265,6 +335,8 @@ _UNSPECIFIED_IPV4 = str(ipaddress.IPv4Address(0))
 @pytest.mark.parametrize(
     "target",
     [
+        "example.com",
+        "192.0.2.1",
         "3fff::1",
         "555-0100",
         _UNSPECIFIED_IPV4,
@@ -326,37 +398,35 @@ def test_check_threat_intel_asks_no_service_about_a_local_address(
 
 
 @pytest.mark.parametrize("target", ["8.8.8.8.", "8.8.8.8,", "::ffff:8.8.8.8"])
-def test_check_threat_intel_asks_shodan_about_the_address_the_target_names(target: str) -> None:
+def test_check_threat_intel_asks_shodan_about_the_address_the_target_names(
+    target: str, web: WebFake
+) -> None:
     """A public address is sent to Shodan InternetDB as the address it is, without the
     punctuation prose leaves after it and in its IPv4 spelling; a trailing dot used to send it
     to Cloudflare Radar's domain lookup (#1174)."""
-    from devops_cli.models.vulnerability import NetworkReputationRecord
-
-    record = NetworkReputationRecord(
-        target="8.8.8.8", ip="8.8.8.8", reputation_summary="Clean", outcome="ok"
+    web.respond(
+        "GET",
+        f"{ShodanInternetDBClient.BASE_URL}/8.8.8.8",
+        200,
+        {"ip": "8.8.8.8", "ports": [], "vulns": [], "hostnames": [], "tags": []},
     )
-    with patch(
-        "devops_cli.security.vulnerability_lookup.ShodanInternetDBClient.check_ip",
-        return_value=record,
-    ) as check_ip:
-        reply = check_threat_intel(target)
-    assert (check_ip.call_args_list, reply.splitlines()[0]) == (
-        [call("8.8.8.8")],
+
+    reply = check_threat_intel(target)
+
+    assert (web.requested, reply.splitlines()[0]) == (
+        [f"{ShodanInternetDBClient.BASE_URL}/8.8.8.8"],
         "Shodan Intelligence for IP 8.8.8.8:",
     )
 
 
-def test_scan_osv_names_only_the_database_it_queries() -> None:
+def test_scan_osv_names_only_the_database_it_queries(web: WebFake) -> None:
     """`scan_osv` and the `security_intel_package` tool query OSV.dev alone, so neither their
     descriptions nor a clean reply mention NVD, which nothing queries (#956)."""
     from devops_cli.ai.mcp.server import security_intel_package
-    from devops_cli.models.vulnerability import PackageLookupResult
 
-    with patch(
-        "devops_cli.security.vulnerability_lookup.OSVClient.query_package",
-        return_value=PackageLookupResult(status="ok", vulnerabilities=[]),
-    ):
-        clean = scan_osv("requests", "2.0.0")
+    web.respond("POST", OSVClient.BASE_URL, 200, {})
+
+    clean = scan_osv("requests", "2.0.0")
 
     assert (
         clean,
@@ -380,68 +450,99 @@ def test_scan_osv_reports_a_failed_lookup_instead_of_a_clean_package(web: WebFak
     )
 
 
-def test_rag_search_reports_an_empty_result(
-    monkeypatch: pytest.MonkeyPatch, refusing_port: int
+def _index_chunk(qdrant: FakeQdrantClient, embedder: FakeEmbedder, query: str) -> None:
+    """Hold one code chunk in the store whose vector is the embedding of `query`, so a search
+    for `query` finds it, and hold the knowledge base, so the search rebuilds nothing."""
+    seed_knowledge_base(qdrant)
+    qdrant.upsert_points(
+        "devops_code",
+        [
+            {
+                "id": "chunk-1",
+                "vector": embedder.embed_query(query),
+                "payload": {
+                    "file_path": "src/retry.py",
+                    "start_line": 3,
+                    "end_line": 9,
+                    "content": "def retry_policy():\n    return 3\n",
+                    "language": "python",
+                    "embedding_model": embedder.model,
+                },
+            }
+        ],
+    )
+
+
+def test_rag_search_replies_with_the_chunks_the_store_holds(
+    qdrant: FakeQdrantClient, embedder: FakeEmbedder, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Verify rag_search.
+    """The search embeds the query, finds the chunk whose vector is nearest, and names its file
+    and lines. The knowledge base is current, so the search prints no rebuild line."""
+    _index_chunk(qdrant, embedder, "where is the retry policy")
+    embedded_before = len(embedder.recorded_texts)
 
-    The knowledge base check before the search finds Qdrant down, refused through
-    `refusing_port`, and its retry waits return at once.
-    """
-    from devops_cli.ai.tools.builtin_tools import rag_search
-    from devops_cli.config.settings import reset_settings_cache
+    reply = rag_search("where is the retry policy")
 
-    monkeypatch.setenv("DEVOPS_CLI_QDRANT_URL", f"http://127.0.0.1:{refusing_port}")
-    reset_settings_cache()
-    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    assert (
+        "src/retry.py" in reply,
+        "def retry_policy()" in reply,
+        "Rebuilding knowledge base" in capsys.readouterr().out,
+        embedder.recorded_texts[embedded_before:],
+    ) == (True, True, False, [("where is the retry policy", True)])
 
-    with (
-        patch("devops_cli.ai.tools.builtin_tools._is_safe_workspace_path", return_value=True),
-        patch("devops_cli.ai.rag.qdrant.QdrantClient.is_alive", return_value=True),
-        patch(
-            "devops_cli.ai.rag.retriever.SemanticRetriever.retrieve_context",
-            return_value=MagicMock(results=[]),
-        ),
-    ):
-        res_rag = rag_search("test query")
-        assert "No semantic matches found" in res_rag
+
+def test_rag_search_reports_an_empty_result(
+    qdrant: FakeQdrantClient, embedder: FakeEmbedder
+) -> None:
+    """A store with no chunk near the query gives the reply that names the query."""
+    seed_knowledge_base(qdrant)
+
+    assert rag_search("test query") == "No semantic matches found in vector store for: test query"
+
+
+def test_rag_search_reports_a_store_that_is_down(
+    qdrant: FakeQdrantClient, embedder: FakeEmbedder
+) -> None:
+    """A store that refuses the connection gives the reply that names its address and the
+    fallback tool. The search does not wait."""
+    qdrant.refusing = True
+
+    assert rag_search("test query") == (
+        "RAG vector database unavailable at http://example.com:6333. Fallback: use search_code."
+    )
 
 
 def test_rag_search_names_an_embedding_failure(
-    monkeypatch: pytest.MonkeyPatch, refusing_port: int, unserved_side_channel_port: int
+    qdrant: FakeQdrantClient, embedder: FakeEmbedder
 ) -> None:
-    """A query the embedding model cannot embed returns the failure, as an unreachable store does.
-
-    The knowledge base check before the search finds Qdrant down, refused through
-    `refusing_port`, and its retry waits return at once; telemetry goes to the floor's collector.
-    """
-    from devops_cli.ai.rag.embeddings import EmbeddingsError
-    from devops_cli.ai.tools.builtin_tools import rag_search
-    from devops_cli.config.settings import Settings
-
-    failure = EmbeddingsError(
+    """A query the embedding model cannot embed returns the failure, as an unreachable store
+    does."""
+    seed_knowledge_base(qdrant)
+    embedder.fail(
         "Embedding model bge-m3:latest produced no embeddings: "
         "https://example.com/v1/embeddings answered HTTP 400: model not loaded"
     )
-    settings = Settings()
-    settings.qdrant.url = f"http://127.0.0.1:{refusing_port}"
-    settings.telemetry.endpoint = f"http://127.0.0.1:{unserved_side_channel_port}"
-    monkeypatch.setattr("time.sleep", lambda seconds: None)
-    with (
-        patch("devops_cli.config.settings.load_settings", return_value=settings),
-        patch("devops_cli.config.settings.get_ai_api_key", return_value=None),
-        patch("devops_cli.config.settings.get_qdrant_api_key", return_value=None),
-        patch("devops_cli.ai.rag.qdrant.QdrantClient.is_alive", return_value=True),
-        patch(
-            "devops_cli.ai.rag.retriever.SemanticRetriever.retrieve_context", side_effect=failure
-        ),
-    ):
-        reply = rag_search("where is the retry policy")
+
+    reply = rag_search("where is the retry policy")
 
     assert reply == (
         "RAG search unavailable: Embedding model bge-m3:latest produced no embeddings: "
         "https://example.com/v1/embeddings answered HTTP 400: model not loaded. "
         "Fallback: use search_code."
+    )
+
+
+def test_rag_search_names_the_setting_a_missing_store_address_needs(
+    embedder: FakeEmbedder, config: Callable[..., Path]
+) -> None:
+    """With no Qdrant address configured and no store installed, the reply names the setting
+    and the fallback tool, and asks no service."""
+    config(qdrant={"url": None})
+
+    reply = rag_search("test query")
+
+    assert reply == (
+        "RAG vector database unconfigured (qdrant.url is not set). Fallback: use search_code."
     )
 
 

@@ -55,6 +55,7 @@ def test_embedder_protocol_and_fake() -> None:
     vecs = fake.embed_texts(["hello"])
     assert len(vecs) == 1
     assert len(vecs[0]) == 4
+    assert fake.embed_query("hello") == vecs[0]
 
     install_embedder(fake)
     assert get_embedder_override() is fake

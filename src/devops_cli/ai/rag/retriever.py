@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 from devops_cli.ai.lexical import bm25_scores
-from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
+from devops_cli.ai.rag.embeddings import EmbedderProtocol, EmbeddingsError
 from devops_cli.ai.rag.models import CodeChunk, RAGContext, SearchResult
 from devops_cli.ai.rag.reranker import SearchReranker
 
@@ -370,7 +370,7 @@ class SemanticRetriever:
     def __init__(
         self,
         qdrant: QdrantClient,
-        embedder: EmbeddingsEngine,
+        embedder: EmbedderProtocol,
         *,
         code_collection: str = DEFAULT_RAG_COLLECTION,
         docs_collection: str = DEFAULT_RAG_DOCS_COLLECTION,

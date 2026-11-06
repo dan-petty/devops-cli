@@ -384,30 +384,30 @@ def rag_search(
     category: str | None = None,
 ) -> str:
     """Perform semantic vector retrieval over indexed workspace code, polyglot repos, and docs."""
-    from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
+    from devops_cli.ai.rag.embeddings import EmbeddingsError, create_embedder
 
     try:
-        from devops_cli.ai.rag.qdrant import QdrantClient
+        from devops_cli.ai.rag.indexer import resolve_qdrant_client
         from devops_cli.ai.rag.retriever import SemanticRetriever
-        from devops_cli.config.settings import get_ai_api_key, get_qdrant_api_key, load_settings
+        from devops_cli.config.settings import get_ai_api_key, load_settings
+        from devops_cli.exceptions import ConfigurationError
 
         settings = load_settings()
-        qdrant_url = settings.qdrant.url
-        if not qdrant_url:
-            return "RAG vector database unconfigured (qdrant.url is not set). Fallback: use search_code."
         prefix = settings.qdrant.collection_prefix or "devops"
-        qdrant = QdrantClient(
-            base_url=qdrant_url,
-            api_key=get_qdrant_api_key(settings),
-            allow_private_network=settings.ai.allow_private_network,
-            timeout=settings.qdrant.timeout,
-        )
+        try:
+            qdrant = resolve_qdrant_client()
+        except ConfigurationError as exc:
+            if exc.key != "qdrant.url":
+                raise
+            return "RAG vector database unconfigured (qdrant.url is not set). Fallback: use search_code."
         if not qdrant.is_alive():
-            return f"RAG vector database unavailable at {qdrant_url}. Fallback: use search_code."
+            return (
+                f"RAG vector database unavailable at {qdrant.base_url}. Fallback: use search_code."
+            )
 
         from devops_cli.ai.rag.kb_sync import ensure_knowledge_base_ready
 
-        embedder = EmbeddingsEngine(ai_config=settings.ai, api_key=get_ai_api_key(settings))
+        embedder = create_embedder(settings.ai, api_key=get_ai_api_key(settings))
         code_coll = f"{prefix}_code"
         docs_coll = f"{prefix}_docs"
         ensure_knowledge_base_ready(qdrant, embedder, docs_coll, code_coll)
