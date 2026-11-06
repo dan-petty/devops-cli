@@ -4,26 +4,26 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 import sys
 import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, Protocol
 
 from devops_cli.config.constants import CONST_MCP_DISPATCH_THREAD_NAME, CONST_MCP_DOMAINS
 from devops_cli.config.defaults import (
     DEFAULT_MCP_SCHEMA_CACHE_MAX_ENTRIES,
     DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
 )
-from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import (
     in_dry_run_invocation,
     is_dry_run_requested,
     mark_dry_run_invocation,
 )
+from devops_cli.exceptions import ValidationError
+from devops_cli.lang import ERRORS
 
 logger = logging.getLogger(__name__)
 
@@ -162,13 +162,20 @@ class ResourceSubscriptionManager:
 # ── In-Process Command Dispatcher ─────────────────────────────────────────────
 
 
-def _extract_devops_sub_args(cmd: list[str]) -> list[str] | None:
-    """Extract sub-command arguments if cmd represents a devops CLI invocation."""
+def devops_sub_args(cmd: list[str]) -> list[str]:
+    """Return the arguments after `devops` in `cmd` (`uv run devops ...` or `devops ...`).
+
+    The dispatcher runs only the `devops` command line. Any other program is refused and
+    nothing starts.
+    """
     if len(cmd) >= 3 and cmd[0] == "uv" and cmd[1] == "run" and cmd[2] == "devops":
         return cmd[3:]
     if len(cmd) >= 1 and cmd[0] == "devops":
         return cmd[1:]
-    return None
+    raise ValidationError(
+        ERRORS.mcp.not_a_devops_command.format(program=cmd[0] if cmd else ""),
+        field="cmd",
+    )
 
 
 _DRY_RUN_LOCK = threading.Lock()
@@ -299,6 +306,27 @@ def _invoke_on_thread(
     return res, worker_exc, t.is_alive()
 
 
+class McpDispatcher(Protocol):
+    """The seam between an MCP tool and the CLI: one `devops` argv in, an exit code and text out.
+
+    `InProcessDispatcher` is the real one. A test installs a fake with `install_mcp_dispatcher`.
+    """
+
+    @property
+    def subscriptions(self) -> ResourceSubscriptionManager:
+        """The subscribers of the `resource://` URIs that a tool refreshes."""
+        ...
+
+    def dispatch(
+        self,
+        cmd: list[str],
+        timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        env: dict[str, str] | None = None,
+    ) -> tuple[int, str]:
+        """Run the `devops` command line `cmd` and return its exit code and its output."""
+        ...
+
+
 class InProcessDispatcher:
     """Direct in-process execution engine for devops-cli tools eliminating subshell spawning."""
 
@@ -321,15 +349,9 @@ class InProcessDispatcher:
         timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
         env: dict[str, str] | None = None,
     ) -> tuple[int, str]:
-        """Execute a command in-process when matching devops CLI or fallback to subprocess."""
-        sub_args = _extract_devops_sub_args(cmd)
-        if sub_args is None:
-            code, out = self._dispatch_subprocess(cmd, timeout=timeout, env=env)
-        else:
-            code, out = self._dispatch_typer(sub_args, env=env, timeout=timeout, cmd=cmd)
-
-        fallback = "Success" if code == 0 else "no output captured"
-        return code, out or fallback
+        """Run a `devops` command in-process. Any other program raises `ValidationError`."""
+        sub_args = devops_sub_args(cmd)
+        return self._dispatch_typer(sub_args, env=env, timeout=timeout, cmd=cmd)
 
     def _dispatch_typer(
         self,
@@ -388,38 +410,15 @@ class InProcessDispatcher:
                 logger.debug("In-process dispatch failed: %s", type(exc).__name__)
                 return 1, f"In-process execution error: {type(exc).__name__}"
 
-    def _dispatch_subprocess(
-        self,
-        cmd: list[str],
-        timeout: float,
-        env: dict[str, str] | None,
-    ) -> tuple[int, str]:
-        """Execute external command via subprocess."""
-        try:
-            proc = run_subprocess(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env=env,
-            )
-            out = (proc.stdout + ("\n" + proc.stderr if proc.stderr else "")).strip()
-            fallback = "Success" if proc.returncode == 0 else "no output captured"
-            return proc.returncode, out or fallback
-        except subprocess.TimeoutExpired:
-            return 124, f"Command timed out after {timeout} seconds: {' '.join(cmd)}"
-        except Exception as exc:
-            return 1, f"Execution failed: {exc}"
-
 
 # ── Global Dispatcher Singleton ───────────────────────────────────────────────
 
-_DISPATCHER_INSTANCE: InProcessDispatcher | None = None
+_DISPATCHER_INSTANCE: McpDispatcher | None = None
 _DISPATCHER_LOCK = threading.Lock()
 
 
-def get_mcp_dispatcher() -> InProcessDispatcher:
-    """Retrieve or initialize the global InProcessDispatcher singleton."""
+def get_mcp_dispatcher() -> McpDispatcher:
+    """Return the installed dispatcher, else the global InProcessDispatcher singleton."""
     global _DISPATCHER_INSTANCE
     with _DISPATCHER_LOCK:
         if _DISPATCHER_INSTANCE is None:
@@ -427,8 +426,15 @@ def get_mcp_dispatcher() -> InProcessDispatcher:
         return _DISPATCHER_INSTANCE
 
 
+def install_mcp_dispatcher(dispatcher: McpDispatcher) -> None:
+    """Make `dispatcher` the one that every MCP tool uses, until `reset_mcp_dispatcher`."""
+    global _DISPATCHER_INSTANCE
+    with _DISPATCHER_LOCK:
+        _DISPATCHER_INSTANCE = dispatcher
+
+
 def reset_mcp_dispatcher() -> None:
-    """Reset the global InProcessDispatcher singleton and dry-run invocation counters."""
+    """Remove the installed dispatcher and the singleton, and reset the dry-run invocation counters."""
     global _DISPATCHER_INSTANCE, _dry_runs, _invocation_before
     with _DISPATCHER_LOCK:
         _DISPATCHER_INSTANCE = None

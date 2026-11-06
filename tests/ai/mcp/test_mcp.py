@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import PropertyMock, patch
@@ -13,8 +12,7 @@ from fastmcp.exceptions import ToolError
 from typer.testing import CliRunner
 
 from devops_cli.ai.mcp.server import (
-    _run_mcp_cmd,
-    _validate_mcp_arg,
+    ci,
     list_mcp_tools,
     mcp,
     review_branch,
@@ -23,10 +21,12 @@ from devops_cli.ai.mcp.server import (
     review_pr,
     review_stats,
     run_mcp_server,
+    security_intel_network,
 )
 from devops_cli.commands.mcp import app
 from devops_cli.config.constants import CONST_MCP_EXPOSURE_TABLE
 from devops_cli.exceptions import ValidationError
+from tests.support.fakes.mcp_dispatcher import DispatcherFake
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.registry_cache import CACHED_RULESET_FILE_NAME
 
@@ -213,56 +213,62 @@ def test_ai_architecture_tool_is_removed() -> None:
     assert "ai_architecture" not in dir(server)
 
 
-def test_mcp_helpers_and_error_branches() -> None:
-    """Verify _run_mcp_cmd timeout, error exit code, _validate_mcp_arg, and review tool calls."""
-    # 1. _validate_mcp_arg
+def test_a_tool_refuses_a_value_that_starts_with_a_hyphen(mcp_dispatcher: DispatcherFake) -> None:
+    """A value with a leading hyphen could pass as a flag, so the tool refuses it."""
     with pytest.raises(ValidationError, match="must not start with a hyphen"):
-        _validate_mcp_arg("target", "--malicious-flag")
+        security_intel_network("--malicious-flag")
 
-    _validate_mcp_arg("target", "src/main.py")
+    assert mcp_dispatcher.call_count == 0
 
-    # 2. _run_mcp_cmd timeout
-    with patch(
-        "devops_cli.ai.mcp.server.run_subprocess",
-        side_effect=subprocess.TimeoutExpired(cmd=["uv"], timeout=5.0),
-    ):
-        res_to = _run_mcp_cmd(
-            ["uv", "ghp_secrettoken1234567890abcdefghijklmn"],
-            timeout=5.0,
-        )
-        assert ("timed out after 5.0 seconds" in res_to, "ghp_secrettoken" not in res_to) == (
-            True,
-            True,
-        )
 
-    # 3. _run_mcp_cmd OSError
-    with patch(
-        "devops_cli.ai.mcp.server.run_subprocess",
-        side_effect=OSError("binary not found with ghp_secrettoken1234567890abcdefghijklmn"),
-    ):
-        res_os = _run_mcp_cmd(["uv"])
-        assert "Execution failed" in res_os
-        assert "ghp_secrettoken" not in res_os
+def test_a_tool_whose_command_exceeds_its_timeout_reports_the_timeout_without_secrets(
+    mcp_dispatcher: DispatcherFake,
+) -> None:
+    """The timeout text names the command and its timeout. Secrets in the text stay masked."""
+    mcp_dispatcher.time_out()
 
-    # 4. _run_mcp_cmd non-zero exit code
-    mock_fail = subprocess.CompletedProcess(
-        args=["uv"], returncode=2, stdout="bad input", stderr="error details"
+    with pytest.raises(ToolError) as exc_info:
+        review_path(["ghp_secrettoken1234567890abcdefghijklmn"], "*.py")
+
+    message = str(exc_info.value)
+    assert (
+        "Command exited with status 124" in message,
+        "timed out after" in message,
+        "ghp_secrettoken" not in message,
+    ) == (True, True, True)
+
+
+def test_a_tool_whose_command_fails_raises_a_tool_error_with_the_status_and_the_output(
+    mcp_dispatcher: DispatcherFake,
+) -> None:
+    mcp_dispatcher.answer("error details", exit_code=2)
+
+    with pytest.raises(ToolError) as exc_info:
+        review_stats()
+
+    assert (
+        "Command exited with status 2" in str(exc_info.value),
+        "error details" in str(exc_info.value),
+    ) == (
+        True,
+        True,
     )
-    with patch("devops_cli.ai.mcp.server.run_subprocess", return_value=mock_fail):
-        with pytest.raises(ToolError) as exc_info:
-            _run_mcp_cmd(["uv"])
-        assert "Command exited with status 2" in str(exc_info.value)
-        assert "error details" in str(exc_info.value)
 
-    # 5. Review tools
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="Review Output"):
-        assert (
-            review_path(["src"], "*.py"),
-            review_branch("feat/new", "main"),
-            review_pr(42, post_comment=True),
-            review_findings("20260826-session", status_filter="verified"),
-            review_stats(),
-        ) == ("Review Output", "Review Output", "Review Output", "Review Output", "Review Output")
+
+def test_the_review_tools_return_the_output_of_their_commands(
+    mcp_dispatcher: DispatcherFake,
+) -> None:
+    mcp_dispatcher.answer("Review Output")
+
+    results = (
+        review_path(["src"], "*.py"),
+        review_branch("feat/new", "main"),
+        review_pr(42, post_comment=True),
+        review_findings("20260826-session", status_filter="verified"),
+        review_stats(),
+    )
+
+    assert (results, mcp_dispatcher.call_count) == (("Review Output",) * 5, 5)
 
 
 # ── Dynamic Tool Generation, Coverage & Failure Contract Tests ──────────────────
@@ -694,17 +700,18 @@ def test_all_cli_commands_are_either_exposed_or_excluded() -> None:
     assert (unaccounted, extra) == (set(), set())
 
 
-def test_mcp_command_failure_contract_raises_tool_error() -> None:
+def test_mcp_command_failure_contract_raises_tool_error(mcp_dispatcher: DispatcherFake) -> None:
     """A failing CLI command in-process returns output with error exit code and raises ToolError (#839)."""
-    with patch("devops_cli.ai.mcp.dispatcher.InProcessDispatcher._dispatch_typer") as mock_dispatch:
-        mock_dispatch.return_value = (2, "Unknown option: --nonexistent")
-        with pytest.raises(ToolError) as exc_info:
-            _run_mcp_cmd(["uv", "run", "devops", "ci", "--nonexistent"])
-        err_msg = str(exc_info.value)
-        assert (
-            "Command exited with status 2" in err_msg,
-            "Unknown option: --nonexistent" in err_msg,
-        ) == (True, True)
+    mcp_dispatcher.answer("Unknown option: --nonexistent", exit_code=2)
+
+    with pytest.raises(ToolError) as exc_info:
+        ci(check=True)
+
+    err_msg = str(exc_info.value)
+    assert (
+        "Command exited with status 2" in err_msg,
+        "Unknown option: --nonexistent" in err_msg,
+    ) == (True, True)
 
 
 @pytest.mark.usefixtures("cached_default_ruleset")

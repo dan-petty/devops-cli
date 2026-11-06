@@ -256,6 +256,9 @@ class MCPErrorMessages:
         "Invalid value for '{name}': must not start with a hyphen. "
         "Hyphen-prefixed values could be interpreted as flags by the underlying command."
     )
+    not_a_devops_command: str = (
+        "The MCP dispatcher runs only a devops command. '{program}' is not one."
+    )
     integer_below_minimum: str = "Invalid value for '{name}': {value}. Must be >= {min_val}."
     integer_above_maximum: str = "Invalid value for '{name}': {value}. Must be <= {max_val}."
     unknown_provider: str = "Invalid value for 'provider': use one of {choices}."
