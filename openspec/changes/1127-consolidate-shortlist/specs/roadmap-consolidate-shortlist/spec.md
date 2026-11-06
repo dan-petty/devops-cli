@@ -26,12 +26,16 @@ For each open item as an anchor, the job SHALL list the other open items that ci
 - **WHEN** two open items cite the same path and the same identifier in backticks
 - **THEN** the evidence of the member is "shared path and identifier"
 
+#### Scenario: A section that a job writes
+- **WHEN** two open items cite the same path or identifier only inside the refine section or the alternatives block
+- **THEN** that path or identifier makes no member
+
 #### Scenario: A citation that many items share
 - **WHEN** more open items than `DEFAULT_ROADMAP_CONSOLIDATE_COMMON_CITATION` cite one path
 - **THEN** that path makes no member
 
 #### Scenario: Links
-- **WHEN** an item is blocked by another, is the sub-issue of another, or names another after "Depends on", "Related", "Split off" or "Merged into"
+- **WHEN** an item is blocked by another, is the sub-issue of another, or names another after "Depends on", "Related", "Split from", "Split off" or "Merged into"
 - **THEN** the other item is a member of its shortlist, with the evidence "link"
 - **AND** a number under a nested bullet of such a line counts too
 

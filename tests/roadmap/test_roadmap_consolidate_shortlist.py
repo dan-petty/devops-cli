@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 
 from devops_cli.config.constants import (
+    CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+    CONST_ROADMAP_ALTERNATIVES_START_MARKER,
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_START_MARKER,
 )
@@ -121,6 +123,20 @@ def test_a_citation_that_many_issues_share_shows_no_shared_cause() -> None:
     )
 
 
+def test_a_section_that_a_job_writes_shows_no_shared_citation() -> None:
+    section = "Fix `parse_row` in src/x.py:3."
+    alternatives = (
+        f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nSee src/y.py\n"
+        f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
+    )
+    issues = [
+        issue(1, f"{refined('Slow.', section)}\n{alternatives}"),
+        issue(2, f"{refined('Wrong.', section)}\n{alternatives}"),
+    ]
+    lists = shortlists(issues, apart([1, 2]), {})
+    assert signals(lists, 1, 2) == {Signal.EMBEDDING}
+
+
 def test_a_version_is_no_file() -> None:
     issues = [issue(1, "It landed in v0.2.26 of the tool."), issue(2, "Since v0.2.26 it fails.")]
     assert Signal.PATH not in signals(shortlists(issues, apart([1, 2]), {}), 1, 2)
@@ -199,12 +215,12 @@ def test_the_nearest_items_by_embedding_are_members_with_their_rank() -> None:
     vectors = {n: [1.0, float(n)] for n in numbers}
     lists = shortlists(issues, vectors, {})
     nearest_five = next(s for s in lists if s.anchor == 5).members
-    assert [(m.number, m.evidence[0].detail) for m in nearest_five] == [
-        (6, "rank 1"),
-        (4, "rank 2"),
-        (7, "rank 3"),
-        (8, "rank 4"),
-        (9, "rank 5"),
+    assert [(m.number, m.evidence[0].rank) for m in nearest_five] == [
+        (6, 1),
+        (4, 2),
+        (7, 3),
+        (8, 4),
+        (9, 5),
     ]
 
 
@@ -225,13 +241,13 @@ def test_an_issue_with_no_other_issue_has_no_shortlist() -> None:
 # ── Groups ──
 
 
-def member(number: int, signal: Signal, detail: str = "x") -> Member:
-    return Member(number=number, evidence=(Evidence(signal=signal, detail=detail),))
+def member(number: int, signal: Signal, rank: int | None = None) -> Member:
+    return Member(number=number, evidence=(Evidence(signal=signal, detail="x", rank=rank),))
 
 
 def test_the_stronger_evidence_wins_a_contested_item() -> None:
     lists = [
-        Shortlist(anchor=4, members=(member(7, Signal.EMBEDDING, "rank 1"),)),
+        Shortlist(anchor=4, members=(member(7, Signal.EMBEDDING, 1),)),
         Shortlist(anchor=9, members=(member(7, Signal.PATH_AND_IDENTIFIER),)),
     ]
     groups = assign_groups(lists)
@@ -248,8 +264,8 @@ def test_a_tie_goes_to_the_lower_anchor_number() -> None:
 
 def test_a_nearer_embedding_rank_is_stronger() -> None:
     lists = [
-        Shortlist(anchor=2, members=(member(7, Signal.EMBEDDING, "rank 3"),)),
-        Shortlist(anchor=3, members=(member(7, Signal.EMBEDDING, "rank 1"),)),
+        Shortlist(anchor=2, members=(member(7, Signal.EMBEDDING, 3),)),
+        Shortlist(anchor=3, members=(member(7, Signal.EMBEDDING, 1),)),
     ]
     assert [g.anchor for g in assign_groups(lists)] == [3]
 

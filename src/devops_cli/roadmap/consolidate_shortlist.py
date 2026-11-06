@@ -6,9 +6,9 @@ as an anchor, it lists the other open items that may share its cause, and keeps 
 each. Three signals give the members, and no model is called:
 
 - citations: the paths and the backticked identifiers that two bodies both cite, read as refine
-  reads them (`cited_paths`, `cited_identifiers`). A citation that more than
-  `DEFAULT_ROADMAP_CONSOLIDATE_COMMON_CITATION` open items share, such as `CONTEXT.md`, shows no
-  shared cause and is left out;
+  reads them (`cited_paths`, `cited_identifiers`), from the text of a person only. A citation
+  that more than `DEFAULT_ROADMAP_CONSOLIDATE_COMMON_CITATION` open items share, such as
+  `CONTEXT.md`, shows no shared cause and is left out;
 - links: blocked-by, sub-issue and parent, the lines "Depends on", "Related", "Split from",
   "Split off" and "Merged into", and the section "Dependencies" of refine;
 - embeddings: the `DEFAULT_ROADMAP_INTAKE_SHORTLIST` nearest items, ranked by `nearest`, the
@@ -76,12 +76,14 @@ _STRENGTH: Final[dict[Signal, int]] = {
 
 class Evidence(BaseModel):
     """One reason for a member: its signal, and what the signal found, such as the path, the
-    identifier, the link or the rank."""
+    identifier or the link. `detail` is for display. An embedding signal also holds its `rank`,
+    the place of the member among the nearest items: the ordering reads that, not the text."""
 
     model_config = ConfigDict(frozen=True)
 
     signal: Signal
     detail: str
+    rank: int | None = None
 
 
 class Member(BaseModel):
@@ -97,8 +99,7 @@ class Member(BaseModel):
         """How strong the evidence is: the strength of its best signal, and for an embedding
         rank, the nearer the better. A higher weight is stronger."""
         best = max(self.evidence, key=lambda item: _STRENGTH[item.signal])
-        rank = _rank(best) if best.signal is Signal.EMBEDDING else 0
-        return _STRENGTH[best.signal], -rank
+        return _STRENGTH[best.signal], -(best.rank or 0)
 
 
 class Shortlist(BaseModel):
@@ -108,11 +109,6 @@ class Shortlist(BaseModel):
 
     anchor: int
     members: tuple[Member, ...]
-
-
-def _rank(evidence: Evidence) -> int:
-    """The rank an embedding evidence holds: its detail is `rank <n>`."""
-    return int(evidence.detail.removeprefix("rank "))
 
 
 # ── Citations ──
@@ -126,9 +122,11 @@ def _is_file(path: str) -> bool:
 
 def _citations(issues: Sequence[IssueRecord]) -> tuple[dict[int, set[str]], dict[int, set[str]]]:
     """The files and the identifiers each issue cites, without those that more than
-    `DEFAULT_ROADMAP_CONSOLIDATE_COMMON_CITATION` issues cite."""
-    paths = {issue.number: {p for p in cited_paths(issue.body) if _is_file(p)} for issue in issues}
-    names = {issue.number: set(cited_identifiers(issue.body)) for issue in issues}
+    `DEFAULT_ROADMAP_CONSOLIDATE_COMMON_CITATION` issues cite. Only the text of a person is read:
+    a section that a job writes shows no shared cause."""
+    texts = {issue.number: text_of_a_person(issue.body) for issue in issues}
+    paths = {n: {p for p in cited_paths(text) if _is_file(p)} for n, text in texts.items()}
+    names = {n: set(cited_identifiers(text)) for n, text in texts.items()}
     return _rare(paths), _rare(names)
 
 
@@ -164,13 +162,13 @@ def _sharing(cited: Mapping[int, set[str]]) -> dict[tuple[int, int], set[str]]:
 
 
 def _body_links(body: str) -> list[tuple[str, int]]:
-    """The relation and the issue number of each issue that `body` names after one of the labels
-    of `_RELATION`, or under the heading "Dependencies". A nested list line counts for the line
-    it is under."""
+    """The relation and the issue number of each issue that a person names in `body` after one
+    of the labels of `_RELATION`, or that `body` names under the heading "Dependencies", which
+    refine writes too. A nested list line counts for the line it is under."""
     found: list[tuple[str, int]] = []
     label = ""
     depth = -1
-    for line in body.splitlines():
+    for line in text_of_a_person(body).splitlines():
         match = _RELATION.match(line)
         indent = len(line) - len(line.lstrip())
         if match is not None:
@@ -310,7 +308,9 @@ def shortlists(
             vectors[anchor], [(n, vectors[n]) for n in others], DEFAULT_ROADMAP_INTAKE_SHORTLIST
         )
         for place, other in enumerate(closest, start=1):
-            found[other].append(Evidence(signal=Signal.EMBEDDING, detail=f"rank {place}"))
+            found[other].append(
+                Evidence(signal=Signal.EMBEDDING, detail=f"rank {place}", rank=place)
+            )
         members = [Member(number=n, evidence=tuple(held)) for n, held in found.items() if held]
         members.sort(key=lambda member: (tuple(-w for w in member.weight), member.number))
         if members:
