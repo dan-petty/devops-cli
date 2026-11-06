@@ -351,7 +351,7 @@ For a Planned item the job SHALL make the branch `<type>/<issue>-<slug>` at `ori
 - **THEN** the job runs a step for group 2 only
 
 ### Requirement: A Planned item gets a draft pull request at its first push
-The job SHALL push the branch of a Planned item with `-u origin` when it first holds a commit past the default branch, and SHALL open a draft pull request into the default branch at once. The first body SHALL hold no closing keyword. The job SHALL record the branch and the pull request, and then go on as it does for a Staged item. A stop before the first commit SHALL push nothing.
+The job SHALL push the branch of a Planned item with `-u origin` when it first holds a commit past the default branch, and SHALL open a draft pull request into the default branch at once. The first body SHALL hold the closing keyword of the delivered issue once (`Closes #<issue>`) and no other closing keyword, so a stop leaves a grounded draft. The job SHALL record the branch and the pull request, and then go on as it does for a Staged item. A stop before the first commit SHALL push nothing.
 
 #### Scenario: A stop in the first group
 - **WHEN** the step of group 1 reports stopped before any commit
@@ -359,7 +359,7 @@ The job SHALL push the branch of a Planned item with `-u origin` when it first h
 
 #### Scenario: A stop in the second group
 - **WHEN** the step of group 2 reports stopped after group 1 passed
-- **THEN** `origin` holds the new branch with the commit of group 1, a draft pull request is open with a body that has no closing keyword, and the record holds its number
+- **THEN** `origin` holds the new branch with the commit of group 1, a draft pull request is open with a body that holds `Closes #<issue>` once, the job writes no later body to it, and the record holds its number
 
 #### Scenario: A retry
 - **WHEN** a comment `implement: retry` follows that stop

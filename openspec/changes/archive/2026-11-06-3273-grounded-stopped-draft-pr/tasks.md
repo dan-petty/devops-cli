@@ -9,7 +9,7 @@
 
 ## 2. Documents (documents)
 
-- [ ] 2.1 Check that the change folder and the specs are valid.
+- [x] 2.1 Check that the change folder and the specs are valid.
   Verification: `uv run devops openspec check`
 
 ## Workflow follow-up
