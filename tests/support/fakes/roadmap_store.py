@@ -33,7 +33,7 @@ import functools
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
-from typing import Any, Concatenate
+from typing import Any, Concatenate, cast
 
 from devops_cli.config.constants import CONST_GH_ISSUE_STATE_REASON_REOPENED
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
@@ -123,7 +123,7 @@ def _write[**P, R](
     def attempt(self: InMemoryRoadmapStore, *args: P.args, **kwargs: P.kwargs) -> R:
         return self._attempt(method.__name__, _number(args), lambda: method(self, *args, **kwargs))
 
-    return attempt
+    return cast("Callable[Concatenate[InMemoryRoadmapStore, P], R]", attempt)
 
 
 def _utc_now() -> datetime:
