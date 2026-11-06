@@ -50,12 +50,14 @@ class GroupTask:
 @dataclass(frozen=True)
 class TaskGroup:
     """A numbered `##` section of a `tasks.md`: its tasks, and its text from its heading to the
-    next `##` heading."""
+    next `##` heading. `line` is the zero-based line of the heading in its file, or -1 for a group
+    that no file holds. It is no part of the comparison, as for a task."""
 
     number: int
     title: str
     tasks: tuple[GroupTask, ...]
     text: str
+    line: int = field(default=-1, compare=False)
 
     @property
     def is_behavior(self) -> bool:
@@ -177,6 +179,7 @@ def parse_task_groups(tasks_md: str) -> list[TaskGroup]:
                 title=title,
                 tasks=tuple(task for task in tasks if task is not None),
                 text="\n".join(lines[first_line:end_line]).rstrip(),
+                line=first_line,
             )
         )
     return groups
