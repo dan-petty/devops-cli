@@ -222,8 +222,13 @@ def retrieve_rag_context(
         from devops_cli.ai.rag.investigator import investigate_rag_context
         from devops_cli.ai.rag.kb_sync import ensure_knowledge_base_ready
 
-        qdrant, embedder, code_coll, docs_coll = resolve_rag_components()
-        ensure_knowledge_base_ready(qdrant, embedder, docs_coll, code_coll)
+        components = resolve_rag_components()
+        ensure_knowledge_base_ready(
+            components.qdrant,
+            components.embedder,
+            components.docs_collection,
+            components.code_collection,
+        )
 
         ctx = investigate_rag_context(
             query,

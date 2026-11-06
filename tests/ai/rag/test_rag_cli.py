@@ -79,7 +79,7 @@ def test_rag_clear_command(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -
     result = runner.invoke(app, ["clear", "--force"])
     assert result.exit_code == 0
     assert "Cleared collection" in result.output
-    assert len(deleted) >= 1
+    assert deleted == ["devops_code", "devops_docs"]
 
 
 def test_a_missing_qdrant_address_stops_each_command_with_the_setting_to_set(

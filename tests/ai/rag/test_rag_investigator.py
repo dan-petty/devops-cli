@@ -46,7 +46,10 @@ def test_investigate_rag_context_qdrant_unreachable(qdrant: Any, embedder: Any) 
     st.qdrant.url = "http://192.0.2.10:6333"
     qdrant.refusing = True
 
-    assert investigate_rag_context("architecture design", settings=st) is None
+    with patch("devops_cli.ai.rag.investigator.SemanticRetriever") as retriever_cls:
+        result = investigate_rag_context("architecture design", settings=st)
+
+    assert (result, retriever_cls.called) == (None, False)
 
 
 def test_a_refused_rag_backend_is_reported_once(
@@ -110,6 +113,13 @@ def test_investigate_rag_context_success() -> None:
         mock_retriever_cls.return_value = mock_retriever
 
         ctx = investigate_rag_context("LLM client architecture", settings=st)
+        wired = mock_retriever_cls.call_args.kwargs
+        assert (
+            wired["qdrant"] is mock_qdrant,
+            wired["embedder"] is mock_emb,
+            wired["code_collection"],
+            wired["docs_collection"],
+        ) == (True, True, "devops_code", "devops_docs")
         assert ctx is not None
         assert ctx.has_results is True
         assert len(ctx.results) == 1
