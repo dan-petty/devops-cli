@@ -32,7 +32,7 @@
 
 ## Decisions made at implementation
 
-- **A helper that cannot ask for a fixture installs the transport itself.** `tests/llm_stream_fakes.py` has 135 callers that pass `monkeypatch`, so it calls `install_transport`. The floor of `tests/conftest.py` removes the transport after each test.
+- **The LLM stream helpers follow #3758.** `tests/llm_stream_fakes.py` answers through the `web` fake (`serve_llm`, `streamed`). Its three older helpers stay until the slices of #3758 move their callers.
 - **A client keeps the transport chain the old helper gave.** `route_client` and `route_llm_clients` give the plain client with no retry transport, as the patched methods did. `route_retrying_client` keeps the real chain.
 - **The seam is the place for a fix when a command builds its own client.** `_get_rag_components`, `_resolve_qdrant_client` and `GatewayIntakeModel._embedder` built a Qdrant client or an embedder that no fake could replace. Each now calls `resolve_qdrant_client` or `create_embedder`, which the other commands already call.
 - **The shared fakes follow the real client.** A shared fake that raised on `wait=` or lacked `api_key` could not stand for the client that the indexer reads, so the fake gets the keyword or the attribute.
