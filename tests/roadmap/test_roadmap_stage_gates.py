@@ -51,7 +51,11 @@ def test_a_path_that_no_commit_holds_is_a_problem_of_the_gate_paths() -> None:
 
 def test_a_stage_check_change_with_no_replay_task_is_a_problem_of_the_gate_eval_replay() -> None:
     group = make_stage_proposal().groups[0]
-    update = {"changes": [*group.changes, STAGE_CHANGE]}
+    # The group holds its self-acceptance test (#3404), so the gate `content` finds nothing.
+    update = {
+        "changes": [*group.changes, STAGE_CHANGE],
+        "test": "Build a `StageProposal` and assert that `content_problems` finds no problem",
+    }
     plan = make_stage_proposal(groups=[group.model_copy(update=update)])
 
     found = check_gates(plan, KNOWN, StagedTree([*TREE_FILES, STAGE_CHANGE]))
