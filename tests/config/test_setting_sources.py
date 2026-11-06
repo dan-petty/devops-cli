@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
-import yaml
 from pydantic import ValidationError
 
 from devops_cli.config.constants import CONST_CONFIG_PATH
@@ -19,27 +18,6 @@ from devops_cli.security.secrets import VaultProvider, build_default_resolver, b
 from tests.support.fakes.keyring import FakeKeyring
 
 _DEFAULT_REFERENCE_MODEL = Settings().ai.reference_model
-
-
-@pytest.fixture
-def global_config() -> Iterator[Callable[[dict[str, Any]], None]]:
-    """Write the global config file, which the floor keeps under the run's own HOME, then remove it
-    and each directory that the write made."""
-    made = [
-        d for d in (CONST_CONFIG_PATH.parent, *CONST_CONFIG_PATH.parent.parents) if not d.exists()
-    ]
-
-    def write(data: dict[str, Any]) -> None:
-        CONST_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        CONST_CONFIG_PATH.write_text(yaml.safe_dump(data), encoding="utf-8")
-        reset_settings_cache()
-
-    yield write
-    CONST_CONFIG_PATH.unlink(missing_ok=True)
-    for directory in made:
-        if directory.exists():
-            directory.rmdir()
-    reset_settings_cache()
 
 
 @pytest.mark.parametrize(

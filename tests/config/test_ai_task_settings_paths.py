@@ -8,10 +8,11 @@ Routing a task to the gateway was possible only by editing `config.yaml`:
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from devops_cli.config.settings import (
@@ -27,15 +28,9 @@ cli = CliRunner(env={"COLUMNS": "200", "NO_COLOR": "1", "TERM": "dumb"})
 
 
 @pytest.fixture(autouse=True)
-def own_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
-    """A config file of this test's own, read fresh from disk."""
-    config = tmp_path / "config.yaml"
-    config.write_text("ai:\n  provider: ollama\n", encoding="utf-8")
-    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(config))
-    monkeypatch.setattr("devops_cli.config.settings.CONFIG_PATH", config)
-    reset_settings_cache()
-    yield config
-    reset_settings_cache()
+def own_config(config: Callable[..., Path]) -> Path:
+    """The test's own config file, with the global provider set, read fresh from disk."""
+    return config(ai={"provider": "ollama"})
 
 
 def _chat_task() -> tuple[str | None, str | None]:
@@ -47,6 +42,8 @@ def _chat_task() -> tuple[str | None, str | None]:
 def test_ai_config_routes_one_task_to_the_gateway(own_config: Path, isolate_data_dir: Path) -> None:
     """Verify `devops ai config --task chat --provider gateway` sets the chat task alone, and
     writes only its provider and model into the config file."""
+    before = yaml.safe_load(own_config.read_text(encoding="utf-8"))
+
     result = cli.invoke(
         app, ["ai", "config", "--task", "chat", "--provider", "gateway", "--model", "devops-coder"]
     )
@@ -54,11 +51,11 @@ def test_ai_config_routes_one_task_to_the_gateway(own_config: Path, isolate_data
     assert result.exit_code == 0, result.output
     assert _chat_task() == ("gateway", "devops-coder")
     assert load_settings().ai.provider == "ollama"
-    assert (own_config.read_text(encoding="utf-8"), written_keys(isolate_data_dir)) == (
-        "ai:\n  provider: ollama\n  tasks:\n    chat:\n      provider: gateway\n"
-        "      model: devops-coder\n",
-        [["ai.tasks.chat.model", "ai.tasks.chat.provider"]],
-    )
+    before["ai"]["tasks"] = {"chat": {"provider": "gateway", "model": "devops-coder"}}
+    assert (
+        yaml.safe_load(own_config.read_text(encoding="utf-8")),
+        written_keys(isolate_data_dir),
+    ) == (before, [["ai.tasks.chat.model", "ai.tasks.chat.provider"]])
 
 
 def test_ai_config_accepts_the_gateway_provider() -> None:

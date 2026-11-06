@@ -112,6 +112,7 @@ Every new test follows these rules. Some of them name a path, fixture or check t
 ### Config
 
 - A test sets configuration through the `config` fixture. The fixture writes the overrides into the test's own `config.yaml`, the file `DEVOPS_CLI_CONFIG` names, and resets the settings cache.
+- A test of the global config file writes it through the `global_config` fixture, which keeps the file under the run's own HOME and removes it after the test.
 - No test patches `load_settings` or `CONFIG_PATH`.
 
 ### Test data
