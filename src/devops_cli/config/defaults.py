@@ -811,6 +811,10 @@ DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS: int = 3600
 DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS: int = 4200
 DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS: int = 5400
 DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS: int = 14400
+# The memory limit of every runner Job that the Service creates (#3193): twice the 4.13 GB that the
+# killed Job had reached, and below the 15 Gi that the smallest node can allocate (#2806). The
+# memory request follows the plan (`devops_cli.roadmap.implement_size`).
+DEFAULT_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT: str = "8Gi"
 # The labels of the items the stage job takes when no setting and no option names others: every
 # Ready item, of any type, priority, value and effort (#2906).
 DEFAULT_ROADMAP_STAGE_FILTER: Final[tuple[str, ...]] = ("status=ready",)

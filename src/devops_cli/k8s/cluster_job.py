@@ -86,6 +86,17 @@ def _with_env(container: dict[str, Any], env: Mapping[str, str] | None) -> None:
     container["env"] = [*kept, *({"name": name, "value": value} for name, value in env.items())]
 
 
+def _with_resources(
+    container: dict[str, Any], resources: Mapping[str, Mapping[str, str]] | None
+) -> None:
+    """Replace the request and limit values that `resources` names; the other values stay."""
+    if not resources:
+        return
+    held = container.setdefault("resources", {})
+    for kind, values in resources.items():
+        held[kind] = {**held.get(kind, {}), **values}
+
+
 def template_container(pod_spec: dict[str, Any], template: JobTemplate) -> dict[str, Any]:
     """The container of `pod_spec` that the template names. Raises ClusterJobError when the pod
     spec has none."""
@@ -118,13 +129,15 @@ def build_job(
     labels: Mapping[str, str] | None = None,
     deadline: int | None = None,
     annotations: Mapping[str, str] | None = None,
+    resources: Mapping[str, Mapping[str, str]] | None = None,
 ) -> dict[str, Any]:
-    """The Job the CronJob's template makes, with only args, name, labels, `env`, the deadline
-    and the annotations changed.
+    """The Job the CronJob's template makes, with only args, name, labels, `env`, the deadline,
+    the annotations and the `resources` changed.
 
     The labels go on the Job and on its pods, so `-l app.kubernetes.io/name=devops-cli-job`
     finds both. The annotations go on the Job only. `deadline` replaces the
-    `activeDeadlineSeconds` of the template.
+    `activeDeadlineSeconds` of the template. `resources` maps `requests` and `limits` to the values
+    that replace those of the container, such as `{"requests": {"memory": "2Gi"}}`.
     """
     job_template = cronjob["spec"]["jobTemplate"]
     spec = copy.deepcopy(job_template["spec"])
@@ -133,6 +146,7 @@ def build_job(
     container = template_container(pod_template["spec"], template)
     container["args"] = list(args)
     _with_env(container, env)
+    _with_resources(container, resources)
     metadata = _labelled(job_template.get("metadata"), labels)
     metadata.update(name=name, namespace=JOB_NAMESPACE)
     if annotations:

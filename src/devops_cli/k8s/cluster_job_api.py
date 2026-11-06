@@ -97,10 +97,11 @@ class ClusterJobs:
         cronjob: dict[str, Any] | None = None,
         deadline: int | None = None,
         annotations: Mapping[str, str] | None = None,
+        resources: Mapping[str, Mapping[str, str]] | None = None,
     ) -> str:
         """Create a Job from the template's CronJob and return its name: `name`, else a new one.
-        `deadline` replaces the `activeDeadlineSeconds` of the template, and `annotations` go on
-        the Job.
+        `deadline` replaces the `activeDeadlineSeconds` of the template, `annotations` go on
+        the Job, and `resources` replaces the named request and limit values of its container.
         A caller that records the Job before it creates it chooses the name with `job_name`. A
         caller that records the digest of the image passes the `cronjob` that it read with
         `cronjob()`, so the record and the Job come from one read.
@@ -118,6 +119,7 @@ class ClusterJobs:
             labels=labels,
             deadline=deadline,
             annotations=annotations,
+            resources=resources,
         )
         try:
             self._service.custom_objects_api().create_namespaced_custom_object(

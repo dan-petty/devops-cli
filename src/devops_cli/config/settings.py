@@ -107,6 +107,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_ITEM_TIME_LIMIT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET,
     DEFAULT_ROADMAP_IMPLEMENT_LADDER_TIERS,
+    DEFAULT_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT,
     DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
@@ -151,6 +152,7 @@ from devops_cli.core.dns_names import OptionalConfiguredDomain
 from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.lang import ERRORS
+from devops_cli.roadmap.implement_size import MIN_MEMORY_LIMIT_GI
 from devops_cli.roadmap.stage_filter import split_filter_entry
 from devops_cli.valkey.endpoint import ValkeyEndpoint, parse_valkey_url
 
@@ -1025,6 +1027,19 @@ class RoadmapImplementConfig(BaseModel):
         ge=1,
         le=CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
     )
+    max_memory_limit: Annotated[str, Variable()] = Field(
+        description="The memory limit of every runner Job that the Service creates, as a whole number of Gi such as `8Gi`. The memory request follows the size of the plan (2Gi or 6Gi), and this limit is the burst class above it. It must not be below the largest request, 6Gi, and it must fit the smallest node of the cluster: a Job that bursts past the node memory starves the other pods",
+        default=DEFAULT_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT,
+        pattern=r"^[1-9][0-9]*Gi$",
+    )
+
+    @field_validator("max_memory_limit")
+    @classmethod
+    def _check_max_memory_limit(cls, value: str) -> str:
+        """The limit is not below the largest memory request of the size table."""
+        if int(value.removesuffix("Gi")) < MIN_MEMORY_LIMIT_GI:
+            raise ValueError(f"max_memory_limit must not be below {MIN_MEMORY_LIMIT_GI}Gi")
+        return value
 
     @field_validator("ladder", mode="before")
     @classmethod

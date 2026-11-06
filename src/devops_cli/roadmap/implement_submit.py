@@ -1,8 +1,8 @@
 """The Service's submission of the implement Job (#2667).
 
-The Service never runs a step: its image holds no dev tool, and the step needs 2 CPU and an hour.
-A round of its `implement` row asks the Kubernetes API for the runner Jobs of the repository, in
-three moves.
+The Service never runs a step: its image holds no dev tool, and the step needs CPU, memory and an
+hour. A round of its `implement` row asks the Kubernetes API for the runner Jobs of the repository,
+in three moves.
 
 **Report.** An item whose record holds `implement.job` and no `implement.job_state` has a Job
 that no round reported. When the Job has ended, the round comments the state and the tail of the
@@ -26,7 +26,9 @@ is not seen. A hard lock needs an object on the server, such as a Lease.
 **Submit.** Else the round plans the Staged and Planned items that the default filter names and
 creates one Job for the first of them, from CronJob `devops-cli-runner`, with the item's
 arguments and a token for the one repository (`service.github_app.token_repository`). The record
-of the item then names the Job.
+of the item then names the Job. The Job has the CPU and the memory request of the row of the size
+table that fits the number of files in the tasks of the plan, and the memory limit of the setting
+`roadmap.implement.max_memory_limit` (`implement_size.py`, #3193).
 
 **Clear.** After the report, the round clears the stop of each item that the Service set Blocked
 when a person asked for a retry, when the stop is `job` and a continuation is left (#3721), or when
@@ -93,7 +95,9 @@ from devops_cli.roadmap.implement import (
     plan_implement,
 )
 from devops_cli.roadmap.implement_deadline import manage_deadlines
-from devops_cli.roadmap.planned import read_planned_changes
+from devops_cli.roadmap.implement_size import RunnerSize, plan_file_count, runner_size
+from devops_cli.roadmap.plan_read import tasks_at
+from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.stage import StageFailure
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status, sync_statuses
 from devops_cli.roadmap.stop_clear import clear_stops
@@ -282,8 +286,22 @@ def _report_ended(
     return tuple(reported)
 
 
+def _size_of(source: Path | str, planned: PlannedChanges, target: ImplementTarget) -> RunnerSize:
+    """The row of the size table for the plan of `target`. The plan is on the default branch for a
+    Planned item and on the branch of the item for a Staged one. Raises `GitOperationError` when
+    git cannot read it."""
+    rev = f"origin/{planned.default if target.planned else target.branch}"
+    tasks = tasks_at(Path(source), rev, target.item.number, operation=GIT_OPERATION)
+    return runner_size(plan_file_count(tasks))
+
+
 def _create(
-    store: RoadmapStore, jobs: ClusterJobs, repo: str, target: ImplementTarget, label: str
+    store: RoadmapStore,
+    jobs: ClusterJobs,
+    repo: str,
+    target: ImplementTarget,
+    label: str,
+    size: RunnerSize,
 ) -> str | None:
     """Claim the item and record the Job on it, then create the Job. The record comes first: a
     record that fails after the create would leave a Job that no item names, and a Job that dies
@@ -292,6 +310,7 @@ def _create(
     not exist, which the next round reports as gone and stops the item for. The name of the Job, or
     None, with nothing written, when an agent or a person claimed the item since the plan."""
     number = target.item.number
+    settings = load_settings().roadmap.implement
     name = job_name(template=RUNNER_TEMPLATE)
     cronjob = jobs.cronjob(RUNNER_TEMPLATE)
     marks = {
@@ -305,11 +324,12 @@ def _create(
         jobs.create(
             ["roadmap", "implement", "--repo", repo, "--item", str(number), "--confirm"],
             template=RUNNER_TEMPLATE,
-            env={setting_variables()[CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING]: repo},
+            env={setting_variables()[CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING]: repo, **size.env},
+            resources=size.resources(settings.max_memory_limit),
             labels={CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label},
             name=name,
             cronjob=cronjob,
-            deadline=load_settings().roadmap.implement.deadline_extension_seconds,
+            deadline=settings.deadline_extension_seconds,
             annotations={
                 CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT: str(
                     int(datetime.now(UTC).timestamp())
@@ -367,7 +387,8 @@ def run_implement_round(
             reported=reported, waiting=True, status_failed=failed, cleared=stops.cleared
         )
     number = plan.selected[0].item.number
-    created = _create(store, api, repo, plan.selected[0], label)
+    size = _size_of(source, planned, plan.selected[0])
+    created = _create(store, api, repo, plan.selected[0], label, size)
     failed = (*stops.failed, *sync_statuses(store, repo=repo, planned=planned).failed)
     return SubmitResult(
         reported=reported,

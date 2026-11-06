@@ -9,8 +9,13 @@
 # the stack select pods by that label: a Job pod with the label of the Service would take its
 # egress to the API server. The Job runs its pod once, and it has no `command`, no
 # `imagePullSecrets`, no `priorityClassName` and no `nodeName`.
-# Not pinned: the tag or digest of the image, the args and the plain `env` values, the resources,
-# `nodeSelector`, `tolerations`, `hostUsers` and the number of Jobs (k8s/README.md, Runner Jobs).
+# The CPU and the memory request of the container are a row of the size table of the Service
+# (`RUNNER_SIZES` in src/devops_cli/roadmap/implement_size.py, #3193); a gate check holds the two
+# equal. The memory limit is not pinned, because the setting `roadmap.implement.max_memory_limit`
+# raises it.
+# Not pinned: the tag or digest of the image, the args and the plain `env` values but one, the
+# memory limit, `nodeSelector`, `tolerations`, `hostUsers` and the number of Jobs (k8s/README.md,
+# Runner Jobs).
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -128,6 +133,21 @@ spec:
         has(object.spec.activeDeadlineSeconds) && object.spec.activeDeadlineSeconds > 0 &&
         object.spec.activeDeadlineSeconds <= 14400
       message: The Job must set a deadline (activeDeadlineSeconds) of 14400 seconds at most.
+      reason: Forbidden
+    # The rows of `RUNNER_SIZES`: CPU 1 with 2Gi, and CPU 4 with 6Gi. The CPU request equals the
+    # CPU limit, and the worker count of the test runner equals the CPU limit, because
+    # `pytest-xdist` counts the CPUs of the node and not of the pod (#2806).
+    - expression: >-
+        object.spec.template.spec.containers.all(c, has(c.resources) &&
+        has(c.resources.requests) && has(c.resources.limits) &&
+        has(c.resources.requests.cpu) && has(c.resources.requests.memory) &&
+        has(c.resources.limits.cpu) && has(c.resources.limits.memory) &&
+        c.resources.requests.cpu == c.resources.limits.cpu &&
+        ((c.resources.limits.cpu == "1" && c.resources.requests.memory == "2Gi") ||
+        (c.resources.limits.cpu == "4" && c.resources.requests.memory == "6Gi")) &&
+        has(c.env) && c.env.exists(e, e.name == "PYTEST_XDIST_AUTO_NUM_WORKERS" &&
+        has(e.value) && e.value == c.resources.limits.cpu))
+      message: The CPU and the memory request must be a row of the size table (1 CPU with 2Gi, or 4 CPU with 6Gi), the CPU request must equal the CPU limit, the memory limit must be set, and PYTEST_XDIST_AUTO_NUM_WORKERS must equal the CPU limit.
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1

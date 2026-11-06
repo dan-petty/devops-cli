@@ -284,6 +284,44 @@ def test_a_job_is_created_with_the_deadline_and_the_annotations_given(kube: Fake
     ) == (3600, {"roadmap.devops-cli/progress-at": "1700000000"})
 
 
+def test_a_job_is_created_with_the_resources_given_and_keeps_the_other_values_of_the_template(
+    kube: FakeCluster,
+) -> None:
+    ClusterJobs().create(
+        ["roadmap"],
+        template=RUNNER_TEMPLATE,
+        resources={
+            "requests": {"cpu": "1", "memory": "2Gi"},
+            "limits": {"cpu": "1", "memory": "12Gi"},
+        },
+        env={"PYTEST_XDIST_AUTO_NUM_WORKERS": "1"},
+    )
+
+    (job,) = kube.custom_objects.objects[JOBS]
+    (container,) = job["spec"]["template"]["spec"]["containers"]
+    env = {entry["name"]: entry["value"] for entry in container["env"]}
+    assert (container["resources"], env["PYTEST_XDIST_AUTO_NUM_WORKERS"]) == (
+        {
+            "requests": {"cpu": "1", "memory": "2Gi", "ephemeral-storage": "2Gi"},
+            "limits": {"cpu": "1", "memory": "12Gi", "ephemeral-storage": "6Gi"},
+        },
+        "1",
+    )
+
+
+def test_a_job_keeps_the_resources_of_the_template_when_the_caller_gives_none(
+    kube: FakeCluster,
+) -> None:
+    ClusterJobs().create(["roadmap"], template=RUNNER_TEMPLATE)
+
+    (job,) = kube.custom_objects.objects[JOBS]
+    (container,) = job["spec"]["template"]["spec"]["containers"]
+    assert container["resources"] == {
+        "requests": {"cpu": "2", "memory": "4Gi", "ephemeral-storage": "2Gi"},
+        "limits": {"cpu": "2", "memory": "8Gi", "ephemeral-storage": "6Gi"},
+    }
+
+
 def test_a_job_keeps_the_deadline_of_the_template_when_the_caller_gives_none(
     kube: FakeCluster,
 ) -> None:

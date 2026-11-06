@@ -12,6 +12,7 @@ from cel_expr_python import cel
 
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, build_job
+from devops_cli.roadmap.implement_size import RUNNER_SIZES, WORKERS_VARIABLE, RunnerSize
 from tests.gate.k8s_render import applied_documents
 from tests.support.paths import REPO_ROOT
 
@@ -72,22 +73,30 @@ def _refusals(job: dict[str, Any], user: str | None = None) -> list[str]:
     return [rule["message"] for rule in spec["validations"] if not _holds(rule["expression"], data)]
 
 
-@functools.cache
-def _template_job() -> dict[str, Any]:
+def _job_of_size(size: RunnerSize | None, memory_limit: str = "8Gi") -> dict[str, Any]:
+    """The Job the Service makes for a row of the size table, or the Job of the bare template."""
     cronjob = _object("CronJob", "devops-cli-runner")
     return build_job(
         cronjob,
         ["roadmap", "implement", "--repo", "example/project", "--item", "7", "--confirm"],
         "devops-cli-runner-20261030-120000-ab12",
         template=RUNNER_TEMPLATE,
-        env=SERVICE_ENV,
+        env={**SERVICE_ENV, **(size.env if size else {})},
         labels=SERVICE_LABELS,
+        resources=size.resources(memory_limit) if size else None,
     )
 
 
-def _changed(mutate: Mutation) -> dict[str, Any]:
+@functools.cache
+def _template_job() -> dict[str, Any]:
+    """The Job of the Service for the small row."""
+    return _job_of_size(RUNNER_SIZES[0])
+
+
+def _changed(*mutations: Mutation) -> dict[str, Any]:
     job = copy.deepcopy(_template_job())
-    mutate(job)
+    for mutate in mutations:
+        mutate(job)
     return job
 
 
@@ -129,6 +138,46 @@ def _set_pod_label(value: str) -> Mutation:
 
 def _drop_pod_labels(job: dict[str, Any]) -> None:
     del job["spec"]["template"]["metadata"]["labels"]
+
+
+def _set_resources(
+    *, cpu: str | None = None, memory: str | None = None, limit: str | None = None
+) -> Mutation:
+    """Replace the CPU of the request and the limit, the memory request or the memory limit."""
+
+    def mutate(job: dict[str, Any]) -> None:
+        resources = _container(job)["resources"]
+        if cpu is not None:
+            resources["requests"]["cpu"] = cpu
+            resources["limits"]["cpu"] = cpu
+        if memory is not None:
+            resources["requests"]["memory"] = memory
+        if limit is not None:
+            resources["limits"]["memory"] = limit
+
+    return mutate
+
+
+def _set_workers(value: str) -> Mutation:
+    def mutate(job: dict[str, Any]) -> None:
+        for entry in _container(job)["env"]:
+            if entry["name"] == WORKERS_VARIABLE:
+                entry["value"] = value
+
+    return mutate
+
+
+def _drop_workers(job: dict[str, Any]) -> None:
+    container = _container(job)
+    container["env"] = [e for e in container["env"] if e["name"] != WORKERS_VARIABLE]
+
+
+def _drop_memory_limit(job: dict[str, Any]) -> None:
+    del _container(job)["resources"]["limits"]["memory"]
+
+
+def _drop_resources(job: dict[str, Any]) -> None:
+    del _container(job)["resources"]
 
 
 def _set_container(**fields: object) -> Mutation:
@@ -217,6 +266,14 @@ def check_the_job_from_the_runner_template_passes_in_every_image_form() -> None:
         pytest.param(_set_spec(backoffLimit=1), "backoffLimit", id="retry"),
         pytest.param(_drop_spec_field("backoffLimit"), "backoffLimit", id="retry-not-set"),
         pytest.param(_drop_spec_field("activeDeadlineSeconds"), "deadline", id="no-deadline"),
+        pytest.param(_set_resources(cpu="3"), "size table", id="cpu-off-the-table"),
+        pytest.param(_set_resources(memory="7Gi"), "size table", id="memory-off-the-table"),
+        pytest.param(_set_resources(memory="6Gi"), "size table", id="large-memory-small-cpu"),
+        pytest.param(_set_resources(cpu="4"), "size table", id="large-cpu-small-memory"),
+        pytest.param(_set_workers("2"), "size table", id="workers-differ-from-cpu"),
+        pytest.param(_drop_workers, "size table", id="no-worker-count"),
+        pytest.param(_drop_memory_limit, "size table", id="no-memory-limit"),
+        pytest.param(_drop_resources, "size table", id="no-resources"),
     ],
 )
 def check_a_job_that_breaks_one_rule_is_refused_by_that_rule(mutate: Mutation, rule: str) -> None:
@@ -224,6 +281,34 @@ def check_a_job_that_breaks_one_rule_is_refused_by_that_rule(mutate: Mutation, r
 
     assert len(refused) == 1
     assert rule in refused[0]
+
+
+def check_the_job_of_every_row_of_the_size_table_passes_also_with_a_raised_memory_limit() -> None:
+    jobs = [_job_of_size(row, limit) for row in RUNNER_SIZES for limit in ("8Gi", "12Gi")]
+
+    assert [_refusals(job) for job in jobs] == [[]] * len(jobs)
+
+
+def check_the_policy_admits_exactly_the_cpu_and_memory_pairs_of_the_size_table() -> None:
+    """Each pair from a grid that holds the rows and the values near them: only the table passes."""
+    cpus = sorted({row.cpu for row in RUNNER_SIZES} | {"0.5", "2", "3", "5", "8"})
+    memories = sorted({row.memory for row in RUNNER_SIZES} | {"1Gi", "4Gi", "5Gi", "7Gi", "8Gi"})
+
+    admitted = {
+        (cpu, memory)
+        for cpu in cpus
+        for memory in memories
+        if not _refusals(_changed(_set_resources(cpu=cpu, memory=memory), _set_workers(cpu)))
+    }
+
+    assert admitted == {(row.cpu, row.memory) for row in RUNNER_SIZES}
+
+
+def check_a_job_with_the_size_of_the_template_is_refused() -> None:
+    refused = _refusals(_job_of_size(None))
+
+    assert len(refused) == 1
+    assert "size table" in refused[0]
 
 
 def check_a_job_that_names_the_default_values_passes() -> None:
