@@ -103,7 +103,7 @@ The command group `devops roadmap eval` SHALL hold the golden-set commands. The 
 - **THEN** the model gets one request with no tool, and the table has the same rows
 
 ### Requirement: The verify command scores the verification pass
-`devops roadmap eval verify` SHALL run the verification pass on the plan of each case of the golden set, with the cited files read from the checkout of the commit of the case, and the model of the `verification` task or `--model`. It SHALL print the recall of the labeled defects (all, and the blocker and major ones), the recall for each type, and the count of findings on the `good` plans, and SHALL store the score as JSON under `.data/`.
+`devops roadmap eval verify` SHALL run the verification pass on the plan of each case of the golden set as an agent with the read-only tools of the stage job, on the checkout of the commit of the case, with the model of the `verification` task or `--model`. It SHALL print the recall of the labeled defects (all, and the blocker and major ones), the recall for each type, and the count of findings on the `good` plans, and SHALL store the score as JSON under `.data/`.
 
 #### Scenario: A finding on a good plan
 - **WHEN** the verifier returns a finding for a case with the verdict `good`
@@ -121,7 +121,7 @@ The score SHALL match each finding to at most one labeled defect of the same typ
 - **THEN** the score counts 1 of 3 defects found, 1 of 2 for `false_premise` and 0 of 1 for `missing_path`
 
 ### Requirement: The verify command fails on a failed call and has a dry run
-The command SHALL end a case whose model call fails as `failed`, count it as no defect found, run the other cases, and exit 1. `--dry-run` SHALL make no request to a model or to git and SHALL list the cases and the one call for each. The command SHALL carry the dry-run class `request-plan`.
+The command SHALL end a case whose model call fails as `failed`, count it as no defect found, run the other cases, and exit 1. `--dry-run` SHALL make no request to a model or to git and SHALL list the cases and the one agent run for each. The command SHALL carry the dry-run class `request-plan`.
 
 #### Scenario: A model call fails
 - **WHEN** the model call fails for one case
@@ -191,3 +191,21 @@ The JSON report and the printed score of a live run SHALL state the input tokens
 #### Scenario: The workflow document names the baseline procedure
 - **WHEN** a test reads the stage measurement section
 - **THEN** it names `eval stage` with `--no-toolbox`, `eval verify`, `ai.tasks.stage.model` and the parked items #3066 and #3060
+
+### Requirement: The verify run is the pass of the stage job
+The run SHALL give the agent the OpenSpec tool that the stage job gives `read_spec` and the context window of the task `verification`, and `--model` SHALL keep the other settings of that task.
+
+#### Scenario: A run reads a spec
+- **WHEN** the verifier calls `read_spec` in a run
+- **THEN** the tool answers from the specs of the checkout of the case
+
+#### Scenario: The model option keeps the task
+- **WHEN** the command runs with `--model` and the task `verification` sets a provider
+- **THEN** the review runs on that provider with the model of the option
+
+### Requirement: The verify report states the recall floor
+The report SHALL state the recall floor `CONST_ROADMAP_VERIFY_RECALL_FLOOR` and whether the recall of the blocker and major defects meets it.
+
+#### Scenario: The report states the floor
+- **WHEN** the command runs on the set
+- **THEN** the report states the floor of 90 percent of the blocker and major defects and whether the recall of those defects reaches it

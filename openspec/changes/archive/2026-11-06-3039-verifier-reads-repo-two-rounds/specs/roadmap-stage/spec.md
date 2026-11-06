@@ -8,7 +8,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A verification pass follows the gates
-When the caller gives a verifier, the planner SHALL run one verification for each plan after the plan passes `check_proposal` and `validate_change`, and before the job opens the draft pull request. The verifier SHALL be an agent of the task slot `ai.tasks.verification` that has the read-only tools of the toolset `roadmap.stage.toolset`. Its request SHALL hold the issue, the plan, and the capped start of each file that the plan cites. Its request and its run SHALL use the context window of the task `verification`. With its instructions, the request SHALL stay `CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS` tokens below the point where the run offers no more tools. The pass SHALL NOT merge a pull request and SHALL NOT mark one ready.
+When the caller gives a verifier, the planner SHALL run one verification for each plan after the plan passes `check_proposal` and `validate_change`, and before the job opens the draft pull request. The verifier SHALL be an agent of the task slot `ai.tasks.verification` with the read-only tools of the toolset `roadmap.stage.toolset`. Its request SHALL hold the issue, the plan and the capped start of each file that the plan cites. The pass SHALL NOT merge a pull request or mark one ready.
 
 #### Scenario: A plan that passes the gates
 - **WHEN** a plan passes the gates and the verifier finds nothing
@@ -17,18 +17,6 @@ When the caller gives a verifier, the planner SHALL run one verification for eac
 #### Scenario: A long cited file
 - **WHEN** a plan cites a file with more tokens than `CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS`
 - **THEN** the request holds only the first tokens of that file
-
-#### Scenario: A request that does not fit the window
-- **WHEN** the cited files of a plan do not fit the limit of the window of the task `verification`
-- **THEN** the request keeps the cited files in plan order up to that limit, and drops the others
-
-#### Scenario: A full request gets the tools
-- **WHEN** the window of the task `verification` is 65536 tokens and a plan cites more files than fit
-- **THEN** the first request of the run is offered the read tools
-
-#### Scenario: The two tasks have different windows
-- **WHEN** the task `stage` has a window of 262144 tokens and the task `verification` a window of 12000 tokens
-- **THEN** the request of the verifier and the tool limit of its run follow the window of 12000 tokens
 
 #### Scenario: A plan that fails the gates
 - **WHEN** the gates refuse a plan twice
@@ -39,7 +27,7 @@ When the caller gives a verifier, the planner SHALL run one verification for eac
 - **THEN** the draft pull request stays a draft and the job makes no merge call
 
 ### Requirement: An evidence-backed finding returns the plan at most twice
-A finding of type `missing_path`, `false_premise`, `ignores_existing_code`, `task_order` or `verify_form` whose quote is in the issue, the plan, a cited file or a tool answer of the run SHALL return the plan to the planner, with each open finding of the round as the problem. The revised plan SHALL pass the gates and the verification again. The planner SHALL repeat this return at most `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times, which is two. After the last repair round, the plan SHALL keep each open finding of the last review. The comment SHALL list every finding of each round.
+A finding of type `missing_path`, `false_premise`, `ignores_existing_code`, `task_order` or `verify_form` whose quote is in the issue, the plan, a cited file or a tool answer of the run SHALL return the plan to the planner, with each open finding of the round as the problem. The revised plan SHALL pass the gates and the verification again, at most `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times, which is two.
 
 #### Scenario: A false premise with a quote
 - **WHEN** the verifier returns a `false_premise` finding whose quote is in the issue
@@ -53,21 +41,9 @@ A finding of type `missing_path`, `false_premise`, `ignores_existing_code`, `tas
 - **WHEN** the first revised plan gets a `missing_path` finding with a quote
 - **THEN** the planner gets a second repair request with the finding as `problem`
 
-#### Scenario: The second repair round still has a finding
-- **WHEN** the plan still has a return finding after the second repair round
-- **THEN** the planner makes no further request, the job keeps the draft with the label `plan/needs-fix`, and the issue receives a comment with the findings
-
 #### Scenario: A task order finding returns the plan
 - **WHEN** the verifier returns a `task_order` finding whose quote is in the plan
 - **THEN** the planner gets a second request with the finding as `problem`
-
-#### Scenario: The comment lists each repair round
-- **WHEN** the verifier returns a return finding on each of the first two reviews, and no finding on the third
-- **THEN** the planner makes two repair requests, and the comment of the item lists the two return findings
-
-#### Scenario: A mixed first round
-- **WHEN** the first review returns a `false_premise`, a `spec_delta_wrong` and a `contrived_test` finding with quotes, and the second review finds nothing
-- **THEN** the planner gets the `false_premise` and the `spec_delta_wrong` finding, the comment lists all three, and no finding is open
 
 #### Scenario: A quote from a tool answer
 - **WHEN** the verifier reads a line past the cap of a cited file with a tool, and returns an `ignores_existing_code` finding that quotes that line
@@ -97,6 +73,36 @@ When the last review of a plan returns a finding that has a quote in its input o
 - **THEN** The finding is not open.
 
 ## ADDED Requirements
+
+### Requirement: The verification request fits the window of its task
+The request and the run of the verifier SHALL use the context window of the task `verification`. With its instructions, the request SHALL stay `CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS` tokens below the point where the run offers no more tools.
+
+#### Scenario: A request that does not fit the window
+- **WHEN** the cited files of a plan do not fit the limit of the window of the task `verification`
+- **THEN** the request keeps the cited files in plan order up to that limit, and drops the others
+
+#### Scenario: A full request gets the tools
+- **WHEN** the window of the task `verification` is 65536 tokens and a plan cites more files than fit
+- **THEN** the first request of the run is offered the read tools
+
+#### Scenario: The two tasks have different windows
+- **WHEN** the task `stage` has a window of 262144 tokens and the task `verification` a window of 12000 tokens
+- **THEN** the request of the verifier and the tool limit of its run follow the window of 12000 tokens
+
+### Requirement: The comment lists every finding of each repair round
+After the last repair round, the plan SHALL keep each open finding of the last review, and the comment SHALL list every finding of each round.
+
+#### Scenario: The second repair round still has a finding
+- **WHEN** the plan still has a return finding after the second repair round
+- **THEN** the planner makes no further request, the job keeps the draft with the label `plan/needs-fix`, and the issue receives a comment with the findings
+
+#### Scenario: The comment lists each repair round
+- **WHEN** the verifier returns a return finding on each of the first two reviews, and no finding on the third
+- **THEN** the planner makes two repair requests, and the comment of the item lists the two return findings
+
+#### Scenario: A mixed first round
+- **WHEN** the first review returns a `false_premise`, a `spec_delta_wrong` and a `contrived_test` finding with quotes, and the second review finds nothing
+- **THEN** the planner gets the `false_premise` and the `spec_delta_wrong` finding, the comment lists all three, and no finding is open
 
 ### Requirement: The verifier reads the repository with the read-only tools
 The verifier SHALL check the paths, the premise, the scope against the criteria, the task order, the spec delta and the verify commands of a plan with the read-only tools of the toolset of the run. It SHALL hold no tool that writes a file or runs a shell command. Each read of a verification run SHALL be recorded in the `RunTrace` of that run, and the comment of the staged item SHALL list each read with its path.
