@@ -4,6 +4,7 @@ model (#2638, #2704)."""
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,7 @@ from typing import Any
 import httpx2
 import pytest
 
-from devops_cli.lang import ERRORS
+from devops_cli.lang import ERRORS, HELP
 from tests.support.fakes.http import WebFake
 
 BENCHMARK_TOOL_PARAMETERS = [
@@ -239,3 +240,36 @@ class TestBenchmarkToolTakesNoServerUrlFromTheModel:
             result.exit_code,
             {f"{request.url.host}:{request.url.port}" for request in web.sent},
         ) == (0, {"example.com:11435"})
+
+
+@pytest.mark.usefixtures("keyring_store")
+class TestBenchmarkToolPublishesPlainModelNames:
+    """The `models` description in the schema of `ai_benchmark` names plain models, because the
+    tool refuses a `model@url` (#2743)."""
+
+    async def test_the_published_description_gives_an_example_that_the_tool_accepts(self) -> None:
+        """The description holds no `model@url` and no key rule, and its example passes the check
+        of the tool for a model endpoint.
+
+        On `origin/main` the description quoted `llama3.1:8b@http://gpu2:11434`.
+        """
+        from fastmcp import Client
+
+        from devops_cli.ai.mcp.generator import _check_model_endpoints
+        from devops_cli.ai.mcp.server import mcp
+
+        async with Client(mcp) as client:
+            tools = await client.list_tools()
+        text = next(t for t in tools if t.name == "ai_benchmark").input_schema["properties"][
+            "models"
+        ]["description"]
+        quoted = re.search(r"'([^']+)'", text)
+
+        assert quoted is not None
+        assert [word for word in ("@", "api_base_url", "gateway_url", "key") if word in text] == []
+        _check_model_endpoints(("ai", "benchmark"), {"models": quoted.group(1)})
+
+    def test_the_command_help_keeps_the_model_url_form(self) -> None:
+        """A person at the command line still reads the `model@url` form."""
+        assert "llama3.1:8b@http://gpu2:11434" in HELP.benchmark.models
+        assert "The MCP tool refuses a model@url." in HELP.benchmark.models

@@ -920,6 +920,10 @@ class MCPCommandHelp:
     allow_remote: str = "Permit binding a network transport to non-loopback network interfaces."
     export_schemas: str = "Export FastMCP tool JSON schemas and instructions for MCP clients."
     output_dir: str = "Destination directory for tool schema JSON files."
+    benchmark_models: str = (
+        "Comma-separated candidate model names (e.g. 'qwen2.5:0.5b,llama3.1:8b'). "
+        "Each model runs on the servers that the configuration names."
+    )
 
 
 @dataclass(frozen=True)
