@@ -65,7 +65,6 @@ from pydantic import NonNegativeInt, TypeAdapter, ValidationError
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
     CONST_ROADMAP_IMPLEMENT_JOB_STEP,
-    CONST_ROADMAP_STATUS_BLOCKED,
     CONST_ROADMAP_STOP_CLEAR_COMMENT_WINDOW_HOURS,
 )
 from devops_cli.config.settings import load_settings
@@ -119,9 +118,7 @@ def is_service_stop(item: Item) -> bool:
     or person claimed it."""
     return (
         item.state is GitHubState.OPEN
-        and item.status == CONST_ROADMAP_STATUS_BLOCKED
-        and item.job_record.get(ItemField.STATUS) == CONST_ROADMAP_STATUS_BLOCKED
-        and bool(item.job_record.get(ImplementRecordKey.STOPPED))
+        and item.holds_service_stop()
         and not job_holds(item)
         and claimed_by(item) is None
     )

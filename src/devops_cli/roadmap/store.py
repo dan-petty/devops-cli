@@ -47,6 +47,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_PRIORITY_VALUES,
     CONST_ROADMAP_RECORD_MARKER,
     CONST_ROADMAP_SIZE_OPTIONS,
+    CONST_ROADMAP_STATUS_BLOCKED,
     CONST_ROADMAP_STATUS_VALUES,
 )
 from devops_cli.exceptions.git import GitHubOperationError
@@ -334,6 +335,15 @@ class Item(BaseModel):
     def field_value(self, field: ItemField) -> str | None:
         """The Item's current value for `field`, to compare with its job record."""
         return cast(str | None, getattr(self, field.name.lower()))
+
+    def holds_service_stop(self) -> bool:
+        """Whether the Item is Blocked with the label that a job last recorded, and a stop is on
+        record: the Blocked label is no one that a person set by hand."""
+        return (
+            self.status == CONST_ROADMAP_STATUS_BLOCKED
+            and self.job_record.get(ItemField.STATUS) == CONST_ROADMAP_STATUS_BLOCKED
+            and bool(self.job_record.get(ImplementRecordKey.STOPPED))
+        )
 
 
 class Change(BaseModel):

@@ -21,7 +21,7 @@ from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.merge_readiness import ClosingRead
 from devops_cli.roadmap.grounding import ClosingIssue
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
-from devops_cli.roadmap.store import GitHubState, ItemField
+from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, ItemField
 
 REPO = "example/roadmap"
 
@@ -74,12 +74,39 @@ def _item(roadmap_store: InMemoryRoadmapStore, status: str | None) -> int:
         ("Blocked", "In Review", "Blocked"),
     ],
 )
-def test_the_status_moves_forward_and_never_leaves_blocked(
+def test_the_status_moves_forward_and_never_leaves_a_blocked_that_a_person_set(
     roadmap_store: InMemoryRoadmapStore, before: str | None, target: str, after: str
 ) -> None:
     number = _item(roadmap_store, before)
     _set(roadmap_store, target, ClosingRead((_closing(number),), 1))
     assert _status(roadmap_store, number) == after
+
+
+def _recorded_blocked(roadmap_store: InMemoryRoadmapStore, *, stopped: bool) -> int:
+    """An item that a job set Blocked and recorded, with `implement.stopped` when `stopped`."""
+    number = _item(roadmap_store, None)
+    item = roadmap_store.item(number)
+    assert item is not None
+    marks = {ImplementRecordKey.STOPPED: "group 1"} if stopped else {}
+    roadmap_store.set_field(item, ItemField.STATUS, "Blocked", marks=marks)
+    return number
+
+
+@pytest.mark.parametrize(
+    ("target", "after"), [("In Progress", "In Progress"), ("In Review", "In Review")]
+)
+def test_a_blocked_item_that_a_stop_recorded_moves_on(
+    roadmap_store: InMemoryRoadmapStore, target: str, after: str
+) -> None:
+    number = _recorded_blocked(roadmap_store, stopped=True)
+    changed = _set(roadmap_store, target, ClosingRead((_closing(number),), 1))
+    assert (changed, _status(roadmap_store, number)) == (number, after)
+
+
+def test_a_blocked_item_with_no_stop_on_record_stays(roadmap_store: InMemoryRoadmapStore) -> None:
+    number = _recorded_blocked(roadmap_store, stopped=False)
+    assert _set(roadmap_store, "In Progress", ClosingRead((_closing(number),), 1)) is None
+    assert _status(roadmap_store, number) == "Blocked"
 
 
 def test_a_pull_request_that_closes_no_issue_changes_nothing(
