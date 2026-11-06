@@ -1372,7 +1372,7 @@ The stage job SHALL refuse an item whose issue title has a Conventional Commit t
 - **THEN** The stage job leaves the item out and its reason names the missing type, not the length of the summary
 
 ### Requirement: An open finding keeps the plan in draft
-When the last review of a plan returns a finding that has a quote in its input or in a tool answer of the run and a defect type of `missing_path`, `false_premise`, `ignores_existing_code`, `task_order`, `verify_form` or `spec_delta_wrong`, or a finding that reports a placeholder with a quote in its request, the stage SHALL keep the plan pull request in draft, apply the label `plan/needs-fix` to it, and put those findings at the top of the stage comment.
+When the last review of a plan returns a finding that has a quote in its input or in a tool answer of the run and a defect type of `missing_path`, `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or `criterion_dropped`, or a finding that reports a placeholder with a quote in its request, the stage SHALL keep the plan pull request in draft, apply the label `plan/needs-fix` to it, and put those findings at the top of the stage comment.
 
 #### Scenario: A placeholder finding from a fake client
 - **WHEN** The fake verification client returns a placeholder finding whose quote is in the input.
@@ -1393,6 +1393,18 @@ When the last review of a plan returns a finding that has a quote in its input o
 #### Scenario: A placeholder only in a tool answer
 - **WHEN** The verifier reports a placeholder whose quote is in a tool answer and not in its request.
 - **THEN** The finding is not open.
+
+#### Scenario: A quoted dropped criterion finding is open
+- **WHEN** A verification reply holds a `criterion_dropped` finding whose quote is in the issue.
+- **THEN** `open_findings` returns the finding.
+
+#### Scenario: An unquoted dropped criterion finding is advice
+- **WHEN** A verification reply holds a `criterion_dropped` finding whose quote is in none of the issue, the plan and the cited files.
+- **THEN** `open_findings` returns no finding.
+
+#### Scenario: A test-only group with no code
+- **WHEN** A group of a plan changes only a fixture file and a test file, no group changes the code that its criterion needs, and the verification reply holds a `criterion_dropped` finding that quotes the criterion of the issue.
+- **THEN** `open_findings` returns the finding and `returning` returns none.
 
 ### Requirement: A plan with an open finding is a failed attempt
 An item whose plan carries an open finding SHALL NOT count as a staged plan in the round budget of the Service, and its result SHALL be recorded as a failed attempt of failure class `plan_defect`.
@@ -2178,6 +2190,7 @@ When a verification run ends with no reply, the failure of the item SHALL name t
 #### Scenario: A summary of the most characters with a tag
 - **WHEN** the model gives a summary of the most characters that the schema accepts, and the summary ends with ` <b>`
 - **THEN** the schema accepts the reply, and the title passes the form check
+
 ### Requirement: A plan that changes the stage prompt or a stage gate gives the eval replay task
 The stage job SHALL refuse a plan whose groups change `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage_form.py`, `src/devops_cli/roadmap/stage_paths.py`, `src/devops_cli/roadmap/stage_criteria.py` or `src/devops_cli/roadmap/stage_eval_gates.py` unless one group task holds the command `uv run devops roadmap eval stage --replay` and the words `score`, `before` and `after`.
 
@@ -2325,3 +2338,10 @@ When the job stages an item, it SHALL record `stage.text_hash`: the hash of the 
 #### Scenario: The job stages an item
 - **WHEN** the job stages a Ready item
 - **THEN** the record holds `stage.text_hash` with the hash of the body outside the refine section
+
+### Requirement: The verification prompt separates a dropped criterion from a test-only group that delivers its criterion
+The prompt of the verification pass SHALL define `criterion_dropped` for a criterion whose group changes only test files while no group of the plan changes the code or the data that the criterion needs, and SHALL say that a group which changes only test files and tests code of an earlier group is no `criterion_dropped`.
+
+#### Scenario: The prompt names the test-only group
+- **WHEN** The prompt of the verification pass is read.
+- **THEN** The line of `criterion_dropped` names a group that changes only test files, names the earlier group that changes the code, and says that such a group is no `criterion_dropped`.

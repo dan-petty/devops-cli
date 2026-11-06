@@ -10,7 +10,7 @@ The prompt of the verification pass SHALL define `criterion_dropped` for a crite
 ## MODIFIED Requirements
 
 ### Requirement: An open finding keeps the plan in draft
-When the last review of a plan returns a finding that has a quote in its input or in a tool answer of the run and a defect type of `missing_path`, `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or `criterion_dropped`, or a finding that reports a placeholder with a quote in its request, the stage SHALL keep the plan pull request in draft, apply the label `plan/needs-fix` to it, and put those findings at the top of the stage comment. A `criterion_dropped` finding SHALL NOT send the plan back to the planner.
+When the last review of a plan returns a finding that has a quote in its input or in a tool answer of the run and a defect type of `missing_path`, `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or `criterion_dropped`, or a finding that reports a placeholder with a quote in its request, the stage SHALL keep the plan pull request in draft, apply the label `plan/needs-fix` to it, and put those findings at the top of the stage comment.
 
 #### Scenario: A placeholder finding from a fake client
 - **WHEN** The fake verification client returns a placeholder finding whose quote is in the input.
