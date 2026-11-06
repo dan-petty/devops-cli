@@ -63,8 +63,11 @@ edits and no other:
 - **A bare name for a sample path.** A path in a code span in the first line of a task changes to
   its file name when the tree lacks it, and no group lists it in `Reads:` or `Changes:` or marks it
   `(new)`. Such a path is a sample that a test writes at run time, and the paths gate refuses it.
-  The `Reads:`, `Changes:` and `Verification:` lines stay as they are, because a person decides
-  those.
+  The rewrite finds the paths in the first line only. It then changes the same code span in every
+  line of the task, but not in a `Verification:` line. The `Reads:`, `Changes:` and `Verification:`
+  lines of a group stay as they are, because a person decides those. Two sample paths can have the
+  same file name, and then the task names the same file twice. A person must look for this in the
+  diff.
 - **A `design.md` stub.** A folder with no `design.md` gets a stub that says the plan records no
   design decision.
 
@@ -152,7 +155,8 @@ calls no model. After the report of the default branch it prints:
 
 A refusal that the branch adds is a case to review, not a proven false refusal. It can be a hit of
 the gate or a false refusal. Only a person decides which. A folder that the reader refuses does not
-stop the run.
+stop the run. The comparison applies the rewrite to the folders of both sides. A gate fault that the
+rewrite fixes shows as `rewrite`, not as a refusal that the branch adds.
 
 Use the option in three ways:
 

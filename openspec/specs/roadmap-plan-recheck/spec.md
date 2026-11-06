@@ -1,7 +1,7 @@
 # roadmap-plan-recheck Specification
 
 ## Purpose
-How `devops roadmap plan-recheck` judges each change folder on the default branch again: the one result of a folder, the counts, and the promise that the command writes nothing.
+How `devops roadmap plan-recheck` judges each change folder on the default branch again: the one result of a folder, the counts, and the promise that the command writes no file unless `--confirm` is given.
 
 ## Requirements
 
