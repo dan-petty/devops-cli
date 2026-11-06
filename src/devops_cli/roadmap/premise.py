@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.refine import SYMBOL_PATHSPEC, git_result
-from devops_cli.roadmap.step_files import TaskGroup, code_spans
+from devops_cli.roadmap.step_files import TaskGroup
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -56,22 +56,26 @@ def defines(source: Path, sha: str, name: str, git: GitResult = git_result) -> b
     return bool(definition_lines(source, sha, name, git))
 
 
-_ADD_VERB = re.compile(r"\b(add|adds|create|creates|introduce|introduces)\b", re.IGNORECASE)
-_GUARD_WORD = re.compile(r"\b(guard|guards|check|checks)\b", re.IGNORECASE)
-_CODE_SPAN = re.compile(r"`[^`]*`")
+# A task names the guard it adds when the code span directly follows the word guard or check, as in
+# "Add the guard `name`" or "Create a check named `name`". A span after a preposition ("Add a check
+# to `run_step`") names code that the task changes, not code that it adds.
+_ADD_VERB = re.compile(r"\b(?:add|adds|create|creates|introduce|introduces)\b", re.IGNORECASE)
+_GUARD_SPAN = re.compile(
+    r"\b(?:guards?|checks?)\s+(?:(?:named|called)\s+)?`([^`]*)`", re.IGNORECASE
+)
 
 
 def added_guard(task_text: str) -> str | None:
-    """The name of the guard that the task adds, or None. A task adds a guard when its prose has an
-    add verb and the word guard or check, and its code spans hold exactly one identifier (a path,
-    a command or a phrase is no identifier). A task with two identifiers does not say which one it
-    adds, so it names none."""
-    prose = _CODE_SPAN.sub(" ", task_text)
-    if not (_ADD_VERB.search(prose) and _GUARD_WORD.search(prose)):
+    """The name of the guard that the task adds, or None. A task adds a guard when an add verb is
+    followed by the word guard or check and then by one code span that holds an identifier (a path,
+    a command or a phrase is no identifier). A span after any other word names code that the task
+    changes. A task with two such names does not say which one it adds, so it names none."""
+    verb = _ADD_VERB.search(task_text)
+    if verb is None:
         return None
     names = {
         span
-        for span in code_spans(task_text)
+        for span in _GUARD_SPAN.findall(task_text, verb.end())
         if span.isidentifier() and not keyword.iskeyword(span)
     }
     return names.pop() if len(names) == 1 else None
