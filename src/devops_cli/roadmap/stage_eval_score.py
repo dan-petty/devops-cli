@@ -49,12 +49,14 @@ class DefectScore:
 
 @dataclass(frozen=True)
 class StageScore:
-    """The score of a run: a row for each type of defect, and the cases by how they ended."""
+    """The score of a run: a row for each type of defect, the cases by how they ended, and the
+    names of the cases that the run left out because they hold no commit (#3688)."""
 
     model: str
     rows: tuple[DefectScore, ...]
     ended: Mapping[Outcome, int]
     cases: int
+    left_out: tuple[str, ...] = ()
 
     @property
     def scored(self) -> tuple[int, int]:
@@ -93,12 +95,20 @@ def _row(
     )
 
 
-def score_runs(model: str, cases: Sequence[StageCase], runs: Sequence[CaseRun]) -> StageScore:
-    """The score of `runs` over `cases`, one row for each type of defect."""
+def score_runs(
+    model: str,
+    cases: Sequence[StageCase],
+    runs: Sequence[CaseRun],
+    *,
+    left_out: tuple[str, ...] = (),
+) -> StageScore:
+    """The score of `runs` over `cases`, one row for each type of defect. `left_out` names the
+    cases that the run did not take."""
     by_name = {run.name: run for run in runs}
     types = [*DefectType]
     ended = {outcome: sum(run.outcome is outcome for run in runs) for outcome in Outcome}
-    return StageScore(model, tuple(_row(t, cases, by_name) for t in types), ended, len(cases))
+    rows = tuple(_row(t, cases, by_name) for t in types)
+    return StageScore(model, rows, ended, len(cases), left_out)
 
 
 def pending_reference(defect_type: DefectType) -> str:

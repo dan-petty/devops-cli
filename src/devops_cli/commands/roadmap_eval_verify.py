@@ -53,7 +53,12 @@ def _run(
     from devops_cli.ai.client import get_llm_client
     from devops_cli.config.settings import load_settings
     from devops_cli.roadmap.intake_model import gateway_address
-    from devops_cli.roadmap.stage_eval_cases import load_cases, select_cases
+    from devops_cli.roadmap.stage_eval_cases import (
+        cases_with_commit,
+        left_out_note,
+        load_cases,
+        select_cases,
+    )
     from devops_cli.roadmap.stage_toolbox import ToolboxModel
     from devops_cli.roadmap.stage_verify_eval import (
         evaluate_cases,
@@ -62,19 +67,22 @@ def _run(
         verify_json,
     )
 
-    cases = select_cases(load_cases(cases_dir), names, limit)
+    cases, left_out = cases_with_commit(select_cases(load_cases(cases_dir), names, limit))
     settings = load_settings()
     gateway = gateway_address(settings.ai)
     if dry_run:
         render_request_plan(
             MESSAGES.roadmap.verify_eval_dry_run.format(gateway=gateway, cases=len(cases)),
             planned_verify_calls(cases, gateway),
+            [note] if (note := left_out_note(left_out)) else [],
         )
         return
     client = get_llm_client(task=_TASK, settings=settings, model=model)
     name = model or settings.ai.for_task(_TASK).model
     review = ToolboxModel(_review_model(settings, model))
-    score = evaluate_cases(name, cases, client, source or find_repo_root(), toolbox=review)
+    score = evaluate_cases(
+        name, cases, client, source or find_repo_root(), toolbox=review, left_out=left_out
+    )
     now = datetime.now(UTC)
     report = verify_json(score, gateway=gateway, taken=now.isoformat(timespec="seconds"))
     target = resolve_store_path(f"{_STORE}/{now:%Y%m%dT%H%M%SZ}.json")

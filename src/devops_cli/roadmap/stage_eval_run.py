@@ -27,7 +27,7 @@ from devops_cli.ai.client.models import (
     AIClientError,
     AICredentialsError,
 )
-from devops_cli.exceptions import RoadmapStageError, ToolExecutionError
+from devops_cli.exceptions import GitOperationError, RoadmapStageError, ToolExecutionError
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.clone_git import checkout_at
@@ -195,11 +195,23 @@ def run_cases(
     step_tokens: int | None = None,
     toolbox: Any | None = None,
 ) -> list[CaseRun]:
-    """Plan each case, one at a time, with the `toolbox` model when one is given."""
+    """Plan each case, one at a time, with the `toolbox` model when one is given. A commit that git
+    cannot check out ends its case as `failed`, so the finished cases keep their runs and the
+    cases after it run (#3688)."""
+    runs: list[CaseRun] = []
     with openspec_tool() as tool:
-        return [
-            run_case(
-                case, client, repository, step_tokens=step_tokens, toolbox=toolbox, openspec=tool
-            )
-            for case in cases
-        ]
+        for case in cases:
+            try:
+                runs.append(
+                    run_case(
+                        case,
+                        client,
+                        repository,
+                        step_tokens=step_tokens,
+                        toolbox=toolbox,
+                        openspec=tool,
+                    )
+                )
+            except GitOperationError as exc:
+                runs.append(CaseRun(case.name, Outcome.FAILED, mask_secrets(str(exc)), 0, None))
+    return runs

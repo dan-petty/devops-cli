@@ -36,8 +36,8 @@ item: the job pushes the commits that passed, comments the step, the reason and 
 of the agent, sets Status Blocked, and records `implement.stopped`. The comment starts with the
 class of the failure, the action taken and the action left (`failure.py`, #3065), and the class is
 recorded in `implement.failure`. It does not run the item again
-until a clear rule of the Service removes the stop: a person's comment `implement: retry`, or a new
-runner image (`stop_clear.py`).
+until a clear rule of the Service removes the stop: a person's comment `implement: retry`, a new
+runner image (`stop_clear.py`), or, for a Job that ended with no result, a continuation (#3721).
 
 **A claim** (#2910). The Service holds the item with `owner/service` while the Job runs. The job
 reads the item before each unticked task group, when a step stops, and before the push. When an
