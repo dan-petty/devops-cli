@@ -285,14 +285,15 @@ def test_a_failing_request_raises_rather_than_returning_empty(
     cluster: FakeCluster, web: WebFake
 ) -> None:
     """An empty result would read as "the service has no data"."""
-    web.respond(
-        "GET",
-        f"{cluster.configuration.host}/api/v1/namespaces/monitoring/services/prometheus:9090/proxy",
-        404,
+    url = (
+        f"{cluster.configuration.host}/api/v1/namespaces/monitoring/services/prometheus:9090/proxy"
     )
+    web.respond("GET", url, 404)
 
     with pytest.raises(httpx2.HTTPStatusError, match="404"):
         get_json(PROM)
+
+    assert [request.url for request in web.recorded] == [url]
 
 
 def test_an_endpoint_is_described_in_its_configuration_form() -> None:
