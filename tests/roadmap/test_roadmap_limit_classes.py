@@ -204,6 +204,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "was 6; PyPI and GitHub reads of one item",
     ),
     "CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS": ("kept", "the size of the answer of one search"),
+    "CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES": (
+        "kept",
+        "the sources that one comment shows, so a person can read it",
+    ),
     "CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS": (
         "raised",
         "was 4096; a quarter of the planner window",
