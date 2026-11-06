@@ -2,11 +2,11 @@
 that installs it (#983, ADR 0007).
 
 `GitHubApiFake` answers the session's requests through httpx2's own `MockTransport`, reached the
-way `stub_web` reaches canned pages: `client_class()` is an `httpx2.AsyncClient` that keeps
-everything the factory gave it except the transport. The factory, its timeouts and the session's
-options stay real, so the session's client follows redirects and runs its origin hook exactly as
+way `WebFake` reaches canned pages: `transport(level)` is the transport that
+`devops_cli.http.entry.install_transport` gives every client the HTTP entry point builds. The
+client, its timeouts and the session's options stay real, so the session's client follows redirects and runs its origin hook exactly as
 it does against GitHub, gidgethub decodes each answer as it decodes GitHub's, and every request's
-host is still vetted at the egress level the factory built the client for. The `github_api`
+host is still vetted at the egress level the entry point built the client for. The `github_api`
 fixture installs it for the process's session.
 
 A route answers with its responses in order, and its last response repeats. A response may be an
@@ -18,7 +18,7 @@ answer; a 304 spends none of it and a 404 spends one. So the fake holds, in `quo
 last reported for each resource, which a test may also set: its own 304 reports it, and its own
 404 spends one from it and reports what is left. With `delay` set, each answer arrives that many
 seconds after its request, so requests can be in flight together. The fake records every request
-it receives, each client it answers and that client's egress level, the pauses the rate limiter
+it receives, the egress level of each client it answers, the timeouts of each request, the pauses the rate limiter
 asked for and the waits gidgethub's retry hook asked for; neither takes any time.
 
 The fake's contract suite, `tests/test_github_contract.py`, runs each case through the session
@@ -55,12 +55,13 @@ import pytest
 from devops_cli.config.constants import CONST_GITHUB_DIFF_MEDIA_TYPE
 from devops_cli.github.rate_limiter import GitHubRateLimiter
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import install_transport, remove_transport
 from tests.support.fakes.http import vetted_handler
-from tests.web_fakes import egress_level_of, install_async_client_fake
 
 _ORIGINAL_REFRESH_FROM_GITHUB = GitHubRateLimiter._refresh_from_github
 
 if TYPE_CHECKING:
+    from tests.support.fakes.dns import DnsFake
     from tests.support.fakes.process import ProcessFake
 
 API = "https://api.github.com"
@@ -219,13 +220,13 @@ class PacedClock:
 
 class GitHubApiDouble:
     """What the fake and the recorded API share: the client class that reaches them, and the
-    record of every request each receives, each client it answers and that client's egress level,
-    and the pauses and retry waits that took no time."""
+    record of every request each receives, the timeouts the client set on it, the egress level of
+    each client it answers, and the pauses and retry waits that took no time."""
 
     def __init__(self) -> None:
         self.sent: list[httpx2.Request] = []
-        self.levels: list[EgressLevel | None] = []
-        self.clients: list[httpx2.AsyncClient] = []
+        self.levels: list[EgressLevel] = []
+        self.timeouts: list[dict[str, float | None]] = []
         self.paced: list[float] = []
         self.waits: list[float] = []
         self.delay = 0.0
@@ -235,22 +236,11 @@ class GitHubApiDouble:
         """Each request's method and URL, in the order they were received."""
         return [f"{request.method} {request.url}" for request in self.sent]
 
-    def client_class(self) -> type[httpx2.AsyncClient]:
-        """An `httpx2.AsyncClient` that answers from this API in place of the transport it was
-        given, after vetting each request at that transport's egress level."""
-        api = self
-
-        class GitHubApiClient(httpx2.AsyncClient):
-            fake_owner = "github_api"
-
-            def __init__(self, **kwargs: Any) -> None:
-                level = egress_level_of(kwargs.get("transport"))
-                api.levels.append(level)
-                transport = httpx2.MockTransport(vetted_handler(api._handle, level))
-                super().__init__(**{**kwargs, "transport": transport})
-                api.clients.append(self)
-
-        return GitHubApiClient
+    def transport(self, level: EgressLevel) -> httpx2.MockTransport:
+        """The transport for a client at `level`: what `install_transport` takes. It answers from
+        this API after vetting each request at `level`."""
+        self.levels.append(level)
+        return httpx2.MockTransport(vetted_handler(self._handle, level))
 
     async def wait(self, seconds: float) -> None:
         """Stand in for gidgethub's `sleep`: record the retry wait and return at once."""
@@ -259,6 +249,7 @@ class GitHubApiDouble:
     def _handle(self, request: httpx2.Request) -> httpx2.Response | Awaitable[httpx2.Response]:
         """Record `request` and give it its answer, `delay` seconds later."""
         self.sent.append(request)
+        self.timeouts.append(request.extensions["timeout"])
         response = self._answer(request)
         return self._later(response) if self.delay else response
 
@@ -402,8 +393,11 @@ def _replayed(response: Mapping[str, Any]) -> httpx2.Response:
     )
 
 
-def serve_github_api(monkeypatch: pytest.MonkeyPatch, api: GitHubApiDouble) -> None:
+def serve_github_api(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, api: GitHubApiDouble
+) -> None:
     """Make `api` answer every GitHub session the test opens, as the `github_api` fixture does.
+    Its transport is removed when the test ends.
 
     The pinned identity's `core` quota is fresh, so pacing never runs `gh api rate_limit`; a
     quota that is unknown or past its reset fails the test instead of refreshing through gh.
@@ -429,7 +423,8 @@ def serve_github_api(monkeypatch: pytest.MonkeyPatch, api: GitHubApiDouble) -> N
             return runner.run(argv, *args, **kwargs)
         raise AssertionError(f"A test over the fake GitHub API ran gh: {argv[:4]}")
 
-    install_async_client_fake(monkeypatch, api.client_class())
+    install_transport(api.transport)
+    request.addfinalizer(remove_transport)
     monkeypatch.setattr(
         rate_limiter.GitHubRateLimiter, "_refresh_from_github", refuse_quota_refresh
     )
@@ -443,18 +438,23 @@ def serve_github_api(monkeypatch: pytest.MonkeyPatch, api: GitHubApiDouble) -> N
 
 @pytest.fixture
 def github_api(
-    monkeypatch: pytest.MonkeyPatch, pin_github_session: str, public_dns: str
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    pin_github_session: str,
+    dns: DnsFake,
 ) -> GitHubApiFake:
     """GitHub's API, faked for every GitHub session the test opens.
 
-    The session's client is still built by the egress factory; as with `stub_web`, only its
+    The session's client is still built by the HTTP entry point; as with `web`, only its
     transport is the fake's, so every request goes through the session's redirect handling and
-    origin hook, and its host is vetted at the factory's egress level, resolving as `public_dns`
-    resolves it. A test cannot ask for this fixture and `stub_web` together. What else it
-    replaces is `serve_github_api`'s.
+    origin hook, and its host is vetted at the entry point's egress level, resolving as `dns`
+    resolves it: every name answers one public address. A test cannot ask for this fixture and
+    `web` together, because `install_transport` takes one transport. What else it replaces is
+    `serve_github_api`'s.
     """
+    dns.answer_every_name()
     api = GitHubApiFake()
-    serve_github_api(monkeypatch, api)
+    serve_github_api(request, monkeypatch, api)
     return api
 
 

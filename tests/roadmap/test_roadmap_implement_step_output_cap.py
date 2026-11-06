@@ -30,10 +30,11 @@ from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement_step import StepOutcome, StepStatus, output_cap, run_step
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from tests.llm_stream_fakes import OPENAI_DONE, SSE, sse_data
+from tests.support.fakes.dns import DnsFake
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.process import ProcessFake
 from tests.support.implement_step import WINDOW, git, is_clean_at, the_whole_group
 from tests.support.model_script import Hang, ModelScript, say
-from tests.web_fakes import StubWeb
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -73,8 +74,9 @@ def small_cap(monkeypatch: pytest.MonkeyPatch) -> int:
 
 
 @pytest.fixture(autouse=True)
-def _public_endpoints(public_dns: str) -> None:
+def _public_endpoints(dns: DnsFake) -> None:
     """The gateway is an example.com URL, which resolves to a public address."""
+    dns.answer_every_name()
 
 
 @dataclass(frozen=True)
@@ -172,7 +174,7 @@ class FakeServer:
 
 
 @pytest.fixture
-def served(monkeypatch: pytest.MonkeyPatch, stub_web: StubWeb) -> Any:
+def served(monkeypatch: pytest.MonkeyPatch, web: WebFake) -> Any:
     """Make the gateway model of the roadmap service, and the way to serve it: call the result
     with the replies of the fake model to get the model and its server."""
     monkeypatch.setattr(pydantic_ai_bridge, "get_ai_api_key", lambda _settings: "sk-gateway")
@@ -182,7 +184,7 @@ def served(monkeypatch: pytest.MonkeyPatch, stub_web: StubWeb) -> Any:
 
     def serve(*replies: Reply) -> tuple[Any, FakeServer]:
         server = FakeServer(*replies)
-        stub_web.serve(server)
+        web.serve(server)
         model = pydantic_ai_bridge.resolve_pydantic_ai_model("devops-coder", settings=settings)
         return model, server
 

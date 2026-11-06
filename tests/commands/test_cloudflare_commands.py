@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -21,7 +22,9 @@ from devops_cli.models.cloudflare import (
     CloudflareTunnelIngressRule,
     CloudflareZone,
 )
-from tests.web_fakes import record_connects, scripted_resolver
+from tests.support.fakes.dial import record_connects
+from tests.support.fakes.dns import DnsFake
+from tests.support.fakes.http import WebFake
 
 runner = CliRunner()
 
@@ -37,42 +40,31 @@ def mock_settings() -> Settings:
     return s
 
 
-def test_cloudflare_client_verify_token_success() -> None:
+def test_cloudflare_client_verify_token_success(web: WebFake) -> None:
     """Verify successful token verification."""
     client = CloudflareClient(token="test-token")
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.is_success = True
-    mock_resp.json.return_value = {
+    reply = {
         "success": True,
         "result": {"id": "token-id-1", "status": "active"},
     }
+    web.serve(lambda request: httpx2.Response(200, json=reply))
+    res = client.verify_token()
+    assert (res.id, res.status) == ("token-id-1", "active")
 
-    with patch("httpx2.Client.request", return_value=mock_resp):
-        res = client.verify_token()
-        assert (res.id, res.status) == ("token-id-1", "active")
 
-
-def test_cloudflare_client_auth_error() -> None:
+def test_cloudflare_client_auth_error(web: WebFake) -> None:
     """Verify authentication failure raises CloudflareAuthError."""
     client = CloudflareClient(token="invalid-token")
-    mock_resp = MagicMock()
-    mock_resp.status_code = 401
-    mock_resp.is_success = False
-
-    with patch("httpx2.Client.request", return_value=mock_resp):
-        with pytest.raises(CloudflareAuthError) as raised:
-            client.verify_token()
-        assert raised.value.error_code == "CLOUDFLARE_AUTH_ERROR"
+    web.serve(lambda request: httpx2.Response(401, json={}))
+    with pytest.raises(CloudflareAuthError) as raised:
+        client.verify_token()
+    assert raised.value.error_code == "CLOUDFLARE_AUTH_ERROR"
 
 
-def test_cloudflare_client_get_zone() -> None:
+def test_cloudflare_client_get_zone(web: WebFake) -> None:
     """Verify zone details retrieval."""
     client = CloudflareClient(token="test-token", zone_id="zone-123")
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.is_success = True
-    mock_resp.json.return_value = {
+    reply = {
         "success": True,
         "result": {
             "id": "zone-123",
@@ -82,24 +74,20 @@ def test_cloudflare_client_get_zone() -> None:
             "name_servers": ["ns1", "ns2"],
         },
     }
+    web.serve(lambda request: httpx2.Response(200, json=reply))
+    zone = client.get_zone()
+    assert (zone.id, zone.name, zone.status, zone.name_servers) == (
+        "zone-123",
+        "example.com",
+        "active",
+        ["ns1", "ns2"],
+    )
 
-    with patch("httpx2.Client.request", return_value=mock_resp):
-        zone = client.get_zone()
-        assert (zone.id, zone.name, zone.status, zone.name_servers) == (
-            "zone-123",
-            "example.com",
-            "active",
-            ["ns1", "ns2"],
-        )
 
-
-def test_cloudflare_client_list_dns_records() -> None:
+def test_cloudflare_client_list_dns_records(web: WebFake) -> None:
     """Verify listing DNS records."""
     client = CloudflareClient(token="test-token", zone_id="zone-123")
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.is_success = True
-    mock_resp.json.return_value = {
+    reply = {
         "success": True,
         "result": [
             {
@@ -113,26 +101,21 @@ def test_cloudflare_client_list_dns_records() -> None:
             }
         ],
     }
+    web.serve(lambda request: httpx2.Response(200, json=reply))
+    records = client.list_dns_records()
+    assert (len(records), records[0].name, records[0].proxied) == (1, "example.com", True)
 
-    with patch("httpx2.Client.request", return_value=mock_resp):
-        records = client.list_dns_records()
-        assert (len(records), records[0].name, records[0].proxied) == (1, "example.com", True)
 
-
-def test_cloudflare_client_resolve_tunnel_id_by_name() -> None:
+def test_cloudflare_client_resolve_tunnel_id_by_name(web: WebFake) -> None:
     """Verify resolution of named tunnel to UUID."""
     client = CloudflareClient(token="test-token", account_id="acc-1")
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.is_success = True
-    mock_resp.json.return_value = {
+    reply = {
         "success": True,
         "result": [{"id": "a40935f3-b56c-4a96-a7a5-a409ff330b0a", "name": "homelab"}],
     }
-
-    with patch("httpx2.Client.request", return_value=mock_resp):
-        resolved = client.resolve_tunnel_id("homelab")
-        assert resolved == "a40935f3-b56c-4a96-a7a5-a409ff330b0a"
+    web.serve(lambda request: httpx2.Response(200, json=reply))
+    resolved = client.resolve_tunnel_id("homelab")
+    assert resolved == "a40935f3-b56c-4a96-a7a5-a409ff330b0a"
 
 
 def test_cloudflare_client_resolve_tunnel_id_passthrough_uuid() -> None:
@@ -649,16 +632,15 @@ def test_cloudflare_client_sync_tunnel_routes_aborts_on_get_failure() -> None:
         assert mock_update.called is False
 
 
-def test_cloudflare_tunnel_sync_dry_run_makes_no_network_requests(mock_settings: Settings) -> None:
+def test_cloudflare_tunnel_sync_dry_run_makes_no_network_requests(
+    mock_settings: Settings, web: WebFake
+) -> None:
     """--dry-run makes zero network requests (neither GET nor PUT) and prints planned requests."""
-    with (
-        patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings),
-        patch("httpx2.Client.request") as mock_request,
-    ):
+    with patch("devops_cli.commands.cloudflare.load_settings", return_value=mock_settings):
         result = runner.invoke(app, ["tunnel", "sync", "--dry-run", "--subdomains", "@,chat"])
         assert (
             result.exit_code,
-            mock_request.call_count,
+            len(web.sent),
             "GET" in result.output,
             "PUT" in result.output,
             "accounts/test-account-123/cfd_tunnel" in result.output,
@@ -708,13 +690,10 @@ def test_cli_cloudflare_dns_delete_not_found(mock_settings: Settings) -> None:
         ) == (0, True)
 
 
-def test_cloudflare_client_list_access_applications() -> None:
+def test_cloudflare_client_list_access_applications(web: WebFake) -> None:
     """Verify listing Cloudflare Access applications."""
     client = CloudflareClient(token="test-token", account_id="acc-1")
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.is_success = True
-    mock_resp.json.return_value = {
+    reply = {
         "success": True,
         "result": [
             {
@@ -726,12 +705,12 @@ def test_cloudflare_client_list_access_applications() -> None:
             }
         ],
     }
-    with patch("httpx2.Client.request", return_value=mock_resp):
-        apps = client.list_access_applications()
-        assert (len(apps), apps[0].id, apps[0].domain) == (1, "app-1", "example.com")
+    web.serve(lambda request: httpx2.Response(200, json=reply))
+    apps = client.list_access_applications()
+    assert (len(apps), apps[0].id, apps[0].domain) == (1, "app-1", "example.com")
 
 
-def test_cloudflare_client_sync_access_application() -> None:
+def test_cloudflare_client_sync_access_application(web: WebFake) -> None:
     """Verify synchronizing an Access application creates app and policy."""
     client = CloudflareClient(token="test-token", account_id="acc-1")
     dummy_app = CloudflareAccessApplication(
@@ -977,7 +956,7 @@ def test_cli_cloudflare_access_policies(mock_settings: Settings) -> None:
         ) == (0, True, True, True)
 
 
-def test_cloudflare_client_sync_access_application_finds_page_two_app() -> None:
+def test_cloudflare_client_sync_access_application_finds_page_two_app(web: WebFake) -> None:
     """With an existing application on page 2 of a two-page answer, sync finds it and creates nothing."""
     client = CloudflareClient(token="test-token", account_id="acc-1")
 
@@ -1047,31 +1026,29 @@ def test_cloudflare_client_sync_access_application_finds_page_two_app() -> None:
         },
     }
 
-    def fake_request(method: str, url: str, **kwargs: Any) -> MagicMock:
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.is_success = True
-        params = kwargs.get("params") or {}
-        if url.endswith("/access/apps"):
-            assert method == "GET", "Should only GET access/apps, never POST to create a duplicate"
-            page = int(params.get("page", 1))
-            resp.json.return_value = app1_page if page == 1 else app2_page
-        elif "/policies" in url:
-            resp.json.return_value = policy_update if method == "PUT" else policy_list
-        else:
-            resp.json.return_value = {"success": True, "result": {}}
-        return resp
+    def serve(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/access/apps"):
+            assert request.method == "GET", (
+                "Should only GET access/apps, never POST to create a duplicate"
+            )
+            page = int(request.url.params.get("page", 1))
+            return httpx2.Response(200, json=app1_page if page == 1 else app2_page)
+        if "/policies" in request.url.path:
+            return httpx2.Response(
+                200, json=policy_update if request.method == "PUT" else policy_list
+            )
+        return httpx2.Response(200, json={"success": True, "result": {}})
 
-    with patch("httpx2.Client.request", side_effect=fake_request):
-        res = client.sync_access_application(
-            domain="example.com",
-            allowed_emails=["admin@example.com"],
-        )
-        assert res["app_id"] == "app-2"
-        assert res["app_action"] == "existing"
+    web.serve(serve)
+    res = client.sync_access_application(
+        domain="example.com",
+        allowed_emails=["admin@example.com"],
+    )
+    assert res["app_id"] == "app-2"
+    assert res["app_action"] == "existing"
 
 
-def test_cloudflare_client_get_access_policies_paginated() -> None:
+def test_cloudflare_client_get_access_policies_paginated(web: WebFake) -> None:
     """Access policies spread over two pages are all returned."""
     client = CloudflareClient(token="test-token", account_id="acc-1")
 
@@ -1112,22 +1089,17 @@ def test_cloudflare_client_get_access_policies_paginated() -> None:
         },
     }
 
-    def fake_request(method: str, url: str, **kwargs: Any) -> MagicMock:
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.is_success = True
-        params = kwargs.get("params") or {}
-        page = int(params.get("page", 1))
-        resp.json.return_value = page1 if page == 1 else page2
-        return resp
-
-    with patch("httpx2.Client.request", side_effect=fake_request):
-        policies = client.get_access_policies("app-1")
-        assert len(policies) == 2
-        assert [p.id for p in policies] == ["pol-1", "pol-2"]
+    web.serve(
+        lambda request: httpx2.Response(
+            200, json=page1 if int(request.url.params.get("page", 1)) == 1 else page2
+        )
+    )
+    policies = client.get_access_policies("app-1")
+    assert len(policies) == 2
+    assert [p.id for p in policies] == ["pol-1", "pol-2"]
 
 
-def test_cloudflare_client_request_retries_429_with_retry_after() -> None:
+def test_cloudflare_client_request_retries_429_with_retry_after(web: WebFake) -> None:
     """A 429 with Retry-After: 1 followed by a 200 succeeds without a real sleep: the test injects tenacity's sleep."""
     sleep_calls: list[float] = []
 
@@ -1136,32 +1108,24 @@ def test_cloudflare_client_request_retries_429_with_retry_after() -> None:
 
     client = CloudflareClient(token="test-token", sleep=mock_sleep)
 
-    resp_429 = MagicMock()
-    resp_429.status_code = 429
-    resp_429.is_success = False
-    resp_429.headers = {"retry-after": "1"}
-    resp_429.json.return_value = {
-        "success": False,
-        "errors": [{"message": "Rate limit exceeded"}],
-    }
+    rate_limited = httpx2.Response(
+        429,
+        headers={"retry-after": "1"},
+        json={"success": False, "errors": [{"message": "Rate limit exceeded"}]},
+    )
+    accepted = httpx2.Response(
+        200, json={"success": True, "result": {"id": "token-123", "status": "active"}}
+    )
+    answers = iter([rate_limited, accepted])
+    web.serve(lambda request: next(answers))
 
-    resp_200 = MagicMock()
-    resp_200.status_code = 200
-    resp_200.is_success = True
-    resp_200.headers = {}
-    resp_200.json.return_value = {
-        "success": True,
-        "result": {"id": "token-123", "status": "active"},
-    }
-
-    with patch("httpx2.Client.request", side_effect=[resp_429, resp_200]) as mock_req:
-        res = client.verify_token()
-        assert (res.id, res.status) == ("token-123", "active")
-        assert mock_req.call_count == 2
-        assert sleep_calls == [1.0]
+    res = client.verify_token()
+    assert (res.id, res.status) == ("token-123", "active")
+    assert len(web.sent) == 2
+    assert sleep_calls == [1.0]
 
 
-def test_cloudflare_client_request_does_not_retry_403() -> None:
+def test_cloudflare_client_request_does_not_retry_403(web: WebFake) -> None:
     """A 403 is not retried."""
     sleep_calls: list[float] = []
 
@@ -1170,21 +1134,17 @@ def test_cloudflare_client_request_does_not_retry_403() -> None:
 
     client = CloudflareClient(token="test-token", sleep=mock_sleep)
 
-    resp_403 = MagicMock()
-    resp_403.status_code = 403
-    resp_403.is_success = False
-    resp_403.headers = {}
-    resp_403.json.return_value = {
-        "success": False,
-        "errors": [{"message": "Forbidden"}],
-    }
+    web.serve(
+        lambda request: httpx2.Response(
+            403, json={"success": False, "errors": [{"message": "Forbidden"}]}
+        )
+    )
 
-    with patch("httpx2.Client.request", return_value=resp_403) as mock_req:
-        with pytest.raises(CloudflareAuthError) as raised:
-            client.verify_token()
-        assert raised.value.error_code == "CLOUDFLARE_AUTH_ERROR"
-        assert mock_req.call_count == 1
-        assert len(sleep_calls) == 0
+    with pytest.raises(CloudflareAuthError) as raised:
+        client.verify_token()
+    assert raised.value.error_code == "CLOUDFLARE_AUTH_ERROR"
+    assert len(web.sent) == 1
+    assert len(sleep_calls) == 0
 
 
 @pytest.mark.usefixtures("keyring_store")
@@ -1199,7 +1159,7 @@ def test_cloudflare_client_request_does_not_retry_403() -> None:
     ids=["status", "dns", "tunnel", "access"],
 )
 def test_cli_cloudflare_refused_address_is_reported(
-    monkeypatch: pytest.MonkeyPatch, cli: Any, argv: list[str]
+    monkeypatch: pytest.MonkeyPatch, cli: Any, argv: list[str], dns: DnsFake
 ) -> None:
     """A private answer for the API host is refused, and each command reports the refusal.
 
@@ -1210,7 +1170,7 @@ def test_cli_cloudflare_refused_address_is_reported(
     check. Only dials to these two count, because the telemetry exporter of the test
     configuration can dial its collector from a background thread.
     """
-    scripted_resolver(monkeypatch, {"api.cloudflare.com": [["10.0.0.1"]]})
+    dns.script("api.cloudflare.com", ["10.0.0.1"])
     recorder = record_connects(monkeypatch, [])
 
     result = cli("cloudflare", *argv, env={"DEVOPS_CLI_CLOUDFLARE_API_TOKEN": "cf-test"})

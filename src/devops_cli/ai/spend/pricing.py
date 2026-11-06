@@ -764,7 +764,7 @@ _GLOBAL_REGISTRY: PricingRegistry | None = None
 
 
 def _fetch_pricing_json(url: str, level: EgressLevel, timeout: float) -> object:
-    """GET `url` with a factory client at `level`, and parse the JSON reply.
+    """GET `url` with a client of the HTTP entry point at `level`, and parse the JSON reply.
 
     `timeout` bounds each phase of the request, the connect included.
     """

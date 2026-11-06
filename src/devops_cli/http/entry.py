@@ -2,8 +2,8 @@
 
 `http_client` and `async_http_client` build every client: unpooled, or pooled when the caller
 names a `key`. A client dials only what its egress level allows (`devops_cli.http.egress`), and
-takes its transport from one place, `devops_cli.http.client`: the transport that
-`install_transport` put in place, else the egress transport of its level. Nothing here builds a
+takes its transport from one place: the transport that `install_transport` put in place, else
+the egress transport of its level (`devops_cli.http.client`). Nothing here builds a
 client or reads a setting at import; the egress level is read when a client is built.
 
 `install_transport` and `remove_transport` are the hook for a test. Each closes the pooled clients
@@ -27,14 +27,23 @@ from devops_cli.exceptions import InvalidURLError
 from devops_cli.http.client import (
     ClientOptions,
     TransportFactory,
-    new_async_http_client,
-    new_http_client,
+    async_egress_transport,
+    connection_limits,
+    egress_transport,
+    has_transport_hook,
+    hooked_transport,
+    request_timeout,
     reset_transport_hook,
+    resolve_client_timeout,
     set_transport_hook,
     user_agent,
 )
 from devops_cli.http.egress import EgressLevel
-from devops_cli.http.pool import close_shared_clients, get_shared_async_client, get_shared_client
+from devops_cli.http.pool import (
+    close_shared_clients,
+    pooled_async_client,
+    pooled_client,
+)
 from devops_cli.telemetry.context import inject_traceparent_headers
 
 _POOL_FIXES = "A pooled client fixes its timeout, protocol, limits and transport"
@@ -61,15 +70,33 @@ def http_client(
     sets its own timeout, protocol, limits and transport, so passing one with a `key` is a
     TypeError. Without a `key` the caller owns the client and closes it.
 
-    `http2` is off unless set. `retries` wraps the transport in the retry transport for that many
-    attempts; see `devops_cli.http.client.new_http_client` for what that changes.
+    `http2` is off unless set. `retries` wraps the transport in the tenacity retry transport for
+    that many attempts. That transport turns every 4xx and 5xx response into
+    `httpx2.HTTPStatusError` and retries 429, 5xx and connect failures, so only a caller built for
+    those semantics, as the AI clients are, passes it. A refusal (`SSRFBlockedError`) is not an
+    httpx2 error and is never retried.
+
+    A pooled client follows redirects unless the caller says otherwise, and uses the default
+    timeout and the default connection limits.
     """
     if key is not None:
         if (read_timeout, timeout, http2, limits, transport) != (None,) * 5:
             raise TypeError(f"{_POOL_FIXES}; build an unpooled client to set one")
-        return get_shared_client(key, level, verify=verify, retries=retries, **options)
-    return new_http_client(
-        level=level,
+        options.setdefault("follow_redirects", True)
+        return pooled_client(
+            f"{level}:{key}",
+            lambda: _build_client(
+                level,
+                timeout=request_timeout(),
+                verify=verify,
+                http2=True,
+                limits=connection_limits(),
+                retries=retries,
+                **options,
+            ),
+        )
+    return _build_client(
+        level,
         read_timeout=read_timeout,
         timeout=timeout,
         verify=verify,
@@ -77,6 +104,41 @@ def http_client(
         limits=limits,
         retries=retries,
         transport=transport,
+        **options,
+    )
+
+
+def _build_client(
+    level: EgressLevel,
+    *,
+    read_timeout: float | None = None,
+    timeout: httpx2.Timeout | float | None = None,
+    verify: ssl.SSLContext | bool,
+    http2: bool,
+    limits: httpx2.Limits | None = None,
+    retries: int | None = None,
+    transport: httpx2.BaseTransport | None = None,
+    **options: Unpack[ClientOptions],
+) -> httpx2.Client:
+    """The synchronous client: short-connect timeouts and the transport of the hook or of `level`."""
+    if transport is None:
+        transport = hooked_transport(level, httpx2.BaseTransport)
+    effective_transport: httpx2.BaseTransport = (
+        transport
+        if transport is not None
+        else egress_transport(level, verify=verify, http2=http2, limits=limits)
+    )
+    if retries is not None:
+        from devops_cli.ai.retries import create_retry_transport
+        from devops_cli.ai.spend.transport import AttemptRecordingTransport
+
+        effective_transport = AttemptRecordingTransport(effective_transport)
+        effective_transport = create_retry_transport(
+            max_attempts=retries, wrapped=effective_transport
+        )
+    return httpx2.Client(
+        timeout=resolve_client_timeout(timeout, read_timeout),
+        transport=effective_transport,
         **options,
     )
 
@@ -101,9 +163,20 @@ def async_http_client(
     if key is not None:
         if (read_timeout, timeout, http2, limits, transport) != (None,) * 5:
             raise TypeError(f"{_POOL_FIXES}; build an unpooled client to set one")
-        return get_shared_async_client(key, level, verify=verify, **options)
-    return new_async_http_client(
-        level=level,
+        options.setdefault("follow_redirects", True)
+        return pooled_async_client(
+            f"{level}:{key}",
+            lambda: _build_async_client(
+                level,
+                timeout=request_timeout(),
+                verify=verify,
+                http2=True,
+                limits=connection_limits(),
+                **options,
+            ),
+        )
+    return _build_async_client(
+        level,
         read_timeout=read_timeout,
         timeout=timeout,
         verify=verify,
@@ -114,13 +187,43 @@ def async_http_client(
     )
 
 
+def _build_async_client(
+    level: EgressLevel,
+    *,
+    read_timeout: float | None = None,
+    timeout: httpx2.Timeout | float | None = None,
+    verify: ssl.SSLContext | bool,
+    http2: bool,
+    limits: httpx2.Limits | None = None,
+    transport: httpx2.AsyncBaseTransport | None = None,
+    **options: Unpack[ClientOptions],
+) -> httpx2.AsyncClient:
+    """The asynchronous client: short-connect timeouts and the transport of the hook or of `level`."""
+    if transport is None:
+        transport = hooked_transport(level, httpx2.AsyncBaseTransport)
+    effective_transport: httpx2.AsyncBaseTransport = (
+        transport
+        if transport is not None
+        else async_egress_transport(level, verify=verify, http2=http2, limits=limits)
+    )
+    return httpx2.AsyncClient(
+        timeout=resolve_client_timeout(timeout, read_timeout),
+        transport=effective_transport,
+        **options,
+    )
+
+
 def install_transport(factory: TransportFactory) -> None:
     """Make every client built from now on take the transport that `factory` gives for its level.
 
     The pooled clients close first, so none keeps a transport built before. The factory serves
     sync clients with an `httpx2.BaseTransport` and async clients with an
-    `httpx2.AsyncBaseTransport`; `httpx2.MockTransport` is both.
+    `httpx2.AsyncBaseTransport`; `httpx2.MockTransport` is both. A second install raises
+    `RuntimeError`, because one test with two fakes of HTTP would let the later one win without
+    a sign; `remove_transport` first.
     """
+    if has_transport_hook():
+        raise RuntimeError("A transport is already installed; remove_transport() before another")
     close_shared_clients()
     set_transport_hook(factory)
 

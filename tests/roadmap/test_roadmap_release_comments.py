@@ -17,16 +17,16 @@ import pytest
 
 from devops_cli.exceptions import RoadmapRunError
 from devops_cli.exceptions.k8s import ClusterJobError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.roadmap.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.release_comments import comment_releases
 from devops_cli.roadmap.release_feed import GitHubReleaseFeed
 from devops_cli.roadmap.release_roll import RolledDigests
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import RunnerSession
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.oci_registry import RegistryFake
-from tests.web_fakes import StubWeb
 
 REPO = "example/roadmap"
 NOW = datetime(2026, 11, 2, 12, 0, 30, tzinfo=UTC)
@@ -196,11 +196,9 @@ def test_a_release_older_than_the_window_leaves_the_ledger(
 # ── Live since ──
 
 
-def _live(
-    github: GitHubFake, ledger: Path, stub_web: StubWeb, rolled: RolledDigests | None
-) -> None:
-    stub_web.serve(RegistryFake(DIGESTS))
-    with new_http_client(level=EgressLevel.PUBLIC) as client:
+def _live(github: GitHubFake, ledger: Path, web: WebFake, rolled: RolledDigests | None) -> None:
+    web.serve(RegistryFake(DIGESTS))
+    with http_client(EgressLevel.PUBLIC) as client:
         _round(github, ledger, roll=lambda: rolled, client=client)
 
 
@@ -210,20 +208,20 @@ def _live_comments(github: GitHubFake, number: int, tag: str = "v1.0.0") -> list
 
 
 def test_only_the_service_image_rolled_gives_no_live_comment(
-    github: GitHubFake, ledger: Path, stub_web: StubWeb
+    github: GitHubFake, ledger: Path, web: WebFake
 ) -> None:
     rolled = RolledDigests(service=_rolled("v1.0.0").service, runner="sha256:" + "f" * 64)
 
-    _live(github, ledger, stub_web, rolled)
+    _live(github, ledger, web, rolled)
 
     assert _live_comments(github, 101) == []
     assert len(github.comments[101]) == 1
 
 
 def test_both_images_rolled_give_one_live_comment_with_the_time_of_the_round(
-    github: GitHubFake, ledger: Path, stub_web: StubWeb
+    github: GitHubFake, ledger: Path, web: WebFake
 ) -> None:
-    _live(github, ledger, stub_web, _rolled("v1.0.0"))
+    _live(github, ledger, web, _rolled("v1.0.0"))
 
     for number in (101, 102):
         (comment,) = _live_comments(github, number)
@@ -231,13 +229,13 @@ def test_both_images_rolled_give_one_live_comment_with_the_time_of_the_round(
 
 
 def test_a_second_round_posts_no_live_comment_again(
-    github: GitHubFake, ledger: Path, stub_web: StubWeb
+    github: GitHubFake, ledger: Path, web: WebFake
 ) -> None:
-    _live(github, ledger, stub_web, _rolled("v1.0.0"))
+    _live(github, ledger, web, _rolled("v1.0.0"))
     posted = len(github.writes())
     ledger.unlink()
 
-    _live(github, ledger, stub_web, _rolled("v1.0.0"))
+    _live(github, ledger, web, _rolled("v1.0.0"))
 
     assert len(github.writes()) == posted
 
@@ -249,11 +247,11 @@ def _two_releases(github: GitHubFake) -> None:
 
 
 def test_a_newer_release_that_runs_makes_the_older_release_live(
-    github: GitHubFake, ledger: Path, stub_web: StubWeb
+    github: GitHubFake, ledger: Path, web: WebFake
 ) -> None:
     _two_releases(github)
 
-    _live(github, ledger, stub_web, _rolled("v1.1.0"))
+    _live(github, ledger, web, _rolled("v1.1.0"))
 
     assert len(_live_comments(github, 103, "v1.1.0")) == 1
     assert len(_live_comments(github, 101, "v1.0.0")) == 1
@@ -261,26 +259,26 @@ def test_a_newer_release_that_runs_makes_the_older_release_live(
 
 
 def test_an_older_release_that_runs_leaves_the_newer_one_without_a_live_comment(
-    github: GitHubFake, ledger: Path, stub_web: StubWeb
+    github: GitHubFake, ledger: Path, web: WebFake
 ) -> None:
     _two_releases(github)
 
-    _live(github, ledger, stub_web, _rolled("v1.0.0"))
+    _live(github, ledger, web, _rolled("v1.0.0"))
 
     assert _live_comments(github, 103, "v1.1.0") == []
     assert len(_live_comments(github, 101, "v1.0.0")) == 1
 
 
 def test_a_cluster_that_does_not_answer_still_posts_the_released_comments_and_fails_the_row(
-    github: GitHubFake, ledger: Path, stub_web: StubWeb
+    github: GitHubFake, ledger: Path, web: WebFake
 ) -> None:
-    stub_web.serve(RegistryFake(DIGESTS))
+    web.serve(RegistryFake(DIGESTS))
 
     def broken() -> RolledDigests:
         raise ClusterJobError("Deployment devops/roadmap-service not found.")
 
     with (
-        new_http_client(level=EgressLevel.PUBLIC) as client,
+        http_client(EgressLevel.PUBLIC) as client,
         pytest.raises(RoadmapRunError, match=r"v1\.0\.0"),
     ):
         _round(github, ledger, roll=broken, client=client)
@@ -290,9 +288,9 @@ def test_a_cluster_that_does_not_answer_still_posts_the_released_comments_and_fa
 
 
 def test_a_round_sends_only_reads_and_comments(
-    github: GitHubFake, ledger: Path, stub_web: StubWeb
+    github: GitHubFake, ledger: Path, web: WebFake
 ) -> None:
-    _live(github, ledger, stub_web, _rolled("v1.0.0"))
+    _live(github, ledger, web, _rolled("v1.0.0"))
 
     assert github.writes()
     for args in github.writes():
@@ -313,23 +311,23 @@ def _new_release(github: GitHubFake) -> None:
 def _live_round(
     github: GitHubFake,
     ledger: Path,
-    stub_web: StubWeb,
+    web: WebFake,
     *,
     absent: tuple[str, ...] = (),
     rolled: str = "v1.0.0",
 ) -> None:
     """A round over a registry that holds every digest but the references in `absent`."""
-    stub_web.serve(RegistryFake({k: v for k, v in DIGESTS.items() if k not in absent}))
-    with new_http_client(level=EgressLevel.PUBLIC) as client:
+    web.serve(RegistryFake({k: v for k, v in DIGESTS.items() if k not in absent}))
+    with http_client(EgressLevel.PUBLIC) as client:
         _round(github, ledger, roll=lambda: _rolled(rolled), client=client)
 
 
 def test_a_404_on_a_release_younger_than_the_limit_fails_no_round(
-    github: GitHubFake, ledger: Path, stub_web: StubWeb
+    github: GitHubFake, ledger: Path, web: WebFake
 ) -> None:
     _new_release(github)
 
-    _live_round(github, ledger, stub_web, absent=(f"{PREFIX}/service:v1.1.0",), rolled="v1.1.0")
+    _live_round(github, ledger, web, absent=(f"{PREFIX}/service:v1.1.0",), rolled="v1.1.0")
 
     assert _live_comments(github, 103, "v1.1.0") == []
     assert len(github.comments[103]) == 1
@@ -340,14 +338,14 @@ def test_a_404_on_a_release_younger_than_the_limit_fails_no_round(
 
 
 def test_a_404_on_a_new_release_leaves_the_older_releases_checked_in_the_same_round(
-    github: GitHubFake, ledger: Path, stub_web: StubWeb
+    github: GitHubFake, ledger: Path, web: WebFake
 ) -> None:
     _new_release(github)
 
     _live_round(
         github,
         ledger,
-        stub_web,
+        web,
         absent=(f"{PREFIX}/service:v1.1.0", f"{PREFIX}/runner:v1.1.0"),
     )
 
@@ -356,49 +354,49 @@ def test_a_404_on_a_new_release_leaves_the_older_releases_checked_in_the_same_ro
 
 
 def test_a_404_on_the_runner_tag_of_a_new_release_is_also_not_yet(
-    github: GitHubFake, ledger: Path, stub_web: StubWeb
+    github: GitHubFake, ledger: Path, web: WebFake
 ) -> None:
     _new_release(github)
 
-    _live_round(github, ledger, stub_web, absent=(f"{PREFIX}/runner:v1.1.0",), rolled="v1.1.0")
+    _live_round(github, ledger, web, absent=(f"{PREFIX}/runner:v1.1.0",), rolled="v1.1.0")
 
     assert _live_comments(github, 103, "v1.1.0") == []
 
 
 def test_a_new_release_gets_its_live_comment_in_the_round_after_its_images_are_pushed(
-    github: GitHubFake, ledger: Path, stub_web: StubWeb
+    github: GitHubFake, ledger: Path, web: WebFake
 ) -> None:
     _new_release(github)
-    _live_round(github, ledger, stub_web, absent=(f"{PREFIX}/service:v1.1.0",), rolled="v1.1.0")
-    stub_web.servers.clear()
+    _live_round(github, ledger, web, absent=(f"{PREFIX}/service:v1.1.0",), rolled="v1.1.0")
+    web.servers.clear()
 
-    _live_round(github, ledger, stub_web, rolled="v1.1.0")
+    _live_round(github, ledger, web, rolled="v1.1.0")
 
     assert len(_live_comments(github, 103, "v1.1.0")) == 1
 
 
 def test_a_404_on_a_release_at_the_limit_fails_the_round(
-    github: GitHubFake, ledger: Path, stub_web: StubWeb
+    github: GitHubFake, ledger: Path, web: WebFake
 ) -> None:
     """v1.0.0 is 150 minutes old, far past the limit of 20 minutes."""
-    stub_web.serve(RegistryFake({}))
+    web.serve(RegistryFake({}))
 
     with (
-        new_http_client(level=EgressLevel.PUBLIC) as client,
+        http_client(EgressLevel.PUBLIC) as client,
         pytest.raises(RoadmapRunError, match=r"v1\.0\.0"),
     ):
         _round(github, ledger, roll=lambda: _rolled("v1.0.0"), client=client)
 
 
 def test_a_registry_status_other_than_404_fails_the_round_for_a_new_release(
-    github: GitHubFake, ledger: Path, stub_web: StubWeb
+    github: GitHubFake, ledger: Path, web: WebFake
 ) -> None:
     _new_release(github)
     manifest = "https://ghcr.io/v2/dan-petty/devops-cli/service/manifests/v1.1.0"
-    stub_web.respond("HEAD", manifest, 500)
+    web.respond("HEAD", manifest, 500)
 
     with (
-        new_http_client(level=EgressLevel.PUBLIC) as client,
+        http_client(EgressLevel.PUBLIC) as client,
         pytest.raises(RoadmapRunError, match=r"v1\.1\.0"),
     ):
         _round(github, ledger, roll=lambda: _rolled("v1.1.0"), client=client)

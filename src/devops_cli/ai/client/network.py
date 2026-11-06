@@ -669,7 +669,7 @@ def validate_base_url(
 ) -> str:
     """Validate a configured base URL against scheme and host rules.
 
-    The pre-flight DNS check is removed; the factory client checks at the connect
+    The pre-flight DNS check is removed; the HTTP entry point's client checks at the connect
     (ai/client/base.py:64-66). Scheme and host checks stay for early syntax errors.
     """
     if not base_url or not base_url.strip():

@@ -12,6 +12,7 @@ import yaml
 from devops_cli.config.settings import reset_settings_cache
 from tests.support.config_writes import written_keys
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
 
 _REMOVED_LINE = "  vllm_url: http://192.0.2.10:8000\n"
 _WITH_REMOVED_KEY = (
@@ -251,11 +252,10 @@ def test_config_get_of_an_unknown_key_names_the_similar_keys(cli: Any) -> None:
     )
 
 
-def test_validate_wizard_service_url_validation_branches(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_validate_wizard_service_url_validation_branches(dns: DnsFake) -> None:
     from devops_cli.commands.config import _validate_wizard_service_url
-    from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
 
-    scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+    dns.add("example.com", PUBLIC_ADDRESS)
 
     _validate_wizard_service_url("http://example.com:8080", "Grafana", allow_private=True)
 

@@ -85,9 +85,9 @@ from devops_cli.roadmap.store import (
 from devops_cli.telemetry.tracer import OTelTelemetryClient, get_tracer
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.model import ModelFake
 from tests.support.fakes.valkey import valkey_client_on
-from tests.web_fakes import StubWeb
 
 REPO = "example/roadmap"
 NOW = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
@@ -1929,7 +1929,7 @@ def _embeddings_server(request: httpx2.Request) -> httpx2.Response | None:
 )
 def test_a_second_intake_run_over_settled_items_sends_no_embedding_request_with_the_valkey_cache(
     roadmap: Roadmap,
-    stub_web: StubWeb,
+    web: WebFake,
     valkey_server: FakeServer,
     cached: bool,
     embedding_requests: list[int],
@@ -1937,19 +1937,19 @@ def test_a_second_intake_run_over_settled_items_sends_no_embedding_request_with_
     """Each run is a new process with an empty memory cache, as each round of the Service and
     each cluster job is. With the shared Valkey cache, a second run over the same items and the
     same candidate sends no embedding request. With no cache it embeds them all again (#1655)."""
-    stub_web.serve(_embeddings_server)
+    web.serve(_embeddings_server)
     roadmap.finished("Retry policy for the gateway")
     roadmap.finished("Dashboard for the gateway")
     roadmap.issue("feat: cache the embeddings")
     ai = AIConfig(provider="gateway", gateway_url="https://example.com/v1")
     sent: list[int] = []
     for _run in range(2):
-        before = len(stub_web.sent)
+        before = len(web.sent)
         valkey = valkey_client_on(valkey_server) if cached else None
         engine = EmbeddingsEngine(ai, api_key="sk-test", valkey_client=valkey)
         model = GatewayIntakeModel(ai, embedder=engine, client=_Proposer())
         plan = plan_intake(roadmap.store, repo=REPO, model=model)
-        sent.append(sum(1 for r in stub_web.sent[before:] if r.url.path == "/v1/embeddings"))
+        sent.append(sum(1 for r in web.sent[before:] if r.url.path == "/v1/embeddings"))
 
     assert (sent, [d.outcome for d in plan.decisions]) == (embedding_requests, [Outcome.PLACE])
 

@@ -15,7 +15,9 @@ from typer.testing import CliRunner
 from devops_cli.commands.grafana import app as grafana_app
 from devops_cli.config.settings import Settings
 from devops_cli.main import app as main_app
-from tests.web_fakes import record_connects, scripted_resolver
+from tests.support.fakes.dial import record_connects
+from tests.support.fakes.dns import DnsFake
+from tests.support.fakes.http import WebFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -44,33 +46,15 @@ def test_grafana_dashboards_sync_dry_run() -> None:
     assert (result.exit_code, "devops grafana dashboards sync" in result.output) == (0, True)
 
 
-def test_grafana_dashboards_sync_success(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_grafana_dashboards_sync_success(monkeypatch: pytest.MonkeyPatch, web: WebFake) -> None:
     """Verify successful sync of dashboards with mock Grafana API."""
-    import httpx2
-
     mock_settings = Settings()
     mock_settings.grafana.url = "http://localhost:3000"
     mock_settings.ai.allow_private_network = True
     monkeypatch.setattr("devops_cli.commands.grafana.load_settings", lambda: mock_settings)
-
-    class DummyResponse:
-        def raise_for_status(self) -> None:
-            pass
-
-        def json(self) -> dict[str, str]:
-            return {"slug": "test-dashboard", "status": "success"}
-
-    class DummyClient:
-        def __enter__(self) -> DummyClient:
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            pass
-
-        def post(self, url: str, **kwargs: object) -> DummyResponse:
-            return DummyResponse()
-
-    monkeypatch.setattr(httpx2, "Client", lambda *args, **kwargs: DummyClient())
+    web.serve(
+        lambda request: httpx2.Response(200, json={"slug": "test-dashboard", "status": "success"})
+    )
 
     result = runner.invoke(grafana_app, ["dashboards", "sync"])
     assert result.exit_code == 0
@@ -104,35 +88,30 @@ class StubGrafana:
 
 
 def _sync_against(
-    stub: StubGrafana, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    stub: StubGrafana, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, web: WebFake
 ) -> tuple[int, str]:
     """Sync three dashboards, `a`, `b` and `c`, to the stub; return the exit code and output."""
     for uid in ("a", "b", "c"):
         (tmp_path / f"{uid}.json").write_text(
             json.dumps({"uid": uid, "title": f"Dashboard {uid}", "panels": []}), encoding="utf-8"
         )
-    real_client = httpx2.Client
+    web.serve(stub)
     monkeypatch.setattr("devops_cli.commands.grafana.load_settings", Settings)
     monkeypatch.setattr(
         "devops_cli.commands.grafana._client_args",
         lambda settings: ("http://example.com", {"Content-Type": "application/json"}),
-    )
-    monkeypatch.setattr(
-        httpx2,
-        "Client",
-        lambda *args, **kwargs: real_client(transport=httpx2.MockTransport(stub)),
     )
     result = runner.invoke(grafana_app, ["dashboards", "sync", "--dir", str(tmp_path)])
     return result.exit_code, result.output
 
 
 def test_sync_tries_every_dashboard_and_fails_when_one_is_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, web: WebFake
 ) -> None:
     """Verify a 500 on one dashboard still posts the others, then exits 1 with the counts."""
     stub = StubGrafana({"b": 500})
 
-    exit_code, output = _sync_against(stub, tmp_path, monkeypatch)
+    exit_code, output = _sync_against(stub, tmp_path, monkeypatch, web)
 
     assert (exit_code, stub.requests, "2 synced, 0 skipped, 1 failed" in output) == (
         1,
@@ -156,6 +135,7 @@ def test_sync_skips_a_dashboard_grafana_holds_as_provisioned(
     counts: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify a 400 on a provisioned dashboard counts as skipped, read from `meta.provisioned`.
 
@@ -165,7 +145,7 @@ def test_sync_skips_a_dashboard_grafana_holds_as_provisioned(
     """
     stub = StubGrafana({"b": 400}, provisioned=provisioned)
 
-    result = _sync_against(stub, tmp_path, monkeypatch)
+    result = _sync_against(stub, tmp_path, monkeypatch, web)
 
     assert (result[0], stub.requests, counts in result[1], "b.json" in result[1]) == (
         exit_code,
@@ -276,8 +256,8 @@ def test_grafana_commands_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         ) == (0, 0, True, 0, 0, 0, 0)
 
 
-@pytest.mark.usefixtures("public_dns")
-def test_grafana_client_args_masked_token_fallback() -> None:
+def test_grafana_client_args_masked_token_fallback(dns: DnsFake) -> None:
+    dns.answer_every_name()
     from devops_cli.commands.grafana import _client_args
 
     settings_masked = Settings()
@@ -298,7 +278,7 @@ def test_grafana_client_args_masked_token_fallback() -> None:
 
 
 def test_a_refused_grafana_address_ends_the_dashboard_sync_with_the_refusal(
-    cli: Callable[..., Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    cli: Callable[..., Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dns: DnsFake
 ) -> None:
     """Old vs new (#2424): a refused address ends the sync with the refusal, not as a failed file.
 
@@ -311,7 +291,7 @@ def test_a_refused_grafana_address_ends_the_dashboard_sync_with_the_refusal(
         (tmp_path / f"{uid}.json").write_text(
             json.dumps({"uid": uid, "title": f"Dashboard {uid}", "panels": []}), encoding="utf-8"
         )
-    scripted_resolver(monkeypatch, {"example.com": [["192.0.2.10"]]})
+    dns.script("example.com", ["192.0.2.10"])
     recorder = record_connects(monkeypatch, [])
 
     result = cli(

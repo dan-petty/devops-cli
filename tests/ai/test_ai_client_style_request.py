@@ -2,7 +2,7 @@
 
 The client reaches its provider through the `web` fake, as the other client tests do, so
 each test reads the system message of the request the provider is sent. `ModelFake` replaces the
-whole client at the factory seam and never runs this code. Hosts are `example.com`.
+whole client at the entry point seam and never runs this code. Hosts are `example.com`.
 """
 
 from __future__ import annotations

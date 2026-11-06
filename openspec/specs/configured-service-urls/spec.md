@@ -125,15 +125,15 @@ The `devops grafana`, `devops prometheus` and `devops argo cd apps` commands SHA
 - **THEN** the command exits with status 1, the error names `argocd.url`, and no lookup or dial occurs
 
 ### Requirement: Connect-time checking replaces pre-flight resolution
-Every HTTP client in `src/devops_cli/` SHALL be checked at the connect through `devops_cli.http.client.new_http_client` or `new_async_http_client`. Pre-flight address resolution paths in `core/validation.py` SHALL be deleted.
+Every HTTP client in `src/devops_cli/` SHALL be checked at the connect through `http_client` or `async_http_client` of `devops_cli.http.entry`. Pre-flight address resolution paths in `core/validation.py` SHALL be deleted.
 
 #### Scenario: No pre-flight resolve paths remain
 - **WHEN** the codebase is searched for `_resolve_host_ips` or `_enforce_non_private_ssrf`
 - **THEN** no occurrences are found in `src/`
 
-#### Scenario: No raw httpx2 client construction outside factory
+#### Scenario: No raw httpx2 client construction outside the entry point
 - **WHEN** `src/` is searched for `httpx2.Client` or `httpx2.AsyncClient`
-- **THEN** matches occur only in `src/devops_cli/http/client.py`
+- **THEN** matches occur only in `src/devops_cli/http/entry.py`
 
 ### Requirement: Kept pre-flight checks call vet_addresses
 Callers that do not dial through an httpx2 client or that dial nothing SHALL validate host addresses using `devops_cli.http.egress.vet_addresses` at their egress level and document their time-of-check gap in a docstring.

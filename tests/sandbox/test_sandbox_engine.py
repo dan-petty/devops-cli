@@ -18,8 +18,8 @@ from devops_cli.sandbox.models import (
     SandboxStatus,
 )
 from devops_cli.sandbox.registry import SandboxRegistry
+from tests.support.fakes.dial import http_response, record_connects
 from tests.support.fakes.docker_engine import DockerEngineFake
-from tests.web_fakes import http_response, record_connects
 
 _IMAGE = "python:3.14-slim"
 

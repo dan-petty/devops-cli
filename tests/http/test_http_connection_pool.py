@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import threading
 from typing import Any
-from unittest.mock import MagicMock
 
 import httpx2
 import pytest
@@ -16,11 +15,13 @@ from devops_cli.config.defaults import (
     DEFAULT_HTTP_MAX_KEEPALIVE_CONNECTIONS,
 )
 from devops_cli.http.egress import EgressLevel
-from devops_cli.http.pool import (
-    close_shared_clients,
-    get_shared_async_client,
-    get_shared_client,
+from devops_cli.http.entry import (
+    async_http_client,
+    http_client,
+    install_transport,
+    remove_transport,
 )
+from devops_cli.http.pool import aclose_shared_clients, close_shared_clients
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 
@@ -39,30 +40,30 @@ def clean_registry() -> Any:
 
 def test_the_same_key_returns_the_same_client() -> None:
     """Reuse is the whole point: a new client means a new TCP and TLS handshake."""
-    assert get_shared_client("profile-a", EgressLevel.PUBLIC) is get_shared_client(
-        "profile-a", EgressLevel.PUBLIC
+    assert http_client(EgressLevel.PUBLIC, key="profile-a") is http_client(
+        EgressLevel.PUBLIC, key="profile-a"
     )
 
 
 def test_different_keys_get_different_clients() -> None:
     """Endpoints with different transport settings cannot share a connection."""
-    assert get_shared_client("profile-a", EgressLevel.PUBLIC) is not get_shared_client(
-        "profile-b", EgressLevel.PUBLIC
+    assert http_client(EgressLevel.PUBLIC, key="profile-a") is not http_client(
+        EgressLevel.PUBLIC, key="profile-b"
     )
 
 
 def test_a_closed_client_is_rebuilt_rather_than_handed_back() -> None:
     """A client closed elsewhere is unusable; returning it would fail every later call."""
-    first = get_shared_client("profile-a", EgressLevel.PUBLIC)
+    first = http_client(EgressLevel.PUBLIC, key="profile-a")
     first.close()
-    second = get_shared_client("profile-a", EgressLevel.PUBLIC)
+    second = http_client(EgressLevel.PUBLIC, key="profile-a")
     assert (second is not first, second.is_closed) == (True, False)
 
 
 def test_async_clients_are_shared_separately_from_sync_ones() -> None:
     """The two kinds are not interchangeable, so one key must not collide across them."""
-    sync_client = get_shared_client("profile-a", EgressLevel.PUBLIC)
-    async_client = get_shared_async_client("profile-a", EgressLevel.PUBLIC)
+    sync_client = http_client(EgressLevel.PUBLIC, key="profile-a")
+    async_client = async_http_client(EgressLevel.PUBLIC, key="profile-a")
     assert isinstance(sync_client, httpx2.Client)
     assert isinstance(async_client, httpx2.AsyncClient)
     assert (sync_client is not async_client, sync_client.is_closed) == (True, False)
@@ -75,7 +76,7 @@ def test_concurrent_callers_receive_one_client() -> None:
 
     def grab() -> None:
         barrier.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
-        clients.append(get_shared_client("racy", EgressLevel.PUBLIC))
+        clients.append(http_client(EgressLevel.PUBLIC, key="racy"))
 
     threads = [threading.Thread(target=grab) for _ in range(8)]
     for thread in threads:
@@ -92,8 +93,8 @@ def test_concurrent_callers_receive_one_client() -> None:
 
 
 def _shared_pool(**overrides: Any) -> Any:
-    """The httpcore2 connection pool under one shared client, as the factory built it."""
-    return get_shared_client("profile-a", EgressLevel.PRIVATE, **overrides)._transport._pool
+    """The httpcore2 connection pool under one shared client, as the entry point built it."""
+    return http_client(EgressLevel.PRIVATE, key="profile-a", **overrides)._transport._pool
 
 
 def test_a_shared_client_negotiates_http2_at_its_level() -> None:
@@ -128,7 +129,7 @@ def test_defaults_apply_when_not_overridden() -> None:
     """An override of one setting must not discard the rest."""
     import ssl
 
-    client = get_shared_client("profile-a", EgressLevel.PRIVATE, verify=False)
+    client = http_client(EgressLevel.PRIVATE, key="profile-a", verify=False)
     pool = client._transport._pool
     assert (pool._ssl_context.verify_mode, pool._http2, client.follow_redirects) == (
         ssl.CERT_NONE,
@@ -144,38 +145,48 @@ def test_defaults_apply_when_not_overridden() -> None:
 
 def test_closing_releases_every_client() -> None:
     """A pool that outlives its process leaks sockets."""
-    first = get_shared_client("profile-a", EgressLevel.PUBLIC)
-    second = get_shared_client("profile-b", EgressLevel.PUBLIC)
+    first = http_client(EgressLevel.PUBLIC, key="profile-a")
+    second = http_client(EgressLevel.PUBLIC, key="profile-b")
     close_shared_clients()
     assert (first.is_closed, second.is_closed) == (True, True)
 
 
 def test_closing_clears_the_registry() -> None:
     """A closed client must not be handed to the next caller."""
-    first = get_shared_client("profile-a", EgressLevel.PUBLIC)
+    first = http_client(EgressLevel.PUBLIC, key="profile-a")
     close_shared_clients()
-    assert get_shared_client("profile-a", EgressLevel.PUBLIC) is not first
+    assert http_client(EgressLevel.PUBLIC, key="profile-a") is not first
+
+
+class _DetachedTransport(httpx2.BaseTransport):
+    """A transport whose connections are gone, so its close fails."""
+
+    def close(self) -> None:
+        raise RuntimeError("already detached")
 
 
 def test_a_failing_close_does_not_abandon_the_rest() -> None:
     """One stuck client must not leak every other one."""
-    broken = MagicMock()
-    broken.close.side_effect = RuntimeError("already detached")
-    from devops_cli.http import pool
 
-    pool._CLIENTS["broken"] = broken
-    healthy = get_shared_client("healthy", EgressLevel.PUBLIC)
-    close_shared_clients()
-    assert healthy.is_closed is True
+    def transport_at(level: EgressLevel) -> httpx2.BaseTransport:
+        if level is EgressLevel.PRIVATE:
+            return _DetachedTransport()
+        return httpx2.MockTransport(lambda request: httpx2.Response(200))
+
+    install_transport(transport_at)
+    try:
+        broken = http_client(EgressLevel.PRIVATE, key="broken")
+        healthy = http_client(EgressLevel.PUBLIC, key="healthy")
+        close_shared_clients()
+    finally:
+        remove_transport()
+    assert (broken.is_closed, healthy.is_closed) == (True, True)
 
 
 def test_closing_an_empty_registry_is_harmless() -> None:
     """This runs at interpreter exit, where a process may have opened no clients at all."""
-    from devops_cli.http import pool
-
     close_shared_clients()
-    close_shared_clients()
-    assert (close_shared_clients(), pool._CLIENTS) == (None, {})
+    assert close_shared_clients() is None
 
 
 def test_closing_is_registered_with_atexit() -> None:
@@ -205,14 +216,11 @@ def test_llm_providers_share_a_client_per_provider() -> None:
 
 def test_aclose_shared_clients_releases_async_pool() -> None:
     """Verify aclose_shared_clients awaits closing all active async clients."""
-    from devops_cli.http import pool
+    client = async_http_client(EgressLevel.PUBLIC, key="test-key")
 
-    mock_client = MagicMock(is_closed=False)
-    mock_client.aclose = MagicMock(return_value=asyncio.sleep(0))
+    asyncio.run(aclose_shared_clients())
 
-    with pool._LOCK:
-        pool._ASYNC_CLIENTS["test-key"] = mock_client
-
-    asyncio.run(pool.aclose_shared_clients())
-
-    assert (len(pool._ASYNC_CLIENTS), mock_client.aclose.call_count) == (0, 1)
+    assert (client.is_closed, async_http_client(EgressLevel.PUBLIC, key="test-key") is client) == (
+        True,
+        False,
+    )

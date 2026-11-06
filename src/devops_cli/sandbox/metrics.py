@@ -14,7 +14,7 @@ from prometheus_client.parser import text_string_to_metric_families
 
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.http import EgressLevel, new_http_client
+from devops_cli.http import EgressLevel, http_client
 from devops_cli.models.docker import ContainerStatEntry
 from devops_cli.sandbox.models import (
     CgroupV2Metrics,
@@ -369,8 +369,8 @@ def scrape_prometheus_metrics(
         return PrometheusScrapeResult([], error=_truncate(redact_text(str(exc))))
 
     try:
-        with new_http_client(
-            level=EgressLevel.LOOPBACK,
+        with http_client(
+            EgressLevel.LOOPBACK,
             timeout=timeout,
         ) as client:
             resp = client.get(metrics_url, headers={"User-Agent": "devops-cli-metrics"})

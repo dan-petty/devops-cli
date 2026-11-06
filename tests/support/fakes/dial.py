@@ -1,32 +1,28 @@
-"""Canned web pages and connects for tests that fetch over HTTP and must not reach the network.
+"""The dial of httpcore2 faked for tests: which address a client connects to, with no socket (#1314).
 
-`StubWeb`, which is `WebFake` of `tests/support/fakes/http.py`, answers pages through httpx2's own
-`MockTransport`, so a client under test follows redirects and runs its request hooks exactly as it
-would against a real server. `ConnectRecorder` and `ScriptedResolver` sit one layer lower, at the
-socket: they stand in for httpcore2's dial and for `socket.getaddrinfo`, so a test sees which
-address a client dialled after which lookups.
+`ConnectRecorder` stands in for httpcore2's dial. Patched over `httpcore2.SyncBackend.connect_tcp`
+(and `AnyIOBackend.connect_tcp` through `aconnect_tcp`) by `record_connects`, it receives what the
+vetting backend of `devops_cli.http.egress` dials. A test sees which address a client dialled, after
+which lookups of the `dns` fixture, the TLS handshake it asked for, the bytes it wrote and the
+bound of each dial. `http_response` gives the bytes of one response for a connection to serve.
+
+This is the seam below the pool. A test of the egress policy needs it, because the policy runs at
+the connect. A test of a caller needs the `web` fake (`tests/support/fakes/http.py`), which sits
+above the pool at httpx2's transport interface.
 Hosts are `example.com`, as docs/TESTING.md requires of fixtures, and `example.org` where a second
 hostname is the point of the test.
 """
 
 from __future__ import annotations
 
-import socket
 import ssl
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Iterable
 from http import HTTPStatus
 from typing import Any
 
 import h11
 import httpcore2
-import httpx2
-
-from devops_cli.http.egress import AsyncVettingBackend, EgressLevel, VettingBackend
-from tests.support.fakes.http import WebFake
-
-PUBLIC_ADDRESS = "93.184.215.14"
-# What a fake client says faked httpx2.AsyncClient, so a second fake in one test is refused.
-FAKE_OWNER_ATTRIBUTE = "fake_owner"
+import pytest
 
 
 def http_response(status: int, body: str = "", headers: dict[str, str] | None = None) -> bytes:
@@ -147,96 +143,9 @@ class AsyncRecordingStream(httpcore2.AsyncMockStream):
         return self
 
 
-def _answer(address: str, port: Any) -> tuple[Any, ...]:
-    """One `getaddrinfo` answer for `address`."""
-    number = int(port) if isinstance(port, int) or str(port or "").isdigit() else 0
-    if ":" in address:
-        return (
-            socket.AF_INET6,
-            socket.SOCK_STREAM,
-            socket.IPPROTO_TCP,
-            "",
-            (address, number, 0, 0),
-        )
-    return (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, number))
-
-
-class ScriptedResolver:
-    """A stub `socket.getaddrinfo` whose answers for a name can change between lookups.
-
-    `script[name]` lists, per lookup, the addresses that lookup answers; the last entry repeats.
-    Every other host goes to `fallback`, the session's guarded resolver, so numeric hosts and
-    loopback still resolve as they do in production. A call with `AI_NUMERICHOST` also goes to
-    `fallback` and is not counted: a real resolver reads no name for it (#2152). `lookups` counts
-    the lookups of each name.
-    """
-
-    def __init__(
-        self, script: dict[str, Sequence[Sequence[str]]], fallback: Callable[..., Any]
-    ) -> None:
-        self.script = script
-        self.fallback = fallback
-        self.lookups: dict[str, int] = dict.fromkeys(script, 0)
-
-    def __call__(self, host: Any, port: Any, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
-        name = host.decode() if isinstance(host, bytes) else str(host)
-        flags = kwargs.get("flags", args[3] if len(args) >= 4 else 0) or 0
-        if name not in self.script or flags & socket.AI_NUMERICHOST:
-            return list(self.fallback(host, port, *args, **kwargs))
-        answers = self.script[name]
-        index = min(self.lookups[name], len(answers) - 1)
-        self.lookups[name] += 1
-        return [_answer(address, port) for address in answers[index]]
-
-
-def rebinding(k: int, then: str) -> list[list[str]]:
-    """A name's lookups: the public address for the first `k`, then `then` for every later one."""
-    return [*([[PUBLIC_ADDRESS]] * k), [then]]
-
-
-def scripted_resolver(
-    monkeypatch: Any, script: dict[str, Sequence[Sequence[str]]]
-) -> ScriptedResolver:
-    """Install a `ScriptedResolver` over `socket.getaddrinfo` for the rest of the test."""
-    resolver = ScriptedResolver(script, socket.getaddrinfo)
-    monkeypatch.setattr(socket, "getaddrinfo", resolver)
-    return resolver
-
-
-def record_connects(monkeypatch: Any, responses: Iterable[bytes]) -> ConnectRecorder:
+def record_connects(monkeypatch: pytest.MonkeyPatch, responses: Iterable[bytes]) -> ConnectRecorder:
     """Patch httpcore2's sync and async dials with a `ConnectRecorder` serving `responses`."""
     recorder = ConnectRecorder(*responses)
     monkeypatch.setattr(httpcore2.SyncBackend, "connect_tcp", recorder.connect_tcp)
     monkeypatch.setattr(httpcore2.AnyIOBackend, "connect_tcp", recorder.aconnect_tcp)
     return recorder
-
-
-def install_async_client_fake(monkeypatch: Any, fake: type[Any]) -> None:
-    """Make `fake` the `httpx2.AsyncClient` for the rest of the test.
-
-    `stub_web` and `github_api` each answer async clients from their own fake, which names itself
-    in its `FAKE_OWNER_ATTRIBUTE`, so a test that asks for both would have one silently win; the
-    second to install raises instead.
-    """
-    installed = getattr(httpx2.AsyncClient, FAKE_OWNER_ATTRIBUTE, None)
-    if installed is not None:
-        raise RuntimeError(
-            f"{getattr(fake, FAKE_OWNER_ATTRIBUTE)} and {installed} both fake httpx2.AsyncClient; "
-            "a test uses one of them"
-        )
-    monkeypatch.setattr(httpx2, "AsyncClient", fake)
-
-
-def egress_level_of(transport: Any) -> EgressLevel | None:
-    """The egress level of a factory-built transport, through any retry wrappers, or None."""
-    while transport is not None:
-        backend = getattr(getattr(transport, "_pool", None), "_network_backend", None)
-        if isinstance(backend, (VettingBackend, AsyncVettingBackend)):
-            return backend.level
-        transport = getattr(transport, "wrapped", None)
-    return None
-
-
-# The name that the 32 test files and the `stub_web` fixture use until their packages move to the
-# `web` fixture (#1314).
-StubWeb = WebFake

@@ -29,10 +29,16 @@ from devops_cli.telemetry import (
     get_recent_spans,
     reset_tracer,
 )
+from tests.support.fakes.dns import DnsFake
 
 runner = CliRunner()
 
-pytestmark = pytest.mark.usefixtures("public_dns")
+
+@pytest.fixture(autouse=True)
+def _every_name_is_public(dns: DnsFake) -> None:
+    """Resolve every external name to one public address, as the whitelist checks need."""
+    dns.answer_every_name()
+
 
 _TRACE_ENV_VARS = (CONST_TRACEPARENT_ENV_VAR, CONST_TRACESTATE_ENV_VAR)
 

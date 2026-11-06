@@ -119,13 +119,13 @@ from tests.roadmap_faults import Fault, StoppingStore
 from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.oci_registry import RegistryFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.paths import REPO_ROOT
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
-from tests.web_fakes import StubWeb
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -1324,7 +1324,7 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
-    stub_web: StubWeb,
+    web: WebFake,
     git_sim: SimulatedGit,
     otlp: FakeCollector,
 ) -> None:
@@ -1339,13 +1339,13 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
     github = GitHubFake(REPO, milestones=[{"number": 26, "title": PLANNED, "state": "open"}])
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
     for url in (CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY):
-        stub_web.page(url, json.dumps(STATUS_PAGE))
-    stub_web.page(
+        web.page(url, json.dumps(STATUS_PAGE))
+    web.page(
         f"{API}/user",
         json.dumps({"login": "test-bot"}),
         headers={"content-type": "application/json"},
     )
-    stub_web.page(
+    web.page(
         f"{API}/users/test-bot",
         json.dumps({"id": 4242, "login": "test-bot"}),
         headers={"content-type": "application/json"},
@@ -1380,7 +1380,7 @@ def test_the_metrics_row_sends_the_age_of_a_blocked_item_and_logs_no_collection_
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
-    stub_web: StubWeb,
+    web: WebFake,
     otlp: FakeCollector,
 ) -> None:
     """The metrics row of the Service asks for the item ages (#2919). A Blocked item sends its age
@@ -1391,7 +1391,7 @@ def test_the_metrics_row_sends_the_age_of_a_blocked_item_and_logs_no_collection_
     (clone / ".git").mkdir()
     monkeypatch.setattr(subprocess, "run", GitHubFake(REPO).process(subprocess.run))
     for url in (CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY):
-        stub_web.page(url, json.dumps(STATUS_PAGE))
+        web.page(url, json.dumps(STATUS_PAGE))
     number = seeded_store.seed_issue("blocked item", fields=PLACED)
     blocked = seeded_store.item(number)
     assert blocked is not None
@@ -1426,7 +1426,7 @@ def test_a_failed_metrics_collection_or_status_read_is_logged_and_the_job_goes_o
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
-    stub_web: StubWeb,
+    web: WebFake,
     git_sim: SimulatedGit,
 ) -> None:
     """GitHub answers a milestone the report cannot count, and neither status page answers:
@@ -1445,7 +1445,7 @@ def test_a_failed_metrics_collection_or_status_read_is_logged_and_the_job_goes_o
     assert (
         outcome,
         [message.partition(":")[0] for message in job],
-        status_pages <= set(stub_web.requested),
+        status_pages <= set(web.requested),
     ) == (
         JobOutcome(),
         [
@@ -1462,7 +1462,7 @@ def test_the_metrics_job_of_the_app_asks_no_traffic_endpoint(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
-    stub_web: StubWeb,
+    web: WebFake,
     git_sim: SimulatedGit,
     otlp: FakeCollector,
 ) -> None:
@@ -1479,7 +1479,7 @@ def test_the_metrics_job_of_the_app_asks_no_traffic_endpoint(
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
     monkeypatch.setattr("devops_cli.github.metrics.acts_as_github_app", lambda: True, raising=False)
     for url in (CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY):
-        stub_web.page(url, json.dumps(STATUS_PAGE))
+        web.page(url, json.dumps(STATUS_PAGE))
     with caplog.at_level(logging.WARNING):
         _run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone)
     assert (
@@ -2894,7 +2894,7 @@ def test_the_release_comments_adapter_comments_a_release_and_keeps_its_ledger(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     cluster: FakeCluster,
-    stub_web: StubWeb,
+    web: WebFake,
 ) -> None:
     """Over the edge fakes of GitHub, the cluster and the registry, a round posts the `Released
     in` comment of a seeded release and writes `release_comments.json` in the directory of the
@@ -2907,7 +2907,7 @@ def test_the_release_comments_adapter_comments_a_release_and_keeps_its_ledger(
     prefix = "ghcr.io/dan-petty/devops-cli"
     digests = {f"{prefix}/service:v1.0.0": "sha256:" + "1" * 64}
     digests[f"{prefix}/runner:v1.0.0"] = "sha256:" + "2" * 64
-    stub_web.serve(RegistryFake(digests))
+    web.serve(RegistryFake(digests))
     template = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
     template["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["image"] = (
         f"{prefix}/runner@sha256:{'3' * 64}"
@@ -3019,7 +3019,7 @@ def test_three_rounds_with_a_404_on_a_new_release_suspend_no_row(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     cluster: FakeCluster,
-    stub_web: StubWeb,
+    web: WebFake,
     seeded_store: InMemoryRoadmapStore,
 ) -> None:
     """A release of 5 minutes ago has no image yet, so the registry answers HTTP 404. The row
@@ -3029,7 +3029,7 @@ def test_three_rounds_with_a_404_on_a_new_release_suspend_no_row(
     github.seed_release("v1.0.0", "* x\n", NOW - timedelta(minutes=5))
     monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
     prefix = "ghcr.io/dan-petty/devops-cli"
-    stub_web.serve(RegistryFake({}))
+    web.serve(RegistryFake({}))
     template = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
     template["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["image"] = (
         f"{prefix}/runner@sha256:{'2' * 64}"

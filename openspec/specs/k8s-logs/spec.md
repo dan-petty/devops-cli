@@ -32,11 +32,11 @@ When `--namespace` is specified, `devops k8s logs` SHALL require the query strea
 - **THEN** the command raises a conflicting namespace error before any network request
 
 ### Requirement: Egress policy enforcement for Loki
-Loki HTTP requests SHALL be issued through the project HTTP client factory configured at the private egress level.
+Loki HTTP requests SHALL be issued through the HTTP entry point configured at the private egress level.
 
 #### Scenario: Loki connection uses private egress level
 - **WHEN** `devops k8s logs` executes a query against a Loki URL
-- **THEN** the HTTP request is dispatched through the egress factory client at `EgressLevel.PRIVATE`
+- **THEN** the HTTP request is dispatched through the entry point client at `EgressLevel.PRIVATE`
 
 ### Requirement: Kubectl fallback validation and execution
 When Loki is unavailable, the fallback logging engine SHALL support only queries with equality label matchers and substring filters (`|=`). It SHALL run `kubectl logs` with `-l <selector>`. Queries containing non-equality matchers, pipeline format stages, or label filters SHALL be refused with an error referencing `loki.url`.

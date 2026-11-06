@@ -53,7 +53,7 @@ In `devops-cli`:
    timeout = httpx2.Timeout(60.0, connect=10.0, read=45.0)
    ```
 4. **Transport Layer Security (TLS)**: Integrates with homelab root CAs for local Minikube mTLS communication.
-5. **Egress-Checked Clients**: In `devops-cli`, every HTTP client comes from the entry point, `devops_cli.http.entry.http_client(EgressLevel.PUBLIC)` (or `async_http_client`, or a `key=` for a pooled client), or from the factories behind it (`new_http_client`, `new_async_http_client`, `get_shared_client`), rather than `httpx2.Client(...)`. A test replaces the transport of every such client with `install_transport` (the `web` fixture). The factory replaces the transport's connection pool with an `httpcore2` pool whose network backend resolves each host once and dials only the addresses the egress level admits, redirect hops included; TLS still verifies the hostname. Factory clients ignore proxy environment variables, and retries are opt-in (`retries=`). Kept pre-flight checks use `vet_addresses` directly.
+5. **Egress-Checked Clients**: In `devops-cli`, every HTTP client comes from the entry point, `devops_cli.http.entry.http_client(EgressLevel.PUBLIC)` (or `async_http_client`, or a `key=` for a pooled client), rather than `httpx2.Client(...)`. A test replaces the transport of every such client with `install_transport` (the `web` fixture). The entry point replaces the transport's connection pool with an `httpcore2` pool whose network backend resolves each host once and dials only the addresses the egress level admits, redirect hops included; TLS still verifies the hostname. Its clients ignore proxy environment variables, and retries are opt-in (`retries=`). Kept pre-flight checks use `vet_addresses` directly.
 
 ---
 
@@ -87,6 +87,6 @@ async def stream_reasoning_tokens(client: httpx2.AsyncClient, url: str, prompt: 
 
 ## 6. Best Practices & Security Standards
 
-1. **Egress Safety & SSRF Mitigation**: Every HTTP client is built through `devops_cli.http.client` factory functions to enforce connect-time egress checks. Kept pre-flight checks call `vet_addresses` directly.
+1. **Egress Safety & SSRF Mitigation**: Every HTTP client comes from `http_client` or `async_http_client` of `devops_cli.http.entry`, which takes the egress transport from `devops_cli.http.client` to enforce connect-time egress checks. Kept pre-flight checks call `vet_addresses` directly.
 2. **Never Log Sensitive Authorization Headers**: Ensure `Authorization: Bearer <token>` headers are redacted before logging HTTP requests.
 3. **Always Use Connection Pools**: Reuse `AsyncClient` instances across tool calls rather than instantiating a new client per request.

@@ -13,7 +13,8 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.core.process import DEFAULT_ALLOWED_ENV_VARS, run_subprocess
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.exceptions import ConfigurationError
-from tests.llm_stream_fakes import route_client
+from tests.llm_stream_fakes import serve_llm
+from tests.support.fakes.http import WebFake
 
 
 def _llm_request_preview(*args: Any, **kwargs: Any) -> Any:
@@ -110,7 +111,7 @@ def _make_canned_reply(request: httpx2.Request) -> httpx2.Response:
     ],
 )
 def test_review_dry_run_preview_matches_real_call(
-    monkeypatch: pytest.MonkeyPatch, provider: str, config_kwargs: dict[str, Any]
+    web: WebFake, provider: str, config_kwargs: dict[str, Any]
 ) -> None:
     """The dry-run preview equals the request a real call records through the HTTP edge fake."""
     cfg = AIConfig(provider=provider, allow_private_network=True, **config_kwargs)
@@ -120,7 +121,7 @@ def test_review_dry_run_preview_matches_real_call(
     user_prompt = "Please review this snippet."
 
     # 1. Record real call through HTTP edge fake
-    real_requests = route_client(client, monkeypatch, _make_canned_reply)
+    real_requests = serve_llm(web, _make_canned_reply)
     client.chat(system_prompt, user_prompt)
     assert len(real_requests) >= 1
     real_post = [r for r in real_requests if r.method == "POST"][-1]

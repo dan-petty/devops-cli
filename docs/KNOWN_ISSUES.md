@@ -11,7 +11,7 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 - **Mitigation**: Execute `gh auth login` in terminal prior to `devops` commands, or set `DEVOPS_CLI_GH_CLI_TIMEOUT=15`.
 
 ### 2. Egress Controls for Internal Service URLs (SSRF Safety)
-- **Context**: Every HTTP client is built by `devops_cli.http.client` and checked at the connect against its egress level. Configured services (AI providers, Qdrant, Grafana, Prometheus, ArgoCD) use the configured egress level, which admits loopback (`localhost`, `127.0.0.0/8`, `::1`). Connecting to private addresses requires `ai.allow_private_network: true`. Kept pre-flight checks (Qdrant, kubectl manifest apply, container engine endpoint, config init wizard) call `vet_addresses` directly at their level.
+- **Context**: Every HTTP client is built by `devops_cli.http.entry` and checked at the connect against its egress level. Configured services (AI providers, Qdrant, Grafana, Prometheus, ArgoCD) use the configured egress level, which admits loopback (`localhost`, `127.0.0.0/8`, `::1`). Connecting to private addresses requires `ai.allow_private_network: true`. Kept pre-flight checks (Qdrant, kubectl manifest apply, container engine endpoint, config init wizard) call `vet_addresses` directly at their level.
 - **Mitigation**: Set `ai.allow_private_network: true`, or `DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true` in environment or devcontainer.
 
 ### 3. Large Workspace Iteration Bounds

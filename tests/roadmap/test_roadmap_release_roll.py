@@ -16,15 +16,15 @@ import yaml
 
 from devops_cli.config.constants import CONST_ROADMAP_RELEASE_IMAGE_GRACE_MINUTES
 from devops_cli.exceptions.docker import RegistryReadError, RegistryTagNotFoundError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.k8s.cluster_job_api import ClusterJobs
 from devops_cli.roadmap.release_feed import ReleaseInfo
 from devops_cli.roadmap.release_roll import RolledDigests, cluster_digests, live_release
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.oci_registry import RegistryFake
 from tests.support.paths import REPO_ROOT
-from tests.web_fakes import StubWeb
 
 PREFIX = "ghcr.io/dan-petty/devops-cli"
 SERVICE = {tag: "sha256:" + str(index) * 64 for index, tag in enumerate(("v1.0.0", "v1.1.0"), 1)}
@@ -82,42 +82,40 @@ def test_the_cluster_digests_are_the_service_digest_of_the_deployment_and_the_ru
 )
 def test_the_live_release_is_the_newest_whose_two_digests_run(
     cluster: FakeCluster,
-    stub_web: StubWeb,
+    web: WebFake,
     service: str,
     runner: str,
     expected: str | None,
 ) -> None:
     rolled = _roll(cluster, SERVICE[service], RUNNER[runner])
-    stub_web.serve(_registry())
+    web.serve(_registry())
 
-    with new_http_client(level=EgressLevel.PUBLIC) as client:
+    with http_client(EgressLevel.PUBLIC) as client:
         found = live_release((NEWER, OLDER), rolled, client, now=LATER)
 
     assert (found.tag if found else None) == expected
 
 
 def test_the_registry_is_not_read_for_a_release_older_than_the_live_one(
-    cluster: FakeCluster, stub_web: StubWeb
+    cluster: FakeCluster, web: WebFake
 ) -> None:
     rolled = _roll(cluster, SERVICE["v1.1.0"], RUNNER["v1.1.0"])
-    stub_web.serve(_registry())
+    web.serve(_registry())
 
-    with new_http_client(level=EgressLevel.PUBLIC) as client:
+    with http_client(EgressLevel.PUBLIC) as client:
         live_release((NEWER, OLDER), rolled, client, now=LATER)
 
-    read = [str(request.url) for request in stub_web.sent if "manifests" in str(request.url)]
+    read = [str(request.url) for request in web.sent if "manifests" in str(request.url)]
     assert read
     assert not any("v1.0.0" in url for url in read)
 
 
-def test_a_registry_that_gives_no_digest_propagates(
-    cluster: FakeCluster, stub_web: StubWeb
-) -> None:
+def test_a_registry_that_gives_no_digest_propagates(cluster: FakeCluster, web: WebFake) -> None:
     rolled = _roll(cluster, SERVICE["v1.1.0"], RUNNER["v1.1.0"])
-    stub_web.serve(RegistryFake({}))
+    web.serve(RegistryFake({}))
 
     with (
-        new_http_client(level=EgressLevel.PUBLIC) as client,
+        http_client(EgressLevel.PUBLIC) as client,
         pytest.raises(RegistryReadError, match="no manifest"),
     ):
         live_release((NEWER, OLDER), rolled, client, now=LATER)
@@ -130,12 +128,12 @@ def _without(registry: RegistryFake, *references: str) -> RegistryFake:
 
 
 def test_a_missing_tag_of_a_release_younger_than_the_limit_is_not_yet(
-    cluster: FakeCluster, stub_web: StubWeb
+    cluster: FakeCluster, web: WebFake
 ) -> None:
     rolled = _roll(cluster, SERVICE["v1.1.0"], RUNNER["v1.1.0"])
-    stub_web.serve(RegistryFake({}))
+    web.serve(RegistryFake({}))
 
-    with new_http_client(level=EgressLevel.PUBLIC) as client:
+    with http_client(EgressLevel.PUBLIC) as client:
         found = live_release(
             (NEWER,), rolled, client, now=NEWER.published_at + timedelta(minutes=5)
         )
@@ -144,25 +142,25 @@ def test_a_missing_tag_of_a_release_younger_than_the_limit_is_not_yet(
 
 
 def test_a_missing_tag_of_a_release_at_the_limit_raises_the_missing_tag_error(
-    cluster: FakeCluster, stub_web: StubWeb
+    cluster: FakeCluster, web: WebFake
 ) -> None:
     rolled = _roll(cluster, SERVICE["v1.1.0"], RUNNER["v1.1.0"])
-    stub_web.serve(RegistryFake({}))
+    web.serve(RegistryFake({}))
 
     with (
-        new_http_client(level=EgressLevel.PUBLIC) as client,
+        http_client(EgressLevel.PUBLIC) as client,
         pytest.raises(RegistryTagNotFoundError, match="no manifest"),
     ):
         live_release((NEWER,), rolled, client, now=NEWER.published_at + GRACE)
 
 
 def test_a_release_one_minute_younger_than_the_limit_still_waits(
-    cluster: FakeCluster, stub_web: StubWeb
+    cluster: FakeCluster, web: WebFake
 ) -> None:
     rolled = _roll(cluster, SERVICE["v1.1.0"], RUNNER["v1.1.0"])
-    stub_web.serve(RegistryFake({}))
+    web.serve(RegistryFake({}))
 
-    with new_http_client(level=EgressLevel.PUBLIC) as client:
+    with http_client(EgressLevel.PUBLIC) as client:
         found = live_release(
             (NEWER,), rolled, client, now=NEWER.published_at + GRACE - timedelta(minutes=1)
         )
@@ -171,13 +169,13 @@ def test_a_release_one_minute_younger_than_the_limit_still_waits(
 
 
 def test_a_release_that_waits_for_its_image_does_not_stop_the_check_of_an_older_one(
-    cluster: FakeCluster, stub_web: StubWeb
+    cluster: FakeCluster, web: WebFake
 ) -> None:
     rolled = _roll(cluster, SERVICE["v1.0.0"], RUNNER["v1.0.0"])
     registry = _registry()
-    stub_web.serve(_without(registry, f"{PREFIX}/service:v1.1.0", f"{PREFIX}/runner:v1.1.0"))
+    web.serve(_without(registry, f"{PREFIX}/service:v1.1.0", f"{PREFIX}/runner:v1.1.0"))
 
-    with new_http_client(level=EgressLevel.PUBLIC) as client:
+    with http_client(EgressLevel.PUBLIC) as client:
         found = live_release(
             (NEWER, OLDER), rolled, client, now=NEWER.published_at + timedelta(minutes=5)
         )
@@ -186,12 +184,12 @@ def test_a_release_that_waits_for_its_image_does_not_stop_the_check_of_an_older_
 
 
 def test_a_missing_runner_tag_of_a_new_release_is_not_yet_when_its_service_tag_exists(
-    cluster: FakeCluster, stub_web: StubWeb
+    cluster: FakeCluster, web: WebFake
 ) -> None:
     rolled = _roll(cluster, SERVICE["v1.1.0"], RUNNER["v1.1.0"])
-    stub_web.serve(_without(_registry(), f"{PREFIX}/runner:v1.1.0"))
+    web.serve(_without(_registry(), f"{PREFIX}/runner:v1.1.0"))
 
-    with new_http_client(level=EgressLevel.PUBLIC) as client:
+    with http_client(EgressLevel.PUBLIC) as client:
         found = live_release(
             (NEWER,), rolled, client, now=NEWER.published_at + timedelta(minutes=5)
         )
@@ -200,15 +198,13 @@ def test_a_missing_runner_tag_of_a_new_release_is_not_yet_when_its_service_tag_e
 
 
 def test_a_registry_status_other_than_404_raises_also_for_a_new_release(
-    cluster: FakeCluster, stub_web: StubWeb
+    cluster: FakeCluster, web: WebFake
 ) -> None:
     rolled = _roll(cluster, SERVICE["v1.1.0"], RUNNER["v1.1.0"])
-    stub_web.respond(
-        "HEAD", "https://ghcr.io/v2/dan-petty/devops-cli/service/manifests/v1.1.0", 500
-    )
+    web.respond("HEAD", "https://ghcr.io/v2/dan-petty/devops-cli/service/manifests/v1.1.0", 500)
 
     with (
-        new_http_client(level=EgressLevel.PUBLIC) as client,
+        http_client(EgressLevel.PUBLIC) as client,
         pytest.raises(RegistryReadError, match="HTTP 500") as caught,
     ):
         live_release((NEWER,), rolled, client, now=NEWER.published_at + timedelta(minutes=5))

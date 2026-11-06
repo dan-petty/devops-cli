@@ -1,13 +1,7 @@
 """Shared HTTP clients, so repeated calls reuse connections instead of rebuilding them.
 
-The prevailing pattern across this codebase is::
-
-    with new_http_client(level=EgressLevel.PUBLIC, timeout=...) as client:
-        client.post(url, json=payload)
-
-which builds a connection pool, performs one request, and tears the pool down. Every call
-therefore pays for a fresh TCP handshake and a fresh TLS negotiation. Measured against real
-endpoints:
+A caller that builds a client for one request pays for a fresh TCP handshake and a fresh TLS
+negotiation each time. Measured against real endpoints:
 
 ===================  ==========  ==========  =======
 Endpoint             Per client  Shared      Speedup
@@ -16,32 +10,24 @@ Cluster API (LAN)     19 ms/req   12 ms/req   1.5x
 api.github.com (WAN) 247 ms/req   61 ms/req   4.1x
 ===================  ==========  ==========  =======
 
-Clients are keyed on *transport* configuration only -- egress level, TLS material, redirects,
-protocol -- because that is what a connection can be shared across. The egress level is part of
-every key, so a connection a private-level client opened is never handed to a public-level one.
-Anything that varies per call, such as headers or a per-request timeout, is passed to the request
-instead, so an authorization header does not fragment the pool into one client per caller.
+`devops_cli.http.entry` pools a client when its caller names a `key`. Clients are keyed on
+*transport* configuration only -- egress level, TLS material, redirects, protocol -- because that
+is what a connection can be shared across. The egress level is part of every key, so a connection
+a private-level client opened is never handed to a public-level one. Anything that varies per
+call, such as headers or a per-request timeout, is passed to the request instead, so an
+authorization header does not fragment the pool into one client per caller.
 """
 
 from __future__ import annotations
 
 import atexit
 import logging
-import ssl
 import threading
+from collections.abc import Callable
 from contextlib import nullcontext
-from typing import Any, Unpack
+from typing import Any
 
 import httpx2
-
-from devops_cli.http.client import (
-    ClientOptions,
-    connection_limits,
-    new_async_http_client,
-    new_http_client,
-    request_timeout,
-)
-from devops_cli.http.egress import EgressLevel
 
 logger = logging.getLogger(__name__)
 
@@ -50,63 +36,30 @@ _ASYNC_CLIENTS: dict[str, httpx2.AsyncClient] = {}
 _LOCK = threading.RLock()
 
 
-def get_shared_client(
-    key: str,
-    level: EgressLevel,
-    *,
-    verify: ssl.SSLContext | bool = True,
-    retries: int | None = None,
-    **options: Unpack[ClientOptions],
-) -> httpx2.Client:
-    """Return a shared synchronous client for a transport profile at an egress level.
+def pooled_client(pool_key: str, build: Callable[[], httpx2.Client]) -> httpx2.Client:
+    """Return the shared synchronous client stored under `pool_key`, or store the one `build` makes.
 
-    `key` names the transport configuration, not the caller. Two callers reaching the same
-    endpoint over the same TLS settings should share connections; giving each its own key
-    would preserve the churn this exists to remove. The level joins the key.
-
-    A client closed elsewhere is rebuilt rather than handed back unusable.
+    The key names the transport configuration, not the caller, and carries the egress level. A
+    client closed elsewhere is rebuilt rather than handed back unusable.
     """
-    options.setdefault("follow_redirects", True)
     with _LOCK:
-        pool_key = f"{level}:{key}"
         existing = _CLIENTS.get(pool_key)
         if existing is not None and not existing.is_closed:
             return existing
-        client = new_http_client(
-            level=level,
-            timeout=request_timeout(),
-            verify=verify,
-            http2=True,
-            limits=connection_limits(),
-            retries=retries,
-            **options,
-        )
+        client = build()
         _CLIENTS[pool_key] = client
         return client
 
 
-def get_shared_async_client(
-    key: str,
-    level: EgressLevel,
-    *,
-    verify: ssl.SSLContext | bool = True,
-    **options: Unpack[ClientOptions],
+def pooled_async_client(
+    pool_key: str, build: Callable[[], httpx2.AsyncClient]
 ) -> httpx2.AsyncClient:
-    """Return a shared asynchronous client for a transport profile at an egress level."""
-    options.setdefault("follow_redirects", True)
+    """`pooled_client` for an asynchronous client."""
     with _LOCK:
-        pool_key = f"{level}:{key}"
         existing = _ASYNC_CLIENTS.get(pool_key)
         if existing is not None and not existing.is_closed:
             return existing
-        client = new_async_http_client(
-            level=level,
-            timeout=request_timeout(),
-            verify=verify,
-            http2=True,
-            limits=connection_limits(),
-            **options,
-        )
+        client = build()
         _ASYNC_CLIENTS[pool_key] = client
         return client
 
@@ -221,6 +174,6 @@ __all__ = [
     "aclose_shared_clients",
     "close_expired_connections",
     "close_shared_clients",
-    "get_shared_async_client",
-    "get_shared_client",
+    "pooled_async_client",
+    "pooled_client",
 ]

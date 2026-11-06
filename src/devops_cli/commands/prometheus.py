@@ -20,8 +20,8 @@ from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import configured_level
+from devops_cli.http.entry import http_client
 from devops_cli.http.urls import service_base_url
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.models.prometheus import PrometheusQueryResult
@@ -70,7 +70,7 @@ def _base_url(settings: Settings) -> str:
 
 def _client(settings: Settings) -> httpx2.Client:
     """A Prometheus client that dials the configured level: loopback, or private with the flag."""
-    return new_http_client(level=configured_level(settings.ai))
+    return http_client(configured_level(settings.ai))
 
 
 def _dry_run_base_url() -> str:

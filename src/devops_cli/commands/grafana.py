@@ -37,8 +37,8 @@ from devops_cli.grafana.grafana_plans import (
     plan_grafana_datasources,
     plan_grafana_search,
 )
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import configured_level
+from devops_cli.http.entry import http_client
 from devops_cli.http.urls import service_base_url
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.models.grafana import (
@@ -104,7 +104,7 @@ def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
 
 def _client(settings: Settings) -> httpx2.Client:
     """A Grafana client that dials the configured level: loopback, or private with the flag."""
-    return new_http_client(level=configured_level(settings.ai))
+    return http_client(configured_level(settings.ai))
 
 
 def _dry_run_base_url() -> str:

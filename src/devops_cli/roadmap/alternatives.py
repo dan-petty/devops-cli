@@ -95,8 +95,8 @@ from devops_cli.config.settings import load_settings
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.exceptions.roadmap import RoadmapAlternativesError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.adr import Adr, fit_to_budget, names, read_adrs
 from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
@@ -241,7 +241,7 @@ def _read_pypi(name: str) -> _PyPIPackage | None:
     """The PyPI record of package `name`, or None when PyPI has no such package. Raises on any
     other failed read."""
     url = DEFAULT_PYPI_PACKAGE_URL.format(name=quote(name, safe=""))
-    with new_http_client(level=EgressLevel.PUBLIC) as client:
+    with http_client(EgressLevel.PUBLIC) as client:
         response = client.get(url, timeout=DEFAULT_PYPI_TIMEOUT_SECONDS)
     if response.status_code == httpx2.codes.NOT_FOUND:
         return None

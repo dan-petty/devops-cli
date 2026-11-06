@@ -1,8 +1,8 @@
-"""The connect-time egress policy: the vetting backends, the client factory and their seams.
+"""The connect-time egress policy: the vetting backends, the HTTP entry point and their seams.
 
-A test fakes the lookup with the `dns` fixture, or with `scripted_resolver` until its package moves
-to that fixture, and httpcore2's dial with `record_connects` (`tests/web_fakes.py`). It sees the
-lookups a client made and the address it dialled, with no socket opened and no DNS query made.
+A test fakes the lookup with the `dns` fixture, and httpcore2's dial with `record_connects`
+(`tests/support/fakes/dial.py`). It sees the lookups a client made and the address it dialled, with
+no socket opened and no DNS query made.
 """
 
 from __future__ import annotations
@@ -45,7 +45,6 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import AIConfig, Settings, load_settings
 from devops_cli.core.process import reset_process_runner, set_process_runner
 from devops_cli.exceptions import SSRFBlockedError
-from devops_cli.http.client import new_async_http_client, new_http_client
 from devops_cli.http.egress import (
     AsyncVettingBackend,
     EgressLevel,
@@ -54,8 +53,8 @@ from devops_cli.http.egress import (
     configured_level,
     vet_addresses,
 )
-from devops_cli.http.entry import aveto_request, http_client
-from devops_cli.http.pool import close_shared_clients, get_shared_async_client, get_shared_client
+from devops_cli.http.entry import async_http_client, aveto_request, http_client
+from devops_cli.http.pool import close_shared_clients
 from devops_cli.k8s import service_http
 from devops_cli.k8s.credentials import (
     get_or_mint_argocd_token,
@@ -73,21 +72,21 @@ from devops_cli.security.vulnerability_lookup import (
     OSVClient,
     ShodanInternetDBClient,
 )
+from devops_cli.survey.dependencies import _default_pypi_fetcher
 from devops_cli.telemetry.memory_profiler import _exercise_http_pool
 from devops_cli.telemetry.service_status import fetch_statuspage_summary
 from devops_cli.telemetry.waterfall import query_tempo_trace
-from tests.support.fakes.dns import DnsFake
+from tests.support.fakes.dial import http_response, record_connects
+from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
-from tests.web_fakes import (
-    PUBLIC_ADDRESS,
-    http_response,
-    rebinding,
-    record_connects,
-    scripted_resolver,
-)
 
 PUBLIC, LOOPBACK, PRIVATE = EgressLevel.PUBLIC, EgressLevel.LOOPBACK, EgressLevel.PRIVATE
 _TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
+
+
+def _rebinding(k: int, then: str) -> list[list[str]]:
+    """A name's lookups: the public address for the first `k`, then `then` for every later one."""
+    return [*([[PUBLIC_ADDRESS]] * k), [then]]
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -169,7 +168,7 @@ def test_the_ideographic_dot_spelling_of_metadata_is_refused(
     """httpx2 reads `169。254。169。254` as 169.254.169.254, and the connect refuses it."""
     recorder = record_connects(monkeypatch, [])
 
-    with new_http_client(level=level) as client, pytest.raises(SSRFBlockedError) as raised:
+    with http_client(level) as client, pytest.raises(SSRFBlockedError) as raised:
         client.get("http://169。254。169。254/latest/meta-data/")
     assert raised.value.error_code == "SSRF_BLOCKED"
 
@@ -180,10 +179,10 @@ def test_the_ideographic_dot_spelling_of_metadata_is_refused(
     "answer", ["169.254.169.254", "fd00:ec2::254", "fd20:ce::254", "64:ff9b::a9fe:a9fe"]
 )
 def test_a_name_answering_metadata_is_refused_at_every_level(
-    monkeypatch: pytest.MonkeyPatch, answer: str
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake, answer: str
 ) -> None:
     """Old vs new: before #898 a name answering metadata passed `validate_url(allow_private=True)`."""
-    scripted_resolver(monkeypatch, {"example.com": [[answer]]})
+    dns.add("example.com", answer)
     recorder = record_connects(monkeypatch, [])
 
     assert (_admitted_levels("example.com"), recorder.dialled) == (set(), [])
@@ -203,32 +202,25 @@ def test_a_name_answering_metadata_is_refused_at_every_level(
     ids=["public", "loopback", "loopback-v6", "rfc1918-10", "rfc1918-172", "cgnat", "ula"],
 )
 def test_each_level_admits_only_its_address_classes(
-    monkeypatch: pytest.MonkeyPatch, answer: str, admitted: set[EgressLevel]
+    dns: DnsFake, answer: str, admitted: set[EgressLevel]
 ) -> None:
     """Loopback, RFC 1918, CGNAT and unique-local answers are admitted only where the level allows."""
-    scripted_resolver(monkeypatch, {"example.com": [[answer]]})
+    dns.add("example.com", answer)
 
     assert _admitted_levels("example.com") == admitted
 
 
-def test_link_local_host_gateways_are_admitted_only_at_the_private_level(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_link_local_host_gateways_are_admitted_only_at_the_private_level(dns: DnsFake) -> None:
     """Pins the link-local answer proposed on #898, which the owner confirms before merge.
 
     Rootless Podman reaches its host at 169.254.1.2, a link-local address the documented
     `host.docker.internal` setups name. It is refused at the public and loopback levels and
     admitted at the private level; the metadata link-local addresses stay refused there.
     """
-    scripted_resolver(
-        monkeypatch,
-        {
-            "example.com": [["169.254.1.2"]],
-            "example.org": [["169.254.169.254"]],
-            "example.net": [["169.254.170.2"]],
-            "example.edu": [["fd00:ec2::254"]],
-        },
-    )
+    dns.add("example.com", "169.254.1.2")
+    dns.add("example.org", "169.254.169.254")
+    dns.add("example.net", "169.254.170.2")
+    dns.add("example.edu", "fd00:ec2::254")
 
     assert [
         _admitted_levels(host)
@@ -236,9 +228,11 @@ def test_link_local_host_gateways_are_admitted_only_at_the_private_level(
     ] == [{PRIVATE}, set(), set(), set()]
 
 
-def test_one_unsafe_answer_refuses_the_name_with_no_dial(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_one_unsafe_answer_refuses_the_name_with_no_dial(
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake
+) -> None:
     """A name answering a public and a private address together is refused before any dial."""
-    scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS, "10.0.0.1"]]})
+    dns.add("example.com", PUBLIC_ADDRESS, "10.0.0.1")
     recorder = record_connects(monkeypatch, [])
 
     with pytest.raises(SSRFBlockedError) as caught:
@@ -263,7 +257,7 @@ def test_a_scoped_ipv6_address_fails_closed_at_every_level(
     recorder = record_connects(monkeypatch, [])
     for level in EgressLevel:
         with (
-            new_http_client(level=level) as client,
+            http_client(level) as client,
             pytest.raises((SSRFBlockedError, httpx2.ConnectError)) as raised,
         ):
             client.get("http://[fe80::1%25eth0]/")
@@ -282,19 +276,17 @@ def test_a_failed_lookup_surfaces_as_httpx2_connect_error(monkeypatch: pytest.Mo
     """The backend re-raises the resolver's OSError as httpcore2.ConnectError, which httpx2 maps."""
     recorder = record_connects(monkeypatch, [])
 
-    with new_http_client(level=PUBLIC) as client, pytest.raises(httpx2.ConnectError) as raised:
+    with http_client(PUBLIC) as client, pytest.raises(httpx2.ConnectError) as raised:
         client.get("https://example.com/")
     assert raised.value is not None
 
     assert recorder.dialled == []
 
 
-def test_each_vetted_address_is_dialled_in_turn_and_the_last_error_raised(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_each_vetted_address_is_dialled_in_turn_and_the_last_error_raised(dns: DnsFake) -> None:
     """Like `socket.create_connection`, a refused address moves the dial on to the next answer."""
     addresses = ["93.184.215.14", "93.184.215.15", "93.184.215.16"]
-    scripted_resolver(monkeypatch, {"example.com": [addresses]})
+    dns.add("example.com", *addresses)
     dialled: list[str] = []
 
     class Refusing(httpcore2.NetworkBackend):
@@ -329,15 +321,15 @@ def test_unix_sockets_and_sleep_are_delegated_to_the_inner_backend() -> None:
 
 
 # =============================================================================
-# The factory and its pinned seam
+# The entry point and its pinned seam
 # =============================================================================
 
 
 def test_the_factory_swaps_httpx2s_pool_for_a_vetting_httpcore2_pool() -> None:
     """Pinned seam: an httpx2 upgrade that moves `_pool` fails here instead of skipping the check."""
     context = ssl.create_default_context()
-    sync_client = new_http_client(level=LOOPBACK, http2=True, verify=context)
-    async_client = new_async_http_client(level=PRIVATE)
+    sync_client = http_client(LOOPBACK, http2=True, verify=context)
+    async_client = async_http_client(PRIVATE)
     sync_pool, async_pool = sync_client._transport._pool, async_client._transport._pool
 
     assert (
@@ -364,12 +356,14 @@ def test_the_factory_swaps_httpx2s_pool_for_a_vetting_httpcore2_pool() -> None:
     sync_client.close()
 
 
-@pytest.mark.usefixtures("public_dns")
-def test_tls_and_the_host_header_keep_the_hostname(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tls_and_the_host_header_keep_the_hostname(
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake
+) -> None:
     """The dial goes to the vetted address; SNI, the certificate check and Host use the name."""
+    dns.answer_every_name()
     recorder = record_connects(monkeypatch, [http_response(200, "ok")])
 
-    with new_http_client(level=PUBLIC) as client:
+    with http_client(PUBLIC) as client:
         response = client.get("https://example.com/")
     ((server_hostname, context),) = recorder.tls
 
@@ -390,19 +384,19 @@ def test_tls_and_the_host_header_keep_the_hostname(monkeypatch: pytest.MonkeyPat
     )
 
 
-@pytest.mark.usefixtures("public_dns")
 def test_environment_proxies_are_ignored_and_the_destination_dialled(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake
 ) -> None:
     """Pins the proxy answer proposed on #898: a vetted client never hands its request to a proxy.
 
     A proxy would become the peer the backend vets in place of the destination.
     """
+    dns.answer_every_name()
     for variable in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
         monkeypatch.setenv(variable, "http://192.0.2.10:3128")
     recorder = record_connects(monkeypatch, [http_response(200, "ok")])
 
-    with new_http_client(level=PUBLIC) as client:
+    with http_client(PUBLIC) as client:
         status = client.get("https://example.com/").status_code
 
     assert (status, recorder.dialled, recorder.tls[0][0]) == (
@@ -412,13 +406,13 @@ def test_environment_proxies_are_ignored_and_the_destination_dialled(
     )
 
 
-@pytest.mark.usefixtures("public_dns")
 def test_a_client_without_retries_returns_error_statuses_and_dials_once(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake
 ) -> None:
-    """Retry wrapping is opt-in: a plain factory client keeps httpx2's 4xx, 5xx and error semantics."""
+    """Retry wrapping is opt-in: a plain client keeps httpx2's 4xx, 5xx and error semantics."""
+    dns.answer_every_name()
     record_connects(monkeypatch, [http_response(404), http_response(503)])
-    with new_http_client(level=PUBLIC) as client:
+    with http_client(PUBLIC) as client:
         statuses = [
             client.get("http://example.com/").status_code,
             client.get("http://example.org/").status_code,
@@ -430,7 +424,7 @@ def test_a_client_without_retries_returns_error_statuses_and_dials_once(
         raise httpcore2.ConnectError("Connection refused")
 
     monkeypatch.setattr(httpcore2.SyncBackend, "connect_tcp", refuse)
-    with new_http_client(level=PUBLIC) as client, pytest.raises(httpx2.ConnectError) as raised:
+    with http_client(PUBLIC) as client, pytest.raises(httpx2.ConnectError) as raised:
         client.get("http://example.net/")
     assert raised.value is not None
 
@@ -438,36 +432,34 @@ def test_a_client_without_retries_returns_error_statuses_and_dials_once(
 
 
 def test_a_refusal_is_attempted_once_under_the_retry_transport(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake
 ) -> None:
     """SSRFBlockedError is not an httpx2 TransportError, so tenacity never retries it."""
-    resolver = scripted_resolver(monkeypatch, {"example.com": [["10.0.0.1"]]})
+    dns.add("example.com", "10.0.0.1")
     recorder = record_connects(monkeypatch, [])
 
     with (
-        new_http_client(level=PUBLIC, retries=5) as client,
+        http_client(PUBLIC, retries=5) as client,
         pytest.raises(SSRFBlockedError) as raised,
     ):
         client.get("https://example.com/")
     assert raised.value.error_code == "SSRF_BLOCKED"
 
-    assert (resolver.lookups["example.com"], recorder.dialled) == (1, [])
+    assert (len(dns.lookups_of("example.com")), recorder.dialled) == (1, [])
 
 
 def test_a_redirect_to_a_name_answering_metadata_is_refused_at_hop_two(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake
 ) -> None:
     """The second hop's name is resolved at its own connect; nothing is left pooled for it."""
-    scripted_resolver(
-        monkeypatch,
-        {"example.com": [[PUBLIC_ADDRESS]], "example.org": [["169.254.169.254"]]},
-    )
+    dns.add("example.com", PUBLIC_ADDRESS)
+    dns.add("example.org", "169.254.169.254")
     recorder = record_connects(
         monkeypatch, [http_response(302, headers={"Location": "https://example.org/"})]
     )
     metadata_origin = httpcore2.Origin(b"https", b"example.org", 443)
 
-    with new_http_client(level=PRIVATE, follow_redirects=True) as client:
+    with http_client(PRIVATE, follow_redirects=True) as client:
         with pytest.raises(SSRFBlockedError) as raised:
             client.get("https://example.com/")
         assert raised.value.error_code == "SSRF_BLOCKED"
@@ -525,15 +517,14 @@ async def test_a_slow_async_lookup_times_out_as_a_connect_timeout(dns: DnsFake) 
 
 
 async def test_the_async_client_dials_only_vetted_addresses(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake
 ) -> None:
     """The async backend admits the public answer and refuses the private one, with no dial."""
-    scripted_resolver(
-        monkeypatch, {"example.com": [[PUBLIC_ADDRESS]], "example.org": [["10.0.0.1"]]}
-    )
+    dns.add("example.com", PUBLIC_ADDRESS)
+    dns.add("example.org", "10.0.0.1")
     recorder = record_connects(monkeypatch, [http_response(200, "ok")])
 
-    async with new_async_http_client(level=PUBLIC) as client:
+    async with async_http_client(PUBLIC) as client:
         status = (await client.get("https://example.com/")).status_code
         with pytest.raises(SSRFBlockedError) as raised:
             await client.get("https://example.org/")
@@ -547,12 +538,10 @@ async def test_the_async_client_dials_only_vetted_addresses(
 
 
 @pytest.mark.unreachable("example.org")
-async def test_the_async_backend_fails_closed_and_tries_each_address(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_the_async_backend_fails_closed_and_tries_each_address(dns: DnsFake) -> None:
     """A failed async lookup is a ConnectError; refused addresses move the dial on, then raise."""
     addresses = ["93.184.215.14", "93.184.215.15"]
-    scripted_resolver(monkeypatch, {"example.com": [addresses]})
+    dns.add("example.com", *addresses)
     dialled: list[str] = []
 
     class Refusing(httpcore2.AsyncNetworkBackend):
@@ -605,10 +594,10 @@ async def test_the_async_request_veto_makes_no_lookup(dns: DnsFake) -> None:
 
 
 def test_a_private_level_connection_is_never_reused_by_a_public_level_client(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake
 ) -> None:
     """The shared pool keys carry the level, so a key names one client, so a pool, per level."""
-    scripted_resolver(monkeypatch, {"example.com": [["10.0.0.1"]]})
+    dns.add("example.com", "10.0.0.1")
     recorder = record_connects(monkeypatch, [http_response(200, "private")])
 
     private_status = http_client(PRIVATE, key="profile").get("http://example.com/").status_code
@@ -619,8 +608,8 @@ def test_a_private_level_connection_is_never_reused_by_a_public_level_client(
     assert (
         private_status,
         recorder.dialled,
-        get_shared_client("profile", PUBLIC) is get_shared_client("profile", PRIVATE),
-        get_shared_async_client("profile", PUBLIC) is get_shared_async_client("profile", PRIVATE),
+        http_client(PUBLIC, key="profile") is http_client(PRIVATE, key="profile"),
+        async_http_client(PUBLIC, key="profile") is async_http_client(PRIVATE, key="profile"),
     ) == (200, [("10.0.0.1", 80)], False, False)
 
 
@@ -918,7 +907,7 @@ def _k8s_service_calls() -> dict[str, Callable[[], Any]]:
 
 
 def _caller_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]]:
-    """Each caller that a change moved to the factory, against example.com or its fixed API host."""
+    """Each caller that a change moved to the entry point, against example.com or its fixed API host."""
     return {
         "tool download": lambda: _download("https://example.com/tool.tar.gz"),
         "vault": lambda: VaultSecretBroker("http://example.com:8200", "token").get_status(),
@@ -1001,7 +990,7 @@ def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
     }
 
 
-_PUBLIC_API_HOSTS = ("api.osv.dev", "internetdb.shodan.io", "api.cloudflare.com")
+_PUBLIC_API_HOSTS = ("api.osv.dev", "internetdb.shodan.io", "api.cloudflare.com", "pypi.org")
 
 
 def _public_api_calls() -> dict[str, Callable[[], Any]]:
@@ -1018,6 +1007,7 @@ def _public_api_calls() -> dict[str, Callable[[], Any]]:
             token="cf-test", valkey_client=None
         ).check_domain("service-domain.org"),
         "cloudflare api": lambda: CloudflareClient(token="cf-test").verify_token(),
+        "pypi metadata": lambda: _default_pypi_fetcher("requests"),
     }
 
 
@@ -1041,7 +1031,7 @@ _LEVEL_BY_DIALS = {(False, False): PUBLIC, (True, False): LOOPBACK, (True, True)
 @pytest.mark.parametrize("flag", [False, True], ids=["without-flag", "with-flag"])
 @pytest.mark.parametrize("caller", list(_expected_levels(False)))
 def test_each_caller_dials_at_its_level(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caller: str, flag: bool
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake, tmp_path: Path, caller: str, flag: bool
 ) -> None:
     """Every caller dials what the level the table gives it admits, with and without the flag.
 
@@ -1049,7 +1039,7 @@ def test_each_caller_dials_at_its_level(
     dials neither, a loopback-level one only the first, a private-level one both. Only the URLs
     that come from configuration follow the flag; the tool downloads, the documentation crawler,
     the default pricing registry and the clients of fixed public APIs (OSV, Shodan InternetDB,
-    Cloudflare Radar and the Cloudflare API) do not widen with it. A caller host name never
+    Cloudflare Radar, the Cloudflare API and PyPI) do not widen with it. A caller host name never
     reaches the dial: a client that hands the socket the name lets it resolve the name again
     after the check (#2422, #2424). Only dials to the answer or a caller host count: the test
     configuration's telemetry exporter may dial its collector from a background thread meanwhile.
@@ -1059,7 +1049,8 @@ def test_each_caller_dials_at_its_level(
     dials: list[bool] = []
     named: list[str] = []
     for address in ("127.0.0.1", "192.0.2.10"):
-        scripted_resolver(monkeypatch, {host: [[address]] for host in _CALLER_HOSTS})
+        for host in _CALLER_HOSTS:
+            dns.add(host, address)
         recorder = record_connects(monkeypatch, [])
         _call_ignoring_errors(call)
         dials.append(address in [host for host, _ in recorder.dialled])
@@ -1078,7 +1069,7 @@ _METADATA_ADDRESS = "169.254.169.254"
 @pytest.mark.usefixtures("keyring_store")
 @pytest.mark.parametrize("caller", list(_ai_service_levels(False)))
 def test_each_ai_service_caller_dials_the_address_it_checked(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caller: str
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake, tmp_path: Path, caller: str
 ) -> None:
     """Old vs new (#2422): a host that answers cloud metadata after two lookups is never reached.
 
@@ -1090,9 +1081,8 @@ def test_each_ai_service_caller_dials_the_address_it_checked(
     from the keyring, which `keyring_store` fakes.
     """
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
-    scripted_resolver(
-        monkeypatch, {host: rebinding(2, _METADATA_ADDRESS) for host in _CALLER_HOSTS}
-    )
+    for host in _CALLER_HOSTS:
+        dns.script(host, *_rebinding(2, _METADATA_ADDRESS))
     recorder = record_connects(monkeypatch, [])
 
     _call_ignoring_errors(_ai_service_calls(False, tmp_path)[caller])
@@ -1104,7 +1094,7 @@ def test_each_ai_service_caller_dials_the_address_it_checked(
 @pytest.mark.usefixtures("keyring_store", "process_fake")
 @pytest.mark.parametrize("caller", list(_k8s_service_calls()))
 def test_each_k8s_service_caller_dials_the_address_it_checked(
-    monkeypatch: pytest.MonkeyPatch, caller: str
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake, caller: str
 ) -> None:
     """Old vs new (#2424): a host that answers cloud metadata after its first lookup is not reached.
 
@@ -1114,7 +1104,7 @@ def test_each_k8s_service_caller_dials_the_address_it_checked(
     and refuses the metadata answer. Neither the name nor the metadata address reaches the socket.
     """
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
-    scripted_resolver(monkeypatch, {"example.com": rebinding(1, _METADATA_ADDRESS)})
+    dns.script("example.com", *_rebinding(1, _METADATA_ADDRESS))
     recorder = record_connects(monkeypatch, [])
 
     _call_ignoring_errors(_k8s_service_calls()[caller])
@@ -1132,49 +1122,46 @@ def test_each_k8s_service_caller_dials_the_address_it_checked(
     ids=["loki", "k8s direct"],
 )
 def test_loki_and_a_direct_service_url_look_up_their_host_once(
-    monkeypatch: pytest.MonkeyPatch, call: Callable[[], Any], port: int
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake, call: Callable[[], Any], port: int
 ) -> None:
     """Old vs new (#2424): one request makes one lookup, at the connect, and dials its answer.
 
     Before, `validate_url_egress` resolved the public name in a check before the request, and the
     connect resolved it a second time.
     """
-    resolver = scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+    dns.add("example.com", PUBLIC_ADDRESS)
     recorder = record_connects(monkeypatch, [])
 
     _call_ignoring_errors(call)
 
-    assert (resolver.lookups["example.com"], recorder.dialled) == (1, [(PUBLIC_ADDRESS, port)])
+    assert (len(dns.lookups_of("example.com")), recorder.dialled) == (1, [(PUBLIC_ADDRESS, port)])
 
 
-def test_a_loki_url_that_is_not_http_fails_with_no_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_loki_url_that_is_not_http_fails_with_no_lookup(dns: DnsFake) -> None:
     """httpx2 refuses the scheme before the connect, so no check of its own runs before it."""
-    resolver = scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+    dns.add("example.com", PUBLIC_ADDRESS)
 
     with pytest.raises(httpx2.UnsupportedProtocol) as raised:
         execute_loki_query(parse_logql_query('{app="web"}'), loki_url="ftp://example.com:3100")
     assert raised.value is not None
 
-    assert resolver.lookups["example.com"] == 0
+    assert dns.lookups_of("example.com") == []
 
 
 def test_the_memory_profiler_exercises_its_pool_without_a_lookup_or_a_dial(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake
 ) -> None:
     """The profiler's requests go to an in-memory ASGI app, so its host is never resolved or dialled.
 
     Only its target port counts: the test configuration's telemetry exporter may dial its collector
     from a background thread meanwhile.
     """
-    resolver = scripted_resolver(monkeypatch, {"localhost": [["127.0.0.1"]]})
     recorder = record_connects(monkeypatch, [])
 
     asyncio.run(_exercise_http_pool(2))
 
-    assert (resolver.lookups, [port for _, port in recorder.dialled if port == 8080]) == (
-        {"localhost": 0},
-        [],
-    )
+    dialled_ports = [port for _, port in recorder.dialled if port == 8080]
+    assert (dns.lookups_of("localhost"), dialled_ports) == ([], [])
 
 
 def _kept_pre_flight_calls(flag: bool) -> dict[str, Callable[[], Any]]:
@@ -1209,14 +1196,14 @@ def _kept_pre_flight_levels(flag: bool) -> dict[str, EgressLevel]:
 @pytest.mark.parametrize("flag", [False, True], ids=["without-flag", "with-flag"])
 @pytest.mark.parametrize("caller", list(_kept_pre_flight_levels(False)))
 def test_kept_pre_flight_callers_resolve_at_their_level(
-    monkeypatch: pytest.MonkeyPatch, caller: str, flag: bool
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake, caller: str, flag: bool
 ) -> None:
     """Each kept pre-flight caller resolves through vet_addresses at its level."""
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", str(flag).lower())
     call = _kept_pre_flight_calls(flag)[caller]
     admitted: list[bool] = []
     for address in ("127.0.0.1", "192.0.2.10"):
-        scripted_resolver(monkeypatch, {"example.com": [[address]]})
+        dns.add("example.com", address)
         try:
             call()
             admitted.append(True)
@@ -1227,12 +1214,14 @@ def test_kept_pre_flight_callers_resolve_at_their_level(
     assert _LEVEL_BY_DIALS.get((admitted[0], admitted[1])) == expected
 
 
-def test_config_wizard_admits_loopback_without_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_config_wizard_admits_loopback_without_flag(
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake
+) -> None:
     """The config wizard admits loopback at the configured level without the flag."""
     from devops_cli.commands.config import _validate_wizard_service_url
 
     monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
-    scripted_resolver(monkeypatch, {"example.com": [["127.0.0.1"]]})
+    dns.add("example.com", "127.0.0.1")
     assert (
         _validate_wizard_service_url("http://example.com:3000", "Grafana", allow_private=False)
         is None

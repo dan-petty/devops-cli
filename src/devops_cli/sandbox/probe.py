@@ -12,8 +12,8 @@ import httpcore2
 import httpx2
 
 from devops_cli.exceptions import SSRFBlockedError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel, VettingBackend
+from devops_cli.http.entry import http_client
 from devops_cli.sandbox.models import (
     EndpointProbeResult,
     ProbeProtocol,
@@ -121,7 +121,7 @@ def probe_http(
         trace_details["span_id"] = trace_info.get("parent_span_id")
 
     try:
-        with new_http_client(level=EgressLevel.PRIVATE, timeout=httpx2.Timeout(timeout)) as client:
+        with http_client(EgressLevel.PRIVATE, timeout=httpx2.Timeout(timeout)) as client:
             resp = client.get(url, headers=req_headers)
             latency = (time.perf_counter() - start) * 1000.0
             return _evaluate_http_response(
@@ -288,7 +288,7 @@ def _extract_safe_openapi_endpoints(
 ) -> list[tuple[str, str]]:
     """Parse OpenAPI schema and select safe, parameter-free GET endpoints."""
     try:
-        with new_http_client(level=EgressLevel.PRIVATE, timeout=httpx2.Timeout(timeout)) as client:
+        with http_client(EgressLevel.PRIVATE, timeout=httpx2.Timeout(timeout)) as client:
             resp = client.get(schema_url, headers={"User-Agent": "devops-cli-prober"})
             if resp.status_code != 200:
                 return []

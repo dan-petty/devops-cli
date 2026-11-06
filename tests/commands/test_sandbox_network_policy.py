@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
-import socket
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -20,7 +20,7 @@ from devops_cli.sandbox.models import (
     SandboxNetworkConfig,
     SandboxNetworkMode,
 )
-from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
+from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
 
 # The kube-dns rule that every whitelist policy opens first.
 _DNS_EGRESS_RULE: dict[str, Any] = {
@@ -29,7 +29,7 @@ _DNS_EGRESS_RULE: dict[str, Any] = {
 }
 
 # Every whitelist configuration these tests build a policy from, so that one test can check
-# that each of their rules names its ports. Names resolve through `public_dns` or a stub.
+# that each of their rules names its ports. Names resolve through `public_address` or a stub.
 _WHITELIST_POLICIES: dict[str, dict[str, Any]] = {
     "public names and an address": {
         "mode": SandboxNetworkMode.PUBLIC_WHITELIST,
@@ -108,26 +108,26 @@ def _unvalidated_rules(mode: SandboxNetworkMode, entries: list[str]) -> list[dic
 
 
 @pytest.fixture
-def failed_lookups(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int]]:
-    """Fail every `socket.getaddrinfo` call, recording its host and flags.
-
-    A test reads the record to show that no DNS query was made: only a call with
-    `AI_NUMERICHOST`, which parses a numeric host and never queries, may appear in it.
-    """
-    calls: list[tuple[str, int]] = []
-
-    def fail(host: Any, *args: Any, **kwargs: Any) -> list[Any]:
-        flags = kwargs.get("flags", args[4] if len(args) >= 5 else 0) or 0
-        calls.append((str(host), int(flags)))
-        raise socket.gaierror(socket.EAI_NONAME, f"lookups fail in this test: {host}")
-
-    monkeypatch.setattr(socket, "getaddrinfo", fail)
-    return calls
+def public_address(dns: DnsFake) -> str:
+    """Answer every name with one public address, and return that address."""
+    return dns.answer_every_name()
 
 
-def test_a_public_whitelist_policy_opens_one_rule_for_each_entry(public_dns: str) -> None:
+def _names_looked_up(dns: DnsFake) -> list[str]:
+    """The names the code asked the resolver for. An address literal is not a name: the resolver
+    reads it and sends no query."""
+    names: list[str] = []
+    for lookup in dns.lookups:
+        try:
+            ipaddress.ip_address(lookup.host)
+        except ValueError:
+            names.append(lookup.host)
+    return names
+
+
+def test_a_public_whitelist_policy_opens_one_rule_for_each_entry(public_address: str) -> None:
     """The policy is the kube-dns rule, then one rule per entry: each name resolves to the
-    `public_dns` address."""
+    `public_address` address."""
     cfg = SandboxNetworkConfig(**_WHITELIST_POLICIES["public names and an address"])
 
     policy = cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
@@ -136,8 +136,8 @@ def test_a_public_whitelist_policy_opens_one_rule_for_each_entry(public_dns: str
         "NetworkPolicy",
         [
             _DNS_EGRESS_RULE,
-            _tcp_rule([f"{public_dns}/32"], 443),
-            _tcp_rule([f"{public_dns}/32"], 443),
+            _tcp_rule([f"{public_address}/32"], 443),
+            _tcp_rule([f"{public_address}/32"], 443),
             _tcp_rule(["93.184.216.34/32"], 443),
         ],
     )
@@ -156,7 +156,7 @@ def test_a_public_whitelist_refuses_a_private_loopback_or_metadata_entry(entry: 
         SandboxNetworkConfig(mode=SandboxNetworkMode.PUBLIC_WHITELIST, public_whitelist=[entry])
 
 
-@pytest.mark.usefixtures("failed_lookups")
+@pytest.mark.usefixtures("dns")
 def test_a_local_whitelist_policy_opens_one_rule_for_each_entry_but_loopback() -> None:
     """The `localhost` entry opens no rule: NetworkPolicy never polices a pod's loopback."""
     cfg = SandboxNetworkConfig(**_WHITELIST_POLICIES["local urls and addresses"])
@@ -196,11 +196,11 @@ def test_a_local_whitelist_accepts_a_private_suffix_name_at_build_time() -> None
 
 
 def test_a_local_whitelist_name_with_a_public_dns_answer_is_refused_when_the_policy_is_built(
-    monkeypatch: pytest.MonkeyPatch,
+    dns: DnsFake,
 ) -> None:
     """A private suffix name that answers a public address gets no policy (#887)."""
     cfg = SandboxNetworkConfig(mode="local_whitelist", local_whitelist=["node1.example.internal"])
-    scripted_resolver(monkeypatch, {"node1.example.internal": [["8.8.8.8"]]})
+    dns.script("node1.example.internal", ["8.8.8.8"])
 
     with pytest.raises(ValueError, match=r"non-private address"):
         cfg.to_k8s_network_policy()
@@ -210,7 +210,7 @@ def test_a_local_whitelist_name_with_a_public_dns_answer_is_refused_when_the_pol
     "entry", ["host.docker.internal", "HOST.DOCKER.INTERNAL.", "http://Host.Docker.Internal:8080"]
 )
 def test_the_host_gateway_name_is_refused_in_the_local_whitelist_without_a_lookup(
-    entry: str, failed_lookups: list[tuple[str, int]]
+    entry: str, dns: DnsFake
 ) -> None:
     """`host.docker.internal` names the container runtime's gateway on the workstation, which a
     cluster pod cannot reach, so the entry is refused and the user asked for an IP or CIDR.
@@ -224,15 +224,16 @@ def test_the_host_gateway_name_is_refused_in_the_local_whitelist_without_a_looku
     ) as refusal:
         SandboxNetworkConfig(mode=SandboxNetworkMode.LOCAL_WHITELIST, local_whitelist=[entry])
     causes = [error["ctx"]["error"] for error in refusal.value.errors()]
-    assert (failed_lookups, [type(cause) for cause in causes]) == ([], [SandboxValidationError])
+    assert (_names_looked_up(dns), [type(cause) for cause in causes]) == (
+        [],
+        [SandboxValidationError],
+    )
 
 
 @pytest.mark.parametrize(
     "entry", ["http://localhost:11434", "127.0.0.1", "[::1]:8080", "127.0.0.0/8", "::1/128"]
 )
-def test_a_loopback_entry_opens_no_egress_rule(
-    entry: str, failed_lookups: list[tuple[str, int]]
-) -> None:
+def test_a_loopback_entry_opens_no_egress_rule(entry: str, dns: DnsFake) -> None:
     """NetworkPolicy never polices a pod's loopback, so a loopback entry adds no rule, and
     nothing is looked up to build the policy (#1174)."""
     policy = SandboxNetworkConfig(
@@ -240,11 +241,11 @@ def test_a_loopback_entry_opens_no_egress_rule(
     ).to_k8s_network_policy()
     assert (
         policy["spec"]["egress"],
-        [host for host, flags in failed_lookups if not flags & socket.AI_NUMERICHOST],
+        _names_looked_up(dns),
     ) == ([_DNS_EGRESS_RULE], [])
 
 
-@pytest.mark.usefixtures("failed_lookups")
+@pytest.mark.usefixtures("dns")
 def test_a_loopback_host_or_network_resolves_to_no_address() -> None:
     """`localhost`, a loopback address and a loopback network leave nothing to allow (#1174)."""
     hosts = ("localhost", "LOCALHOST.", "127.0.0.1", "::1", "127.0.0.0/8", "::1/128")
@@ -253,7 +254,7 @@ def test_a_loopback_host_or_network_resolves_to_no_address() -> None:
     ]
 
 
-@pytest.mark.usefixtures("public_dns")
+@pytest.mark.usefixtures("public_address")
 def test_cli_sandbox_network_policy_command(cli: Callable[..., Any]) -> None:
     """Verify `devops sandbox network-policy` CLI command generates valid Kubernetes YAML."""
     res = cli(
@@ -376,7 +377,7 @@ def test_cli_docker_sandbox_network_options(tmp_path: Path, cli: Callable[..., A
     ],
 )
 def test_a_whitelist_entry_parses_into_its_host_and_port(
-    mode: SandboxNetworkMode, entry: str, expected: tuple[str, int], public_dns: str
+    mode: SandboxNetworkMode, entry: str, expected: tuple[str, int], public_address: str
 ) -> None:
     """An entry's stated port is kept; without one, https and a bare entry get 443 and http 80.
 
@@ -388,7 +389,7 @@ def test_a_whitelist_entry_parses_into_its_host_and_port(
         {"mode": mode, "public_whitelist" if "PUBLIC" in mode.name else "local_whitelist": [entry]}
     )
 
-    assert rules == [_tcp_rule([cidr.format(public=public_dns)], port)]
+    assert rules == [_tcp_rule([cidr.format(public=public_address)], port)]
 
 
 def test_a_whitelist_cidr_entry_keeps_its_network_and_opens_443() -> None:
@@ -429,11 +430,11 @@ def test_a_whitelist_entry_that_cannot_name_one_port_is_refused(
 
 
 def test_a_public_whitelist_emits_full_prefixes_for_addresses_and_names(
-    monkeypatch: pytest.MonkeyPatch,
+    dns: DnsFake,
 ) -> None:
     """A public address gets /128 for IPv6 and /32 for IPv4 instead of a truncated prefix, and a
     name gets one block for each address it answers."""
-    scripted_resolver(monkeypatch, {"example.com": [["93.184.216.34", "2606:4700::1"]]})
+    dns.script("example.com", ["93.184.216.34", "2606:4700::1"])
 
     assert (
         _egress_without_dns(
@@ -550,14 +551,15 @@ _METADATA_ADDRESS = "169.254.169.254"
     ids=["public", "local"],
 )
 def test_the_whitelist_policy_looks_up_each_name_once(
-    monkeypatch: pytest.MonkeyPatch, config: dict[str, Any], script: dict[str, list[list[str]]]
+    dns: DnsFake, config: dict[str, Any], script: dict[str, list[list[str]]]
 ) -> None:
     """The whitelist validators look up no name, and the policy looks up each name one time."""
-    resolver = scripted_resolver(monkeypatch, script)
+    for name, answers in script.items():
+        dns.script(name, *answers)
 
     SandboxNetworkConfig(**config).to_k8s_network_policy()
 
-    assert resolver.lookups == dict.fromkeys(script, 1)
+    assert {name: len(dns.lookups_of(name)) for name in script} == dict.fromkeys(script, 1)
 
 
 # Each row: the whitelist, its one host, what the host answers, the lookups made, and the type of
@@ -619,9 +621,7 @@ _BUILDER_REFUSALS: dict[str, tuple[str, str, str, int, type[BaseException] | Non
 
 
 @pytest.mark.parametrize("case", list(_BUILDER_REFUSALS))
-def test_the_whitelist_policy_refuses_an_answer_outside_its_level(
-    monkeypatch: pytest.MonkeyPatch, case: str
-) -> None:
+def test_the_whitelist_policy_refuses_an_answer_outside_its_level(dns: DnsFake, case: str) -> None:
     """Each builder refuses a cloud metadata name, a cloud metadata answer and an answer outside
     its level, and the local builder also refuses a public answer.
 
@@ -631,7 +631,7 @@ def test_the_whitelist_policy_refuses_an_answer_outside_its_level(
     the answer when the builder refuses an answer.
     """
     field, host, answer, lookups, cause = _BUILDER_REFUSALS[case]
-    resolver = scripted_resolver(monkeypatch, {host: [[answer]]})
+    dns.script(host, [answer])
     config = SandboxNetworkConfig.model_construct(mode=SandboxNetworkMode(field), **{field: [host]})
 
     with pytest.raises(SandboxValidationError) as refusal:
@@ -643,14 +643,14 @@ def test_the_whitelist_policy_refuses_an_answer_outside_its_level(
         f"'{host}'" in str(refusal.value),
         answer in str(refusal.value),
         type(refusal.value.__cause__) if refusal.value.__cause__ else None,
-        resolver.lookups,
+        len(dns.lookups_of(host)),
     ) == (
         CONST_EXIT_FAILURE,
         "SANDBOX_VALIDATION_ERROR",
         True,
         lookups == 1,
         cause,
-        {host: lookups},
+        lookups,
     )
 
 
@@ -663,7 +663,7 @@ def test_the_whitelist_policy_refuses_an_answer_outside_its_level(
     ids=["public", "local"],
 )
 def test_a_whitelist_name_that_does_not_resolve_is_refused(
-    mode: SandboxNetworkMode, field: str, host: str, failed_lookups: list[tuple[str, int]]
+    mode: SandboxNetworkMode, field: str, host: str, dns: DnsFake
 ) -> None:
     """A name with no answer opens no rule: the builder refuses it, and names it."""
     config = SandboxNetworkConfig(mode=mode, **{field: [host]})
@@ -675,17 +675,17 @@ def test_a_whitelist_name_that_does_not_resolve_is_refused(
         refusal.value.exit_code,
         refusal.value.error_code,
         f"'{host}'" in str(refusal.value),
-        [name for name, flags in failed_lookups if not flags & socket.AI_NUMERICHOST],
+        _names_looked_up(dns),
     ) == (CONST_EXIT_FAILURE, "SANDBOX_VALIDATION_ERROR", True, [host])
 
 
 def test_network_policy_exits_1_naming_a_whitelist_name_whose_answer_it_refuses(
-    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+    cli: Callable[..., Any], dns: DnsFake
 ) -> None:
     """A public whitelist name that answers a private address gets no policy, and the error names
     the name and its answer. Only the one lookup of the policy builder gives the answer: the
     whitelist validators look up no name."""
-    resolver = scripted_resolver(monkeypatch, {"example.com": [[_LOCAL_ANSWER]]})
+    dns.script("example.com", [_LOCAL_ANSWER])
 
     res = cli(
         "sandbox",
@@ -701,8 +701,8 @@ def test_network_policy_exits_1_naming_a_whitelist_name_whose_answer_it_refuses(
         "'example.com'" in res.output,
         _LOCAL_ANSWER in res.output,
         "NetworkPolicy" in res.stdout,
-        resolver.lookups,
-    ) == (CONST_EXIT_FAILURE, True, True, False, {"example.com": 1})
+        len(dns.lookups_of("example.com")),
+    ) == (CONST_EXIT_FAILURE, True, True, False, 1)
 
 
 @pytest.mark.parametrize(
@@ -717,27 +717,26 @@ def test_network_policy_exits_1_naming_a_whitelist_name_whose_answer_it_refuses(
     ],
 )
 def test_a_whitelist_entry_opens_only_its_own_port(
-    case: str, expected: list[tuple[list[str], int]], public_dns: str
+    case: str, expected: list[tuple[list[str], int]], public_address: str
 ) -> None:
     """An entry that asks for one port gets that port, on TCP, and no other."""
-    assert (public_dns, _egress_without_dns(_WHITELIST_POLICIES[case])) == (
+    assert (public_address, _egress_without_dns(_WHITELIST_POLICIES[case])) == (
         "93.184.215.14",
         [_tcp_rule(cidrs, port) for cidrs, port in expected],
     )
 
 
-def test_two_entries_never_share_a_rule(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_two_entries_never_share_a_rule(dns: DnsFake) -> None:
     """Each entry's addresses open only that entry's port, never the other entry's."""
-    scripted_resolver(
-        monkeypatch, {"example.com": [["93.184.216.34"]], "example.org": [["1.0.0.1"]]}
-    )
+    dns.script("example.com", ["93.184.216.34"])
+    dns.script("example.org", ["1.0.0.1"])
     assert _egress_without_dns(_WHITELIST_POLICIES["two names, one with a port"]) == [
         _tcp_rule(["93.184.216.34/32"], 8443),
         _tcp_rule(["1.0.0.1/32"], 443),
     ]
 
 
-@pytest.mark.usefixtures("public_dns")
+@pytest.mark.usefixtures("public_address")
 @pytest.mark.parametrize(
     "entry", ["ftp://example.com", "example.com:0", "example.com:70000", "140.82.112.0/20:8443"]
 )
@@ -756,7 +755,7 @@ def test_network_policy_exits_1_naming_an_entry_it_cannot_scope_to_a_port(
     assert (res.exit_code, entry in res.output, "NetworkPolicy" in res.stdout) == (1, True, False)
 
 
-@pytest.mark.usefixtures("public_dns")
+@pytest.mark.usefixtures("public_address")
 @pytest.mark.parametrize("case", sorted(_WHITELIST_POLICIES))
 def test_every_whitelist_rule_but_the_dns_rule_names_its_ports(case: str) -> None:
     """No whitelist policy these tests build opens every port to an address."""
@@ -764,7 +763,7 @@ def test_every_whitelist_rule_but_the_dns_rule_names_its_ports(case: str) -> Non
     assert (bool(rules), all(rule.get("ports") for rule in rules)) == (True, True)
 
 
-@pytest.mark.usefixtures("public_dns")
+@pytest.mark.usefixtures("public_address")
 @pytest.mark.parametrize("case", sorted(_WHITELIST_POLICIES))
 def test_every_whitelist_rule_names_a_destination(case: str) -> None:
     """No rule has an empty or missing `to`, which would allow every destination (#1174)."""
@@ -805,7 +804,7 @@ def _selects_otel(rule: dict[str, Any]) -> bool:
     )
 
 
-@pytest.mark.usefixtures("public_dns")
+@pytest.mark.usefixtures("public_address")
 @pytest.mark.parametrize("mode", _COLLECTOR_LANE_MODES)
 def test_the_collector_lane_is_one_rule_to_the_collector_pods_on_the_otlp_ports(mode: str) -> None:
     """The lane selects the collector by namespace and pod labels together, never Tempo or an IP."""
@@ -823,7 +822,7 @@ def test_the_collector_lane_is_refused_in_a_mode_it_does_not_apply_to(
     assert (res.exit_code, named) == (1, (True, True, True))
 
 
-@pytest.mark.usefixtures("public_dns")
+@pytest.mark.usefixtures("public_address")
 @pytest.mark.parametrize("mode", sorted(_MODE_POLICIES))
 def test_without_the_flag_no_rule_selects_the_collector_namespace(mode: str) -> None:
     """The collector lane is opt-in in every mode."""
@@ -831,7 +830,7 @@ def test_without_the_flag_no_rule_selects_the_collector_namespace(mode: str) -> 
     assert [rule for rule in egress if _selects_otel(rule)] == []
 
 
-@pytest.mark.usefixtures("public_dns")
+@pytest.mark.usefixtures("public_address")
 @pytest.mark.parametrize(
     ("mode", "allow_collector"),
     [(mode, False) for mode in sorted(_MODE_POLICIES)]

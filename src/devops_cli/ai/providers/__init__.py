@@ -84,7 +84,7 @@ def create_pydantic_ai_provider(
     """Create and configure a native Pydantic AI Provider instance.
 
     Configures endpoint URLs, API keys, and client parameters according to provider type.
-    A provider that takes an ``http_client`` gets a factory client at the configured level:
+    A provider that takes an ``http_client`` gets a client of the HTTP entry point at the configured level:
     loopback, or private with ``allow_private_network``. The connect checks each address.
     With ``gateway_caller``, each request of that client names devops-cli and its service as the
     caller, for the LLM gateway (#1668).

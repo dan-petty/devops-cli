@@ -158,11 +158,11 @@ def _extract_github_repo(
 
 def _default_pypi_fetcher(pkg_name: str) -> dict[str, Any]:
     """Fetch package metadata from PyPI JSON API."""
-    from devops_cli.http.client import new_http_client
     from devops_cli.http.egress import EgressLevel
+    from devops_cli.http.entry import http_client
 
     url = f"https://pypi.org/pypi/{pkg_name}/json"
-    with new_http_client(level=EgressLevel.PUBLIC) as client:
+    with http_client(EgressLevel.PUBLIC) as client:
         resp = client.get(url, timeout=10.0)
         resp.raise_for_status()
         data = resp.json()

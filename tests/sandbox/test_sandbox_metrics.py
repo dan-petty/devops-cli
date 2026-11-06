@@ -20,11 +20,11 @@ from devops_cli.sandbox.models import (
     SandboxMetricsSnapshot,
     SandboxStatus,
 )
+from tests.support.fakes.dial import http_response, record_connects
 from tests.support.fakes.docker_engine import DockerEngineFake
 from tests.support.sandbox import (
     port_of,
 )
-from tests.web_fakes import http_response, record_connects
 
 
 def test_sandbox_metrics_snapshot_model() -> None:
