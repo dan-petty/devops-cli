@@ -12,10 +12,14 @@ is no definition of the commit.
 
 from __future__ import annotations
 
+import keyword
+import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.refine import SYMBOL_PATHSPEC, git_result
+from devops_cli.roadmap.step_files import TaskGroup, code_spans
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -52,4 +56,45 @@ def defines(source: Path, sha: str, name: str, git: GitResult = git_result) -> b
     return bool(definition_lines(source, sha, name, git))
 
 
-__all__ = ["defines", "definition_lines"]
+_ADD_VERB = re.compile(r"\b(add|adds|create|creates|introduce|introduces)\b", re.IGNORECASE)
+_GUARD_WORD = re.compile(r"\b(guard|guards|check|checks)\b", re.IGNORECASE)
+_CODE_SPAN = re.compile(r"`[^`]*`")
+
+
+def added_guard(task_text: str) -> str | None:
+    """The name of the guard that the task adds, or None. A task adds a guard when its prose has an
+    add verb and the word guard or check, and its code spans hold exactly one identifier (a path,
+    a command or a phrase is no identifier). A task with two identifiers does not say which one it
+    adds, so it names none."""
+    prose = _CODE_SPAN.sub(" ", task_text)
+    if not (_ADD_VERB.search(prose) and _GUARD_WORD.search(prose)):
+        return None
+    names = {
+        span
+        for span in code_spans(task_text)
+        if span.isidentifier() and not keyword.iskeyword(span)
+    }
+    return names.pop() if len(names) == 1 else None
+
+
+def false_premises(
+    source: Path, sha: str, group: TaskGroup, git: GitResult = git_result
+) -> tuple[str, ...]:
+    """The evidence for each task of `group` that adds a guard which commit `sha` already defines:
+    the task, the name and the definition line. Empty when the premise of the group holds. The
+    check reads the commit and writes nothing."""
+    found: list[str] = []
+    for task in group.tasks:
+        name = added_guard(task.text)
+        if name is None:
+            continue
+        if lines := definition_lines(source, sha, name, git):
+            found.append(
+                MESSAGES.roadmap.premise_guard_defined.format(
+                    task=task.text.strip(), name=name, line=lines[0]
+                )
+            )
+    return tuple(found)
+
+
+__all__ = ["added_guard", "defines", "definition_lines", "false_premises"]

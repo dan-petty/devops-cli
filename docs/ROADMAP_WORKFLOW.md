@@ -171,7 +171,7 @@ A stop has a class (`roadmap/failure.py`, #3065). A stop site that knows its cau
 The Job runs these actions by itself:
 - the fix rounds of `roadmap.implement.repair_rounds` for a failed check,
 - `amend` for a request of the kinds `path`, `command` and `task`,
-- `return` for a `premise` request,
+- `return` for a `premise` request, and for a behavior group that adds a guard which the branch already defines ([the premise of a group](roadmap/implement.md)),
 - the split of a group whose inputs exceed the context window.
 
 A plan can order the removal or the rename of a test (#3490). Its `proposal.md` names the old test as `path::name` (`path::Class.test_x` for a test of a class) in the `check` of an entry of `## Weakened checks`, and the entry says what the test stopped and what safeguard takes its place: `- **<check>**: Stopped: <stopped> Safeguard: <safeguard>`. The step guard allows that test. It refuses any other lost test, with the class `tests_lost`. AGENTS.md rule 5 lets only the owner lower a threshold, and only a person merges a pull request, so the Job reads the record from `origin/<default>` and never from its checkout. An entry that the agent writes waives nothing, and a plan that is only on its staged branch records nothing. A step that a person runs with `devops roadmap implement --item <number> --group <group>` reads no record, so it refuses each lost test. The plan reader refuses a line of the section in another form.

@@ -148,8 +148,9 @@ from devops_cli.roadmap.implement_trace import (
     last_failing_command,
     summary_table,
 )
-from devops_cli.roadmap.implement_wip import WipCommit, kept_commits
+from devops_cli.roadmap.implement_wip import WipCommit, kept_commits, wip_base
 from devops_cli.roadmap.plan_read import PlanReadError, merged_recorded_tests
+from devops_cli.roadmap.premise import false_premises
 from devops_cli.roadmap.pull_form import title_problems
 from devops_cli.roadmap.pull_labels import (
     add_pull_labels,
@@ -673,12 +674,26 @@ class _ItemRun:
             raise _ClaimedError(owner, boundary)
 
     def _return_premise(self, request: PlanRequest) -> None:
-        texts = MESSAGES.roadmap
-        evidence = mask_secrets(request.evidence.strip())[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS]
-        comment = texts.implement_comment_premise_failed.format(
-            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
-            evidence=evidence,
-        )
+        self._return_to_new(MESSAGES.roadmap.implement_comment_premise_failed, request.evidence)
+
+    def _check_premise(self, group: TaskGroup) -> bool:
+        """Return the item to New, and say so, when a task of the behavior group `group` adds a guard
+        that the branch already defines (#3417). The check reads the last commit that is no `wip:`
+        commit, so the guard that an earlier attempt of this group kept is no defect of the plan. It
+        runs before the step, so a false premise costs no model request and writes no file. A group
+        of another kind adds no product guard, so it gets no check."""
+        if not group.is_behavior:
+            return False
+        evidence = false_premises(self.path, wip_base(self._git), group)
+        if not evidence:
+            return False
+        self._return_to_new(MESSAGES.roadmap.implement_comment_premise_defined, "\n".join(evidence))
+        return True
+
+    def _return_to_new(self, template: str, evidence: str) -> None:
+        """Return the item to New with a comment of `template`, and clear the record of the run."""
+        evidence = mask_secrets(evidence.strip())[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS]
+        comment = template.format(marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, evidence=evidence)
         apply_return(self.store, plan_return(self.store, self.number, comment, self.repo))
         self.store.set_marks(
             self._fresh(),
@@ -907,6 +922,8 @@ class _ItemRun:
             self._require_unclaimed(
                 MESSAGES.roadmap.implement_boundary_group.format(group=group.number)
             )
+            if self._check_premise(group):
+                return
             try:
                 outcome = run_step(
                     self.store,

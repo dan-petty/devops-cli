@@ -1363,6 +1363,140 @@ class TestFailToPassOfTwoBehaviorGroups:
         ) in comment["body"]
 
 
+# ── The premise of a behavior group (#3417) ───────────────────────────────────────────────
+
+TITLES = '"""The titles."""\n\n\ndef _delivery_title(text: str) -> str:\n    return text.strip()\n'
+TITLES_PATH = "src/devops_cli/titles.py"
+TITLES_LINE = f"{TITLES_PATH}:4:def _delivery_title(text: str) -> str:"
+
+
+def _guard_tasks(name: str, *, behavior: bool) -> str:
+    """A change of two groups whose first group adds the guard `name`. With `behavior`, the first
+    group is a behavior group: a failing test, then the guard. Otherwise it is a group of kind
+    `other` with one task that adds the guard."""
+    if behavior:
+        first = (
+            "Reads: `CONTEXT.md`. Changes: `tests/test_shout.py` (new), "
+            "`src/devops_cli/shout.py` (new).\n\n"
+            "- [ ] 1.1 Add the failing test `tests/test_shout.py` for `src/devops_cli/shout.py`\n"
+            "  - Verification: `uv run devops ci test tests/test_shout.py` fails on the base\n"
+            f"- [ ] 1.2 Add the guard `{name}` to `src/devops_cli/shout.py`\n"
+            "  - Verification: `uv run devops ci test tests/test_shout.py`\n"
+        )
+    else:
+        first = (
+            "Reads: `CONTEXT.md`. Changes: `src/devops_cli/shout.py` (new), `tests/test_shout.py` (new).\n\n"
+            f"- [ ] 1.1 Add the guard `{name}` to `src/devops_cli/shout.py`\n"
+            "  - Verification: `uv run devops ci test tests/test_shout.py`\n"
+        )
+    return (
+        f"# Tasks\n\n## 1. The first group\n\n{first}\n"
+        "## 2. The second group\n\n"
+        "Reads: `CONTEXT.md`. Changes: `CONTEXT.md`.\n\n"
+        "- [ ] 2.1 Document the function in `CONTEXT.md`\n"
+        "  - Verification: `uv run devops docs check`\n\n"
+        "## Criteria\n\n- Group 1: The job keeps every comment.\n"
+    )
+
+
+def _ticked(tasks: str) -> tuple[str, str]:
+    """The tasks with group 1 ticked, and with both groups ticked."""
+    first = tasks.replace("- [ ] 1.", "- [x] 1.")
+    return first, first.replace("- [ ] 2.", "- [x] 2.")
+
+
+class _PremiseWorld:
+    """A staged branch whose base defines `_delivery_title` in `src/devops_cli/titles.py`."""
+
+    @pytest.fixture
+    def staged_files(self) -> dict[str, str]:
+        return {"tests/conftest.py": '"""The tests."""\n', TITLES_PATH: TITLES}
+
+
+class TestAFalsePremiseOfABehaviorGroup(_PremiseWorld):
+    """A task of a behavior group adds a guard that the branch tip defines (#3417)."""
+
+    @pytest.fixture
+    def staged_tasks(self) -> str:
+        return _guard_tasks("_delivery_title", behavior=True)
+
+    def test_a_behavior_group_that_adds_a_guard_the_base_already_runs_returns_the_item(
+        self, job_world: JobWorld
+    ) -> None:
+        tip = job_world.repo.origin_git("rev-parse", BRANCH)
+        script = two_groups()
+
+        applied = job_world.run(script)
+
+        assert (applied.ready, applied.stopped, applied.failed) == ((), (), ())
+        status, record = _item(job_world)
+        assert (status, record.get("implement.group"), record.get("implement.branch")) == (
+            "New",
+            None,
+            None,
+        )
+        (comment,) = job_world.issue_comments()
+        assert TITLES_LINE in comment
+        assert "`_delivery_title`" in comment
+        assert script.seen == []
+        assert job_world.repo.origin_git("rev-parse", BRANCH) == tip
+
+
+class TestATruePremiseOfABehaviorGroup(_PremiseWorld):
+    """A task of a behavior group adds a guard that the branch tip lacks (#3417)."""
+
+    @pytest.fixture
+    def staged_tasks(self) -> str:
+        return _guard_tasks("_missing_guard", behavior=True)
+
+    def test_a_behavior_group_whose_guard_the_base_lacks_runs(self, job_world: JobWorld) -> None:
+        answer_pytest_on_base(job_world.programs, junit((SHOUT_TEST_ID, "failed")))
+        first, both = _ticked(_guard_tasks("_missing_guard", behavior=True))
+        script = ModelScript(
+            tool_calls(
+                write_call("tests/test_shout.py", TEST_BODY),
+                write_call("src/devops_cli/shout.py", SHOUT),
+                write_call(TASKS_PATH, first),
+            ),
+            say("Group 1 is done."),
+            tool_calls(*group_two_calls(both)),
+            say("Group 2 is done."),
+        )
+
+        applied = job_world.run(script)
+
+        assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+        assert "src/devops_cli/shout.py" in job_world.repo.origin_git(
+            "diff", "--name-only", f"main..{BRANCH}"
+        )
+
+
+class TestAGuardOfAGroupThatIsNotBehavior(_PremiseWorld):
+    """A group of kind `other` names a defined guard: the check does not apply to it (#3417)."""
+
+    @pytest.fixture
+    def staged_tasks(self) -> str:
+        return _guard_tasks("_delivery_title", behavior=False)
+
+    def test_a_group_that_is_not_behavior_runs_though_the_base_defines_the_name(
+        self, job_world: JobWorld
+    ) -> None:
+        _, both = _ticked(_guard_tasks("_delivery_title", behavior=False))
+        script = ModelScript(
+            tool_calls(
+                write_call("src/devops_cli/shout.py", SHOUT),
+                write_call(TASKS_PATH, both.replace("- [x] 2.", "- [ ] 2.")),
+            ),
+            say("Group 1 is done."),
+            tool_calls(*group_two_calls(both)),
+            say("Group 2 is done."),
+        )
+
+        applied = job_world.run(script)
+
+        assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+
+
 class TestVerifyOutputOfAnOtherGroup:
     """The job of a group of kind `other`: its verify command prints a line (#3042)."""
 

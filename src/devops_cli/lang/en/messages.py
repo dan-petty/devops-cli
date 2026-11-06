@@ -2944,6 +2944,14 @@ class RoadmapMessages:
         "of the issue does not hold, so the job wrote no compensating code.\n\n"
         "Evidence:\n\n{evidence}"
     )
+    implement_comment_premise_defined: str = (
+        "{marker}\nThe implement job returned the item to New. A task of a behavior group adds "
+        "a guard that the branch already defines, so the job ran no step and wrote no code.\n\n"
+        "Evidence:\n\n{evidence}"
+    )
+    premise_guard_defined: str = (
+        '- The task "{task}" adds `{name}`. The branch already defines it: {line}'
+    )
     implement_stop_question_empty_premise: str = (
         "The agent asked to return the item on a premise failure, but gave no evidence."
     )
