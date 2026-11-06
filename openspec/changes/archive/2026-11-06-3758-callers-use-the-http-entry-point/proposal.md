@@ -18,8 +18,11 @@ Issue #3758 is part 3 of #1314. Three slices moved the callers of the `ai`, `k8s
 - The tests use the `web` and `dns` fixtures. The files that needed every name to answer a public address ask for `dns` and call `answer_every_name`. Two tests show what changed in what they check:
   - `tests/roadmap/test_roadmap_refine.py` counts the requests of a failing item. The real retry transport now sends a request that gets a 504 five times, where the old helper skipped the retry transport.
   - `tests/http/test_gateway_review_stall.py` runs `LLMClient` over `serve_llm` and the `clock` fixture. The three tests no longer replace private methods of the client or the `httpx2` transport.
+- `openspec/changes/2610-devops-k8s-image-pins-resolves-with` names `http_client` and the `web` fixture, where it named `new_http_client` and `stub_web`.
 - `docs/TESTING.md`, `ARCHITECTURE.md`, `README.md` and the `httpx2` knowledge-base page no longer name the old factories and fakes.
-- This change alters no behavior a consumer observes. It has no spec delta, and `skip_specs: true` is set.
+- `install_transport` now raises `RuntimeError` on a second install, so a test cannot hide a transport that another fake holds (design decision 2).
+- The specs `configured-service-urls` and `k8s-logs` name the entry point where they named the deleted factory. This changes wording only, no requirement. The change has no spec delta, and `skip_specs: true` is set.
+- This change alters no behavior a consumer observes.
 - This change fits one pull request.
 
 ## Impact
