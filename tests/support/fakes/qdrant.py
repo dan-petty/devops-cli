@@ -45,9 +45,21 @@ class FakeQdrantClient(QdrantProtocol):
         # Called with the collection name at the start of each search, so a test can hold or
         # fail one collection's search, as a slow or failing server does.
         self.on_search: Callable[[str], None] | None = None
+        # The operations that raise `QdrantClientError`, as a server that refuses them does.
+        self.failing_operations: set[str] = set()
+
+    def fail_operation(self, *names: str) -> None:
+        """Make each later call of the operations `names` raise `QdrantClientError`."""
+        self.failing_operations.update(names)
+
+    def recover(self) -> None:
+        """Make every operation answer again."""
+        self.failing_operations.clear()
 
     def _record(self, name: str, *args: Any, **kwargs: Any) -> None:
         self.calls.append((name, args, kwargs))
+        if name in self.failing_operations:
+            raise QdrantClientError(f"Simulated {name} failure")
 
     def is_alive(self, *, force_check: bool = False) -> bool:
         self._record("is_alive", force_check=force_check)
@@ -237,6 +249,7 @@ class FakeQdrantClient(QdrantProtocol):
             file_paths,
             project_name=project_name,
             batch_size=batch_size,
+            wait=wait,
         )
         if name in self.collections:
             path_set = set(file_paths)
@@ -262,7 +275,9 @@ class FakeQdrantClient(QdrantProtocol):
     ) -> bool:
         if self.refusing:
             raise QdrantClientError("Server is unreachable")
-        self._record("delete_points_by_project", name, project_name, batch_size=batch_size)
+        self._record(
+            "delete_points_by_project", name, project_name, batch_size=batch_size, wait=wait
+        )
         if name in self.collections:
             self.collections[name] = [
                 p
@@ -389,6 +404,7 @@ class ServedQdrant:
     collections: list[str] = field(default_factory=list)
     points: list[dict[str, Any]] = field(default_factory=list)
     drop_connections: int = 0
+    collection_info: dict[str, Any] | None = None
     requests: list[tuple[str, str, dict[str, str]]] = field(default_factory=list)
     bodies: list[tuple[str, str, Any]] = field(default_factory=list)
 
@@ -403,6 +419,9 @@ def _served_result(served: ServedQdrant, prefix: str, method: str, path: str) ->
         return {"collections": [{"name": name} for name in served.collections]}
     if not path.startswith(f"{prefix}/collections/"):
         return None
+    is_collection = path.removeprefix(prefix).count("/") == 2
+    if method == "GET" and served.collection_info is not None and is_collection:
+        return served.collection_info
     if method == "POST" and path.endswith("/points/query"):
         return {"points": served.points}
     if method == "PUT" and path.endswith("/index"):
@@ -418,7 +437,8 @@ def serving_qdrant(
 ) -> Iterator[ServedQdrant]:
     """A loopback server that speaks the part of the Qdrant REST API that searches and collection setup use.
 
-    It answers `GET <prefix>/collections` with `collections`, `POST <prefix>/collections/<name>/
+    It answers `GET <prefix>/collections` with `collections`, `GET <prefix>/collections/<name>`
+    with `collection_info` when the test sets it, `POST <prefix>/collections/<name>/
     points/query` with `points`, and `PUT` of a collection or of its index with success. Every other
     path answers 404, as a collection that does not exist does. It records each request's method,
     path and headers, and the JSON body of each request that has one. The next `drop_connections` requests are cut without an answer, as a tunnel
@@ -466,7 +486,9 @@ def serving_qdrant(
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     served.url = f"http://127.0.0.1:{server.server_address[1]}"
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
     thread.start()
     try:
         yield served

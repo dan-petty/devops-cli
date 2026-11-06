@@ -40,6 +40,8 @@ class FakeEmbedder(EmbedderProtocol):
         self.dimension = dimension
         # The name the indexer records in each point as `embedding_model`.
         self.model = "fake-embed-model"
+        # How many texts the indexer sends in one request.
+        self.batch_size = 32
         self.failing = failing
         self.failure_message = failure_message
         self.failure_is_transient = False

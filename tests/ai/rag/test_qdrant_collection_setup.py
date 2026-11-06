@@ -8,6 +8,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from qdrant_client import QdrantClient as NativeQdrantClient
+from qdrant_client import models as qmodels
 
 from devops_cli.ai.rag.qdrant import QdrantClient
 from tests.support.fakes.qdrant import ServedQdrant, serving_qdrant
@@ -46,3 +48,34 @@ def test_quantization_can_be_disabled() -> None:
         client.ensure_collection("docs", 768, quantize=False)
 
     assert _created(served).get("quantization_config") is None
+
+
+def _index_fields(served: ServedQdrant) -> list[str]:
+    """The fields that the client asked for a payload index on, in order."""
+    return [
+        body["field_name"]
+        for method, path, body in served.bodies
+        if method == "PUT" and "/index" in path
+    ]
+
+
+def test_a_new_collection_gets_both_payload_indexes() -> None:
+    with serving_qdrant() as served:
+        QdrantClient(served.url, api_key="test-key", timeout=5.0).ensure_collection("docs", 4)
+
+    assert _index_fields(served) == ["project_name", "file_path"]
+
+
+def test_an_existing_collection_without_payload_indexes_gets_both_on_the_next_run() -> None:
+    native = NativeQdrantClient(location=":memory:")
+    native.create_collection(
+        "docs", vectors_config=qmodels.VectorParams(size=4, distance=qmodels.Distance.COSINE)
+    )
+    with serving_qdrant() as served:
+        served.collection_info = native.get_collection("docs").model_dump(mode="json")
+        QdrantClient(served.url, api_key="test-key", timeout=5.0).ensure_collection("docs", 4)
+
+    assert (_index_fields(served), [b for b in served.bodies if "/index" not in b[1]]) == (
+        ["project_name", "file_path"],
+        [],
+    )

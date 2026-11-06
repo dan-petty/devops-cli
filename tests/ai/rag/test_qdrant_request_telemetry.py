@@ -87,3 +87,16 @@ def test_a_retried_request_is_counted_by_the_error_behind_it(
         [({"operation": "search_points", "error_type": "RemoteProtocolError"}, 1.0)],
         2,
     )
+
+
+@pytest.mark.filterwarnings("ignore:Api key is used with an insecure connection")
+def test_a_request_that_keeps_failing_backs_off_longer_each_time_before_it_succeeds(
+    clock: ClockFake,
+) -> None:
+    with serving_qdrant(collections=["devops_code"]) as served:
+        served.drop_connections = 2
+        client = QdrantClient(served.url, api_key="test-key", timeout=5.0)
+
+        collections = client.list_collections()
+
+    assert (collections, clock.waits, len(served.requests)) == (["devops_code"], [0.5, 1.0], 3)
