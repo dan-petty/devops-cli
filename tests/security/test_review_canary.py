@@ -354,14 +354,19 @@ def test_a_review_runs_each_canary_once_through_its_executor_and_records_no_cana
         (request.tool, request.workdir.name.startswith(CONST_CANARY_WORKDIR_PREFIX))
         for request in scanner_fake.canaries.requests
     ]
+    tools = [tool for tool, _ in canaried]
     assert (
-        sorted(tool for tool, _ in canaried) == sorted(set(tool for tool, _ in canaried)),
-        {"bandit", "semgrep"} <= {tool for tool, _ in canaried},
+        sorted(tools),
         all(is_canary for _, is_canary in canaried),
         orchestrator.canary_results["bandit"],
         orchestrator.canary_results["semgrep"],
-        all(not run.argv[-1].startswith(CONST_CANARY_WORKDIR_PREFIX) for run in scanner_fake.runs),
-    ) == (True, True, True, True, True, True)
+        [
+            run
+            for run in scanner_fake.runs
+            if CONST_CANARY_WORKDIR_PREFIX in str(run.cwd)
+            or any(CONST_CANARY_WORKDIR_PREFIX in part for part in run.argv)
+        ],
+    ) == (["bandit", "semgrep"], True, True, True, [])
 
 
 def test_the_mypy_canary_starts_the_interpreter_of_devops_cli_through_the_executor(
