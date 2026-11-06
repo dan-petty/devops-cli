@@ -641,11 +641,20 @@ each). `network` names the network of the tool: `host` under the direct executor
 sandbox, and `kube-api` for Popeye in the sandbox with that network profile. It holds `config_digest`, `ruleset_digest` and `targets_digest`, the `argv_template` of the
 command, and the `commit` of the tree. The commit ends with `-dirty` when a target differs from it.
 It is empty for a tree that is no git checkout, such as the files of a base revision that the review
-writes to a scratch directory. A digest of files covers their content, not their paths or their
-order. The digest of no files is `4f53cda18c2baa0c`. A digest is `unavailable` when the direct
-executor could not read one of the files, because a scan must not fail for its record. The template
-shows `{targets}`, `{config}` and `{ruleset}` where the command names those files by path, so the
-same scan records the same template.
+writes to a scratch directory. A record also holds `repository_uri`, the `origin` remote of the
+checkout with the userinfo removed, so a credential of the remote never reaches the record. It is
+empty for a checkout with no `origin` remote, and for a remote that is not an absolute URI with a
+host, such as a scp-style remote or a local path. A digest of files covers their content, not their
+paths or their order. The digest of no files is `4f53cda18c2baa0c`. A digest is `unavailable` when
+the direct executor could not read one of the files, because a scan must not fail for its record.
+The template shows `{targets}`, `{config}` and `{ruleset}` where the command names those files by
+path, so the same scan records the same template.
+
+The run of the tool in `findings.sarif` holds a `versionControlProvenance` entry for each distinct
+pair of `repository_uri` and clean `commit` among the records of the tool, in the order of the first
+record of each pair. A clean commit is one that is set and does not end with `-dirty`. An entry with
+no pair is not written, because SARIF requires a `repositoryUri` in each entry (section 3.23.3), and
+a `-dirty` commit identifies no revision of the scanned files (section 3.23.4).
 
 A record also says how its run ended: `exit_code`, and `success` as the code that ran the tool
 decided it. The exit code alone does not tell success: Gitleaks and Semgrep exit with 1 when they
