@@ -548,7 +548,7 @@ def test_braces_in_a_path_are_sent_as_literal_characters(github_api: GitHubApiFa
 def test_the_sessions_requests_are_vetted_at_the_public_egress_level(
     github_api: GitHubApiFake, dns: DnsFake
 ) -> None:
-    """The factory builds the session's client at the public egress level, and a request whose
+    """The entry point builds the session's client at the public egress level, and a request whose
     host comes to resolve to loopback is refused before anything reaches GitHub's fake."""
     github_api.route("GET", "/user", github_json({"login": "octocat"}))
     dns.script("api.github.com", [PUBLIC_ADDRESS], ["127.0.0.1"])
@@ -564,13 +564,13 @@ def test_the_sessions_requests_are_vetted_at_the_public_egress_level(
     )
 
 
-def test_the_sessions_client_waits_a_public_connect_timeout_and_the_factorys_read_timeout(
+def test_the_sessions_client_waits_a_public_connect_timeout_and_the_entry_points_read_timeout(
     github_api: GitHubApiFake,
 ) -> None:
     """GitHub is reached over the public internet, where a lost SYN is resent after 1 s and a
-    TLS handshake on a lossy link takes longer: the factory's 1 s connect timeout, sized for
+    TLS handshake on a lossy link takes longer: the entry point's 1 s connect timeout, sized for
     local services, made reads fail with `ConnectTimeout` (2026-10-19). The session's client
-    connects within `DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS` and keeps the factory's read
+    connects within `DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS` and keeps the entry point's read
     timeout."""
     from devops_cli.config import defaults
 

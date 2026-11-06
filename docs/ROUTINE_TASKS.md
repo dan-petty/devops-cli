@@ -254,7 +254,7 @@ Executed weekly, or when dependencies are updated.
   ```
 
 #### 4. SSRF Guardrails & OS Keyring Audit
-- **Methodology**: Every HTTP client is built by the `devops_cli.http.client` factory and checked at the connect: untrusted URLs at the public level, configured services at loopback (private once `ai.allow_private_network` is set), internal infrastructure at private. Kept pre-flight checks (Qdrant, kubectl manifest apply, container engine endpoint, config init wizard) call `vet_addresses` directly at their level. Cloud metadata endpoints are always rejected; other link-local addresses only at the public and loopback levels.
+- **Methodology**: Every HTTP client is built by `devops_cli.http.entry` and checked at the connect: untrusted URLs at the public level, configured services at loopback (private once `ai.allow_private_network` is set), internal infrastructure at private. Kept pre-flight checks (Qdrant, kubectl manifest apply, container engine endpoint, config init wizard) call `vet_addresses` directly at their level. Cloud metadata endpoints are always rejected; other link-local addresses only at the public and loopback levels.
 
 #### 5. AI Code Review Verification, Feedback Export & Self-Improvement Loop
 - **Frequency**: After running AI code reviews or before PR approval.

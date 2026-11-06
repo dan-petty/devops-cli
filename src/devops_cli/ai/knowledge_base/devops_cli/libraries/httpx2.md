@@ -87,6 +87,6 @@ async def stream_reasoning_tokens(client: httpx2.AsyncClient, url: str, prompt: 
 
 ## 6. Best Practices & Security Standards
 
-1. **Egress Safety & SSRF Mitigation**: Every HTTP client is built through `devops_cli.http.client` factory functions to enforce connect-time egress checks. Kept pre-flight checks call `vet_addresses` directly.
+1. **Egress Safety & SSRF Mitigation**: Every HTTP client comes from `http_client` or `async_http_client` of `devops_cli.http.entry`, which takes the egress transport from `devops_cli.http.client` to enforce connect-time egress checks. Kept pre-flight checks call `vet_addresses` directly.
 2. **Never Log Sensitive Authorization Headers**: Ensure `Authorization: Bearer <token>` headers are redacted before logging HTTP requests.
 3. **Always Use Connection Pools**: Reuse `AsyncClient` instances across tool calls rather than instantiating a new client per request.

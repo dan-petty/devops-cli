@@ -1,4 +1,4 @@
-"""The connect-time egress policy: the vetting backends, the client factory and their seams.
+"""The connect-time egress policy: the vetting backends, the HTTP entry point and their seams.
 
 A test fakes the lookup with the `dns` fixture, and httpcore2's dial with `record_connects`
 (`tests/support/fakes/dial.py`). It sees the lookups a client made and the address it dialled, with
@@ -72,6 +72,7 @@ from devops_cli.security.vulnerability_lookup import (
     OSVClient,
     ShodanInternetDBClient,
 )
+from devops_cli.survey.dependencies import _default_pypi_fetcher
 from devops_cli.telemetry.memory_profiler import _exercise_http_pool
 from devops_cli.telemetry.service_status import fetch_statuspage_summary
 from devops_cli.telemetry.waterfall import query_tempo_trace
@@ -320,7 +321,7 @@ def test_unix_sockets_and_sleep_are_delegated_to_the_inner_backend() -> None:
 
 
 # =============================================================================
-# The factory and its pinned seam
+# The entry point and its pinned seam
 # =============================================================================
 
 
@@ -906,7 +907,7 @@ def _k8s_service_calls() -> dict[str, Callable[[], Any]]:
 
 
 def _caller_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]]:
-    """Each caller that a change moved to the factory, against example.com or its fixed API host."""
+    """Each caller that a change moved to the entry point, against example.com or its fixed API host."""
     return {
         "tool download": lambda: _download("https://example.com/tool.tar.gz"),
         "vault": lambda: VaultSecretBroker("http://example.com:8200", "token").get_status(),
@@ -989,7 +990,7 @@ def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
     }
 
 
-_PUBLIC_API_HOSTS = ("api.osv.dev", "internetdb.shodan.io", "api.cloudflare.com")
+_PUBLIC_API_HOSTS = ("api.osv.dev", "internetdb.shodan.io", "api.cloudflare.com", "pypi.org")
 
 
 def _public_api_calls() -> dict[str, Callable[[], Any]]:
@@ -1006,6 +1007,7 @@ def _public_api_calls() -> dict[str, Callable[[], Any]]:
             token="cf-test", valkey_client=None
         ).check_domain("service-domain.org"),
         "cloudflare api": lambda: CloudflareClient(token="cf-test").verify_token(),
+        "pypi metadata": lambda: _default_pypi_fetcher("requests"),
     }
 
 
@@ -1037,7 +1039,7 @@ def test_each_caller_dials_at_its_level(
     dials neither, a loopback-level one only the first, a private-level one both. Only the URLs
     that come from configuration follow the flag; the tool downloads, the documentation crawler,
     the default pricing registry and the clients of fixed public APIs (OSV, Shodan InternetDB,
-    Cloudflare Radar and the Cloudflare API) do not widen with it. A caller host name never
+    Cloudflare Radar, the Cloudflare API and PyPI) do not widen with it. A caller host name never
     reaches the dial: a client that hands the socket the name lets it resolve the name again
     after the check (#2422, #2424). Only dials to the answer or a caller host count: the test
     configuration's telemetry exporter may dial its collector from a background thread meanwhile.

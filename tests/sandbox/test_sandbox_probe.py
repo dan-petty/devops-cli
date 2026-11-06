@@ -570,7 +570,7 @@ def test_the_probe_timeout_bounds_every_connect(
 ) -> None:
     """`devops sandbox probe --timeout N` bounds each connect by N, for HTTP and OpenAPI as for TCP.
 
-    A factory client given a bare number reads it as the read timeout and keeps a 1 s connect, so a
+    An entry point client given a bare number reads it as the read timeout and keeps a 1 s connect, so a
     probe whose first SYN was dropped would report a timeout 'after N s' it never waited.
     """
     dns.answer_every_name()
