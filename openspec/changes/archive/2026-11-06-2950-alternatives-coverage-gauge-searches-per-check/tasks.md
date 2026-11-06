@@ -47,7 +47,7 @@ Reads: `k8s/monitoring/dashboards/devops-cli.json`, `tests/telemetry/test_teleme
 Reads: `docs/TELEMETRY.md`, `k8s/README.md`. Changes: `docs/TELEMETRY.md`, `k8s/README.md`.
 
 - [x] 7.1 In step 14 of the section "Roadmap service" of `k8s/README.md`, say that each round sends the two gauges and each written check observes the histogram, and that the dashboard `devops-cli Telemetry` shows them in the row "Alternatives Check". In the section "Alerts", say that `RoadmapServiceAlternativesNotSearching` counts the searches of every job of the Service, refine too. Run `uv run devops docs generate --sync-readme` to write the three instruments to `docs/TELEMETRY.md`, and verify that `uv run devops ci docs` passes
-- [ ] 7.2 Run the whole gate and verify that `uv run devops ci` passes
+- [x] 7.2 Run the whole gate and verify that `uv run devops ci` passes
 
 ## Criteria
 
