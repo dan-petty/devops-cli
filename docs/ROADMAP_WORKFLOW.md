@@ -316,7 +316,7 @@ Measure first. Park each cost change, such as a budget (#3066), the model ladder
 3. **The cheaper models.** Only when the baseline passes, try a cheaper model or a lower cap, one change at a time, with the same eval. Keep a change only when the score holds. Record the score and the spend in the pull request.
 4. **The live setting.** A person sets `ai.tasks.stage.model` in the deployed config to the cheapest model that passes.
 
-A run makes at least one model call for each of the 40 cases. With the toolbox it makes more, because each tool call is one more request that holds the whole earlier text. Read the spend of a first run from its report before a second run.
+A run makes at least one model call for each case of the set. With the toolbox it makes more, because each tool call is one more request that holds the whole earlier text. Read the spend of a first run from its report before a second run.
 
 ### Measure the verification pass
 
@@ -327,7 +327,7 @@ uv run devops roadmap eval verify --model <model> --source <repository>
 uv run devops roadmap eval verify --case 2260 --dry-run
 ```
 
-- **The cost.** An agent run reads until it has its findings, so the cost of a run depends on the model. On 2026-11-05 one case with the local verification model used 27 model requests, 18 tool calls and 578,119 input tokens in about 6 minutes, so a run of the 46 cases costs about 27 M input tokens. `--dry-run` lists the runs and not the tokens.
+- **The cost.** An agent run reads until it has its findings, so the cost of a run depends on the model. On 2026-11-05 one case with the local verification model used 27 model requests, 18 tool calls and 578,119 input tokens in about 6 minutes, so a run of the whole set costs that amount times the number of cases. `--dry-run` lists the runs and not the tokens.
 - **The run** reads the files that each recorded plan cites from the commit it was staged on, so `--source` must be a repository that holds those commits. It runs the pass of each case as an agent with the read tools of the planner, on the checkout of the case (#3039). It matches each finding to one labeled defect of the same type, the most serious defect first, and prints the recall of all labeled defects, the recall of the blocker and major ones, the recall for each type, and the findings on the good plans. It stores the report, with the findings of each case, as JSON under the data directory, in `roadmap_eval/verify/`.
 - **How to read the score.** The match is by type and not by text, so a finding of the right type on the wrong spot counts. Read the findings in the report before you trust a high recall. A finding on a good plan is a false alarm. The score also counts those that would send the plan back to the planner.
 - **The rule.** A pull request that changes the verification prompt (`roadmap_stage_verify.md` or `roadmap_stage_verify_tools.md`) or the model of the task states the score of the model before and after the change.
