@@ -39,6 +39,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SHELL_STOP_POLL_SECONDS,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
+from devops_cli.core import clock
 from devops_cli.dry_run import is_dry_run
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.base import DevOpsCLIError
@@ -376,7 +377,7 @@ def _session_github_token(*, retry_now: bool) -> tuple[str, str]:
         if (
             failure is not None
             and not retry_now
-            and time.monotonic() - failure[0] < DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS
+            and clock.monotonic() - failure[0] < DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS
         ):
             return "", failure[1]
         token, why, expires_at = _lookup_session_token()
@@ -384,7 +385,7 @@ def _session_github_token(*, retry_now: bool) -> tuple[str, str]:
             _github_token, _github_token_expires_at = token, expires_at
             _github_lookup_failure = None
         else:
-            _github_lookup_failure = (time.monotonic(), why)
+            _github_lookup_failure = (clock.monotonic(), why)
         return token, why
 
 

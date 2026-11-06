@@ -32,6 +32,8 @@ from devops_cli.core.process import (
 )
 from devops_cli.exceptions import SecurityError
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 
 def test_build_subprocess_env_allowlist_and_denylist(
@@ -719,8 +721,8 @@ def test_build_subprocess_env_refuses_lessopen_and_lessclose_override() -> None:
 
 @pytest.fixture
 def unresolved_identity(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Forget the token conftest pins, so the next GitHub call looks the identity up."""
-    monkeypatch.setattr(process, "_github_token", None)
+    """Forget the token the floor pins, so the next GitHub call looks the identity up."""
+    process.reset_github_token()
     monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
@@ -776,19 +778,19 @@ def test_a_failed_lookup_is_not_kept(unresolved_identity: None) -> None:
 
 
 def test_git_waits_before_looking_again_after_a_failed_lookup(
-    monkeypatch: pytest.MonkeyPatch, unresolved_identity: None
+    clock: ClockFake, unresolved_identity: None
 ) -> None:
     """git does not run `gh auth token` on every call while gh has no login; it looks again later."""
     with patch("subprocess.run", return_value=_gh_answers(returncode=1)) as run:
         run_subprocess(["git", "status"])
         run_subprocess(["git", "status"])
-        assert process._github_lookup_failure is not None
-        failed_at, why = process._github_lookup_failure
-        expired = (failed_at - DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS, why)
-        monkeypatch.setattr(process, "_github_lookup_failure", expired)
+        clock.shift(DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS - 1)
+        run_subprocess(["git", "status"])
+        clock.shift(1)
         run_subprocess(["git", "status"])
     assert [call.args[0][0] for call in run.call_args_list] == [
         CONST_GH_CLI,
+        "git",
         "git",
         "git",
         CONST_GH_CLI,
@@ -824,28 +826,27 @@ def test_a_lookup_that_cannot_run_leaves_git_working_and_says_why(
     ("returncode", "cause"), [(127, "gh is not on PATH"), (1, "exit status 1")]
 )
 def test_the_unauthenticated_error_says_why_gh_gave_no_token(
-    returncode: int, cause: str, unresolved_identity: None
+    returncode: int, cause: str, unresolved_identity: None, process_fake: ProcessFake
 ) -> None:
     """A missing gh is not reported as a missing login, and a failed lookup gives its status."""
-    with (
-        patch("subprocess.run", return_value=_gh_answers(returncode=returncode)),
-        pytest.raises(GitHubUnauthenticatedError) as raised,
-    ):
+    process_fake.answer(["gh", "auth", "token"], ProcessAnswer(returncode=returncode))
+    with pytest.raises(GitHubUnauthenticatedError) as raised:
         process.github_token()
     assert (cause in raised.value.message, "gh auth login" in raised.value.message) == (True, True)
 
 
-def test_gh_and_git_children_get_only_the_pinned_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_gh_and_git_children_get_only_the_pinned_token(
+    monkeypatch: pytest.MonkeyPatch, pin_github_session: str
+) -> None:
     """gh and a `git push` get GH_TOKEN set to the session's token and never a GITHUB_TOKEN."""
-    monkeypatch.setattr(process, "_github_token", "A")
     monkeypatch.setenv("GH_TOKEN", "B")
     monkeypatch.setenv("GITHUB_TOKEN", "C")
     with patch("subprocess.run", return_value=_gh_answers()) as run:
         run_subprocess([CONST_GH_CLI, "pr", "view", "184"], env={"GITHUB_TOKEN": "D"})
         run_subprocess(["git", "push", "origin", "feat/184-example"])
     assert _child_envs(run) == [
-        ([CONST_GH_CLI, "pr", "view", "184"], "A", None),
-        (["git", "push", "origin", "feat/184-example"], "A", None),
+        ([CONST_GH_CLI, "pr", "view", "184"], pin_github_session, None),
+        (["git", "push", "origin", "feat/184-example"], pin_github_session, None),
     ]
 
 
@@ -870,7 +871,6 @@ def test_gh_auth_gets_the_ambient_tokens_and_never_the_pin(
     monkeypatch: pytest.MonkeyPatch, subcommand: str, ambient: str | None
 ) -> None:
     """`gh auth` subcommands see GH_TOKEN and GITHUB_TOKEN exactly as the environment has them."""
-    monkeypatch.setattr(process, "_github_token", "A")
     for name in ("GH_TOKEN", "GITHUB_TOKEN"):
         monkeypatch.delenv(name, raising=False)
     if ambient:
@@ -882,7 +882,6 @@ def test_gh_auth_gets_the_ambient_tokens_and_never_the_pin(
 
 def test_gh_auth_gets_a_token_its_caller_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     """A token the caller hands `gh auth` in `env` reaches it, ahead of the environment's."""
-    monkeypatch.setattr(process, "_github_token", "A")
     monkeypatch.setenv("GH_TOKEN", "B")
     with patch("subprocess.run", return_value=_gh_answers()) as run:
         run_subprocess([CONST_GH_CLI, "auth", "status"], env={"GH_TOKEN": "C"})
@@ -890,11 +889,12 @@ def test_gh_auth_gets_a_token_its_caller_passes(monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.anyio
-async def test_the_async_runner_pins_gh_too(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_the_async_runner_pins_gh_too(
+    monkeypatch: pytest.MonkeyPatch, pin_github_session: str
+) -> None:
     """The async runner gives a gh child the same pinned GH_TOKEN as the sync one."""
     import asyncio
 
-    monkeypatch.setattr(process, "_github_token", "A")
     spawned: list[tuple[list[str], str | None]] = []
 
     async def spawn(*argv: str, env: dict[str, str], **_: object) -> None:
@@ -903,4 +903,7 @@ async def test_the_async_runner_pins_gh_too(monkeypatch: pytest.MonkeyPatch) -> 
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
     proc = await run_subprocess_async([CONST_GH_CLI, "issue", "list"])
-    assert (proc.returncode, spawned) == (127, [([CONST_GH_CLI, "issue", "list"], "A")])
+    assert (proc.returncode, spawned) == (
+        127,
+        [([CONST_GH_CLI, "issue", "list"], pin_github_session)],
+    )
