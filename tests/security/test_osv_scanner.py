@@ -18,7 +18,6 @@ from devops_cli.ai.review.pipeline import STATIC_ANALYZERS, ReviewPipelineOrches
 from devops_cli.ai.review_schema import DefectClass, Finding
 from devops_cli.config.commands import BIN_OSV_SCANNER, build_osv_scan_cmd
 from devops_cli.config.constants import CONST_OSV_OFFLINE_DB_TTL_SECONDS
-from devops_cli.models.vulnerability import NetworkReputationRecord
 from devops_cli.review.analysis import default_environment_facts
 from devops_cli.review.anchors import AdvisoryAnchor
 from devops_cli.security.osv_scanner import (
@@ -29,7 +28,6 @@ from devops_cli.security.osv_scanner import (
     parse_osv_scanner_output,
     run_osv_scan,
 )
-from devops_cli.security.reference_extractor import NetworkReference
 from devops_cli.security.registry import global_scanner_registry
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
@@ -339,35 +337,12 @@ def test_run_osv_scan_invokes_scanner(tmp_path: Path, scanner_fake: ScannerFake)
     assert outcome.status in ("ran", "clean", "skipped")
 
 
-def test_threat_intel_opt_in_behavior(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scanner_fake: ScannerFake
-) -> None:
+def test_threat_intel_opt_in_behavior(tmp_path: Path, scanner_fake: ScannerFake, web: Any) -> None:
     """ReviewPipelineOrchestrator threat_intel defaults to False and makes no external lookups."""
     src_file = tmp_path / "app.py"
-    src_file.write_text('REMOTE = "198.51.100.1"\n', encoding="utf-8")
-
-    sample_net = NetworkReference(
-        target="198.51.100.1",
-        reference_type="ip",
-        source_file="app.py",
-        line_number=1,
-    )
-    monkeypatch.setattr(
-        "devops_cli.ai.review.pipeline.extract_network_references",
-        lambda content, fpath: [sample_net],
-    )
-
-    called_shodan = False
-
-    def _mock_shodan(client: Any, ip: str) -> tuple[str, NetworkReputationRecord]:
-        nonlocal called_shodan
-        called_shodan = True
-        return (ip, NetworkReputationRecord(target=ip, ip=ip, outcome="ok"))
-
-    monkeypatch.setattr(
-        "devops_cli.ai.review.pipeline._fetch_ip_threat_intel",
-        _mock_shodan,
-    )
+    src_file.write_text('REMOTE = "8.8.8.8"\n', encoding="utf-8")
+    shodan_url = "https://internetdb.shodan.io/8.8.8.8"
+    web.respond("GET", shodan_url, 200, {"ports": [443], "vulns": [], "cpes": [], "tags": []})
 
     # 1. Default (threat_intel=False): no threat lookups run
     orch = ReviewPipelineOrchestrator(
@@ -377,7 +352,7 @@ def test_threat_intel_opt_in_behavior(
     )
     assert orch.threat_intel is False
     payloads = orch.init_per_file_payloads(["app.py"], {})
-    assert called_shodan is False
+    assert shodan_url not in web.requested
     assert len(payloads) == 1
     assert payloads[0].network_references == []
 
@@ -389,6 +364,6 @@ def test_threat_intel_opt_in_behavior(
     )
     assert orch_on.threat_intel is True
     payloads_on = orch_on.init_per_file_payloads(["app.py"], {})
-    assert called_shodan is True
+    assert shodan_url in web.requested
     assert len(payloads_on) == 1
     assert len(payloads_on[0].network_references) >= 1
