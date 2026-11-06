@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.66.0](https://github.com/dan-petty/devops-cli/compare/v0.65.0...v0.66.0) (2026-11-06)
+
+
+### Features
+
+* **roadmap:** ask for a smaller edit after a parser failure ([#3737](https://github.com/dan-petty/devops-cli/issues/3737)) ([2a5cd39](https://github.com/dan-petty/devops-cli/commit/2a5cd390750981a73457be0249c48d9d1ada16b4)), closes [#3053](https://github.com/dan-petty/devops-cli/issues/3053)
+* **roadmap:** list the local devops commands in the shell catalog ([#3739](https://github.com/dan-petty/devops-cli/issues/3739)) ([0784e8b](https://github.com/dan-petty/devops-cli/commit/0784e8bdf5366f15099a741c53723e02046b21fb))
+* **roadmap:** the implement job re-checks a plan premise against the base ([#3657](https://github.com/dan-petty/devops-cli/issues/3657)) ([29309f0](https://github.com/dan-petty/devops-cli/commit/29309f04b878d6cf79c00009c75313685aafec0b))
+* **roadmap:** the plan check requires a new rule to accept its own plan ([#3641](https://github.com/dan-petty/devops-cli/issues/3641)) ([5df365a](https://github.com/dan-petty/devops-cli/commit/5df365a1645ae4c227446941fb25e05ad4035c3f))
+
+
+### Bug Fixes
+
+* **roadmap:** a gate test holds the self-acceptance test ([#3738](https://github.com/dan-petty/devops-cli/issues/3738)) ([303bf4f](https://github.com/dan-petty/devops-cli/commit/303bf4f3b9e78ea063e6c13faf18d18fe64147cb))
+* **roadmap:** the plan check fails a citation of a line that moved ([#3668](https://github.com/dan-petty/devops-cli/issues/3668)) ([cfee381](https://github.com/dan-petty/devops-cli/commit/cfee381168003f56762c3ad78a6f769c7344242d))
+
 ## [0.65.0](https://github.com/dan-petty/devops-cli/compare/v0.64.3...v0.65.0) (2026-11-06)
 
 
