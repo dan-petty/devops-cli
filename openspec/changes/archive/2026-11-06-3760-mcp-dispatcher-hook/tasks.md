@@ -15,4 +15,4 @@
 - [x] 4.1 Correct `docs/TESTING.md` and the FastMCP knowledge-base page
 
 ## 5. Verification
-- [ ] 5.1 Run `uv run devops openspec check`, the static checks and `uv run devops ci`
+- [x] 5.1 Run `uv run devops openspec check`, the static checks and `uv run devops ci`
