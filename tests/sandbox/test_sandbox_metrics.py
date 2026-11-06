@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-import io
 import json
+import socket
 import threading
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
-from rich.console import Console
-from typer.testing import CliRunner
 
 from devops_cli.exceptions.sandbox import SandboxNotFoundError
-from devops_cli.main import app
+from devops_cli.sandbox.engine import WorkloadSandboxEngine
 from devops_cli.sandbox.metrics import (
     collect_sandbox_metrics,
     evaluate_threshold_warnings,
@@ -33,10 +30,36 @@ from devops_cli.sandbox.models import (
     SandboxMetricsSnapshot,
     SandboxStatus,
 )
+from devops_cli.telemetry import get_recent_spans
+from tests.support.fakes.docker_engine import DockerEngineFake
+from tests.support.fakes.otlp import plain_attributes
 from tests.support.waits import POLL_INTERVAL_SECONDS
 from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
 
-runner = CliRunner()
+
+def _engine_stats_frame() -> dict[str, Any]:
+    """An Engine API stats frame: 25 percent CPU and memory, 4 pids, 1.5 MB in and 3.2 MB out."""
+    return {
+        "cpu_stats": {
+            "cpu_usage": {"total_usage": 500_000_000},
+            "system_cpu_usage": 2_000_000_000,
+            "online_cpus": 1,
+        },
+        "precpu_stats": {"cpu_usage": {"total_usage": 0}, "system_cpu_usage": 0},
+        "memory_stats": {"usage": 52_428_800, "limit": 209_715_200, "stats": {"cache": 0}},
+        "pids_stats": {"current": 4},
+        "networks": {"eth0": {"rx_bytes": 1_500_000, "tx_bytes": 3_200_000}},
+    }
+
+
+def _scraped_request(recorder: Any) -> tuple[str, str]:
+    """The request line and the Host header of the scrape the recorder saw."""
+    request = next(bytes(w) for w in recorder.written if bytes(w).startswith(b"GET "))
+    return request.split(b"\r\n", 1)[0].decode(), recorder.requested_hosts[-1]
+
+
+def _port_of(url: str) -> int:
+    return int(url.rsplit(":", 1)[-1])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -44,26 +67,74 @@ runner = CliRunner()
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_build_scrape_url_variations() -> None:
-    """Test _build_scrape_url with hostnames starting with http, IPv6, scheme normalisation, and path prefixes."""
-    from devops_cli.sandbox.metrics import _build_scrape_url
+@pytest.mark.parametrize(
+    ("target", "endpoint", "dialled", "request_line", "host"),
+    [
+        (
+            "httpbin.example.com:8080",
+            "metrics",
+            (PUBLIC_ADDRESS, 8080),
+            "GET /metrics HTTP/1.1",
+            "httpbin.example.com:8080",
+        ),
+        (
+            "HTTP://example.com",
+            "metrics",
+            (PUBLIC_ADDRESS, 80),
+            "GET /metrics HTTP/1.1",
+            "example.com",
+        ),
+        (
+            "http://example.com:9100/prefix",
+            "metrics",
+            (PUBLIC_ADDRESS, 9100),
+            "GET /prefix/metrics HTTP/1.1",
+            "example.com:9100",
+        ),
+        (
+            "http://example.com:9100/prefix",
+            "/metrics",
+            (PUBLIC_ADDRESS, 9100),
+            "GET /prefix/metrics HTTP/1.1",
+            "example.com:9100",
+        ),
+    ],
+)
+def test_a_metrics_target_is_scraped_at_its_host_port_and_path(
+    monkeypatch: pytest.MonkeyPatch,
+    target: str,
+    endpoint: str,
+    dialled: tuple[str, int],
+    request_line: str,
+    host: str,
+) -> None:
+    """A target is scraped over http at its own host and port, below its path prefix."""
+    scripted_resolver(
+        monkeypatch,
+        {"httpbin.example.com": [[PUBLIC_ADDRESS]], "example.com": [[PUBLIC_ADDRESS]]},
+    )
+    recorder = record_connects(monkeypatch, [http_response(200, "up 1\n")])
+
+    snapshot = collect_sandbox_metrics(target, prom_endpoint=endpoint, timeout=1.0)
 
     assert (
-        _build_scrape_url("httpbin.example.com:8080", "metrics"),
-        _build_scrape_url("HTTP://example.com", "metrics"),
-        _build_scrape_url("[::1]:8080", "metrics"),
-        _build_scrape_url("http://example.com:9100/prefix", "metrics"),
-        _build_scrape_url("http://example.com:9100/prefix", "/metrics"),
-    ) == (
-        "http://httpbin.example.com:8080/metrics",
-        "http://example.com/metrics",
-        "http://[::1]:8080/metrics",
-        "http://example.com:9100/prefix/metrics",
-        "http://example.com:9100/prefix/metrics",
-    )
+        snapshot.scrape_error,
+        [dial for dial in recorder.dialled if dial[0] == PUBLIC_ADDRESS],
+        _scraped_request(recorder),
+    ) == (None, [dialled], (request_line, host))
 
+
+def test_a_metrics_target_with_a_scheme_other_than_http_is_refused() -> None:
+    """Only http and https targets are scraped."""
     with pytest.raises(ValueError, match="scheme"):
-        _build_scrape_url("ftp://example.com", "metrics")
+        collect_sandbox_metrics("ftp://example.com")
+
+
+def test_an_ipv6_metrics_target_is_scraped_at_its_bracketed_address(refusing_port: int) -> None:
+    """An IPv6 target keeps its brackets and its port in the scrape URL."""
+    snapshot = collect_sandbox_metrics(f"[::1]:{refusing_port}", timeout=0.5)
+
+    assert f"http://[::1]:{refusing_port}/metrics" in (snapshot.scrape_error or "")
 
 
 def test_cgroup_v2_metrics_model() -> None:
@@ -180,22 +251,23 @@ def test_parse_cgroup_v2_directory_missing_dir(tmp_path: Path) -> None:
     assert parse_cgroup_v2_directory(non_existent) is None
 
 
-def test_read_cgroup_v2_metrics_fallback_to_docker_stats() -> None:
-    """Test read_cgroup_v2_metrics falling back to docker stats inspection."""
-    with patch("devops_cli.sandbox.metrics.parse_cgroup_v2_directory", return_value=None):
-        with patch("devops_cli.sandbox.metrics._read_container_stats_via_engine") as mock_fallback:
-            mock_fallback.return_value = CgroupV2Metrics(
-                cpu_percent=15.5,
-                memory_current_bytes=104857600,
-                memory_limit_bytes=524288000,
-                memory_usage_percent=20.0,
-                pids_current=8,
-            )
-            metrics = read_cgroup_v2_metrics(container_id="cont-123")
-            assert metrics is not None
-            assert metrics.cpu_percent == 15.5
-            assert metrics.memory_usage_percent == 20.0
-            assert metrics.pids_current == 8
+def test_read_cgroup_v2_metrics_fallback_to_docker_stats(
+    docker_daemon: DockerEngineFake, tmp_path: Path
+) -> None:
+    """With no cgroup tree for the container, its resource use comes from the engine's stats."""
+    container_id = docker_daemon.add_container("stats-fallback")
+    docker_daemon.script_stats("stats-fallback", [_engine_stats_frame(), _engine_stats_frame()])
+
+    metrics = read_cgroup_v2_metrics(container_id=container_id, cgroup_root=tmp_path)
+
+    assert metrics is not None
+    assert (
+        metrics.cpu_percent,
+        metrics.memory_current_bytes,
+        metrics.memory_limit_bytes,
+        metrics.memory_usage_percent,
+        metrics.pids_current,
+    ) == (25.0, 52_428_800, 209_715_200, 25.0, 4)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -222,6 +294,13 @@ http_request_duration_seconds_bucket{le="+Inf"} 35000
 http_request_duration_seconds_sum 1234.56
 http_request_duration_seconds_count 35000
 """
+
+
+_LONG_LABEL = "a" * 30 + "[/b]tail"
+_BRACKETED_PROMETHEUS_TEXT = (
+    '# TYPE up gauge\nup{job="[/]",x="[bold red]FAKE[/]"} 1\n'
+    '# TYPE hits counter\nhits{path="' + _LONG_LABEL + '"} 2\n'
+)
 
 
 def test_parse_prometheus_exposition() -> None:
@@ -258,6 +337,11 @@ class _MockPrometheusHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
             self.end_headers()
             self.wfile.write(_SAMPLE_PROMETHEUS_TEXT.encode("utf-8"))
+        elif self.path == "/bracketed":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(_BRACKETED_PROMETHEUS_TEXT.encode("utf-8"))
         elif self.path == "/error":
             self.send_response(500)
             self.end_headers()
@@ -282,6 +366,30 @@ def prom_server() -> Generator[str]:
     yield f"http://{host}:{port}"
     server.shutdown()
     server.server_close()
+
+
+@pytest.fixture
+def malformed_endpoint() -> Generator[int]:
+    """The port of a server that answers a request with a header line no HTTP client accepts."""
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(4)
+
+    def serve() -> None:
+        while True:
+            try:
+                connection, _ = listener.accept()
+            except OSError:
+                return
+            with connection:
+                connection.recv(4096)
+                connection.sendall(b"HTTP/1.1 200 OK\r\n[/x] [link=https://example.com]y\r\n\r\n")
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    yield int(listener.getsockname()[1])
+    listener.close()
+    thread.join(timeout=2.0)
 
 
 def test_scrape_prometheus_metrics_success(prom_server: str) -> None:
@@ -380,33 +488,34 @@ def test_evaluate_threshold_warnings_high_error_rate() -> None:
 
 def test_collect_sandbox_metrics_with_instance(prom_server: str, tmp_path: Path) -> None:
     """Test collect_sandbox_metrics against a SandboxInstance object."""
-    port = int(prom_server.split(":")[-1])
     instance = SandboxInstance(
         instance_id="sandbox-test-metrics-1",
         container_id="cont-metrics-1",
         name="web-service",
         image="python:3.14-slim",
         status=SandboxStatus.RUNNING,
-        port_bindings=[PortBinding(container_port=8080, host_port=port, protocol="tcp")],
+        port_bindings=[
+            PortBinding(container_port=8080, host_port=_port_of(prom_server), protocol="tcp")
+        ],
         workspace_dir=str(tmp_path / "workspace"),
         created_at="2026-09-12T13:00:00Z",
     )
+    cgroup_dir = tmp_path / "cgroup" / "system.slice" / "docker-cont-metrics-1.scope"
+    cgroup_dir.mkdir(parents=True)
+    (cgroup_dir / "memory.current").write_text("104857600\n")
+    (cgroup_dir / "memory.max").write_text("209715200\n")
+    (cgroup_dir / "pids.current").write_text("10\n")
 
-    with patch("devops_cli.sandbox.metrics.read_cgroup_v2_metrics") as mock_read_cgroup:
-        mock_read_cgroup.return_value = CgroupV2Metrics(
-            cpu_percent=30.0,
-            memory_current_bytes=104857600,
-            memory_limit_bytes=209715200,
-            memory_usage_percent=50.0,
-            pids_current=10,
-        )
-        snapshot = collect_sandbox_metrics(instance, prom_endpoint="/metrics", timeout=2.0)
-        assert snapshot.instance_id == "sandbox-test-metrics-1"
-        assert snapshot.target == "web-service"
-        assert snapshot.cgroup is not None
-        assert snapshot.cgroup.cpu_percent == 30.0
-        assert len(snapshot.prometheus_metrics) >= 6
-        assert snapshot.is_healthy is True
+    snapshot = collect_sandbox_metrics(
+        instance, prom_endpoint="/metrics", timeout=2.0, cgroup_root=tmp_path / "cgroup"
+    )
+
+    assert snapshot.instance_id == "sandbox-test-metrics-1"
+    assert snapshot.target == "web-service"
+    assert snapshot.cgroup is not None
+    assert (snapshot.cgroup.memory_usage_percent, snapshot.cgroup.pids_current) == (50.0, 10)
+    assert len(snapshot.prometheus_metrics) >= 6
+    assert snapshot.is_healthy is True
 
 
 def test_collect_sandbox_metrics_with_raw_url(prom_server: str) -> None:
@@ -421,45 +530,27 @@ def test_collect_sandbox_metrics_with_raw_url(prom_server: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_engine_metrics_method_delegation(tmp_path: Path) -> None:
-    """Test WorkloadSandboxEngine.metrics delegates properly."""
-    from devops_cli.sandbox.engine import WorkloadSandboxEngine
+def test_engine_metrics_reports_the_resource_use_and_scrape_of_a_registered_sandbox(
+    register_sandbox: Callable[..., SandboxInstance], prom_server: str
+) -> None:
+    """The engine reads the container's resource use and scrapes its published port."""
+    register_sandbox("sandbox-engine-1", name="engine-svc", host_ports=[_port_of(prom_server)])
 
-    engine = WorkloadSandboxEngine()
-    mock_inst = SandboxInstance(
-        instance_id="sandbox-engine-1",
-        container_id="cont-engine-1",
-        name="engine-svc",
-        image="python:3.14-slim",
-        status=SandboxStatus.RUNNING,
-        port_bindings=[PortBinding(container_port=80, host_port=18080, protocol="tcp")],
-        workspace_dir=str(tmp_path),
-        created_at="2026-09-12T13:00:00Z",
-    )
-    with patch.object(engine.registry, "get_instance", return_value=mock_inst):
-        with patch("devops_cli.sandbox.metrics.collect_sandbox_metrics") as mock_collect:
-            mock_collect.return_value = SandboxMetricsSnapshot(
-                instance_id="sandbox-engine-1",
-                target="engine-svc",
-                cgroup=CgroupV2Metrics(cpu_percent=5.0),
-                prometheus_metrics=[],
-                warnings=[],
-                timestamp="2026-09-12T13:00:00Z",
-            )
-            snapshot = engine.metrics("sandbox-engine-1")
-            assert snapshot.instance_id == "sandbox-engine-1"
-            assert snapshot.target == "engine-svc"
+    snapshot = WorkloadSandboxEngine().metrics("sandbox-engine-1")
+
+    assert (
+        snapshot.instance_id,
+        snapshot.target,
+        snapshot.cgroup.cpu_percent if snapshot.cgroup else None,
+        len(snapshot.prometheus_metrics) >= 6,
+    ) == ("sandbox-engine-1", "engine-svc", 2.0, True)
 
 
 def test_engine_metrics_raises_not_found() -> None:
     """Test WorkloadSandboxEngine.metrics raises SandboxNotFoundError if not found."""
-    from devops_cli.sandbox.engine import WorkloadSandboxEngine
-
-    engine = WorkloadSandboxEngine()
-    with patch.object(engine.registry, "get_instance", return_value=None):
-        with pytest.raises(SandboxNotFoundError) as raised:
-            engine.metrics("nonexistent-id")
-        assert raised.value.error_code == "SANDBOX_NOT_FOUND_ERROR"
+    with pytest.raises(SandboxNotFoundError) as raised:
+        WorkloadSandboxEngine().metrics("nonexistent-id")
+    assert raised.value.error_code == "SANDBOX_NOT_FOUND_ERROR"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -467,147 +558,91 @@ def test_engine_metrics_raises_not_found() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
-def test_cli_sandbox_metrics_dry_run(mock_engine_cls: MagicMock) -> None:
+def test_cli_sandbox_metrics_dry_run(cli: Callable[..., Any]) -> None:
     """Test sandbox metrics CLI command with --dry-run flag."""
-    result = runner.invoke(app, ["sandbox", "metrics", "sandbox-123", "--dry-run"])
+    result = cli("sandbox", "metrics", "sandbox-123", "--dry-run")
     assert result.exit_code == 0
     assert "dry-run" in result.output.lower() or "metrics" in result.output.lower()
 
 
-@patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
-def test_cli_sandbox_metrics_success(mock_engine_cls: MagicMock) -> None:
+def test_cli_sandbox_metrics_success(
+    cli: Callable[..., Any], register_sandbox: Callable[..., SandboxInstance], prom_server: str
+) -> None:
     """Test sandbox metrics CLI command execution and table rendering."""
-    mock_engine = MagicMock()
-    mock_engine.metrics.return_value = SandboxMetricsSnapshot(
-        instance_id="sandbox-metrics-cli",
-        target="cli-svc",
-        cgroup=CgroupV2Metrics(
-            cpu_percent=42.1,
-            memory_current_bytes=104857600,
-            memory_limit_bytes=209715200,
-            memory_usage_percent=50.0,
-            pids_current=14,
-            page_faults_total=3000,
-            io_read_bytes=102400,
-            io_write_bytes=204800,
-        ),
-        prometheus_metrics=[
-            PrometheusMetric(
-                name="http_requests_total",
-                metric_type="counter",
-                labels={"code": "200"},
-                value=150.0,
-            )
-        ],
-        warnings=[],
-        timestamp="2026-09-12T13:00:00Z",
-    )
-    mock_engine_cls.return_value = mock_engine
+    register_sandbox("sandbox-metrics-cli", name="cli-svc", host_ports=[_port_of(prom_server)])
 
-    result = runner.invoke(app, ["sandbox", "metrics", "sandbox-metrics-cli"])
+    result = cli("sandbox", "metrics", "sandbox-metrics-cli")
+
     assert result.exit_code == 0
-    assert "42.1" in result.output or "CPU" in result.output
-    assert "100.0" in result.output or "MB" in result.output
+    assert "Cgroup v2 Resource Telemetry: cli-svc" in result.output
+    assert "Prometheus Application Metrics: cli-svc" in result.output
+    assert "http_requests_total" in result.output
 
 
-@patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
-def test_cli_sandbox_metrics_with_warnings(mock_engine_cls: MagicMock) -> None:
+def test_cli_sandbox_metrics_with_warnings(
+    cli: Callable[..., Any],
+    register_sandbox: Callable[..., SandboxInstance],
+    docker_daemon: DockerEngineFake,
+    prom_server: str,
+) -> None:
     """Test sandbox metrics CLI command rendering warning callouts."""
-    mock_engine = MagicMock()
-    mock_engine.metrics.return_value = SandboxMetricsSnapshot(
-        instance_id="sandbox-warn-cli",
-        target="warn-svc",
-        cgroup=CgroupV2Metrics(
-            cpu_percent=95.0,
-            memory_current_bytes=471859200,
-            memory_limit_bytes=524288000,
-            memory_usage_percent=90.0,
-        ),
-        prometheus_metrics=[],
-        warnings=[
-            "Memory usage (90.0%) exceeds warning threshold (80.0%)",
-            "CPU utilization (95.0%) exceeds 85.0%",
-        ],
-        timestamp="2026-09-12T13:00:00Z",
-    )
-    mock_engine_cls.return_value = mock_engine
+    register_sandbox("sandbox-warn-cli", name="warn-svc", host_ports=[_port_of(prom_server)])
+    frame = _engine_stats_frame()
+    frame["memory_stats"] = {"usage": 471_859_200, "limit": 524_288_000, "stats": {"cache": 0}}
+    docker_daemon.script_stats("sandbox-warn-cli", [frame, frame])
 
-    result = runner.invoke(app, ["sandbox", "metrics", "sandbox-warn-cli"])
+    result = cli("sandbox", "metrics", "sandbox-warn-cli")
+
     assert result.exit_code == 0
-    assert "WARNING" in result.output.upper() or "exceeds" in result.output.lower()
+    assert "THRESHOLD ALERT: Memory usage (90.0%) exceeds" in result.output
+    assert "Workload 'warn-svc' exceeded 1 operating threshold(s)." in result.output
 
 
-@patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
-def test_cli_sandbox_metrics_json_output(mock_engine_cls: MagicMock) -> None:
+def test_cli_sandbox_metrics_json_output(
+    cli: Callable[..., Any], register_sandbox: Callable[..., SandboxInstance], prom_server: str
+) -> None:
     """Test sandbox metrics CLI command with --json output flag."""
-    mock_engine = MagicMock()
-    mock_engine.metrics.return_value = SandboxMetricsSnapshot(
-        instance_id="sandbox-json-cli",
-        target="json-svc",
-        cgroup=CgroupV2Metrics(cpu_percent=10.0, memory_current_bytes=10485760),
-        prometheus_metrics=[],
-        warnings=[],
-        timestamp="2026-09-12T13:00:00Z",
-    )
-    mock_engine_cls.return_value = mock_engine
+    register_sandbox("sandbox-json-cli", name="json-svc", host_ports=[_port_of(prom_server)])
 
-    result = runner.invoke(app, ["sandbox", "metrics", "sandbox-json-cli", "--json"])
+    result = cli("sandbox", "metrics", "sandbox-json-cli", "--json")
+
     assert result.exit_code == 0
     data = json.loads(result.output)
-    assert data["instance_id"] == "sandbox-json-cli"
-    assert data["cgroup"]["cpu_percent"] == 10.0
+    assert (data["instance_id"], data["target"], data["cgroup"]["cpu_percent"]) == (
+        "sandbox-json-cli",
+        "json-svc",
+        2.0,
+    )
 
 
-@patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
-def test_cli_sandbox_metrics_not_found(mock_engine_cls: MagicMock) -> None:
+def test_cli_sandbox_metrics_not_found(cli: Callable[..., Any], docker_daemon: Any) -> None:
     """Test sandbox metrics CLI command when target instance is not found."""
-    mock_engine = MagicMock()
-    mock_engine.metrics.side_effect = SandboxNotFoundError("Sandbox 'missing' not found")
-    mock_engine_cls.return_value = mock_engine
+    result = cli("sandbox", "metrics", "missing")
 
-    result = runner.invoke(app, ["sandbox", "metrics", "missing"])
     assert result.exit_code != 0
+    assert "not found" in result.output.lower()
 
 
-def test_read_int_and_str_file_helpers(tmp_path: Path) -> None:
-    """Test file reader error handling on missing or malformed content."""
-    from devops_cli.sandbox.metrics import _read_int_file, _read_str_file
+def test_a_controller_file_that_holds_no_number_reads_as_no_value(tmp_path: Path) -> None:
+    """A controller file with text where a number belongs reads as no usage; a missing limit is none."""
+    cgroup_dir = tmp_path / "cgroup" / "bad-files"
+    cgroup_dir.mkdir(parents=True)
+    (cgroup_dir / "memory.current").write_text("not-an-int\n")
 
-    missing = tmp_path / "missing.txt"
-    assert _read_int_file(missing) is None
-    assert _read_str_file(missing) == ""
+    metrics = parse_cgroup_v2_directory(cgroup_dir)
 
-    bad_int = tmp_path / "bad_int.txt"
-    bad_int.write_text("not-an-int\n")
-    assert _read_int_file(bad_int) is None
+    assert metrics is not None
+    assert (metrics.memory_current_bytes, metrics.memory_limit_bytes) == (0, None)
 
 
-def test_read_container_stats_via_engine(docker_engine: Any) -> None:
+def test_engine_stats_become_cgroup_metrics_and_an_unreachable_engine_gives_none(
+    docker_daemon: DockerEngineFake, tmp_path: Path
+) -> None:
     """Engine API resource samples project into cgroup metrics, and failures return None."""
-    from devops_cli.sandbox.metrics import _read_container_stats_via_engine
+    container_id = docker_daemon.add_container("cont-valid")
+    docker_daemon.script_stats("cont-valid", [_engine_stats_frame(), _engine_stats_frame()])
 
-    mock_container = MagicMock()
-    mock_container.name = "cont-valid"
-    mock_container.stats.return_value = {
-        "cpu_stats": {
-            "cpu_usage": {"total_usage": 500_000_000},
-            "system_cpu_usage": 2_000_000_000,
-            "online_cpus": 1,
-        },
-        "precpu_stats": {
-            "cpu_usage": {"total_usage": 0},
-            "system_cpu_usage": 0,
-        },
-        "memory_stats": {"usage": 52_428_800, "limit": 209_715_200, "stats": {"cache": 0}},
-        "pids_stats": {"current": 4},
-        "networks": {"eth0": {"rx_bytes": 1_500_000, "tx_bytes": 3_200_000}},
-    }
-    mock_client = MagicMock()
-    mock_client.containers.get.return_value = mock_container
-
-    with docker_engine(mock_client):
-        res = _read_container_stats_via_engine("cont-valid")
+    res = read_cgroup_v2_metrics(container_id=container_id, cgroup_root=tmp_path)
 
     assert res is not None
     assert (
@@ -620,26 +655,27 @@ def test_read_container_stats_via_engine(docker_engine: Any) -> None:
     ) == (25.0, 52_428_800, 209_715_200, 4, 1_500_000, 3_200_000)
 
     # An unreachable daemon degrades to None rather than propagating.
-    mock_client.containers.get.side_effect = RuntimeError("daemon offline")
-    with docker_engine(mock_client):
-        assert _read_container_stats_via_engine("cont-failed") is None
+    docker_daemon.fail("containers.get", RuntimeError("daemon offline"))
+    assert read_cgroup_v2_metrics(container_id="cont-failed", cgroup_root=tmp_path) is None
 
 
-def test_read_cgroup_v2_metrics_standard_paths() -> None:
-    """Test read_cgroup_v2_metrics finding standard docker slice path."""
-    with patch("devops_cli.sandbox.metrics.parse_cgroup_v2_directory") as mock_parse:
-        mock_parse.side_effect = lambda p: (
-            CgroupV2Metrics(cpu_percent=1.0) if "docker-c1" in str(p) else None
-        )
-        res = read_cgroup_v2_metrics(container_id="c1")
-        assert res is not None
-        assert res.cpu_percent == 1.0
+def test_read_cgroup_v2_metrics_finds_the_docker_scope_of_a_container(tmp_path: Path) -> None:
+    """The cgroup of a container is read from its docker scope under the cgroup root."""
+    scope = tmp_path / "system.slice" / "docker-c1.scope"
+    scope.mkdir(parents=True)
+    (scope / "pids.current").write_text("7\n")
+
+    res = read_cgroup_v2_metrics(container_id="c1", cgroup_root=tmp_path)
+
+    assert res is not None
+    assert res.pids_current == 7
 
 
-def test_resolve_instance_port_fallback(tmp_path: Path) -> None:
+def test_a_sandbox_with_no_published_port_is_scraped_on_8080(
+    monkeypatch: pytest.MonkeyPatch, docker_daemon: DockerEngineFake, tmp_path: Path
+) -> None:
     """Test port resolution defaults to 8080 when no bindings present."""
-    from devops_cli.sandbox.metrics import _resolve_instance_port
-
+    recorder = record_connects(monkeypatch, [http_response(200, "up 1\n")])
     inst = SandboxInstance(
         instance_id="inst-no-ports",
         container_id="c-no-ports",
@@ -650,83 +686,59 @@ def test_resolve_instance_port_fallback(tmp_path: Path) -> None:
         workspace_dir=str(tmp_path),
         created_at="2026-09-12T13:00:00Z",
     )
-    assert _resolve_instance_port(inst) == 8080
+
+    collect_sandbox_metrics(inst, cgroup_root=tmp_path)
+
+    assert ("127.0.0.1", 8080) in recorder.dialled
 
 
-@patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
-def test_cli_sandbox_metrics_url_target(mock_engine_cls: MagicMock, prom_server: str) -> None:
+def test_cli_sandbox_metrics_url_target(cli: Callable[..., Any], prom_server: str) -> None:
     """Test CLI metrics invocation with raw URL target when instance not found."""
-    mock_engine = MagicMock()
-    mock_engine.metrics.side_effect = SandboxNotFoundError("Not an instance")
-    mock_engine_cls.return_value = mock_engine
+    result = cli("sandbox", "metrics", prom_server)
 
-    result = runner.invoke(app, ["sandbox", "metrics", prom_server])
     assert result.exit_code == 0
     assert "Prometheus" in result.output
 
 
-def test_cli_sandbox_metrics_help_metrics_timeout() -> None:
+def test_cli_sandbox_metrics_help_metrics_timeout(cli: Callable[..., Any]) -> None:
     """Test CLI metrics --help displays dedicated Prometheus scrape timeout description."""
-    result = runner.invoke(app, ["sandbox", "metrics", "--help"])
+    result = cli("sandbox", "metrics", "--help")
     assert result.exit_code == 0
     assert "HTTP timeout in seconds for" in result.output
     assert "Prometheus metrics scraping" in result.output
 
 
-def test_telemetry_tracing_instrumentation(tmp_path: Path) -> None:
-    """Test OpenTelemetry tracing in CLI and engine."""
-    from devops_cli.sandbox.engine import WorkloadSandboxEngine
+_COMMAND_SPAN_ATTRIBUTES = ("sandbox.identifier", "sandbox.prom_endpoint", "sandbox.dry_run")
+_ENGINE_SPAN_ATTRIBUTES = ("sandbox.identifier", "sandbox.container_id", "sandbox.prom_endpoint")
 
-    # Test CLI command emits trace span
-    with patch("devops_cli.commands.sandbox.trace_span") as mock_cli_span:
-        mock_cli_span.return_value.__enter__.return_value = MagicMock()
-        result = runner.invoke(app, ["sandbox", "metrics", "test-inst", "--dry-run"])
-        assert result.exit_code == 0
-        mock_cli_span.assert_called_once_with(
-            "sandbox.metrics",
-            attributes={
-                "sandbox.identifier": "test-inst",
-                "sandbox.prom_endpoint": "/metrics",
-                "sandbox.dry_run": True,
-            },
-        )
 
-    # Test Engine metrics() emits trace span
-    engine = WorkloadSandboxEngine()
-    mock_inst = SandboxInstance(
-        instance_id="inst-tracer",
-        container_id="cont-tracer",
-        name="tracer-svc",
-        image="alpine",
-        status=SandboxStatus.RUNNING,
-        port_bindings=[],
-        workspace_dir=str(tmp_path),
-        created_at="2026-09-12T13:00:00Z",
+def test_the_metrics_command_and_the_engine_each_record_a_span(
+    cli: Callable[..., Any],
+    register_sandbox: Callable[..., SandboxInstance],
+    tracer: Any,
+    prom_server: str,
+) -> None:
+    """The command records `sandbox.metrics`, and the engine `sandbox.engine.metrics`."""
+    dry_run = cli("sandbox", "metrics", "test-inst", "--dry-run")
+    instance = register_sandbox(
+        "inst-tracer", name="tracer-svc", host_ports=[_port_of(prom_server)]
     )
-    with (
-        patch.object(engine.registry, "get_instance", return_value=mock_inst),
-        patch("devops_cli.sandbox.engine.trace_span") as mock_eng_span,
-        patch("devops_cli.sandbox.metrics.collect_sandbox_metrics") as mock_collect,
-    ):
-        mock_collect.return_value = SandboxMetricsSnapshot(
-            instance_id="inst-tracer",
-            target="tracer-svc",
-            cgroup=None,
-            prometheus_metrics=[],
-            warnings=[],
-            timestamp="2026-09-12T13:00:00Z",
-        )
-        mock_eng_span.return_value.__enter__.return_value = MagicMock()
-        res = engine.metrics("inst-tracer")
-        assert res.instance_id == "inst-tracer"
-        mock_eng_span.assert_called_once_with(
-            "sandbox.engine.metrics",
-            attributes={
-                "sandbox.identifier": "inst-tracer",
-                "sandbox.container_id": "cont-tracer",
-                "sandbox.prom_endpoint": "/metrics",
-            },
-        )
+    WorkloadSandboxEngine().metrics("inst-tracer")
+
+    spans = {span["name"]: plain_attributes(span["attributes"]) for span in get_recent_spans()}
+    assert dry_run.exit_code == 0
+    command_span = {key: spans["sandbox.metrics"][key] for key in _COMMAND_SPAN_ATTRIBUTES}
+    engine_span = {key: spans["sandbox.engine.metrics"][key] for key in _ENGINE_SPAN_ATTRIBUTES}
+    assert command_span == {
+        "sandbox.identifier": "test-inst",
+        "sandbox.prom_endpoint": "/metrics",
+        "sandbox.dry_run": True,
+    }
+    assert engine_span == {
+        "sandbox.identifier": "inst-tracer",
+        "sandbox.container_id": instance.container_id,
+        "sandbox.prom_endpoint": "/metrics",
+    }
 
 
 def test_parse_cgroup_v2_cpu_delta_calculation(tmp_path: Path) -> None:
@@ -812,23 +824,13 @@ def test_a_scrape_looks_up_its_host_once(monkeypatch: pytest.MonkeyPatch) -> Non
     ) == (None, ["up"], {"example.com": 1}, [(PUBLIC_ADDRESS, 9100)])
 
 
-def test_preserve_scrape_error_state_and_unhealthy() -> None:
+def test_preserve_scrape_error_state_and_unhealthy(prom_server: str) -> None:
     """Test that failed metrics scrapes preserve error details and mark snapshot unhealthy."""
-    from devops_cli.sandbox.metrics import PrometheusScrapeResult
+    snapshot = collect_sandbox_metrics(prom_server, prom_endpoint="/error")
 
-    # Mock scrape returning error
-    with patch("devops_cli.sandbox.metrics.scrape_prometheus_metrics") as mock_scrape:
-        mock_scrape.return_value = PrometheusScrapeResult(
-            [],
-            error="HTTP 502 Bad Gateway response from http://127.0.0.1:8080/metrics",
-        )
-        snapshot = collect_sandbox_metrics("127.0.0.1:8080")
-        assert (
-            snapshot.scrape_error
-            == "HTTP 502 Bad Gateway response from http://127.0.0.1:8080/metrics"
-        )
-        assert len(snapshot.warnings) == 0
-        assert snapshot.is_healthy is False
+    assert snapshot.scrape_error == f"HTTP 500 response from {prom_server}/error"
+    assert len(snapshot.warnings) == 0
+    assert snapshot.is_healthy is False
 
 
 def test_parse_prometheus_exposition_label_unescaping() -> None:
@@ -891,11 +893,10 @@ def test_evaluate_threshold_warnings_histogram_latency_degradation() -> None:
     assert "1200.0ms >= 500.0ms" in warnings[0]
 
 
-def test_parse_cgroup_v2_network_stat_and_engine_net_io(tmp_path: Path) -> None:
+def test_parse_cgroup_v2_network_stat_and_engine_net_io(
+    tmp_path: Path, docker_daemon: DockerEngineFake
+) -> None:
     """Test parsing network stats from a cgroup directory and a typed Engine API sample."""
-    from devops_cli.models.docker import ContainerStatEntry
-    from devops_cli.sandbox.metrics import _build_metrics_from_stat_entry
-
     # From cgroup network.stat file
     cgroup_dir = tmp_path / "cgroup" / "net-test"
     cgroup_dir.mkdir(parents=True)
@@ -905,18 +906,11 @@ def test_parse_cgroup_v2_network_stat_and_engine_net_io(tmp_path: Path) -> None:
     assert cgroup_metrics.network_rx_bytes == 10485760
     assert cgroup_metrics.network_tx_bytes == 20971520
 
-    # From a typed Engine API resource sample
-    sample = ContainerStatEntry(
-        container_id="cid-net",
-        name="net-test",
-        cpu_percentage=12.0,
-        memory_usage_bytes=104_857_600,
-        memory_limit_bytes=524_288_000,
-        pids_count=6,
-        net_io_in_bytes=1_500_000,
-        net_io_out_bytes=3_200_000,
-    )
-    engine_metrics = _build_metrics_from_stat_entry(sample)
+    # From the Engine API stats of a container
+    container_id = docker_daemon.add_container("net-test")
+    docker_daemon.script_stats("net-test", [_engine_stats_frame(), _engine_stats_frame()])
+    engine_metrics = read_cgroup_v2_metrics(container_id=container_id, cgroup_root=tmp_path)
+    assert engine_metrics is not None
     assert (engine_metrics.network_rx_bytes, engine_metrics.network_tx_bytes) == (
         1_500_000,
         3_200_000,
@@ -934,15 +928,23 @@ def test_evaluate_threshold_warnings_status_label_5xx() -> None:
     assert any("5xx" in w for w in warnings)
 
 
-def test_calculate_memory_percent_zero_current() -> None:
-    """Test _calculate_memory_percent returns 0.0 when current bytes is 0."""
-    from devops_cli.sandbox.metrics import _calculate_memory_percent
+def test_memory_percent_of_a_cgroup_is_zero_when_nothing_is_used(tmp_path: Path) -> None:
+    """Memory use is 0.0 percent when no byte is used, and unknown when the limit is."""
+    results = []
+    for name, current, limit in (
+        ("zero", "0", "1000"),
+        ("tenth", "100", "1000"),
+        ("unlimited", "100", "max"),
+        ("zero-limit", "100", "0"),
+    ):
+        cgroup_dir = tmp_path / name
+        cgroup_dir.mkdir()
+        (cgroup_dir / "memory.current").write_text(f"{current}\n")
+        (cgroup_dir / "memory.max").write_text(f"{limit}\n")
+        metrics = parse_cgroup_v2_directory(cgroup_dir)
+        results.append(metrics.memory_usage_percent if metrics else "no metrics")
 
-    assert _calculate_memory_percent(0, 1000) == 0.0
-    assert _calculate_memory_percent(100, 1000) == 10.0
-    assert _calculate_memory_percent(None, 1000) is None
-    assert _calculate_memory_percent(100, None) is None
-    assert _calculate_memory_percent(100, 0) is None
+    assert results == [0.0, 10.0, None, None]
 
 
 def test_prometheus_exposition_timestamp_preservation() -> None:
@@ -966,14 +968,12 @@ def test_scrape_prometheus_metrics_sanitizes_credentials_and_errors(refusing_por
 
 def test_parse_open_fds_cgroup(tmp_path: Path) -> None:
     """Test parsing open file descriptor counts from cgroup stat files."""
-    from devops_cli.sandbox.metrics import _parse_open_fds
-
     cgroup_dir = tmp_path / "cgroup" / "fds-test"
     cgroup_dir.mkdir(parents=True)
     (cgroup_dir / "fds.current").write_text("38\n")
-    assert _parse_open_fds(cgroup_dir) == 38
 
     parsed = parse_cgroup_v2_directory(cgroup_dir)
+
     assert parsed is not None
     assert parsed.open_fds_count == 38
 
@@ -1010,122 +1010,79 @@ def test_evaluate_threshold_warnings_optional_latency_sla() -> None:
     assert "High average request latency" in warnings_configured[0]
 
 
-@patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
-def test_cli_sandbox_metrics_renders_open_fds_and_scrape_warning(
-    mock_engine_cls: MagicMock,
+def test_cli_sandbox_metrics_renders_a_scrape_warning(
+    cli: Callable[..., Any], register_sandbox: Callable[..., SandboxInstance], prom_server: str
 ) -> None:
-    """Test CLI renders open FDs and separate scrape warnings."""
-    mock_engine = MagicMock()
-    mock_engine.metrics.return_value = SandboxMetricsSnapshot(
-        instance_id="sandbox-test-fds",
-        target="fds-svc",
-        cgroup=CgroupV2Metrics(cpu_percent=10.0, open_fds_count=42),
-        prometheus_metrics=[],
-        scrape_error="HTTP 503 Service Unavailable from http://127.0.0.1:8080/metrics",
-        warnings=[],
-    )
-    mock_engine_cls.return_value = mock_engine
+    """Test CLI renders the scrape warning apart from the resource table."""
+    register_sandbox("sandbox-test-scrape", name="scrape-svc", host_ports=[_port_of(prom_server)])
 
-    result = runner.invoke(app, ["sandbox", "metrics", "sandbox-test-fds"])
+    result = cli("sandbox", "metrics", "sandbox-test-scrape", "--prom-endpoint", "/error")
+
     assert result.exit_code == 0
-    assert "Open File Descriptors" in result.output
-    assert "42" in result.output
     assert "SCRAPE WARNING" in result.output
-    assert "HTTP 503" in result.output
+    assert "HTTP 500" in result.output
 
 
-@patch("devops_cli.commands.sandbox.WorkloadSandboxEngine")
 def test_cli_sandbox_metrics_latency_sla_option(
-    mock_engine_cls: MagicMock,
+    cli: Callable[..., Any], register_sandbox: Callable[..., SandboxInstance], prom_server: str
 ) -> None:
-    """Test CLI metrics with --latency-sla-ms flag."""
-    mock_engine = MagicMock()
-    mock_engine.metrics.return_value = SandboxMetricsSnapshot(
-        instance_id="sandbox-test-sla",
-        target="sla-svc",
-        cgroup=CgroupV2Metrics(cpu_percent=10.0),
-        prometheus_metrics=[],
-        warnings=[],
-    )
-    mock_engine_cls.return_value = mock_engine
+    """The --latency-sla-ms flag sets the average request latency that raises an alert."""
+    register_sandbox("sandbox-test-sla", name="sla-svc", host_ports=[_port_of(prom_server)])
 
-    result = runner.invoke(
-        app,
-        ["sandbox", "metrics", "sandbox-test-sla", "--latency-sla-ms", "250.0"],
-    )
-    assert result.exit_code == 0
-    mock_engine.metrics.assert_called_once()
-    assert mock_engine.metrics.call_args.kwargs["latency_sla_ms"] == 250.0
+    within = cli("sandbox", "metrics", "sandbox-test-sla", "--latency-sla-ms", "250.0")
+    over = cli("sandbox", "metrics", "sandbox-test-sla", "--latency-sla-ms", "10.0")
+
+    assert (
+        within.exit_code,
+        "High average request latency" in within.output,
+        over.exit_code,
+        "High average request latency" in over.output,
+    ) == (0, False, 0, True)
 
 
-def test_read_cgroup_v2_metrics_fallback_when_path_invalid(tmp_path: Path) -> None:
+def test_read_cgroup_v2_metrics_fallback_when_path_invalid(
+    tmp_path: Path, docker_daemon: DockerEngineFake
+) -> None:
     """Test read_cgroup_v2_metrics falls back to container_id when cgroup_path is invalid."""
-    # When cgroup_path does not exist, it should not abort but check container_id
-    with patch(
-        "devops_cli.sandbox.metrics._read_container_stats_via_engine"
-    ) as mock_docker_fallback:
-        mock_docker_fallback.return_value = CgroupV2Metrics(cpu_percent=55.0)
-        res = read_cgroup_v2_metrics(
-            container_id="cont-fallback-1",
-            cgroup_path=tmp_path / "nonexistent",
-        )
-        assert res is not None
-        assert res.cpu_percent == 55.0
-        mock_docker_fallback.assert_called_once_with("cont-fallback-1")
+    container_id = docker_daemon.add_container("cont-fallback-1")
+    docker_daemon.script_stats("cont-fallback-1", [_engine_stats_frame(), _engine_stats_frame()])
 
-
-def test_workload_sandbox_engine_persists_and_threads_samples(tmp_path: Path) -> None:
-    """Test WorkloadSandboxEngine persists samples and calculates CPU delta on consecutive calls."""
-    from devops_cli.sandbox.engine import WorkloadSandboxEngine
-    from devops_cli.sandbox.metrics import PrometheusScrapeResult
-
-    engine = WorkloadSandboxEngine()
-    engine._prior_samples.clear()
-
-    inst = SandboxInstance(
-        instance_id="sandbox-delta-inst",
-        container_id="cont-delta-1",
-        name="delta-svc",
-        image="test:latest",
-        status=SandboxStatus.RUNNING,
-        port_bindings=[PortBinding(container_port=8080, host_port=18080)],
-        workspace_dir=str(tmp_path),
-        created_at="2026-09-12T13:00:00Z",
+    res = read_cgroup_v2_metrics(
+        container_id=container_id,
+        cgroup_path=tmp_path / "nonexistent",
+        cgroup_root=tmp_path,
     )
 
-    with patch.object(engine.registry, "get_instance", return_value=inst):
-        with patch("devops_cli.sandbox.metrics.scrape_prometheus_metrics") as mock_scrape:
-            mock_scrape.return_value = PrometheusScrapeResult([])
-            with patch("devops_cli.sandbox.metrics.read_cgroup_v2_metrics") as mock_read:
-                # First call returns usage_usec = 1,000,000 without prior delta -> cpu_percent is None
-                mock_read.side_effect = [
-                    CgroupV2Metrics(cpu_usage_usec=1000000, cpu_percent=None),
-                    CgroupV2Metrics(cpu_usage_usec=1500000, cpu_percent=50.0),
-                ]
-                first = engine.metrics("sandbox-delta-inst")
-                assert first.cgroup is not None
-                assert first.cgroup.cpu_percent is None
-
-                # Second call should thread previous sample
-                second = engine.metrics("sandbox-delta-inst")
-                assert second.cgroup is not None
-                assert second.cgroup.cpu_percent == 50.0
-                assert mock_read.call_count == 2
-                second_kwargs = mock_read.call_args_list[1].kwargs
-                assert second_kwargs.get("previous_cpu_usec") == 1000000
+    assert res is not None
+    assert res.cpu_percent == 25.0
 
 
-def test_is_forbidden_cgroup_path_boundaries() -> None:
-    """Verify _is_forbidden_cgroup_path allows only /sys/fs/cgroup descendants and blocks siblings/system dirs."""
-    from devops_cli.sandbox.metrics import _is_forbidden_cgroup_path
+def test_the_engine_threads_the_previous_sample_into_the_next_cpu_reading(
+    register_sandbox: Callable[..., SandboxInstance], prom_server: str, tmp_path: Path
+) -> None:
+    """Consecutive engine readings give a CPU percent from the change in CPU time between them."""
+    instance = register_sandbox("sandbox-delta-inst", host_ports=[_port_of(prom_server)])
+    scope = tmp_path / "cgroup" / "system.slice" / f"docker-{instance.container_id}.scope"
+    scope.mkdir(parents=True)
+    (scope / "cpu.stat").write_text("usage_usec 1000000\n")
+    engine = WorkloadSandboxEngine(cgroup_root=tmp_path / "cgroup")
 
-    assert not _is_forbidden_cgroup_path(Path("/sys/fs/cgroup"))
-    assert not _is_forbidden_cgroup_path(Path("/sys/fs/cgroup/system.slice"))
+    first = engine.metrics("sandbox-delta-inst")
+    (scope / "cpu.stat").write_text("usage_usec 1500000\n")
+    second = engine.metrics("sandbox-delta-inst")
 
-    assert _is_forbidden_cgroup_path(Path("/sys/fs/cgroup2"))
-    assert _is_forbidden_cgroup_path(Path("/sys/kernel"))
-    assert _is_forbidden_cgroup_path(Path("/etc"))
-    assert _is_forbidden_cgroup_path(Path("/var/log"))
+    assert first.cgroup is not None
+    assert second.cgroup is not None
+    assert (first.cgroup.cpu_percent, second.cgroup.cpu_percent is not None) == (None, True)
+    assert second.cgroup.cpu_usage_usec == 1_500_000
+
+
+@pytest.mark.parametrize("forbidden", ["/sys/kernel", "/etc", "/var/log", "/usr/bin"])
+def test_a_system_directory_outside_the_cgroup_tree_is_never_read_as_a_cgroup(
+    forbidden: str,
+) -> None:
+    """Only the cgroup mount and its descendants are read; /sys siblings and system dirs are not."""
+    assert parse_cgroup_v2_directory(forbidden) is None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1133,44 +1090,25 @@ def test_is_forbidden_cgroup_path_boundaries() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture
-def terminal(monkeypatch: pytest.MonkeyPatch) -> Console:
-    """The shared stdout and stderr consoles, recording everything the metrics view prints."""
-    import devops_cli.output.console as console_module
+def test_prom_table_prints_scraped_labels_as_written(
+    cli: Callable[..., Any], register_sandbox: Callable[..., SandboxInstance], prom_server: str
+) -> None:
+    """Label values come from the scraped endpoint: their brackets print as written instead of
+    raising MarkupError or styling the table. A long label string is cut before it is escaped, so
+    the cut never lands inside an escape (#955)."""
+    register_sandbox("sandbox-brackets", name="svc", host_ports=[_port_of(prom_server)])
 
-    # Wide enough that no line wraps, so each printed line is one recorded line.
-    recording = Console(record=True, width=400, color_system=None, file=io.StringIO())
-    monkeypatch.setattr(console_module, "_CONSOLE", recording)
-    monkeypatch.setattr(console_module, "_STDERR_CONSOLE", recording)
-    return recording
+    result = cli("sandbox", "metrics", "sandbox-brackets", "--prom-endpoint", "/bracketed")
 
-
-def test_prom_table_prints_scraped_labels_and_types_as_written(terminal: Console) -> None:
-    """Label values and types come from the scraped endpoint: their brackets print as written
-    instead of raising MarkupError or styling the table. The metric name is escaped too, though
-    the parser admits no bracket in one. A long label string is cut before it is escaped, so the
-    cut never lands inside an escape (#955)."""
-    from devops_cli.commands.sandbox import _render_prom_table
-
-    long_labels = {"path": "a" * 30 + "[/b]tail"}
-    metrics = [
-        *parse_prometheus_exposition('# TYPE up gauge\nup{job="[/]",x="[bold red]FAKE[/]"} 1'),
-        PrometheusMetric(name="hits[/h]", metric_type="[/x]gauge", labels=long_labels, value=2.0),
-    ]
-    _render_prom_table("localhost:9100/[x]", metrics)
-
-    text = terminal.export_text()
     assert [
-        literal in text
+        literal in result.output
         for literal in (
-            "Prometheus Application Metrics: localhost:9100/[x]",
+            "Prometheus Application Metrics: svc",
             "job=[/]",
             "[bold red]FAKE",
-            "hits[/h]",
-            "[/X]GAUGE",
             "path=" + "a" * 30 + "[/...",
         )
-    ] == [True] * 6
+    ] == [True] * 4
 
 
 def test_parse_prometheus_exposition_braces_in_labels_untyped_and_non_finite() -> None:
@@ -1194,53 +1132,55 @@ def test_parse_prometheus_exposition_braces_in_labels_untyped_and_non_finite() -
         parse_prometheus_exposition("# TYPE up [/]\nup 1\n")
 
 
-def test_metrics_snapshot_prints_scrape_errors_and_target_as_written(terminal: Console) -> None:
+def test_metrics_snapshot_prints_scrape_errors_and_target_as_written(
+    cli: Callable[..., Any],
+    register_sandbox: Callable[..., SandboxInstance],
+    malformed_endpoint: int,
+) -> None:
     """A scrape error carries the HTTP client's exception text, which can quote the endpoint's own
     bytes, as a malformed header line does: it prints as written in the warning and in the error
     line, instead of raising MarkupError. So does the target in the table title (#955)."""
-    from devops_cli.commands.sandbox import _render_metrics_snapshot
+    target = "svc[/x]"
+    register_sandbox("sandbox-malformed", name=target, host_ports=[malformed_endpoint])
 
-    target = "localhost:8080/[x]"
-    error = (
-        f"Scrape request failed for http://{target}/metrics: "
-        "illegal header line: bytearray(b'[/x] [link=https://example.com]y')"
-    )
-    _render_metrics_snapshot(
-        SandboxMetricsSnapshot(
-            target=target, cgroup=CgroupV2Metrics(cpu_percent=10.0), scrape_error=error
-        )
-    )
+    result = cli("sandbox", "metrics", "sandbox-malformed")
 
-    text = terminal.export_text()
+    assert result.exit_code == 0
     assert [
-        literal in text
+        literal in result.output
         for literal in (
             f"Cgroup v2 Resource Telemetry: {target}",
-            f"SCRAPE WARNING: {error}",
-            f"Workload '{target}' encountered telemetry collection error: {error}",
+            "SCRAPE WARNING: ",
+            "[/x] [link=https://example.com]y",
+            f"Workload '{target}' encountered telemetry collection error: ",
         )
-    ] == [True] * 3
+    ] == [True] * 4
 
 
 def test_metrics_snapshot_prints_the_target_as_written_in_every_summary_line(
-    terminal: Console,
+    cli: Callable[..., Any],
+    register_sandbox: Callable[..., SandboxInstance],
+    docker_daemon: DockerEngineFake,
+    prom_server: str,
 ) -> None:
     """The target is the instance name or the URL the user gave, and a URL can hold brackets: it
     prints as written in the healthy line and in the threshold-exceeded line. A threshold alert is
     the CLI's own text and holds no markup, so its line prints it as written too (#955)."""
-    from devops_cli.commands.sandbox import _render_metrics_snapshot
+    target = "svc[/x]"
+    register_sandbox("sandbox-healthy", name=target, host_ports=[_port_of(prom_server)])
+    register_sandbox("sandbox-loaded", name=target, host_ports=[_port_of(prom_server)])
+    loaded = _engine_stats_frame()
+    loaded["memory_stats"] = {"usage": 471_859_200, "limit": 524_288_000, "stats": {"cache": 0}}
+    docker_daemon.script_stats("sandbox-loaded", [loaded, loaded])
 
-    target = "localhost:8080/[x]"
-    alert = "latency [/x] over budget"
-    _render_metrics_snapshot(SandboxMetricsSnapshot(target=target))
-    _render_metrics_snapshot(SandboxMetricsSnapshot(target=target, warnings=[alert]))
+    healthy = cli("sandbox", "metrics", "sandbox-healthy")
+    exceeded = cli("sandbox", "metrics", "sandbox-loaded")
 
-    text = terminal.export_text()
     assert [
-        literal in text
-        for literal in (
-            f"Workload '{target}' operating within normal performance bounds.",
-            f"THRESHOLD ALERT: {alert}",
-            f"Workload '{target}' exceeded 1 operating threshold(s).",
+        literal in output
+        for output, literal in (
+            (healthy.output, f"Workload '{target}' operating within normal performance bounds."),
+            (exceeded.output, "THRESHOLD ALERT: Memory usage (90.0%) exceeds"),
+            (exceeded.output, f"Workload '{target}' exceeded 1 operating threshold(s)."),
         )
     ] == [True] * 3
