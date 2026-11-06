@@ -340,6 +340,7 @@ def _fences_of_the_report(
     return comment, [t for t in MarkdownIt("commonmark").parse(comment) if t.type == "fence"]
 
 
+@pytest.mark.usefixtures("no_continuation")
 def test_the_log_of_an_ended_job_is_decoded_text_in_one_fenced_block_with_the_secret_masked(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:
@@ -358,6 +359,7 @@ def test_the_log_of_an_ended_job_is_decoded_text_in_one_fenced_block_with_the_se
     ) == (1, ["Tool call: ok.", "\N{CHECK MARK} Took 1 item(s)."], False, False, False, False, True)
 
 
+@pytest.mark.usefixtures("no_continuation")
 def test_the_fence_of_the_log_of_an_ended_job_is_longer_than_a_run_of_backticks_in_it(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:
@@ -372,6 +374,7 @@ def test_the_fence_of_the_log_of_an_ended_job_is_longer_than_a_run_of_backticks_
     )
 
 
+@pytest.mark.usefixtures("no_continuation")
 def test_a_job_that_failed_stops_an_item_that_is_in_progress_and_no_job_is_made_again(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:
@@ -435,7 +438,9 @@ def test_a_job_that_left_no_result_gets_the_class_of_its_log_in_the_record_the_c
     store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
     _end(kube, "Failed")
     kube.core.answers["list_namespaced_pod"] = [pod(f"{name}-x1", namespace="devops")]
-    kube.core.answers["read_namespaced_pod_log"] = "Killed process 4242 (python): out of memory\n"
+    kube.core.answers["read_namespaced_pod_log"] = (
+        "Traceback (most recent call last):\nMemoryError: Cannot allocate memory\n"
+    )
     before = _failures("oom")
 
     _round(store, staged_repo)
@@ -461,7 +466,9 @@ def test_a_stop_that_the_runner_writes_while_the_report_reads_the_log_keeps_its_
     store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
     _end(kube, "Failed")
     kube.core.answers["list_namespaced_pod"] = [pod(f"{name}-x1", namespace="devops")]
-    kube.core.answers["read_namespaced_pod_log"] = "Killed process 4242 (python): out of memory\n"
+    kube.core.answers["read_namespaced_pod_log"] = (
+        "Traceback (most recent call last):\nMemoryError: Cannot allocate memory\n"
+    )
     read_log = kube.core.read_namespaced_pod_log
 
     def runner_stops_then_log(*args: Any, **kwargs: Any) -> Any:
@@ -499,6 +506,7 @@ def test_a_job_that_ended_with_a_result_is_no_failure(
     assert _record(store, number).get("implement.failure") is None
 
 
+@pytest.mark.usefixtures("no_continuation")
 def test_a_job_that_ended_and_left_the_item_ready_and_unstopped_stops_it_too(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:
@@ -540,6 +548,7 @@ def test_the_round_sets_in_progress_for_the_item_of_the_job_it_makes(
     )
 
 
+@pytest.mark.usefixtures("no_continuation")
 def test_a_job_that_ended_and_left_the_item_planned_and_unstopped_stops_it_too(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:
@@ -557,6 +566,7 @@ def test_a_job_that_ended_and_left_the_item_planned_and_unstopped_stops_it_too(
     ) == ("job", "succeeded", 1)
 
 
+@pytest.mark.usefixtures("no_continuation")
 def test_a_job_that_no_longer_exists_is_recorded_gone_and_stops_the_item(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:
@@ -712,6 +722,7 @@ def test_the_report_of_a_job_names_the_digest_of_its_image(
     assert (f"Image digest: {DIGEST_A}" in comment, DIGEST_B in comment) == (True, False)
 
 
+@pytest.mark.usefixtures("no_continuation")
 def test_the_report_of_a_job_that_is_gone_names_the_digest_too(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:
@@ -746,6 +757,7 @@ def test_a_create_that_the_api_refuses_leaves_no_record_of_a_job(
     assert (_jobs(kube), _record(store, number).get("implement.job")) == ([], None)
 
 
+@pytest.mark.usefixtures("no_continuation")
 def test_a_log_that_cannot_be_read_still_reports_the_job_and_records_its_state(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:
@@ -784,6 +796,7 @@ def test_a_pull_request_that_is_not_an_open_draft_is_left_alone(
     assert _creates(kube) == []
 
 
+@pytest.mark.usefixtures("no_continuation")
 def test_a_retry_comment_after_the_stop_makes_a_new_job_that_clears_the_report_of_the_old_one(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:
@@ -818,6 +831,7 @@ def _stop_with_a_failed_job(
     _round(store, repo)
 
 
+@pytest.mark.usefixtures("no_continuation")
 def test_a_stop_is_blocked_with_the_digest_of_the_failed_job_and_the_same_digest_makes_no_job(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:
@@ -838,6 +852,7 @@ def test_a_stop_is_blocked_with_the_digest_of_the_failed_job_and_the_same_digest
     ) == ("Blocked", "job", DIGEST_A, 1)
 
 
+@pytest.mark.usefixtures("no_continuation")
 def test_a_new_digest_clears_the_stop_once_and_the_item_gets_a_new_job_on_that_digest(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:
@@ -861,6 +876,7 @@ def test_a_new_digest_clears_the_stop_once_and_the_item_gets_a_new_job_on_that_d
     ) == (2, DIGEST_B, None, None, True, "In Progress")
 
 
+@pytest.mark.usefixtures("no_continuation")
 def test_a_second_stop_on_the_new_digest_makes_no_job_in_any_number_of_rounds(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:
@@ -883,6 +899,7 @@ def test_a_second_stop_on_the_new_digest_makes_no_job_in_any_number_of_rounds(
     ) == ("Blocked", DIGEST_B, 2)
 
 
+@pytest.mark.usefixtures("no_continuation")
 def test_a_retry_of_the_owner_clears_the_stop_on_the_same_digest_and_names_the_rule(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:
@@ -896,6 +913,177 @@ def test_a_retry_of_the_owner_clears_the_stop_on_the_same_digest_and_names_the_r
 
     comments = [c for c in _comments(store, number) if "rule `" in c]
     assert (len(_creates(kube)), len(comments), "rule `retry`" in comments[0]) == (2, 1, True)
+
+
+# ── A Job that ended without a result is continued (#3721) ───────────────────────────────────
+
+
+def _continuation_comments(store: InMemoryRoadmapStore, number: int) -> list[str]:
+    return [c for c in _comments(store, number) if "rule `continue`" in c]
+
+
+def test_a_job_that_ended_without_a_result_is_continued_twice_and_then_the_item_stays_blocked(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """Each round reports the Job, clears the stop by the rule `continue` and makes the next Job,
+    two times. The third stop finds no continuation left, and no round makes a fourth Job."""
+    number = seed_staged(store)
+    _roll(kube, DIGEST_A)
+    _round(store, staged_repo)
+    seen: list[tuple[int, str | None, str | None]] = []
+
+    _stop_with_a_failed_job(store, staged_repo, kube)
+    seen.append((len(_creates(kube)), _record(store, number)["implement.continuations"], None))
+    first = _continuation_comments(store, number)
+    _stop_with_a_failed_job(store, staged_repo, kube, index=1)
+    seen.append((len(_creates(kube)), _record(store, number)["implement.continuations"], None))
+    second = _continuation_comments(store, number)
+    _stop_with_a_failed_job(store, staged_repo, kube, index=2)
+    for _ in range(10):
+        _round(store, staged_repo)
+
+    record = _record(store, number)
+    assert (
+        seen,
+        len(first),
+        "continuation 1 of 2" in first[0],
+        "No continuation is left" in first[0],
+        len(second),
+        "continuation 2 of 2" in second[1],
+        "No continuation is left" in second[1],
+        _held(store, number).status,
+        record["implement.stopped"],
+        record["implement.continuations"],
+        record.get("implement.digest_clears"),
+        len(_creates(kube)),
+        len(_continuation_comments(store, number)),
+    ) == (
+        [(2, "1", None), (3, "2", None)],
+        1,
+        True,
+        False,
+        2,
+        True,
+        True,
+        "Blocked",
+        "job",
+        "2",
+        None,
+        3,
+        2,
+    )
+
+
+def test_a_continuation_runs_the_same_item_on_the_same_branch_and_keeps_the_digest_budget(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+    _roll(kube, DIGEST_A)
+    _round(store, staged_repo)
+    _roll(kube, DIGEST_B)
+
+    _stop_with_a_failed_job(store, staged_repo, kube)
+
+    first, second = (
+        job["spec"]["template"]["spec"]["containers"][0]["args"] for job in _jobs(kube)
+    )
+    record = _record(store, number)
+    assert (
+        first == second,
+        record["implement.job_digest"],
+        record.get("implement.digest_clears"),
+        len(_continuation_comments(store, number)),
+    ) == (True, DIGEST_B, None, 1)
+
+
+def test_a_job_whose_log_reads_out_of_memory_is_not_continued(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """The class `oom` has the action `raise_limit`, and a second run on the same limit ends the
+    same way. The item waits for a person. Only a sign in the log shows this: the Service reads
+    no pod status, so a kill with no text in the log is continued as `ci_infra`."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    name = _jobs(kube)[0]["metadata"]["name"]
+    kube.core.answers["list_namespaced_pod"] = [pod(f"{name}-x1", namespace="devops")]
+    kube.core.answers["read_namespaced_pod_log"] = (
+        "Traceback (most recent call last):\nMemoryError: Cannot allocate memory\n"
+    )
+
+    _stop_with_a_failed_job(store, staged_repo, kube)
+    for _ in range(3):
+        _round(store, staged_repo)
+
+    assert (
+        _held(store, number).status,
+        _record(store, number)["implement.failure"],
+        _record(store, number).get("implement.continuations"),
+        _continuation_comments(store, number),
+        len(_creates(kube)),
+    ) == ("Blocked", "oom", None, [], 1)
+
+
+def test_a_job_that_no_longer_exists_is_continued(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
+    kube.custom_objects.objects[JOBS] = []
+
+    _round(store, staged_repo)
+
+    record = _record(store, number)
+    assert (
+        len(_continuation_comments(store, number)),
+        record["implement.continuations"],
+        len(_creates(kube)),
+        _held(store, number).status,
+    ) == (1, "1", 2, "In Progress")
+
+
+def test_a_retry_of_the_owner_after_the_last_continuation_makes_a_new_job(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    for index in range(3):
+        _stop_with_a_failed_job(store, staged_repo, kube, index=index)
+    blocked = (_held(store, number).status, len(_creates(kube)))
+    store.seed_comment(number, "implement: retry", author_association="OWNER")
+
+    _round(store, staged_repo)
+
+    assert (blocked, len(_creates(kube)), "rule `retry`" in _comments(store, number)[-1]) == (
+        ("Blocked", 3),
+        4,
+        True,
+    )
+
+
+def test_a_stop_that_the_runner_wrote_is_no_continuation(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """The runner wrote the step and the class of its stop. Its rules decide, not the rule
+    `continue`."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    store.set_field(
+        _held(store, number),
+        ItemField.STATUS,
+        "Blocked",
+        marks={ImplementRecordKey.STOPPED: "group 1", ImplementRecordKey.FAILURE: "provider"},
+    )
+    _end(kube, "Failed")
+
+    for _ in range(3):
+        _round(store, staged_repo)
+
+    assert (
+        _held(store, number).status,
+        _continuation_comments(store, number),
+        len(_creates(kube)),
+    ) == ("Blocked", [], 1)
 
 
 def test_a_stop_of_the_runner_with_a_new_digest_waits_for_the_report_of_its_job(

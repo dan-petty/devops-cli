@@ -56,6 +56,7 @@ Each row is one change of the Status label of an Item. A job never reverts a lab
 | No state, `status/new`, `status/ready` or `status/planned` | `devops pr ready` marks a pull request that closes the Item | `status/in-review` | Agentic coder or person |
 | `status/in-progress` | A step stops, or the Job ends with the Item not finished | `status/blocked`, with `implement.stopped` | Runner Job or Service job |
 | `status/blocked`, with `implement.stopped` | A trusted person (the owner, a member or a collaborator) comments `implement: retry` after the stop comment | `status/ready`, or `status/planned` when the plan is on the default branch. The same round of row `implement` takes the Item, then it is `status/in-progress` | Person, then Service job |
+| `status/blocked`, with `implement.stopped` as `job` | The class in `implement.failure` has the action `retry`, and `implement.continuations` is less than `roadmap.implement.continuations_per_item` | `status/ready`, or `status/planned` when the plan is on the default branch, and `implement.continuations` goes up by 1. The same round of row `implement` takes the Item | Service job |
 | `status/blocked`, with `implement.stopped` | The digest in the template of CronJob `devops-cli-runner` is not the digest in `implement.job_digest`, the digest of the Job that stopped, and the class in `implement.failure` has the action `retry`. The class and item limits in `implement.digest_clears` allow a clear | `status/ready`, or `status/planned` when the plan is on the default branch. The same round of row `implement` takes the Item | Service job |
 | `status/in-review` | A person merges the pull request (G2) and the issue closes | Closed, with no `status/*` label | Person, then the workflow `clear-status.yml` |
 | Closed | A person merges the release pull request (G3) | Released | Person, then release-please |
@@ -124,6 +125,7 @@ These are all the keys of the job record, by the job that writes them:
 | Implement | `implement.check`, `implement.check_log` | The check that failed in the stop, and the masked end of its log (at most 2000 characters). A retry and a clear rule of the Service remove both with the stop |
 | Implement | `implement.wip` | The work in progress that a step kept: its group, the tasks done, the tasks of the group and the last commit as JSON. The job removes it when the group passes |
 | Implement | `implement.job`, `implement.job_state`, `implement.job_digest` | The runner Job that the Service made, its state after a round reported it, and the digest of the runner image that the Job ran |
+| Implement | `implement.continuations` | The count of the Jobs that the Service made to continue a run that ended with no result. It holds a count and no other data, and it stays after a clear |
 | Implement | `implement.digest_clears`, `implement.digest_clear_commented_at` | The clears of a stop by a new runner image (the class, the digest and the time of each), which stay after a clear, and the time of the last comment of such a clear |
 
 ## The stop and retry path
@@ -132,14 +134,21 @@ The log comment, the suspension of a row and the other details are in [k8s/READM
 
 1. A step stops, a conflict arises, a command fails, or a check fails twice. The runner Job pushes the commits that passed and comments the stop on the issue.
 2. The Job sets `status/blocked` and records the step in `implement.stopped` and the class of the failure in `implement.failure`. The Status function of the Service derives Blocked from that record, so the runner and the Service name the Status in one place.
-3. A Job that ends with the Item still in progress, or Ready or Planned with no stop, is a stop that the runner could not write. The next round of row `implement` sets the Item to Blocked and records `implement.stopped` as `job`.
+3. A Job that ends with the Item still in progress, or Ready or Planned with no stop, is a stop that the runner could not write. The next round of row `implement` sets the Item to Blocked and records `implement.stopped` as `job`, and the class of the log in `implement.failure`.
 4. The Service records the digest of the runner image in `implement.job_digest` when it makes a Job. The report comment of the Job names that digest. This is the digest of the stop.
-5. The Service makes no Job for a Blocked Item. Two rules take it out of Blocked, and a comment of the Service names the rule that ran:
+5. The Service makes no Job for a Blocked Item. Three rules take it out of Blocked, and a comment of the Service names the rule that ran:
    - **retry**: a trusted person comments `implement: retry` after the stop comment. The next round clears the stop at once, whatever the digest.
+   - **continue**: the stop is `job`, and the class of the stop in `implement.failure` has the action `retry` in `ACTION_BY_CLASS`. The Job ended with no result. Examples are a pod that the kernel killed or evicted, a stalled Job that the Service ended, and a Job that no longer exists. The count in `implement.continuations` is less than `roadmap.implement.continuations_per_item`. The Service makes a new Job at once. This rule runs before **digest**, reads no template and spends no clear by digest.
    - **digest**: the digest in the template of CronJob `devops-cli-runner` is not the digest in `implement.job_digest`, and the class of the stop in `implement.failure` has the action `retry` in `ACTION_BY_CLASS`. A new image may fix the cause of such a stop, so the Service clears it. A new image cannot fix a plan, a premise, a refused tool, a failed test or a lost test, so a stop of another class waits for the retry rule.
 6. A clear removes `implement.stopped` and sets `status/ready`, or `status/planned` when the plan is on the default branch. The same round takes the Item again, with its branch and its draft pull request.
 
-Each new Job overwrites `implement.job_digest`. So a second stop on the same image finds equal digests, and only a retry clears it. A stop with no digest on record, a stop with no class on record, and a template with no digest, are cleared by a retry only.
+Each new Job overwrites `implement.job_digest`. So a second stop on the same image finds equal digests, and only a retry clears it. A stop with no digest on record, a stop with no class on record, and a template with no digest wait for a retry. The exception is a stop `job` with a class whose action is `retry`: a continuation needs no digest.
+
+Each continuation adds 1 to `implement.continuations`. The count stays after a clear, and a retry of a person does not reset it. The setting `roadmap.implement.continuations_per_item` (default 2) bounds it, and 0 turns the rule off. The comment of the Service says "continuation n of N", and at the limit it adds "No continuation is left". At the limit, a retry comment still clears the stop. A new runner image also clears it by the rule **digest**, within the limits of that rule.
+
+The new Job takes the branch from `origin`. So it keeps the `wip:` commits that the run pushed for a group with more than one task (#3054). A group of one task that passed, and that no push kept, runs again.
+
+A class with another action waits for a retry. For example, `oom` has the action `raise_limit`, and a second run on the same limit ends the same way. Only a sign in the log gives the class `oom`. The Service reads no pod status, so a kill with no text in the log is continued as `ci_infra` (follow-up #3727). A stop that the runner wrote, with a step in `implement.stopped`, is no continuation.
 
 Each clear by digest adds an entry (the class, the new digest and the time) to `implement.digest_clears`, and the list stays after the clear. The setting `roadmap.implement.digest_clears_per_class` (default 1) bounds the entries of one class, and `roadmap.implement.digest_clears_per_item` (default 3) bounds the entries of the Item. A stop at a limit stays Blocked until a retry comment, also for `ci_infra`. The Service writes at most one comment for a clear by digest in 24 hours for an Item (`implement.digest_clear_commented_at`), and it records the clear either way. The rule reads no image content, because the Service holds digests and no map from a digest to commits. When the Service takes an Item, it sorts by priority, then an Item with no digest clear before an Item with one, then by number. So a retried Item does not keep new Items from running, and a retried Item of a higher priority still goes before a new Item of a lower priority. The Service takes no Item that an agent or a person claimed, and it never clears a `status/blocked` label that a person set. The ledger of failed rounds is a different thing: it suspends a row after three failed rounds on the same input, and the stop path does not change it.
 
@@ -219,7 +228,7 @@ stateDiagram-v2
     planned --> in_progress: 4 Claim, 5 Implement
     in_progress --> in_review: 6 Verify, pull request ready
     in_progress --> blocked: stop
-    blocked --> ready: implement retry, or a new runner image for a retry class within the limits
+    blocked --> ready: implement retry, a continuation of a Job with no result, or a new runner image for a retry class within the limits
     in_review --> closed: G2 merge, 7 Review and merge
     closed --> released: G3 release pull request, 8 Release and learn
     released --> [*]

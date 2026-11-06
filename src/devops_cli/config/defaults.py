@@ -768,6 +768,10 @@ DEFAULT_ROADMAP_IMPLEMENT_ITEM_TIME_LIMIT_SECONDS: int = 12600
 # The most stops of one failure class, and of one item, that a new runner image clears (#3481).
 DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_CLASS: int = 1
 DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_ITEM: int = 3
+# The most Jobs that the Service starts to continue the run of one item whose Job ended without a
+# result (#3721): two Jobs after the first, so a kill, an eviction or a stall costs at most two
+# more runs.
+DEFAULT_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM: int = 2
 # The tier of each step class of the model ladder (#3060) when no setting names another: the local
 # gateway group of the implement task. One tier keeps every attempt on the same model until a
 # person names a stronger tier, as `devops-reasoning`, after it.

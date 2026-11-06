@@ -1,6 +1,7 @@
-"""The clear rules of a stop (#2912, #3481): the Service takes an item out of Blocked when a person
-asks for a retry, or when the runner image changed since the stop and the class of the stop has the
-action `retry`, within the limits of the item.
+"""The clear rules of a stop (#2912, #3481, #3721): the Service takes an item out of Blocked when a
+person asks for a retry, when the Job of the item ended without a result and the class of the stop
+has the action `retry`, or when the runner image changed since the stop and the class of the stop
+has the action `retry`, within the limits of the item.
 
 The roadmap is in memory. The digest of the CronJob template is a function that a test counts.
 """
@@ -24,7 +25,7 @@ from devops_cli.roadmap.digest_clears import (
 from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureAction, FailureClass
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.planned import PlannedChanges
-from devops_cli.roadmap.stop_clear import DigestLimits, StopsCleared, clear_stops
+from devops_cli.roadmap.stop_clear import ClearLimits, StopsCleared, clear_stops
 from devops_cli.roadmap.store import ImplementRecordKey, IssueComment, Item, ItemField
 from tests.support.roadmap_stage import STAGE_REPO
 
@@ -34,7 +35,7 @@ DIGEST_A = "sha256:" + "a" * 64
 DIGEST_B = "sha256:" + "b" * 64
 NO_PLANS = PlannedChanges("main", {}, {})
 NOW = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
-LIMITS = DigestLimits(per_class=1, per_item=3)
+LIMITS = ClearLimits(per_class=1, per_item=3, continuations=2)
 RETRY_CLASSES = [c for c, action in ACTION_BY_CLASS.items() if action is FailureAction.RETRY]
 OTHER_CLASSES = [c for c, action in ACTION_BY_CLASS.items() if action is not FailureAction.RETRY]
 
@@ -109,7 +110,7 @@ def _clear(
     template: Template,
     planned: PlannedChanges = NO_PLANS,
     *,
-    limits: DigestLimits = LIMITS,
+    limits: ClearLimits = LIMITS,
     now: datetime = NOW,
 ) -> StopsCleared:
     return clear_stops(store, planned=planned, digest=template, limits=limits, now=now)
@@ -472,6 +473,18 @@ def test_a_stop_comment_names_the_class_rule_and_the_limits_of_the_digest_clear(
     assert "roadmap.implement.digest_clears_per_item" in body
 
 
+def test_the_report_of_a_job_with_no_result_names_the_continuation_the_retry_and_the_image() -> (
+    None
+):
+    """The report comes before the clear, so it says what the Service does next (#3721)."""
+    body = " ".join(MESSAGES.roadmap.implement_job_report_stopped.split())
+
+    assert "starts a new Job" in body
+    assert "roadmap.implement.continuations_per_item" in body
+    assert "comment `implement: retry`" in body
+    assert "A new runner image also clears the stop" in body
+
+
 @pytest.mark.parametrize("klass", OTHER_CLASSES)
 def test_a_new_digest_alone_does_not_clear_a_stop_of_a_class_that_a_retry_cannot_fix(
     store: InMemoryRoadmapStore, klass: FailureClass
@@ -601,14 +614,16 @@ def test_a_stop_at_the_item_limit_stays_until_implement_retry(
 def test_the_limits_are_values_of_the_pass(store: InMemoryRoadmapStore) -> None:
     number = _blocked(store, implement_digest_clears=_entry(FailureClass.PROVIDER))
 
-    wide = _clear(store, Template(DIGEST_B), limits=DigestLimits(per_class=2, per_item=3))
+    wide = _clear(
+        store, Template(DIGEST_B), limits=ClearLimits(per_class=2, per_item=3, continuations=2)
+    )
 
     assert (wide.cleared, len(recorded_clears(_item(store, number)))) == ((number,), 2)
 
 
-@pytest.mark.parametrize("limits", [DigestLimits(0, 3), DigestLimits(1, 0)])
+@pytest.mark.parametrize("limits", [ClearLimits(0, 3, 2), ClearLimits(1, 0, 2)])
 def test_a_limit_of_zero_turns_the_clear_by_digest_off(
-    store: InMemoryRoadmapStore, limits: DigestLimits
+    store: InMemoryRoadmapStore, limits: ClearLimits
 ) -> None:
     number = _blocked(store)
 
@@ -705,5 +720,205 @@ def test_a_record_that_does_not_parse_stops_the_clear_by_digest_but_not_a_retry(
     store.seed_comment(number, "implement: retry", author_association="OWNER")
 
     retried = _clear(store, Template(DIGEST_B))
+
+    assert (held.cleared, held.failed, retried.cleared) == ((), (), (number,))
+
+
+# ── A Job that ended without a result is continued (#3721) ──────────────────────────────────
+
+
+def _continuations(store: InMemoryRoadmapStore, number: int) -> str | None:
+    return _record(store, number).get("implement.continuations")
+
+
+def _stop_again(store: InMemoryRoadmapStore, number: int, klass: str = "ci_infra") -> None:
+    """The Job that a continuation started ends without a result, and a round reports it."""
+    store.set_field(
+        _item(store, number),
+        ItemField.STATUS,
+        "Blocked",
+        marks={
+            ImplementRecordKey.STOPPED: "job",
+            ImplementRecordKey.FAILURE: klass,
+            ImplementRecordKey.JOB_STATE: "failed",
+        },
+    )
+
+
+@pytest.mark.parametrize("klass", RETRY_CLASSES)
+def test_a_job_that_ended_without_a_result_is_continued_whatever_the_digest(
+    store: InMemoryRoadmapStore, klass: FailureClass
+) -> None:
+    number = _blocked(store, stopped="job", implement_failure=klass.value)
+    template = Template(DIGEST_A)
+
+    cleared = _clear(store, template)
+
+    comment = _bodies(store, number)[-1]
+    record = _record(store, number)
+    assert (
+        cleared.cleared,
+        _item(store, number).status,
+        record.get("implement.stopped"),
+        record.get("implement.failure"),
+        _continuations(store, number),
+        record.get("implement.digest_clears"),
+        template.reads,
+        comment.startswith(MARKER),
+        "rule `continue`" in comment,
+        f"`{klass.value}`" in comment,
+        "continuation 1 of 2" in comment,
+    ) == ((number,), "Ready", None, None, "1", None, 0, True, True, True, True)
+
+
+@pytest.mark.parametrize("klass", OTHER_CLASSES)
+def test_a_job_that_ended_without_a_result_waits_for_a_person_when_a_retry_cannot_fix_its_class(
+    store: InMemoryRoadmapStore, klass: FailureClass
+) -> None:
+    number = _blocked(store, stopped="job", implement_failure=klass.value)
+
+    held = _clear(store, Template(DIGEST_A))
+    store.seed_comment(number, "implement: retry", author_association="OWNER")
+    retried = _clear(store, Template(DIGEST_A))
+
+    assert (held.cleared, _continuations(store, number), retried.cleared) == ((), None, (number,))
+
+
+def test_a_stop_that_the_runner_wrote_is_not_a_continuation(store: InMemoryRoadmapStore) -> None:
+    """A stop of a step has its own class and its own rules (#3053, #3065). Only the stop of a Job
+    that left no result is a run that a kill, an eviction or a stall cut."""
+    number = _blocked(store, stopped="group 2", implement_failure="provider")
+
+    cleared = _clear(store, Template(DIGEST_A))
+
+    assert (cleared.cleared, _item(store, number).status, _continuations(store, number)) == (
+        (),
+        "Blocked",
+        None,
+    )
+
+
+def test_a_job_stop_with_no_class_is_not_continued(store: InMemoryRoadmapStore) -> None:
+    number = _blocked(store, stopped="job", implement_failure=None)
+
+    cleared = _clear(store, Template(DIGEST_A))
+
+    assert (cleared.cleared, _item(store, number).status) == ((), "Blocked")
+
+
+def test_the_continuations_of_an_item_stop_at_the_limit_and_the_last_comment_says_so(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _blocked(store, stopped="job", implement_failure="ci_infra")
+    template = Template(DIGEST_A)
+    cleared: list[tuple[int, ...]] = []
+
+    for _ in range(3):
+        cleared.append(_clear(store, template).cleared)
+        _stop_again(store, number)
+    after_limit = _clear(store, template)
+
+    comments = [b for b in _bodies(store, number) if "rule `continue`" in b]
+    assert (
+        cleared,
+        after_limit.cleared,
+        _item(store, number).status,
+        _continuations(store, number),
+        ["continuation 1 of 2" in comments[0], "continuation 2 of 2" in comments[1]],
+        [
+            len(comments),
+            "No continuation is left" in comments[0],
+            "No continuation is left" in comments[1],
+        ],
+    ) == (
+        [(number,), (number,), ()],
+        (),
+        "Blocked",
+        "2",
+        [True, True],
+        [2, False, True],
+    )
+
+
+def test_a_new_runner_image_clears_a_stop_at_the_continuation_limit_by_the_digest_rule(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """No continuation is left, but a new image is a retry signal: the rule `digest` clears."""
+    number = _blocked(
+        store, stopped="job", implement_failure="ci_infra", implement_continuations="2"
+    )
+
+    held = _clear(store, Template(DIGEST_A))
+    cleared = _clear(store, Template(DIGEST_B))
+
+    comment = _bodies(store, number)[-1]
+    assert (
+        held.cleared,
+        cleared.cleared,
+        "rule `digest`" in comment,
+        _continuations(store, number),
+    ) == (
+        (),
+        (number,),
+        True,
+        "2",
+    )
+
+
+def test_a_person_retry_clears_a_stop_at_the_continuation_limit(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _blocked(
+        store, stopped="job", implement_failure="ci_infra", implement_continuations="2"
+    )
+    store.seed_comment(number, "implement: retry", author_association="OWNER")
+
+    cleared = _clear(store, Template(DIGEST_A))
+
+    comment = _bodies(store, number)[-1]
+    assert (cleared.cleared, "rule `retry`" in comment, _continuations(store, number)) == (
+        (number,),
+        True,
+        "2",
+    )
+
+
+def test_a_limit_of_zero_turns_the_continuation_off(store: InMemoryRoadmapStore) -> None:
+    number = _blocked(store, stopped="job", implement_failure="ci_infra")
+
+    cleared = _clear(store, Template(DIGEST_A), limits=ClearLimits(1, 3, 0))
+
+    assert (cleared.cleared, _item(store, number).status) == ((), "Blocked")
+
+
+def test_a_continuation_spends_no_clear_by_digest(store: InMemoryRoadmapStore) -> None:
+    """A new image and a Job that ended without a result: the continuation runs first, and the
+    digest rule keeps its budget for the next stop."""
+    number = _blocked(store, stopped="job", implement_failure="timeout")
+
+    cleared = _clear(store, Template(DIGEST_B))
+
+    assert (
+        cleared.cleared,
+        recorded_clears(_item(store, number)),
+        _continuations(store, number),
+    ) == (
+        (number,),
+        (),
+        "1",
+    )
+
+
+@pytest.mark.parametrize("text", ["two", "-1", "1.5"])
+def test_a_continuation_count_that_is_no_count_stops_the_continuation_but_not_a_retry(
+    store: InMemoryRoadmapStore, text: str
+) -> None:
+    number = _blocked(
+        store, stopped="job", implement_failure="ci_infra", implement_continuations=text
+    )
+    held = _clear(store, Template(DIGEST_A))
+    store.seed_comment(number, "implement: retry", author_association="OWNER")
+
+    retried = _clear(store, Template(DIGEST_A))
 
     assert (held.cleared, held.failed, retried.cleared) == ((), (), (number,))

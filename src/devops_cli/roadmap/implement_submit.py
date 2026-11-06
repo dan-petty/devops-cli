@@ -29,10 +29,11 @@ arguments and a token for the one repository (`service.github_app.token_reposito
 of the item then names the Job.
 
 **Clear.** After the report, the round clears the stop of each item that the Service set Blocked
-when a person asked for a retry, or when the digest in the CronJob template differs from the
-digest of the Job that stopped it (`stop_clear.py`, #2912). A cleared item is eligible in the same
-round, so the plan below can take it. `implement.job_digest` is the digest in the template at the
-time of the create, recorded with the Job.
+when a person asked for a retry, when the stop is `job` and a continuation is left (#3721), or when
+the digest in the CronJob template differs from the digest of the Job that stopped it
+(`stop_clear.py`, #2912). A cleared item is eligible in the same round, so the plan below can take
+it. `implement.job_digest` is the digest in the template at the time of the create, recorded with
+the Job.
 
 **Failure class** (#3065). Each Job that left a stop is counted once, in the counter
 `devops_cli_service_implement_failures_total` by `class` and `repo`, when the round reports it. The runner

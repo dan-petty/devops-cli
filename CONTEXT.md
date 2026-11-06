@@ -49,7 +49,7 @@ An item that is in progress, in review or done.
 _Avoid_: active, claimed
 
 **Blocked**:
-An item waiting on something outside the roadmap, such as hardware, an upstream release or a person's decision. A blocked item is not started. A stop of the implement job also blocks an item, until a person comments `implement: retry`, or a new runner image rolls out for a stop whose class a retry can fix (see docs/ROADMAP_WORKFLOW.md). Waiting on another item is a dependency, not blocked.
+An item waiting on something outside the roadmap, such as hardware, an upstream release or a person's decision. A blocked item is not started. A stop of the implement job also blocks an item, until a person comments `implement: retry`. The Service also clears a stop whose class a retry can fix. It continues a Job that has no result, within a limit. It also clears the stop when a new runner image rolls out (see docs/ROADMAP_WORKFLOW.md). Waiting on another item is a dependency, not blocked.
 _Avoid_: on hold, waiting
 
 **Dependency**:
@@ -135,7 +135,7 @@ The pure function that decides when any draft pull request is ready for review: 
 _Avoid_: ready check, draft gate
 
 **Implementing**:
-Taking a Staged or Planned item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, draft readiness, and `gh pr ready`. A step may ask for a bounded change of its plan, or for a split when its inputs exceed the limit. A false premise returns the item to New with its evidence. The job ticks each task of a group whose exit checks pass, so a tick that the agent forgets does not stop the step. A step keeps each ticked task whose verification passes as a `wip:` commit that the job pushes, and a stop discards only the work after the last one. A stopped item is Blocked, names the work it kept, shows the masked diff of the work it discarded, and waits for the comment `implement: retry` or, for a stop whose class a retry can fix, for a new runner image within the limits of the Service. A person merges.
+Taking a Staged or Planned item to a ready pull request: one step for each task group that has an unticked task, the documentation, the archive, the push, the body that closes the issue, the watch of the checks, at most one fix step, draft readiness, and `gh pr ready`. A step may ask for a bounded change of its plan, or for a split when its inputs exceed the limit. A false premise returns the item to New with its evidence. The job ticks each task of a group whose exit checks pass, so a tick that the agent forgets does not stop the step. A step keeps each ticked task whose verification passes as a `wip:` commit that the job pushes, and a stop discards only the work after the last one. A stopped item is Blocked, names the work it kept, shows the masked diff of the work it discarded, and waits for the comment `implement: retry`. For a stop whose class a retry can fix, it waits for a continuation or a new runner image, within the limits of the Service. A person merges.
 _Avoid_: building, executing
 
 **Runner**:
