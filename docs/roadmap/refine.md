@@ -86,6 +86,10 @@ A job failure writes no body and no comment. The job record shows it:
 
 With the step `retry`, the next round refines the item again. At 3 tries (`CONST_ROADMAP_REFINE_MAX_TRIES`) the step is `failed`: refine sends no model request for the item until a person edits its body, and [the inbox](inbox.md) lists it in the class `failed` with the checks, the count and the last error. A proposal that passes clears the keys. A job failure comes before a question for a person: a proposal that is not valid asks nobody.
 
+A Ready item whose new proposal fails a form check keeps its Status and its old design, because refine writes no body for a job failure. The record shows the failure, and the item has the step `retry` or `failed` like a New item. A Ready item that refine finds not ready, by contrast, goes back to New with a comment.
+
+An item that already waits on a person when this rule starts keeps its recorded wait. Refine reads it again only after a reply, a body edit, a change to an issue or a file that the wait names, or `devops roadmap refine --item <number>`.
+
 The plan report starts with the count of the items that go on without a person: the items that are Ready, blocked or in `retry`.
 
 ## Failures
