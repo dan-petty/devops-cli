@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
 from typer.testing import CliRunner
+
+from tests.support.fakes.kubernetes import FakeCluster
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 
 @pytest.fixture
@@ -171,38 +175,20 @@ def test_k8s_configure_urls_tempo_dry_run(runner: CliRunner) -> None:
         set_dry_run(False)
 
 
-def test_k8s_deploy_stack_shows_tempo_connection_info(runner: CliRunner) -> None:
-    from unittest.mock import MagicMock, patch
+def test_k8s_deploy_stack_shows_tempo_connection_info(
+    cli: Any, cluster: FakeCluster, process_fake: ProcessFake, keyring_store: Any
+) -> None:
+    """deploy-stack for infra prints where Tempo and Pyroscope listen."""
+    process_fake.answer(
+        lambda call: call.argv[:2] == ("helm", "version"),
+        ProcessAnswer(returncode=0, stdout="v3.17.0\n"),
+    )
 
-    from devops_cli.commands.k8s import app as k8s_app
-    from devops_cli.dry_run import set_dry_run
+    result = cli(["k8s", "deploy-stack", "--stack", "infra", "--no-push-secrets"])
 
-    set_dry_run(False)
-    with (
-        patch("devops_cli.commands.k8s._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s._run_cmd") as mock_run,
-        patch("devops_cli.commands.k8s.port_forward"),
-        patch(
-            "devops_cli.k8s.credentials.sync_k8s_credentials",
-            return_value={},
-        ),
-    ):
-        mock_proc = MagicMock()
-        mock_proc.returncode = 0
-        mock_proc.stdout = ""
-        mock_proc.stderr = ""
-
-        def _fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
-            if cmd[:2] == ["helm", "version"]:
-                return MagicMock(returncode=0, stdout="v3.17.0\n", stderr="")
-            return mock_proc
-
-        mock_run.side_effect = _fake_run
-
-        result = runner.invoke(k8s_app, ["deploy-stack", "--stack", "infra", "--no-push-secrets"])
-        assert (
-            result.exit_code,
-            "Tempo HTTP API: http://localhost:3200 (namespace: otel)" in result.output,
-            "Tempo OTLP Traces: localhost:4317 (gRPC) / localhost:4318 (HTTP)" in result.output,
-            "Pyroscope UI: http://localhost:4040 (namespace: monitoring)" in result.output,
-        ) == (0, True, True, True)
+    assert (
+        result.exit_code,
+        "Tempo HTTP API: http://localhost:3200 (namespace: otel)" in result.output,
+        "Tempo OTLP Traces: localhost:4317 (gRPC) / localhost:4318 (HTTP)" in result.output,
+        "Pyroscope UI: http://localhost:4040 (namespace: monitoring)" in result.output,
+    ) == (0, True, True, True)
