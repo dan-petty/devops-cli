@@ -88,8 +88,6 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 DepsT = TypeVar("DepsT")
 
-ALLOW_MODEL_REQUESTS: bool = True
-
 
 class SystemPrompt(str):
     """String holding the base system prompt while functioning as a decorator callback."""
@@ -871,23 +869,6 @@ class PydanticAgent[T, DepsT = Any]:
                 self.capabilities, ctx.loaded_capability_ids, ctx, enable_thinking
             )
 
-            import devops_cli.ai.agents.agent as agent_module
-            import devops_cli.ai.agents.testing as testing_module
-
-            if not getattr(testing_module, "ALLOW_MODEL_REQUESTS", True) or not getattr(
-                agent_module, "ALLOW_MODEL_REQUESTS", True
-            ):
-                from devops_cli.ai.agents.testing import (
-                    FunctionModel,
-                    ModelNotAllowedError,
-                    TestModel,
-                )
-
-                if not isinstance(self.client, (TestModel, FunctionModel)):
-                    raise ModelNotAllowedError(
-                        "Model requests are disabled via ALLOW_MODEL_REQUESTS=False"
-                    )
-
             res_obj = self.client.chat_messages(system, messages, enable_thinking=turn_thinking)
             response_text = str(res_obj)
 
@@ -967,11 +948,6 @@ class PydanticAgent[T, DepsT = Any]:
                 self.memory.auto_summarize_if_needed(llm_client=self.client)
             messages.append(ChatMessage(role="assistant", content=final_output))
 
-            from devops_cli.ai.agents.testing import _RUN_MESSAGES_CAPTURE
-
-            if (capture_buf := _RUN_MESSAGES_CAPTURE.get()) is not None:
-                capture_buf.extend(messages)
-
             usage = AgentUsage(
                 input_tokens=total_input_tokens,
                 output_tokens=total_output_tokens,
@@ -992,11 +968,6 @@ class PydanticAgent[T, DepsT = Any]:
             self.memory.add_interaction("assistant", response_text)
             self.memory.auto_summarize_if_needed(llm_client=self.client)
         messages.append(ChatMessage(role="assistant", content=response_text))
-
-        from devops_cli.ai.agents.testing import _RUN_MESSAGES_CAPTURE
-
-        if (capture_buf := _RUN_MESSAGES_CAPTURE.get()) is not None:
-            capture_buf.extend(messages)
 
         usage = AgentUsage(
             input_tokens=total_input_tokens,

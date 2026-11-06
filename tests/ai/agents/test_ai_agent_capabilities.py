@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -13,6 +13,9 @@ from devops_cli.ai.agents.capabilities import (
 )
 from devops_cli.ai.agents.context import RunContext
 from devops_cli.ai.agents.tools import Tool
+
+if TYPE_CHECKING:
+    from tests.support.fakes.model import ModelFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -139,10 +142,9 @@ def test_abstract_custom_toolset() -> None:
 
 
 @pytest.mark.anyio
-async def test_mcp_toolset() -> None:
+async def test_mcp_toolset(model_fake: ModelFake) -> None:
     """Verify MCPToolset lifecycle, tool registration, prefixing and config loading."""
     from devops_cli.ai.agents.agent import PydanticAgent
-    from devops_cli.ai.agents.testing import TestModel
     from devops_cli.ai.agents.tools import AgentTool, MCPToolset
 
     # 1. MCPToolset instantiation and lifecycle
@@ -185,7 +187,8 @@ async def test_mcp_toolset() -> None:
     # 3. End-to-end execution with agent and async context manager
     agent = PydanticAgent(name="MCPAgent", model="openai:gpt-4o", toolsets=[mcp_ts])
     async with agent:
-        with agent.override(model=TestModel(custom_output_text="MCP processed")):
+        model_fake.answer("MCP processed")
+        with agent.override(model=model_fake):
             res = agent.run("Run mcp tool")
             assert res.content == "MCP processed"
 
@@ -318,53 +321,22 @@ def test_embedding_cost_of_a_local_model_is_zero_whatever_its_custom_price(
     )
 
 
-def test_testing_utilities_and_agent_override() -> None:
-    """Verify TestModel, FunctionModel, Agent.override, capture_run_messages, and ALLOW_MODEL_REQUESTS."""
-    import json
-
-    import devops_cli.ai.agents.testing as testing_module
+def test_agent_override_swaps_the_model_and_the_toolsets(model_fake: ModelFake) -> None:
+    """`Agent.override` answers from the given model and adds the given toolsets for its block."""
     from devops_cli.ai.agents.agent import PydanticAgent
-    from devops_cli.ai.agents.testing import (
-        AgentInfo,
-        FunctionModel,
-        ModelNotAllowedError,
-        TestModel,
-        capture_run_messages,
-    )
     from devops_cli.ai.agents.tools import FunctionToolset
 
-    # 1. TestModel custom outputs
-    tm1 = TestModel(custom_output_text="Custom Output")
-    assert tm1.chat("hello") == "Custom Output"
-    assert tm1.chat_messages([]) == "Custom Output"
-
-    tm2 = TestModel(custom_output_args={"status": "passed", "code": 0})
-    assert json.loads(tm2.chat("hello")) == {"status": "passed", "code": 0}
-
-    # 2. FunctionModel custom callbacks
-    def custom_fn(msgs: Any, info: AgentInfo) -> str:
-        return f"Echo from {info.agent_name}"
-
-    fm = FunctionModel(function=custom_fn)
-    assert fm.chat([], agent_name="CustomAgent") == "Echo from CustomAgent"
-
-    def custom_dict_fn(msgs: Any, info: AgentInfo) -> dict[str, Any]:
-        return {"handled": True}
-
-    fm_dict = FunctionModel(function=custom_dict_fn)
-    assert json.loads(fm_dict.chat([])) == {"handled": True}
-
-    # 3. capture_run_messages context manager and Agent.override
     agent = PydanticAgent(name="TestAssistant", model="openai:gpt-4o")
 
-    # With override using TestModel
-    with capture_run_messages() as captured:
-        with agent.override(model=TestModel(custom_output_text="Mocked Agent Response")):
-            res = agent.run("What is the k8s status?")
-            assert res.content == "Mocked Agent Response"
-    assert len(captured) > 0
+    # 1. The model of the override answers, and the run keeps the exchange.
+    model_fake.answer("Mocked Agent Response")
+    with agent.override(model=model_fake):
+        res = agent.run("What is the k8s status?")
+    assert res.content == "Mocked Agent Response"
+    assert model_fake.requested[-1].endswith("What is the k8s status?")
+    assert [message.role for message in res.messages][-2:] == ["user", "assistant"]
 
-    # 4. Agent.override with toolsets
+    # 2. The toolsets of the override exist for its block only.
     ts = FunctionToolset()
 
     @ts.tool_plain()
@@ -374,25 +346,3 @@ def test_testing_utilities_and_agent_override() -> None:
     with agent.override(toolsets=[ts]):
         assert "custom_tool" in agent._tools
     assert "custom_tool" not in agent._tools
-
-    # 5. ALLOW_MODEL_REQUESTS enforcement
-    orig_allow = testing_module.ALLOW_MODEL_REQUESTS
-    try:
-        testing_module.ALLOW_MODEL_REQUESTS = False
-        import devops_cli.ai.agents.agent as agent_module
-
-        agent_module.ALLOW_MODEL_REQUESTS = False
-
-        # Real model request fails
-        real_agent = PydanticAgent(name="RealAgent", model="openai:gpt-4o")
-        with pytest.raises(ModelNotAllowedError) as raised:
-            real_agent.run("Test query")
-        assert raised.value.error_code == "MODEL_REQUESTS_DISABLED"
-
-        # TestModel succeeds even when ALLOW_MODEL_REQUESTS is False
-        with real_agent.override(model=TestModel(custom_output_text="Safe test")):
-            safe_res = real_agent.run("Test query")
-            assert safe_res.content == "Safe test"
-    finally:
-        testing_module.ALLOW_MODEL_REQUESTS = orig_allow
-        agent_module.ALLOW_MODEL_REQUESTS = orig_allow

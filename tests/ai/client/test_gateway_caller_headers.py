@@ -146,7 +146,6 @@ def test_a_pydantic_ai_agent_call_to_the_gateway_names_devops_cli_and_its_servic
     devops-cli as its user agent, not pydantic-ai, and the process's service as its end user."""
     from devops_cli.ai import pydantic_ai_bridge
 
-    monkeypatch.setattr(pydantic_ai_bridge, "_is_testing_mode_active", lambda: False)
     monkeypatch.setattr(pydantic_ai_bridge, "get_ai_api_key", lambda _settings: "sk-gateway")
     stub_web.serve(_completion)
     settings = Settings()

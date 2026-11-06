@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pydantic_ai.mcp as p_mcp
 import pytest
 from pydantic_ai.toolsets import PrefixedToolset
 
 from devops_cli.ai.agents.agent import PydanticAgent
-from devops_cli.ai.agents.testing import TestModel
 from devops_cli.ai.agents.tools import MCPToolset as AgentMCPToolset
 from devops_cli.ai.mcp.toolset import (
     EmbeddedResource,
@@ -33,6 +32,9 @@ from devops_cli.ai.mcp.toolset import (
     load_mcp_toolsets,
 )
 from devops_cli.ai.tools.mcp_bridge import get_devops_mcp_toolset, get_mcp_agent_tools
+
+if TYPE_CHECKING:
+    from tests.support.fakes.model import ModelFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -195,7 +197,7 @@ def test_mcp_bridge_dynamic_discovery() -> None:
     assert isinstance(native_ts, p_mcp.MCPToolset)
 
 
-async def test_pydantic_agent_with_native_mcp_toolset() -> None:
+async def test_pydantic_agent_with_native_mcp_toolset(model_fake: ModelFake) -> None:
     """Verify PydanticAgent accepts native MCPToolset and executes within async lifecycle."""
     native_ts = create_devops_mcp_toolset()
     agent: PydanticAgent[Any, Any] = PydanticAgent(
@@ -205,7 +207,8 @@ async def test_pydantic_agent_with_native_mcp_toolset() -> None:
     )
 
     async with agent:
-        with agent.override(model=TestModel(custom_output_text="MCP execution successful")):
+        model_fake.answer("MCP execution successful")
+        with agent.override(model=model_fake):
             res = agent.run("Run cluster check")
             assert res.content == "MCP execution successful"
 

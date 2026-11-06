@@ -175,7 +175,6 @@ class FakeServer:
 def served(monkeypatch: pytest.MonkeyPatch, stub_web: StubWeb) -> Any:
     """Make the gateway model of the roadmap service, and the way to serve it: call the result
     with the replies of the fake model to get the model and its server."""
-    monkeypatch.setattr(pydantic_ai_bridge, "_is_testing_mode_active", lambda: False)
     monkeypatch.setattr(pydantic_ai_bridge, "get_ai_api_key", lambda _settings: "sk-gateway")
     settings = Settings()
     settings.ai.provider = "gateway"

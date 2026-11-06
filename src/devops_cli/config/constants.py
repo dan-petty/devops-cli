@@ -153,7 +153,6 @@ CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
     ),
 }
 CONST_DOMAIN_EXCEPTION_MODULES: Final[tuple[str, ...]] = (
-    "devops_cli.ai.agents.testing",
     "devops_cli.ai.client.models",
     "devops_cli.ai.gateway_tune",
     "devops_cli.ai.pool_load",
