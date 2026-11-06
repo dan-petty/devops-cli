@@ -28,9 +28,9 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/plan_rewrite.py` (new), `src/devops_cli/roadmap/plan_recheck.py`, `src/devops_cli/roadmap/plan_read.py`, `src/devops_cli/roadmap/step_files.py`, `src/devops_cli/commands/roadmap.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`
-- Documents: `docs/roadmap/plan-recheck.md`, `docs/ROADMAP_WORKFLOW.md`, `README.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`
-- Tests: `tests/roadmap/test_roadmap_plan_rewrite.py` (new), `tests/roadmap/test_roadmap_plan_recheck.py`, `tests/roadmap/test_roadmap_implement_plan_reason.py`, `tests/commands/test_roadmap_plan_recheck_cmd.py` (new)
+- Code: `src/devops_cli/roadmap/plan_rewrite.py` (new), `src/devops_cli/roadmap/plan_recheck.py`, `src/devops_cli/roadmap/plan_read.py`, `src/devops_cli/roadmap/step_files.py`, `src/devops_cli/commands/roadmap.py`, `src/devops_cli/exceptions/roadmap.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`
+- Documents: `docs/roadmap/plan-recheck.md`, `docs/ROADMAP_WORKFLOW.md`, `README.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`, `docs/ERRORS.md`
+- Tests: `tests/roadmap/test_roadmap_plan_rewrite.py` (new), `tests/roadmap/test_roadmap_plan_recheck.py`, `tests/roadmap/test_roadmap_implement_plan_reason.py`, `tests/commands/test_roadmap_plan_recheck_cmd.py`
 
 ## Feasibility
 

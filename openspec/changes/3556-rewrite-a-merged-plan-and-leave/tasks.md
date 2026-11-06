@@ -20,7 +20,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/plan_rewrite.py`, `src/devops_cli
 
 ## 3. Write the rewrite with confirm
 
-Kind: behavior. Reads: `src/devops_cli/roadmap/plan_rewrite.py`, `src/devops_cli/roadmap/plan_recheck.py`, `src/devops_cli/commands/roadmap.py`, `tests/roadmap/test_roadmap_plan_recheck.py`. Changes: `src/devops_cli/roadmap/plan_rewrite.py`, `src/devops_cli/commands/roadmap.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`, `tests/commands/test_roadmap_plan_recheck_cmd.py` (new).
+Kind: behavior. Reads: `src/devops_cli/roadmap/plan_rewrite.py`, `src/devops_cli/roadmap/plan_recheck.py`, `src/devops_cli/commands/roadmap.py`, `tests/roadmap/test_roadmap_plan_recheck.py`. Changes: `src/devops_cli/roadmap/plan_rewrite.py`, `src/devops_cli/exceptions/roadmap.py`, `src/devops_cli/exceptions/__init__.py`, `src/devops_cli/commands/roadmap.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`, `tests/commands/test_roadmap_plan_recheck_cmd.py`.
 
 - [x] 3.1 In `tests/commands/test_roadmap_plan_recheck_cmd.py`, write first: without `--confirm` the working tree of a checkout holds no changed file; `--confirm --source <checkout>` writes the changed files of each `rewrite` folder and makes no commit; `--confirm` without `--source` exits with an error that names `--source`; `--confirm` with `--dry-run` exits with an error; a file that differs from the default branch stops the write before any file is written and the error names it
   - Verification: `uv run devops ci test tests/commands/test_roadmap_plan_recheck_cmd.py` fails on the base
@@ -36,9 +36,9 @@ Kind: other (a test-only edit; it changes no behavior). Reads: `src/devops_cli/r
 
 ## 5. Say what the rewrite does
 
-Reads: `docs/roadmap/plan-recheck.md`, `docs/ROADMAP_WORKFLOW.md`, `src/devops_cli/lang/en/help.py`. Changes: `docs/roadmap/plan-recheck.md`, `docs/ROADMAP_WORKFLOW.md`, `README.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`.
+Reads: `docs/roadmap/plan-recheck.md`, `docs/ROADMAP_WORKFLOW.md`, `src/devops_cli/lang/en/help.py`. Changes: `docs/roadmap/plan-recheck.md`, `docs/ROADMAP_WORKFLOW.md`, `README.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`, `docs/ERRORS.md`.
 
-- [ ] 5.1 In `docs/roadmap/plan-recheck.md`, state the three edits of the rewrite, the rule for the result `rewrite`, the option `--confirm` with its checks, and that the left-out reason of #3393 holds a plan with no way forward. In `docs/ROADMAP_WORKFLOW.md`, replace "writes nothing" with the rule for `--confirm`, and run `uv run devops docs generate --sync-readme`
+- [x] 5.1 In `docs/roadmap/plan-recheck.md`, state the three edits of the rewrite, the rule for the result `rewrite`, the option `--confirm` with its checks, and that the left-out reason of #3393 holds a plan with no way forward. In `docs/ROADMAP_WORKFLOW.md`, replace "writes nothing" with the rule for `--confirm`, and run `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci docs` passes
 
 ## Workflow follow-up
