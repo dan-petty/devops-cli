@@ -51,6 +51,10 @@ def _answer_bandit_git(git_fake: GitFake) -> None:
         lambda call: bool(call.argv and "ls-files" in call.argv),
         _handle_ls_files,
     )
+    git_fake.answer(
+        lambda call: bool(call.argv and "config" in call.argv),
+        ProcessAnswer(returncode=1),
+    )
 
 
 def test_parse_bandit_json_valid() -> None:

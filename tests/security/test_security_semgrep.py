@@ -226,6 +226,10 @@ def _answer_semgrep_git(git_fake: GitFake) -> None:
         lambda call: bool(call.argv and "ls-files" in call.argv),
         _handle_semgrep_ls_files,
     )
+    git_fake.answer(
+        lambda call: bool(call.argv and "config" in call.argv),
+        ProcessAnswer(returncode=1),
+    )
 
 
 @pytest.fixture(scope="module")

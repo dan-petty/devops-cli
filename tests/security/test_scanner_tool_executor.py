@@ -71,6 +71,10 @@ def _answer_scanner_tool_git(git_fake: GitFake) -> None:
         lambda call: bool(call.argv and "status" in call.argv),
         ProcessAnswer(stdout=""),
     )
+    git_fake.answer(
+        lambda call: bool(call.argv and "config" in call.argv),
+        ProcessAnswer(returncode=1),
+    )
 
 
 _GITLEAKS_REPORT = (

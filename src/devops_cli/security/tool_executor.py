@@ -65,13 +65,15 @@ the SARIF 2.1.0 run of that tool:
   command line holds is a redaction token of the run (sections 3.5.2 and 3.14.28).
 
 SARIF has a name for two more fields. SARIF requires a value there that the record does not hold,
-so the export does not write these names:
+so the export does not write this name:
 
 - `binary_sha256` is the `sha-256` hash of an artifact with the role `driver`. A top-level artifact
   must have a location (section 3.24.2), and the record holds no path of the binary.
-- `commit` is the `revisionId` of `versionControlProvenance`. This object must have a
-  `repositoryUri` (section 3.23.3), and the record holds no repository. A commit that ends with
-  `-dirty` identifies no revision of the files that the tool scanned.
+
+`commit` is the `revisionId` and `repository_uri` is the `repositoryUri` of
+`versionControlProvenance` (sections 3.23.3 and 3.23.4), for a record whose repository URI is set
+and whose commit is set and does not end with `-dirty`. The run of the tool holds one entry for
+each distinct pair of the two among its records.
 
 The config, ruleset and targets digests have no SARIF name. A SARIF hash is the hash of one artifact
 (section 3.24.11), and each of these digests covers a group of files. `executor` and `network` have
@@ -92,6 +94,7 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Protocol
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -271,6 +274,12 @@ class ToolRun(_Frozen):
     git cannot read. The direct executor records no commit for it, because a scan must not fail
     for a record.
 
+    `repository_uri` is the `origin` remote of the checkout that holds the tree, with the userinfo
+    removed. It is None when the checkout has no `origin` remote, when the remote is not an
+    absolute URI with a host, when the remote is malformed, when the tree is outside any checkout,
+    and when the direct executor cannot read the checkout. So a credential never reaches the
+    record.
+
     `exit_code` and `success` say how the run ended. An executor builds the record before the tool
     starts, so the record of its answer holds neither. The code that ran the tool decides from the
     exit code and the output together if the run succeeded, and settles the run
@@ -288,6 +297,7 @@ class ToolRun(_Frozen):
     argv_template: tuple[str, ...]
     targets_digest: str
     commit: str | None
+    repository_uri: str | None = None
     exit_code: int | None = None
     success: bool | None = None
 
@@ -453,6 +463,45 @@ def _tree_commit(root: Path, targets: Sequence[Path], *, required: bool) -> str 
         return None
 
 
+def _read_repository_uri(root: Path) -> str | None:
+    """The `origin` remote of the checkout that holds `root`, with the userinfo removed.
+
+    A tree outside any checkout has no repository, and neither has a checkout with no `origin`
+    remote. The `--local` option keeps git from reading the global configuration, and exit code 1
+    means that the key is not set. A remote that is not an absolute URI with a host, such as a
+    scp-style remote or a local path, has no repository URI for SARIF. A malformed URL gives None
+    too: a scan must not fail for a record. A checkout that git cannot read raises `SandboxError`.
+    """
+    if nearest_checkout(root) is None:
+        return None
+    url = _git(root, "config", "--local", "--get", "remote.origin.url", accepted=(0, 1))
+    if not url:
+        return None
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        return None
+    if not parts.scheme or not host:
+        return None
+    netloc = f"[{host}]" if ":" in host else host
+    if port is not None:
+        netloc = f"{netloc}:{port}"
+    return urlunsplit(parts._replace(netloc=netloc))
+
+
+def _tree_repository_uri(root: Path, *, required: bool) -> str | None:
+    """The repository URI of `root` (`_read_repository_uri`). A checkout that git cannot read
+    raises `SandboxError` when the repository is `required`, and has none when it is not."""
+    try:
+        return _read_repository_uri(root)
+    except SandboxError:
+        if required:
+            raise
+        return None
+
+
 def _placeholders(request: ToolRequest, targets: Sequence[Path]) -> dict[str, str]:
     """The placeholder for each path that `request` names, by the normal form of the path.
 
@@ -548,6 +597,7 @@ def record_tool_run(
         argv_template=_argv_template(request, targets),
         targets_digest=digest([str(target.relative_to(root)) for target in targets]),
         commit=_tree_commit(root, targets, required=require_commit),
+        repository_uri=_tree_repository_uri(root, required=require_commit),
     )
 
 

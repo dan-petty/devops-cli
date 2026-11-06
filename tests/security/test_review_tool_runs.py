@@ -142,6 +142,8 @@ def _answer_tool_runs_git(git_fake: GitFake) -> None:
             return ProcessAnswer(stdout="")
         if "log" in argv:
             return ProcessAnswer(stdout="2026-01-01T00:00:00+00:00\n")
+        if "config" in argv:
+            return ProcessAnswer(stdout="https://example.com/a/b.git\n")
         return ProcessAnswer()
 
     git_fake.answer(lambda _: True, _handle_git)
@@ -681,10 +683,16 @@ def test_a_review_profile_holds_one_row_per_tool_run_with_every_field(
         if not request.workdir.name.startswith(CONST_CANARY_WORKDIR_PREFIX)
     ]
     assert [row.tool for row in rows] == scans
-    assert ({row.tool for row in rows}, empty, {row.executor for row in rows}) == (
+    assert (
+        {row.tool for row in rows},
+        empty,
+        {row.executor for row in rows},
+        {row.repository_uri for row in rows},
+    ) == (
         {tool for tool, _ in _REVIEW_SCANS},
         [],
         {"fake"},
+        {"https://example.com/a/b.git"},
     )
     assert ReviewProfile.model_validate_json(profile.model_dump_json()).tool_runs == rows
 
