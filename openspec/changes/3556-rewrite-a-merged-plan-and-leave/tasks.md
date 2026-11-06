@@ -31,7 +31,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/plan_rewrite.py`, `src/devops_cli
 
 Kind: other (a test-only edit; it changes no behavior). Reads: `src/devops_cli/roadmap/implement.py`, `src/devops_cli/roadmap/explain.py`, `tests/roadmap/test_roadmap_implement_plan_reason.py`, `tests/support/roadmap_implement.py`. Changes: `tests/roadmap/test_roadmap_implement_plan_reason.py`.
 
-- [ ] 4.1 In `tests/roadmap/test_roadmap_implement_plan_reason.py`, add a test for a Planned item whose merged plan holds the task `1.1 x`: `plan_implement` selects no target and `explain_item` names the first problem with the reason `implement_left_plan`. Add a test for a merged plan that the rewrite can not fix, to show that it leaves the queue with the same reason
+- [x] 4.1 In `tests/roadmap/test_roadmap_implement_plan_reason.py`, add a test for a Planned item whose merged plan holds the task `1.1 x`: `plan_implement` selects no target and `explain_item` names the first problem with the reason `implement_left_plan`. Add a test for a merged plan that the rewrite can not fix, to show that it leaves the queue with the same reason
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_implement_plan_reason.py` passes
 
 ## 5. Say what the rewrite does
