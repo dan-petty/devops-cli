@@ -2259,6 +2259,10 @@ devops argo cd apps COMMAND [ARGS]...
 
 **List all ArgoCD applications.**
 
+List all ArgoCD applications.
+
+The Repo column shows the first source of an Application with several sources.
+
 ```bash
 devops argo cd apps list [OPTIONS]
 ```

@@ -111,6 +111,37 @@ def test_invalid_k8s_resource_names_rejected(value: str) -> None:
     assert raised.value.exit_code == 1
 
 
+CHART_REPO = "https://charts.example.com/helm"
+GIT_REPO = "https://git.example.com/org/values.git"
+SINGLE_REPO = "https://git.example.com/org/single.git"
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        ({"source": {"repoURL": SINGLE_REPO}}, SINGLE_REPO),
+        (
+            {"sources": [{"repoURL": CHART_REPO}, {"repoURL": GIT_REPO, "ref": "values"}]},
+            CHART_REPO,
+        ),
+        (
+            {"source": {"repoURL": SINGLE_REPO}, "sources": [{"repoURL": CHART_REPO}]},
+            CHART_REPO,
+        ),
+        ({}, ""),
+        ({"source": {"repoURL": SINGLE_REPO}, "sources": []}, SINGLE_REPO),
+        ({"sources": "x"}, ""),
+        ({"sources": [None]}, ""),
+    ],
+    ids=["source", "sources", "both", "neither", "empty-sources", "str-sources", "none-entry"],
+)
+def test_argocd_app_repo_url_follows_argo_source_order(spec: dict[str, Any], expected: str) -> None:
+    """The repo is the first of `spec.sources`, else `spec.source`, as Argo CD reads it (#2579)."""
+    from devops_cli.models.argo import ArgoCDApp
+
+    assert ArgoCDApp.from_api_item({"spec": spec}).repo_url == expected
+
+
 def test_argocd_app_from_api_item() -> None:
     """Verify ArgoCDApp parses full and partial API responses."""
     from devops_cli.models.argo import ArgoCDApp
@@ -345,6 +376,33 @@ def test_argo_cd_apps_list_and_status_render(web: WebFake, local_argocd: str) ->
     res_status = runner.invoke(argo_app, ["cd", "apps", "status", "sample-app"])
     assert res_status.exit_code == 0
     assert "sample-app" in res_status.output
+
+
+def test_argo_cd_apps_list_shows_first_source_of_multi_source_app(
+    web: WebFake, local_argocd: str
+) -> None:
+    """The Repo column shows the first source of an Application with `spec.sources` (#2579)."""
+    single = {"metadata": {"name": "single-app"}, "spec": {"source": {"repoURL": SINGLE_REPO}}}
+    multi = {
+        "metadata": {"name": "multi-app"},
+        "spec": {"sources": [{"repoURL": CHART_REPO}, {"repoURL": GIT_REPO, "ref": "values"}]},
+    }
+    _serve_argocd(web, {"items": [single, multi]}, single)
+
+    result = runner.invoke(argo_app, ["cd", "apps", "list"], env={"COLUMNS": "250"})
+
+    assert result.exit_code == 0
+    assert SINGLE_REPO in result.output
+    assert CHART_REPO in result.output
+    assert GIT_REPO not in result.output
+
+
+def test_argo_cd_apps_list_help_states_the_repo_rule() -> None:
+    """The help of `apps list` states which source the Repo column shows (#2579)."""
+    result = runner.invoke(argo_app, ["cd", "apps", "list", "--help"], env={"COLUMNS": "250"})
+
+    assert result.exit_code == 0
+    assert "Repo column shows the first source" in " ".join(result.output.split())
 
 
 def test_argo_cd_apps_list_null_items(web: WebFake, local_argocd: str) -> None:

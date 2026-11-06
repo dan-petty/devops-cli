@@ -223,7 +223,10 @@ def cd_apps_list(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """List all ArgoCD applications."""
+    """List all ArgoCD applications.
+
+    The Repo column shows the first source of an Application with several sources.
+    """
     if dry_run or is_dry_run():
         from devops_cli.argo.argo_plans import plan_argocd_apps_list
 

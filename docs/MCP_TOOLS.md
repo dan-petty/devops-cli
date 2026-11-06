@@ -32,7 +32,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`ai_repomap`](#ai-repomap) | `true` | Generate compact whole-repository AST symbol and relationship map. |
 | [`ai_resume`](#ai-resume) | `true` | Clear the constellation quiesce or failover flag. |
 | [`ai_test_gen`](#ai-test-gen) | `true` | Generate failing pytest unit test scaffolds for functions or source files. |
-| [`argo_cd_apps_list`](#argo-cd-apps-list) | `true` | List all ArgoCD applications. |
+| [`argo_cd_apps_list`](#argo-cd-apps-list) | `true` | List all ArgoCD applications.  The Repo column shows the first source of an Application with several sources. |
 | [`argo_cd_apps_status`](#argo-cd-apps-status) | `true` | Show the sync and health of an Argo CD application, and check each image it pins.  An image the application pins as `<image>:<tag>@<digest>` in its kustomize images is checked against the digest its tag names in the registry now. Without --watch, the command exits 1 when the status cannot be read, a tag names another digest, or a registry gives no digest. |
 | [`argo_fleet_sync`](#argo-fleet-sync) | `false` | Synchronize an application across a fleet of Kubernetes clusters with bounded concurrency. |
 | [`argo_rollouts_analyze`](#argo-rollouts-analyze) | `false` | Evaluate metric rollback gates and trigger automated rollback on threshold violation. |
@@ -557,6 +557,8 @@ Generate failing pytest unit test scaffolds for functions or source files.
 ### `argo_cd_apps_list`
 
 List all ArgoCD applications.
+
+The Repo column shows the first source of an Application with several sources.
 
 **Annotations:** `readOnlyHint: true`
 
