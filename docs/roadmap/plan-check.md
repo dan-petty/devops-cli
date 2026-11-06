@@ -56,6 +56,23 @@ finds none.
 | `--json` | Print a JSON array of objects with `path`, `rule` and `message`. |
 | `--dry-run` | Make no request: print the reads that a run makes, with placeholders. |
 
+## A new gate gives its result
+
+A plan or a pull request that adds a gate to the stage job gives two results before it merges:
+
+- The refusals of the gate over the merged plans. Run [plan-recheck](plan-recheck.md) in the checkout
+  of the branch: `uv run devops roadmap plan-recheck --source . --branch HEAD`. The new gate has its
+  own name in `ProposalGate`, so the report lists its refusals under that name, for the branch and
+  for the default branch. A person marks each refusal as a hit or as a false refusal. A refusal on a
+  merged plan is a case to review, and no tool proves it false.
+- A replay of the defect that the gate cites. `uv run devops roadmap eval stage --replay` shows that
+  the gate catches the defect.
+
+`plan-recheck` judges less than the stage job: it gives the gates no premise probe, no open pull
+request, no recorded search and no plan of another open item, and it measures no group. A gate that
+needs one of these has no hits in `plan-recheck`. [The plan-recheck page](plan-recheck.md) lists
+the rest.
+
 ## Where the rules are
 
 [roadmap-plan-check](../../openspec/specs/roadmap-plan-check/spec.md) holds the requirements.

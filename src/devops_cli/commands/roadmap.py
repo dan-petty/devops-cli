@@ -802,6 +802,9 @@ def plan_recheck_cmd(
     source: Annotated[
         Path | None, typer.Option("--source", help=HELP.roadmap.plan_recheck_source)
     ] = None,
+    branch: Annotated[
+        str | None, typer.Option("--branch", help=HELP.roadmap.plan_recheck_branch)
+    ] = None,
     json_output: Annotated[
         bool, typer.Option("--json", help=HELP.roadmap.plan_recheck_json)
     ] = False,
@@ -809,7 +812,8 @@ def plan_recheck_cmd(
         bool, typer.Option("--dry-run", help=HELP.roadmap.plan_recheck_dry_run)
     ] = False,
 ) -> None:
-    """Judge each change folder on the default branch again, with one result for each."""
+    """Judge each change folder on the default branch again, with one result for each. With a
+    branch, compare its refusals with those of the default branch."""
     target = _target(repo)
     from devops_cli.openspec.tool import isolated_openspec
     from devops_cli.roadmap.plan_recheck import recheck_plans, render_recheck
@@ -817,19 +821,15 @@ def plan_recheck_cmd(
     from devops_cli.roadmap.run import model_clone
 
     if dry_run or is_dry_run():
-        reads, writes = plan_recheck_requests(target)
+        reads, writes = plan_recheck_requests(target, branch)
         render_dry_run("plan-recheck", target, reads, writes)
         return
     with _exit_on_failure("Could not check the plans again"):
         _, store = _open_store(target)
         with isolated_openspec() as tool:
-            recheck = recheck_plans(source or model_clone(target), store, tool=tool)
+            recheck = recheck_plans(source or model_clone(target), store, tool=tool, branch=branch)
     if json_output:
-        report = {
-            "folders": [record.as_dict() for record in recheck.records],
-            "summary": recheck.summary(),
-        }
-        write_stdout(json.dumps(report) + "\n")
+        write_stdout(json.dumps(recheck.as_dict()) + "\n")
     else:
         write_stdout(render_recheck(recheck) + "\n")
 

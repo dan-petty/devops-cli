@@ -713,6 +713,60 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
     return problems
 
 
+class ProposalGate(StrEnum):
+    """The name of each gate of `check_proposal` (#3498). A gate finds one type of problem in a
+    plan, and the name tells a person which rule refused a plan. `devops roadmap plan-recheck`
+    prints it with each refusal. The replay of `devops roadmap eval stage` runs all of them as its
+    one gate `paths`, so these names are finer than its gate names. A new gate adds a member here
+    and a line to `check_gates`."""
+
+    SPEC_DELTA = "spec-delta"
+    CONTENT = "content"
+    FORM = "form"
+    EVAL_REPLAY = "eval-replay"
+    PATHS = "paths"
+    WHAT_CHANGES = "what-changes"
+    MOVE_PREFIX = "move-prefix"
+    MOVE_VERIFY = "move-verify"
+    SEARCH = "search"
+    CRITERIA = "criteria"
+    DEPENDENCIES = "dependencies"
+    CREATES = "creates"
+
+
+def check_gates(
+    proposal: StageProposal,
+    known: Collection[str],
+    tree: StagedTree,
+    *,
+    requirements: Mapping[str, Collection[str]] | None = None,
+    issue_body: str = "",
+    probes: Sequence[str] = (),
+    overlaps: Sequence[Overlap] = (),
+    search_evidence: Mapping[str, Sequence[str]] | None = None,
+    plan_creates: Mapping[str, int] | None = None,
+) -> dict[ProposalGate, list[str]]:
+    """What each gate of `check_proposal` finds wrong in `proposal`, one sentence each, under the
+    name of the gate. Every gate has a key, and a gate that finds nothing has an empty list. The
+    keys follow the order of `ProposalGate`. The arguments are those of `check_proposal`."""
+    return {
+        ProposalGate.SPEC_DELTA: _delta_problems(proposal, known, requirements or {}),
+        ProposalGate.CONTENT: content_problems(proposal, probes),
+        ProposalGate.FORM: form_problems(proposal.groups),
+        ProposalGate.EVAL_REPLAY: eval_replay_problems(proposal.groups),
+        ProposalGate.PATHS: path_problems(proposal.groups, tree),
+        ProposalGate.WHAT_CHANGES: _what_changes_problems(proposal, tree),
+        ProposalGate.MOVE_PREFIX: move_prefix_problems(proposal.groups, tree),
+        ProposalGate.MOVE_VERIFY: move_verify_problems(proposal.groups, tree),
+        ProposalGate.SEARCH: search_problems(proposal.groups, search_evidence),
+        ProposalGate.CRITERIA: criterion_problems(
+            proposal.criteria, issue_body, len(proposal.groups)
+        ),
+        ProposalGate.DEPENDENCIES: _overlap_problems(proposal.dependencies, overlaps),
+        ProposalGate.CREATES: creates_problems(proposal.groups, plan_creates or {}),
+    }
+
+
 def check_proposal(
     proposal: StageProposal,
     known: Collection[str],
@@ -736,20 +790,20 @@ def check_proposal(
     change a path the item cites: the plan names each in `dependencies` (#3252).
     `search_evidence` maps each negative-search literal to the paths that the staged tree holds:
     the job records it, the replay reads it from its case, and None records no search. `plan_creates`
-    maps each path that the plan of an open item creates to that item's number (#3418)."""
-    problems = _delta_problems(proposal, known, requirements or {})
-    problems.extend(content_problems(proposal, probes))
-    problems.extend(form_problems(proposal.groups))
-    problems.extend(eval_replay_problems(proposal.groups))
-    problems.extend(path_problems(proposal.groups, tree))
-    problems.extend(_what_changes_problems(proposal, tree))
-    problems.extend(move_prefix_problems(proposal.groups, tree))
-    problems.extend(move_verify_problems(proposal.groups, tree))
-    problems.extend(search_problems(proposal.groups, search_evidence))
-    problems.extend(criterion_problems(proposal.criteria, issue_body, len(proposal.groups)))
-    problems.extend(_overlap_problems(proposal.dependencies, overlaps))
-    problems.extend(creates_problems(proposal.groups, plan_creates or {}))
-    return problems
+    maps each path that the plan of an open item creates to that item's number (#3418). The
+    problems are those of `check_gates`, joined in the order of the gates."""
+    found = check_gates(
+        proposal,
+        known,
+        tree,
+        requirements=requirements,
+        issue_body=issue_body,
+        probes=probes,
+        overlaps=overlaps,
+        search_evidence=search_evidence,
+        plan_creates=plan_creates,
+    )
+    return [problem for problems in found.values() for problem in problems]
 
 
 def creates_problems(groups: Sequence[StageGroup], creators: Mapping[str, int]) -> list[str]:
