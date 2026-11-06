@@ -298,7 +298,7 @@ def test_llm_client_streaming_and_error_branches(
 
     # 3. Stream max bytes exceeded
     with (
-        streamed([b"data: huge line of stream tokens\n\n"] * 100) as response,
+        streamed(web, [b"data: huge line of stream tokens\n\n"] * 100) as response,
         pytest.raises(AIClientError, match="exceeded maximum stream size"),
     ):
         list(

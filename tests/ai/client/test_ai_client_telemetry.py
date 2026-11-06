@@ -291,6 +291,7 @@ def _stream(client: LLMClient) -> None:
         ),
     ],
 )
+@pytest.mark.usefixtures("clock")
 def test_server_attributes_come_from_the_origin_of_the_url_called(
     sent_spans: list[dict[str, Any]],
     call: Callable[[LLMClient], None],

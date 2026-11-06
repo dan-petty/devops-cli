@@ -24,14 +24,17 @@ from devops_cli.config.constants import (
     CONST_RAG_MAX_CHUNK_TOKENS,
 )
 from devops_cli.config.settings import AIConfig
+from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.telemetry.instruments import EMBEDDING_CACHE_LOOKUPS_TOTAL
 from devops_cli.telemetry.tracer import get_recent_spans
 from devops_cli.valkey.client import ValkeyClient
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
-from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -115,14 +118,24 @@ def test_ollama_provider_with_no_url_raises_embeddings_error_naming_the_setting(
     )
 
 
-def _ollama_engine(monkeypatch: pytest.MonkeyPatch, nodes: list[str]) -> EmbeddingsEngine:
+def _answer_posts(web: WebFake, fake_post: Callable[..., httpx2.Response]) -> None:
+    """Answer each request of the engine with `fake_post(url, json=<body>, headers=<headers>)`."""
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        body = json.loads(request.content) if request.content else None
+        return fake_post(str(request.url), json=body, headers=dict(request.headers))
+
+    web.serve(answer)
+
+
+def _ollama_engine(nodes: list[str]) -> EmbeddingsEngine:
     """An Ollama engine over `nodes`."""
     ai_cfg = AIConfig(provider="ollama", ollama_urls=nodes, allow_private_network=True)
     ai_cfg.tasks.embedding.model = "bge-m3"
     return EmbeddingsEngine(ai_cfg, valkey_client=None)
 
 
-def test_ollama_raises_after_every_node_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ollama_raises_after_every_node_fails(web: WebFake) -> None:
     """When every node fails a single text, the error names the model and each node's failure.
 
     The batch of two is halved once, and the first text failing everywhere ends the call: no
@@ -130,15 +143,15 @@ def test_ollama_raises_after_every_node_fails(monkeypatch: pytest.MonkeyPatch) -
     """
     posts: list[str] = []
 
-    def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+    def fake_post(url: str, **kwargs: Any) -> httpx2.Response:
         if url.endswith("/api/embed"):
             posts.append(url)
         if url.startswith("http://example.com:11434/"):
             return httpx2.Response(404, json={"error": 'model "bge-m3" not found'})
         raise httpx2.ConnectError("connection refused")
 
-    monkeypatch.setattr(httpx2.Client, "post", fake_post)
-    engine = _ollama_engine(monkeypatch, ["http://example.com:11434", "http://example.com:11435"])
+    _answer_posts(web, fake_post)
+    engine = _ollama_engine(["http://example.com:11434", "http://example.com:11435"])
 
     with pytest.raises(EmbeddingsError) as raised:
         engine.embed_texts(["first chunk", "second chunk"])
@@ -155,20 +168,18 @@ def test_ollama_raises_after_every_node_fails(monkeypatch: pytest.MonkeyPatch) -
 
 @pytest.mark.parametrize("userinfo", ["bench-user:FAKE-2481-value", "FAKE-2481-value"])
 def test_an_embedding_error_names_its_endpoint_without_the_userinfo_of_the_url(
-    monkeypatch: pytest.MonkeyPatch, userinfo: str
+    userinfo: str, web: WebFake
 ) -> None:
     """The endpoint that an error names is the URL without its userinfo, which the client sends
     as Basic authentication: a password and a user name alone, such as a token, stay out (#2481)."""
 
-    def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+    def fake_post(url: str, **kwargs: Any) -> httpx2.Response:
         if httpx2.URL(url).port == 11434:
             return httpx2.Response(500, json={"error": "model failed"})
         raise httpx2.ConnectError("connection refused")
 
-    monkeypatch.setattr(httpx2.Client, "post", fake_post)
-    engine = _ollama_engine(
-        monkeypatch, [f"http://{userinfo}@example.com:11434", "http://example.com:11435"]
-    )
+    _answer_posts(web, fake_post)
+    engine = _ollama_engine([f"http://{userinfo}@example.com:11434", "http://example.com:11435"])
 
     with pytest.raises(EmbeddingsError) as raised:
         engine.embed_texts(["first chunk"])
@@ -182,19 +193,19 @@ def test_an_embedding_error_names_its_endpoint_without_the_userinfo_of_the_url(
 
 
 def test_ollama_parallel_batches_raise_when_one_fails_everywhere(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Batches embedded in parallel fail the call with the failing batch's EmbeddingsError."""
 
-    def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+    def fake_post(url: str, **kwargs: Any) -> httpx2.Response:
         if "unservable" in kwargs["json"]["input"][0]:
             return httpx2.Response(404, json={"error": "model not found"})
         return httpx2.Response(
             200, json={"embeddings": [[0.5] * 4 for _ in kwargs["json"]["input"]]}
         )
 
-    monkeypatch.setattr(httpx2.Client, "post", fake_post)
-    engine = _ollama_engine(monkeypatch, ["http://example.com:11434"])
+    _answer_posts(web, fake_post)
+    engine = _ollama_engine(["http://example.com:11434"])
     engine._current_batch_size = 1
 
     with pytest.raises(EmbeddingsError, match=re.escape("answered HTTP 404")):
@@ -226,19 +237,23 @@ def test_ollama_parallel_batches_raise_when_one_fails_everywhere(
     ids=["http-400", "no-data", "not-json", "unreachable"],
 )
 def test_gateway_failures_raise_naming_model_endpoint_and_error(
-    monkeypatch: pytest.MonkeyPatch, reply: httpx2.Response | Exception, failure: str, waits: int
+    monkeypatch: pytest.MonkeyPatch,
+    reply: httpx2.Response | Exception,
+    failure: str,
+    waits: int,
+    web: WebFake,
 ) -> None:
     """A gateway that answers with an error, a malformed reply or not at all raises.
 
     An unreachable gateway is retried: each backoff returns at once and is recorded.
     """
 
-    def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+    def fake_post(url: str, **kwargs: Any) -> httpx2.Response:
         if isinstance(reply, Exception):
             raise reply
         return reply
 
-    monkeypatch.setattr(httpx2.Client, "post", fake_post)
+    _answer_posts(web, fake_post)
     backoffs: list[float] = []
     monkeypatch.setattr("time.sleep", backoffs.append)
     ai_cfg = AIConfig(provider="gateway", gateway_url="https://example.com/v1")
@@ -256,13 +271,13 @@ def test_gateway_failures_raise_naming_model_endpoint_and_error(
     )
 
 
-def test_dynamic_probe_ollama_embed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dynamic_probe_ollama_embed(web: WebFake) -> None:
     def fake_post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx2.Response:
         if "/api/embed" in url:
             return httpx2.Response(200, json={"embeddings": [[0.05] * 512]})
         return httpx2.Response(404)
 
-    monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
+    _answer_posts(web, fake_post)
     ai_cfg = AIConfig(
         provider="ollama", ollama_urls=["http://localhost:11434"], allow_private_network=True
     )
@@ -271,7 +286,7 @@ def test_dynamic_probe_ollama_embed(monkeypatch: pytest.MonkeyPatch) -> None:
     assert engine.dimension == 512
 
 
-def test_dynamic_probe_ollama_show_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dynamic_probe_ollama_show_metadata(web: WebFake) -> None:
     def fake_post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx2.Response:
         if "/api/embed" in url:
             return httpx2.Response(500, text="Internal Error")
@@ -279,7 +294,7 @@ def test_dynamic_probe_ollama_show_metadata(monkeypatch: pytest.MonkeyPatch) -> 
             return httpx2.Response(200, json={"model_info": {"custom.embedding_length": 1024}})
         return httpx2.Response(404)
 
-    monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
+    _answer_posts(web, fake_post)
     ai_cfg = AIConfig(
         provider="ollama", ollama_urls=["http://localhost:11434"], allow_private_network=True
     )
@@ -288,23 +303,23 @@ def test_dynamic_probe_ollama_show_metadata(monkeypatch: pytest.MonkeyPatch) -> 
     assert engine.dimension == 1024
 
 
-def test_dynamic_probe_openai_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dynamic_probe_openai_embeddings(web: WebFake) -> None:
 
     def fake_post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx2.Response:
         return httpx2.Response(200, json={"data": [{"index": 0, "embedding": [0.1] * 1536}]})
 
-    monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
+    _answer_posts(web, fake_post)
     ai_cfg = AIConfig(provider="openai", allow_private_network=True)
     ai_cfg.tasks.embedding.model = "arbitrary-openai-model"
     engine = EmbeddingsEngine(ai_cfg, api_key="test-key")
     assert engine.dimension == 1536
 
 
-def test_runtime_dimension_cache_and_learning(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_runtime_dimension_cache_and_learning(web: WebFake) -> None:
     def fake_post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx2.Response:
         return httpx2.Response(200, json={"embeddings": [[0.1] * 256]})
 
-    monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
+    _answer_posts(web, fake_post)
     ai_cfg = AIConfig(
         provider="ollama", ollama_urls=["http://localhost:11434"], allow_private_network=True
     )
@@ -321,11 +336,11 @@ def test_runtime_dimension_cache_and_learning(monkeypatch: pytest.MonkeyPatch) -
     assert engine2.dimension == 256
 
 
-def test_ollama_embeddings_success(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ollama_embeddings_success(web: WebFake) -> None:
     def fake_post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx2.Response:
         return httpx2.Response(200, json={"embedding": [0.1] * 384})
 
-    monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
+    _answer_posts(web, fake_post)
     ai_cfg = AIConfig(
         provider="ollama", ollama_urls=["http://localhost:11434"], allow_private_network=True
     )
@@ -335,14 +350,14 @@ def test_ollama_embeddings_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(embs[0]) == 384
 
 
-def test_openai_embeddings_success(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_openai_embeddings_success(web: WebFake) -> None:
     def fake_post(url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx2.Response:
         return httpx2.Response(
             200,
             json={"data": [{"index": 0, "embedding": [0.2] * 1536}]},
         )
 
-    monkeypatch.setattr(httpx2.Client, "post", lambda self, url, **kwargs: fake_post(url, **kwargs))
+    _answer_posts(web, fake_post)
     ai_cfg = AIConfig(provider="openai", allow_private_network=True)
     engine = EmbeddingsEngine(ai_cfg, api_key="mock-test-key")
     embs = engine.embed_texts(["sample text"])
@@ -704,10 +719,10 @@ def _valkey_cache_cooldown() -> float:
 
 
 def test_a_valkey_outage_turns_the_embedding_l2_cache_off_for_a_cooldown(
-    monkeypatch: pytest.MonkeyPatch,
     valkey_server: FakeServer,
     valkey_client: ValkeyClient,
     clock: ClockFake,
+    web: WebFake,
 ) -> None:
     """A failed read sends texts to the provider for the cooldown; a read after it serves from Valkey.
 
@@ -715,7 +730,7 @@ def test_a_valkey_outage_turns_the_embedding_l2_cache_off_for_a_cooldown(
     empty memory cache, then embeds one of them in each phase, so each request that the provider
     receives is a text that Valkey did not answer.
     """
-    sent = _serve(monkeypatch, _gateway_reply)
+    sent = _serve(web, _gateway_reply)
     EmbeddingsEngine(
         _gateway_config(), api_key="sk-gateway", valkey_client=valkey_client
     ).embed_texts(["in the outage", "in the cooldown", "after the cooldown"])
@@ -761,7 +776,10 @@ def test_valkey_l2_cache_query_vs_document_isolation(monkeypatch: pytest.MonkeyP
 
 
 def test_an_engine_whose_valkey_refuses_embeds_and_dials_it_once_in_each_cooldown(
-    monkeypatch: pytest.MonkeyPatch, unexpected_loopback_connects: list[str], clock: ClockFake
+    monkeypatch: pytest.MonkeyPatch,
+    unexpected_loopback_connects: list[str],
+    clock: ClockFake,
+    web: WebFake,
 ) -> None:
     """The configured Valkey refuses each connection, and the engine embeds with no Valkey tier.
 
@@ -775,7 +793,7 @@ def test_an_engine_whose_valkey_refuses_embeds_and_dials_it_once_in_each_cooldow
 
     from devops_cli.config.settings import reset_settings_cache
 
-    sent = _serve(monkeypatch, _gateway_reply)
+    sent = _serve(web, _gateway_reply)
     with socket.socket() as service:
         _socket.socket.bind(service, ("127.0.0.1", 0))
         _socket.socket.listen(service)
@@ -800,28 +818,28 @@ def test_an_engine_whose_valkey_refuses_embeds_and_dials_it_once_in_each_cooldow
     assert (len(sent), dials_in_the_cooldown, dials) == (3, [dial], [dial, dial])
 
 
-def _capture_embedding_posts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
+def _capture_embedding_posts(web: WebFake) -> list[tuple[str, str, str]]:
     """Record (url, authorization, model) for each embeddings POST and answer with a vector."""
     calls: list[tuple[str, str, str]] = []
 
-    def fake_post(self: Any, url: str, **kwargs: Any) -> httpx2.Response:
+    def fake_post(url: str, **kwargs: Any) -> httpx2.Response:
         url_str = str(url)
         if "embeddings" in url_str:
             headers = kwargs.get("headers") or {}
             payload = kwargs.get("json") or {}
-            calls.append((url_str, headers.get("Authorization", ""), payload.get("model", "")))
+            calls.append((url_str, headers.get("authorization", ""), payload.get("model", "")))
             return httpx2.Response(200, json={"data": [{"index": 0, "embedding": [0.5] * 8}]})
         return httpx2.Response(200, json={})
 
-    monkeypatch.setattr(httpx2.Client, "post", fake_post)
+    _answer_posts(web, fake_post)
     return calls
 
 
 def test_gateway_embeddings_use_gateway_url_not_global_api_base(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify provider gateway embeds via gateway_url with the model unchanged."""
-    calls = _capture_embedding_posts(monkeypatch)
+    calls = _capture_embedding_posts(web)
     ai_cfg = AIConfig(
         provider="gateway",
         gateway_url="http://example.com:4000/v1",
@@ -838,9 +856,9 @@ def test_gateway_embeddings_use_gateway_url_not_global_api_base(
     )
 
 
-def test_gateway_embeddings_prefer_task_api_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_gateway_embeddings_prefer_task_api_base_url(web: WebFake) -> None:
     """Verify an embedding task's own api_base_url overrides the gateway URL."""
-    calls = _capture_embedding_posts(monkeypatch)
+    calls = _capture_embedding_posts(web)
     ai_cfg = AIConfig(
         provider="gateway", gateway_url="http://example.com:4000/v1", allow_private_network=True
     )
@@ -853,10 +871,10 @@ def test_gateway_embeddings_prefer_task_api_base_url(monkeypatch: pytest.MonkeyP
 
 
 def test_gateway_embedding_task_ignores_global_openai_base_url(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify an embedding task on the gateway never embeds via another provider's base URL."""
-    calls = _capture_embedding_posts(monkeypatch)
+    calls = _capture_embedding_posts(web)
     ai_cfg = AIConfig(
         provider="openai",
         api_base_url="https://api.example.com/v1",
@@ -873,11 +891,12 @@ def test_gateway_embedding_task_ignores_global_openai_base_url(
 
 def test_openai_embeddings_retries_transient_connection_reset(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """A transient ReadError, such as a connection reset, gets one more attempt after a backoff."""
     attempts = 0
 
-    def mock_post(_client: Any, url: str, **kwargs: Any) -> httpx2.Response:
+    def mock_post(url: str, **kwargs: Any) -> httpx2.Response:
         nonlocal attempts
         if "/embeddings" not in url:
             return httpx2.Response(200, json={}, request=httpx2.Request("POST", url))
@@ -890,7 +909,7 @@ def test_openai_embeddings_retries_transient_connection_reset(
             request=httpx2.Request("POST", url),
         )
 
-    monkeypatch.setattr(httpx2.Client, "post", mock_post)
+    _answer_posts(web, mock_post)
     ai_cfg = AIConfig(
         provider="gateway", gateway_url="http://example.com:4000/v1", allow_private_network=True
     )
@@ -904,11 +923,11 @@ def test_openai_embeddings_retries_transient_connection_reset(
     assert (attempts, len(vecs[0]), len(backoffs)) == (2, 8, 1)
 
 
-def test_openai_embeddings_retries_http_429(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_openai_embeddings_retries_http_429(web: WebFake) -> None:
     """HTTP 429 rate limit responses are retried with Retry-After backoff."""
     attempts = 0
 
-    def mock_post(_client: Any, url: str, **kwargs: Any) -> httpx2.Response:
+    def mock_post(url: str, **kwargs: Any) -> httpx2.Response:
         nonlocal attempts
         if "/embeddings" not in url:
             return httpx2.Response(200, json={}, request=httpx2.Request("POST", url))
@@ -921,7 +940,7 @@ def test_openai_embeddings_retries_http_429(monkeypatch: pytest.MonkeyPatch) -> 
             request=httpx2.Request("POST", url),
         )
 
-    monkeypatch.setattr(httpx2.Client, "post", mock_post)
+    _answer_posts(web, mock_post)
     ai_cfg = AIConfig(
         provider="gateway", gateway_url="http://example.com:4000/v1", allow_private_network=True
     )
@@ -933,18 +952,18 @@ def test_openai_embeddings_retries_http_429(monkeypatch: pytest.MonkeyPatch) -> 
     assert (attempts, len(vecs[0])) == (2, 8)
 
 
-def test_openai_embeddings_does_not_retry_http_400(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_openai_embeddings_does_not_retry_http_400(web: WebFake) -> None:
     """Non-transient HTTP 400 client errors fail immediately without retry loops."""
     attempts = 0
 
-    def mock_post(_client: Any, url: str, **kwargs: Any) -> httpx2.Response:
+    def mock_post(url: str, **kwargs: Any) -> httpx2.Response:
         nonlocal attempts
         if "/embeddings" not in url:
             return httpx2.Response(200, json={}, request=httpx2.Request("POST", url))
         attempts += 1
         return httpx2.Response(400, text="Bad Request", request=httpx2.Request("POST", url))
 
-    monkeypatch.setattr(httpx2.Client, "post", mock_post)
+    _answer_posts(web, mock_post)
     ai_cfg = AIConfig(
         provider="gateway", gateway_url="http://example.com:4000/v1", allow_private_network=True
     )
@@ -1044,12 +1063,12 @@ _LEDGER_ROWS = (
 
 
 def _serve(
-    monkeypatch: pytest.MonkeyPatch, *replies: Callable[[httpx2.Request], httpx2.Response]
+    web: WebFake, *replies: Callable[[httpx2.Request], httpx2.Response]
 ) -> list[httpx2.Request]:
     """Answer the engine's requests with `replies` in turn, the last one for every later request.
 
-    httpx2's own `MockTransport` stands behind every client the engine opens, so each reply
-    passes through the real client: its headers, JSON body and status reach the engine as sent.
+    The `web` fake stands behind every client the engine opens, so each reply passes through the
+    real client: its headers, JSON body and status reach the engine as sent.
     """
     queued = list(replies)
     sent: list[httpx2.Request] = []
@@ -1059,12 +1078,7 @@ def _serve(
         reply = queued.pop(0) if len(queued) > 1 else queued[0]
         return reply(request)
 
-    transport = httpx2.MockTransport(answer)
-    monkeypatch.setattr(
-        httpx2.HTTPTransport,
-        "handle_request",
-        lambda _self, request: transport.handle_request(request),
-    )
+    web.serve(answer)
     return sent
 
 
@@ -1132,13 +1146,13 @@ _GATEWAY_ROW = (
 
 
 def test_a_gateway_batch_records_one_embedding_row_with_the_replys_tokens_and_backend(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """One `/v1/embeddings` request writes one ledger row with the tokens the reply counted.
 
     The row names the gateway as its server and the backend the gateway's header names.
     """
-    sent = _serve(monkeypatch, _gateway_reply)
+    sent = _serve(web, _gateway_reply)
 
     _gateway_engine().embed_texts(["first chunk", "second chunk"])
 
@@ -1149,7 +1163,7 @@ def test_a_gateway_batch_records_one_embedding_row_with_the_replys_tokens_and_ba
 
 
 def test_a_hosted_gateway_embedding_is_priced_at_the_deployment_model_that_it_names(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """A gateway reply that a hosted API served names its deployment model in
     `x-litellm-model-name`. The row is priced at that model and keeps the requested model (#2031).
@@ -1169,7 +1183,7 @@ def test_a_hosted_gateway_embedding_is_priced_at_the_deployment_model_that_it_na
             },
         )
 
-    _serve(monkeypatch, hosted_reply)
+    _serve(web, hosted_reply)
 
     _gateway_engine().embed_texts(["hosted chunk"])
 
@@ -1181,10 +1195,10 @@ def test_a_hosted_gateway_embedding_is_priced_at_the_deployment_model_that_it_na
 
 
 def test_a_batch_retried_after_http_429_records_one_row(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """A batch the gateway refuses once and then answers is one request in the ledger."""
-    sent = _serve(monkeypatch, _rate_limited, _gateway_reply)
+    sent = _serve(web, _rate_limited, _gateway_reply)
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
 
     _gateway_engine().embed_texts(["rate limited chunk"])
@@ -1193,10 +1207,10 @@ def test_a_batch_retried_after_http_429_records_one_row(
 
 
 def test_batches_sent_in_parallel_record_one_row_each(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """Each batch the engine sends in parallel writes its own row."""
-    sent = _serve(monkeypatch, _gateway_reply)
+    sent = _serve(web, _gateway_reply)
     engine = _gateway_engine()
     engine._current_batch_size = 1
 
@@ -1206,10 +1220,10 @@ def test_batches_sent_in_parallel_record_one_row_each(
 
 
 def test_an_ollama_batch_records_the_tokens_its_reply_counted(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """An Ollama `/api/embed` batch takes its tokens from the reply's `prompt_eval_count`."""
-    _serve(monkeypatch, _ollama_reply)
+    _serve(web, _ollama_reply)
 
     EmbeddingsEngine(_ollama_config(), valkey_client=None).embed_texts(["one", "two"])
 
@@ -1219,11 +1233,11 @@ def test_an_ollama_batch_records_the_tokens_its_reply_counted(
 
 
 def test_an_ollama_batch_names_its_server_without_the_password_of_its_url(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, otlp: FakeCollector
+    spend_ledger: SpendLedger, otlp: FakeCollector, web: WebFake
 ) -> None:
     """A configured URL with userinfo names its server by host and port in the ledger, the
     counters and the batch span, and no record holds the password."""
-    _serve(monkeypatch, _ollama_reply)
+    _serve(web, _ollama_reply)
     ai_cfg = AIConfig(
         provider="ollama",
         ollama_urls=["http://user:pw@example.com:11434"],
@@ -1252,10 +1266,10 @@ def test_an_ollama_batch_names_its_server_without_the_password_of_its_url(
 
 
 def test_a_call_the_cache_answers_records_no_request(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """Texts the cache answers send no request, so they add no row and no tokens."""
-    sent = _serve(monkeypatch, _gateway_reply)
+    sent = _serve(web, _gateway_reply)
     engine = _gateway_engine()
 
     engine.embed_texts(["cached chunk"])
@@ -1277,14 +1291,14 @@ def test_a_call_the_cache_answers_records_no_request(
     ids=["gateway", "ollama"],
 )
 def test_the_dimension_probe_records_its_request(
-    monkeypatch: pytest.MonkeyPatch,
     spend_ledger: SpendLedger,
     make_engine: Callable[[], EmbeddingsEngine],
     reply: Callable[[httpx2.Request], httpx2.Response],
     row: tuple[Any, ...],
+    web: WebFake,
 ) -> None:
     """The request that probes the model's dimension is an embedding request like any other."""
-    _serve(monkeypatch, reply)
+    _serve(web, reply)
 
     dimension = make_engine().dimension
 
@@ -1294,13 +1308,13 @@ def test_the_dimension_probe_records_its_request(
 @pytest.mark.anyio
 @pytest.mark.parametrize("wrapper", ["ollama", "engine"])
 async def test_the_embedding_models_report_the_tokens_the_provider_counted(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, wrapper: str
+    spend_ledger: SpendLedger, wrapper: str, web: WebFake
 ) -> None:
     """Both pydantic-ai embedding models report the reply's token count, not an estimate."""
     from devops_cli.ai.agents.embeddings import EngineEmbeddingModel
     from devops_cli.ai.rag.embeddings import OllamaEmbeddingModel
 
-    _serve(monkeypatch, _ollama_reply)
+    _serve(web, _ollama_reply)
     model = (
         OllamaEmbeddingModel("bge-m3", ai_config=_ollama_config())
         if wrapper == "ollama"
@@ -1410,7 +1424,9 @@ class _GatewayConnection(httpcore2.NetworkStream):
 
 
 def _dial_gateway(
-    monkeypatch: pytest.MonkeyPatch, answer: Callable[[list[str], float | None], bytes]
+    monkeypatch: pytest.MonkeyPatch,
+    dns: DnsFake,
+    answer: Callable[[list[str], float | None], bytes],
 ) -> _Gateway:
     """Connect each dial of the HTTP client of the engine to one `_Gateway`.
 
@@ -1419,7 +1435,7 @@ def _dial_gateway(
     only the socket under each connection is the gateway's.
     """
     gateway = _Gateway(answer)
-    scripted_resolver(monkeypatch, {httpx2.URL(_GATEWAY_URL).host: [[PUBLIC_ADDRESS]]})
+    dns.add(httpx2.URL(_GATEWAY_URL).host, PUBLIC_ADDRESS)
     monkeypatch.setattr(
         httpcore2.SyncBackend,
         "connect_tcp",
@@ -1436,6 +1452,7 @@ def _wait_for(event: threading.Event, what: str) -> None:
 @pytest.mark.usefixtures("clock")
 def test_a_batch_that_times_out_leaves_the_parallel_batches_their_connections(
     monkeypatch: pytest.MonkeyPatch,
+    dns: DnsFake,
 ) -> None:
     """A batch that times out does not close the connections of the batches parallel to it.
 
@@ -1462,7 +1479,7 @@ def test_a_batch_that_times_out_leaves_the_parallel_batches_their_connections(
             _wait_for(first_batch_sent_again, "the second request of the first batch")
         return _reply_bytes(texts, value=float(names.index(name)))
 
-    gateway = _dial_gateway(monkeypatch, answer)
+    gateway = _dial_gateway(monkeypatch, dns, answer)
 
     vectors = _gateway_engine(batch_size=1).embed_texts(names)
 
@@ -1476,6 +1493,7 @@ def test_a_batch_that_times_out_leaves_the_parallel_batches_their_connections(
 @pytest.mark.usefixtures("clock")
 def test_the_largest_intake_batch_gets_a_reply_as_slow_as_the_slowest_measured(
     monkeypatch: pytest.MonkeyPatch,
+    dns: DnsFake,
 ) -> None:
     """The read timeout of a gateway batch is longer than the slowest reply measured for a batch.
 
@@ -1490,7 +1508,7 @@ def test_the_largest_intake_batch_gets_a_reply_as_slow_as_the_slowest_measured(
             raise httpcore2.ReadTimeout("timed out")
         return _reply_bytes(texts)
 
-    gateway = _dial_gateway(monkeypatch, answer)
+    gateway = _dial_gateway(monkeypatch, dns, answer)
     texts = [
         f"item {index} ".ljust(defaults.DEFAULT_ROADMAP_INTAKE_TEXT_CHARS, "x")
         for index in range(defaults.DEFAULT_RAG_EMBEDDING_BATCH_SIZE)
@@ -1507,9 +1525,10 @@ def test_the_largest_intake_batch_gets_a_reply_as_slow_as_the_slowest_measured(
 
 def test_a_configured_embedding_timeout_is_the_read_timeout_of_a_gateway_batch(
     monkeypatch: pytest.MonkeyPatch,
+    dns: DnsFake,
 ) -> None:
     """`ai.tasks.embedding.timeout` sets the read timeout of a gateway batch, also below 30 s."""
-    gateway = _dial_gateway(monkeypatch, lambda texts, _read_timeout: _reply_bytes(texts))
+    gateway = _dial_gateway(monkeypatch, dns, lambda texts, _read_timeout: _reply_bytes(texts))
     ai_cfg = _gateway_config()
     ai_cfg.tasks.embedding.timeout = 10.0
 
@@ -1552,7 +1571,7 @@ def _batch_sizes(
 
 
 def test_parallel_slow_batches_halve_the_batch_size_once_for_the_size_they_were_sent_at(
-    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+    clock: ClockFake, web: WebFake
 ) -> None:
     """A slow batch halves the batch size only when it holds no more texts than the size in use.
 
@@ -1561,7 +1580,7 @@ def test_parallel_slow_batches_halve_the_batch_size_once_for_the_size_they_were_
     size. The other batches of that call hold more texts than the halved size, so they do not
     halve it again. At one text, the size stays at one text.
     """
-    sent = _serve(monkeypatch, _TimedNode(clock, _SLOW_BATCH_SECONDS).reply)
+    sent = _serve(web, _TimedNode(clock, _SLOW_BATCH_SECONDS).reply)
     engine = EmbeddingsEngine(_ollama_config(), valkey_client=None, batch_size=4)
 
     sizes = [_batch_sizes(engine, sent, call, 8) for call in range(4)]
@@ -1570,7 +1589,7 @@ def test_parallel_slow_batches_halve_the_batch_size_once_for_the_size_they_were_
 
 
 def test_parallel_batches_that_time_out_on_an_ollama_node_halve_the_batch_size_once(
-    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+    clock: ClockFake, web: WebFake
 ) -> None:
     """Two batches of four texts time out in parallel on the one node, and the size halves once.
 
@@ -1585,7 +1604,7 @@ def test_parallel_batches_that_time_out_on_an_ollama_node_halve_the_batch_size_o
             raise httpx2.ReadTimeout("timed out", request=request)
         return _ollama_reply(request)
 
-    sent = _serve(monkeypatch, reply)
+    sent = _serve(web, reply)
     engine = EmbeddingsEngine(_ollama_config(), valkey_client=None, batch_size=4)
 
     with clock.concurrent_sleeps(2):
@@ -1596,7 +1615,7 @@ def test_parallel_batches_that_time_out_on_an_ollama_node_halve_the_batch_size_o
 
 
 def test_parallel_gateway_batches_that_time_out_halve_the_batch_size_once(
-    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+    clock: ClockFake, web: WebFake
 ) -> None:
     """Two gateway batches of four texts time out in parallel, and the size halves once.
 
@@ -1616,7 +1635,7 @@ def test_parallel_gateway_batches_that_time_out_halve_the_batch_size_once(
             raise httpx2.ReadTimeout("timed out", request=request)
         return _gateway_reply(request)
 
-    sent = _serve(monkeypatch, reply)
+    sent = _serve(web, reply)
     engine = _gateway_engine(batch_size=4)
 
     with clock.concurrent_sleeps(2):
@@ -1627,7 +1646,7 @@ def test_parallel_gateway_batches_that_time_out_halve_the_batch_size_once(
 
 
 def test_fast_batches_grow_the_batch_size_once_per_cooldown_up_to_the_configured_size(
-    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+    clock: ClockFake, web: WebFake
 ) -> None:
     """After a change of the batch size, fast batches grow it only when the cooldown has passed.
 
@@ -1636,7 +1655,7 @@ def test_fast_batches_grow_the_batch_size_once_per_cooldown_up_to_the_configured
     again. The size grows to the configured six texts, and not more.
     """
     node = _TimedNode(clock, _SLOW_BATCH_SECONDS)
-    sent = _serve(monkeypatch, node.reply)
+    sent = _serve(web, node.reply)
     engine = EmbeddingsEngine(_ollama_config(), valkey_client=None, batch_size=6)
     cooldown = defaults.DEFAULT_RAG_EMBEDDING_INCREASE_COOLDOWN_SECONDS
 
@@ -1655,7 +1674,7 @@ def test_fast_batches_grow_the_batch_size_once_per_cooldown_up_to_the_configured
 
 
 def test_only_a_batch_within_the_margin_below_the_latency_threshold_counts_as_fast(
-    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
+    clock: ClockFake, web: WebFake
 ) -> None:
     """A batch counts toward growth only when it takes at most the margin share of the threshold.
 
@@ -1667,7 +1686,7 @@ def test_only_a_batch_within_the_margin_below_the_latency_threshold_counts_as_fa
     ai_cfg = _ollama_config()
     ai_cfg.ollama_max_parallel = 1
     node = _TimedNode(clock, _SLOW_BATCH_SECONDS)
-    sent = _serve(monkeypatch, node.reply)
+    sent = _serve(web, node.reply)
     engine = EmbeddingsEngine(ai_cfg, valkey_client=None, batch_size=4)
     threshold = defaults.DEFAULT_RAG_EMBEDDING_LATENCY_THRESHOLD_SECONDS
     margin = threshold * defaults.DEFAULT_RAG_EMBEDDING_INCREASE_LATENCY_RATIO
@@ -1688,9 +1707,9 @@ def test_only_a_batch_within_the_margin_below_the_latency_threshold_counts_as_fa
 # =============================================================================
 
 
-def test_ollama_embed_batch_sends_num_ctx_option(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ollama_embed_batch_sends_num_ctx_option(web: WebFake) -> None:
     """A direct Ollama embedding batch request passes options.num_ctx defaulting to 8192."""
-    sent = _serve(monkeypatch, _ollama_reply)
+    sent = _serve(web, _ollama_reply)
     engine = EmbeddingsEngine(_ollama_config(), valkey_client=None)
 
     engine.embed_texts(["hello world"])
@@ -1700,9 +1719,9 @@ def test_ollama_embed_batch_sends_num_ctx_option(monkeypatch: pytest.MonkeyPatch
     assert body.get("options") == {"num_ctx": CONST_RAG_MAX_CHUNK_TOKENS}
 
 
-def test_ollama_embed_batch_sends_configured_num_ctx(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ollama_embed_batch_sends_configured_num_ctx(web: WebFake) -> None:
     """A direct Ollama embedding batch request passes configured num_ctx."""
-    sent = _serve(monkeypatch, _ollama_reply)
+    sent = _serve(web, _ollama_reply)
     ai_cfg = _ollama_config()
     ai_cfg.tasks.embedding.num_ctx = 4096
     engine = EmbeddingsEngine(ai_cfg, valkey_client=None)
@@ -1715,12 +1734,12 @@ def test_ollama_embed_batch_sends_configured_num_ctx(monkeypatch: pytest.MonkeyP
 
 
 def test_probe_ollama_embed_dimension_sends_num_ctx_option(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Probing Ollama embed dimension passes options.num_ctx."""
-    sent = _serve(monkeypatch, _ollama_reply)
+    sent = _serve(web, _ollama_reply)
     engine = EmbeddingsEngine(_ollama_config(), valkey_client=None)
-    with httpx2.Client() as client:
+    with http_client(EgressLevel.PRIVATE) as client:
         dim = engine._probe_ollama_embed_dimension(client, _SERVING_BACKEND)
 
     assert dim == 4
@@ -1742,11 +1761,11 @@ def _lookups(otlp: FakeCollector) -> list[tuple[dict[str, Any], float]]:
 
 
 def test_an_embedding_request_counts_each_text_once_by_its_cache_result(
-    monkeypatch: pytest.MonkeyPatch, otlp: FakeCollector
+    otlp: FakeCollector, web: WebFake
 ) -> None:
     """Three texts that the memory cache holds and two that it does not are three hits and two
     misses, each sent one time."""
-    _serve(monkeypatch, _gateway_reply)
+    _serve(web, _gateway_reply)
     engine = _gateway_engine()
     engine.embed_texts(["first", "second", "third"])
     otlp.clear()
@@ -1760,10 +1779,10 @@ def test_an_embedding_request_counts_each_text_once_by_its_cache_result(
 
 
 def test_a_text_that_only_valkey_holds_counts_as_a_valkey_hit(
-    monkeypatch: pytest.MonkeyPatch, otlp: FakeCollector, valkey_client: ValkeyClient
+    otlp: FakeCollector, valkey_client: ValkeyClient, web: WebFake
 ) -> None:
     """A second process finds the text in Valkey and not in its own memory cache."""
-    _serve(monkeypatch, _gateway_reply)
+    _serve(web, _gateway_reply)
     config = _gateway_config()
     EmbeddingsEngine(config, api_key="sk-gateway", valkey_client=valkey_client).embed_texts(
         ["shared chunk"]

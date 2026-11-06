@@ -10,6 +10,7 @@ from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.ai.rag.retriever import SemanticRetriever
 from devops_cli.config.settings import AIConfig
+from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
 
 pytestmark = [
     pytest.mark.usefixtures("keyring_store"),
@@ -18,10 +19,8 @@ pytestmark = [
 
 
 @pytest.fixture(autouse=True)
-def _mock_example_com_dns(monkeypatch: pytest.MonkeyPatch) -> None:
-    from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
-
-    scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+def _mock_example_com_dns(dns: DnsFake) -> None:
+    dns.add("example.com", PUBLIC_ADDRESS)
 
 
 class FixedVectorEngine(EmbeddingsEngine):

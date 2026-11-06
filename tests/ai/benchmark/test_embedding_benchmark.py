@@ -843,7 +843,7 @@ def test_a_directory_with_no_symbol_to_query_by_is_refused(tmp_path: Path) -> No
 
 
 @pytest.fixture
-def lexical_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+def lexical_embeddings(web: WebFake) -> None:
     """Answer each Ollama embedding request with vectors that place a text on the symbols of
     `_source_tree` it names, so a text finds the chunk that defines the symbols it mentions."""
     import re
@@ -854,13 +854,11 @@ def lexical_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
         words = set(re.findall(r"[A-Za-z_]+", text))
         return [*(1.0 if symbol in words else 0.0 for symbol in symbols), 0.1]
 
-    def answer(_client: httpx2.Client, url: str, **kwargs: Any) -> httpx2.Response:
-        vectors = [embed(text) for text in kwargs["json"]["input"]]
-        return httpx2.Response(
-            200, json={"embeddings": vectors}, request=httpx2.Request("POST", url)
-        )
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        vectors = [embed(text) for text in json.loads(request.content)["input"]]
+        return httpx2.Response(200, json={"embeddings": vectors})
 
-    monkeypatch.setattr(httpx2.Client, "post", answer)
+    web.serve(answer)
 
 
 @pytest.mark.usefixtures("lexical_embeddings")

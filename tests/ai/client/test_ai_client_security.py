@@ -12,8 +12,9 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import serve_llm
+from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, serve_llm
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.dns import DnsFake
 from tests.support.fakes.http import WebFake
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
@@ -374,9 +375,22 @@ def test_ollama_stream_error_message_masks_secrets(web: WebFake) -> None:
     assert "<masked-github-token>" in err_msg
 
 
-def test_create_http_client_uses_custom_transport() -> None:
-    client = LLMClient(AIConfig(provider="openai", api_base_url="https://api.openai.com/v1"))
-    transport = httpx2.MockTransport(lambda req: httpx2.Response(200))
-    client._transport = transport
-    http_client = client._create_http_client()
-    assert http_client._transport is transport
+def test_a_client_given_a_transport_sends_its_requests_through_it(dns: DnsFake) -> None:
+    """Verify `transport=` is the way a caller hands the client its own transport."""
+    dns.answer_every_name()
+    seen: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(str(request.url))
+        return reply([openai_chunk("OK", finish_reason="stop"), OPENAI_DONE])
+
+    client = LLMClient(
+        AIConfig(provider="openai", api_base_url="https://api.openai.com/v1", model="gpt-4o"),
+        api_key="sk-test",
+        transport=httpx2.MockTransport(handler),
+        cache_enabled=False,
+    )
+
+    answer = client.chat("sys", "hi", use_cache=False)
+
+    assert (str(answer), seen) == ("OK", ["https://api.openai.com/v1/chat/completions"])

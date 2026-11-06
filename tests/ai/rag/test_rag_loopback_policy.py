@@ -3,13 +3,10 @@
 `config.example.yaml` points Qdrant, Ollama and the gateway at localhost, enables RAG and leaves
 `ai.allow_private_network` false. A loopback URL from the user's own config is the workstation
 itself, so Qdrant, the embedding calls and the chat providers reach it; every other non-public
-host still needs the setting. Replies come from a stubbed `httpx2.Client.post`, so no socket is
-opened.
+host still needs the setting. Replies come from the `web` fake, so no socket is opened.
 """
 
 from __future__ import annotations
-
-from typing import Any
 
 import httpx2
 import pytest
@@ -20,6 +17,7 @@ from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.rag.qdrant import QdrantClient
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions import SSRFBlockedError
+from tests.support.fakes.http import WebFake
 from tests.support.paths import REPO_ROOT
 
 EXAMPLE_CONFIG = REPO_ROOT / "config.example.yaml"
@@ -33,18 +31,18 @@ def example_settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
 
 
 @pytest.fixture
-def sent(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Answer every `httpx2.Client.post` with one embedding in both reply shapes; record the
-    embedding URLs, not the telemetry exporter's, which shares the client."""
+def sent(web: WebFake) -> list[str]:
+    """Answer every request with one embedding in both reply shapes; record the embedding URLs,
+    not the telemetry exporter's, which shares the HTTP entry point."""
     urls: list[str] = []
 
-    def answer(_client: httpx2.Client, url: str, **_kwargs: Any) -> httpx2.Response:
-        if url.endswith(("/api/embed", "/embeddings")):
-            urls.append(url)
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        if str(request.url).endswith(("/api/embed", "/embeddings")):
+            urls.append(str(request.url))
         body = {"embeddings": [[0.5, 0.25]], "data": [{"index": 0, "embedding": [0.5, 0.25]}]}
-        return httpx2.Response(200, json=body, request=httpx2.Request("POST", url))
+        return httpx2.Response(200, json=body)
 
-    monkeypatch.setattr(httpx2.Client, "post", answer)
+    web.serve(answer)
     return urls
 
 

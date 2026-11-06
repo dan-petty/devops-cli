@@ -21,6 +21,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.settings import AIConfig
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
 
 CONST_INDEX_COUNTS_FILENAME = getattr(constants, "CONST_INDEX_COUNTS_FILENAME", "index_counts.json")
 CONST_RAG_PAYLOAD_INDEXES = getattr(
@@ -39,10 +40,8 @@ pytestmark = [
 
 
 @pytest.fixture(autouse=True)
-def _mock_example_com_dns(monkeypatch: pytest.MonkeyPatch) -> None:
-    from tests.web_fakes import PUBLIC_ADDRESS, scripted_resolver
-
-    scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
+def _mock_example_com_dns(dns: DnsFake) -> None:
+    dns.add("example.com", PUBLIC_ADDRESS)
 
 
 class FakeQdrantClient(QdrantClient):
