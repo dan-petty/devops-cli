@@ -45,11 +45,14 @@ that is no file of the staged commit, and that no group up to its own creates (`
 sent back in the same way: the problem lists the files with the same name, and a second reply with
 a missing path stops the item, so no draft opens. The groups of a split are checked in the same
 way. After the checks, the model review of the plan (`stage_verify`, #3153) reads the issue, the
-plan and the files that the plan cites with the client of the task `verification`. A finding of
-the type `missing_path`, `false_premise` or `ignores_existing_code` that quotes its evidence sends
-the plan back to the planner once. A finding of such a type, of `spec_delta_wrong`, or one that
-reports a placeholder is open: the job keeps the draft with the label `plan/needs-fix` and puts
-the finding first in the comment (#3264). Every other finding goes into the comment of the item.
+plan and the files that the plan cites, and reads the repository with the read tools, on the model
+of the task `verification` (#3039). A finding of the type `missing_path`, `false_premise`,
+`ignores_existing_code`, `task_order` or `verify_form` that quotes its evidence sends the plan back
+to the planner, up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039). The planner gets
+each open finding of that round. A finding of such a type, of `spec_delta_wrong`, or one that
+reports a placeholder is open: if the last review repeats it, the job keeps the draft with the
+label `plan/needs-fix` and puts the finding first in the comment (#3264). The comment lists every
+other finding of each round (#3039).
 The review never merges and never marks a draft ready. `plan_item` plans one item with a given client
 and checkout: the golden set of the job runs
 it on each case (`stage_eval_run`, #3028). The plan writes nothing to git or to GitHub. A model call
@@ -93,6 +96,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
+    CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
 )
@@ -172,7 +176,7 @@ from devops_cli.roadmap.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage_probe import blocked_by, probe_premise
 from devops_cli.roadmap.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage_split import ask_split
-from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
+from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel, review
 from devops_cli.roadmap.stage_validate import validate_change
 from devops_cli.roadmap.stage_verify import (
     PLAN_NEEDS_FIX_LABEL,
@@ -183,7 +187,6 @@ from devops_cli.roadmap.stage_verify import (
     open_findings_section,
     return_problem,
     returning,
-    verify,
 )
 from devops_cli.roadmap.step_files import code_spans
 from devops_cli.roadmap.store import (
@@ -653,11 +656,11 @@ class StagedChange:
     """A change ready to write: the target, the title and the body of its draft pull request, the
     files by path from the repository root, the measure of each task group, whether
     `openspec validate` ran on it (it does not without the binary), the budget of the run, and
-    what the plan runs of the toolbox did (#3037). The trace is empty for an item planned with one
-    call. `proposal` is the plan that the files render, and `findings` are the points that the
-    model review of the plan raised and that returned no plan (#3153): the comment lists them.
-    `open_findings` are the findings that keep the draft with the label `plan/needs-fix`
-    (#3264); they are a part of `findings`."""
+    what the plan runs and the review runs of the toolbox did (#3037, #3039). The trace is empty
+    for an item planned with one call and no review. `proposal` is the plan that the files render. `findings` are the points that each model
+    review of the plan raised in each repair round (#3153, #3039): the comment lists them.
+    `open_findings` are the findings of the last review that keep the draft with the label
+    `plan/needs-fix` (#3264); they are a part of `findings`."""
 
     target: StageTarget
     title: str
@@ -793,15 +796,20 @@ class _Planner:
         window: int,
         tool: OpenSpecTool | None,
         toolbox: ToolboxClient | None = None,
-        verifier: StageClient | None = None,
+        verifier: ToolboxClient | None = None,
+        verify_window: int | None = None,
         pull_reads: Callable[[], PullReads] | None = None,
         pull_repo: str = "",
         grep: Callable[[str], Sequence[str]] | None = None,
         open_creates: Callable[[], Mapping[str, int]] | None = None,
+        traces: list[RunTrace] | None = None,
     ) -> None:
         self._client = client
         self._toolbox = toolbox
         self._verifier = verifier
+        self._verify_window = verify_window
+        # The runs of the planner and of the verifier, in order, for the comment (#3039).
+        self._traces: list[RunTrace] = [] if traces is None else traces
         self._source = source
         self._sha = sha
         self._specs = specs
@@ -836,11 +844,10 @@ class _Planner:
         """The change of `target`, or the group that stops it. A reply the checks refuse goes back
         to the model once, with the problem. The model splits the groups at most once. With a
         verifier, the model review of the plan (#3153) follows the checks and may return the plan
-        once more. So an item costs three planner calls at most without a verifier, four with one,
-        and two calls of the verifier."""
+        up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039). So an item costs three
+        planner calls at most without a verifier, five with one, and three calls of the verifier."""
         self._split_asked = False
-        if self._toolbox is not None:
-            self._toolbox.traces.clear()
+        self._traces.clear()
         request = self._request(target)
         if self._dependency is not None:
             return self._dependency
@@ -848,8 +855,8 @@ class _Planner:
         verifier = self._verifier
         if isinstance(outcome, StagedChange) and verifier is not None:
             outcome = self._verified(target, request, outcome, verifier)
-        if isinstance(outcome, StagedChange) and self._toolbox is not None:
-            return replace(outcome, trace=RunTrace.combined(self._toolbox.traces))
+        if isinstance(outcome, StagedChange) and self._traces:
+            return replace(outcome, trace=RunTrace.combined(self._traces))
         return outcome
 
     def _gated(self, target: StageTarget, request: Mapping[str, Any]) -> StagedChange | OverBudget:
@@ -874,33 +881,47 @@ class _Planner:
         target: StageTarget,
         request: Mapping[str, Any],
         change: StagedChange,
-        verifier: StageClient,
+        verifier: ToolboxClient,
     ) -> StagedChange | OverBudget:
         """The change after the model review. A finding of a type that returns the plan, with a
-        quote that is in the input, sends the plan back to the planner once: the revised plan
-        passes the checks and the review again, and a refused revision stops the item. Every
-        other finding, and every finding of the revised plan, stays on the change for the
-        comment. An open finding keeps the draft with `plan/needs-fix` (#3264)."""
-        findings, returned, _ = self._review(target, change, verifier)
-        if returned:
-            again = {
-                **request,
-                "previous": change.proposal.model_dump(),
-                "problem": return_problem(returned),
-            }
-            revised = self._ask(StageProposal, _CHANGE_TASK, again)
-            outcome = self._settle(target, revised)
-            if isinstance(outcome, _Refused):
-                message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
-                raise _stage_error(message, target)
-            if isinstance(outcome, OverBudget):
-                return outcome
-            change = outcome
-            findings, _, open_ = self._review(target, change, verifier)
-        else:
-            given = self._input_of(target, change)
-            open_ = open_findings(findings, given)
-        return replace(change, findings=tuple(findings), open_findings=tuple(open_))
+        quote that is in the input, sends the plan back to the planner with each open finding of
+        the round. The revised plan passes the checks and the review again, up to
+        `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS` times (#3039), and a refused revision stops the
+        item. Every finding of each round stays on the change for the comment (#3039). The last
+        review judges the last plan, so only its open findings keep the draft with
+        `plan/needs-fix` (#3264)."""
+        seen, returned, open_ = self._review(target, change, verifier)
+        for _ in range(CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS):
+            if not returned:
+                break
+            revised = self._repaired(target, request, change, open_)
+            if isinstance(revised, OverBudget):
+                return revised
+            change = revised
+            findings, returned, open_ = self._review(target, change, verifier)
+            seen = [*seen, *findings]
+        return replace(change, findings=tuple(dict.fromkeys(seen)), open_findings=tuple(open_))
+
+    def _repaired(
+        self,
+        target: StageTarget,
+        request: Mapping[str, Any],
+        change: StagedChange,
+        open_: Sequence[Finding],
+    ) -> StagedChange | OverBudget:
+        """The plan of one repair round: the planner gets the plan and each open finding of the
+        review, and its revision passes the checks or stops the item."""
+        again = {
+            **request,
+            "previous": change.proposal.model_dump(),
+            "problem": return_problem(open_),
+        }
+        revised = self._ask(StageProposal, _CHANGE_TASK, again)
+        outcome = self._settle(target, revised)
+        if isinstance(outcome, _Refused):
+            message = MESSAGES.roadmap.stage_invalid.format(problem=outcome.problem)
+            raise _stage_error(message, target)
+        return outcome
 
     def _input_of(self, target: StageTarget, change: StagedChange) -> VerificationInput:
         """The input that the pass reads for `change`."""
@@ -911,15 +932,15 @@ class _Planner:
             body=item.body,
             plan=change.proposal.model_dump(mode="json"),
             source=self._source,
+            window=self._verify_window,
         )
 
     def _review(
-        self, target: StageTarget, change: StagedChange, verifier: StageClient
+        self, target: StageTarget, change: StagedChange, verifier: ToolboxClient
     ) -> tuple[list[Finding], list[Finding], list[Finding]]:
         """The findings of the model review of `change`, those that return the plan, and those
         that are open."""
-        given = self._input_of(target, change)
-        findings = verify(verifier, given)
+        findings, given = review(verifier, self._input_of(target, change))
         return findings, returning(findings, given), open_findings(findings, given)
 
     def _request(self, target: StageTarget) -> dict[str, Any]:
@@ -1270,7 +1291,7 @@ def plan_stage(
     limit: int | None = None,
     step_tokens: int | None = None,
     model: LLMClient | ToolboxModel | None = None,
-    verifier: StageClient | None = None,
+    verifier: ToolboxModel | None = None,
     why: bool = False,
     now: datetime | None = None,
 ) -> StagePlan:
@@ -1282,11 +1303,12 @@ def plan_stage(
     Planned items the plan holds only P0 and P1 items (#3487, #3692). A client as `model` replaces
     the client of the `analysis` task and plans with the one call and no tool. A `ToolboxModel`
     plans with the read-only tools (#3037), and the client of the `analysis` task answers the call
-    that splits the groups. A `verifier`, the client of the `verification` task, makes the model
-    review each plan after the checks (#3153); without one, the job makes no review call, as the
-    golden-set run of the planner does. With `why`, the plan also lists the open items that the
-    filter does not name (#2911). An item that failed less than `roadmap.stage.retry_hours` hours
-    before `now` is left out, unless `item_number` names it (#3493).
+    that splits the groups. A `verifier`, the model of the `verification` task, makes an agent with
+    the read-only tools review each plan after the checks (#3153, #3039); without one, the job makes
+    no review call, as the golden-set run of the planner does. With `why`, the plan also lists the
+    open items that the filter does not name (#2911). An item that failed less than
+    `roadmap.stage.retry_hours` hours before `now` is left out, unless `item_number` names it
+    (#3493).
     """
     checkout = Path(source)
     settings = load_settings()
@@ -1353,7 +1375,7 @@ def _planner_of(
     budget: int,
     tool: OpenSpecTool | None,
     toolbox: ToolboxModel | None = None,
-    verifier: StageClient | None = None,
+    verifier: ToolboxModel | None = None,
     repo: str | None = None,
     open_creates: Callable[[], Mapping[str, int]] | None = None,
 ) -> _Planner:
@@ -1362,21 +1384,28 @@ def _planner_of(
     read-only tools on the checkout, and `client` answers the other calls. The toolset
     `roadmap.stage.toolset` chooses the tools; with `repo`, `read_issue` and `find_issues` of the
     toolset `extended` read that repository on GitHub with the client of the session (#3238). A
-    `verifier` makes the model review of each plan (#3153)."""
+    `verifier` makes the model review of each plan (#3153): an agent of the task `verification`
+    with the same tools, and with the window of that task, because the two tasks can resolve to
+    different windows (#3039)."""
     window = task_window("stage")
-    runner = (
-        None
-        if toolbox is None
-        else ToolboxClient(
-            toolbox.model,
+    verify_window = task_window("verification")
+    traces: list[RunTrace] = []
+
+    def runner_of(model: ToolboxModel, tokens: int) -> ToolboxClient:
+        return ToolboxClient(
+            model.model,
             client,
             checkout,
             sha,
-            window=window,
+            window=tokens,
             openspec=tool,
             github=None if repo is None else StageGitHub(repo),
+            traces=traces,
         )
-    )
+
+    runner = None if toolbox is None else runner_of(toolbox, window)
+    # A review makes only agent runs, so the client of the job as its inner client gets no call.
+    reviewer = None if verifier is None else runner_of(verifier, verify_window)
     return _Planner(
         client=runner or client,
         toolbox=runner,
@@ -1387,11 +1416,13 @@ def _planner_of(
         budget=budget,
         window=window,
         tool=tool,
-        verifier=verifier,
+        verifier=reviewer,
+        verify_window=verify_window,
         pull_reads=None if repo is None else session_pull_reads,
         pull_repo=repo or "",
         grep=partial(grep_at, checkout, sha, operation=_GIT_OPERATION),
         open_creates=open_creates,
+        traces=traces,
     )
 
 

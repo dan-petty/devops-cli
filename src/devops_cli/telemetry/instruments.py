@@ -263,33 +263,35 @@ ROADMAP_TOOL_CALLS_TOTAL = Instrument(
     "devops_cli_roadmap_tool_calls_total",
     InstrumentKind.COUNTER,
     "1",
-    "Tool calls of the roadmap planner, by tool, row, toolset and outcome. The outcome ok is a "
+    "Tool calls of the roadmap planner and verifier, by tool, row, toolset and outcome. The outcome ok is a "
     "call that gave its result. The outcome empty is a call that ran and found nothing, such as "
     "a search with no match. The outcome error is a call that could not run or got no answer. "
-    "The row is the job row that ran the planner, such as stage. Each plan run adds 0 for every "
-    "tool of its toolset before its first model request. So a tool that no run calls keeps a "
-    "series",
+    "The row is the job row of the run: stage for the planner, stage_verify for the verifier. "
+    "Each run adds 0 for every tool of its toolset before its first model request. So a tool "
+    "that no run calls keeps a series",
 )
 ROADMAP_TOOL_ANSWER_CHARS = Instrument(
     "devops_cli_roadmap_tool_answer_chars",
     InstrumentKind.HISTOGRAM,
     "{char}",
-    "Characters in the answer of each tool call of the roadmap planner, after the cut of the "
-    "tool, by tool, row and toolset. The text of a refusal counts. A call that got no answer "
+    "Characters in the answer of each tool call of the roadmap planner and verifier, after the "
+    "cut of the tool, by tool, row and toolset. The text of a refusal counts. A call that got no answer "
     "adds no observation",
 )
 ROADMAP_TOOL_CALLS_PER_RUN = Instrument(
     "devops_cli_roadmap_tool_calls_per_run",
     InstrumentKind.HISTOGRAM,
     "{call}",
-    "Tool calls of each plan run of the roadmap planner, by row and toolset. A run that raised "
+    "Tool calls of each run of the roadmap planner and verifier, by row and toolset. A run that "
+    "raised "
     "because a model call failed adds no observation",
 )
 ROADMAP_TOOL_LIMIT_HITS_TOTAL = Instrument(
     "devops_cli_roadmap_tool_limit_hits_total",
     InstrumentKind.COUNTER,
     "1",
-    "Plan runs of the roadmap planner whose tools ended on a limit, by row, toolset and limit. "
+    "Runs of the roadmap planner and verifier whose tools ended on a limit, by row, toolset and "
+    "limit. "
     "The limit calls means fewer tool calls were left than a turn needs. The limit requests "
     "means one model request was left. The limit window means the messages filled the context "
     "window. One count for each run",

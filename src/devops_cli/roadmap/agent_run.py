@@ -195,9 +195,10 @@ class ToolCallRecord:
 class RunTrace:
     """What a run of an agent did (#3037): its tool calls in order, the count of its model
     requests, its input and output tokens, the count of schema violations in the last retry
-    prompt of its output tool, and the names of the function tools that each request offered, in
-    order (#3477). A request that offered none holds an empty tuple. `limit` is the limit that
-    ended the tools of the run, or None (#3240)."""
+    prompt of its output tool, the names of the function tools that each request offered, in
+    order (#3477), and the text of each tool answer, which a quote of the run may come from
+    (#3039). A request that offered none holds an empty tuple. `limit` is the limit that ended the
+    tools of the run, or None (#3240)."""
 
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     requests: int = 0
@@ -206,6 +207,7 @@ class RunTrace:
     violations: int = 0
     offered: list[tuple[str, ...]] = field(default_factory=list)
     limit: RunLimit | None = None
+    tool_answers: list[str] = field(default_factory=list)
 
     @classmethod
     def combined(cls, traces: Iterable[RunTrace]) -> RunTrace:
@@ -215,6 +217,7 @@ class RunTrace:
         for trace in traces:
             total.tool_calls.extend(trace.tool_calls)
             total.offered.extend(trace.offered)
+            total.tool_answers.extend(trace.tool_answers)
             total.requests += trace.requests
             total.input_tokens += trace.input_tokens
             total.output_tokens += trace.output_tokens
@@ -251,6 +254,11 @@ class RunTrace:
                 self._add_reply(message, tools, _answers(messages[index + 1 : index + 2]))
             elif isinstance(message, ModelRequest):
                 self._add_violations(message, tools)
+                self.tool_answers.extend(
+                    str(part.content)
+                    for part in message.parts
+                    if isinstance(part, ToolReturnPart) and part.tool_name in tools
+                )
 
     def _add_reply(
         self,

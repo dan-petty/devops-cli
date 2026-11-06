@@ -868,7 +868,7 @@ serverFiles:
       # counter for every tool of its toolset, so a tool has a series before a run calls it, and
       # the rule needs no list of tool names. The call count of 7 days sums the outcomes of a tool.
       # A series that is younger than 7 days has no sample before the window, so it stays quiet: a
-      # new tool gets 7 days. The plan runs are the observations of the native histogram of the
+      # new tool gets 7 days. The runs are the observations of the native histogram of the
       # calls per run, of the same row and toolset. A tool that leaves the toolset keeps its alert
       # until its series leaves the 7 days.
       - name: roadmap-service-tools
@@ -885,7 +885,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: "Tool {{ $labels.tool }} of the toolset {{ $labels.toolset }} had no call in 7 days"
-              description: "No plan run of the row {{ $labels.row }} called the tool {{ $labels.tool }} of the toolset {{ $labels.toolset }} in 7 days, and the Service made plan runs in that time. Read the Planner Tools row of the devops-cli Telemetry dashboard, and decide to change the tool description or to remove the tool (k8s/README.md, Roadmap service)."
+              description: "No run of the row {{ $labels.row }} called the tool {{ $labels.tool }} of the toolset {{ $labels.toolset }} in 7 days, and the Service made runs of that row in that time. Read the Planner Tools row of the devops-cli Telemetry dashboard, and decide to change the tool description or to remove the tool (k8s/README.md, Roadmap service)."
       - name: mattermost
         rules:
           - alert: MattermostUnavailable

@@ -6,8 +6,10 @@ import json
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+import yaml
 
 from devops_cli.ai.client.models import StructuredOutputValidationError
+from devops_cli.config import settings
 from devops_cli.github.client import CreatedPull
 from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.stage import (
@@ -19,6 +21,7 @@ from devops_cli.roadmap.stage import (
     plan_stage,
 )
 from devops_cli.roadmap.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage_verify import PLAN_NEEDS_FIX_LABEL, Finding, Verification
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import API, github_json
@@ -30,8 +33,11 @@ from tests.support.roadmap_stage import (
     seed_stageable,
     validate_args,
 )
+from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from devops_cli.roadmap.stage import StageClient
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.openspec import OpenSpecFake
@@ -82,7 +88,7 @@ def _plan(
         source=repo.clone,
         filters=parse_filters(()),
         model=cast("StageClient | None", model),
-        verifier=cast("StageClient", verifier.checking_replies()) if verifier else None,
+        verifier=ToolboxModel(verifier) if verifier else None,
     )
 
 
@@ -153,9 +159,8 @@ def test_a_false_premise_with_a_quote_returns_the_plan_to_the_planner_once(
 ) -> None:
     revised = make_stage_proposal(summary="Keep the last comment of a thread")
     model_fake.answer(make_stage_proposal(), revised)
-    verifier.answer(
-        Verification(findings=[_finding(DefectType.FALSE_PREMISE, SAMPLE_QUOTE)]), Verification()
-    )
+    returned = _finding(DefectType.FALSE_PREMISE, SAMPLE_QUOTE)
+    verifier.answer(Verification(findings=[returned]), Verification())
 
     plan = _plan(store, stage_repo, verifier)
 
@@ -165,9 +170,15 @@ def test_a_false_premise_with_a_quote_returns_the_plan_to_the_planner_once(
     assert SAMPLE_QUOTE in second["problem"]
     assert second["previous"]["summary"] == "Stop the job dropping a comment"
     (change,) = plan.ready
-    assert (verifier.call_count, change.proposal.summary, change.findings) == (
+    assert (
+        verifier.call_count,
+        change.proposal.summary,
+        change.findings,
+        change.open_findings,
+    ) == (
         2,
         "Keep the last comment of a thread",
+        (returned,),
         (),
     )
 
@@ -218,20 +229,186 @@ def test_a_finding_whose_quote_is_not_in_the_input_goes_to_the_comment_and_retur
     assert change.findings == (invented,)
 
 
-def test_the_revised_plan_is_not_returned_again(
+def test_a_mixed_first_round_lists_every_finding_and_tells_the_planner_the_open_ones(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
 ) -> None:
-    model_fake.answer(make_stage_proposal(), make_stage_proposal(summary="Keep every comment"))
-    again = _finding(DefectType.MISSING_PATH, ISSUE_QUOTE)
+    model_fake.answer(make_stage_proposal(), make_stage_proposal(summary="Repaired plan"))
+    returned = _finding(DefectType.FALSE_PREMISE, SAMPLE_QUOTE)
+    spec = _finding(DefectType.SPEC_DELTA_WRONG, SAMPLE_QUOTE)
+    advice = _finding(DefectType.CONTRIVED_TEST, SAMPLE_QUOTE)
+    verifier.answer(Verification(findings=[returned, spec, advice]), Verification())
+
+    plan = _plan(store, stage_repo, verifier)
+
+    (change,) = plan.ready
+    problem = _prompts(model_fake)[1]["problem"]
+    assert (change.findings, change.open_findings) == ((returned, spec, advice), ())
+    assert ("false_premise" in problem, "spec_delta_wrong" in problem) == (True, True)
+    assert "contrived_test" not in problem
+
+
+def test_an_open_task_order_finding_keeps_the_draft_with_the_label(
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    store = _placeholder_store()
+    github_api.route(
+        "POST",
+        PULLS,
+        github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
+    )
+    _seed_pull_5(store)
+    finding = _finding(DefectType.TASK_ORDER, SAMPLE_QUOTE)
+    model_fake.answer(make_stage_proposal())
+    verifier.answer(Verification(findings=[finding]))
+
+    plan = _plan(store, stage_repo, verifier)
+    apply_stage(store, plan, source=stage_repo.clone)
+
+    (change,) = plan.ready
+    assert (model_fake.call_count, verifier.call_count) == (3, 3)
+    assert change.open_findings == (finding,)
+    assert store._roadmap.issues[5].labels == (PLAN_NEEDS_FIX_LABEL,)
+    assert json.loads(github_api.sent[0].content)["draft"] is True
+
+
+def test_a_quote_of_a_file_that_the_verifier_read_past_the_cap_returns_the_plan(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    tail = "def existing_helper_that_does_this(): pass"
+    sample = stage_repo.clone / "src/devops_cli/sample.py"
+    text = sample.read_text(encoding="utf-8") + "# word\n" * 4000 + f"{tail}\n"
+    sample.write_text(text, encoding="utf-8")
+    stage_repo.git("commit", "-q", "-am", "A long file")
+    stage_repo.git("push", "-q", "origin", "main")
+    model_fake.answer(make_stage_proposal(), make_stage_proposal(summary="Repaired plan"))
+    finding = _finding(DefectType.IGNORES_EXISTING_CODE, tail)
+    reads = Script(
+        call("read_file", path="src/devops_cli/sample.py", start_line=4000),
+        Verification(findings=[finding]),
+        Verification(),
+    )
+
+    plan = plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(()),
+        verifier=ToolboxModel(reads.model()),
+    )
+
+    (change,) = plan.ready
+    cited = json.loads(reads.prompt())["files"]["src/devops_cli/sample.py"]
+    assert tail not in cited
+    assert (change.proposal.summary, change.findings, model_fake.call_count) == (
+        "Repaired plan",
+        (finding,),
+        2,
+    )
+
+
+def test_the_review_takes_its_window_from_the_task_verification_and_not_from_stage(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    window = 12_000
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "ai": {
+                    "tasks": {
+                        "stage": {"context_window": 262_144},
+                        "verification": {"context_window": window},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(settings, "CONFIG_PATH", config)
+    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(tmp_path / "no-project-config.yaml"))
+    settings.reset_settings_cache()
+    model_fake.answer(make_stage_proposal())
+    filler = " ".join(f"word{number}" for number in range(window))
+    reads = Script(call("search_code", text=filler), Verification())
+
+    plan = plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(()),
+        verifier=ToolboxModel(reads.model()),
+    )
+
+    request = json.loads(reads.prompt())
+    assert (len(plan.ready), request["files"]) == (1, {})
+    assert (bool(reads.tools_offered[0]), reads.tools_offered[1]) == (True, [])
+
+
+def test_the_plan_is_returned_twice_then_stays_in_draft(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
+) -> None:
+    model_fake.answer(
+        make_stage_proposal(),
+        make_stage_proposal(summary="First repair of the plan"),
+        make_stage_proposal(summary="Second repair of the plan"),
+    )
+    first = _finding(DefectType.FALSE_PREMISE, SAMPLE_QUOTE)
+    second = _finding(DefectType.TASK_ORDER, ISSUE_QUOTE)
+    last = _finding(DefectType.MISSING_PATH, ISSUE_QUOTE)
     verifier.answer(
-        Verification(findings=[_finding(DefectType.FALSE_PREMISE, SAMPLE_QUOTE)]),
-        Verification(findings=[again]),
+        Verification(findings=[first]),
+        Verification(findings=[second]),
+        Verification(findings=[last]),
     )
 
     plan = _plan(store, stage_repo, verifier)
 
     (change,) = plan.ready
-    assert (model_fake.call_count, verifier.call_count, change.findings) == (2, 2, (again,))
+    assert (model_fake.call_count, verifier.call_count) == (3, 3)
+    assert (change.proposal.summary, change.findings, change.open_findings) == (
+        "Second repair of the plan",
+        (first, second, last),
+        (last,),
+    )
+
+
+def test_the_comment_lists_the_findings_of_each_repair_round_and_each_verifier_read(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    github_api.route(
+        "POST",
+        PULLS,
+        github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
+    )
+    model_fake.answer(make_stage_proposal(), make_stage_proposal(summary="Repaired plan"))
+    reads = Script(
+        call("read_file", path="src/devops_cli/sample.py"),
+        Verification(findings=[_finding(DefectType.FALSE_PREMISE, SAMPLE_QUOTE)]),
+        Verification(),
+    )
+
+    plan = plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(()),
+        verifier=ToolboxModel(reads.model()),
+    )
+    apply_stage(store, plan, source=stage_repo.clone)
+
+    (comment,) = [c.body for c in store.comments_on(1)]
+    assert "Problem of false_premise." in comment
+    assert "src/devops_cli/sample.py" in comment
 
 
 def test_a_contrived_test_finding_is_in_the_comment_and_the_draft_opens_and_stays_a_draft(
@@ -375,3 +552,25 @@ def test_a_clean_round_removes_the_open_finding_label(
 
     assert note == ""
     assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[5].labels
+
+
+def test_the_verifier_reads_the_repository_with_the_tools_and_its_reads_are_traced(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(make_stage_proposal())
+    reads = Script(call("read_file", path="src/devops_cli/sample.py"), Verification())
+
+    plan = plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(()),
+        verifier=ToolboxModel(reads.model()),
+    )
+
+    trace = plan.ready[0].trace
+    assert (len(plan.ready), [record.name for record in trace.tool_calls]) == (
+        1,
+        ["read_file"],
+    )
+    assert "read_file" in reads.tools_offered[0]

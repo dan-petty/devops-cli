@@ -283,7 +283,7 @@ uv run devops roadmap eval stage --replay
 
 A plan is acceptable when a person merges it without rework. The golden set measures this before a plan reaches a person. A model, a prompt or a cap is acceptable for the stage job when the golden set shows all of these:
 
-- **Recall.** After the gates and the verification pass, the job finds at least 90% of the known defects of the severities `blocker` and `major`. `devops roadmap eval verify` prints this recall.
+- **Recall.** After the gates and the verification pass, the job finds at least 90% of the known defects of the severities `blocker` and `major`. `devops roadmap eval verify` prints this recall and the floor, which is `CONST_ROADMAP_VERIFY_RECALL_FLOOR` (0.9), and states whether the recall reaches it. The verification pass returns a plan at most two repair rounds (`CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS`, #3039).
 - **Good plans.** The verification pass makes no finding on the 3 good plans.
 - **Live plans.** At least 80% of the plan pull requests that the job opens in a period are merged without a hold. A person reads the pull requests and records the share.
 
@@ -313,16 +313,17 @@ A run makes at least one model call for each of the 40 cases. With the toolbox i
 
 ### Measure the verification pass
 
-After the gates, the stage job asks a model of the task `ai.tasks.verification` to review the plan with the issue and the start of each file that the plan cites (#3153). The same golden set measures it:
+After the gates, the stage job asks a model of the task `ai.tasks.verification` to review the plan with the issue, the start of each file that the plan cites (#3153) and the read tools of the planner (#3039). The same golden set measures it:
 
 ```text
 uv run devops roadmap eval verify --model <model> --source <repository>
 uv run devops roadmap eval verify --case 2260 --dry-run
 ```
 
-- **The run** reads the files that each recorded plan cites from the commit it was staged on, so `--source` must be a repository that holds those commits. It matches each finding to one labeled defect of the same type, the most serious defect first, and prints the recall of all labeled defects, the recall of the blocker and major ones, the recall for each type, and the findings on the 3 good plans. It stores the report, with the findings of each case, as JSON under the data directory, in `roadmap_eval/verify/`.
+- **The cost.** An agent run reads until it has its findings, so the cost of a run depends on the model. On 2026-11-05 one case with the local verification model used 27 model requests, 18 tool calls and 578,119 input tokens in about 6 minutes, so a run of the 44 cases costs about 25 M input tokens. `--dry-run` lists the runs and not the tokens.
+- **The run** reads the files that each recorded plan cites from the commit it was staged on, so `--source` must be a repository that holds those commits. It runs the pass of each case as an agent with the read tools of the planner, on the checkout of the case (#3039). It matches each finding to one labeled defect of the same type, the most serious defect first, and prints the recall of all labeled defects, the recall of the blocker and major ones, the recall for each type, and the findings on the 3 good plans. It stores the report, with the findings of each case, as JSON under the data directory, in `roadmap_eval/verify/`.
 - **How to read the score.** The match is by type and not by text, so a finding of the right type on the wrong spot counts. Read the findings in the report before you trust a high recall. A finding on a good plan is a false alarm. The score also counts those that would send the plan back to the planner.
-- **The rule.** A pull request that changes the verification prompt (`roadmap_stage_verify.md`) or the model of the task states the score of the model before and after the change.
+- **The rule.** A pull request that changes the verification prompt (`roadmap_stage_verify.md` or `roadmap_stage_verify_tools.md`) or the model of the task states the score of the model before and after the change.
 
 ## Checks of the implement job
 
