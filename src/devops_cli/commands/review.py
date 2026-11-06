@@ -164,7 +164,7 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
-from devops_cli.review.session import ReviewSessionStore
+from devops_cli.review.session import ReviewSessionStore, load_session_payload
 
 app = new_typer(help=HELP.review.app, no_args_is_help=True)
 
@@ -1121,7 +1121,7 @@ def list_findings(
         print_warning(f"No {file_name} in session {session_dir.name}", prefix=False)
         raise typer.Exit(0)
 
-    payload = ReviewSessionPayload.model_validate_json(source.read_text(encoding="utf-8"))
+    payload = load_session_payload(source)
     target_status = _listed_status(status_filter, unverified, invalidated, verified, mitigated)
     # Each keeps its place in the file whatever the filter, the number `verify` takes.
     numbered = _listed_findings(payload.findings, target_status, severities or [])
@@ -1162,7 +1162,7 @@ def _read_session_file(session_dir: Path, file_name: str) -> tuple[Path, ReviewS
     if not path.is_file():
         print_error(f"No {file_name} in {session_dir}", prefix=False)
         raise typer.Exit(1)
-    return path, ReviewSessionPayload.model_validate_json(path.read_text(encoding="utf-8"))
+    return path, load_session_payload(path)
 
 
 def _require_findings(payload: ReviewSessionPayload) -> None:
@@ -2065,7 +2065,7 @@ def _arm_session_dirs(files_dir: Path, sessions: list[str] | None, runs: int | N
 
 
 def _session_findings(path: Path) -> list[SavedFinding]:
-    return ReviewSessionPayload.model_validate_json(path.read_text(encoding="utf-8")).findings
+    return load_session_payload(path).findings
 
 
 def _out_of(count: int, whole: int, share: float) -> str:

@@ -1,0 +1,20 @@
+# Tasks
+
+## 1. Add the shared session file loader
+
+Kind: behavior. Reads: none. Changes: `src/devops_cli/review/session.py`, `tests/review/test_session_loader.py` (new).
+
+- [x] 1.1 Write `tests/review/test_session_loader.py` with two tests. `test_the_loader_names_the_file_and_the_failing_field` writes a `findings.json` that has no `network_references.0.reputation.outcome` (RFC 5737 address `203.0.113.7`). It asserts that `load_session_payload(path)` raises the project's `ValidationError` (not the pydantic one), and that the message holds `str(path)` and `network_references.0.reputation.outcome`. `test_the_loader_returns_the_payload_of_a_valid_file` asserts that a valid file loads. Verify that `uv run devops ci test tests/review/test_session_loader.py` fails on the base, with an `ImportError` for `load_session_payload`
+- [x] 1.2 Add `load_session_payload(path: Path) -> ReviewSessionPayload` to `src/devops_cli/review/session.py`. It reads the file text, calls `ReviewSessionPayload.model_validate_json`, catches `pydantic.ValidationError` (imported as `PydanticValidationError`), and raises the project's `ValidationError` from `devops_cli.exceptions.validation`. The message names the file path and the dotted `loc` of each error. Import `ReviewSessionPayload` inside the function (see design.md). Verify that `uv run devops ci test tests/review/test_session_loader.py` passes
+
+## 2. Route the four readers through the shared loader
+
+Kind: behavior. Reads: `src/devops_cli/core/cli.py` (the exit seam). Changes: `src/devops_cli/commands/review.py`, `src/devops_cli/review/handoff.py`, `tests/commands/test_review_invalid_session_file.py` (new).
+
+- [x] 2.1 Write `tests/commands/test_review_invalid_session_file.py` with one test, `test_a_command_reports_an_invalid_session_file_in_one_error_line`. It runs the real command through the `cli` fixture, once for each of four ids: `findings` (`review findings <session>`), `verify` (`review verify <session> --index 1 --status INVALIDATED --reason x`), `intake` (`review intake <session> --repo octo/repo --dry-run`, in a temporary checkout) and `corpus-score` (`review corpus score <corpus> --session <session>`, with a minimal `manifest.json`). Each run reads the same `findings.json`, which has no `network_references.0.reputation.outcome`. The test asserts this tuple: exit code 1; the exception type is `SystemExit`; the output has exactly one non-blank line; the line holds the file path; the line holds `network_references.0.reputation.outcome`. On the base, `findings`, `intake` and `corpus-score` fail because a pydantic `ValidationError` leaves the command and the output is empty. On the base, `verify` fails because pydantic's error is a `ValueError`: the command exits 1 with a four-line "Cannot update finding: verdict invariants violated" message that has no file path. Verify that `uv run devops ci test tests/commands/test_review_invalid_session_file.py` fails on the base for all four ids
+- [x] 2.2 In `src/devops_cli/commands/review.py`, replace the three direct calls to `ReviewSessionPayload.model_validate_json` in `list_findings`, `_read_session_file` and `_session_findings` with `load_session_payload` from `devops_cli.review.session`. In `src/devops_cli/review/handoff.py`, replace the call in `read_session`. Keep the `ReviewSessionPayload` imports: both modules still use the type in annotations. Add no catch in a command module. Verify that `uv run devops ci test tests/commands/test_review_invalid_session_file.py` passes
+- [x] 2.3 Check the call sites and the tests that must keep passing. Verify that `! git grep -n 'ReviewSessionPayload.model_validate_json' src/ ':!src/devops_cli/review/session.py'` exits 0 and prints nothing (on the base it exits 1 and prints four lines: `commands/review.py` lines 1122, 1163 and 2066, and `review/handoff.py` line 112). Verify that `uv run devops ci test tests/commands/test_review.py tests/commands/test_review_adjudication.py tests/review/test_review_intake_handoff.py` passes
+
+## Workflow follow-up
+
+- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
+from pydantic import ValidationError as PydanticValidationError
 
 from devops_cli.config.constants import (
     CONST_REVIEW_ANALYSIS_FILENAME,
@@ -38,12 +39,33 @@ from devops_cli.core.paths import is_forbidden_system_path, validate_no_path_tra
 from devops_cli.core.repo import resolve_review_data_path
 from devops_cli.exceptions import SecurityError
 from devops_cli.exceptions.ai import ReviewSessionExistsError
+from devops_cli.exceptions.validation import ValidationError
 from devops_cli.output.file_writer import write_file
 
 if TYPE_CHECKING:
     from devops_cli.ai.review.profile import ReviewProfile
     from devops_cli.ai.review_schema import FileReviewPayload, ReviewSessionPayload
     from devops_cli.review.analysis import AnalysisReport
+
+
+def load_session_payload(path: Path) -> ReviewSessionPayload:
+    """The findings of the session file at `path`.
+
+    A file that does not validate, such as one a schema change has left behind, raises the
+    project's `ValidationError`. Its message names the file and the dotted path of each field
+    that failed.
+    """
+    # The schema pulls in much of the review code, which this module must not load at import.
+    from devops_cli.ai.review_schema import ReviewSessionPayload
+
+    try:
+        return ReviewSessionPayload.model_validate_json(path.read_text(encoding="utf-8"))
+    except PydanticValidationError as exc:
+        failures = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in exc.errors()
+        )
+        raise ValidationError(f"{path} does not validate as a review session: {failures}") from exc
 
 
 @dataclass(frozen=True)

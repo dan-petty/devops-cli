@@ -30,6 +30,7 @@ from devops_cli.lang import MESSAGES
 from devops_cli.review.checkout import is_clean_path_review, why_not_on_merged_code
 from devops_cli.review.filed_findings import finding_marker, read_filed_findings
 from devops_cli.review.fingerprint import is_fingerprint_v2
+from devops_cli.review.session import load_session_payload
 from devops_cli.roadmap.intake import (
     CandidateOutcome,
     Filer,
@@ -109,7 +110,7 @@ def intake_hint(payload: ReviewSessionPayload, session: str) -> str | None:
 def read_session(session_dir: Path) -> ReviewSessionPayload:
     """The findings.json of the session in `session_dir`."""
     path = session_dir / CONST_REVIEW_FINDINGS_FILENAME
-    return ReviewSessionPayload.model_validate_json(path.read_text(encoding="utf-8"))
+    return load_session_payload(path)
 
 
 @dataclass(frozen=True)
