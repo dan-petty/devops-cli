@@ -7,21 +7,43 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
 import typer
 from typer.testing import CliRunner
 
 from devops_cli.commands.argo import _validate_k8s_name
 from devops_cli.commands.argo import app as argo_app
-from devops_cli.config.settings import Settings
 from devops_cli.k8s.service import KubernetesService
 from devops_cli.main import app as main_app
+from tests.support.fakes.dns import DnsFake
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster
-from tests.web_fakes import PUBLIC_ADDRESS, StubWeb, record_connects, scripted_resolver
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 runner = CliRunner()
+
+
+@pytest.fixture
+def local_argocd(config: Callable[..., Path]) -> str:
+    """Point devops-cli at a fake Argo CD on the loopback host; return its URL."""
+    url = "http://localhost:8080"
+    config(argocd={"url": url})
+    return url
+
+
+def _serve_argocd(web: WebFake, applications: dict[str, Any], application: dict[str, Any]) -> None:
+    """Serve Argo CD at `local_argocd`: the application list, one application, and the sync."""
+
+    def server(request: httpx2.Request) -> httpx2.Response | None:
+        if request.method == "POST":
+            return httpx2.Response(200, json={"status": "Synced"})
+        if request.url.path.endswith("/applications"):
+            return httpx2.Response(200, json=applications)
+        return httpx2.Response(200, json=application)
+
+    web.serve(server)
 
 
 @pytest.mark.parametrize(
@@ -134,56 +156,12 @@ def test_argocd_app_from_api_item() -> None:
     assert nested_app.health_status == "Unknown"
 
 
-def test_argo_commands_execution(tmp_path: Path) -> None:
-    """Verify argo cd, workflows, and rollouts subcommands."""
-    mock_apps = {
-        "items": [
-            {
-                "metadata": {"name": "guestbook", "namespace": "argocd"},
-                "spec": {
-                    "project": "default",
-                    "source": {"repoURL": "https://github.com/org/repo.git"},
-                },
-                "status": {"sync": {"status": "Synced"}, "health": {"status": "Healthy"}},
-            }
-        ]
-    }
-    mock_app_detail = {
-        "metadata": {"name": "guestbook", "namespace": "argocd"},
-        "spec": {"project": "default", "source": {"repoURL": "https://github.com/org/repo.git"}},
-        "status": {
-            "sync": {"status": "Synced", "revision": "12345678"},
-            "health": {"status": "Healthy"},
-        },
-    }
+def test_argo_commands_execution(tmp_path: Path, web: WebFake, local_argocd: str) -> None:
+    """Verify argo cd, workflows, and rollouts subcommands.
 
-    mock_settings = Settings()
-    mock_settings.argocd.url = "http://localhost:8080"
-    mock_settings.ai.allow_private_network = True
-
-    def mock_get(*args: object, **kwargs: object) -> MagicMock:
-        resp = MagicMock()
-        resp.status_code = 200
-        url_str = ""
-        for a in args:
-            if isinstance(a, str) and ("http" in a or "/api/" in a):
-                url_str = a
-                break
-        if not url_str and "url" in kwargs:
-            url_str = str(kwargs["url"])
-
-        if url_str.endswith("/applications"):
-            resp.json.return_value = mock_apps
-        else:
-            resp.json.return_value = mock_app_detail
-        return resp
-
-    def mock_post(*args: object, **kwargs: object) -> MagicMock:
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.json.return_value = {"status": "Synced"}
-        return resp
-
+    The first command turns the global dry run on, and it stays on until the bootstrap step, so
+    the `cd apps` commands send no request. Their live requests have their own tests.
+    """
     sample_wf = tmp_path / "workflow.yaml"
     sample_wf.write_text(
         "apiVersion: argoproj.io/v1alpha1\nkind: Workflow\nmetadata:\n  name: my-wf\n",
@@ -203,9 +181,6 @@ def test_argo_commands_execution(tmp_path: Path) -> None:
     }
 
     with (
-        patch("devops_cli.commands.argo.httpx2.Client.get", side_effect=mock_get),
-        patch("devops_cli.commands.argo.httpx2.Client.post", side_effect=mock_post),
-        patch("devops_cli.commands.argo.load_settings", return_value=mock_settings),
         patch("devops_cli.argo.crd.ArgoCRDService._api", return_value=mock_crd_api),
         patch("devops_cli.watchers.live_resource.LiveResourceWatcher.watch"),
     ):
@@ -220,6 +195,7 @@ def test_argo_commands_execution(tmp_path: Path) -> None:
 
         res_sync = runner.invoke(argo_app, ["cd", "apps", "sync", "guestbook"])
         assert res_sync.exit_code == 0
+        assert web.recorded == []
 
         res_wf_list = runner.invoke(argo_app, ["workflows", "list", "--namespace", "argocd"])
         assert res_wf_list.exit_code == 0
@@ -347,11 +323,9 @@ def test_argo_cd_apps_list_and_status_dry_run() -> None:
         set_dry_run(False)
 
 
-def test_argo_cd_apps_list_and_status_render(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_argo_cd_apps_list_and_status_render(web: WebFake, local_argocd: str) -> None:
     """Verify live rendering for argo cd apps list and status."""
-    import httpx2
-
-    mock_app_data = {
+    app_data = {
         "metadata": {"name": "sample-app"},
         "spec": {
             "project": "default",
@@ -362,46 +336,24 @@ def test_argo_cd_apps_list_and_status_render(monkeypatch: pytest.MonkeyPatch) ->
             "health": {"status": "Healthy"},
         },
     }
+    _serve_argocd(web, {"items": [app_data]}, app_data)
 
-    def fake_get(self: object, url: str, **kwargs: object) -> httpx2.Response:
-        req = httpx2.Request("GET", url)
-        if "/api/v1/applications/sample-app" in url:
-            return httpx2.Response(200, json=mock_app_data, request=req)
-        return httpx2.Response(200, json={"items": [mock_app_data]}, request=req)
+    res_list = runner.invoke(argo_app, ["cd", "apps", "list"])
+    assert res_list.exit_code == 0
+    assert "sample-app" in res_list.output
 
-    monkeypatch.setattr(httpx2.Client, "get", fake_get)
-
-    mock_settings = Settings()
-    mock_settings.argocd.url = "http://localhost:8080"
-    mock_settings.ai.allow_private_network = True
-
-    with patch("devops_cli.commands.argo.load_settings", return_value=mock_settings):
-        res_list = runner.invoke(argo_app, ["cd", "apps", "list"])
-        assert res_list.exit_code == 0
-        assert "sample-app" in res_list.output
-
-        res_status = runner.invoke(argo_app, ["cd", "apps", "status", "sample-app"])
-        assert res_status.exit_code == 0
-        assert "sample-app" in res_status.output
+    res_status = runner.invoke(argo_app, ["cd", "apps", "status", "sample-app"])
+    assert res_status.exit_code == 0
+    assert "sample-app" in res_status.output
 
 
-def test_argo_cd_apps_list_null_items(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_argo_cd_apps_list_null_items(web: WebFake, local_argocd: str) -> None:
     """Verify argo cd apps list handles null items array when zero apps exist (#765)."""
-    import httpx2
+    web.respond("GET", f"{local_argocd}/api/v1/applications", 200, {"metadata": {}, "items": None})
 
-    def fake_get(self: object, url: str, **kwargs: object) -> httpx2.Response:
-        req = httpx2.Request("GET", url)
-        return httpx2.Response(200, json={"metadata": {}, "items": None}, request=req)
+    res = runner.invoke(argo_app, ["cd", "apps", "list"])
 
-    monkeypatch.setattr(httpx2.Client, "get", fake_get)
-
-    mock_settings = Settings()
-    mock_settings.argocd.url = "http://localhost:8080"
-    mock_settings.ai.allow_private_network = True
-
-    with patch("devops_cli.commands.argo.load_settings", return_value=mock_settings):
-        res = runner.invoke(argo_app, ["cd", "apps", "list"])
-        assert (res.exit_code, "ArgoCD Applications" in res.output) == (0, True)
+    assert (res.exit_code, "ArgoCD Applications" in res.output) == (0, True)
 
 
 def test_argo_rollout_state_from_manifest_safe_step() -> None:
@@ -511,32 +463,20 @@ def test_argo_workflows_logs_with_follow(cluster: FakeCluster) -> None:
     )
 
 
-def test_cd_apps_sync_payload_structure() -> None:
+def test_cd_apps_sync_payload_structure(web: WebFake, local_argocd: str) -> None:
     """cd_apps_sync sends top-level prune and strategy.apply.force without a sync wrapper."""
-    mock_settings = Settings()
-    mock_settings.argocd.url = "http://localhost:8080"
-    mock_settings.ai.allow_private_network = True
+    sync_url = f"{local_argocd}/api/v1/applications/guestbook/sync"
+    web.respond("POST", sync_url, 200, {})
 
-    with (
-        patch("devops_cli.commands.argo.load_settings", return_value=mock_settings),
-        patch("httpx2.Client") as mock_client_cls,
-    ):
-        mock_client = MagicMock()
-        mock_client.__enter__.return_value = mock_client
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_client.post.return_value = mock_resp
-        mock_client_cls.return_value = mock_client
+    res = runner.invoke(argo_app, ["cd", "apps", "sync", "guestbook", "--prune", "--force"])
 
-        res = runner.invoke(argo_app, ["cd", "apps", "sync", "guestbook", "--prune", "--force"])
-        assert res.exit_code == 0
-        mock_client.post.assert_called_once()
-        payload = mock_client.post.call_args.kwargs["json"]
-        assert payload == {
-            "prune": True,
-            "strategy": {"apply": {"force": True}},
-        }
-        assert "sync" not in payload
+    assert res.exit_code == 0
+    [sent] = web.recorded
+    assert (sent.method, sent.url, sent.json) == (
+        "POST",
+        sync_url,
+        {"prune": True, "strategy": {"apply": {"force": True}}},
+    )
 
 
 _ARGOCD_COMMANDS = [["list"], ["sync", "web"], ["status", "web"]]
@@ -544,7 +484,7 @@ _ARGOCD_COMMANDS = [["list"], ["sync", "web"], ["status", "web"]]
 
 @pytest.mark.parametrize("command", _ARGOCD_COMMANDS, ids=["list", "sync", "status"])
 def test_a_refused_address_in_the_argocd_token_mint_ends_the_command_with_the_cause(
-    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch, command: list[str]
+    cli: Callable[..., Any], web: WebFake, dns: DnsFake, command: list[str]
 ) -> None:
     """Old vs new (#2424): a failed token mint ends the command with its cause and no traceback.
 
@@ -552,8 +492,7 @@ def test_a_refused_address_in_the_argocd_token_mint_ends_the_command_with_the_ca
     connect of the mint refuses the private answer without the flag, and the mint fails with the
     refusal as its cause. Before, the mint error came out of the command with a traceback.
     """
-    scripted_resolver(monkeypatch, {"example.com": [["192.0.2.10"]]})
-    recorder = record_connects(monkeypatch, [])
+    dns.add("example.com", "192.0.2.10")
 
     result = cli(
         "argo",
@@ -572,21 +511,19 @@ def test_a_refused_address_in_the_argocd_token_mint_ends_the_command_with_the_ca
         type(result.exception),
         "token mint" in result.output,
         "the loopback egress level refuses" in result.output,
-        recorder.dialled,
+        web.recorded,
     ) == (1, SystemExit, True, True, [])
 
 
 @pytest.mark.parametrize("command", _ARGOCD_COMMANDS, ids=["list", "sync", "status"])
 def test_a_k8s_address_in_the_argocd_url_stops_the_command_before_the_token_mint(
-    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch, command: list[str]
+    cli: Callable[..., Any], web: WebFake, dns: DnsFake, command: list[str]
 ) -> None:
     """Old vs new (#2424): the URL check runs before the token mint, and it names the setting.
 
     Before, the command minted the token first, and the URL error of the mint came out of the
     command with a traceback.
     """
-    resolver = scripted_resolver(monkeypatch, {"argocd": [[PUBLIC_ADDRESS]]})
-    recorder = record_connects(monkeypatch, [])
 
     result = cli(
         "argo",
@@ -603,9 +540,9 @@ def test_a_k8s_address_in_the_argocd_url_stops_the_command_before_the_token_mint
         result.exit_code,
         type(result.exception),
         "argocd.url" in result.output,
-        resolver.lookups["argocd"],
-        recorder.dialled,
-    ) == (1, SystemExit, True, 0, [])
+        dns.lookups_of("argocd"),
+        web.recorded,
+    ) == (1, SystemExit, True, [], [])
 
 
 _ARGOCD = "https://argocd.example.com"
@@ -613,13 +550,11 @@ _SYNC_PATH = "/api/v1/applications/web/sync"
 _SESSION_PATH = "/api/v1/session"
 
 
-def _refusing_argocd(stub_web: StubWeb, status: int = 401) -> list[tuple[str, str]]:
+def _refusing_argocd(web: WebFake, status: int = 401) -> list[tuple[str, str]]:
     """Serve an Argo CD that answers `status` to the stored token `stale` and accepts `fresh`.
 
     The session request gives the token `fresh`. Return the log of (path, bearer) pairs.
     """
-    import httpx2
-
     log: list[tuple[str, str]] = []
     application = {
         "metadata": {"name": "web"},
@@ -636,7 +571,7 @@ def _refusing_argocd(stub_web: StubWeb, status: int = 401) -> list[tuple[str, st
             return httpx2.Response(status, json={"error": "invalid session"})
         return httpx2.Response(200, json={"items": [application]})
 
-    stub_web.serve(server)
+    web.serve(server)
     return log
 
 
@@ -649,11 +584,11 @@ def stale_argocd(config: Callable[..., Path], keyring_store: Any) -> Any:
 
 
 def test_sync_replaces_a_refused_token_and_syncs(
-    cli: Callable[..., Any], stub_web: StubWeb, stale_argocd: Any
+    cli: Callable[..., Any], web: WebFake, stale_argocd: Any
 ) -> None:
     """Old vs new (#2576): a 401 with the admin password stored mints a token and syncs."""
     stale_argocd.values["argocd_password"] = "admin-pw"
-    log = _refusing_argocd(stub_web)
+    log = _refusing_argocd(web)
 
     result = cli("argo", "cd", "apps", "sync", "web")
 
@@ -665,10 +600,10 @@ def test_sync_replaces_a_refused_token_and_syncs(
 
 
 def test_sync_with_a_refused_token_and_no_password_tells_how_to_fix_it(
-    cli: Callable[..., Any], stub_web: StubWeb, stale_argocd: Any
+    cli: Callable[..., Any], web: WebFake, stale_argocd: Any
 ) -> None:
     """Old vs new (#2576): before, the 401 left the command as a traceback."""
-    log = _refusing_argocd(stub_web)
+    log = _refusing_argocd(web)
 
     result = cli("argo", "cd", "apps", "sync", "web")
 
@@ -682,11 +617,11 @@ def test_sync_with_a_refused_token_and_no_password_tells_how_to_fix_it(
 
 
 def test_sync_with_another_error_status_ends_with_the_status(
-    cli: Callable[..., Any], stub_web: StubWeb, stale_argocd: Any
+    cli: Callable[..., Any], web: WebFake, stale_argocd: Any
 ) -> None:
     """Old vs new (#2576): an HTTP 500 is one error line with its status, with no traceback."""
     stale_argocd.values["argocd_password"] = "admin-pw"
-    log = _refusing_argocd(stub_web, status=500)
+    log = _refusing_argocd(web, status=500)
 
     result = cli("argo", "cd", "apps", "sync", "web")
 
@@ -699,11 +634,11 @@ def test_sync_with_another_error_status_ends_with_the_status(
 
 
 def test_list_replaces_a_refused_token_and_shows_the_applications(
-    cli: Callable[..., Any], stub_web: StubWeb, stale_argocd: Any
+    cli: Callable[..., Any], web: WebFake, stale_argocd: Any
 ) -> None:
     """Old vs new (#2576): before, the list showed the 401 as its error row."""
     stale_argocd.values["argocd_password"] = "admin-pw"
-    _refusing_argocd(stub_web)
+    _refusing_argocd(web)
 
     result = cli("argo", "cd", "apps", "list")
 
@@ -712,10 +647,10 @@ def test_list_replaces_a_refused_token_and_shows_the_applications(
 
 
 def test_list_with_a_refused_token_and_no_password_names_the_setting(
-    cli: Callable[..., Any], stub_web: StubWeb, stale_argocd: Any
+    cli: Callable[..., Any], web: WebFake, stale_argocd: Any
 ) -> None:
     """The error row of the list tells how to set the token; the list keeps its exit status 0."""
-    _refusing_argocd(stub_web)
+    _refusing_argocd(web)
 
     result = cli("argo", "cd", "apps", "list")
 

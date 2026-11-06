@@ -80,8 +80,8 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.requests import PlannedRequest, both
 from devops_cli.exceptions import ConfigurationError, SSRFBlockedError
 from devops_cli.exceptions.k8s import DoctorCheckError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.models.k8s import DoctorCheck
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -566,8 +566,8 @@ def _tunnel_checks(host: str | None, why: str) -> list[DoctorCheck]:
             _result(name, resource, passed=False, reason=f"not run: {why}")
             for name, resource in not_run
         ]
-    with new_http_client(
-        level=EgressLevel.PUBLIC,
+    with http_client(
+        EgressLevel.PUBLIC,
         timeout=DEFAULT_K8S_DOCTOR_HTTP_TIMEOUT_SECONDS,
         follow_redirects=False,
     ) as client:

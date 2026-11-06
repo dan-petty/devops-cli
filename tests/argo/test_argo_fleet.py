@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -15,6 +19,7 @@ from devops_cli.models.argo import (
     RolloutAnalysisResult,
     RolloutMetricThreshold,
 )
+from tests.support.fakes.http import WebFake
 
 runner = CliRunner()
 
@@ -316,61 +321,47 @@ def test_mcp_argo_fleet_status_resource() -> None:
     assert mock_cmd.call_args.args[0] == ["uv", "run", "devops", "argo", "cd", "apps", "list"]
 
 
-def test_execute_cluster_sync_live() -> None:
-    """Verify _execute_cluster_sync builds expected HTTP request."""
-    from devops_cli.argo.fleet import _execute_cluster_sync
-
-    mock_settings = MagicMock()
-    mock_settings.argocd.url = "https://example.com"
-    mock_settings.ai.allow_private_network = True
-
-    with (
-        patch("devops_cli.argo.fleet.load_settings", return_value=mock_settings),
-        patch("devops_cli.config.settings.get_argocd_token", return_value="test-token"),
-        patch("httpx2.Client") as mock_client_cls,
-    ):
-        mock_client = MagicMock()
-        mock_client.__enter__.return_value = mock_client
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_client.post.return_value = mock_resp
-        mock_client_cls.return_value = mock_client
-
-        _execute_cluster_sync("my-app", "prod-cluster", prune=True, force=True)
-        mock_client.post.assert_called_once()
-        assert "applications/my-app-prod-cluster/sync" in mock_client.post.call_args[0][0]
-        assert mock_client.post.call_args[1]["headers"]["Authorization"] == "Bearer test-token"
-        payload = mock_client.post.call_args[1]["json"]
-        assert payload == {
-            "prune": True,
-            "strategy": {"apply": {"force": True}},
-            "appNamespace": "argocd",
-        }
-        assert "sync" not in payload
+def _fleet_argocd(config: Callable[..., Path], keyring_store: Any, token: str) -> str:
+    """Point devops-cli at a fake Argo CD that stores `token`; return the sync URL of `my-app`."""
+    config(argocd={"url": "https://example.com"}, ai={"allow_private_network": True})
+    keyring_store.values["argocd_token"] = token
+    return "https://example.com/api/v1/applications/my-app-prod-cluster/sync?appNamespace=argocd"
 
 
-def test_execute_cluster_sync_masked_token() -> None:
-    """Verify _execute_cluster_sync omits Authorization header when token is masked."""
-    from devops_cli.argo.fleet import _execute_cluster_sync
+def test_a_fleet_sync_posts_the_sync_request_with_the_stored_token(
+    web: WebFake, config: Callable[..., Path], keyring_store: Any
+) -> None:
+    """A live sync of one target sends one authorized sync request, and the target is Synced."""
+    from devops_cli.argo.fleet import sync_single_target
 
-    mock_settings = MagicMock()
-    mock_settings.argocd.url = "https://example.com"
-    mock_settings.ai.allow_private_network = True
+    url = _fleet_argocd(config, keyring_store, "test-token")
+    web.respond("POST", url, 200, {})
 
-    with (
-        patch("devops_cli.argo.fleet.load_settings", return_value=mock_settings),
-        patch("devops_cli.config.settings.get_argocd_token", return_value="******"),
-        patch("httpx2.Client") as mock_client_cls,
-    ):
-        mock_client = MagicMock()
-        mock_client.__enter__.return_value = mock_client
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_client.post.return_value = mock_resp
-        mock_client_cls.return_value = mock_client
+    target = sync_single_target("my-app", "prod-cluster", prune=True, force=True)
 
-        _execute_cluster_sync("my-app", "prod", prune=False, force=False)
-        assert "Authorization" not in mock_client.post.call_args[1]["headers"]
+    assert (target.status, target.app_name) == ("Synced", "my-app-prod-cluster")
+    [sent] = web.recorded
+    assert (sent.method, sent.url, sent.headers["authorization"], sent.json) == (
+        "POST",
+        url,
+        "Bearer test-token",
+        {"prune": True, "strategy": {"apply": {"force": True}}, "appNamespace": "argocd"},
+    )
+
+
+def test_a_fleet_sync_sends_no_authorization_for_a_masked_token(
+    web: WebFake, config: Callable[..., Path], keyring_store: Any
+) -> None:
+    """A masked token is not a credential, so the sync request carries no Authorization header."""
+    from devops_cli.argo.fleet import sync_single_target
+
+    url = _fleet_argocd(config, keyring_store, "******")
+    web.respond("POST", url, 200, {})
+
+    target = sync_single_target("my-app", "prod-cluster")
+
+    assert target.status == "Synced"
+    assert [("authorization" in request.headers) for request in web.recorded] == [False]
 
 
 def test_execute_cluster_sync_missing_url() -> None:
@@ -397,41 +388,51 @@ def test_rollout_dry_run_modes() -> None:
         mock_api.assert_not_called()
 
 
-def test_fetch_metric_value_branches() -> None:
-    """Verify _fetch_metric_value across configured, error, and missing settings."""
-    from devops_cli.argo.rollouts import _fetch_metric_value
+def _gate_value(metric_query: str = "rate(http_requests[1m])") -> object:
+    """The value that the rollout gate read for one metric, or None when it was unavailable."""
+    from devops_cli.argo.rollouts import evaluate_rollout_gate
 
-    # Case 1: no settings url returns None
-    mock_settings_empty = MagicMock()
-    mock_settings_empty.prometheus.url = ""
-    with patch("devops_cli.config.settings.load_settings", return_value=mock_settings_empty):
-        assert _fetch_metric_value("rate(http_requests[1m])") is None
+    threshold = RolloutMetricThreshold(
+        metric_name="requests", query=metric_query, threshold=10.0, operator="lte"
+    )
+    result = evaluate_rollout_gate("web", thresholds=[threshold], auto_abort=False)
+    return result.metric_results[0]["value"]
 
-    # Case 2: valid response with value
-    mock_settings = MagicMock()
-    mock_settings.prometheus.url = "http://example.com:9090"
-    mock_settings.ai.allow_private_network = True
-    with (
-        patch("devops_cli.config.settings.load_settings", return_value=mock_settings),
-        patch("httpx2.Client") as mock_client_cls,
-    ):
-        mock_client = MagicMock()
-        mock_client.__enter__.return_value = mock_client
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {"data": {"result": [{"value": [1234567, "3.14"]}]}}
-        mock_client.get.return_value = mock_resp
-        mock_client_cls.return_value = mock_client
 
-        val = _fetch_metric_value("rate(http_requests[1m])")
-        assert val == 3.14
+def test_the_rollout_gate_reads_no_metric_without_a_prometheus_url(
+    web: WebFake, config: Callable[..., Path]
+) -> None:
+    """With no Prometheus URL the metric is unavailable and no request is sent."""
+    config(prometheus={"url": None})
 
-    # Case 3: an address that the configured level refuses returns None
-    mock_settings_private = MagicMock()
-    mock_settings_private.prometheus.url = "http://10.0.0.1:9090"
-    mock_settings_private.ai.allow_private_network = False
-    with patch("devops_cli.config.settings.load_settings", return_value=mock_settings_private):
-        assert _fetch_metric_value("rate(http_requests[1m])") is None
+    assert (_gate_value(), web.recorded) == (None, [])
+
+
+def test_the_rollout_gate_reads_the_value_of_a_prometheus_answer(
+    web: WebFake, config: Callable[..., Path]
+) -> None:
+    """The gate takes the first sample of an instant query answer as the metric value."""
+    config(prometheus={"url": "http://example.com:9090"}, ai={"allow_private_network": True})
+
+    def prometheus(request: httpx2.Request) -> httpx2.Response | None:
+        if request.url.path != "/api/v1/query":
+            return None
+        return httpx2.Response(200, json={"data": {"result": [{"value": [1234567, "3.14"]}]}})
+
+    web.serve(prometheus)
+
+    assert _gate_value() == 3.14
+    assert [request.url.params["query"] for request in web.sent] == ["rate(http_requests[1m])"]
+
+
+def test_the_rollout_gate_reads_no_metric_from_an_address_the_level_refuses(
+    web: WebFake, config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A private address with `ai.allow_private_network` off leaves the metric unavailable."""
+    monkeypatch.setenv("DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK", "false")
+    config(prometheus={"url": "http://10.0.0.1:9090"}, ai={"allow_private_network": False})
+
+    assert (_gate_value(), web.recorded) == (None, [])
 
 
 def test_compare_metric_operators() -> None:

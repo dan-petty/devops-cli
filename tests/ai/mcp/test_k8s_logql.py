@@ -6,16 +6,16 @@ import json
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+import httpx2
 import pytest
-
-from tests.web_fakes import PUBLIC_ADDRESS, http_response, record_connects, scripted_resolver
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Any
 
+    from tests.support.fakes.dns import DnsFake
+    from tests.support.fakes.http import WebFake
     from tests.support.fakes.process import ProcessFake
-    from tests.web_fakes import StubWeb
 
 from devops_cli.k8s.logql import (
     FilterOp,
@@ -159,11 +159,9 @@ def test_execute_kubectl_logql_fallback(process_fake: ProcessFake) -> None:
     assert res.entries[0].trace_id == "4bf92f3577b34da6a3ce929d0e0e4736"
 
 
-def test_execute_loki_query_success(stub_web: StubWeb) -> None:
+def test_execute_loki_query_success(web: WebFake) -> None:
     """Test querying Loki REST API successfully."""
-    import httpx2
-
-    stub_web.serve(
+    web.serve(
         lambda req: httpx2.Response(
             200,
             json={
@@ -205,13 +203,11 @@ def test_execute_logql_query_dry_run() -> None:
     assert res.entries[0].trace_id is not None
 
 
-def test_execute_loki_query_http_400_raises_domain_exception(stub_web: StubWeb) -> None:
+def test_execute_loki_query_http_400_raises_domain_exception(web: WebFake) -> None:
     """Test execute_loki_query raises KubernetesLoggingError on HTTP 400 and does not swallow it."""
-    import httpx2
-
     from devops_cli.exceptions.k8s import KubernetesLoggingError
 
-    stub_web.serve(lambda req: httpx2.Response(400, text="parse error : syntax error"))
+    web.serve(lambda req: httpx2.Response(400, text="parse error : syntax error"))
     query = parse_logql_query('{app="bad"}')
     with pytest.raises(KubernetesLoggingError) as exc_info:
         execute_loki_query(query, loki_url="http://localhost:3100")
@@ -219,13 +215,11 @@ def test_execute_loki_query_http_400_raises_domain_exception(stub_web: StubWeb) 
     assert "Invalid LogQL query" in str(exc_info.value)
 
 
-def test_execute_logql_query_propagates_bad_query_error(stub_web: StubWeb) -> None:
+def test_execute_logql_query_propagates_bad_query_error(web: WebFake) -> None:
     """Test execute_logql_query propagates KubernetesLoggingError and does not mask with kubectl fallback."""
-    import httpx2
-
     from devops_cli.exceptions.k8s import KubernetesLoggingError
 
-    stub_web.serve(lambda req: httpx2.Response(400, text="unsupported operation"))
+    web.serve(lambda req: httpx2.Response(400, text="unsupported operation"))
     query = parse_logql_query('{app="bad"}')
     with pytest.raises(KubernetesLoggingError) as raised:
         execute_logql_query(query, loki_url="http://localhost:3100")
@@ -326,11 +320,9 @@ def test_execute_kubectl_logql_rejects_invalid_namespace_or_pod() -> None:
         execute_kubectl_logql(bad_pod_query, namespace="default")
 
 
-def test_execute_loki_query_byte_for_byte_passthrough_and_since(stub_web: StubWeb) -> None:
+def test_execute_loki_query_byte_for_byte_passthrough_and_since(web: WebFake) -> None:
     """The query and duration parameters recorded at the HTTP fake reach Loki unchanged."""
-    import httpx2
-
-    stub_web.serve(
+    web.serve(
         lambda req: httpx2.Response(
             200,
             json={
@@ -343,8 +335,8 @@ def test_execute_loki_query_byte_for_byte_passthrough_and_since(stub_web: StubWe
     parsed = parse_logql_query(raw_query)
     execute_loki_query(parsed, loki_url="http://localhost:3100", since="1h30m", limit=75)
 
-    assert len(stub_web.sent) == 1
-    req = stub_web.sent[0]
+    assert len(web.sent) == 1
+    req = web.sent[0]
     assert req.url.params["query"] == raw_query
     assert req.url.params["since"] == "1h30m"
     assert req.url.params["limit"] == "75"
@@ -353,11 +345,9 @@ def test_execute_loki_query_byte_for_byte_passthrough_and_since(stub_web: StubWe
     assert "end" not in req.url.params
 
 
-def test_execute_logql_query_preserves_query_with_and_without_namespace(stub_web: StubWeb) -> None:
+def test_execute_logql_query_preserves_query_with_and_without_namespace(web: WebFake) -> None:
     """The query recorded at the HTTP fake equals the input byte for byte with and without --namespace."""
-    import httpx2
-
-    stub_web.serve(
+    web.serve(
         lambda req: httpx2.Response(
             200,
             json={
@@ -368,14 +358,14 @@ def test_execute_logql_query_preserves_query_with_and_without_namespace(stub_web
     )
     query_without_ns = '{app=~"api.*"} |= "error"'
     execute_logql_query(query_without_ns, loki_url="http://localhost:3100")
-    assert stub_web.sent[-1].url.params["query"] == query_without_ns
+    assert web.sent[-1].url.params["query"] == query_without_ns
 
     query_with_ns = '{app=~"api.*", namespace="prod"} |= "error"'
     execute_logql_query(query_with_ns, namespace="prod", loki_url="http://localhost:3100")
-    assert stub_web.sent[-1].url.params["query"] == query_with_ns
+    assert web.sent[-1].url.params["query"] == query_with_ns
 
 
-def test_execute_logql_query_missing_namespace_fails_before_request(stub_web: StubWeb) -> None:
+def test_execute_logql_query_missing_namespace_fails_before_request(web: WebFake) -> None:
     """A missing namespace fails before any request and prints the selector to use."""
     from devops_cli.exceptions.k8s import KubernetesLoggingError
 
@@ -384,7 +374,7 @@ def test_execute_logql_query_missing_namespace_fails_before_request(stub_web: St
             '{app="api"} |= "error"', namespace="prod", loki_url="http://localhost:3100"
         )
 
-    assert len(stub_web.sent) == 0
+    assert len(web.sent) == 0
     message = str(exc_info.value)
     assert "prod" in message
     assert '{app="api", namespace="prod"}' in message
@@ -510,15 +500,15 @@ class TestLogsToolTakesNoLokiUrlFromTheModel:
         ids=["loopback", "host in a private range"],
     )
     async def test_a_loki_url_argument_is_refused_and_reaches_no_socket(
-        self, monkeypatch: pytest.MonkeyPatch, loki_url: str
+        self, web: WebFake, dns: DnsFake, loki_url: str
     ) -> None:
         """A call that gives a URL fails, no request is sent, and no answer text comes back.
 
         On `origin/main` the client dialled port 8200 at the private level, wrote
         `GET /v1/sys/seal-status?query=...`, and the tool error held the text of the answer.
         """
-        scripted_resolver(monkeypatch, {"example.com": [["192.0.2.10"]]})
-        recorder = record_connects(monkeypatch, [http_response(500, "MARKER-2635-answer-text")] * 4)
+        dns.add("example.com", "192.0.2.10")
+        web.serve(lambda _request: httpx2.Response(500, text="MARKER-2635-answer-text"))
 
         failed, reply = await _call_logs_tool({"query": '{namespace="a"}', "loki_url": loki_url})
 
@@ -526,42 +516,39 @@ class TestLogsToolTakesNoLokiUrlFromTheModel:
             failed,
             "1. Parameter: `loki_url`\n   Kind: HALLUCINATED_PARAM\n" in reply,
             "MARKER-2635-answer-text" in reply,
-            [dial for dial in recorder.dialled if dial[1] == 8200],
+            [request.url for request in web.recorded if ":8200" in request.url],
         ) == (True, True, False, [])
 
-    async def test_a_call_with_no_url_queries_the_default_loki(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_a_call_with_no_url_queries_the_default_loki(self, web: WebFake) -> None:
         """The query goes to `localhost:3100`, as it goes for a person who gives no `--loki-url`."""
-        scripted_resolver(monkeypatch, {"localhost": [["127.0.0.1"]]})
-        recorder = record_connects(monkeypatch, [http_response(200, LOKI_ANSWER)])
+        web.serve(lambda _request: httpx2.Response(200, text=LOKI_ANSWER))
 
         failed, reply = await _call_logs_tool({"query": '{app="web"}'})
 
-        loki = [
-            bytes(written).split(b" HTTP/1.1")[0]
-            for dialled, written in zip(recorder.dialled, recorder.written, strict=True)
-            if dialled == ("127.0.0.1", 3100)
-        ]
-        assert (failed, loki, "LOG-LINE-2635 from the default loki" in reply) == (
+        assert (
+            failed,
+            [(request.method, request.url) for request in web.recorded],
+            "LOG-LINE-2635 from the default loki" in reply,
+        ) == (
             False,
             [
-                b"GET /loki/api/v1/query_range?query=%7Bapp%3D%22web%22%7D&limit=100&since=1h&direction=BACKWARD"
+                (
+                    "GET",
+                    "http://localhost:3100/loki/api/v1/query_range"
+                    "?query=%7Bapp%3D%22web%22%7D&limit=100&since=1h&direction=BACKWARD",
+                )
             ],
             True,
         )
 
 
-def test_the_command_keeps_its_loki_url_option(
-    monkeypatch: pytest.MonkeyPatch, cli: Callable[..., Any]
-) -> None:
+def test_the_command_keeps_its_loki_url_option(web: WebFake, cli: Callable[..., Any]) -> None:
     """A person who types `--loki-url` still names the Loki that the command queries."""
-    scripted_resolver(monkeypatch, {"example.com": [[PUBLIC_ADDRESS]]})
-    recorder = record_connects(monkeypatch, [http_response(200, LOKI_ANSWER)])
+    web.serve(lambda _request: httpx2.Response(200, text=LOKI_ANSWER))
 
     result = cli("k8s", "logs", '{app="web"}', "--loki-url", "http://example.com:3100")
 
-    assert (result.exit_code, [dial for dial in recorder.dialled if dial[0] == PUBLIC_ADDRESS]) == (
+    assert (result.exit_code, [request.url.split("?")[0] for request in web.recorded]) == (
         0,
-        [(PUBLIC_ADDRESS, 3100)],
+        ["http://example.com:3100/loki/api/v1/query_range"],
     )

@@ -9,10 +9,10 @@ from __future__ import annotations
 import json
 import socket
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -38,6 +38,8 @@ from devops_cli.commands.argo import (
 )
 from devops_cli.dry_run import get_dry_run_class
 from devops_cli.main import app
+from tests.support.fakes.dns import DnsFake
+from tests.support.fakes.http import WebFake
 
 runner = CliRunner()
 
@@ -119,8 +121,11 @@ NO_EXTERNAL_REQUEST_COMMANDS = [
 
 
 @pytest.fixture
-def block_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure no real subprocess, socket, HTTP client, or Kubernetes client execution occurs during dry run."""
+def block_external_calls(
+    monkeypatch: pytest.MonkeyPatch, web: WebFake, dns: DnsFake
+) -> Iterator[None]:
+    """Ensure no real subprocess, socket, HTTP request, DNS lookup, or Kubernetes client call
+    occurs during dry run. The fakes of the web and the DNS record what the test sent."""
 
     def _fail_process(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError(f"Unexpected process invocation: {args}, {kwargs}")
@@ -128,18 +133,12 @@ def block_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     def _fail_socket(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError(f"Unexpected socket call: {args}, {kwargs}")
 
-    def _fail_http(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError(f"Unexpected HTTP request: {args}, {kwargs}")
-
     def _fail_k8s(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError(f"Unexpected Kubernetes API call: {args}, {kwargs}")
 
     monkeypatch.setattr(subprocess, "run", _fail_process)
     monkeypatch.setattr(subprocess, "Popen", _fail_process)
     monkeypatch.setattr(socket.socket, "connect", _fail_socket)
-    monkeypatch.setattr(socket, "getaddrinfo", _fail_socket)
-    monkeypatch.setattr(httpx2.Client, "send", _fail_http)
-    monkeypatch.setattr(httpx2.Client, "request", _fail_http)
     monkeypatch.setattr(
         "devops_cli.argo.crd.ArgoCRDService._api",
         _fail_k8s,
@@ -148,6 +147,8 @@ def block_external_calls(monkeypatch: pytest.MonkeyPatch) -> None:
         "devops_cli.k8s.service.KubernetesService.read_pod_logs",
         _fail_k8s,
     )
+    yield
+    assert (web.recorded, dns.lookups) == ([], [])
 
 
 def test_command_dry_run_class_declarations() -> None:

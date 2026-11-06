@@ -22,8 +22,8 @@ from devops_cli.core.validation import is_valid_k8s_name
 from devops_cli.dry_run import is_dry_run, render_dry_run_result
 from devops_cli.exceptions import ValidationError
 from devops_cli.exceptions.k8s import KubernetesLoggingError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.telemetry.tracer import trace_span
 
 logger = logging.getLogger(__name__)
@@ -393,7 +393,7 @@ def execute_loki_query(
         "direction": "BACKWARD",
     }
     try:
-        with new_http_client(level=EgressLevel.PRIVATE, timeout=10.0) as client:
+        with http_client(EgressLevel.PRIVATE, timeout=10.0) as client:
             resp = client.get(endpoint, params=params)
     except (httpx2.ConnectError, httpx2.ConnectTimeout, httpx2.NetworkError) as conn_err:
         raise ConnectionError(f"Loki connection failed: {conn_err}") from conn_err

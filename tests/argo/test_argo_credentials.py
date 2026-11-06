@@ -1,6 +1,6 @@
 """`argocd_api_request` replaces a token that Argo CD refuses, one time (#2576).
 
-Argo CD is faked at the HTTP edge with `stub_web`, and the keyring with `keyring_store`. No test
+Argo CD is faked at the HTTP edge with `web`, and the keyring with `keyring_store`. No test
 patches a devops-cli name. Each test reads the `Authorization` header of each request, so it
 can tell the stored token from the new one.
 """
@@ -19,9 +19,9 @@ from devops_cli.config.settings import Settings, load_settings
 from devops_cli.exceptions.argo import ArgoError
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.k8s import StackCredentialError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import configured_level
-from tests.web_fakes import StubWeb
+from devops_cli.http.entry import http_client
+from tests.support.fakes.http import WebFake
 
 ARGOCD = "https://argocd.example.com"
 APPLICATIONS = f"{ARGOCD}/api/v1/applications"
@@ -37,7 +37,7 @@ def settings(config: Callable[..., Path], keyring_store: Any) -> Settings:
 
 
 def _argocd(
-    stub_web: StubWeb, *, data: Callable[[str], int], session: int = 200
+    web: WebFake, *, data: Callable[[str], int], session: int = 200
 ) -> list[tuple[str, str]]:
     """Serve Argo CD: `data` gives the status of a data request for its bearer token, and the
     session request answers `session` with the token `fresh`. Return the log of requests as
@@ -51,13 +51,13 @@ def _argocd(
             return httpx2.Response(session, json={"token": "fresh"} if session == 200 else {})
         return httpx2.Response(data(bearer), json={"items": []})
 
-    stub_web.serve(server)
+    web.serve(server)
     return log
 
 
 def _request(settings: Settings) -> httpx2.Response:
     headers = {"Content-Type": "application/json", "Authorization": "Bearer stale"}
-    with new_http_client(level=configured_level(settings.ai)) as client:
+    with http_client(configured_level(settings.ai)) as client:
         return argocd_api_request(
             settings, headers, lambda sent: client.get(APPLICATIONS, headers=sent)
         )
@@ -68,11 +68,11 @@ def _only_fresh(bearer: str) -> int:
 
 
 def test_a_refused_token_is_replaced_and_the_request_is_sent_again(
-    settings: Settings, stub_web: StubWeb, keyring_store: Any
+    settings: Settings, web: WebFake, keyring_store: Any
 ) -> None:
     """With the admin password stored, a 401 mints a new token, stores it and retries once."""
     keyring_store.values["argocd_password"] = "admin-pw"
-    log = _argocd(stub_web, data=_only_fresh)
+    log = _argocd(web, data=_only_fresh)
 
     response = _request(settings)
 
@@ -88,10 +88,10 @@ def test_a_refused_token_is_replaced_and_the_request_is_sent_again(
 
 
 def test_a_refused_token_with_no_password_names_the_setting_and_the_command(
-    settings: Settings, stub_web: StubWeb
+    settings: Settings, web: WebFake
 ) -> None:
     """With no admin password, a 401 is one ArgoError that tells how to set the token."""
-    log = _argocd(stub_web, data=_only_fresh)
+    log = _argocd(web, data=_only_fresh)
 
     with pytest.raises(ArgoError) as caught:
         _request(settings)
@@ -106,11 +106,11 @@ def test_a_refused_token_with_no_password_names_the_setting_and_the_command(
 
 
 def test_a_refused_new_token_ends_the_request(
-    settings: Settings, stub_web: StubWeb, keyring_store: Any
+    settings: Settings, web: WebFake, keyring_store: Any
 ) -> None:
     """The request is sent two times at most: a 401 for the new token is an ArgoError."""
     keyring_store.values["argocd_password"] = "admin-pw"
-    log = _argocd(stub_web, data=lambda _bearer: 401)
+    log = _argocd(web, data=lambda _bearer: 401)
 
     with pytest.raises(ArgoError, match="401"):
         _request(settings)
@@ -124,11 +124,11 @@ def test_a_refused_new_token_ends_the_request(
 
 @pytest.mark.parametrize("status", [403, 500])
 def test_another_error_status_ends_the_request_with_no_mint(
-    settings: Settings, stub_web: StubWeb, keyring_store: Any, status: int
+    settings: Settings, web: WebFake, keyring_store: Any, status: int
 ) -> None:
     """A 403 is an RBAC denial of a valid session, so only 401 mints a new token."""
     keyring_store.values["argocd_password"] = "admin-pw"
-    log = _argocd(stub_web, data=lambda _bearer: status)
+    log = _argocd(web, data=lambda _bearer: status)
 
     with pytest.raises(ArgoError, match=f"HTTP {status}"):
         _request(settings)
@@ -136,8 +136,8 @@ def test_another_error_status_ends_the_request_with_no_mint(
     assert log == [("/api/v1/applications", "stale")]
 
 
-def test_an_accepted_token_sends_one_request(settings: Settings, stub_web: StubWeb) -> None:
-    log = _argocd(stub_web, data=lambda _bearer: 200)
+def test_an_accepted_token_sends_one_request(settings: Settings, web: WebFake) -> None:
+    log = _argocd(web, data=lambda _bearer: 200)
 
     response = _request(settings)
 
@@ -145,11 +145,11 @@ def test_an_accepted_token_sends_one_request(settings: Settings, stub_web: StubW
 
 
 def test_a_refused_admin_session_ends_the_request_with_its_cause(
-    settings: Settings, stub_web: StubWeb, keyring_store: Any
+    settings: Settings, web: WebFake, keyring_store: Any
 ) -> None:
     """The error of the mint leaves the helper as it is: a DevOpsCLIError with its cause."""
     keyring_store.values["argocd_password"] = "admin-pw"
-    _argocd(stub_web, data=_only_fresh, session=401)
+    _argocd(web, data=_only_fresh, session=401)
 
     with pytest.raises(StackCredentialError, match="refused the admin session") as caught:
         _request(settings)

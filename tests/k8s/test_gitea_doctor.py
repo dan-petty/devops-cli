@@ -1,6 +1,6 @@
 """The checks of the live Gitea stack that `devops k8s doctor --stack gitea` runs (#2187).
 
-kubectl goes to the process fake and Gitea's HTTP answers to the stub web, so no test starts a
+kubectl goes to the process fake and Gitea HTTP answers to the web fake, so no test starts a
 program or reaches a network. `GiteaServer` answers as Gitea 1.27.3 answers through the tunnel
 host: it makes a repository under the name in the body of the create, so it serves the delete of
 a name that only the run knows.
@@ -21,9 +21,9 @@ import pytest
 
 from devops_cli.k8s.gitea_doctor import run_gitea_checks
 from devops_cli.models.k8s import DoctorCheck
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
-from tests.web_fakes import StubWeb
 
 HOST = "example.com"
 PASSWORD = "gitea-admin-password-0001"
@@ -48,7 +48,7 @@ EGRESS_PROBE = (
 )
 REFUSED_CONNECT = "curl: (7) Failed to connect to github.com port 443: Could not connect to server"
 
-pytestmark = pytest.mark.usefixtures("public_dns")
+pytestmark = pytest.mark.usefixtures("web")
 
 
 def _application(sync: str = "Synced", health: str = "Healthy") -> str:
@@ -200,19 +200,19 @@ def keyring_with_password(keyring_store: FakeKeyring) -> FakeKeyring:
 
 def _run(
     process_fake: ProcessFake,
-    stub_web: StubWeb,
+    web: WebFake,
     cluster: Cluster | None = None,
     server: GiteaServer | None = None,
 ) -> tuple[list[DoctorCheck], GiteaServer]:
     gitea = server or GiteaServer()
     (cluster or Cluster()).install(process_fake)
-    stub_web.serve(gitea)
+    web.serve(gitea)
     return run_gitea_checks(context=None), gitea
 
 
-def _repository(stub_web: StubWeb) -> str:
+def _repository(web: WebFake) -> str:
     """The name of the temporary repository, read from the body of the create."""
-    creates = [r for r in stub_web.sent if r.method == "POST"]
+    creates = [r for r in web.sent if r.method == "POST"]
     return str(json.loads(creates[0].content)["name"])
 
 
@@ -225,12 +225,10 @@ def _passed(name: str, resource: str, reason: str) -> DoctorCheck:
 
 
 @pytest.mark.usefixtures("keyring_with_password")
-def test_a_healthy_gitea_stack_passes_every_check(
-    process_fake: ProcessFake, stub_web: StubWeb
-) -> None:
+def test_a_healthy_gitea_stack_passes_every_check(process_fake: ProcessFake, web: WebFake) -> None:
     """Every check passes, with its reason, and the temporary repository is gone at the end."""
-    checks, gitea = _run(process_fake, stub_web)
-    name = _repository(stub_web)
+    checks, gitea = _run(process_fake, web)
+    name = _repository(web)
 
     assert checks == [
         _passed("application-gitea", "Application/argocd/gitea", "Synced and Healthy"),
@@ -276,11 +274,11 @@ def test_a_healthy_gitea_stack_passes_every_check(
 
 @pytest.mark.usefixtures("keyring_with_password")
 def test_the_checks_read_the_cluster_with_kubectl_and_reach_only_the_ingress_host(
-    process_fake: ProcessFake, stub_web: StubWeb
+    process_fake: ProcessFake, web: WebFake
 ) -> None:
     """kubectl reads each object once, and every request goes to the host of the live Ingress."""
-    _run(process_fake, stub_web)
-    name = _repository(stub_web)
+    _run(process_fake, web)
+    name = _repository(web)
 
     get = ["kubectl", "get"]
     assert [list(call.argv) for call in process_fake.calls] == [
@@ -292,14 +290,14 @@ def test_the_checks_read_the_cluster_with_kubectl_and_reach_only_the_ingress_hos
         [*get, "ingress", "gitea-ingress", "-n", "gitea", "-o", "json"],
         list(EGRESS_PROBE),
     ]
-    assert [(r.method, str(r.url)) for r in stub_web.sent] == [
+    assert [(r.method, str(r.url)) for r in web.sent] == [
         ("GET", f"https://{HOST}/user/login"),
         ("GET", f"https://{HOST}/api/v1/repos/search"),
         ("GET", f"https://{HOST}/v2/"),
         ("POST", f"https://{HOST}/api/v1/user/repos"),
         ("DELETE", f"https://{HOST}/api/v1/repos/gitea_admin/{name}"),
     ]
-    create = json.loads(stub_web.sent[3].content)
+    create = json.loads(web.sent[3].content)
     assert create == {
         "name": name,
         "private": True,
@@ -385,10 +383,10 @@ def _no_host(reason: str) -> dict[str, str]:
     ],
 )
 def test_a_broken_cluster_object_fails_its_check(
-    process_fake: ProcessFake, stub_web: StubWeb, cluster: Cluster, expected: dict[str, str]
+    process_fake: ProcessFake, web: WebFake, cluster: Cluster, expected: dict[str, str]
 ) -> None:
     """One broken object fails its own check, with the reason, and the others still pass."""
-    checks, gitea = _run(process_fake, stub_web, cluster=cluster)
+    checks, gitea = _run(process_fake, web, cluster=cluster)
 
     assert _failures(checks) == expected
     assert gitea.repositories == set()
@@ -396,11 +394,11 @@ def test_a_broken_cluster_object_fails_its_check(
 
 @pytest.mark.usefixtures("keyring_with_password")
 def test_a_kubectl_failure_fails_its_check_with_kubectl_s_error(
-    process_fake: ProcessFake, stub_web: StubWeb
+    process_fake: ProcessFake, web: WebFake
 ) -> None:
     """A missing object fails its check with kubectl's own words; the next checks still run."""
     Cluster().install(process_fake)
-    stub_web.serve(GiteaServer())
+    web.serve(GiteaServer())
     not_found = 'Error from server (NotFound): applications.argoproj.io "gitea-manifests" not found'
     process_fake.answer(
         ("kubectl", "get", "applications.argoproj.io", "gitea-manifests"),
@@ -430,11 +428,11 @@ def test_a_kubectl_failure_fails_its_check_with_kubectl_s_error(
     ],
 )
 def test_a_kubectl_read_with_no_object_fails_its_check(
-    process_fake: ProcessFake, stub_web: StubWeb, answer: ProcessAnswer, expected: str
+    process_fake: ProcessFake, web: WebFake, answer: ProcessAnswer, expected: str
 ) -> None:
     """A read that gives no object fails its own check with what went wrong."""
     Cluster().install(process_fake)
-    stub_web.serve(GiteaServer())
+    web.serve(GiteaServer())
     process_fake.answer(("kubectl", "get", "persistentvolumeclaim"), answer)
 
     checks = run_gitea_checks(context=None)
@@ -498,10 +496,10 @@ def test_a_kubectl_read_with_no_object_fails_its_check(
     ],
 )
 def test_a_wrong_answer_through_the_tunnel_fails_its_check(
-    process_fake: ProcessFake, stub_web: StubWeb, server: GiteaServer, expected: dict[str, str]
+    process_fake: ProcessFake, web: WebFake, server: GiteaServer, expected: dict[str, str]
 ) -> None:
     """One wrong answer of Gitea fails its own check, with the reason."""
-    checks, gitea = _run(process_fake, stub_web, server=server)
+    checks, gitea = _run(process_fake, web, server=server)
 
     assert _failures(checks) == expected
     assert gitea.repositories == set()
@@ -531,11 +529,11 @@ def test_a_wrong_answer_through_the_tunnel_fails_its_check(
     ],
 )
 def test_the_temporary_repository_is_deleted_when_the_clone_url_check_fails(
-    process_fake: ProcessFake, stub_web: StubWeb, server: GiteaServer, expected: str
+    process_fake: ProcessFake, web: WebFake, server: GiteaServer, expected: str
 ) -> None:
     """A wrong clone URL fails the check, and the repository is deleted all the same."""
-    checks, gitea = _run(process_fake, stub_web, server=server)
-    name = _repository(stub_web)
+    checks, gitea = _run(process_fake, web, server=server)
+    name = _repository(web)
 
     assert _failures(checks) == {
         "clone-url": expected.format(in_cluster=IN_CLUSTER_HOST, host=HOST, name=name)
@@ -552,17 +550,17 @@ def test_the_temporary_repository_is_deleted_when_the_clone_url_check_fails(
 
 @pytest.mark.usefixtures("keyring_with_password")
 def test_the_temporary_repository_is_deleted_when_the_create_gets_no_answer(
-    process_fake: ProcessFake, stub_web: StubWeb
+    process_fake: ProcessFake, web: WebFake
 ) -> None:
     """A create whose answer is lost may have made the repository, so the delete is sent."""
     server = GiteaServer(create_error=httpx2.ReadTimeout("The read operation timed out"))
-    checks, gitea = _run(process_fake, stub_web, server=server)
-    name = _repository(stub_web)
+    checks, gitea = _run(process_fake, web, server=server)
+    name = _repository(web)
 
     assert _failures(checks) == {
         "clone-url": "POST /api/v1/user/repos failed: ReadTimeout: The read operation timed out"
     }
-    assert [(r.method, r.url.path) for r in stub_web.sent][-1] == (
+    assert [(r.method, r.url.path) for r in web.sent][-1] == (
         "DELETE",
         f"/api/v1/repos/gitea_admin/{name}",
     )
@@ -571,11 +569,11 @@ def test_the_temporary_repository_is_deleted_when_the_create_gets_no_answer(
 
 @pytest.mark.usefixtures("keyring_with_password")
 def test_a_failed_delete_fails_its_check_and_names_the_repository(
-    process_fake: ProcessFake, stub_web: StubWeb
+    process_fake: ProcessFake, web: WebFake
 ) -> None:
     """A repository that Gitea does not delete is named, so that a person can delete it."""
-    checks, _ = _run(process_fake, stub_web, server=GiteaServer(delete_status=500))
-    name = _repository(stub_web)
+    checks, _ = _run(process_fake, web, server=GiteaServer(delete_status=500))
+    name = _repository(web)
 
     assert _failures(checks) == {
         "temporary-repository-deleted": (
@@ -586,36 +584,36 @@ def test_a_failed_delete_fails_its_check_and_names_the_repository(
 
 @pytest.mark.usefixtures("keyring_with_password")
 def test_a_refused_create_makes_no_repository_and_sends_no_delete(
-    process_fake: ProcessFake, stub_web: StubWeb
+    process_fake: ProcessFake, web: WebFake
 ) -> None:
     """A create that Gitea refuses made nothing, so no delete goes to a name it did not make."""
-    checks, _ = _run(process_fake, stub_web, server=GiteaServer(create_status=422))
+    checks, _ = _run(process_fake, web, server=GiteaServer(create_status=422))
 
     assert _failures(checks) == {"clone-url": "POST /api/v1/user/repos answers 422: refused"}
-    assert [r.method for r in stub_web.sent] == ["GET", "GET", "GET", "POST"]
+    assert [r.method for r in web.sent] == ["GET", "GET", "GET", "POST"]
     assert "temporary-repository-deleted" not in {c.name for c in checks}
 
 
 @pytest.mark.usefixtures("keyring_with_password")
 def test_an_error_page_for_the_create_names_its_status(
-    process_fake: ProcessFake, stub_web: StubWeb
+    process_fake: ProcessFake, web: WebFake
 ) -> None:
     """A create that gets an error page in place of Gitea's JSON fails with the status."""
     server = GiteaServer(create_status=500, create_page="<html>Internal Server Error</html>")
-    checks, _ = _run(process_fake, stub_web, server=server)
+    checks, _ = _run(process_fake, web, server=server)
 
     assert _failures(checks) == {
         "clone-url": "POST /api/v1/user/repos answers 500: Internal Server Error"
     }
-    assert [r.method for r in stub_web.sent] == ["GET", "GET", "GET", "POST"]
+    assert [r.method for r in web.sent] == ["GET", "GET", "GET", "POST"]
 
 
 @pytest.mark.usefixtures("keyring_with_password")
 def test_a_made_repository_with_no_json_answer_is_deleted(
-    process_fake: ProcessFake, stub_web: StubWeb
+    process_fake: ProcessFake, web: WebFake
 ) -> None:
     """A 201 with no JSON fails the clone-URL check, and the repository is deleted."""
-    checks, gitea = _run(process_fake, stub_web, server=GiteaServer(create_page="made"))
+    checks, gitea = _run(process_fake, web, server=GiteaServer(create_page="made"))
 
     assert _failures(checks) == {"clone-url": "POST /api/v1/user/repos answers 201 with no JSON"}
     assert gitea.repositories == set()
@@ -623,14 +621,14 @@ def test_a_made_repository_with_no_json_answer_is_deleted(
 
 @pytest.mark.usefixtures("keyring_with_password")
 def test_a_delete_after_a_lost_create_passes_when_gitea_made_nothing(
-    process_fake: ProcessFake, stub_web: StubWeb
+    process_fake: ProcessFake, web: WebFake
 ) -> None:
     """A delete after a lost create finds no repository, and nothing is left behind."""
     server = GiteaServer(
         create_error=httpx2.ConnectError("Connection reset by peer"), made_before_error=False
     )
-    checks, _ = _run(process_fake, stub_web, server=server)
-    name = _repository(stub_web)
+    checks, _ = _run(process_fake, web, server=server)
+    name = _repository(web)
 
     assert [c for c in checks if c.name == "temporary-repository-deleted"] == [
         _passed(
@@ -643,11 +641,11 @@ def test_a_delete_after_a_lost_create_passes_when_gitea_made_nothing(
 
 @pytest.mark.usefixtures("keyring_with_password")
 def test_an_empty_ssh_url_passes_the_clone_url_check(
-    process_fake: ProcessFake, stub_web: StubWeb
+    process_fake: ProcessFake, web: WebFake
 ) -> None:
     """A repository with no SSH URL passes: nothing names the tunnel host for SSH."""
-    checks, _ = _run(process_fake, stub_web, server=GiteaServer(ssh_host=""))
-    name = _repository(stub_web)
+    checks, _ = _run(process_fake, web, server=GiteaServer(ssh_host=""))
+    name = _repository(web)
 
     assert [c.reason for c in checks if c.name == "clone-url"] == [
         f"clone_url https://{HOST}/gitea_admin/{name}.git is under https://{HOST}/, and "
@@ -656,10 +654,10 @@ def test_an_empty_ssh_url_passes_the_clone_url_check(
 
 
 def test_without_the_admin_password_no_repository_is_made(
-    process_fake: ProcessFake, stub_web: StubWeb, keyring_store: FakeKeyring
+    process_fake: ProcessFake, web: WebFake, keyring_store: FakeKeyring
 ) -> None:
     """An empty keyring fails the clone-URL check, names the setting, and sends no create."""
-    checks, _ = _run(process_fake, stub_web)
+    checks, _ = _run(process_fake, web)
 
     assert _failures(checks) == {
         "clone-url": (
@@ -667,20 +665,20 @@ def test_without_the_admin_password_no_repository_is_made(
             "`devops config set gitea.admin_password`"
         )
     }
-    assert [r.method for r in stub_web.sent] == ["GET", "GET", "GET"]
+    assert [r.method for r in web.sent] == ["GET", "GET", "GET"]
     assert "gitea_admin_password" in keyring_store.reads
 
 
 @pytest.mark.usefixtures("keyring_with_password")
 def test_an_unknown_key_fails_only_the_clone_url_check(
-    process_fake: ProcessFake, stub_web: StubWeb, config: Callable[..., Any]
+    process_fake: ProcessFake, web: WebFake, config: Callable[..., Any]
 ) -> None:
     """An unknown key fails the clone-URL check with its file, its line and the command that
     removes it, sends no create, and leaves the other checks to report."""
     path = config(ai={"vllm_url": "http://example.com"})
     line = path.read_text(encoding="utf-8").splitlines().index("  vllm_url: http://example.com")
 
-    checks, _ = _run(process_fake, stub_web)
+    checks, _ = _run(process_fake, web)
 
     assert _failures(checks) == {
         "clone-url": (
@@ -689,18 +687,18 @@ def test_an_unknown_key_fails_only_the_clone_url_check(
             "devops config unset ai.vllm_url"
         )
     }
-    assert [r.method for r in stub_web.sent] == ["GET", "GET", "GET"]
+    assert [r.method for r in web.sent] == ["GET", "GET", "GET"]
 
 
 @pytest.mark.usefixtures("keyring_with_password")
 def test_a_refused_value_fails_only_the_clone_url_check(
-    process_fake: ProcessFake, stub_web: StubWeb, config: Callable[..., Any]
+    process_fake: ProcessFake, web: WebFake, config: Callable[..., Any]
 ) -> None:
     """A value that the settings refuse fails the clone-URL check with the key at fault and not
     the value, sends no create, and leaves the other checks to report."""
     config(ai={"context_window": 0})
 
-    checks, _ = _run(process_fake, stub_web)
+    checks, _ = _run(process_fake, web)
 
     assert _failures(checks) == {
         "clone-url": (
@@ -708,32 +706,31 @@ def test_a_refused_value_fails_only_the_clone_url_check(
             "Input should be greater than 0"
         )
     }
-    assert [r.method for r in stub_web.sent] == ["GET", "GET", "GET"]
+    assert [r.method for r in web.sent] == ["GET", "GET", "GET"]
 
 
 @pytest.mark.usefixtures("keyring_with_password")
 def test_the_password_goes_only_into_the_authorization_header(
     process_fake: ProcessFake,
-    stub_web: StubWeb,
+    web: WebFake,
     cli: Callable[..., Any],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """No argument list, log line, output or printed request holds the password."""
     Cluster().install(process_fake, context="lab")
-    stub_web.serve(GiteaServer(ssh_host=HOST))
+    web.serve(GiteaServer(ssh_host=HOST))
     caplog.set_level(logging.DEBUG)
 
     result = cli("k8s", "doctor", "--stack", "gitea", "--context", "lab", "--format", "json")
 
     token = _basic_auth().removeprefix("Basic ")
     printed = [
-        f"{request!r} {request.headers!r} {request.url} {request.content!r}"
-        for request in stub_web.sent
+        f"{request!r} {request.headers!r} {request.url} {request.content!r}" for request in web.sent
     ]
     argv = [" ".join(call.argv) for call in process_fake.calls]
     seen = [result.stdout, result.stderr, caplog.text, *printed, *argv]
     assert [text for text in seen if PASSWORD in text or token in text] == []
-    assert [r.headers.get("authorization") for r in stub_web.sent if r.method != "GET"] == [
+    assert [r.headers.get("authorization") for r in web.sent if r.method != "GET"] == [
         _basic_auth(),
         _basic_auth(),
     ]
@@ -741,11 +738,11 @@ def test_the_password_goes_only_into_the_authorization_header(
 
 @pytest.mark.usefixtures("keyring_with_password")
 def test_the_command_reports_every_check_and_exits_0_when_all_pass(
-    process_fake: ProcessFake, stub_web: StubWeb, cli: Callable[..., Any]
+    process_fake: ProcessFake, web: WebFake, cli: Callable[..., Any]
 ) -> None:
     """`--stack gitea` reports each check as JSON and exits 0 when every check passes."""
     Cluster().install(process_fake, context="lab")
-    stub_web.serve(GiteaServer())
+    web.serve(GiteaServer())
 
     result = cli("k8s", "doctor", "--stack", "gitea", "--context", "lab", "--format", "json")
     report = json.loads(result.stdout)
@@ -760,11 +757,11 @@ def test_the_command_reports_every_check_and_exits_0_when_all_pass(
 
 @pytest.mark.usefixtures("keyring_with_password")
 def test_the_command_prints_a_table_and_exits_2_when_a_check_fails(
-    process_fake: ProcessFake, stub_web: StubWeb, cli: Callable[..., Any]
+    process_fake: ProcessFake, web: WebFake, cli: Callable[..., Any]
 ) -> None:
     """A failed check is a row marked FAIL, with its reason, and the command exits 2."""
     Cluster(enforce="baseline").install(process_fake, context="lab")
-    stub_web.serve(GiteaServer())
+    web.serve(GiteaServer())
 
     result = cli("k8s", "doctor", "--stack", "gitea", "--context", "lab")
     rows = [line for line in result.stdout.splitlines() if "pod-security-restricted" in line]
@@ -777,7 +774,7 @@ def test_the_command_prints_a_table_and_exits_2_when_a_check_fails(
 
 def test_the_dry_run_lists_the_requests_and_makes_none(
     process_fake: ProcessFake,
-    stub_web: StubWeb,
+    web: WebFake,
     keyring_store: FakeKeyring,
     cli: Callable[..., Any],
 ) -> None:
@@ -785,7 +782,7 @@ def test_the_dry_run_lists_the_requests_and_makes_none(
     result = cli("k8s", "doctor", "--stack", "gitea", "--dry-run", "--context", "lab")
 
     assert result.exit_code == 0
-    assert (process_fake.calls, stub_web.sent, keyring_store.secret_reads()) == ([], [], set())
+    assert (process_fake.calls, web.sent, keyring_store.secret_reads()) == ([], [], set())
     get = "kubectl --context lab get"
     assert result.stdout.splitlines() == [
         "Planned Gitea Stack Checks:",
@@ -816,14 +813,14 @@ def test_the_dry_run_lists_the_requests_and_makes_none(
 
 
 def test_the_dry_run_as_json_holds_the_requests_and_no_checks(
-    process_fake: ProcessFake, stub_web: StubWeb, cli: Callable[..., Any]
+    process_fake: ProcessFake, web: WebFake, cli: Callable[..., Any]
 ) -> None:
     """The JSON dry run gives the same requests as data, with no check."""
     result = cli("k8s", "doctor", "--stack", "gitea", "--dry-run", "--format", "json")
     plan = json.loads(result.stdout)
 
     assert result.exit_code == 0
-    assert (process_fake.calls, stub_web.sent, plan["checks"]) == ([], [], [])
+    assert (process_fake.calls, web.sent, plan["checks"]) == ([], [], [])
     assert [request["method"] for request in plan["requests"]] == [
         *(["kubectl"] * 6),
         "GET",
