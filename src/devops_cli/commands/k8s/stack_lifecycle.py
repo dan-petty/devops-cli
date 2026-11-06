@@ -79,6 +79,7 @@ HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
         "open-telemetry": "https://open-telemetry.github.io/opentelemetry-helm-charts",
         "nvidia-dcgm": "https://nvidia.github.io/dcgm-exporter/helm-charts",
         "traefik": "https://traefik.github.io/charts",
+        "cloudnative-pg": "https://cloudnative-pg.github.io/charts",
     },
     "llm": {
         "open-webui": "https://open-webui.github.io/helm-charts",
@@ -91,7 +92,6 @@ HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
         "gitea-charts": "https://dl.gitea.com/charts/",
     },
     "chat": {
-        "cloudnative-pg": "https://cloudnative-pg.github.io/charts",
         "mattermost": "https://helm.mattermost.com",
     },
 }
@@ -118,6 +118,15 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
             "namespace": "monitoring",
             "values": str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-operator-crds-values.yaml"),
             "version": "32.0.1",
+        },
+        # The database operator of every stack that holds a CloudNativePG Cluster: the gateway
+        # database of `llm` and the Mattermost database of `chat`. Its podMonitor needs the CRD above.
+        {
+            "name": "cloudnative-pg",
+            "chart": "cloudnative-pg/cloudnative-pg",
+            "namespace": "cnpg-system",
+            "values": str(DEFAULT_K8S_DIR / "mattermost" / "cloudnative-pg-values.yaml"),
+            "version": "0.29.1",
         },
         {
             "name": "argocd",
@@ -229,13 +238,6 @@ HELM_RELEASES_BY_STACK: dict[str, list[dict[str, str]]] = {
     ],
     "chat": [
         {
-            "name": "cloudnative-pg",
-            "chart": "cloudnative-pg/cloudnative-pg",
-            "namespace": "cnpg-system",
-            "values": str(DEFAULT_K8S_DIR / "mattermost" / "cloudnative-pg-values.yaml"),
-            "version": "0.29.1",
-        },
-        {
             "name": "mattermost-operator",
             "chart": "mattermost/mattermost-operator",
             "namespace": "mattermost-operator",
@@ -310,7 +312,7 @@ _KUSTOMIZATIONS_BY_STACK: dict[str, tuple[Path, ...]] = {
 # (`kubectl apply -k`) and a file through `_apply_manifest_files` (`kubectl apply -f`) (#1367, #1391).
 _POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
     "infra": (Path("argo-workflows", "workflowtemplate-version.yaml"),),
-    "llm": (Path("llm", "gateway", "servicemonitor.yaml"),),
+    "llm": (Path("llm", "gateway-db.yaml"), Path("llm", "gateway", "servicemonitor.yaml")),
     "chat": (Path("mattermost"),),
 }
 

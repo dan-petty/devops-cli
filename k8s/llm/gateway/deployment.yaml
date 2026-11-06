@@ -74,6 +74,23 @@ spec:
                   name: llm-gateway-secrets
                   key: openrouter-api-key
                   optional: true
+            # The virtual keys live in the database that CloudNativePG runs (../gateway-db.yaml).
+            # The operator writes this connection string into its Secret, so git holds no
+            # password. The pod waits for the Secret and the database.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: llm-gateway-db-app
+                  key: uri
+            # A failed `prisma migrate deploy` ends the start-up. Without this variable LiteLLM
+            # logs the failure and goes on with an empty schema, and nothing runs the migration
+            # again.
+            - name: ENFORCE_PRISMA_MIGRATION_CHECK
+              value: "true"
+            # LiteLLM copies its migrations here before `prisma migrate deploy`, because the root
+            # file system is read-only.
+            - name: LITELLM_MIGRATION_DIR
+              value: /var/lib/litellm/migrations
             # Use the bundled model cost map: the gateway never fetches it from the internet.
             - name: LITELLM_LOCAL_MODEL_COST_MAP
               value: "True"
@@ -89,6 +106,8 @@ spec:
               readOnly: true
             - name: tmp-volume
               mountPath: /tmp
+            - name: migrations-volume
+              mountPath: /var/lib/litellm/migrations
           resources:
             requests:
               cpu: 200m
@@ -96,15 +115,28 @@ spec:
             limits:
               cpu: 1000m
               memory: 2048Mi
+          # The proxy opens its port only after it has applied the migrations, which take longer
+          # on an empty database. This probe holds the other two back for up to ten minutes, so
+          # the kubelet does not kill a pod that is still migrating.
+          startupProbe:
+            httpGet:
+              path: /health/liveliness
+              port: 4000
+            periodSeconds: 10
+            failureThreshold: 60
           livenessProbe:
             httpGet:
               path: /health/liveliness
               port: 4000
             initialDelaySeconds: 15
             periodSeconds: 15
+          # Readiness does not depend on the database: /health/readiness answers 503 while the
+          # database is down, and Kubernetes would then remove every gateway pod from the Service,
+          # also for clients of the master key. The liveliness path keeps the gateway in the
+          # Service. A virtual key that the gateway cannot check is refused by the gateway itself.
           readinessProbe:
             httpGet:
-              path: /health/readiness
+              path: /health/liveliness
               port: 4000
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -116,4 +148,6 @@ spec:
           configMap:
             name: llm-gateway-config
         - name: tmp-volume
+          emptyDir: {}
+        - name: migrations-volume
           emptyDir: {}

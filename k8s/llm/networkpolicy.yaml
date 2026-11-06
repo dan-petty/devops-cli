@@ -16,6 +16,11 @@ spec:
           - valkey
           - valkey-runs
           - valkey-devops
+      # The gateway database has its own policy (gateway-db.yaml).
+      - key: cnpg.io/cluster
+        operator: NotIn
+        values:
+          - llm-gateway-db
   policyTypes:
     - Ingress
     - Egress

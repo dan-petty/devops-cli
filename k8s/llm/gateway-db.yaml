@@ -1,0 +1,98 @@
+# The database of the LiteLLM gateway: the store of its virtual keys (#1635).
+#
+# CloudNativePG runs it, as it runs the database of Mattermost. The Cluster names no secret under
+# bootstrap.initdb, so the operator creates the user `litellm` and the database `litellm`, and
+# writes Secret `llm-gateway-db-app` with a generated password and a ready connection string in
+# its `uri` key. The gateway reads DATABASE_URL from that key (gateway/deployment.yaml). Git holds
+# no password, and `devops k8s push-secrets` has no row for it.
+#
+# The operator is Helm release `cloudnative-pg` (Argo CD Application `cloudnative-pg`, stack
+# `infra` of deploy-stack). The policy comes first, so it exists before the operator makes the pod.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llm-gateway-db-perimeter
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: llm-gateway-db
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: llm-gateway-db
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # The gateway is the only client of the database.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: llm-gateway
+      ports:
+        - protocol: TCP
+          port: 5432
+    # The CloudNativePG operator reads the status of the instance (8000) and runs SQL (5432).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 5432
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # The instance manager reads Secrets and updates status through the Kubernetes API server.
+    # Its address is a node address, which no pod selector names, so the rule has the form of the
+    # Mattermost database (k8s/mattermost/networkpolicy.yaml), and it excludes the metadata address.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: llm-gateway-db
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: llm-gateway-db
+    app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    # The data survives a removal of this file, a prune and a deletion of the Application.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.2
+  storage:
+    storageClass: local-path
+    size: 5Gi
+  bootstrap:
+    initdb:
+      database: litellm
+      owner: litellm
+  enableSuperuserAccess: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi

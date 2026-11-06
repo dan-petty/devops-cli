@@ -11,11 +11,11 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 
 | Stack | Components | Namespaces | Default Ports |
 | :--- | :--- | :--- | :--- |
-| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Argo Workflows controller, Grafana k8s-monitoring (Alloy + kube-state-metrics + node-exporter), Prometheus server, Grafana, Alertmanager, Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector, Grafana Tempo | `argocd`, `argo-workflows`, `monitoring`, `otel` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope), `3200` (Tempo) |
-| **`llm`** | Ollama (per-VRAM-tier DaemonSets), LLM Gateway (LiteLLM), Open-WebUI, Qdrant Vector DB, Valkey Cache | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
+| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Argo Workflows controller, Grafana k8s-monitoring (Alloy + kube-state-metrics + node-exporter), Prometheus server, Grafana, Alertmanager, Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector, Grafana Tempo, CloudNativePG operator | `argocd`, `argo-workflows`, `monitoring`, `otel`, `cnpg-system` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope), `3200` (Tempo) |
+| **`llm`** | Ollama (per-VRAM-tier DaemonSets), LLM Gateway (LiteLLM) with its CloudNativePG database, Open-WebUI, Qdrant Vector DB, Valkey Cache | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
 | **`logging`** | Loki (pod and journal logs shipped by the `infra` stack's Alloy `alloy-logs` DaemonSet) | `logging` | `3100` (Loki) |
 | **`gitea`** | Gitea: the internal forge and container registry ([Gitea](#gitea)) | `gitea` | `3000` (Gitea HTTP, in the cluster) |
-| **`chat`** | Mattermost Team Edition on CloudNativePG ([Mattermost](#mattermost)) | `mattermost`, `cnpg-system`, `mattermost-operator` | `8065` (Mattermost HTTP, in the cluster) |
+| **`chat`** | Mattermost Team Edition on CloudNativePG ([Mattermost](#mattermost)) | `mattermost`, `mattermost-operator` | `8065` (Mattermost HTTP, in the cluster) |
 | **`all`** | All components from the stacks above, and the `devops` stack | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging`, `gitea`, `devops`, `mattermost`, `cnpg-system`, `mattermost-operator` | All ports above |
 
 Register each manifest, Helm release and post-Helm step that runs in the cluster in `_MANIFESTS_BY_STACK`, `_HELM_RELEASES_BY_STACK` or `_POST_HELM_BY_STACK` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), so that `devops k8s deploy-stack --stack all` deploys it with the `infra`, `llm`, `logging`, `devops`, `gitea` and `chat` stacks. deploy-stack applies a file of `_MANIFESTS_BY_STACK` with `kubectl apply -f` and a kustomization directory with `kubectl apply -k`.
@@ -107,6 +107,18 @@ The LiteLLM gateway is the single entry point to every inference server. It serv
 The routing config is `llm/gateway/config.yaml`. LiteLLM reads it only at start. The gateway kustomization (`llm/gateway/kustomization.yaml`) generates ConfigMap `llm-gateway-config-<hash>` from that file, and writes the name into the Deployment. When the config changes, the name and the pod template change, and Kubernetes rolls the gateway onto the new config. Argo CD's `llm` Application renders the kustomization when it syncs, and `devops k8s deploy-stack --stack llm` applies it with `kubectl apply -k llm/gateway`. Thus a config change needs no `kubectl rollout restart` (#1929). Argo CD prunes the ConfigMap of the old config. Without Argo CD, that ConfigMap stays until `teardown-stack` deletes the namespace.
 
 A workstation reaches the gateway through the Cloudflare tunnel, and the Cloudflare edge cuts a request that has no data for 125 s (#2365). The CLI therefore streams every OpenAI-compatible chat call, and the gateway writes an SSE comment (`: ping`) into a streamed reply that has no data for 30 s (`litellm_settings.sse_keepalive_ping_interval_seconds`), also before its first token. Thus a long prefill, queue or reasoning does not end the call. A ping sends the status line before the gateway has routed the call, so a call whose first token comes after the first ping has no `x-litellm-*` response headers, and its spend-ledger row names no serving backend. A failure after the first ping comes as an SSE error frame under status 200, and the client reports it as the HTTP status that the frame names.
+
+#### Gateway database and virtual keys
+LiteLLM keeps its virtual keys (`/key/generate`: expiry, request and token limits, model list, alias) only in a Postgres database. The database is the CloudNativePG `Cluster` `llm-gateway-db` in `llm/gateway-db.yaml`, with one instance, 5 GiB on `local-path`, and Argo CD annotated `Prune=false,Delete=false`. The gateway keeps the master key as its admin key, and a virtual key does not replace it for the cluster Jobs yet.
+
+- **No secret in git, no person step.** The `Cluster` names no `bootstrap.initdb.secret`. CloudNativePG therefore creates the user `litellm`, the database `litellm` and Secret `llm-gateway-db-app` with a generated password when it creates the database. The Deployment reads `DATABASE_URL` from the `uri` key of that Secret. `devops k8s push-secrets` has no row for it, and the secret guard of `tests/invariants/test_k8s_manifests.py` accepts a Secret that a `Cluster` without `initdb.secret` creates.
+- **Network.** The gateway's policy gains an egress rule to the pods with label `cnpg.io/cluster: llm-gateway-db` on 5432. Policy `llm-gateway-db-perimeter` admits the gateway's pods and the operator in `cnpg-system` (8000 and 5432) and no other peer. Its egress is DNS and the Kubernetes API: the instance manager reads Secrets and updates status through the API, as the Mattermost database does. `llm-default-perimeter` leaves the database pods out.
+- **Start-up.** LiteLLM applies its migrations with `prisma migrate deploy` before it opens port 4000. The root file system stays read-only: `LITELLM_MIGRATION_DIR` is an `emptyDir`, and the Prisma engines are in the image under `/opt/prisma`. A `startupProbe` gives a migrating pod ten minutes before the liveness probe starts. `ENFORCE_PRISMA_MIGRATION_CHECK=true` makes a failed migration end the start-up. Without it LiteLLM logs the failure and starts on an empty schema, and nothing runs the migration again.
+- **When the database is down**, a virtual key that the gateway cannot check is refused: `allow_requests_on_db_unavailable` stays at its default `false`, because the gateway is reachable from outside the cluster. The master key needs no database, so the cluster Jobs, the CLI and Open WebUI keep working. The readiness probe uses `/health/liveliness`, because `/health/readiness` answers 503 while the database is down and Kubernetes would then remove every gateway pod from the Service. `/health/readiness` stays a manual check after a sync: its `db` field shows `connected`. Models stay in git (`store_model_in_db: false`).
+- **No `LITELLM_SALT_KEY`.** LiteLLM uses the salt key only to encrypt values that it stores in the database, such as provider keys of models added at run time, and it falls back to the master key. It stores virtual keys as a SHA-256 hash of the key, so a salt key does not protect them. With `store_model_in_db: false` the database holds nothing to encrypt. Set a salt key, generated once and never rotated, before the first change that stores a credential in the database.
+- **Order.** The operator is Helm release `cloudnative-pg` of stack `infra` (Argo CD Application `cloudnative-pg`). On a cluster without Argo CD, deploy-stack applies `llm/gateway-db.yaml` after the Helm releases, because the `Cluster` needs the operator's CRD. A gateway pod that starts before the database waits for Secret `llm-gateway-db-app`, and then restarts until the database accepts connections.
+- **Rollout under Argo CD.** After the merge, Argo CD creates the policy and the `Cluster`, and starts a new gateway pod beside the old one (one replica, `maxSurge` 1, `maxUnavailable` 0). The new pod waits for the Secret, restarts a few times until the database accepts connections, migrates the empty database, and passes its readiness probe. Then Kubernetes stops the old pod. The old pod answers all requests meanwhile, so the gateway has no downtime. No person runs a command.
+- **Backups.** The database has none yet. A lost node loses its virtual keys, and a person mints them again. #3741 adds the backup, in the form that #2144 chooses.
 
 The Service is a NodePort that Kubernetes assigns; find it with `kubectl -n llm get svc llm-gateway`, then call the API from any node address:
 ```bash
@@ -569,6 +581,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `mattermost/mattermost-db` | `password` | keyring `mattermost_db_password` | yes | adopt from `mattermost/mattermost-db password`; else generate `token_urlsafe(32)` | chat | none |
 | `mattermost/mattermost-db` | `DB_CONNECTION_STRING` | derived from literal, keyring mattermost_db_password | yes | fail | chat | none |
 
+- A Secret that a CloudNativePG `Cluster` without `bootstrap.initdb.secret` creates, such as `llm/llm-gateway-db-app`, has no row. The operator generates its password when it creates the database, and the Deployment reads it with `secretKeyRef`.
 - The keyring must be unlocked (`devops devcontainer unlock-keyring`); a locked or missing keyring stops the push before anything is read or written, and stops deploy-stack before it applies anything.
 - A value the keyring lacks but the cluster holds is adopted into the keyring, so a first push changes nothing live. Only values nobody types are generated, and each is stored in the keyring before it is pushed.
 - Typed values are stored at a hidden prompt: `devops config set cloudflare.tunnel_token` or `devops config set gitea.admin_password`.
@@ -934,7 +947,7 @@ Mattermost Team Edition runs under Argo CD from the Mattermost Operator on Cloud
 ### What runs where
 
 - **Operator**: `mattermost-operator` runs in namespace `mattermost-operator`.
-- **Database Operator**: `cloudnative-pg` runs in namespace `cnpg-system`.
+- **Database Operator**: `cloudnative-pg` runs in namespace `cnpg-system`. It also runs the gateway database of stack `llm`, so deploy-stack installs it with stack `infra`.
 - **Workload**: `Mattermost` runs in namespace `mattermost`.
 - **Database**: CloudNativePG `Cluster` named `mattermost-db` runs in namespace `mattermost`.
 - **Volume**: PVC `mattermost-files` stores uploaded files on `local-path`.
@@ -947,7 +960,7 @@ Mattermost Team Edition runs under Argo CD from the Mattermost Operator on Cloud
 ### Rollout
 
 1. Merge the pull request. Argo CD creates the namespaces and objects. The database waits for Secret `mattermost/mattermost-db`. Alert `MattermostDatabaseDown` fires until step 2 completes.
-2. Run `uv run devops k8s deploy-stack --stack chat --context <context>`. Always keep the default `--wait`: CloudNativePG's admission webhook refuses the `Cluster` until its operator is ready. The deploy pushes Secret `mattermost/mattermost-db` and sets the host on Application `mattermost`.
+2. Run `uv run devops k8s deploy-stack --stack chat --context <context>`. Always keep the default `--wait`: CloudNativePG's admission webhook refuses the `Cluster` until its operator is ready. Run `--stack infra` first on a cluster without Argo CD, because that stack installs the operator. The deploy pushes Secret `mattermost/mattermost-db` and sets the host on Application `mattermost`.
 3. The owner signs up first from the bypassed network address. Cloudflare Access admits only the owner, so nobody else can claim the administrator account.
 4. Set both persistent volumes to Retain:
    ```bash

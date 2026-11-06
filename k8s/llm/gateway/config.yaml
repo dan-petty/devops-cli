@@ -266,5 +266,9 @@ router_settings:
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   cancel_on_disconnect: true
+  # The models stay in git, so the database holds virtual keys and nothing LiteLLM must encrypt,
+  # and the gateway sets no LITELLM_SALT_KEY. Set one before this turns on (k8s/README.md).
   store_model_in_db: false
+  # allow_requests_on_db_unavailable stays unset (false): the gateway is reachable from outside
+  # the cluster, so a key that it cannot check while the database is down is refused.
   proxy_batch_write_at: 10

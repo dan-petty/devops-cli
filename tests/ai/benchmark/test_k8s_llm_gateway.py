@@ -1244,6 +1244,9 @@ _HOSTED_PEER = {
     }
 }
 _HOSTED_PORTS = frozenset({("TCP", 443, None)})
+# The database of the virtual keys: the pods of CloudNativePG Cluster llm-gateway-db, on 5432 (#1635).
+_DATABASE_PEER = {"podSelector": {"matchLabels": {"cnpg.io/cluster": "llm-gateway-db"}}}
+_DATABASE_PORTS = frozenset({("TCP", 5432, None)})
 
 EgressPort = tuple[str, object, object]
 BackendTarget = tuple[dict[str, str], int]
@@ -1327,6 +1330,12 @@ def _peer_violation(
         return (
             None if ports == _HOSTED_PORTS else f"the hosted peer admits {sorted(map(str, ports))}"
         )
+    if peer == _DATABASE_PEER:
+        return (
+            None
+            if ports == _DATABASE_PORTS
+            else f"the database peer admits {sorted(map(str, ports))}"
+        )
     labels = _pod_labels(peer)
     if not labels:
         return f"{peer} is not a same-namespace podSelector with matchLabels alone"
@@ -1375,6 +1384,11 @@ def _egress_violations(
 def _ollama_rule(spec: dict[str, Any]) -> dict[str, Any]:
     """Return the egress rule that admits the Ollama tiers."""
     return next(rule for rule in spec["egress"] if _OLLAMA_PEER in rule["to"])
+
+
+def _database_rule(spec: dict[str, Any]) -> dict[str, Any]:
+    """Return the egress rule that admits the gateway database."""
+    return next(rule for rule in spec["egress"] if _DATABASE_PEER in rule["to"])
 
 
 def _hosted_rule(spec: dict[str, Any]) -> dict[str, Any]:
@@ -1456,6 +1470,14 @@ def test_gateway_egress_admits_nothing_else(
         pytest.param(
             lambda spec: _hosted_rule(spec)["to"].append({"podSelector": {}}),
             id="any-pod-on-the-hosted-rule",
+        ),
+        pytest.param(
+            lambda spec: _database_rule(spec)["ports"].append({"protocol": "TCP", "port": 8000}),
+            id="database-rule-on-the-operator-port",
+        ),
+        pytest.param(
+            lambda spec: _database_rule(spec)["to"].append({"podSelector": {}}),
+            id="any-pod-on-the-database-rule",
         ),
     ],
 )

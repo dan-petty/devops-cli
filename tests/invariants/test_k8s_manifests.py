@@ -852,9 +852,43 @@ def referenced_secrets(root: Path) -> set[str]:
     return found
 
 
+def operator_generated_secrets(root: Path) -> set[str]:
+    """`namespace/name` of the application Secret that CloudNativePG creates for each Cluster
+    under root that names no `bootstrap.initdb.secret`: `<cluster>-app`, made at run time."""
+    found: set[str] = set()
+    for _path, document in yaml_documents(root):
+        if not isinstance(document, dict) or document.get("kind") != "Cluster":
+            continue
+        if not str(document.get("apiVersion", "")).startswith("postgresql.cnpg.io/"):
+            continue
+        initdb = document.get("spec", {}).get("bootstrap", {}).get("initdb", {})
+        if "secret" not in initdb:
+            metadata = document["metadata"]
+            found.add(f"{metadata['namespace']}/{metadata['name']}-app")
+    return found
+
+
 def test_every_secret_referenced_under_k8s_has_a_table_row() -> None:
-    references = referenced_secrets(K8S_DIR)
+    """The table holds every Secret that a push writes. The application Secret of a CloudNativePG
+    Cluster that names no secret is the operator's to create, so it has no row (#1635)."""
+    references = referenced_secrets(K8S_DIR) - operator_generated_secrets(K8S_DIR)
     assert (references - TABLE_REFS, len(references) >= 5) == (set(), True)
+
+
+def test_only_a_cluster_without_an_initdb_secret_has_an_operator_generated_secret(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "databases.yaml").write_text(
+        "apiVersion: postgresql.cnpg.io/v1\nkind: Cluster\n"
+        "metadata: {name: generated, namespace: tools}\n"
+        "spec: {bootstrap: {initdb: {database: d, owner: o}}}\n"
+        "---\n"
+        "apiVersion: postgresql.cnpg.io/v1\nkind: Cluster\n"
+        "metadata: {name: pushed, namespace: tools}\n"
+        "spec: {bootstrap: {initdb: {database: d, owner: o, secret: {name: pushed}}}}\n",
+        encoding="utf-8",
+    )
+    assert operator_generated_secrets(tmp_path) == {"tools/generated-app"}
 
 
 def test_a_reference_without_a_row_fails_the_guard(tmp_path: Path) -> None:
