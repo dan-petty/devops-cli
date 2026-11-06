@@ -3160,6 +3160,13 @@ class RoadmapMessages:
         "of each step, for a budget of {budget} tokens:\n\n{groups}{notes}"
     )
     stage_comment_group: str = "{index}. {title}: {tokens} tokens"
+    # The named paths that the default branch changed after the commit that the planner read
+    # (#3309): the heading, and one line for each path with its commits.
+    stage_comment_moved: str = (
+        "\n\nThe default branch changed these paths that the plan names, after the commit that "
+        "the planner read. Read the commits before you judge the plan:\n\n"
+    )
+    stage_comment_moved_path: str = "- `{path}`: {commits}"
     stage_comment_labels_failed: str = "\n\nLabels not added to #{pull}: {error}"
     stage_comment_overlaps: str = (
         "\n\nThe stage job read the open pull requests and their files in {requests} GraphQL "

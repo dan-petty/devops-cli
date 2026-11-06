@@ -13,9 +13,9 @@ Reads: `src/devops_cli/roadmap/clone_git.py`, `src/devops_cli/roadmap/stage_path
 
 Reads: `src/devops_cli/roadmap/stage.py`, `src/devops_cli/roadmap/stage_moved.py`, `src/devops_cli/roadmap/clone_git.py`, `src/devops_cli/lang/en/messages.py`. Changes: `src/devops_cli/roadmap/stage.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_apply.py`.
 
-- [ ] 2.1 Add a case to `tests/roadmap/test_roadmap_stage_apply.py`: a staged item whose plan names a path that a later commit changed gives a comment with the moved-file heading, the path and the commit, and an item whose plan names no moved path gives a comment with no heading
+- [x] 2.1 Add a case to `tests/roadmap/test_roadmap_stage_apply.py`: a staged item whose plan names a path that a later commit changed gives a comment with the moved-file heading, the path and the commit, and an item whose plan names no moved path gives a comment with no heading
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_apply.py` fails on the base
-- [ ] 2.2 Fetch the default branch once in `apply_stage` before the ready phase, read the moved paths of each `StagedChange` with the new function of `src/devops_cli/roadmap/stage_moved.py`, and pass them to `_stage_one`. Render them in `_notes` of `src/devops_cli/roadmap/stage.py` under a heading that `src/devops_cli/lang/en/messages.py` holds, one line for each path with its short hash and subject. Render nothing when no path moved
+- [x] 2.2 Fetch the default branch once in `apply_stage` before the ready phase, read the moved paths of each `StagedChange` with the new function of `src/devops_cli/roadmap/stage_moved.py`, and pass them to `_stage_one`. Render them in `_notes` of `src/devops_cli/roadmap/stage.py` under a heading that `src/devops_cli/lang/en/messages.py` holds, one line for each path with its short hash and subject. Render nothing when no path moved
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_apply.py` passes
 
 ## 3. Ask the stage prompt for the preconditions of a callee
