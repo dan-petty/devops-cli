@@ -7,6 +7,7 @@ import pytest
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.pydantic_ai_bridge import _resolve_remote_provider_endpoint
 from devops_cli.config.settings import AIConfig, AITaskOverride, Settings
+from tests.support.fakes.http import WebFake
 
 GATEWAY_URL = "http://gateway.example.com:4000/v1"
 OPENAI_URL = "https://api.example.com/v1"
@@ -14,7 +15,7 @@ TASK_GATEWAY_URL = "http://task-gateway.example.com:4000/v1"
 
 
 @pytest.fixture(autouse=True)
-def _public_endpoints(public_dns: str) -> None:
+def _public_endpoints(web: WebFake) -> None:
     """The configured endpoints are example.com URLs, which resolve to a public address."""
 
 

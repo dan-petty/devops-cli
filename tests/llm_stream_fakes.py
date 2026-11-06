@@ -1,8 +1,10 @@
 """Canned model streams for tests of the LLM client's stream readers, with no network.
 
-Streams are answered by httpx2's own `MockTransport`, so a reply is read through the same
-response, content decoders and event parser it would be against a real server, and no socket is
-opened. Hosts are `example.com`, as docs/TESTING.md requires of fixtures.
+Streams are answered by the `web` fake (`serve_llm`, `streamed`), which sits at httpx2's transport
+interface, so a reply is read through the same response, content decoders and event parser it
+would be against a real server, and no socket is opened. `route_client`, `route_llm_clients` and
+`route_retrying_client` patch a client of the LLM client instead; they stay for the packages that
+have not moved to `web` (#3758). Hosts are `example.com`, as docs/TESTING.md requires of fixtures.
 """
 
 from __future__ import annotations
@@ -10,10 +12,16 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx2
 import pytest
+
+from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
+
+if TYPE_CHECKING:
+    from tests.support.fakes.http import WebFake
 
 SSE = "text/event-stream"
 NDJSON = "application/x-ndjson"
@@ -195,14 +203,43 @@ def reply(frames: Iterable[bytes], content_type: str = SSE, status: int = 200) -
 
 
 @contextmanager
-def streamed(frames: Iterable[bytes], content_type: str = SSE) -> Iterator[httpx2.Response]:
-    """An open streamed response to a POST, served by a MockTransport."""
-    transport = httpx2.MockTransport(lambda request: reply(frames, content_type))
+def streamed(
+    web: WebFake, frames: Iterable[bytes], content_type: str = SSE
+) -> Iterator[httpx2.Response]:
+    """An open streamed response to a POST, served by the `web` fake."""
+    web.servers.clear()
+    web.serve(lambda request: reply(frames, content_type))
     with (
-        httpx2.Client(transport=transport) as http_client,
-        http_client.stream("POST", "http://example.com/v1/chat/completions") as response,
+        http_client(EgressLevel.PUBLIC) as client,
+        client.stream("POST", "http://example.com/v1/chat/completions") as response,
     ):
         yield response
+
+
+_MODEL_INFO = "/model/info"
+
+
+def serve_llm(
+    web: WebFake, handler: Callable[[httpx2.Request], httpx2.Response]
+) -> list[httpx2.Request]:
+    """Answer every request that a client of the HTTP entry point makes with `handler`, in place of
+    any server that `web` had; return the requests, in order.
+
+    A gateway client asks the gateway for its `/model/info`. The fake gateway describes no model:
+    it answers that query with an empty list, and the query is not among the returned requests.
+    A successful JSON chat completion to a request with `stream: true` is streamed as SSE frames.
+    """
+    sent: list[httpx2.Request] = []
+
+    def serve(request: httpx2.Request) -> httpx2.Response:
+        if request.method == "GET" and request.url.path.endswith(_MODEL_INFO):
+            return httpx2.Response(200, json={"data": []})
+        sent.append(request)
+        return as_requested(request, handler(request))
+
+    web.servers.clear()
+    web.serve(serve)
+    return sent
 
 
 def route_client(

@@ -11,7 +11,7 @@ from devops_cli.ai.agents.tools import AgentTool
 from devops_cli.exceptions import SecurityError
 from devops_cli.exceptions.ai import ModelRetry
 
-pytestmark = pytest.mark.usefixtures("public_dns")
+pytestmark = pytest.mark.usefixtures("web")
 
 
 def test_pydantic_agent_execution_and_tools() -> None:

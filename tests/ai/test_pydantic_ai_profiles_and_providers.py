@@ -15,14 +15,14 @@ from devops_cli.ai.thinking_stream import (
     strip_think_blocks,
 )
 from devops_cli.config.settings import Settings
-from devops_cli.http.egress import EgressLevel
-from tests.web_fakes import egress_level_of, record_connects
+from devops_cli.exceptions import SSRFBlockedError
+from tests.support.fakes.http import WebFake
 
 
 class TestPydanticAIProviders:
     """Test suite for native Pydantic AI providers subsystem."""
 
-    @pytest.mark.usefixtures("public_dns")
+    @pytest.mark.usefixtures("web")
     def test_create_pydantic_ai_provider_factory(self) -> None:
         """Test unified create_pydantic_ai_provider factory."""
         from pydantic_ai.providers.anthropic import AnthropicProvider as NativeAnthropicProvider
@@ -104,7 +104,7 @@ _EXAMPLE_OLLAMA = "http://example.com:11434"
 
 
 @pytest.fixture
-def remote_bridge(monkeypatch: pytest.MonkeyPatch, public_dns: str) -> Any:
+def remote_bridge(monkeypatch: pytest.MonkeyPatch, web: WebFake) -> Any:
     """The bridge with the AI key fixed, so nothing reads a keyring.
 
     The example.com endpoints resolve to a public address, as they do outside tests.
@@ -217,16 +217,13 @@ def test_remote_model_is_sent_to_its_configured_endpoint(
     ],
 )
 def test_remote_model_on_a_metadata_address_is_refused_at_the_connect(
-    remote_bridge: Any, monkeypatch: pytest.MonkeyPatch, model: str, ai_fields: dict[str, Any]
+    remote_bridge: Any, web: WebFake, model: str, ai_fields: dict[str, Any]
 ) -> None:
     """Verify a request to a cloud metadata endpoint, whatever setting names it, is never dialled.
 
     The model builds, and its provider's client refuses the address at the connect. openai does
     not retry the refusal, so it comes out of the first request.
     """
-    from devops_cli.exceptions import SSRFBlockedError
-
-    recorder = record_connects(monkeypatch, [])
     resolved = remote_bridge.resolve_pydantic_ai_model(
         model, settings=_remote_settings("openai", **ai_fields)
     )
@@ -234,7 +231,7 @@ def test_remote_model_on_a_metadata_address_is_refused_at_the_connect(
     with pytest.raises(SSRFBlockedError) as raised:
         asyncio.run(resolved.client.with_options(max_retries=0).models.list())
     assert raised.value.error_code == "SSRF_BLOCKED"
-    assert [host for host, _ in recorder.dialled if host == "169.254.169.254"] == []
+    assert web.sent == []
 
 
 def test_schemeless_url_refused_on_assignment() -> None:
@@ -251,6 +248,18 @@ def test_schemeless_url_refused_on_assignment() -> None:
 _PRIVATE_BASE = "http://192.0.2.10:4000/v1"
 
 
+def _reaches(client: Any) -> bool:
+    """Whether the client of a model's provider can send a request to the private base URL.
+
+    The egress check refuses the address with SSRFBlockedError before it sends anything.
+    """
+    try:
+        asyncio.run(client.with_options(max_retries=0).models.list())
+    except SSRFBlockedError:
+        return False
+    return True
+
+
 @pytest.mark.parametrize(
     ("provider", "model", "setting"),
     [
@@ -261,7 +270,7 @@ _PRIVATE_BASE = "http://192.0.2.10:4000/v1"
     ],
 )
 def test_remote_model_on_a_private_host_dials_it_only_with_the_opt_in(
-    remote_bridge: Any, provider: str, model: str, setting: str
+    remote_bridge: Any, web: WebFake, provider: str, model: str, setting: str
 ) -> None:
     """Verify a remote model's client dials a private host only once private hosts are allowed.
 
@@ -269,33 +278,36 @@ def test_remote_model_on_a_private_host_dials_it_only_with_the_opt_in(
     loopback without `ai.allow_private_network`, private with it. The connect checks the address,
     so pydantic-ai is not handed a client that reaches what `LLMClient` refuses.
     """
-    levels = [
-        egress_level_of(
+    web.respond("GET", f"{_PRIVATE_BASE}/models", 200, {"object": "list", "data": []})
+    reached = [
+        _reaches(
             remote_bridge.resolve_pydantic_ai_model(
                 model,
                 settings=_remote_settings(
                     provider, allow_private_network=flag, **{setting: _PRIVATE_BASE}
                 ),
-            ).client._client._transport
+            ).client
         )
         for flag in (False, True)
     ]
 
-    assert levels == [EgressLevel.LOOPBACK, EgressLevel.PRIVATE]
+    assert reached == [False, True]
 
 
-def test_provider_factory_dials_a_private_base_url_only_when_told() -> None:
+def test_provider_factory_dials_a_private_base_url_only_when_told(web: WebFake) -> None:
     """Verify the provider factory's client takes loopback, and a private host only with the opt-in."""
     refused = create_pydantic_ai_provider("openai", base_url=_PRIVATE_BASE, api_key="sk-test")
     allowed = create_pydantic_ai_provider(
         "openai", base_url=_PRIVATE_BASE, api_key="sk-test", allow_private_network=True
     )
 
-    assert (
-        egress_level_of(refused.client._client._transport),
-        egress_level_of(allowed.client._client._transport),
-        str(allowed.base_url),
-    ) == (EgressLevel.LOOPBACK, EgressLevel.PRIVATE, f"{_PRIVATE_BASE}/")
+    web.respond("GET", f"{_PRIVATE_BASE}/models", 200, {"object": "list", "data": []})
+
+    assert (_reaches(refused.client), _reaches(allowed.client), str(allowed.base_url)) == (
+        False,
+        True,
+        f"{_PRIVATE_BASE}/",
+    )
 
 
 def test_remote_model_on_loopback_needs_no_opt_in(

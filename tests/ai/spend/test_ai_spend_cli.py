@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
 
 from devops_cli.ai.client import LLMClient
@@ -15,7 +16,7 @@ from devops_cli.ai.spend.pricing import (
     reset_pricing_registry,
 )
 from devops_cli.config.settings import AIConfig
-from tests.web_fakes import http_response, record_connects
+from tests.support.fakes.http import WebFake
 
 
 @pytest.fixture
@@ -122,9 +123,8 @@ def test_ai_cost_set_price(cli: Callable[..., Any], mock_spend_env: SpendLedger)
     )
 
 
-@pytest.mark.usefixtures("public_dns")
 def test_ai_cost_update_pricing(
-    mock_spend_env: SpendLedger, cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+    mock_spend_env: SpendLedger, cli: Callable[..., Any], web: WebFake
 ) -> None:
     """Verify devops ai cost update-pricing triggers registry update and reports model counts."""
     raw = [
@@ -143,7 +143,7 @@ def test_ai_cost_update_pricing(
             ],
         }
     ]
-    record_connects(monkeypatch, [http_response(200, json.dumps(raw))])
+    web.serve(lambda request: httpx2.Response(200, json=raw))
 
     res = cli("ai", "cost", "update-pricing")
     assert (
@@ -266,7 +266,7 @@ def test_ai_cost_roi_reports_hardware_payoff(
 
 def test_spend_report_counts_a_cache_hit_as_a_cached_request_and_no_backend(
     cli: Callable[..., Any],
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
     spend_ledger: SpendLedger,
 ) -> None:
     """Verify one dispatch and one reply the cache answered report 2 requests, 1 cached, and
@@ -278,7 +278,7 @@ def test_spend_report_counts_a_cache_hit_as_a_cached_request_and_no_backend(
             "eval_count": 20,
         }
     )
-    record_connects(monkeypatch, [http_response(200, reply)])
+    web.serve(lambda request: httpx2.Response(200, content=reply.encode()))
     client = LLMClient(
         AIConfig(provider="ollama", model="llama3:8b", ollama_urls=["http://localhost:11434"])
     )

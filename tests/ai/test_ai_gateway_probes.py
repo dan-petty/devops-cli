@@ -23,7 +23,7 @@ from devops_cli.ai.gateway_probes import (
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions import ValidationError
-from tests.web_fakes import StubWeb
+from tests.support.fakes.http import WebFake
 
 
 def test_json_adherence_evaluator() -> None:
@@ -135,19 +135,19 @@ def test_build_capability_probes() -> None:
         assert len(p["prompt"]) > 0
 
 
-def test_probe_gateway_liveliness_and_models(stub_web: StubWeb) -> None:
+def test_probe_gateway_liveliness_and_models(web: WebFake) -> None:
     """Verify probe_gateway_liveliness_and_models verifies healthy liveliness and model info."""
-    stub_web.respond("GET", "http://192.0.2.10:4000/health/liveliness", 200, {"status": "ok"})
-    stub_web.respond("GET", "http://192.0.2.10:4000/model/info", 200, {"models": []})
+    web.respond("GET", "http://192.0.2.10:4000/health/liveliness", 200, {"status": "ok"})
+    web.respond("GET", "http://192.0.2.10:4000/model/info", 200, {"models": []})
 
     probe_gateway_liveliness_and_models("http://192.0.2.10:4000", {}, 5.0)
 
-    stub_web.respond("GET", "http://192.0.2.10:4000/health/liveliness", 503, "Unavailable")
+    web.respond("GET", "http://192.0.2.10:4000/health/liveliness", 503, "Unavailable")
     with pytest.raises(ValidationError, match="not live"):
         probe_gateway_liveliness_and_models("http://192.0.2.10:4000", {}, 5.0)
 
-    stub_web.respond("GET", "http://192.0.2.10:4000/health/liveliness", 200, {"status": "ok"})
-    stub_web.respond("GET", "http://192.0.2.10:4000/model/info", 403, "Forbidden")
+    web.respond("GET", "http://192.0.2.10:4000/health/liveliness", 200, {"status": "ok"})
+    web.respond("GET", "http://192.0.2.10:4000/model/info", 403, "Forbidden")
     with pytest.raises(ValidationError, match="rejected model info query"):
         probe_gateway_liveliness_and_models("http://192.0.2.10:4000", {}, 5.0)
 

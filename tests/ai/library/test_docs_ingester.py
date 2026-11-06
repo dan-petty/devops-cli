@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
 from typer.testing import CliRunner
 
@@ -13,6 +13,7 @@ from devops_cli.commands.ai import app as ai_app
 from devops_cli.exceptions.ai import DocsIngestionError
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.models.library import DocChunk, IngestDocResult
+from tests.support.fakes.http import WebFake
 
 runner = CliRunner()
 
@@ -89,7 +90,7 @@ def test_ingest_remote_docs_blocks_ssrf(tmp_path: Path) -> None:
     assert raised.value.error_code in ("SSRF_BLOCKED", "DOCS_INGESTION_ERROR")
 
 
-def test_ingest_remote_docs_success(tmp_path: Path) -> None:
+def test_ingest_remote_docs_success(tmp_path: Path, web: WebFake) -> None:
     ingester = DocsIngester()
     html_content = """<!DOCTYPE html>
 <html>
@@ -106,19 +107,16 @@ def test_ingest_remote_docs_success(tmp_path: Path) -> None:
 </body>
 </html>"""
 
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.text = html_content
-    mock_resp.headers = {"content-type": "text/html"}
+    mock_resp = httpx2.Response(200, headers={"content-type": "text/html"}, text=html_content)
 
-    with patch("httpx2.Client.get", return_value=mock_resp):
-        result = ingester.ingest_remote_docs(
-            "https://example.com/api",
-            output_dir=tmp_path,
-        )
-        assert result.total_pages == 1
-        assert result.total_chunks >= 1
-        assert result.is_remote is True
+    web.serve(lambda request: mock_resp)
+    result = ingester.ingest_remote_docs(
+        "https://example.com/api",
+        output_dir=tmp_path,
+    )
+    assert result.total_pages == 1
+    assert result.total_chunks >= 1
+    assert result.is_remote is True
 
 
 def test_cli_ai_ingest_docs_local(tmp_path: Path) -> None:
@@ -156,34 +154,32 @@ def test_cli_ai_ingest_docs_failure(tmp_path: Path) -> None:
     assert result.exit_code != 0
 
 
-def test_cli_ai_ingest_docs_remote(tmp_path: Path) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.text = "# Remote Docs\n\nRemote body."
-    mock_resp.headers = {"content-type": "text/markdown"}
+def test_cli_ai_ingest_docs_remote(tmp_path: Path, web: WebFake) -> None:
+    mock_resp = httpx2.Response(
+        200, headers={"content-type": "text/markdown"}, text="# Remote Docs\n\nRemote body."
+    )
 
-    with patch("httpx2.Client.get", return_value=mock_resp):
-        result = runner.invoke(
-            ai_app,
-            ["ingest", "docs", "https://example.com/guide", "--output-dir", str(tmp_path)],
-        )
-        assert result.exit_code == 0
-        assert "Documentation Ingest" in result.output
+    web.serve(lambda request: mock_resp)
+    result = runner.invoke(
+        ai_app,
+        ["ingest", "docs", "https://example.com/guide", "--output-dir", str(tmp_path)],
+    )
+    assert result.exit_code == 0
+    assert "Documentation Ingest" in result.output
 
 
-def test_cli_ai_ingest_docs_remote_uppercase_scheme(tmp_path: Path) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.text = "# Remote Docs\n\nRemote body."
-    mock_resp.headers = {"content-type": "text/markdown"}
+def test_cli_ai_ingest_docs_remote_uppercase_scheme(tmp_path: Path, web: WebFake) -> None:
+    mock_resp = httpx2.Response(
+        200, headers={"content-type": "text/markdown"}, text="# Remote Docs\n\nRemote body."
+    )
 
-    with patch("httpx2.Client.get", return_value=mock_resp):
-        result = runner.invoke(
-            ai_app,
-            ["ingest", "docs", "HTTPS://example.com/guide", "--output-dir", str(tmp_path)],
-        )
-        assert result.exit_code == 0
-        assert "Documentation Ingest" in result.output
+    web.serve(lambda request: mock_resp)
+    result = runner.invoke(
+        ai_app,
+        ["ingest", "docs", "HTTPS://example.com/guide", "--output-dir", str(tmp_path)],
+    )
+    assert result.exit_code == 0
+    assert "Documentation Ingest" in result.output
 
 
 def test_ingest_local_docs_duplicate_filenames(tmp_path: Path) -> None:
@@ -209,21 +205,25 @@ def test_ingest_local_docs_duplicate_filenames(tmp_path: Path) -> None:
     assert any("reference_index" in n for n in names)
 
 
-def test_ingest_remote_docs_masks_credentials(tmp_path: Path) -> None:
+def test_ingest_remote_docs_masks_credentials(tmp_path: Path, web: WebFake) -> None:
     """Ensure credentials in remote URL are masked in DocsIngestionError and result."""
     ingester = DocsIngester()
-    with patch("httpx2.Client.get", side_effect=RuntimeError("Connection refused")):
-        with pytest.raises(DocsIngestionError) as excinfo:
-            ingester.ingest_remote_docs(
-                "https://alice:supersecret999@example.com/api",
-                output_dir=tmp_path,
-            )
-        err_msg = str(excinfo.value)
-        assert "supersecret999" not in err_msg
-        assert "<masked-password>@example.com" in err_msg or "***@example.com" in err_msg
+
+    def refuse(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("Connection refused", request=request)
+
+    web.serve(refuse)
+    with pytest.raises(DocsIngestionError) as excinfo:
+        ingester.ingest_remote_docs(
+            "https://alice:supersecret999@example.com/api",
+            output_dir=tmp_path,
+        )
+    err_msg = str(excinfo.value)
+    assert "supersecret999" not in err_msg
+    assert "<masked-password>@example.com" in err_msg or "***@example.com" in err_msg
 
 
-def test_ingest_remote_docs_multipage_traversal(tmp_path: Path) -> None:
+def test_ingest_remote_docs_multipage_traversal(tmp_path: Path, web: WebFake) -> None:
     """Ensure max_pages traverses links on same origin domain."""
     ingester = DocsIngester()
 
@@ -238,26 +238,20 @@ def test_ingest_remote_docs_multipage_traversal(tmp_path: Path) -> None:
     <p>Subpage content</p>
     </body></html>"""
 
-    def mock_get(url: str) -> MagicMock:
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.headers = {"content-type": "text/html"}
-        if "subpage" in url:
-            resp.text = page2_html
-        else:
-            resp.text = page1_html
-        return resp
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        page = page2_html if "subpage" in str(request.url) else page1_html
+        return httpx2.Response(200, headers={"content-type": "text/html"}, text=page)
 
-    with patch("httpx2.Client.get", side_effect=mock_get):
-        result = ingester.ingest_remote_docs(
-            "https://example.com/root",
-            output_dir=tmp_path,
-            max_pages=2,
-        )
-        assert (result.total_pages, result.total_chunks >= 2) == (2, True)
+    web.serve(answer)
+    result = ingester.ingest_remote_docs(
+        "https://example.com/root",
+        output_dir=tmp_path,
+        max_pages=2,
+    )
+    assert (result.total_pages, result.total_chunks >= 2) == (2, True)
 
 
-def test_ingest_remote_docs_origin_filtering(tmp_path: Path) -> None:
+def test_ingest_remote_docs_origin_filtering(tmp_path: Path, web: WebFake) -> None:
     """Ensure links are only followed when origin matches start URL origin."""
     ingester = DocsIngester()
 
@@ -270,55 +264,49 @@ def test_ingest_remote_docs_origin_filtering(tmp_path: Path) -> None:
     <a href="https://example.com/tab\tlink">Invalid Tab Link</a>
     </body></html>"""
 
-    visited_urls: list[str] = []
-
-    def mock_get(url: str) -> MagicMock:
-        visited_urls.append(url)
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.headers = {"content-type": "text/html"}
-        resp.text = page1_html
-        return resp
-
-    with patch("httpx2.Client.get", side_effect=mock_get):
-        result = ingester.ingest_remote_docs(
-            "https://example.com/root",
-            output_dir=tmp_path,
-            max_pages=10,
-        )
-        assert (
-            "https://example.com/a" in visited_urls,
-            "https://example.com/b" in visited_urls,
-            "http://example.com/c" in visited_urls,
-            any("192.0.2.1" in u for u in visited_urls),
-            result.total_pages,
-        ) == (True, True, False, False, 3)
+    web.serve(
+        lambda request: httpx2.Response(200, headers={"content-type": "text/html"}, text=page1_html)
+    )
+    result = ingester.ingest_remote_docs(
+        "https://example.com/root",
+        output_dir=tmp_path,
+        max_pages=10,
+    )
+    visited_urls = web.requested
+    assert (
+        "https://example.com/a" in visited_urls,
+        "https://example.com/b" in visited_urls,
+        "http://example.com/c" in visited_urls,
+        any("192.0.2.1" in u for u in visited_urls),
+        result.total_pages,
+    ) == (True, True, False, False, 3)
 
 
-def test_ingest_remote_docs_slug_sanitization() -> None:
+def test_ingest_remote_docs_slug_sanitization(web: WebFake) -> None:
     """Ensure userinfo is stripped from directory slug and %2e%2e does not escape ingest root."""
     from devops_cli.core.repo import resolve_store_path
 
     ingester = DocsIngester()
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.headers = {"content-type": "text/html"}
-    resp.text = "<html><body><h1>Doc</h1><p>Content</p></body></html>"
+    resp = httpx2.Response(
+        200,
+        headers={"content-type": "text/html"},
+        text="<html><body><h1>Doc</h1><p>Content</p></body></html>",
+    )
 
-    with patch("httpx2.Client.get", return_value=resp):
-        res1 = ingester.ingest_remote_docs(
-            "https://myuser:secrettoken@example.com",
-            max_pages=1,
-        )
-        res2 = ingester.ingest_remote_docs(
-            "https://example.com/%2e%2e",
-            max_pages=1,
-        )
-        out_path = Path(res2.output_dir).resolve()
-        ingest_root = resolve_store_path(Path("docs_ingest")).resolve()
+    web.serve(lambda request: resp)
+    res1 = ingester.ingest_remote_docs(
+        "https://myuser:secrettoken@example.com",
+        max_pages=1,
+    )
+    res2 = ingester.ingest_remote_docs(
+        "https://example.com/%2e%2e",
+        max_pages=1,
+    )
+    out_path = Path(res2.output_dir).resolve()
+    ingest_root = resolve_store_path(Path("docs_ingest")).resolve()
 
-        assert (
-            "myuser" not in res1.output_dir,
-            "secrettoken" not in res1.output_dir,
-            out_path.parent == ingest_root,
-        ) == (True, True, True)
+    assert (
+        "myuser" not in res1.output_dir,
+        "secrettoken" not in res1.output_dir,
+        out_path.parent == ingest_root,
+    ) == (True, True, True)

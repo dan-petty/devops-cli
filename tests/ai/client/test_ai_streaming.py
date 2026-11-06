@@ -37,10 +37,11 @@ from tests.llm_stream_fakes import (
     ollama_line,
     openai_chunk,
     reply,
-    route_client,
+    serve_llm,
     sse_data,
     streamed,
 )
+from tests.support.fakes.http import WebFake
 
 
 class TestSuffixOverlap:
@@ -498,19 +499,27 @@ def _no_stream_finish_reason() -> Iterator[None]:
     stream_finish_reason.reset(token)
 
 
-def _read(
-    protocol: str, frames: Iterable[bytes], content_type: str | None = None, **limits: int
-) -> tuple[list[str], str | None, str | None]:
+_Read = Callable[..., tuple[list[str], str | None, str | None]]
+
+
+@pytest.fixture
+def read(web: WebFake) -> _Read:
     """Read a stream: the text it yielded, its finish reason, and the error that ended it."""
-    reader, parse_frame, default_type = _PROTOCOLS[protocol]
-    chunks: list[str] = []
-    with streamed(frames, content_type or default_type) as response:
-        try:
-            for chunk in reader(response, parse_frame, "Provider", **limits):
-                chunks.append(chunk)
-        except AIClientError as exc:
-            return chunks, stream_finish_reason.get(), str(exc)
-    return chunks, stream_finish_reason.get(), None
+
+    def read_stream(
+        protocol: str, frames: Iterable[bytes], content_type: str | None = None, **limits: int
+    ) -> tuple[list[str], str | None, str | None]:
+        reader, parse_frame, default_type = _PROTOCOLS[protocol]
+        chunks: list[str] = []
+        with streamed(web, frames, content_type or default_type) as response:
+            try:
+                for chunk in reader(response, parse_frame, "Provider", **limits):
+                    chunks.append(chunk)
+            except AIClientError as exc:
+                return chunks, stream_finish_reason.get(), str(exc)
+        return chunks, stream_finish_reason.get(), None
+
+    return read_stream
 
 
 _ENDED_EARLY = "Provider stream ended before its final frame."
@@ -569,10 +578,13 @@ _NOT_UTF8 = "'utf-8' codec can't decode byte 0xff in position 0: invalid start b
     ],
 )
 def test_a_stream_is_complete_only_at_its_final_frame(
-    protocol: str, frames: list[bytes], expected: tuple[list[str], str | None, str | None]
+    protocol: str,
+    frames: list[bytes],
+    expected: tuple[list[str], str | None, str | None],
+    read: _Read,
 ) -> None:
     """Verify each stream yields its text, ends on its provider's final frame, and raises else."""
-    assert _read(protocol, frames) == expected
+    assert read(protocol, frames) == expected
 
 
 @pytest.mark.parametrize(
@@ -588,16 +600,16 @@ def test_a_stream_is_complete_only_at_its_final_frame(
     ids=["anthropic-message-stop", "ollama-done"],
 )
 def test_reading_stops_at_the_final_frame(
-    protocol: str, frames: list[bytes], reason: str | None
+    protocol: str, frames: list[bytes], reason: str | None, read: _Read
 ) -> None:
     """Verify nothing after `[DONE]`, `message_stop` or `done: true` is read or yielded."""
     body = RecordedBody(frames)
 
-    assert (_read(protocol, body), body.read) == ((["Hi"], reason, None), len(frames) - 1)
+    assert (read(protocol, body), body.read) == ((["Hi"], reason, None), len(frames) - 1)
 
 
 @pytest.mark.parametrize("protocol", ["anthropic", "ollama"])
-def test_an_error_frame_is_masked_and_cut(protocol: str) -> None:
+def test_an_error_frame_is_masked_and_cut(protocol: str, read: _Read) -> None:
     """Verify a token in a provider's error message never reaches the raised error."""
     message = f"bad credentials {_GITHUB_TOKEN} " + "x" * 400
     error_frames = {
@@ -605,7 +617,7 @@ def test_an_error_frame_is_masked_and_cut(protocol: str) -> None:
         "ollama": (json.dumps({"error": message}) + "\n").encode(),
     }
 
-    _, _, error = _read(protocol, [error_frames[protocol]])
+    _, _, error = read(protocol, [error_frames[protocol]])
 
     prefix = "Provider stream reported an error: bad credentials "
     assert (str(error).startswith(prefix), _GITHUB_TOKEN in str(error), len(str(error))) == (
@@ -616,7 +628,7 @@ def test_an_error_frame_is_masked_and_cut(protocol: str) -> None:
 
 
 @pytest.mark.parametrize("protocol", ["anthropic", "ollama"])
-def test_a_frame_split_across_chunks_reads_as_whole(protocol: str) -> None:
+def test_a_frame_split_across_chunks_reads_as_whole(protocol: str, read: _Read) -> None:
     """Verify frames split mid-line and mid-code-point, and a raw U+2028, read intact."""
     text = "naïve € \u2028 end"
     frames = {
@@ -629,25 +641,25 @@ def test_a_frame_split_across_chunks_reads_as_whole(protocol: str) -> None:
     expected_reason = "stop" if protocol == "ollama" else None
     assert (
         "\u2028".encode() in whole,
-        _read(protocol, [whole]),
-        _read(protocol, one_byte_chunks),
+        read(protocol, [whole]),
+        read(protocol, one_byte_chunks),
     ) == (True, ([text], expected_reason, None), ([text], expected_reason, None))
 
 
-def test_an_oversized_event_or_line_is_refused() -> None:
+def test_an_oversized_event_or_line_is_refused(read: _Read) -> None:
     """Verify one event, or one line whether whole or unterminated, past the limit raises."""
     endless_line = RecordedBody([b'{"message": {"content": "'] + [b"x" * 32] * 50)
     line_limit = "Provider stream line exceeded the 64 bytes limit."
 
     assert (
-        _read(
+        read(
             "anthropic",
             [anthropic_text("x" * 200), anthropic_event("message_stop")],
             max_event_bytes=64,
         ),
-        _read("ollama", endless_line, max_line_bytes=64)[2],
+        read("ollama", endless_line, max_line_bytes=64)[2],
         endless_line.read < len(endless_line.frames),
-        _read("ollama", [ollama_line("x" * 200, done=True)], max_line_bytes=64),
+        read("ollama", [ollama_line("x" * 200, done=True)], max_line_bytes=64),
     ) == (
         (
             [],
@@ -664,9 +676,9 @@ def test_an_oversized_event_or_line_is_refused() -> None:
     ("protocol", "frame"),
     [("anthropic", anthropic_text("x" * 10)), ("ollama", ollama_line("x" * 10))],
 )
-def test_a_stream_past_its_size_limit_is_refused(protocol: str, frame: bytes) -> None:
+def test_a_stream_past_its_size_limit_is_refused(protocol: str, frame: bytes, read: _Read) -> None:
     """Verify the whole-stream limit counts every frame and raises once it is passed."""
-    chunks, _, error = _read(protocol, [frame] * 10, max_stream_bytes=200)
+    chunks, _, error = read(protocol, [frame] * 10, max_stream_bytes=200)
 
     assert (len(chunks) < 10, error) == (
         True,
@@ -684,11 +696,13 @@ def test_a_stream_past_its_size_limit_is_refused(protocol: str, frame: bytes) ->
         ("ollama", [ollama_line("Hel"), ollama_line("lo"), ollama_line(done=True)]),
     ],
 )
-def test_chunks_reach_the_caller_as_they_arrive(protocol: str, frames: list[bytes]) -> None:
+def test_chunks_reach_the_caller_as_they_arrive(
+    protocol: str, frames: list[bytes], web: WebFake
+) -> None:
     """Verify the first chunk is yielded before the transport has produced the last frame."""
     reader, parse_frame, content_type = _PROTOCOLS[protocol]
     body = RecordedBody(frames)
-    with streamed(body, content_type) as response:
+    with streamed(web, body, content_type) as response:
         chunks = reader(response, parse_frame, "Provider")
         first, read_at_first = next(chunks), body.read
         rest = list(chunks)
@@ -696,9 +710,9 @@ def test_chunks_reach_the_caller_as_they_arrive(protocol: str, frames: list[byte
     assert (first, read_at_first, rest, body.read) == ("Hel", 1, ["lo"], 3)
 
 
-def test_an_event_stream_of_another_content_type_is_refused() -> None:
+def test_an_event_stream_of_another_content_type_is_refused(read: _Read) -> None:
     """Verify an SSE reply sent as `application/json` raises, naming the type."""
-    _, _, error = _read(
+    _, _, error = read(
         "anthropic",
         [anthropic_text("Hi"), anthropic_event("message_stop")],
         "application/json",
@@ -723,14 +737,16 @@ def _openai_client(monkeypatch: pytest.MonkeyPatch) -> LLMClient:
     return LLMClient(config, api_key="sk-test", cache_enabled=False)
 
 
-def test_each_stream_starts_with_no_finish_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_each_stream_starts_with_no_finish_reason(
+    monkeypatch: pytest.MonkeyPatch, web: WebFake
+) -> None:
     """Verify a stream ending on `[DONE]` alone, or cut, does not inherit the last one's reason."""
     client = _openai_client(monkeypatch)
     cut_length = [openai_chunk("Hi", "length"), OPENAI_DONE]
     replies = iter(
         [cut_length, [openai_chunk("Hi")], cut_length, [openai_chunk("Hi"), OPENAI_DONE]]
     )
-    route_client(client, monkeypatch, lambda request: reply(next(replies)))
+    serve_llm(web, lambda request: reply(next(replies)))
     reasons: list[str | None] = []
 
     for _ in range(4):
@@ -744,6 +760,7 @@ def test_each_stream_starts_with_no_finish_reason(monkeypatch: pytest.MonkeyPatc
 
 def test_an_ollama_stream_failing_after_output_is_not_replayed_on_another_host(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify a stream cut after it yielded output raises instead of failing over mid-reply."""
     monkeypatch.setattr(context_budget, "count_tokens", lambda text, *args, **kwargs: len(text))
@@ -762,7 +779,7 @@ def test_an_ollama_stream_failing_after_output_is_not_replayed_on_another_host(
         yield ollama_line("Hi")
         raise httpx2.ReadError("connection reset by peer")
 
-    sent = route_client(client, monkeypatch, lambda request: reply(cut_body(), NDJSON))
+    sent = serve_llm(web, lambda request: reply(cut_body(), NDJSON))
     chunks: list[str] = []
     with pytest.raises(AIClientError, match="connection terminated unexpectedly") as raised:
         for chunk in client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]):
@@ -773,6 +790,7 @@ def test_an_ollama_stream_failing_after_output_is_not_replayed_on_another_host(
 
 def test_openai_stream_sends_stream_options_and_records_provider_usage(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify OpenAI stream asks for usage and records provider-reported token usage."""
     recorded_spends: list[dict[str, Any]] = []
@@ -808,7 +826,7 @@ def test_openai_stream_sends_stream_options_and_records_provider_usage(
         sent_requests.append(request)
         return reply(frames)
 
-    route_client(client, monkeypatch, handle)
+    serve_llm(web, handle)
     chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 
     assert chunks == ["Hello ", "world"]
@@ -826,6 +844,7 @@ def test_openai_stream_sends_stream_options_and_records_provider_usage(
 
 def test_ollama_stream_records_provider_eval_counts(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify Ollama stream captures final eval_count and prompt_eval_count."""
     recorded_spends: list[dict[str, Any]] = []
@@ -846,7 +865,7 @@ def test_ollama_stream_records_provider_eval_counts(
         ollama_line("Hello "),
         ollama_line("world", done=True, prompt_eval_count=14, eval_count=28),
     ]
-    route_client(client, monkeypatch, lambda request: reply(frames, NDJSON))
+    serve_llm(web, lambda request: reply(frames, NDJSON))
     chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 
     assert chunks == ["Hello ", "world"]
@@ -857,6 +876,7 @@ def test_ollama_stream_records_provider_eval_counts(
 
 def test_claude_stream_records_provider_message_usage(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify Claude stream captures message_start input tokens and message_delta output tokens."""
     recorded_spends: list[dict[str, Any]] = []
@@ -875,7 +895,7 @@ def test_claude_stream_records_provider_message_usage(
         cache_enabled=False,
     )
     frames = anthropic_stream_frames(["Hello ", "world"], input_tokens=16, output_tokens=32)
-    route_client(client, monkeypatch, lambda request: reply(frames))
+    serve_llm(web, lambda request: reply(frames))
     chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 
     assert chunks == ["Hello ", "world"]
@@ -886,6 +906,7 @@ def test_claude_stream_records_provider_message_usage(
 
 def test_multi_node_ollama_stream_records_leased_server(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify multi-node Ollama stream records the leased node as server instead of joined list."""
     recorded_spends: list[dict[str, Any]] = []
@@ -906,7 +927,7 @@ def test_multi_node_ollama_stream_records_leased_server(
         ollama_line("Hello "),
         ollama_line("world", done=True, prompt_eval_count=10, eval_count=20),
     ]
-    route_client(client, monkeypatch, lambda request: reply(frames, NDJSON))
+    serve_llm(web, lambda request: reply(frames, NDJSON))
     chunks = list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 
     assert chunks == ["Hello ", "world"]
@@ -917,6 +938,7 @@ def test_multi_node_ollama_stream_records_leased_server(
 
 def test_stream_closed_after_partial_consumption_records_spent_tokens(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify stream closed early records spent tokens in a finally block."""
     client = _openai_client(monkeypatch)
@@ -932,7 +954,7 @@ def test_stream_closed_after_partial_consumption_records_spent_tokens(
         openai_chunk("Four", "stop"),
         OPENAI_DONE,
     ]
-    route_client(client, monkeypatch, lambda request: reply(frames))
+    serve_llm(web, lambda request: reply(frames))
 
     gen = client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")])
     c1 = next(gen)

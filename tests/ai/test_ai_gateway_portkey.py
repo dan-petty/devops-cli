@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import httpx2
 import pytest
@@ -19,10 +18,18 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
 )
 from devops_cli.config.settings import AIConfig
+from tests.support.fakes.http import WebFake
 
-pytestmark = pytest.mark.usefixtures("keyring_store", "public_dns")
+pytestmark = pytest.mark.usefixtures("keyring_store", "web")
 
 runner = CliRunner()
+
+
+def _refuse(request: httpx2.Request) -> httpx2.Response:
+    """Refuse the connection, as a gateway that is down does."""
+    raise httpx2.ConnectError("Connection refused", request=request)
+
+
 PORTKEY_DIR = Path("k8s/llm/portkey")
 
 
@@ -49,19 +56,17 @@ class TestPortkeyGatewayRouter:
             True,
         )
 
-    @pytest.mark.usefixtures("public_dns")
-    def test_portkey_probe_gateway_success(self) -> None:
+    def test_portkey_probe_gateway_success(self, web: WebFake) -> None:
         """Verify probe_gateway handles Portkey endpoints and records backend counts."""
         config = AIConfig(
             gateway_provider=CONST_AI_GATEWAY_PROVIDER_PORTKEY,
             portkey_url="http://example.com:8787",
         )
         router = GatewayRouter(config)
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
+        mock_resp = httpx2.Response(200)
 
-        with patch.object(httpx2.Client, "get", return_value=mock_resp):
-            status = router.probe_gateway()
+        web.serve(lambda request: mock_resp)
+        status = router.probe_gateway()
 
         assert (
             status.healthy,
@@ -75,24 +80,21 @@ class TestPortkeyGatewayRouter:
             4,
         )
 
-    @pytest.mark.usefixtures("public_dns")
-    def test_portkey_probe_gateway_degraded(self) -> None:
+    def test_portkey_probe_gateway_degraded(self, web: WebFake) -> None:
         """Verify Portkey probe_gateway marks status degraded on 503."""
         config = AIConfig(
             gateway_provider=CONST_AI_GATEWAY_PROVIDER_PORTKEY,
             portkey_url="http://example.com:8787",
         )
         router = GatewayRouter(config)
-        mock_resp = MagicMock()
-        mock_resp.status_code = 503
+        mock_resp = httpx2.Response(503)
 
-        with patch.object(httpx2.Client, "get", return_value=mock_resp):
-            status = router.probe_gateway()
+        web.serve(lambda request: mock_resp)
+        status = router.probe_gateway()
 
         assert (status.healthy, status.details.get("status_code")) == (False, 503)
 
-    @pytest.mark.usefixtures("public_dns")
-    def test_portkey_probe_gateway_connection_failure(self) -> None:
+    def test_portkey_probe_gateway_connection_failure(self, web: WebFake) -> None:
         """Verify Portkey probe handles connection errors with bounded details."""
         config = AIConfig(
             gateway_provider=CONST_AI_GATEWAY_PROVIDER_PORTKEY,
@@ -101,8 +103,8 @@ class TestPortkeyGatewayRouter:
         router = GatewayRouter(config)
         long_err = "Portkey connection refused " + "y" * 400
 
-        with patch.object(httpx2.Client, "get", side_effect=httpx2.ConnectError(long_err)):
-            status = router.probe_gateway()
+        web.fail("http://example.com:8787/health", httpx2.ConnectError(long_err))
+        status = router.probe_gateway()
 
         err_detail = status.details.get("error", "")
         assert (
@@ -119,12 +121,13 @@ class TestPortkeyGatewayRouter:
 class TestPortkeyCLI:
     """Test suite for CLI ai gateway commands with the Portkey provider."""
 
-    def test_routes_with_portkey_provider(self, refusing_port: int) -> None:
+    def test_routes_with_portkey_provider(self, web: WebFake) -> None:
         """Verify 'devops ai gateway routes --provider portkey' prints Portkey routes.
 
-        The gateway is down, refused through `refusing_port`, so the routes are the defaults.
+        The gateway is down, so the routes are the defaults.
         """
-        portkey = ["--provider", "portkey", "--gateway-url", f"http://127.0.0.1:{refusing_port}"]
+        web.serve(_refuse)
+        portkey = ["--provider", "portkey", "--gateway-url", "http://127.0.0.1:8787"]
         res_table = runner.invoke(gateway_cli_app, ["routes", *portkey])
         res_json = runner.invoke(gateway_cli_app, ["routes", *portkey, "--format", "json"])
 
@@ -145,28 +148,27 @@ class TestPortkeyCLI:
             "ollama",
         )
 
-    def test_status_with_portkey_provider(self) -> None:
+    def test_status_with_portkey_provider(self, web: WebFake) -> None:
         """Verify 'devops ai gateway status --provider portkey' checks Portkey gateway."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
+        mock_resp = httpx2.Response(200)
 
-        with patch.object(httpx2.Client, "get", return_value=mock_resp):
-            res_table = runner.invoke(
-                gateway_cli_app,
-                ["status", "--provider", "portkey", "--gateway-url", "http://example.com:8787"],
-            )
-            res_json = runner.invoke(
-                gateway_cli_app,
-                [
-                    "status",
-                    "--provider",
-                    "portkey",
-                    "--gateway-url",
-                    "http://example.com:8787",
-                    "--format",
-                    "json",
-                ],
-            )
+        web.serve(lambda request: mock_resp)
+        res_table = runner.invoke(
+            gateway_cli_app,
+            ["status", "--provider", "portkey", "--gateway-url", "http://example.com:8787"],
+        )
+        res_json = runner.invoke(
+            gateway_cli_app,
+            [
+                "status",
+                "--provider",
+                "portkey",
+                "--gateway-url",
+                "http://example.com:8787",
+                "--format",
+                "json",
+            ],
+        )
 
         parsed = json.loads(res_json.output)
         assert (

@@ -22,7 +22,8 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import route_client
+from tests.llm_stream_fakes import serve_llm
+from tests.support.fakes.http import WebFake
 
 _PROMPT = [ChatMessage(role="user", content="hi")]
 
@@ -96,9 +97,7 @@ _CONFIGS: dict[str, AIConfig] = {
 
 
 @pytest.mark.parametrize("provider", ["openai", "anthropic", "ollama"])
-def test_each_parser_reads_its_providers_stop_value(
-    provider: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_each_parser_reads_its_providers_stop_value(provider: str, web: WebFake) -> None:
     """Verify each non-streamed parser maps every stop value its provider sends, absent included."""
     table = _STOP_VALUES[provider]
     bodies = iter([_REPLY_BODIES[provider](value) for value, _ in table])
@@ -111,7 +110,7 @@ def test_each_parser_reads_its_providers_stop_value(
             return httpx2.Response(404, json={"error": {"type": "not_found_error"}})
         return httpx2.Response(200, json=next(bodies))
 
-    route_client(client, monkeypatch, _handle_request)
+    serve_llm(web, _handle_request)
 
     assert [(value, _REQUESTS[provider](client).finish_reason) for value, _ in table] == table
 
@@ -187,7 +186,7 @@ def test_only_replies_that_ended_normally_are_cached(
 
 
 def test_a_reply_the_validator_refuses_keeps_its_finish_reason(
-    monkeypatch: pytest.MonkeyPatch, public_dns: str, spend_ledger: SpendLedger
+    web: WebFake, spend_ledger: SpendLedger
 ) -> None:
     """Verify the rejection carries the reply as the provider gave it, so a caller reads why it
     ended, and a refused reply is neither cached nor sent again (#1013)."""
@@ -196,7 +195,7 @@ def test_a_reply_the_validator_refuses_keeps_its_finish_reason(
     )
     client = LLMClient(config, api_key="sk")
     body = {"choices": [{"message": {"content": "not json"}, "finish_reason": "length"}]}
-    sent = route_client(client, monkeypatch, lambda _request: httpx2.Response(200, json=body))
+    sent = serve_llm(web, lambda _request: httpx2.Response(200, json=body))
 
     with pytest.raises(ReplyRejectedError) as refused:
         client.chat("sys", "user", validator=lambda text: False, max_retries=0)

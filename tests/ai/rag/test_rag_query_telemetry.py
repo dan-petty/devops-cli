@@ -30,6 +30,7 @@ from devops_cli.telemetry import tracer as tracer_module
 from devops_cli.telemetry.instruments import RAG_QUERY_DURATION, Instrument
 from devops_cli.telemetry.tracer import OTelTelemetryClient, reset_tracer
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.http import WebFake
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 Emitted = list[tuple[str, float, dict[str, Any] | None]]
@@ -420,6 +421,7 @@ def test_a_retried_qdrant_request_is_counted_by_the_error_behind_it(
 
 def test_the_rag_histogram_tops_out_past_the_query_paths_timeouts(
     monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Verify the top bucket is at least the longest request timeout a query waits on.
 
@@ -431,12 +433,12 @@ def test_the_rag_histogram_tops_out_past_the_query_paths_timeouts(
     """
     read_timeouts: list[float] = []
 
-    def gateway_post(self: httpx2.Client, url: str, **kwargs: Any) -> httpx2.Response:
-        if url.endswith("/embeddings"):
-            read_timeouts.append(float(self.timeout.read or 0))
+    def gateway_post(request: httpx2.Request) -> httpx2.Response:
+        if str(request.url).endswith("/embeddings"):
+            read_timeouts.append(float(request.extensions["timeout"]["read"] or 0))
         return httpx2.Response(200, json={"data": [{"index": 0, "embedding": [1.0, 0.0]}]})
 
-    monkeypatch.setattr(httpx2.Client, "post", gateway_post)
+    web.serve(gateway_post)
     gateway = AIConfig(provider="gateway", gateway_url="https://example.com/v1")
     EmbeddingsEngine(gateway, api_key="test-key", valkey_client=None).embed_query("retry policy")
 

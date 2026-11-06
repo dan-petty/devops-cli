@@ -770,9 +770,9 @@ def _fetch_pricing_json(url: str, level: EgressLevel, timeout: float) -> object:
     """
     import httpx2
 
-    from devops_cli.http.client import new_http_client
+    from devops_cli.http.entry import http_client
 
-    with new_http_client(level=level, timeout=httpx2.Timeout(timeout)) as client:
+    with http_client(level, timeout=httpx2.Timeout(timeout)) as client:
         response = client.get(url)
         response.raise_for_status()
     return json.loads(response.content)

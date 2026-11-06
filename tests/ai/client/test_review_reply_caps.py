@@ -11,17 +11,18 @@ import pytest
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.client.network import limit_completion_tokens
 from devops_cli.config.settings import AIConfig
-from tests.llm_stream_fakes import route_llm_clients
+from tests.llm_stream_fakes import serve_llm
+from tests.support.fakes.http import WebFake
 
 GATEWAY_URL = "http://gateway.example.com:4000/v1"
 
 
 @pytest.fixture(autouse=True)
-def _public_endpoints(public_dns: str) -> None:
+def _public_endpoints(web: WebFake) -> None:
     """The configured endpoints are example.com URLs, which resolve to a public address."""
 
 
-def _capture_payloads(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+def _capture_payloads(web: WebFake) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
 
     def answer(request: httpx2.Request) -> httpx2.Response:
@@ -29,7 +30,7 @@ def _capture_payloads(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
             payloads.append(json.loads(request.content))
         return httpx2.Response(200, json={"choices": [{"message": {"content": "[]"}}]})
 
-    route_llm_clients(monkeypatch, answer)
+    serve_llm(web, answer)
     return payloads
 
 
@@ -46,11 +47,9 @@ def _client(max_tokens: int | None = None) -> LLMClient:
     )
 
 
-def test_call_cap_limits_the_reply_and_config_still_applies(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_call_cap_limits_the_reply_and_config_still_applies(web: WebFake) -> None:
     """Verify a call's cap sets max_tokens, the smaller limit wins, and nothing leaks past it."""
-    payloads = _capture_payloads(monkeypatch)
+    payloads = _capture_payloads(web)
 
     with limit_completion_tokens(500):
         _client().chat("s", "u", use_cache=False)

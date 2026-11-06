@@ -16,8 +16,9 @@ from tests.llm_stream_fakes import (
     anthropic_text,
     make_anthropic_model_info_payload,
     reply,
-    route_client,
+    serve_llm,
 )
+from tests.support.fakes.http import WebFake
 
 
 @pytest.fixture(autouse=True)
@@ -65,7 +66,7 @@ def test_claude_empty_model_raises_configuration_error() -> None:
 
 
 def test_claude_adaptive_thinking_and_no_sampling_request_payload(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Given a recorded Models API reply that declares adaptive thinking and no sampling,
 
@@ -104,7 +105,7 @@ def test_claude_adaptive_thinking_and_no_sampling_request_payload(
         allow_private_network=True,
     )
     client = LLMClient(cfg, api_key="sk-ant-test")
-    route_client(client, monkeypatch, handler)
+    serve_llm(web, handler)
 
     res = client.chat("System instructions", "User prompt", enable_thinking=True)
 
@@ -119,7 +120,7 @@ def test_claude_adaptive_thinking_and_no_sampling_request_payload(
 
 
 def test_claude_sampling_parity_when_model_declares_sampling_support(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """Given a model that declares sampling support, streamed and unstreamed requests
 
@@ -174,7 +175,7 @@ def test_claude_sampling_parity_when_model_declares_sampling_support(
         allow_private_network=True,
     )
     client = LLMClient(cfg, api_key="sk-ant-test")
-    route_client(client, monkeypatch, handler)
+    serve_llm(web, handler)
 
     unstreamed_res = client.chat("System", "Hello unstreamed", enable_thinking=False)
     assert unstreamed_res.text == "Unstreamed response"
@@ -192,7 +193,7 @@ def test_claude_sampling_parity_when_model_declares_sampling_support(
 
 
 def _claude_sampling_client(
-    monkeypatch: pytest.MonkeyPatch, *, sampling: bool = True, **config: Any
+    web: WebFake, *, sampling: bool = True, **config: Any
 ) -> tuple[LLMClient, list[dict[str, Any]]]:
     """A Claude client whose fake model declares `sampling`; it records each Messages body."""
     model_name = "claude-haiku-4"
@@ -213,14 +214,14 @@ def _claude_sampling_client(
         provider="claude", model=model_name, temperature=0.7, allow_private_network=True, **config
     )
     client = LLMClient(cfg, api_key="sk-ant-test", cache_enabled=False)
-    route_client(client, monkeypatch, handler)
+    serve_llm(web, handler)
     return client, bodies
 
 
 def test_claude_request_carries_per_call_sampling_and_no_seed(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
-    client, bodies = _claude_sampling_client(monkeypatch)
+    client, bodies = _claude_sampling_client(web)
     client.chat("sys", "user", temperature=0.9, top_p=0.8, seed=7, enable_thinking=False)
     assert [(body.get("temperature"), body.get("top_p"), "seed" in body) for body in bodies] == [
         (0.9, 0.8, False)
@@ -228,9 +229,9 @@ def test_claude_request_carries_per_call_sampling_and_no_seed(
 
 
 def test_claude_omitted_temperature_keeps_the_configured_value(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
-    client, bodies = _claude_sampling_client(monkeypatch)
+    client, bodies = _claude_sampling_client(web)
     client.chat("sys", "user", enable_thinking=False)
     assert [body.get("temperature") for body in bodies] == [0.7]
 
@@ -241,9 +242,9 @@ def test_claude_omitted_temperature_keeps_the_configured_value(
     ids=["use-model-sampling", "model-without-sampling"],
 )
 def test_claude_sampling_gate_wins_over_per_call_sampling(
-    monkeypatch: pytest.MonkeyPatch, sampling: bool, config: dict[str, Any]
+    web: WebFake, sampling: bool, config: dict[str, Any]
 ) -> None:
-    client, bodies = _claude_sampling_client(monkeypatch, sampling=sampling, **config)
+    client, bodies = _claude_sampling_client(web, sampling=sampling, **config)
     client.chat("sys", "user", temperature=0.9, top_p=0.8, seed=7, enable_thinking=False)
     assert [sorted({"temperature", "top_p", "seed"} & body.keys()) for body in bodies] == [[]]
 

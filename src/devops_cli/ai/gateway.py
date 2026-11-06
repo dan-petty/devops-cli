@@ -34,8 +34,8 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import AIConfig, load_settings
 from devops_cli.exceptions import ConfigurationError, DevOpsCLIError, ValidationError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel, configured_level
+from devops_cli.http.entry import http_client
 from devops_cli.http.urls import get_url_origin
 from devops_cli.telemetry import trace_span
 from devops_cli.telemetry.instruments import (
@@ -337,7 +337,7 @@ def _query_model_info(
     try:
         if client is not None:
             return _fetch_endpoint_resp(client, gateway_url, headers)
-        with new_http_client(level=level, timeout=httpx2.Timeout(2.0)) as ephemeral_client:
+        with http_client(level, timeout=httpx2.Timeout(2.0)) as ephemeral_client:
             return _fetch_endpoint_resp(ephemeral_client, gateway_url, headers)
     except Exception as exc:
         logger.debug("Failed to query live models API at %s: %s", gateway_url, exc)
@@ -546,8 +546,8 @@ class GatewayRouter:
             "ai.gateway.probe", {"gateway.url": raw_url, "gateway.provider": self.provider}
         ) as span_h:
             start = time.perf_counter()
-            with new_http_client(
-                level=configured_level(self.config), timeout=httpx2.Timeout(timeout)
+            with http_client(
+                configured_level(self.config), timeout=httpx2.Timeout(timeout)
             ) as client:
                 is_ok, status_code, err_msg = _probe_gateway_http(client, probe_base, self.provider)
 
@@ -770,7 +770,7 @@ def _probe_backend_http(
     err_msg: str | None = None
     models: list[str] = []
     try:
-        with new_http_client(level=level, timeout=httpx2.Timeout(timeout)) as client:
+        with http_client(level, timeout=httpx2.Timeout(timeout)) as client:
             resp = client.get(f"{probe_base}/health")
             if resp.status_code != 200:
                 resp = client.get(f"{probe_base}/v1/models")
@@ -813,7 +813,7 @@ def probe_gateway_liveliness_and_models(
     The address is a node address from the Kubernetes API, so the probe dials at the private
     level, and the connect checks the address.
     """
-    with new_http_client(level=EgressLevel.PRIVATE, timeout=httpx2.Timeout(timeout)) as client:
+    with http_client(EgressLevel.PRIVATE, timeout=httpx2.Timeout(timeout)) as client:
         live_resp = client.get(f"{base_url}/health/liveliness")
         if live_resp.status_code >= 400:
             raise ValidationError(

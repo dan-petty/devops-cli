@@ -23,12 +23,8 @@ if TYPE_CHECKING:
 from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import (
-    OPENAI_DONE,
-    openai_chunk,
-    reply,
-    route_client,
-)
+from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, serve_llm
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.model import (
     ModelAnswer,
     ModelCall,
@@ -67,7 +63,7 @@ def test_completion_contract_real_pydantic_ai() -> None:
     assert "".join(text_parts) == "Real test model response"
 
 
-def test_completion_contract_real_llm_client(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_completion_contract_real_llm_client(web: WebFake) -> None:
     """Real `LLMClient` over recorded JSON response fulfills the chat completion contract."""
     config = AIConfig(
         provider="openai",
@@ -89,9 +85,8 @@ def test_completion_contract_real_llm_client(monkeypatch: pytest.MonkeyPatch) ->
         ],
         "usage": {"prompt_tokens": 15, "completion_tokens": 25, "total_tokens": 40},
     }
-    route_client(
-        client,
-        monkeypatch,
+    serve_llm(
+        web,
         lambda req: httpx2.Response(
             200, json=payload, headers={"content-type": "application/json"}
         ),
@@ -128,7 +123,7 @@ def test_streaming_contract_real_pydantic_ai() -> None:
     assert "".join(deltas) == "Pydantic stream"
 
 
-def test_streaming_contract_real_llm_client(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_streaming_contract_real_llm_client(web: WebFake) -> None:
     """Real `LLMClient.chat_stream` yields tokens matching recorded chunks."""
     config = AIConfig(
         provider="openai",
@@ -144,7 +139,7 @@ def test_streaming_contract_real_llm_client(monkeypatch: pytest.MonkeyPatch) -> 
         openai_chunk("three", finish_reason="stop"),
         OPENAI_DONE,
     ]
-    route_client(client, monkeypatch, lambda req: reply(frames))
+    serve_llm(web, lambda req: reply(frames))
 
     chunks = list(client.chat_stream("System", "Stream request"))
     assert "".join(chunks) == "Stream chunk three"

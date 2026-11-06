@@ -9,15 +9,15 @@ import pytest
 
 from devops_cli.ai.client import AIClientError, LLMClient
 from devops_cli.config.settings import AIConfig
-from tests.llm_stream_fakes import route_llm_clients
+from tests.llm_stream_fakes import serve_llm
+from tests.support.fakes.http import WebFake
 
 GATEWAY_URL = "http://gateway.example.com:4000/v1"
 
 
 @pytest.fixture(autouse=True)
-def _public_endpoints(public_dns: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def _public_endpoints(web: WebFake) -> None:
     """The configured endpoints are example.com URLs, which resolve to a public address."""
-    monkeypatch.setattr("devops_cli.ai.gateway._query_model_info", lambda *a, **kw: None)
 
 
 def _client(api_key: str) -> LLMClient:
@@ -28,19 +28,19 @@ def _client(api_key: str) -> LLMClient:
     )
 
 
-def _serve(monkeypatch: pytest.MonkeyPatch, status: int) -> list[httpx2.Request]:
+def _serve(web: WebFake, status: int) -> list[httpx2.Request]:
     """Answer every chat, stream and model-list request with ``status``; return the requests."""
     body: dict[str, Any] = (
         {"choices": [{"message": {"content": "OK"}}], "data": [{"id": "devops-coder"}]}
         if status == 200
         else {"error": {"message": "Authentication Error, No api key passed in."}}
     )
-    return route_llm_clients(monkeypatch, lambda request: httpx2.Response(status, json=body))
+    return serve_llm(web, lambda request: httpx2.Response(status, json=body))
 
 
-def test_unset_key_sends_no_authorization_header(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unset_key_sends_no_authorization_header(web: WebFake) -> None:
     """Verify an unset key omits Authorization rather than sending an empty bearer token."""
-    sent = _serve(monkeypatch, 200)
+    sent = _serve(web, 200)
     client = _client("")
 
     reply = client.chat("You are terse.", "Reply with OK.", use_cache=False)
@@ -62,10 +62,10 @@ def test_unset_key_sends_no_authorization_header(monkeypatch: pytest.MonkeyPatch
     ],
 )
 def test_rejected_credentials_name_the_key_sources_without_retrying(
-    monkeypatch: pytest.MonkeyPatch, api_key: str, status: int, expected: str
+    web: WebFake, api_key: str, status: int, expected: str
 ) -> None:
     """Verify 401/403 fail once with an error naming where the key comes from."""
-    sent = _serve(monkeypatch, status)
+    sent = _serve(web, status)
 
     with pytest.raises(AIClientError) as exc_info:
         _client(api_key).chat("You are terse.", "Reply with OK.", use_cache=False)
@@ -79,18 +79,11 @@ def test_rejected_credentials_name_the_key_sources_without_retrying(
     ) == (True, True, True, 1)
 
 
-def test_streaming_reports_rejected_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_streaming_reports_rejected_credentials(web: WebFake) -> None:
     """Verify a streamed request without a key reports the missing key, not a stream failure."""
-    sent: list[dict[str, str]] = []
-
-    def fake_send(self: Any, request: httpx2.Request, **kwargs: Any) -> httpx2.Response:
-        if str(request.url).startswith(GATEWAY_URL):
-            sent.append(dict(request.headers))
-        return httpx2.Response(401, json={"error": {"message": "No api key"}}, request=request)
-
-    monkeypatch.setattr(httpx2.Client, "send", fake_send)
+    web.serve(lambda request: httpx2.Response(401, json={"error": {"message": "No api key"}}))
 
     with pytest.raises(AIClientError, match="no API key is configured"):
         list(_client("")._openai_compat_stream("You are terse.", []))
 
-    assert [h.get("authorization") for h in sent] == [None]
+    assert [request.headers.get("authorization") for request in web.sent] == [None]

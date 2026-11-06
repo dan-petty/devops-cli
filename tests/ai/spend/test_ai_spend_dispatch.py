@@ -18,18 +18,13 @@ from devops_cli.ai.spend.ledger import SpendLedger, observe_llm_calls
 from devops_cli.ai.spend.models import SpendRecord
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import (
-    NDJSON,
-    OPENAI_DONE,
-    openai_chunk,
-    reply,
-    route_client,
-    route_retrying_client,
-    sse_data,
-)
+from tests.llm_stream_fakes import NDJSON, OPENAI_DONE, openai_chunk, reply, serve_llm, sse_data
+from tests.support.fakes.http import WebFake
+
+pytestmark = pytest.mark.usefixtures("clock")
 
 
-def test_llm_client_dispatch_records_spend(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llm_client_dispatch_records_spend(monkeypatch: pytest.MonkeyPatch, web: WebFake) -> None:
     """Verify LLMClient chat dispatch triggers track_request_spend with prompt/completion tokens."""
     recorded: list[dict[str, Any]] = []
 
@@ -55,9 +50,8 @@ def test_llm_client_dispatch_records_spend(monkeypatch: pytest.MonkeyPatch) -> N
         allow_private_network=True,
     )
     client = LLMClient(cfg)
-    route_client(
-        client,
-        monkeypatch,
+    serve_llm(
+        web,
         lambda request: httpx2.Response(
             200,
             json={
@@ -84,7 +78,7 @@ def test_llm_client_dispatch_records_spend(monkeypatch: pytest.MonkeyPatch) -> N
     )
 
 
-def test_llm_client_streaming_records_spend(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llm_client_streaming_records_spend(monkeypatch: pytest.MonkeyPatch, web: WebFake) -> None:
     """Verify LLMClient streaming chat completes and records estimated/token spend."""
     recorded: list[dict[str, Any]] = []
 
@@ -116,7 +110,7 @@ def test_llm_client_streaming_records_spend(monkeypatch: pytest.MonkeyPatch) -> 
         allow_private_network=True,
     )
     client = LLMClient(cfg)
-    route_client(client, monkeypatch, lambda request: reply(stream_lines, NDJSON))
+    serve_llm(web, lambda request: reply(stream_lines, NDJSON))
     generator = client.chat_messages_stream(
         system="sys",
         messages=[ChatMessage(role="user", content="stream query")],
@@ -235,12 +229,12 @@ def _stream_reply(client: LLMClient) -> tuple[list[str], list[dict[str, Any]], s
 
 
 def test_a_complete_stream_records_its_finish_reason(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """Verify a stream that reaches its final frame writes one row with its reason."""
     client = _stream_client(monkeypatch)
     frames = [openai_chunk("Hel"), openai_chunk("lo", "length"), OPENAI_DONE]
-    route_client(client, monkeypatch, lambda request: reply(frames))
+    serve_llm(web, lambda request: reply(frames))
 
     chunks, seen, error = _stream_reply(client)
 
@@ -253,11 +247,11 @@ def test_a_complete_stream_records_its_finish_reason(
 
 
 def test_a_stream_failing_after_output_records_its_spend_as_an_error(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """Verify tokens yielded before a failure are recorded with reason `error`, then it raises."""
     client = _stream_client(monkeypatch)
-    route_client(client, monkeypatch, lambda request: reply([openai_chunk("Hel")]))
+    serve_llm(web, lambda request: reply([openai_chunk("Hel")]))
 
     chunks, seen, error = _stream_reply(client)
 
@@ -278,21 +272,21 @@ def _server_error(request: httpx2.Request) -> httpx2.Response:
 
 
 def test_a_stream_refused_before_its_first_chunk_records_nothing(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """Verify a stream that cannot open a connection writes no row and notifies no observer."""
     client = _stream_client(monkeypatch)
-    route_retrying_client(client, monkeypatch, _refuse_connection)
+    serve_llm(web, _refuse_connection)
 
     assert (_stream_reply(client), _ledger_rows(spend_ledger)) == (([], [], "AIClientError"), [])
 
 
 def test_a_stream_failing_before_its_first_chunk_with_server_error_records_each_attempt(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """Verify a stream that the server answers with 500 writes one error row per attempt."""
     client = _stream_client(monkeypatch)
-    route_retrying_client(client, monkeypatch, _server_error)
+    serve_llm(web, _server_error)
 
     chunks, seen, error = _stream_reply(client)
 
@@ -327,7 +321,7 @@ def _ok_reply(model: str = "gpt-test") -> httpx2.Response:
 
 
 def test_failed_chat_dispatch_attempts_are_recorded_in_spend_ledger(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """Verify each attempt reaching the gateway and failing writes an error row in the ledger."""
     client = _chat_client(monkeypatch)
@@ -337,7 +331,7 @@ def test_failed_chat_dispatch_attempts_are_recorded_in_spend_ledger(
 
     # 1. 500 once then reply -> 2 rows: ("chat_dispatch", "error") and ("chat_dispatch", "stop")
     responses_500: list[Callable[[httpx2.Request], httpx2.Response]] = [_server_error, _ok]
-    route_retrying_client(client, monkeypatch, lambda req: responses_500.pop(0)(req))
+    serve_llm(web, lambda req: responses_500.pop(0)(req))
     reply_res = client.chat("system", "user", use_cache=False)
     assert reply_res.content == "ok"
     assert _ledger_rows(spend_ledger) == [("chat_dispatch", "error"), ("chat_dispatch", "stop")]
@@ -349,7 +343,7 @@ def test_failed_chat_dispatch_attempts_are_recorded_in_spend_ledger(
         raise httpx2.ReadTimeout("timed out", request=request)
 
     responses_timeout: list[Callable[[httpx2.Request], httpx2.Response]] = [_read_timeout, _ok]
-    route_retrying_client(client, monkeypatch, lambda req: responses_timeout.pop(0)(req))
+    serve_llm(web, lambda req: responses_timeout.pop(0)(req))
     reply_res = client.chat("system", "user", use_cache=False)
     assert reply_res.content == "ok"
     assert _ledger_rows(spend_ledger) == [("chat_dispatch", "error"), ("chat_dispatch", "stop")]
@@ -357,14 +351,14 @@ def test_failed_chat_dispatch_attempts_are_recorded_in_spend_ledger(
     # 3. Connection refused then reply -> 1 row (ConnectError writes no row)
     spend_ledger.reset()
     responses_connect: list[Callable[[httpx2.Request], httpx2.Response]] = [_refuse_connection, _ok]
-    route_retrying_client(client, monkeypatch, lambda req: responses_connect.pop(0)(req))
+    serve_llm(web, lambda req: responses_connect.pop(0)(req))
     reply_res = client.chat("system", "user", use_cache=False)
     assert reply_res.content == "ok"
     assert _ledger_rows(spend_ledger) == [("chat_dispatch", "stop")]
 
     # 4. 500 five times -> 5 error rows, call raises
     spend_ledger.reset()
-    route_retrying_client(client, monkeypatch, _server_error)
+    serve_llm(web, _server_error)
     with pytest.raises(AIClientError) as raised:
         client.chat("system", "user", use_cache=False)
     assert raised.value.error_code == "LLM_INFERENCE_ERROR"
@@ -372,7 +366,7 @@ def test_failed_chat_dispatch_attempts_are_recorded_in_spend_ledger(
 
 
 def test_chat_dispatch_records_served_by_and_resolved_model(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """Verify chat dispatch records both served_by header and resolved model from reply body."""
     client = _chat_client(monkeypatch, model="devops-review")
@@ -389,7 +383,7 @@ def test_chat_dispatch_records_served_by_and_resolved_model(
             },
         )
 
-    route_retrying_client(client, monkeypatch, handler)
+    serve_llm(web, handler)
     client.chat("sys", "user", use_cache=False)
 
     with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
@@ -400,7 +394,7 @@ def test_chat_dispatch_records_served_by_and_resolved_model(
 
 
 def test_stream_dispatch_records_served_by_and_resolved_model(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """Verify stream dispatch records both served_by header and resolved model from stream frames."""
     client = _stream_client(monkeypatch)
@@ -423,7 +417,7 @@ def test_stream_dispatch_records_served_by_and_resolved_model(
             content=iter(frames),
         )
 
-    route_retrying_client(client, monkeypatch, handler)
+    serve_llm(web, handler)
     list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 
     with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
@@ -434,7 +428,7 @@ def test_stream_dispatch_records_served_by_and_resolved_model(
 
 
 def test_failed_attempt_records_served_by_and_served_model_when_error_names_them(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """Verify a failed attempt records backend and model when the error response names them."""
     client = _chat_client(monkeypatch, model="devops-review")
@@ -448,7 +442,7 @@ def test_failed_attempt_records_served_by_and_served_model_when_error_names_them
         ),
         lambda req: _ok_reply(model="devops-review"),
     ]
-    route_retrying_client(client, monkeypatch, lambda req: calls.pop(0)(req))
+    serve_llm(web, lambda req: calls.pop(0)(req))
     client.chat("system", "user", use_cache=False)
 
     with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
@@ -470,7 +464,7 @@ def _ledger_tokens(ledger: SpendLedger) -> list[tuple[Any, ...]]:
 
 
 def test_a_failed_attempt_records_the_usage_and_model_that_its_error_body_names(
-    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger
+    monkeypatch: pytest.MonkeyPatch, spend_ledger: SpendLedger, web: WebFake
 ) -> None:
     """With no serving-model header, the error body's model and usage go on the error row."""
     client = _chat_client(monkeypatch, model="devops-review")
@@ -480,7 +474,7 @@ def test_a_failed_attempt_records_the_usage_and_model_that_its_error_body_names(
         "error": {"message": "failed"},
     }
     calls = [lambda req: httpx2.Response(500, json=body), lambda req: _ok_reply()]
-    route_retrying_client(client, monkeypatch, lambda req: calls.pop(0)(req))
+    serve_llm(web, lambda req: calls.pop(0)(req))
 
     client.chat("system", "user", use_cache=False)
 
@@ -509,11 +503,12 @@ def test_a_failed_attempt_whose_body_cannot_be_read_as_json_records_no_tokens(
     monkeypatch: pytest.MonkeyPatch,
     spend_ledger: SpendLedger,
     failed: Callable[[], httpx2.Response],
+    web: WebFake,
 ) -> None:
     """A Cloudflare HTML page or a body that the network cut still writes its error row."""
     client = _chat_client(monkeypatch)
     calls = [lambda req: failed(), lambda req: _ok_reply()]
-    route_retrying_client(client, monkeypatch, lambda req: calls.pop(0)(req))
+    serve_llm(web, lambda req: calls.pop(0)(req))
 
     client.chat("system", "user", use_cache=False)
 

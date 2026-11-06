@@ -27,7 +27,7 @@ from devops_cli.models.benchmark import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from tests.web_fakes import StubWeb
+    from tests.support.fakes.http import WebFake
 
 runner = CliRunner()
 
@@ -853,7 +853,7 @@ def test_a_benchmark_server_with_no_origin_is_named_unknown(
     ) == ({"unknown"}, ["unknown"], True, False)
 
 
-def _answer_chat_with_a_grade(stub_web: StubWeb) -> None:
+def _answer_chat_with_a_grade(web: WebFake) -> None:
     """Make every Ollama chat call of the stub answer with a valid peer grade."""
     grade = {
         "accuracy_score": 9.0,
@@ -872,7 +872,7 @@ def _answer_chat_with_a_grade(stub_web: StubWeb) -> None:
             return None
         return httpx2.Response(200, json={"message": {"content": json.dumps(grade)}})
 
-    stub_web.serve(answer)
+    web.serve(answer)
 
 
 def _basic_authorization(user: str) -> str:
@@ -896,14 +896,14 @@ def _kept_benchmark_text() -> str:
 
 @pytest.mark.usefixtures("keyring_store")
 def test_a_benchmark_sends_the_server_userinfo_and_records_only_its_host_and_port(
-    stub_web: StubWeb, cli: Callable[..., Any]
+    web: WebFake, cli: Callable[..., Any]
 ) -> None:
     """Verify a benchmark against a server URL with userinfo sends the userinfo as Basic
     authentication, and writes it nowhere: not the terminal, not the saved report, not the run
     that the command keeps (#2481)."""
     from devops_cli.ai.run_store import Mechanism, load_runs
 
-    _answer_chat_with_a_grade(stub_web)
+    _answer_chat_with_a_grade(web)
 
     result = cli(
         "ai",
@@ -919,7 +919,7 @@ def test_a_benchmark_sends_the_server_userinfo_and_records_only_its_host_and_por
     (recorded,) = load_runs(Mechanism.AI_BENCHMARK)
     assert (
         result.exit_code,
-        {sent.headers.get("authorization") for sent in stub_web.sent if sent.url.port == 11434},
+        {sent.headers.get("authorization") for sent in web.sent if sent.url.port == 11434},
         recorded.setup["servers"],
         {response["server"] for response in recorded.results["responses"]},
         _SERVER_SECRET in result.output + _kept_benchmark_text(),
@@ -961,14 +961,14 @@ def test_a_dry_run_benchmark_names_a_model_endpoint_by_its_host_and_port(
 
 @pytest.mark.usefixtures("keyring_store")
 def test_a_benchmark_sends_the_model_endpoint_userinfo_and_records_only_its_host_and_port(
-    stub_web: StubWeb, cli: Callable[..., Any]
+    web: WebFake, cli: Callable[..., Any]
 ) -> None:
     """Verify a `--models` entry with a password in its endpoint reaches the server as Basic
     authentication, and the password is in no field of the terminal output, the saved report or
     the run that the command keeps (#2481)."""
     from devops_cli.ai.run_store import Mechanism, load_runs
 
-    _answer_chat_with_a_grade(stub_web)
+    _answer_chat_with_a_grade(web)
 
     result = cli(
         "ai",
@@ -982,7 +982,7 @@ def test_a_benchmark_sends_the_model_endpoint_userinfo_and_records_only_its_host
     (recorded,) = load_runs(Mechanism.AI_BENCHMARK)
     assert (
         result.exit_code,
-        {sent.headers.get("authorization") for sent in stub_web.sent if sent.url.port == 11434},
+        {sent.headers.get("authorization") for sent in web.sent if sent.url.port == 11434},
         recorded.setup["models"],
         {response["model"] for response in recorded.results["responses"]},
         recorded.results["models_evaluated"],

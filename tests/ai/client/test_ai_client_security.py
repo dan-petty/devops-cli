@@ -12,9 +12,13 @@ from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.models.ai import ChatMessage
-from tests.llm_stream_fakes import route_client
+from tests.llm_stream_fakes import OPENAI_DONE, openai_chunk, reply, serve_llm
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.dns import DnsFake
+from tests.support.fakes.http import WebFake
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
+
+pytestmark = pytest.mark.usefixtures("clock")
 
 
 def test_connection_error_hides_ollama_url() -> None:
@@ -86,7 +90,7 @@ def test_configured_loopback_endpoints_need_no_env_override(
 # ── Ollama thinking capability probing ─────────────────────────────────────────
 
 
-def test_ollama_omits_thinking_when_undeclared(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ollama_omits_thinking_when_undeclared(web: WebFake) -> None:
     """When supports_reasoning is undeclared, think parameter is omitted from request."""
     import httpx2
 
@@ -95,7 +99,7 @@ def test_ollama_omits_thinking_when_undeclared(monkeypatch: pytest.MonkeyPatch) 
     def answer(request: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(200, json={"message": {"role": "assistant", "content": "OK"}})
 
-    sent = route_client(client, monkeypatch, answer)
+    sent = serve_llm(web, answer)
 
     reply = client._ollama_messages("sys", [ChatMessage(role="user", content="user")])
     assert reply == "OK"
@@ -104,7 +108,7 @@ def test_ollama_omits_thinking_when_undeclared(monkeypatch: pytest.MonkeyPatch) 
     assert "think" not in json.loads(chat_requests[0].content)
 
 
-def test_ollama_sends_thinking_when_declared(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ollama_sends_thinking_when_declared(web: WebFake) -> None:
     """When supports_reasoning is declared, think is sent as True, or omitted when enable_thinking=False."""
     import httpx2
 
@@ -115,7 +119,7 @@ def test_ollama_sends_thinking_when_declared(monkeypatch: pytest.MonkeyPatch) ->
     def answer(request: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(200, json={"message": {"role": "assistant", "content": "OK"}})
 
-    sent = route_client(client, monkeypatch, answer)
+    sent = serve_llm(web, answer)
 
     reply1 = client._ollama_messages(
         "sys", [ChatMessage(role="user", content="user")], enable_thinking=True
@@ -133,16 +137,14 @@ def test_ollama_sends_thinking_when_declared(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_ollama_non_thinking_400_raises_ai_client_error(
-    monkeypatch: pytest.MonkeyPatch,
+    web: WebFake,
 ) -> None:
     """A 400 unrelated to thinking is surfaced as AIClientError, not retried."""
     import httpx2
 
     client = LLMClient(AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"]))
 
-    route_client(
-        client, monkeypatch, lambda request: httpx2.Response(400, json={"error": "model not found"})
-    )
+    serve_llm(web, lambda request: httpx2.Response(400, json={"error": "model not found"}))
 
     with pytest.raises(AIClientError, match="HTTP 400"):
         client._ollama_messages("sys", [ChatMessage(role="user", content="user")])
@@ -172,12 +174,13 @@ def test_get_ollama_urls_parsing() -> None:
     assert raised.value.error_code == "INVALID_URL"
 
 
-def test_ollama_multiserver_failover(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ollama_multiserver_failover(monkeypatch: pytest.MonkeyPatch, web: WebFake) -> None:
     import httpx2
 
     cfg = AIConfig(
         provider="ollama",
         ollama_urls=["http://localhost:11434", "http://localhost:11435"],
+        max_retries=0,
     )
     client = LLMClient(cfg)
 
@@ -188,7 +191,7 @@ def test_ollama_multiserver_failover(monkeypatch: pytest.MonkeyPatch) -> None:
             200, json={"message": {"role": "assistant", "content": "Hello from server 2"}}
         )
 
-    sent = route_client(client, monkeypatch, answer)
+    sent = serve_llm(web, answer)
     monkeypatch.setattr(LLMClient, "_load_and_increment_rr_index", classmethod(lambda cls, n: 0))
 
     reply = client._ollama_messages("sys", [ChatMessage(role="user", content="hi")])
@@ -229,28 +232,26 @@ def test_llmclient_has_no_legacy_ollama_rr_state(monkeypatch: pytest.MonkeyPatch
     ) == ([], [], ["http://example.com:11435", "http://example.com:11434"])
 
 
-def test_preload_models(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_preload_models(web: WebFake) -> None:
     cfg = AIConfig(
         provider="ollama",
         model="gemma4:26b",
         ollama_urls=["http://localhost:11434", "http://localhost:11435"],
     )
     client = LLMClient(cfg)
-    requested: list[str] = []
+    web.respond("POST", "http://localhost:11434/api/generate", 200, {"status": "success"})
+    web.respond("POST", "http://localhost:11435/api/generate", 200, {"status": "success"})
 
-    def fake_post(_self: object, url: str, **kwargs: object) -> httpx2.Response:
-        requested.append(url)
-        return httpx2.Response(200, json={"status": "success"}, request=httpx2.Request("POST", url))
-
-    monkeypatch.setattr("httpx2.Client.post", fake_post)
     results = client.preload_models()
+
     assert results == {"http://localhost:11434": True, "http://localhost:11435": True}
-    assert len(requested) == 2
-    assert "http://localhost:11434/api/generate" in requested
-    assert "http://localhost:11435/api/generate" in requested
+    assert sorted(web.requested) == [
+        "http://localhost:11434/api/generate",
+        "http://localhost:11435/api/generate",
+    ]
 
 
-def test_preload_models_non_blocking(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_preload_models_non_blocking(web: WebFake) -> None:
     import threading
 
     cfg = AIConfig(
@@ -262,26 +263,23 @@ def test_preload_models_non_blocking(monkeypatch: pytest.MonkeyPatch) -> None:
     completed_event = threading.Event()
     callback_results: dict[str, bool] = {}
 
-    def fake_post(_self: object, url: str, **kwargs: object) -> httpx2.Response:
-        return httpx2.Response(200, json={"status": "success"}, request=httpx2.Request("POST", url))
+    web.respond("POST", "http://localhost:11434/api/generate", 200, {"status": "success"})
 
     def on_done(res: dict[str, bool]) -> None:
         callback_results.update(res)
         completed_event.set()
 
-    monkeypatch.setattr("httpx2.Client.post", fake_post)
     client.prewarm_async(on_complete=on_done)
     assert completed_event.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
     assert callback_results == {"http://localhost:11434": True}
 
 
-def test_llm_response_processing_time(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llm_response_processing_time(web: WebFake) -> None:
     cfg = AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"])
     client = LLMClient(cfg)
 
-    route_client(
-        client,
-        monkeypatch,
+    serve_llm(
+        web,
         lambda request: httpx2.Response(
             200,
             json={
@@ -298,9 +296,7 @@ def test_llm_response_processing_time(monkeypatch: pytest.MonkeyPatch) -> None:
     assert res.processing_seconds == 10.0
 
 
-def test_ollama_max_parallel_concurrency_slots(
-    monkeypatch: pytest.MonkeyPatch, clock: ClockFake
-) -> None:
+def test_ollama_max_parallel_concurrency_slots(clock: ClockFake, web: WebFake) -> None:
     import threading
     from concurrent.futures import ThreadPoolExecutor
 
@@ -326,7 +322,7 @@ def test_ollama_max_parallel_concurrency_slots(
             200, json={"message": {"role": "assistant", "content": "Parallel reply"}}
         )
 
-    route_client(client, monkeypatch, answer)
+    serve_llm(web, answer)
 
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = [executor.submit(client.chat, "sys", f"user {i}") for i in range(5)]
@@ -337,12 +333,11 @@ def test_ollama_max_parallel_concurrency_slots(
     assert max_observed_concurrent <= 2
 
 
-def test_ollama_error_message_masks_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ollama_error_message_masks_secrets(web: WebFake) -> None:
     client = LLMClient(AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"]))
 
-    route_client(
-        client,
-        monkeypatch,
+    serve_llm(
+        web,
         lambda request: httpx2.Response(
             500,
             text="Internal error with token=ghp_secret123456789012345678901234567890 and key=sk-ant-secret12345678901234567890",
@@ -360,19 +355,13 @@ def test_ollama_error_message_masks_secrets(monkeypatch: pytest.MonkeyPatch) -> 
     assert "<masked-github-token>" in err_msg
 
 
-def test_ollama_stream_error_message_masks_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ollama_stream_error_message_masks_secrets(web: WebFake) -> None:
     client = LLMClient(AIConfig(provider="ollama", ollama_urls=["http://localhost:11434"]))
-
-    def fake_stream(_self: object, method: str, url: str, **kwargs: object) -> object:
-        req = httpx2.Request(method, url)
-        resp = httpx2.Response(
-            502,
-            text="Gateway error containing token=ghp_secret987654321098765432109876543210",
-            request=req,
-        )
-        raise httpx2.HTTPStatusError("502 Bad Gateway", request=req, response=resp)
-
-    monkeypatch.setattr("httpx2.Client.stream", fake_stream)
+    web.answer(
+        "http://localhost:11434/api/chat",
+        502,
+        body="Gateway error containing token=ghp_secret987654321098765432109876543210",
+    )
 
     with pytest.raises(AIClientError) as exc_info:
         list(
@@ -386,9 +375,25 @@ def test_ollama_stream_error_message_masks_secrets(monkeypatch: pytest.MonkeyPat
     assert "<masked-github-token>" in err_msg
 
 
-def test_create_http_client_uses_custom_transport() -> None:
-    client = LLMClient(AIConfig(provider="openai", api_base_url="https://api.openai.com/v1"))
-    transport = httpx2.MockTransport(lambda req: httpx2.Response(200))
-    client._transport = transport
-    http_client = client._create_http_client()
-    assert http_client._transport is transport
+def test_a_client_given_a_transport_sends_its_requests_through_it(dns: DnsFake) -> None:
+    """Verify `transport=` is the way a caller hands the client its own transport.
+
+    This test builds the transport by hand on purpose: the `transport=` parameter is the thing under test.
+    """
+    dns.answer_every_name()
+    seen: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(str(request.url))
+        return reply([openai_chunk("OK", finish_reason="stop"), OPENAI_DONE])
+
+    client = LLMClient(
+        AIConfig(provider="openai", api_base_url="https://api.openai.com/v1", model="gpt-4o"),
+        api_key="sk-test",
+        transport=httpx2.MockTransport(handler),
+        cache_enabled=False,
+    )
+
+    answer = client.chat("sys", "hi", use_cache=False)
+
+    assert (str(answer), seen) == ("OK", ["https://api.openai.com/v1/chat/completions"])

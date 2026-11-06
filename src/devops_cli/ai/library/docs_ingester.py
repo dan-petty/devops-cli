@@ -17,8 +17,8 @@ import httpx2
 from devops_cli.ai.rag.chunker import parse_markdown_headings
 from devops_cli.core.repo import resolve_store_path
 from devops_cli.exceptions.ai import DocsIngestionError
-from devops_cli.http.client import new_http_client
 from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 from devops_cli.models.library import DocChunk, IngestDocResult
 from devops_cli.security.sanitizer import mask_uri_credentials
 
@@ -257,7 +257,7 @@ class DocsIngester:
         visited: set[str] = set()
         all_chunks: list[DocChunk] = []
 
-        with new_http_client(level=EgressLevel.PUBLIC, timeout=httpx2.Timeout(30.0)) as client:
+        with http_client(EgressLevel.PUBLIC, timeout=httpx2.Timeout(30.0)) as client:
             while queue and len(visited) < max(1, max_pages):
                 current_url = queue.pop(0)
                 clean_url = urldefrag(current_url).url
