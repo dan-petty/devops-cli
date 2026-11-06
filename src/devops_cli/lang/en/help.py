@@ -1584,7 +1584,7 @@ class RoadmapCommandHelp:
         "docs/roadmap/inbox.md."
     )
     inbox_kind: str = (
-        "List only the lines of one class, such as refine, split, alternatives or draft. The "
+        "List only the lines of one class, such as refine, split, alternatives, failed or draft. The "
         "counts of every class stay complete."
     )
     inbox_dry_run: str = (

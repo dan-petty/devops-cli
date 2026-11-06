@@ -4,9 +4,11 @@
     '''
       # Refinement plan for example/roadmap
       Web search is off: the repository is private.
+      ## 1 item(s) go on without a person
+      - #4 New P1-High
       ## Waiting on a person
       - #2 New P1-High (refined in this round)
-        - Which store holds the record? (missing verified source)
+        - Which store holds the record? (a person decides)
       ## Split proposed
       - #3 New P1-High (refined in this round)
         - The first change.
@@ -18,6 +20,9 @@
     '''
       # Refinement plan for example/roadmap
       Web search is off: the repository is private.
+      ## 2 item(s) go on without a person
+      - #5 New P1-High
+      - #4 New P1-High
       ## Refined to Ready
       - #5 New P1-High (refined in this round)
       ## Waiting on a person

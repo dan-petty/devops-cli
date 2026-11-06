@@ -2181,12 +2181,6 @@ class RoadmapMessages:
         "The next refine round also looks at the item again when a commit on the default "
         "branch changes one of these files: {paths}."
     )
-    refine_incomplete: str = (
-        "The proposal has no problem statement, no acceptance criterion with its requirement, "
-        "scenario, WHEN and THEN, or no answer to the existing-tool question. State the "
-        "problem, the requirements with their scenarios, and the open tool that covers the need "
-        "or the cost of building it."
-    )
     refine_requirement_keyword: str = (
         "The requirement must contain SHALL or MUST, as an OpenSpec requirement does."
     )
@@ -2219,6 +2213,8 @@ class RoadmapMessages:
             "split": "The item waits for a person to split it. {details}",
             "blocked": "The item waits for {details} to close.",
             "edit": "The item waits for a body edit. {details}",
+            "retry": "The refine job failed. The next round tries again. {details}",
+            "failed": "The refine job failed. A body edit makes refine try again. {details}",
             "ready": "The item waits. {details}",
             "none": "{details}",
         }
@@ -2259,9 +2255,15 @@ class RoadmapMessages:
         "{violations} schema violation(s))."
     )
     refine_investigation_stopped: str = (
-        "Refine's investigation of #{number} in {repo} stopped with no proposal ({reason}); "
-        "the item keeps its open questions."
+        "Refine's investigation of #{number} in {repo} stopped with no proposal ({reason})."
     )
+    # A job failure (#3632): the line of the report and of `explain`, and the parts of its error.
+    refine_failure_line: str = "{checks}: {tries} of {limit} tries. Last error: {error}"
+    refine_failure_form: str = "The reply of the model failed the form check."
+    refine_failure_open: str = "Open: {question}"
+    refine_failure_searched: str = "Searched: {calls}"
+    refine_failure_none_searched: str = "Searched: nothing"
+    refine_going_on: str = "## {count} item(s) go on without a person"
     # The class of a pydantic-ai error, then its message: a stopped run (#2562, #2758).
     run_stop_reason: str = "{error}: {message}"
     # The report's groups, by next step, in the order the report shows them (#1758).
@@ -2272,6 +2274,8 @@ class RoadmapMessages:
             "split": "## Split proposed",
             "blocked": "## Blocked by open items",
             "edit": "## Waiting on a body edit",
+            "retry": "## Job failed, the next round tries again",
+            "failed": "## Job failed, waiting on a body edit",
             "none": "## Nothing to do",
         }
     )
@@ -3807,6 +3811,7 @@ class RoadmapMessages:
             "release": "The release pull request (G3)",
             "blocked": "Items in status/blocked",
             "refine": "New items that wait on a person in refine",
+            "failed": "New items whose refine job failed",
             "split": "New items with a split that no person has applied",
             "alternatives": "New items with a covering tool that refine put to a person",
             "draft": "Drafts of jobs that are old or have a failed check",
@@ -3832,6 +3837,9 @@ class RoadmapMessages:
             "no_cause": "{title}: no cause is recorded",
             "refine": "{title}: refine waits on a person",
             "refine_returned": "{title}: the stage job returned it twice on the same body",
+            "failed": (
+                "{title}: the refine job failed on {checks} in {tries} tries. Last error: {error}"
+            ),
             "split": "{title}: refine proposed a split, not applied",
             "alternatives": "{title}: refine put a covering tool to a person: {tool}",
             "claim": "{title} (claimed by {owner})",
@@ -3873,6 +3881,10 @@ class RoadmapMessages:
             ),
             "refine": (
                 "Reply in a comment on #{number} or edit its body. "
+                "`devops roadmap explain {number} --repo {repo}` says what refine waits for."
+            ),
+            "failed": (
+                "Fix the cause of the error. A body edit makes refine try again. "
                 "`devops roadmap explain {number} --repo {repo}` says what refine waits for."
             ),
             "claim": "devops roadmap release {number} --repo {repo} --confirm",

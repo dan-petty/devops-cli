@@ -10,7 +10,8 @@ are enough.
 requests (G1), ready implementation pull requests (G2), the release pull request (G3), items in
 `status/blocked` with their cause, New items that wait on a person in refine (one line for each,
 from the job record alone, #3483), New items with an unapplied split, New items with an
-alternatives question (#3494), drafts of jobs, old claims, labels that the repository lacks, and
+alternatives question (#3494), New items whose refine job failed at the try limit (#3632), drafts
+of jobs, old claims, labels that the repository lacks, and
 the Planned queue when it is at the limit of the stage job (#3487). A pull request is a job's when
 the job record of an open item names it: `implement.pr` makes it an implementation, `stage.pr` a
 plan, and `implement.pr` wins because a staged branch keeps one pull request through both jobs. A
@@ -280,6 +281,28 @@ def _alternatives_lines(items: Iterable[Item], now: datetime) -> list[InboxLine]
     return lines
 
 
+def _failed_lines(items: Iterable[Item], repo: str, now: datetime) -> list[InboxLine]:
+    """One line for each open New item whose refine job failed as often as the limit allows
+    (#3632). The line names the checks, the tries and the last error, and asks no question."""
+    texts = MESSAGES.roadmap
+    lines: list[InboxLine] = []
+    for item in items:
+        record = item.job_record
+        if not _open_new(item) or record.get(RefineRecordKey.NEXT_STEP) != NextStep.FAILED.value:
+            continue
+        subject = texts.inbox_subjects["failed"].format(
+            title=item.title,
+            checks=record.get(RefineRecordKey.FAILED_CHECK) or "",
+            tries=record.get(RefineRecordKey.TRIES) or "",
+            error=record.get(RefineRecordKey.FAILURE) or texts.refine_failure_form,
+        )
+        clear = texts.inbox_clears["failed"].format(number=item.number, repo=repo)
+        lines.append(
+            InboxLine(InboxKind.FAILED, item.number, _age(now, item.updated_at), subject, clear)
+        )
+    return lines
+
+
 def _activity(item: Item, pulls: Sequence[OpenPull]) -> datetime | None:
     """The newest update of the issue of `item` and of each open pull request on a branch that
     names the issue."""
@@ -381,6 +404,7 @@ def read_inbox(
         *_refine_lines(items, repo, now),
         *_split_lines(items, now),
         *_alternatives_lines(items, now),
+        *_failed_lines(items, repo, now),
         *_claim_lines(items, pulls, repo, now),
         *_label_lines(store, repo, now),
         *_queue_lines(items, repo, planned_limit),

@@ -4,18 +4,18 @@
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/refine.py`, `src/devops_cli/roadmap/refine_investigation.py`, `src/devops_cli/roadmap/store.py`. Changes: `src/devops_cli/roadmap/refine.py`, `src/devops_cli/roadmap/refine_investigation.py`, `src/devops_cli/roadmap/store.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_refine_job_failure.py` (new), `tests/roadmap/test_roadmap_refine.py`, `tests/roadmap/test_roadmap_refine_investigation.py`.
 
-- [ ] 1.1 Write `tests/roadmap/test_roadmap_refine_job_failure.py` with cases for a form check failure (no person wait, a later round tries again, the record counts the tries), for the try limit (the step `failed`, no model call after it, a body edit ends it), for a question that the read tools answer, for a question that they do not answer (the failure names what they searched), for a stopped investigation, and for a question marked `(a person decides)` that still waits
+- [x] 1.1 Write `tests/roadmap/test_roadmap_refine_job_failure.py` with cases for a form check failure (no person wait, a later round tries again, the record counts the tries), for the try limit (the step `failed`, no model call after it, a body edit ends it), for a question that the read tools answer, for a question that they do not answer (the failure names what they searched), for a stopped investigation, and for a question marked `(a person decides)` that still waits
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_refine_job_failure.py` fails on the base
-- [ ] 1.2 Add `form_checks`, the job failure of `refine_one_item`, the record keys, the steps `retry` and `failed`, the constants and the messages, make `InvestigationTools` keep `searched`, and let `_still_waiting` and `apply_refine` read and write the new record
+- [x] 1.2 Add `form_checks`, the job failure of `refine_one_item`, the record keys, the steps `retry` and `failed`, the constants and the messages, make `InvestigationTools` keep `searched`, and let `_still_waiting` and `apply_refine` read and write the new record
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_refine_job_failure.py tests/roadmap/test_roadmap_refine.py tests/roadmap/test_roadmap_refine_investigation.py` passes
 
 ## 2. The report and the inbox show a job failure
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/inbox.py`. Changes: `src/devops_cli/roadmap/refine.py`, `src/devops_cli/roadmap/inbox.py`, `src/devops_cli/roadmap/inbox_kind.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/lang/en/help.py`, `tests/roadmap/test_roadmap_inbox.py`, `tests/roadmap/test_roadmap_refine_job_failure.py`.
 
-- [ ] 2.1 Add cases for the inbox line of a `failed` item (its checks, its try count, its last error, no question), for no line of a `retry` item, for the count line of the refine report, and for the explain text
+- [x] 2.1 Add cases for the inbox line of a `failed` item (its checks, its try count, its last error, no question), for no line of a `retry` item, for the count line of the refine report, and for the explain text
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_inbox.py tests/roadmap/test_roadmap_refine_job_failure.py` fails on the base
-- [ ] 2.2 Add the inbox class `failed`, its line, the count line of the report and the explain text
+- [x] 2.2 Add the inbox class `failed`, its line, the count line of the report and the explain text
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_inbox.py tests/roadmap/test_roadmap_refine_job_failure.py` passes
 
 ## 3. State the rule

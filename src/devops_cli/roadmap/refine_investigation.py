@@ -166,6 +166,7 @@ class InvestigationTools:
     firecrawl_key: str | None = None
     allowed_urls: set[str] = field(default_factory=set)
     searches: int = 0
+    searched: list[str] = field(default_factory=list)
 
     def _git(self, *args: str) -> tuple[int, bytes]:
         """The exit code and the output of one git command; `GIT_TIMED_OUT` when it ran out of time.
@@ -193,6 +194,7 @@ class InvestigationTools:
         Returns:
             One line for each match, as `path:line:content`.
         """
+        self.searched.append(f"search_code {text!r}")
         code, out = self._git(
             "grep",
             "-n",
@@ -217,6 +219,7 @@ class InvestigationTools:
         Args:
             directory: The repository path of the directory. An empty text is the top.
         """
+        self.searched.append(f"list_files {directory!r}")
         path = repository_path(directory)
         if path is None:
             return error_answer(f"The path {directory} is outside the repository.")
@@ -257,6 +260,7 @@ class InvestigationTools:
             start_line: The first line to read.
             end_line: The last line to read. 0 reads to the end, or to the line limit.
         """
+        self.searched.append(f"read_file {path!r}")
         clean = repository_path(path)
         if not clean:
             return error_answer(f"The path {path} is outside the repository.")
@@ -284,6 +288,7 @@ class InvestigationTools:
         Args:
             query: A short search query.
         """
+        self.searched.append(f"search_web {query!r}")
         if not self.firecrawl_key:
             return "Web search is off."
         if self.searches >= CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES:

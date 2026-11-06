@@ -697,7 +697,10 @@ def test_refining_twice_with_a_body_edit_between_leaves_only_the_second_section(
     def _refine(statement: str) -> None:
         # A suspected block keeps the item New, so the second run selects it again.
         proposal = RefinementProposal(
-            existing_tool=_TOOL, problem_statement=statement, suspected_block="Waiting"
+            existing_tool=_TOOL,
+            problem_statement=statement,
+            acceptance_criteria=[_CRITERION],
+            suspected_block="Waiting",
         )
         plan = plan_refine(
             store,
@@ -709,7 +712,9 @@ def test_refining_twice_with_a_body_edit_between_leaves_only_the_second_section(
         apply_refine(store, plan)
 
     _refine("First design")
-    edited = store.read_issue_body(num).replace("a design.", "a design, see src/sample.py:1.")
+    edited = store.read_issue_body(num).replace(
+        "Needs a design.", "Needs a design, see src/sample.py:1."
+    )
     store.write_issue_body(num, edited)
     _refine("Second design")
 
@@ -1903,14 +1908,16 @@ _READY = RefinementProposal(
 _QUESTION = _READY.model_copy(
     update={
         "key_questions": [
-            QuestionAnswer(question="Which store holds the record?", answer="?", kind="fact")
+            QuestionAnswer(
+                question="Which store holds the record?", answer="A person picks it.", kind="person"
+            )
         ]
     }
 )
 _SPLIT = _READY.model_copy(
     update={"fits_one_pr": False, "split_offs": ["The first change.", "The second change."]}
 )
-_OPEN_QUESTION = "Which store holds the record? (missing verified source)"
+_OPEN_QUESTION = "Which store holds the record? (a person decides)"
 
 
 def _blocked_by(blocker: int) -> RefinementProposal:
@@ -2067,8 +2074,7 @@ def test_a_persons_reply_makes_an_item_that_waits_on_them_eligible_and_reaches_t
     and the model reads the reply; the first round, with no comment, sent none (#1758)."""
     store.seed_visibility(is_private=True)
     asked = _seed_item(store, "New", "P1-High")
-    # The first round's proposal and its investigation (#2398) both leave the question open.
-    model_fake.answer(_QUESTION, _QUESTION, _READY)
+    model_fake.answer(_QUESTION, _READY)
     _refine_round(store, git_repo)
     first_replies = _replies_sent(model_fake)
 
@@ -2284,10 +2290,9 @@ def test_an_item_a_person_sets_back_to_new_waits_for_their_reason_and_is_refined
 
 @pytest.mark.parametrize(
     ("answers", "status"),
-    # A round that leaves the question open asks twice: the proposal and its investigation.
     [
-        ((_QUESTION, _QUESTION, _READY), CONST_ROADMAP_STATUS_READY),
-        ((_READY, _QUESTION, _QUESTION), "New"),
+        ((_QUESTION, _READY), CONST_ROADMAP_STATUS_READY),
+        ((_READY, _QUESTION), "New"),
     ],
     ids=["waiting-on-a-person", "ready"],
 )
@@ -2313,7 +2318,7 @@ def test_an_item_named_with_item_is_refined_though_nothing_changed_since_its_las
         [r.item.number for r in again.refined_items],
         model_fake.call_count,
         _require_item(store, number).status,
-    ) == ([number], 3, status)
+    ) == ([number], 2, status)
 
 
 @pytest.mark.parametrize("status", ["Planned", "In Progress", "Blocked"])
@@ -2832,7 +2837,7 @@ def test_a_url_source_renders_as_a_link_before_the_closing_bracket() -> None:
     assert f"[sources: {url}]" in section
 
 
-def test_a_body_question_that_no_answer_names_waits_on_a_person(
+def test_a_body_question_that_no_answer_names_is_a_job_failure_not_a_person_wait(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
     _seed_with_body(store, "Body\n\n## Key questions\n- *Which store holds the record?*\n")
@@ -2841,14 +2846,17 @@ def test_a_body_question_that_no_answer_names_waits_on_a_person(
     plan = _refine_round(store, git_repo)
 
     refined = plan.refined_items[0]
+    assert refined.failure is not None
     assert (
         _first_request(model_fake)["body_questions"],
         refined.next_step,
-        refined.step_details,
+        refined.failure.checks,
+        store.comments_on(refined.item.number),
     ) == (
         [{"number": 1, "question": "*Which store holds the record?*"}],
-        "person",
-        ("*Which store holds the record?*",),
+        "retry",
+        ("unanswered_question",),
+        [],
     )
 
 
