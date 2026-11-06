@@ -3414,6 +3414,13 @@ class RoadmapMessages:
         "A task text names `MESSAGES.roadmap`, and no group lists `{path}` in `changes`. Add the "
         "message to that file, and list the file in the group that adds it."
     )
+    # A plan that adds a rule of the plan check gives the test that accepts its own plan (#3404).
+    stage_problem_self_acceptance: str = (
+        "A behavior group changes `{path}`, and no group test builds the plan's own "
+        "`StageProposal` and asserts that `content_problems` returns no problem. Add a group test "
+        "that builds the plan's own `StageProposal` and asserts that `content_problems` returns "
+        "no problem for it, because the rule that the plan adds judges the plan itself."
+    )
     # A plan states the work of each task once: a duplicate task spends the budget of the group on
     # no change (#3456).
     stage_group_one: str = "group {first}"

@@ -202,7 +202,7 @@
    ],
    "creates": [],
    "creates_lines": {},
-   "test": "Write tests/roadmap/test_roadmap_stage_plan.py first: check_proposal refuses a negative-search literal with no recorded hit, refuses a literal that a created source path keeps, and accepts a literal whose recorded hit survives the change",
+   "test": "Write tests/roadmap/test_roadmap_stage_plan.py first: check_proposal refuses a negative-search literal with no recorded hit, refuses a literal that a created source path keeps, and accepts a literal whose recorded hit survives the change, and the plan's own `StageProposal` gets no problem from `content_problems`",
    "implementation": "Add the keyword search_evidence to check_proposal in src/devops_cli/roadmap/stage_change.py, with no record by default so plan_check keeps its behaviour, and call search_problems with the groups and the record. In src/devops_cli/roadmap/stage.py record the evidence in _Planner._settle from the search callable before check_proposal runs, and record it again for the groups that a split gives",
    "documentation": null,
    "verify": "uv run devops ci test tests/roadmap/test_roadmap_stage_plan.py",

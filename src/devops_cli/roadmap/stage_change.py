@@ -119,6 +119,15 @@ _LIVING_SPEC_DIRECTORY: Final[str] = "openspec/specs/"
 # in `changes`, so the stage check names it when no group lists it (#3405).
 _MESSAGES_FILE: Final[str] = "src/devops_cli/lang/en/messages.py"
 _MESSAGE_NAME: Final[re.Pattern[str]] = re.compile(r"\bMESSAGES\.roadmap\b")
+# The plan check itself. A plan that adds a rule of it writes the text that the new rule judges,
+# so the plan gives a group test that builds its own `StageProposal` and asserts that
+# `content_problems` returns no problem for it (#3404).
+_PLAN_CHECK_FILE: Final[str] = "src/devops_cli/roadmap/stage_change.py"
+_SELF_ACCEPTANCE_MARKS: Final[tuple[str, ...]] = (
+    "StageProposal",
+    "content_problems",
+    "no problem",
+)
 _SENTENCE_END: Final[str] = f"{string.whitespace}."
 REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
 # The stage prompt and each module that holds a check of `check_proposal` or of the gates it
@@ -586,6 +595,25 @@ def _message_file_problems(proposal: StageProposal) -> list[str]:
     return [MESSAGES.roadmap.stage_problem_message_file.format(path=_MESSAGES_FILE)]
 
 
+def _adds_plan_rule(group: StageGroup) -> bool:
+    """Whether `group` adds or changes a rule of the plan check, which judges the plan that
+    proposes it (#3404). An `other` group refactors or documents a rule, so it adds none."""
+    return group.kind is GroupKind.BEHAVIOR and _PLAN_CHECK_FILE in group.changes
+
+
+def _self_acceptance_problems(proposal: StageProposal) -> list[str]:
+    """One problem for a plan that adds a rule of the plan check and gives no group test that
+    builds the plan's own `StageProposal` and asserts that `content_problems` returns no problem
+    (#3404). The rule that the plan adds does not exist when the stage job reads the plan, so no
+    check can run it on the plan: the plan gives the test itself, and the implement step runs it."""
+    if not any(_adds_plan_rule(group) for group in proposal.groups):
+        return []
+    tests = [group.test for group in proposal.groups if group.test is not None]
+    if any(all(mark in test for mark in _SELF_ACCEPTANCE_MARKS) for test in tests):
+        return []
+    return [MESSAGES.roadmap.stage_problem_self_acceptance.format(path=_PLAN_CHECK_FILE)]
+
+
 def _plan_tasks(proposal: StageProposal) -> list[tuple[int, int, str]]:
     """The number of the group, the number of the task in it and the normalized work text of the
     task, for each task of `proposal`, in the order of `tasks.md`."""
@@ -694,13 +722,15 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
     short or a placeholder word (`is_placeholder` of the pull request form), a `feasibility` that
     quotes no line of `probes` when there are some, a task text that names a `MESSAGES.roadmap`
     entry while no group changes the message file (#3405), two tasks that state the same work
-    (#3456), and a plan that builds its own code and gives no cost of tokens and time in
-    `existing_tool`. The replay (`stage_eval_gates`) and the job both call this through
+    (#3456), a plan that builds its own code and gives no cost of tokens and time in
+    `existing_tool`, and a plan that adds a rule of the plan check and gives no test that accepts
+    its own plan (#3404). The replay (`stage_eval_gates`) and the job both call this through
     `check_proposal`, so one rule set judges both."""
     texts = MESSAGES.roadmap
     problems = [p for field, text in _plan_texts(proposal) for p in _text_problems(field, text)]
     problems.extend(_message_file_problems(proposal))
     problems.extend(_duplicate_task_problems(proposal))
+    problems.extend(_self_acceptance_problems(proposal))
     lines = [_squash(line) for line in probes if line.strip()]
     if lines:
         feasibility = _squash(" ".join(proposal.feasibility))

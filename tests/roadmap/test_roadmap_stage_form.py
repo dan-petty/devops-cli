@@ -37,6 +37,9 @@ VERIFY_PROBLEM = (
     "Give a command of one of these forms."
 )
 
+PLAN_CHECK_FILE = "src/devops_cli/roadmap/stage_change.py"
+SELF_ACCEPTANCE = "`StageProposal` gets no problem from `content_problems`"
+
 
 def _plan(*changes: str, creates: tuple[str, ...] = (), verify: str | None = None) -> StageProposal:
     """The sample proposal, with one group that changes `changes` and creates `creates`."""
@@ -50,6 +53,9 @@ def _plan(*changes: str, creates: tuple[str, ...] = (), verify: str | None = Non
     sourced = any(path.startswith("src/") for path in changes)
     if not sourced:
         update |= {"kind": "other", "test": None}
+    elif PLAN_CHECK_FILE in changes:
+        # A plan that changes the plan check gives the test that accepts its own plan (#3404).
+        update["test"] = f"{base['test']}, and the plan's own {SELF_ACCEPTANCE}"
     if verify is not None:
         update["verify"] = verify
     group = StageGroup.model_validate({**base, **update})
