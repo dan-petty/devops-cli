@@ -135,6 +135,7 @@ def test_the_project_config_skips_a_directory(
 ) -> None:
     config_dir = tmp_path / "somedir"
     config_dir.mkdir()
+    (tmp_path / ".git").mkdir()  # The search for a project file stops here, not in /tmp.
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(config_dir))
 
@@ -158,7 +159,10 @@ _TELEMETRY_VARIABLES = (
 def _only_this_telemetry_config(
     config_file: Path, monkeypatch: pytest.MonkeyPatch, body: str
 ) -> None:
-    """Make `body` every configuration layer, with no telemetry variable set and no tracer built."""
+    """Make `body` the project config file, with no telemetry variable set and no tracer built.
+
+    The global layer is the file under the floor's HOME. That file is absent, so `body` is the only
+    layer."""
     from devops_cli.telemetry.tracer import reset_tracer
 
     config_file.write_text(body, encoding="utf-8")
