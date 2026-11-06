@@ -33,7 +33,7 @@ Reads: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/roadmap/request_pla
 
 Reads: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/plan-check.md`, `docs/roadmap/plan-recheck.md`. Changes: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/plan-check.md`, `docs/roadmap/plan-recheck.md`, `docs/commands/roadmap.md`, `docs/CLI_REFERENCE.md`, `README.md`.
 
-- [ ] 4.1 Write the rule that a plan or a pull request that adds a gate gives the refusals of that gate and a replay of its cited defect, and what `plan-recheck` judges less than the job, in `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/plan-check.md` and `docs/roadmap/plan-recheck.md`, and regenerate the command reference with `uv run devops docs generate --sync-readme`
+- [x] 4.1 Write the rule that a plan or a pull request that adds a gate gives the refusals of that gate and a replay of its cited defect, and what `plan-recheck` judges less than the job, in `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/plan-check.md` and `docs/roadmap/plan-recheck.md`, and regenerate the command reference with `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci docs` passes
 
 ## Criteria
