@@ -21,7 +21,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS,
     CONST_ROADMAP_REFINE_MAX_TRIES,
 )
-from devops_cli.roadmap.memory_store import InMemoryRoadmapStore
 from devops_cli.roadmap.refine import (
     AcceptanceCriterion,
     JobCheck,
@@ -36,6 +35,7 @@ from devops_cli.roadmap.refine import (
     render_refine_plan,
 )
 from devops_cli.roadmap.store import ItemField, RefineRecordKey
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.scripted_model import Script, call
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
