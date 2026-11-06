@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from devops_cli.ai.mcp.server import list_mcp_tools
+from tests.support.fakes.mcp_dispatcher import DispatcherFake
 
 
 def test_fastmcp_tools_registration() -> None:
@@ -298,19 +299,14 @@ def test_fastmcp_tool_annotations_and_mutating_floor() -> None:
 
 
 def test_fastmcp_arg_validation() -> None:
-    """Verify that _validate_mcp_arg catches flag injection attempts."""
+    """Verify that a tool catches flag injection attempts."""
     import pytest
 
-    from devops_cli.ai.mcp.server import _validate_mcp_arg
+    from devops_cli.ai.mcp.server import security_intel_network
     from devops_cli.exceptions import ValidationError
 
-    # Clean arguments pass
-    _validate_mcp_arg("branch", "main")
-    _validate_mcp_arg("path", "src/devops_cli")
-
-    # Hyphen flags raise ValidationError
     with pytest.raises(ValidationError, match="must not start with a hyphen"):
-        _validate_mcp_arg("branch", "--all")
+        security_intel_network("--all")
 
 
 def test_fastmcp_prompts_rendering() -> None:
@@ -343,7 +339,7 @@ def test_fastmcp_messages_and_errors_localization() -> None:
 
     import pytest
 
-    from devops_cli.ai.mcp.server import _validate_mcp_arg, list_mcp_tools, run_mcp_server
+    from devops_cli.ai.mcp.server import list_mcp_tools, run_mcp_server, security_intel_network
     from devops_cli.exceptions import SecurityError, ValidationError
     from devops_cli.lang import ERRORS, MESSAGES
 
@@ -357,8 +353,8 @@ def test_fastmcp_messages_and_errors_localization() -> None:
 
     # 2. Argument validation error uses localized catalog template
     with pytest.raises(ValidationError) as exc_info:
-        _validate_mcp_arg("bad_field", "--flag")
-    assert ERRORS.mcp.hyphen_prefixed_argument.format(name="bad_field") in str(exc_info.value)
+        security_intel_network("--flag")
+    assert ERRORS.mcp.hyphen_prefixed_argument.format(name="target") in str(exc_info.value)
 
     # 3. Security error for non-loopback host uses localized catalog template
     with pytest.raises(SecurityError) as sec_info:
@@ -368,9 +364,8 @@ def test_fastmcp_messages_and_errors_localization() -> None:
     )
 
 
-def test_fastmcp_library_tools_and_resource() -> None:
+def test_fastmcp_library_tools_and_resource(mcp_dispatcher: DispatcherFake) -> None:
     """Verify library intelligence FastMCP tools and system resource execution."""
-    from unittest.mock import patch
 
     from devops_cli.ai.mcp.server import (
         ai_ingest_library,
@@ -382,49 +377,48 @@ def test_fastmcp_library_tools_and_resource() -> None:
         DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     )
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
-        mock_cmd.return_value = '{"status": "ok"}'
+    mcp_dispatcher.answer('{"status": "ok"}')
 
-        res = ai_ingest_library(package_name="typer", max_depth=2)
-        assert res == '{"status": "ok"}'
-        mock_cmd.assert_called_with(
-            [
-                "uv",
-                "run",
-                "devops",
-                "ai",
-                "ingest",
-                "library",
-                "typer",
-                "--max-depth",
-                "2",
-                "--format",
-                "json",
-            ],
-            timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
-        )
+    res = ai_ingest_library(package_name="typer", max_depth=2)
+    assert res == '{"status": "ok"}'
+    assert (list(mcp_dispatcher.last.argv), mcp_dispatcher.last.timeout) == (
+        [
+            "uv",
+            "run",
+            "devops",
+            "ai",
+            "ingest",
+            "library",
+            "typer",
+            "--max-depth",
+            "2",
+            "--format",
+            "json",
+        ],
+        DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
 
-        res = ai_ingest_query_library(query="command", package="typer", exact=True, top_k=3)
-        assert res == '{"status": "ok"}'
-        mock_cmd.assert_called_with(
-            [
-                "uv",
-                "run",
-                "devops",
-                "ai",
-                "ingest",
-                "query-library",
-                "command",
-                "--package",
-                "typer",
-                "--exact",
-                "--top-k",
-                "3",
-                "--format",
-                "json",
-            ],
-            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
-        )
+    res = ai_ingest_query_library(query="command", package="typer", exact=True, top_k=3)
+    assert res == '{"status": "ok"}'
+    assert (list(mcp_dispatcher.last.argv), mcp_dispatcher.last.timeout) == (
+        [
+            "uv",
+            "run",
+            "devops",
+            "ai",
+            "ingest",
+            "query-library",
+            "command",
+            "--package",
+            "typer",
+            "--exact",
+            "--top-k",
+            "3",
+            "--format",
+            "json",
+        ],
+        DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
 
     # Test resource returns valid JSON
     resource_data = get_indexed_libraries_resource()
@@ -432,361 +426,343 @@ def test_fastmcp_library_tools_and_resource() -> None:
     assert resource_data.startswith("[")
 
 
-def test_fastmcp_ast_tools() -> None:
+def test_fastmcp_ast_tools(mcp_dispatcher: DispatcherFake) -> None:
     """Verify ai_ast_parse and ai_ast_graph FastMCP execution contracts."""
-    from unittest.mock import patch
 
     from devops_cli.ai.mcp.server import ai_ast_graph, ai_ast_parse
     from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
-        mock_cmd.return_value = '{"status": "ok"}'
+    mcp_dispatcher.answer('{"status": "ok"}')
 
-        res = ai_ast_parse(file_path="src/main.py", query="(function_definition) @fn")
-        assert res == '{"status": "ok"}'
-        mock_cmd.assert_called_with(
-            [
-                "uv",
-                "run",
-                "devops",
-                "ai",
-                "ast",
-                "parse",
-                str(Path("src/main.py").resolve()),
-                "--query",
-                "(function_definition) @fn",
-                "--format",
-                "json",
-            ],
-            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
-        )
+    res = ai_ast_parse(file_path="src/main.py", query="(function_definition) @fn")
+    assert res == '{"status": "ok"}'
+    assert (list(mcp_dispatcher.last.argv), mcp_dispatcher.last.timeout) == (
+        [
+            "uv",
+            "run",
+            "devops",
+            "ai",
+            "ast",
+            "parse",
+            str(Path("src/main.py").resolve()),
+            "--query",
+            "(function_definition) @fn",
+            "--format",
+            "json",
+        ],
+        DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
 
-        res = ai_ast_graph(target_dir="src", max_files=20)
-        assert res == '{"status": "ok"}'
-        mock_cmd.assert_called_with(
-            [
-                "uv",
-                "run",
-                "devops",
-                "ai",
-                "ast",
-                "graph",
-                "--dir",
-                str(Path("src").resolve()),
-                "--max-files",
-                "20",
-                "--format",
-                "json",
-            ],
-            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
-        )
+    res = ai_ast_graph(target_dir="src", max_files=20)
+    assert res == '{"status": "ok"}'
+    assert (list(mcp_dispatcher.last.argv), mcp_dispatcher.last.timeout) == (
+        [
+            "uv",
+            "run",
+            "devops",
+            "ai",
+            "ast",
+            "graph",
+            "--dir",
+            str(Path("src").resolve()),
+            "--max-files",
+            "20",
+            "--format",
+            "json",
+        ],
+        DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
 
 
-def test_fastmcp_context_packing_tool() -> None:
+def test_fastmcp_context_packing_tool(mcp_dispatcher: DispatcherFake) -> None:
     """Verify ai_pack_context FastMCP execution contract."""
-    from unittest.mock import patch
 
     from devops_cli.ai.mcp.server import ai_pack_context
     from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
-        mock_cmd.return_value = '{"content": "..."}'
+    mcp_dispatcher.answer('{"content": "..."}')
 
-        res = ai_pack_context(
-            target_path="src/main.py",
-            referenced="main,app",
-            max_tokens=500,
-            strip_private=True,
-            skeletonize=False,
-        )
-        assert res == '{"content": "..."}'
-        mock_cmd.assert_called_with(
-            [
-                "uv",
-                "run",
-                "devops",
-                "ai",
-                "pack-context",
-                str(Path("src/main.py").resolve()),
-                "--referenced",
-                "main,app",
-                "--max-tokens",
-                "500",
-                "--strip-private",
-                "--no-skeletonize",
-                "--format",
-                "json",
-            ],
-            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
-        )
+    res = ai_pack_context(
+        target_path="src/main.py",
+        referenced="main,app",
+        max_tokens=500,
+        strip_private=True,
+        skeletonize=False,
+    )
+    assert res == '{"content": "..."}'
+    assert (list(mcp_dispatcher.last.argv), mcp_dispatcher.last.timeout) == (
+        [
+            "uv",
+            "run",
+            "devops",
+            "ai",
+            "pack-context",
+            str(Path("src/main.py").resolve()),
+            "--referenced",
+            "main,app",
+            "--max-tokens",
+            "500",
+            "--strip-private",
+            "--no-skeletonize",
+            "--format",
+            "json",
+        ],
+        DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
 
 
-def test_fastmcp_ai_read_tool() -> None:
+def test_fastmcp_ai_read_tool(mcp_dispatcher: DispatcherFake) -> None:
     """Verify ai_read FastMCP execution contract."""
-    from unittest.mock import patch
 
     from devops_cli.ai.mcp.server import ai_read
     from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
-        mock_cmd.return_value = "# Outline content"
+    mcp_dispatcher.answer("# Outline content")
 
-        res = ai_read(
-            target_path="src/main.py",
-            inspect=True,
-            level=0,
-            lines="10:50",
-            symbol="App",
-            format="markdown",
-        )
-        assert (res, mock_cmd.call_args[0][0]) == (
-            "# Outline content",
-            [
-                "uv",
-                "run",
-                "devops",
-                "ai",
-                "read",
-                str(Path("src/main.py").resolve()),
-                "--inspect",
-                "--level",
-                "0",
-                "--lines",
-                "10:50",
-                "--symbol",
-                "App",
-                "--format",
-                "markdown",
-            ],
-        )
-        assert mock_cmd.call_args[1]["timeout"] == DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+    res = ai_read(
+        target_path="src/main.py",
+        inspect=True,
+        level=0,
+        lines="10:50",
+        symbol="App",
+        format="markdown",
+    )
+    assert (res, list(mcp_dispatcher.last.argv)) == (
+        "# Outline content",
+        [
+            "uv",
+            "run",
+            "devops",
+            "ai",
+            "read",
+            str(Path("src/main.py").resolve()),
+            "--inspect",
+            "--level",
+            "0",
+            "--lines",
+            "10:50",
+            "--symbol",
+            "App",
+            "--format",
+            "markdown",
+        ],
+    )
+    assert mcp_dispatcher.last.timeout == DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 
 
-def test_fastmcp_ai_rag_drift_tool() -> None:
+def test_fastmcp_ai_rag_drift_tool(mcp_dispatcher: DispatcherFake) -> None:
     """Verify ai_rag_drift FastMCP execution contract."""
-    from unittest.mock import patch
 
     from devops_cli.ai.mcp.server import ai_rag_drift
     from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
-        mock_cmd.return_value = '{"drift_score": 0.0}'
+    mcp_dispatcher.answer('{"drift_score": 0.0}')
 
-        res = ai_rag_drift(path="src", auto_sync=True)
-        assert res == '{"drift_score": 0.0}'
-        mock_cmd.assert_called_with(
-            [
-                "uv",
-                "run",
-                "devops",
-                "ai",
-                "rag",
-                "drift",
-                str(Path("src").resolve()),
-                "--auto-sync",
-                "--format",
-                "json",
-            ],
-            timeout=DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
-        )
+    res = ai_rag_drift(path="src", auto_sync=True)
+    assert res == '{"drift_score": 0.0}'
+    assert (list(mcp_dispatcher.last.argv), mcp_dispatcher.last.timeout) == (
+        [
+            "uv",
+            "run",
+            "devops",
+            "ai",
+            "rag",
+            "drift",
+            str(Path("src").resolve()),
+            "--auto-sync",
+            "--format",
+            "json",
+        ],
+        DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
 
 
-def test_fastmcp_pr_check_readiness_tool() -> None:
+def test_fastmcp_pr_check_readiness_tool(mcp_dispatcher: DispatcherFake) -> None:
     """Verify pr_check_readiness FastMCP execution contract."""
-    from unittest.mock import patch
 
     from devops_cli.ai.mcp.server import pr_check_readiness
     from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
-        mock_cmd.return_value = "PR #187 satisfies merge readiness"
+    mcp_dispatcher.answer("PR #187 satisfies merge readiness")
 
-        res = pr_check_readiness(
-            number=187,
-            allow_blocked_state=True,
-            repo="owner/repo",
-        )
-        expected_cmd = [
-            "uv",
-            "run",
-            "devops",
-            "pr",
-            "check-readiness",
-            "187",
-            "--allow-blocked-state",
-            "--repo",
-            "owner/repo",
-        ]
-        assert (res, mock_cmd.call_args[0][0], mock_cmd.call_args[1]["timeout"]) == (
-            "PR #187 satisfies merge readiness",
-            expected_cmd,
-            DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
-        )
+    res = pr_check_readiness(
+        number=187,
+        allow_blocked_state=True,
+        repo="owner/repo",
+    )
+    expected_cmd = [
+        "uv",
+        "run",
+        "devops",
+        "pr",
+        "check-readiness",
+        "187",
+        "--allow-blocked-state",
+        "--repo",
+        "owner/repo",
+    ]
+    assert (res, list(mcp_dispatcher.last.argv), mcp_dispatcher.last.timeout) == (
+        "PR #187 satisfies merge readiness",
+        expected_cmd,
+        DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
 
 
-def test_fastmcp_pr_thread_resolve_tool() -> None:
+def test_fastmcp_pr_thread_resolve_tool(mcp_dispatcher: DispatcherFake) -> None:
     """Verify pr_threads_resolve FastMCP execution contract with without_reply option."""
-    from unittest.mock import patch
 
     from devops_cli.ai.mcp.server import pr_threads_resolve
     from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
-        mock_cmd.return_value = "Thread resolved"
+    mcp_dispatcher.answer("Thread resolved")
 
-        # Test default without_reply=False
-        res_default = pr_threads_resolve(thread_ids=["PRRT_1"])
-        cmd_default = [
-            "uv",
-            "run",
-            "devops",
-            "pr",
-            "threads",
-            "resolve",
-            "PRRT_1",
-        ]
-        assert (res_default, mock_cmd.call_args[0][0], mock_cmd.call_args[1]["timeout"]) == (
-            "Thread resolved",
-            cmd_default,
-            DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
-        )
+    # Test default without_reply=False
+    res_default = pr_threads_resolve(thread_ids=["PRRT_1"])
+    cmd_default = [
+        "uv",
+        "run",
+        "devops",
+        "pr",
+        "threads",
+        "resolve",
+        "PRRT_1",
+    ]
+    assert (res_default, list(mcp_dispatcher.last.argv), mcp_dispatcher.last.timeout) == (
+        "Thread resolved",
+        cmd_default,
+        DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
 
-        # Test without_reply=True
-        res_override = pr_threads_resolve(thread_ids=["PRRT_2"], without_reply=True)
-        cmd_override = [
-            "uv",
-            "run",
-            "devops",
-            "pr",
-            "threads",
-            "resolve",
-            "PRRT_2",
-            "--without-reply",
-        ]
-        assert (res_override, mock_cmd.call_args[0][0], mock_cmd.call_args[1]["timeout"]) == (
-            "Thread resolved",
-            cmd_override,
-            DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
-        )
+    # Test without_reply=True
+    res_override = pr_threads_resolve(thread_ids=["PRRT_2"], without_reply=True)
+    cmd_override = [
+        "uv",
+        "run",
+        "devops",
+        "pr",
+        "threads",
+        "resolve",
+        "PRRT_2",
+        "--without-reply",
+    ]
+    assert (res_override, list(mcp_dispatcher.last.argv), mcp_dispatcher.last.timeout) == (
+        "Thread resolved",
+        cmd_override,
+        DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+    )
 
 
-def test_fastmcp_pr_ready_tool() -> None:
+def test_fastmcp_pr_ready_tool(mcp_dispatcher: DispatcherFake) -> None:
     """Verify pr_ready FastMCP execution contract."""
-    from unittest.mock import patch
 
     from devops_cli.ai.mcp.server import pr_ready
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
-        mock_cmd.return_value = "PR #212 is ready for review"
+    mcp_dispatcher.answer("PR #212 is ready for review")
 
-        res = pr_ready(
-            number=212,
-            monitor=False,
-            force=True,
-            repo="owner/repo",
-        )
-        assert "is ready for review" in res
-        mock_cmd.assert_called_with(
-            [
-                "uv",
-                "run",
-                "devops",
-                "pr",
-                "ready",
-                "212",
-                "--repo",
-                "owner/repo",
-                "--force",
-            ],
-            timeout=180.0,
-        )
+    res = pr_ready(
+        number=212,
+        monitor=False,
+        force=True,
+        repo="owner/repo",
+    )
+    assert "is ready for review" in res
+    assert (list(mcp_dispatcher.last.argv), mcp_dispatcher.last.timeout) == (
+        [
+            "uv",
+            "run",
+            "devops",
+            "pr",
+            "ready",
+            "212",
+            "--repo",
+            "owner/repo",
+            "--force",
+        ],
+        180.0,
+    )
 
 
-def test_fastmcp_docker_sign_tool() -> None:
+def test_fastmcp_docker_sign_tool(mcp_dispatcher: DispatcherFake) -> None:
     """Verify docker_sign FastMCP execution contract."""
-    from unittest.mock import patch
 
     from devops_cli.ai.mcp.server import docker_sign
     from devops_cli.config.defaults import DEFAULT_MCP_TOOL_TIMEOUT_SECONDS
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
-        mock_cmd.return_value = "Image signed successfully"
+    mcp_dispatcher.answer("Image signed successfully")
 
-        res = docker_sign(
-            image="example.com/app:1.0.0",
-            key="/path/to/key.key",
-            keyless=False,
-            oidc_token="keyring:cosign_oidc",
-            annotation=["env=prod"],
-            upload=False,
-            dry_run=True,
-        )
-        assert "Image signed successfully" in res
-        mock_cmd.assert_called_with(
-            [
-                "uv",
-                "run",
-                "devops",
-                "docker",
-                "sign",
-                "example.com/app:1.0.0",
-                "--key",
-                "/path/to/key.key",
-                "--keyed",
-                "--oidc-token",
-                "keyring:cosign_oidc",
-                "--annotation",
-                "env=prod",
-                "--no-upload",
-                "--dry-run",
-            ],
-            timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
-        )
+    res = docker_sign(
+        image="example.com/app:1.0.0",
+        key="/path/to/key.key",
+        keyless=False,
+        oidc_token="keyring:cosign_oidc",
+        annotation=["env=prod"],
+        upload=False,
+        dry_run=True,
+    )
+    assert "Image signed successfully" in res
+    assert (list(mcp_dispatcher.last.argv), mcp_dispatcher.last.timeout) == (
+        [
+            "uv",
+            "run",
+            "devops",
+            "docker",
+            "sign",
+            "example.com/app:1.0.0",
+            "--key",
+            "/path/to/key.key",
+            "--keyed",
+            "--oidc-token",
+            "keyring:cosign_oidc",
+            "--annotation",
+            "env=prod",
+            "--no-upload",
+            "--dry-run",
+        ],
+        DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
 
 
-def test_fastmcp_docker_verify_tool() -> None:
+def test_fastmcp_docker_verify_tool(mcp_dispatcher: DispatcherFake) -> None:
     """Verify docker_verify FastMCP execution contract."""
-    from unittest.mock import patch
 
     from devops_cli.ai.mcp.server import docker_verify
     from devops_cli.config.defaults import DEFAULT_MCP_TOOL_TIMEOUT_SECONDS
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd") as mock_cmd:
-        mock_cmd.return_value = "Image verified successfully"
+    mcp_dispatcher.answer("Image verified successfully")
 
-        res = docker_verify(
-            image="example.com/app:1.0.0",
-            key="/path/to/key.pub",
-            certificate_identity="https://example.com/build.yml",
-            certificate_oidc_issuer="https://example.com/oidc",
-            attestation=True,
-            predicate_type="slsaprovenance",
-            insecure_ignore_tlog=True,
-            dry_run=True,
-        )
-        assert "Image verified successfully" in res
-        mock_cmd.assert_called_with(
-            [
-                "uv",
-                "run",
-                "devops",
-                "docker",
-                "verify",
-                "example.com/app:1.0.0",
-                "--key",
-                "/path/to/key.pub",
-                "--certificate-identity",
-                "https://example.com/build.yml",
-                "--certificate-oidc-issuer",
-                "https://example.com/oidc",
-                "--attestation",
-                "--type",
-                "slsaprovenance",
-                "--insecure-ignore-tlog",
-                "--dry-run",
-            ],
-            timeout=DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
-        )
+    res = docker_verify(
+        image="example.com/app:1.0.0",
+        key="/path/to/key.pub",
+        certificate_identity="https://example.com/build.yml",
+        certificate_oidc_issuer="https://example.com/oidc",
+        attestation=True,
+        predicate_type="slsaprovenance",
+        insecure_ignore_tlog=True,
+        dry_run=True,
+    )
+    assert "Image verified successfully" in res
+    assert (list(mcp_dispatcher.last.argv), mcp_dispatcher.last.timeout) == (
+        [
+            "uv",
+            "run",
+            "devops",
+            "docker",
+            "verify",
+            "example.com/app:1.0.0",
+            "--key",
+            "/path/to/key.pub",
+            "--certificate-identity",
+            "https://example.com/build.yml",
+            "--certificate-oidc-issuer",
+            "https://example.com/oidc",
+            "--attestation",
+            "--type",
+            "slsaprovenance",
+            "--insecure-ignore-tlog",
+            "--dry-run",
+        ],
+        DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
+    )
 
 
 # =============================================================================
@@ -983,14 +959,10 @@ _SECRET_SENTINEL = "API_KEY=sentinel-4b1d"
 
 
 @pytest.fixture
-def handler_runner():
-    """Stand in for the command runner, failing loudly if any handler gets far enough to run."""
-    from unittest.mock import patch
-
-    with patch(
-        "devops_cli.ai.mcp.server._run_mcp_cmd", side_effect=AssertionError("a handler ran")
-    ) as runner:
-        yield runner
+def handler_runner(mcp_dispatcher: DispatcherFake) -> DispatcherFake:
+    """Stand in for the CLI, failing loudly if any handler gets far enough to run a command."""
+    mcp_dispatcher.fail(AssertionError("a handler ran"))
+    return mcp_dispatcher
 
 
 @pytest.fixture
@@ -1224,19 +1196,18 @@ def test_no_rejected_input_reaches_a_log_record(fastmcp_log, handler_runner) -> 
     ) == (True, False)
 
 
-async def test_no_tool_argument_reaches_a_debug_record(fastmcp_log) -> None:
+async def test_no_tool_argument_reaches_a_debug_record(
+    fastmcp_log, mcp_dispatcher: DispatcherFake
+) -> None:
     """FastMCP logs every tool call's arguments at DEBUG.
 
     With `FASTMCP_LOG_LEVEL=DEBUG`, that wrote the value of a `valkey_set` call to the log.
     """
-    from unittest.mock import patch
-
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as runner:
-        await _call("valkey_set", {"key": "session", "value": _SECRET_SENTINEL})
+    await _call("valkey_set", {"key": "session", "value": _SECRET_SENTINEL})
     assert (
         "Handler called: call_tool valkey_set" in fastmcp_log.text,
         "sentinel-4b1d" in fastmcp_log.text,
-        runner.call_count,
+        mcp_dispatcher.call_count,
     ) == (True, False, 1)
 
 
@@ -1440,42 +1411,38 @@ def test_the_roadmap_tools_resolve_to_the_roadmap_domain_and_hydrate() -> None:
     ) == ("roadmap", "roadmap", False, True, (True, True))
 
 
-def test_the_roadmap_tools_build_the_commands_argv() -> None:
-    from unittest.mock import patch
-
+def test_the_roadmap_tools_build_the_commands_argv(mcp_dispatcher: DispatcherFake) -> None:
     from devops_cli.ai.mcp.server import roadmap_run
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
-        roadmap_run()
-        roadmap_run(repo="dan-petty/devops-cli", dry_run=True)
+    roadmap_run()
+    roadmap_run(repo="dan-petty/devops-cli", dry_run=True)
     head = ["uv", "run", "devops", "roadmap"]
-    assert [call.args[0] for call in run.call_args_list] == [
+    assert [list(call.argv) for call in mcp_dispatcher.calls] == [
         [*head, "run"],
         [*head, "run", "--repo", "dan-petty/devops-cli", "--dry-run"],
     ]
 
 
-def test_roadmap_refine_contract_and_argv(tmp_path, monkeypatch) -> None:
-    from unittest.mock import patch
-
+def test_roadmap_refine_contract_and_argv(
+    tmp_path, monkeypatch, mcp_dispatcher: DispatcherFake
+) -> None:
     from devops_cli.ai.mcp.server import roadmap_refine
 
     monkeypatch.chdir(tmp_path)
     params = _roadmap_tool_parameters("roadmap_refine")
     assert "confirm" in params
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
-        roadmap_refine(dry_run=True)
-        roadmap_refine(
-            repo="dan-petty/devops-cli",
-            item=744,
-            limit=1,
-            source=".",
-            dry_run=True,
-        )
+    roadmap_refine(dry_run=True)
+    roadmap_refine(
+        repo="dan-petty/devops-cli",
+        item=744,
+        limit=1,
+        source=".",
+        dry_run=True,
+    )
 
     head = ["uv", "run", "devops", "roadmap", "refine"]
-    calls = [call.args[0] for call in run.call_args_list]
+    calls = [list(call.argv) for call in mcp_dispatcher.calls]
     assert (
         calls[0],
         calls[1],
@@ -1500,26 +1467,25 @@ def test_roadmap_refine_contract_and_argv(tmp_path, monkeypatch) -> None:
     )
 
 
-def test_roadmap_intake_argv_keeps_its_order_and_writes_only_on_confirm() -> None:
+def test_roadmap_intake_argv_keeps_its_order_and_writes_only_on_confirm(
+    mcp_dispatcher: DispatcherFake,
+) -> None:
     """Verify roadmap_intake names each option and mode flag as written, in the CLI's order."""
-    from unittest.mock import patch
-
     from devops_cli.ai.mcp.server import roadmap_intake
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
-        roadmap_intake(
-            repo="dan-petty/devops-cli",
-            ref="feat/868-example",
-            issue=[868],
-            title="fix: example",
-            source="https://example.com",
-            confirm=True,
-        )
-        roadmap_intake(plan_only=True)
-        roadmap_intake(dry_run=True)
+    roadmap_intake(
+        repo="dan-petty/devops-cli",
+        ref="feat/868-example",
+        issue=[868],
+        title="fix: example",
+        source="https://example.com",
+        confirm=True,
+    )
+    roadmap_intake(plan_only=True)
+    roadmap_intake(dry_run=True)
 
     head = ["uv", "run", "devops", "roadmap", "intake"]
-    assert [call.args[0] for call in run.call_args_list] == [
+    assert [list(call.argv) for call in mcp_dispatcher.calls] == [
         [
             *head,
             "--repo",
@@ -1580,14 +1546,11 @@ async def test_telemetry_profile_refuses_a_command_before_anything_runs(handler_
     ) == (True, True, True, 0)
 
 
-def test_telemetry_profile_reads_the_named_trace() -> None:
-    from unittest.mock import patch
-
+def test_telemetry_profile_reads_the_named_trace(mcp_dispatcher: DispatcherFake) -> None:
     from devops_cli.ai.mcp.server import telemetry_profile
 
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
-        telemetry_profile(trace_id=_PROFILED_TRACE)
-    assert run.call_args.args[0] == [
+    telemetry_profile(trace_id=_PROFILED_TRACE)
+    assert list(mcp_dispatcher.last.argv) == [
         "uv",
         "run",
         "devops",
@@ -1598,21 +1561,20 @@ def test_telemetry_profile_reads_the_named_trace() -> None:
     ]
 
 
-def test_docker_sandbox_hands_its_command_over_after_the_options_end(tmp_path, monkeypatch) -> None:
+def test_docker_sandbox_hands_its_command_over_after_the_options_end(
+    tmp_path, monkeypatch, mcp_dispatcher: DispatcherFake
+) -> None:
     """`docker_sandbox` appended `command` straight after its own options (#980).
 
     `devops docker sandbox` parsed a leading `--root` or `--cpus 64` in that list as its own
     option, so a caller turned off the rootless default the tool never offered. `--` ends the
     options, as `sandbox_deploy` and `sandbox_exec` already did.
     """
-    from unittest.mock import patch
-
     from devops_cli.ai.mcp.server import docker_sandbox
 
     monkeypatch.chdir(tmp_path)
-    with patch("devops_cli.ai.mcp.server._run_mcp_cmd", return_value="ok") as run:
-        docker_sandbox(command=["--root", "id"], workspace=str(tmp_path))
-    assert run.call_args.args[0][-3:] == ["--", "--root", "id"]
+    docker_sandbox(command=["--root", "id"], workspace=str(tmp_path))
+    assert list(mcp_dispatcher.last.argv)[-3:] == ["--", "--root", "id"]
 
 
 def test_a_delegated_command_receives_the_end_of_options_marker(monkeypatch) -> None:
@@ -1654,20 +1616,16 @@ def test_the_vault_tools_take_no_address() -> None:
     ) == (True, True, True)
 
 
-def test_fastmcp_k8s_security_stream(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fastmcp_k8s_security_stream(mcp_dispatcher: DispatcherFake) -> None:
     from devops_cli.ai.mcp.server import k8s_security_stream
 
-    calls: list[list[str]] = []
+    mcp_dispatcher.answer('{"total_alerts": 1}')
 
-    def mock_run(*args: object, **kwargs: object) -> str:
-        calls.append(args[0])
-        return '{"total_alerts": 1}'
-
-    monkeypatch.setattr("devops_cli.ai.mcp.server._run_mcp_cmd", mock_run)
     res = k8s_security_stream(namespace="falco", severity="Critical", tail=50, simulate=True)
+
+    cmd = mcp_dispatcher.last.argv
     assert res == '{"total_alerts": 1}'
-    assert len(calls) == 1
-    cmd = calls[0]
+    assert mcp_dispatcher.call_count == 1
     assert "security-stream" in cmd
     assert "--simulate" in cmd
     assert "--severity" in cmd

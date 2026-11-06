@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 import re
-import subprocess
 from typing import Any
 
 from fastmcp import Context, FastMCP
@@ -36,7 +35,6 @@ from devops_cli.config.defaults import (
     DEFAULT_MCP_TOOL_TIMEOUT_SECONDS,
     DEFAULT_TRUNCATION_SUFFIX,
 )
-from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import SecurityError, ValidationError
 from devops_cli.lang import ERRORS, MESSAGES
 from devops_cli.models.ai import MCPToolInfo
@@ -63,34 +61,15 @@ def _run_mcp_cmd(
     timeout: float = DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
     env: dict[str, str] | None = None,
 ) -> str:
-    """Run a command for an MCP tool in-process or via subprocess and return masked output."""
-    from devops_cli.ai.mcp.dispatcher import _extract_devops_sub_args, get_mcp_dispatcher
+    """Run a `devops` command for an MCP tool through the dispatcher and return masked output."""
+    from devops_cli.ai.mcp.dispatcher import get_mcp_dispatcher
     from devops_cli.security.sanitizer import mask_secrets
 
-    sub_args = _extract_devops_sub_args(cmd)
-    if sub_args is not None:
-        dispatcher = get_mcp_dispatcher()
-        exit_code, output = dispatcher.dispatch(cmd, timeout=timeout, env=env)
-        clean = mask_secrets(output.strip())
-        clean = _bound_output(clean)
-        if exit_code != 0:
-            raise ToolError(f"Command exited with status {exit_code}:\n{clean}")
-        return clean or "Success"
-
-    try:
-        res = run_subprocess(cmd, capture_output=True, text=True, timeout=timeout, env=env)
-    except subprocess.TimeoutExpired:
-        safe_cmd = mask_secrets(" ".join(cmd))
-        return f"Command timed out after {timeout} seconds: {safe_cmd}"
-    except (OSError, subprocess.SubprocessError) as exc:
-        return f"Execution failed: {mask_secrets(str(exc))}"
-
-    output = (res.stdout + ("\n" + res.stderr if res.stderr else "")).strip()
-    output = mask_secrets(output)
-    output = _bound_output(output)
-    if res.returncode != 0:
-        raise ToolError(f"Command exited with status {res.returncode}:\n{output}")
-    return output or "Success"
+    exit_code, output = get_mcp_dispatcher().dispatch(cmd, timeout=timeout, env=env)
+    clean = _bound_output(mask_secrets(output.strip()))
+    if exit_code != 0:
+        raise ToolError(f"Command exited with status {exit_code}:\n{clean}")
+    return clean or "Success"
 
 
 def _validate_mcp_arg(name: str, value: str) -> None:
