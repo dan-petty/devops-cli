@@ -57,6 +57,12 @@ _ISSUE_704 = {
 _THREADS = "GetReviewThreads"
 
 
+_BODY = (
+    "Check the readiness of the pull request against the form of its body.\n\n"
+    "Closes #704\nChange: `openspec/changes/archive/2026-10-23-704-x/`"
+)
+
+
 def _pr(**overrides: object) -> dict[str, Any]:
     repo = {"full_name": _REPO, "default_branch": "main"}
     payload: dict[str, Any] = {
@@ -68,6 +74,7 @@ def _pr(**overrides: object) -> dict[str, Any]:
         "mergeable_state": "clean",
         "base": {"ref": "main", "sha": _BASE, "repo": repo},
         "head": {"ref": "feat/x", "sha": _HEAD, "repo": repo},
+        "body": _BODY,
     }
     payload.update(overrides)
     return payload
@@ -165,7 +172,12 @@ def _running(github: _GitHub) -> None:
             0,
             "PR #335 satisfies merge readiness: 0 conflicts, 0 unresolved threads.",
         ),
-        (lambda g: g.pull(_pr(body="x" * 1001)), (), 0, "1,001"),
+        (
+            lambda g: g.pull(_pr(body="Check the form of the body of the pull request.")),
+            (),
+            1,
+            "PR #335 body: The body has no line `Closes #<issue>`.",
+        ),
         (
             lambda g: g.pull(_pr(merged=True, state="closed")),
             (),
@@ -265,7 +277,7 @@ def _running(github: _GitHub) -> None:
     ],
     ids=[
         "ready",
-        "long-body",
+        "body-without-closes",
         "merged",
         "closed",
         "conflicts",

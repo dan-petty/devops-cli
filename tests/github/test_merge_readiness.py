@@ -52,13 +52,10 @@ _FORBIDDEN = ProcessAnswer(
 _NOT_FOUND = ProcessAnswer(
     returncode=1, stdout='{"message": "Not Found"}', stderr="gh: Not Found (HTTP 404)"
 )
-_TRAILERS = (
-    "Closes #704",
-    "Change: `openspec/changes/archive/2026-11-03-2585-x/`",
-    "Fail-to-pass: 1234",
-    "Co-authored-by: agent <agent@example.com>",
-    "Signed-off-by: agent <agent@example.com>",
-)
+_TEXT = "Check the readiness of the pull request against the form of its body."
+_CLOSES = "Closes #704"
+_CHANGE = "Change: `openspec/changes/archive/2026-10-23-704-x/`"
+_BODY = f"{_TEXT}\n\n{_CLOSES}\n{_CHANGE}"
 
 
 def _pr(**overrides: object) -> dict[str, Any]:
@@ -72,6 +69,7 @@ def _pr(**overrides: object) -> dict[str, Any]:
         "mergeable_state": "clean",
         "base": {"ref": "main", "sha": _BASE, "repo": repo},
         "head": {"ref": "feat/x", "sha": _HEAD, "repo": repo},
+        "body": _BODY,
     }
     payload.update(overrides)
     return payload
@@ -191,39 +189,46 @@ def test_a_clean_grounded_pull_request_is_ready(github: _GitHub, tmp_path: Path)
 
 
 @pytest.mark.parametrize(
-    ("body", "over_limit"),
+    ("body", "expected"),
     [
-        ("x" * 1000, False),
-        ("x" * 1001, True),
-        ("\n".join(["x" * 1000, "", *_TRAILERS]), False),
-        ("\r\n".join(["x" * 1000, "", *_TRAILERS]), False),
-        (None, False),
+        (_BODY, []),
+        (f"{_BODY}\n\nCo-authored-by: agent <agent@example.com>", []),
+        (f"{_TEXT}\n\n{_CHANGE}", ["no line `Closes"]),
+        (f"{_TEXT}\n\n{_CLOSES}", ["no line `Change:`"]),
+        (_TEXT, ["no line `Closes", "no line `Change:`"]),
+        (None, ["no line `Closes", "no line `Change:`"]),
+        (f"{'x' * 1001}\n\n{_CLOSES}\n{_CHANGE}", ["The limit is 1000"]),
+        (f"{_BODY}\n<!-- template -->", ["comment of the template"]),
     ],
-    ids=["at-limit", "over-limit", "trailers-stripped", "crlf-trailers", "empty"],
+    ids=[
+        "in-form",
+        "attribution-after-change",
+        "no-closes",
+        "no-change",
+        "no-closes-no-change",
+        "empty",
+        "over-limit",
+        "template-comment",
+    ],
 )
-def test_the_body_warns_over_the_limit(
-    github: _GitHub,
-    tmp_path: Path,
-    body: str | None,
-    over_limit: bool,
+def test_each_problem_of_the_body_form_is_a_blocker(
+    github: _GitHub, tmp_path: Path, body: str | None, expected: list[str]
 ) -> None:
-    """A body over 1,000 characters before its trailers gets one warning that names the length,
-    the limit and CONTRIBUTING.md, and blocks nothing (#2585); trailer lines do not count."""
+    """The verdict calls `body_problems` and holds one BODY_FORM blocker for each problem it
+    returns, in its order, each naming the pull request (#3259)."""
     verdict = _assess(tmp_path, _pr(body=body))
-    warnings = [
-        advisory for advisory in verdict.advisories if advisory.level is AdvisoryLevel.WARNING
-    ]
-    assert verdict.blockers == ()
-    assert verdict.is_ready
-    if not over_limit:
-        assert warnings == []
-        return
-    assert len(warnings) == 1
-    assert (
-        "1,001" in warnings[0].text,
-        "1,000" in warnings[0].text,
-        "CONTRIBUTING.md" in warnings[0].text,
-    ) == (True, True, True)
+    found = [blocker for blocker in verdict.blocking if blocker.kind is BlockerKind.BODY_FORM]
+    assert len(found) == len(expected)
+    for blocker, part in zip(found, expected, strict=True):
+        assert (blocker.text.startswith("PR #335 body:"), part in blocker.text) == (True, True)
+    assert verdict.is_ready == (not expected)
+
+
+def test_a_base_without_change_folders_judges_no_body(github: _GitHub, tmp_path: Path) -> None:
+    """The form names a change folder, so it applies where the item rules do (#3259)."""
+    github.answer(_CHANGES_DIR, _NOT_FOUND)
+    verdict = _assess(tmp_path, _pr(body=None))
+    assert (verdict.blockers, verdict.is_ready) == ((), True)
 
 
 def test_a_merged_pull_request_is_ready_and_nothing_is_read(
