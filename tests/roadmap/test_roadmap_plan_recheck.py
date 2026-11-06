@@ -315,7 +315,10 @@ def test_a_refusal_that_both_sides_hold_is_not_new(stage_repo: StageRepo) -> Non
     recheck = _compare(stage_repo, _store(count=2), "topic")
 
     assert recheck.new_refusals == ()
-    assert "New refusals on `topic`: 0." in render_recheck(recheck)
+    report = render_recheck(recheck)
+    assert "New refusals on `topic`: 0." in report
+    assert "Gate paths: 1 on `main`, 1 on `topic`." in report
+    assert report.count("  both: 1-keep-the-last-comment: Group 1 names") == 1
 
 
 def test_a_folder_that_the_reader_refuses_is_not_read_and_the_run_goes_on(

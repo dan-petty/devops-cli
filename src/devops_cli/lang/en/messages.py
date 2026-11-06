@@ -3711,6 +3711,7 @@ class RoadmapMessages:
         "Gate {gate}: {default_count} on `{default}`, {branch_count} on `{ref}`."
     )
     plan_recheck_gate_line: str = "  {side}: {folder}: {message}"
+    plan_recheck_both: str = "both"
     plan_recheck_new: str = "New refusals on `{ref}`: {count}."
     plan_recheck_new_line: str = "  {label}: {folder} [{gate}] {message}"
     plan_recheck_unread: str = "Not read on `{ref}`: {folders}."

@@ -389,6 +389,27 @@ def _render_folders(records: Iterable[PlanRecord]) -> list[str]:
     return lines
 
 
+def _gate_lines(
+    on_default: Iterable[Refusal], on_branch: Iterable[Refusal], default: str, ref: str
+) -> list[str]:
+    """One line for each refusal of a gate on either side. A refusal that both sides hold gets
+    one line, with the side `both`."""
+    texts = MESSAGES.roadmap
+    default_held, branch_held = set(on_default), set(on_branch)
+    sides = [(refusal, default) for refusal in on_default]
+    sides.extend((refusal, ref) for refusal in on_branch if refusal not in default_held)
+    return [
+        texts.plan_recheck_gate_line.format(
+            side=texts.plan_recheck_both
+            if refusal in default_held and refusal in branch_held
+            else side,
+            folder=refusal.folder,
+            message=refusal.message,
+        )
+        for refusal, side in sides
+    ]
+
+
 def _render_branch(recheck: PlanRecheck, branch: BranchRecheck) -> list[str]:
     texts = MESSAGES.roadmap
     default, ref = recheck.default, branch.ref
@@ -413,13 +434,7 @@ def _render_branch(recheck: PlanRecheck, branch: BranchRecheck) -> list[str]:
                 branch_count=len(on_branch.get(gate, ())),
             )
         )
-        for side, found in ((default, on_default), (ref, on_branch)):
-            lines.extend(
-                texts.plan_recheck_gate_line.format(
-                    side=side, folder=refusal.folder, message=refusal.message
-                )
-                for refusal in found.get(gate, ())
-            )
+        lines.extend(_gate_lines(on_default.get(gate, ()), on_branch.get(gate, ()), default, ref))
     added = recheck.new_refusals
     lines.append(texts.plan_recheck_new.format(ref=ref, count=len(added)))
     lines.extend(

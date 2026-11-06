@@ -22,11 +22,11 @@ Reads: `src/devops_cli/roadmap/plan_recheck.py`, `src/devops_cli/roadmap/planned
 
 Reads: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/roadmap/request_plan.py`. Changes: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`, `tests/commands/test_roadmap_plan_recheck_cmd.py`.
 
-- [ ] 3.1 Add cases to `tests/commands/test_roadmap_plan_recheck_cmd.py` for the option `--branch` in the dry run and in the JSON output
+- [x] 3.1 Add cases to `tests/commands/test_roadmap_plan_recheck_cmd.py` for the option `--branch` in the dry run and in the JSON output
   - Verification: `uv run devops ci test tests/commands/test_roadmap_plan_recheck_cmd.py` fails on the base
-- [ ] 3.2 Add the option `--branch` to `plan_recheck_cmd`, its dry-run reads and its help
+- [x] 3.2 Add the option `--branch` to `plan_recheck_cmd`, its dry-run reads and its help
   - Verification: `uv run devops ci test tests/commands/test_roadmap_plan_recheck_cmd.py` passes
-- [ ] 3.3 Run the command with `--branch` over the default branch and record the run time in `design.md`
+- [x] 3.3 Run the command with `--branch` over the default branch and record the run time in `design.md`
   - Verification: `uv run devops roadmap plan-recheck --source . --branch HEAD` ends in under 5 minutes
 
 ## 4. State the rule
