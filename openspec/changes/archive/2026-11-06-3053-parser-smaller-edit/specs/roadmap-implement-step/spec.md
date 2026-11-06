@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: An error of the generation inside a stream is sent again
-When a model call fails with a `ModelHTTPError` of the status 400 inside an open stream that is no context window error, the step SHALL send the request again, at most `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` times in a row. The failure has class `parser`, which is deterministic for one conversation. So the first such failure on a tier SHALL send the request with one more part in its last request, a message that asks for a smaller edit, and the next such failure on the same tier, also after a good reply, SHALL end the turn with no send. A new tier is a new conversation and SHALL get its own message. A send that gets a reply SHALL give the next failed request its own resends. The limits SHALL count the failed requests too. After the last send, the step SHALL stop with the reason of a failed model call and the class `parser`. The `wip:` commits of the step SHALL stay in the branch.
+When a model call fails with a `ModelHTTPError` of the status 400 inside an open stream that is no context window error, the step SHALL send the request again, at most `CONST_ROADMAP_IMPLEMENT_MODEL_RESENDS` times in a row. The first such failure on a tier SHALL add a message that asks for a smaller edit to the request. The next one on the same tier SHALL end the turn with no send. After the last send, the step SHALL stop with the reason of the failed call and the class `parser`.
 
 #### Scenario: Two separate failures
 - **WHEN** a model request fails with a 400 inside a stream, a good reply follows, and a later request fails the same way
