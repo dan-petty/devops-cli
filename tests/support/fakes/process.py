@@ -85,8 +85,10 @@ class FakeSandboxProcess:
         stderr: bytes = b"",
         hang_on_first_wait: bool = False,
         pipe_stdout_writer: bool = False,
+        wait_error: Exception | None = None,
     ) -> None:
         self.pid = pid
+        self._wait_error = wait_error
         self.returncode = (
             returncode if returncode is not None else (None if pipe_stdout_writer else 0)
         )
@@ -131,6 +133,8 @@ class FakeSandboxProcess:
     def wait(self, timeout: float | None = None) -> int:
         self.waits.append(timeout)
         self._wait_count += 1
+        if self._wait_error is not None:
+            raise self._wait_error
         if self._hang_on_first_wait and self._wait_count == 1:
             raise subprocess.TimeoutExpired(cmd=["bwrap"], timeout=timeout or 1.0)
         if self.returncode is None:
