@@ -123,6 +123,8 @@ class ModelCall:
     stream: bool = False
     max_retries: int | None = None
     timestamp: float = field(default_factory=time.monotonic, compare=False)
+    # The keyword options the caller sent, such as `seed` and `temperature`.
+    options: dict[str, Any] = field(default_factory=dict, compare=False)
 
     @property
     def user(self) -> str:
@@ -565,6 +567,7 @@ class ModelFake(Model):
                 model_name=self._model_name,
                 stream=stream,
                 max_retries=max_retries,
+                options=dict(kwargs),
             )
         )
 

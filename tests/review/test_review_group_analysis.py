@@ -11,7 +11,6 @@ import pytest
 from pydantic import ValidationError as PydanticValidationError
 from typer.testing import CliRunner
 
-from devops_cli.ai.client.models import LLMResponse
 from devops_cli.ai.client.unified import LLMClient
 from devops_cli.ai.review.flags import ReviewStageFlags
 from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
@@ -48,7 +47,10 @@ from devops_cli.review.state import FindingState
 from tests.llm_stream_fakes import serve_llm
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.http import WebFake
+from tests.support.fakes.model import ModelAnswer, ModelFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
+from tests.support.fakes.scanners import ScannerFake
+from tests.support.fakes.tool_executor import ToolAnswer
 
 CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED: Final[str] = getattr(
     constants, "CONST_ANALYSIS_REJECTION_REPLY_TRUNCATED", "reply-truncated"
@@ -158,55 +160,38 @@ def _make_advisory_finding(
     )
 
 
-class _FakeAnalysisClient:
-    """Offline fake LLM client recording calls and sampling parameters."""
+def _analysis_client(
+    model_fake: ModelFake,
+    responses: dict[str, dict[str, Any]] | dict[str, Any],
+    *,
+    finish_reasons: dict[str, str | None] | str | None = None,
+) -> ModelFake:
+    """Make the model fake answer the group analysis: a reply for each group id that the prompt
+    names, with that group's finish reason, and the first reply for any other prompt. A reply
+    that holds an `explanation` is the one reply for every prompt."""
 
-    def __init__(
-        self,
-        responses: dict[str, dict[str, Any]] | dict[str, Any],
-        *,
-        finish_reasons: dict[str, str | None] | str | None = None,
-    ) -> None:
-        self._responses = responses
-        self._finish_reasons = finish_reasons
-        self.calls: list[dict[str, Any]] = []
+    def reason_for(group_id: str | None) -> Any:
+        if isinstance(finish_reasons, dict):
+            if group_id and group_id in finish_reasons:
+                return finish_reasons[group_id]
+            return finish_reasons.get("default")
+        return finish_reasons
 
-    @property
-    def backend_info(self) -> str:
-        return "fake/model"
-
-    def get_context_window(self, task: str | None = None) -> int:
-        return 32768
-
-    def _resolve_content_and_group(self, user: str) -> tuple[str, str | None]:
-        if "explanation" in self._responses:
-            return json.dumps(self._responses), None
-        for group_id, payload in self._responses.items():
-            if group_id in user:
-                return json.dumps(payload), group_id
-        first = next(iter(self._responses.values()))
-        return json.dumps(first), None
-
-    def _resolve_finish_reason(self, group_id: str | None) -> Any:
-        if isinstance(self._finish_reasons, dict):
-            if group_id and group_id in self._finish_reasons:
-                return self._finish_reasons[group_id]
-            return self._finish_reasons.get("default")
-        return self._finish_reasons
-
-    def chat(self, system: str, user: str, **kwargs: Any) -> LLMResponse:
-        self.calls.append({"system": system, "user": user, "kwargs": kwargs})
-        content, group_id = self._resolve_content_and_group(user)
-        reason = self._resolve_finish_reason(group_id)
-        return LLMResponse(content=content, finish_reason=reason)
-
-    def chat_messages(
-        self,
-        system: str = "",
-        messages: Any = None,
-        **kwargs: Any,
-    ) -> Any:
-        return self.chat(system, str(messages), **kwargs)
+    if not responses:
+        return model_fake
+    if "explanation" in responses:
+        model_fake.answer(
+            ModelAnswer(content=json.dumps(responses), finish_reason=reason_for(None))
+        )
+        return model_fake
+    for group_id, payload in responses.items():
+        model_fake.route(
+            lambda prompt, group_id=group_id: group_id in prompt,
+            ModelAnswer(content=json.dumps(payload), finish_reason=reason_for(group_id)),
+        )
+    first = next(iter(responses.values()))
+    model_fake.answer(ModelAnswer(content=json.dumps(first), finish_reason=reason_for(None)))
+    return model_fake
 
 
 def test_group_findings_for_analysis_deterministically_groups_regions_k8s_and_advisories() -> None:
@@ -533,6 +518,7 @@ def _persisted_analysis(directory: Path, report: Any) -> dict[str, Any]:
 
 def test_dispatch_runs_one_job_per_group_via_pool_capped_at_slots_and_records_sampling(
     tmp_path: Path,
+    model_fake: ModelFake,
 ) -> None:
     """Dispatch uses ReviewWorkerPool capped at DEFAULT_GATEWAY_REVIEW_CONCURRENCY and records sampling."""
     from devops_cli.review.analysis import EnvironmentFacts, run_group_analysis
@@ -540,7 +526,8 @@ def test_dispatch_runs_one_job_per_group_via_pool_capped_at_slots_and_records_sa
     source = "def a():\n    return 1\n\ndef b():\n    return 2\n"
     f1 = _make_region_finding(rule_id="F401", path="src/app.py", line=2, fingerprint="fp-a")
     f2 = _make_region_finding(rule_id="F401", path="src/app.py", line=5, fingerprint="fp-b")
-    client = _FakeAnalysisClient(
+    client = _analysis_client(
+        model_fake,
         {
             "region:src/app.py:a": {
                 "explanation": "Function a issue.",
@@ -558,7 +545,7 @@ def test_dispatch_runs_one_job_per_group_via_pool_capped_at_slots_and_records_sa
                 "doc_quotes": [{"key": "rule:ruff:F401@0.15.10", "text": "unused"}],
                 "code_quotes": ["    return 2"],
             },
-        }
+        },
     )
 
     report = run_group_analysis(
@@ -581,8 +568,8 @@ def test_dispatch_runs_one_job_per_group_via_pool_capped_at_slots_and_records_sa
         len(client.calls),
         len(report.groups),
         report.sampling.seed,
-        all("Finding Group Explanation" in c["system"] for c in client.calls),
-        all(c["kwargs"].get("seed") == DEFAULT_ANALYSIS_SAMPLING_SEED for c in client.calls),
+        all("Finding Group Explanation" in c.system for c in client.calls),
+        all(c.options.get("seed") == DEFAULT_ANALYSIS_SAMPLING_SEED for c in client.calls),
         persisted["dispatched"],
         persisted["replayed"],
         persisted["failed"],
@@ -609,6 +596,7 @@ def test_dispatch_runs_one_job_per_group_via_pool_capped_at_slots_and_records_sa
 
 def test_findings_json_and_findings_sarif_are_byte_identical_with_group_analysis_on_and_off(
     tmp_path: Path,
+    model_fake: ModelFake,
 ) -> None:
     """findings.json and findings.sarif never contain model analysis and are byte-identical on vs off."""
     source_file = tmp_path / "src" / "app.py"
@@ -633,7 +621,8 @@ def test_findings_json_and_findings_sarif_are_byte_identical_with_group_analysis
         persona_title="Principal DevSecOps Engineer",
     )
 
-    client = _FakeAnalysisClient(
+    client = _analysis_client(
+        model_fake,
         {
             "explanation": "Distinct model explanation marker_xyz_987.",
             "root_cause": "Unused import marker_xyz_987.",
@@ -642,7 +631,7 @@ def test_findings_json_and_findings_sarif_are_byte_identical_with_group_analysis
             "doc_quotes": [],
             "code_quotes": ["import os"],
             "suppression_note": "Add suppression to .devops/review.toml if needed.",
-        }
+        },
     )
 
     def _run_report(name: str, *, enable_analysis: bool) -> Path:
@@ -829,7 +818,9 @@ def test_score_sessions_and_ai_runs_check_enforce_reference_coverage_tolerance(
     ) == (1.0, 0.75, False, True, 1, 0)
 
 
-def test_group_analysis_cut_reply_at_token_cap_is_rejected_not_shown(tmp_path: Path) -> None:
+def test_group_analysis_cut_reply_at_token_cap_is_rejected_not_shown(
+    tmp_path: Path, model_fake: ModelFake
+) -> None:
     """A reply cut at token cap (finish_reason=length) is rejected without parsing or showing text (#876)."""
     from devops_cli.review.analysis import (
         render_model_analysis_markdown,
@@ -848,7 +839,8 @@ def test_group_analysis_cut_reply_at_token_cap_is_rejected_not_shown(tmp_path: P
     }
 
     # 1. Fake client with finish_reason="length"
-    client_cut = _FakeAnalysisClient(
+    client_cut = _analysis_client(
+        model_fake,
         {"region:src/app.py:a": group_payload},
         finish_reasons=CONST_FINISH_REASON_LENGTH,
     )
@@ -892,7 +884,8 @@ def test_group_analysis_cut_reply_at_token_cap_is_rejected_not_shown(tmp_path: P
     )
 
     # 2. Control: Same payload with finish_reason="stop" parses and verifies
-    client_stop = _FakeAnalysisClient(
+    client_stop = _analysis_client(
+        ModelFake(),
         {"region:src/app.py:a": group_payload},
         finish_reasons="stop",
     )
@@ -927,6 +920,7 @@ def test_group_analysis_cut_reply_at_token_cap_is_rejected_not_shown(tmp_path: P
 
 def test_group_analysis_multi_group_handles_truncated_and_normal_replies(
     tmp_path: Path,
+    model_fake: ModelFake,
 ) -> None:
     """When one group reply is cut and another finishes normally, each is recorded independently (#876)."""
     from devops_cli.review.analysis import (
@@ -937,7 +931,8 @@ def test_group_analysis_multi_group_handles_truncated_and_normal_replies(
     source = "def a():\n    return 1\n\ndef b():\n    return 2\n"
     f1 = _make_region_finding(rule_id="F401", path="src/app.py", line=2, fingerprint="fp-a")
     f2 = _make_region_finding(rule_id="F401", path="src/app.py", line=5, fingerprint="fp-b")
-    client = _FakeAnalysisClient(
+    client = _analysis_client(
+        model_fake,
         {
             "region:src/app.py:a": {
                 "explanation": "Explanation a.",
@@ -1335,7 +1330,9 @@ def test_correlation_table_and_review_plan_rendered_in_analysis_json_and_review_
     assert "- **Findings**: `fp-1`, `fp-2`" in md
 
 
-def test_property_findings_identical_with_stage_on_and_off(tmp_path: Path) -> None:
+def test_property_findings_identical_with_stage_on_and_off(
+    tmp_path: Path, model_fake: ModelFake
+) -> None:
     """Property test: admitted findings, findings.json, and findings.sarif are identical with stage on vs off (#1148)."""
     from copy import deepcopy
 
@@ -1381,7 +1378,7 @@ def test_property_findings_identical_with_stage_on_and_off(tmp_path: Path) -> No
 
     def _run_pipeline(name: str, enable_stage: bool) -> Path:
         s_dir = tmp_path / name
-        fake_client = _FakeAnalysisClient({})
+        fake_client = _analysis_client(model_fake, {})
         orch = ReviewPipelineOrchestrator(
             session_id="prop-session",
             session_dir=s_dir,
@@ -1435,138 +1432,113 @@ def test_property_findings_identical_with_stage_on_and_off(tmp_path: Path) -> No
 
 
 @pytest.mark.usefixtures("scanner_fake")
-def test_review_path_without_model_stages_builds_no_llm_client(tmp_path: Path) -> None:
+def test_review_path_without_model_stages_builds_no_llm_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model_fake: ModelFake
+) -> None:
     """devops review path with --no-persona-review --no-group-analysis exits 0 without building LLMClient."""
-    from unittest.mock import patch
-
-    from devops_cli.ai.client import LLMClient
-
     test_file = tmp_path / "app.py"
     test_file.write_text("print('hello world')\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
 
-    def _fail_on_client_init(*args: Any, **kwargs: Any) -> None:
-        raise RuntimeError("LLMClient constructed when no model stages enabled")
+    result = cli.invoke(
+        app,
+        [
+            "review",
+            "path",
+            str(test_file),
+            "--no-group-analysis",
+        ],
+    )
 
-    with (
-        patch.object(LLMClient, "__init__", side_effect=_fail_on_client_init),
-        patch("devops_cli.ai.review.runner._is_allowed_review_boundary", return_value=True),
-    ):
-        result = cli.invoke(
-            app,
-            [
-                "review",
-                "path",
-                str(test_file),
-                "--no-group-analysis",
-            ],
-        )
-        assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert (result.exit_code, model_fake.factory_calls) == (0, []), result.output
 
 
 @pytest.mark.usefixtures("scanner_fake")
 def test_review_path_no_group_analysis_makes_zero_client_calls_and_no_analysis_json(
-    tmp_path: Path, review_store: type[ReviewSessionStore]
+    tmp_path: Path,
+    review_store: type[ReviewSessionStore],
+    monkeypatch: pytest.MonkeyPatch,
+    model_fake: ModelFake,
 ) -> None:
     """--no-group-analysis makes zero calls to a fake client and writes no analysis.json."""
-    from unittest.mock import patch
-
-    from devops_cli.ai.review.runner import ReviewClients
-
     test_file = tmp_path / "app.py"
     test_file.write_text("print('hello')\n", encoding="utf-8")
-    fake_client = _FakeAnalysisClient({})
-
+    monkeypatch.chdir(tmp_path)
     reviews_dir = review_store.root()
 
-    with (
-        patch(
-            "devops_cli.commands.review._make_review_clients",
-            return_value=ReviewClients(analysis=fake_client),
-        ),
-        patch("devops_cli.ai.review.runner._is_allowed_review_boundary", return_value=True),
-    ):
-        result = cli.invoke(
-            app,
-            [
-                "review",
-                "path",
-                str(test_file),
-                "--no-group-analysis",
-            ],
-        )
-        assert result.exit_code == 0, f"Command failed: {result.output}"
-        assert len(fake_client.calls) == 0
-        analysis_files = list(reviews_dir.glob("*/analysis.json"))
-        assert len(analysis_files) == 0
+    result = cli.invoke(
+        app,
+        [
+            "review",
+            "path",
+            str(test_file),
+            "--no-group-analysis",
+        ],
+    )
+
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert model_fake.call_count == 0
+    assert list(reviews_dir.glob("*/analysis.json")) == []
 
 
 def test_routed_files_only_with_admitted_gitleaks_finding_runs_group_analysis(
-    tmp_path: Path, review_store: type[ReviewSessionStore]
+    tmp_path: Path,
+    review_store: type[ReviewSessionStore],
+    scanner_fake: ScannerFake,
+    model_fake: ModelFake,
 ) -> None:
     """A review whose every file is routed to secret scan alone, with 1 admitted Gitleaks finding, calls fake client once and writes analysis.json."""
-    from unittest.mock import patch
-
     from devops_cli.ai.review.runner import ReviewClients, execute_review_workflow
-    from devops_cli.security.gitleaks import ScanOutcome
 
     reviews_dir = review_store.root()
-
-    gl_finding = Finding(
-        anchor=ToolAnchor(run_id="r1", result_index=0, rule_id="generic-api-key"),
-        tool="gitleaks",
-        tool_version="8.18.0",
-        rule_id="generic-api-key",
-        path="uv.lock",
-        line=1,
-        end_line=1,
-        message="Generic API Key found",
-        description="Leaked API Key",
-        severity="CRITICAL",
-        severity_derivation="rule",
-        state=FindingState.OPEN,
-        fingerprint_v2="fp-gitleaks-secret-1",
-    )
-    fake_client = _FakeAnalysisClient(
-        {
-            "generic-api-key": {
-                "group_id": "generic-api-key",
-                "explanation": "Valid secret finding",
-                "findings": ["fp-gitleaks-secret-1"],
-                "cross_group_correlations": [],
-            }
-        }
-    )
-
     lock_file = tmp_path / "uv.lock"
     lock_file.write_text("secret_token = 'secret'\n", encoding="utf-8")
-
-    with (
-        patch(
-            "devops_cli.security.gitleaks.run_gitleaks_scan",
-            return_value=ScanOutcome("ran", [gl_finding]),
-        ),
-        patch(
-            "devops_cli.security.semgrep.run_semgrep_scan", return_value=ScanOutcome("skipped", [])
-        ),
-        patch(
-            "devops_cli.security.bandit.run_bandit_scan", return_value=ScanOutcome("skipped", [])
-        ),
-    ):
-        result = execute_review_workflow(
-            pages=[],
-            title="Routed files review",
-            summary_only=False,
-            clients=ReviewClients(analysis=fake_client),
-            target_type="path",
-            target_ref="uv.lock",
-            target_dir=tmp_path,
-            routed_files=["uv.lock"],
-            session_id="session_routed",
+    report = [
+        {
+            "RuleID": "generic-api-key",
+            "Description": "Leaked API Key",
+            "StartLine": 1,
+            "EndLine": 1,
+            "StartColumn": 1,
+            "EndColumn": 25,
+            "Match": "REDACTED",
+            "Secret": "REDACTED",
+            "File": str(lock_file),
+            "SymlinkFile": "",
+            "Commit": "",
+            "Entropy": 4.1,
+            "Tags": [],
+            "Fingerprint": f"{lock_file}:generic-api-key:1",
+        }
+    ]
+    scanner_fake.script("gitleaks", ToolAnswer(exit_code=1, stdout=json.dumps(report)))
+    model_fake.answer(
+        json.dumps(
+            {
+                "explanation": "Valid secret finding",
+                "root_cause": "A secret in a lock file.",
+                "related_items": [],
+                "plan_steps": [],
+                "doc_quotes": [],
+                "code_quotes": [],
+            }
         )
-        assert len(result) == 1
-        assert len(fake_client.calls) == 1
-        analysis_path = reviews_dir / "session_routed" / CONST_REVIEW_ANALYSIS_FILENAME
-        assert analysis_path.is_file()
+    )
+
+    result = execute_review_workflow(
+        pages=[],
+        title="Routed files review",
+        summary_only=False,
+        clients=ReviewClients(analysis=model_fake),
+        target_type="path",
+        target_ref="uv.lock",
+        target_dir=tmp_path,
+        routed_files=["uv.lock"],
+        session_id="session_routed",
+    )
+
+    analysis_path = reviews_dir / "session_routed" / CONST_REVIEW_ANALYSIS_FILENAME
+    assert (len(result), model_fake.call_count, analysis_path.is_file()) == (1, 1, True)
 
 
 _GROUP_SOURCE = "def a():\n    return 1\n"
@@ -1977,7 +1949,9 @@ def test_a_cached_plan_reply_that_fails_its_checks_is_replaced_by_one_model_call
     ) == (["not json"], 1, "verified", [], False, [_plan_payload()])
 
 
-def test_group_analysis_failure_counts_failed_and_dispatched_apart(tmp_path: Path) -> None:
+def test_group_analysis_failure_counts_failed_and_dispatched_apart(
+    tmp_path: Path, model_fake: ModelFake
+) -> None:
     """When a job raises an error other than ReplyRejectedError, it is counted as failed while others are dispatched (#482)."""
     from devops_cli.review.analysis import (
         EnvironmentFacts,
@@ -1989,15 +1963,10 @@ def test_group_analysis_failure_counts_failed_and_dispatched_apart(tmp_path: Pat
     f1 = _make_region_finding(rule_id="F401", path="src/app.py", line=2, fingerprint="fp-a")
     f2 = _make_region_finding(rule_id="F401", path="src/app.py", line=5, fingerprint="fp-b")
 
-    class _FailingOneGroupClient:
-        def __init__(self) -> None:
-            self.calls: list[str] = []
-
-        def chat(self, system: str, user: str, **kwargs: Any) -> LLMResponse:
-            self.calls.append(user)
-            if "region:src/app.py:b" in user:
-                raise RuntimeError("simulated model call error")
-            payload = {
+    model_fake.route_error("region:src/app.py:b", RuntimeError("simulated model call error"))
+    model_fake.answer(
+        json.dumps(
+            {
                 "explanation": "Function a issue.",
                 "root_cause": "Root cause a.",
                 "related_items": [],
@@ -2005,9 +1974,9 @@ def test_group_analysis_failure_counts_failed_and_dispatched_apart(tmp_path: Pat
                 "doc_quotes": [{"key": "rule:ruff:F401@0.15.10", "text": "unused"}],
                 "code_quotes": ["    return 1"],
             }
-            return LLMResponse(content=json.dumps(payload))
-
-    client = _FailingOneGroupClient()
+        )
+    )
+    client = model_fake
     report = run_group_analysis(
         [f1, f2],
         llm_client=client,
