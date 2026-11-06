@@ -16,7 +16,6 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -39,6 +38,8 @@ from tests.copilot_review_payloads import (
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import GitHubApiFake, github_json, route_file
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+
+pytestmark = pytest.mark.usefixtures("roadmap_store")
 
 _REPO = "dan-petty/devops-cli"
 _HEAD, _BASE = "a" * 40, "b" * 40
@@ -138,15 +139,6 @@ class _GitHub:
 
     def threads(self, *threads: dict[str, Any]) -> None:
         self.answer(_THREADS, ProcessAnswer(stdout=_threads_page(*threads)))
-
-
-@pytest.fixture(autouse=True)
-def no_status_write(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`pr create` and `pr ready` set the Status of the item the pull request closes (#2717);
-    tests/test_pr_status.py holds that. These cases leave the roadmap alone. `raising=False`
-    lets the cases run on a base that has no such function, so the replay of a fix sees them
-    pass there."""
-    monkeypatch.setattr("devops_cli.commands.pr.set_delivered_status", MagicMock(), raising=False)
 
 
 @pytest.fixture
@@ -573,7 +565,8 @@ def test_pr_ready_marks_complete_implement_pull_request(
 def test_pr_ready_refused_item_read_stops_unless_forced(
     cli: Callable[..., Any], draft: _GitHub, unreadable_github_roadmap: Any
 ) -> None:
-    """A refused read of the item: exit 1 with the error, and with --force the pull request is marked."""
+    """A refused read of the item: exit 1 with the error. With --force the pull request is marked,
+    and the exit is still 1 because the Status of its item could not be set."""
     _set_draft_pull(
         draft,
         head={
@@ -589,7 +582,8 @@ def test_pr_ready_refused_item_read_stops_unless_forced(
     assert not _readied(draft)
 
     exit_code_forced, output_forced = _ready(cli, "--force")
-    assert exit_code_forced == 0, output_forced
+    assert exit_code_forced == 1, output_forced
+    assert "the Status of its item was not set" in " ".join(output_forced.split())
     assert _readied(draft)
 
 
