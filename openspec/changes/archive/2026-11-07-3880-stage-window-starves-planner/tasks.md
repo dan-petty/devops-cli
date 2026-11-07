@@ -22,5 +22,5 @@ Kind: documents. Changes: `docs/roadmap/stage.md`.
 
 ## Workflow follow-up
 
-- Pending a person: the window of the task `verification` in the example ConfigMap (criterion 1 of the issue) waits for the pull request of #3874, which edits the same lines.
+- The window of the task `verification` in the example ConfigMap moved to #3911, because the pull request of #3874 edits the same lines.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

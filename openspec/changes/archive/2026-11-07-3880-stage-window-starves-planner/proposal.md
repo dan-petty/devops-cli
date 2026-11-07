@@ -40,7 +40,7 @@ None.
 
 | Criterion of the issue | Delivered by |
 | :--- | :--- |
-| The example ConfigMap sets `ai.tasks.analysis.context_window` to 256000, with a comment | Group 1, for `analysis`. The window of the task `verification` is not part of this pull request: see Feasibility |
+| The example ConfigMap sets `ai.tasks.analysis.context_window` to 256000, with a comment | Group 1, for `analysis`. The window of the task `verification` moved to #3911: see Feasibility |
 | A plan run whose tools end at the window before a minimum number of tool calls raises `RoadmapStageError` that names the window setting | Group 1 |
 | A test fails when the planner window of the example ConfigMap is below the minimum | Group 1 |
 | `docs/roadmap/stage.md` states what the model does when the window ends the tools | Group 2 |
@@ -53,7 +53,7 @@ The premise was confirmed against the repository and the evidence of the issue, 
 - `tool_stop(window)` in `src/devops_cli/roadmap/refine_investigation.py` is `window - window // 4`: 49,152 tokens for 65,536. The first request counts about 38,000 tokens (the issue measures it on 2026-11-07), so the tools end after a few answers. The runs of the issue made 6 and 4 calls at 65,536 tokens and 40 calls at 262,144 tokens.
 - `k8s/llm/gateway/config.yaml` gives the group `deepseek-v4.1-flash-1017` a `max_input_tokens` of 1,048,576. 256,000 tokens is the smallest window of an fp8 provider of the group, as the comment on `implement` says.
 - The least number of calls is 8. It is above the 6 calls of the largest failed run and far below the 40 calls of the run that staged.
-- The window of the task `verification`: the pull request of #3874 changes the lines of that task in the same file. The task of this pull request says to keep the edit to the `analysis` window, so the two pull requests do not conflict. The verification window follows after #3874 is merged.
+- The window of the task `verification`: the pull request of #3874 changes the lines of that task in the same file. The task of this pull request says to keep the edit to the `analysis` window, so the two pull requests do not conflict. The verification window moved to #3911.
 
 ## Existing Tool Considered
 
