@@ -8,6 +8,13 @@ This job does it, and `devops roadmap intake` refuses a new candidate with a lon
 **Selection.** An open Item whose title has a Conventional Commit type and a summary over the
 limit, the lowest number first, at most `--limit` a run. `--item` names the one item to examine.
 
+**The skip mark (#4038).** When the job leaves an item (a person's edit, no plan title, no usable
+reply of the model), `apply_retitle` writes `retitle.skipped` in the job record of the item, once.
+The value is `skip_hash`: a hash of the title, the body and the `stage.pr` mark. The selection
+leaves out an item while the mark equals the current hash, so a later round reads no comment of
+it, makes no model request for it, and does not let it hold a place of `--limit`. A change to the
+title, the body or the `stage.pr` mark selects the item again. A comment does not.
+
 **The source of the new summary.** The job keeps the type and the scope, and writes only the
 summary (`build_title`), so `title_problems` holds for the new title.
 
@@ -53,10 +60,17 @@ from devops_cli.exceptions.ai import ModelGatewayUnreachableError
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.body_hash import hash_text
 from devops_cli.roadmap.commit_title import commit_summary, commit_type
 from devops_cli.roadmap.intake.intake_model import gateway_address
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, build_title, summary_length
-from devops_cli.roadmap.stores.store import IssueComment, Item, RoadmapStore, StageRecordKey
+from devops_cli.roadmap.stores.store import (
+    IssueComment,
+    Item,
+    RetitleRecordKey,
+    RoadmapStore,
+    StageRecordKey,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -175,15 +189,28 @@ class RetitlePlan:
         return bool(self.changes) or any(skip.comment for skip in self.skips)
 
 
+def skip_hash(item: Item) -> str:
+    """The hash of what the decision for `item` reads: its title, its body and its `stage.pr`
+    mark. The body of an Item holds no record block, so the write of the mark leaves it as it is."""
+    recorded = item.job_record.get(StageRecordKey.PR) or ""
+    return hash_text("\0".join((item.title, item.body, recorded)))
+
+
+def _is_skipped(item: Item) -> bool:
+    return item.job_record.get(RetitleRecordKey.SKIPPED) == skip_hash(item)
+
+
 def long_title_items(store: RoadmapStore, item_number: int | None = None) -> list[Item]:
     """The open Items with a Conventional Commit type and a summary over the limit, the lowest
-    number first. With `item_number`, only that item, when it is one of them."""
+    number first, without an item whose skip mark holds. With `item_number`, only that item,
+    when it is one of them."""
     found = [
         item
         for item in store.open_items()
         if commit_type(item.title) is not None
         and summary_length(commit_summary(item.title)) > SUMMARY_MAX_CHARS
         and item_number in (None, item.number)
+        and not _is_skipped(item)
     ]
     return sorted(found, key=lambda item: item.number)
 
@@ -326,8 +353,9 @@ def _changed_since_read(store: RoadmapStore, change: TitleChange) -> bool:
 
 def apply_retitle(store: RoadmapStore, plan: RetitlePlan) -> int:
     """Write each new title and one comment on its item, and one comment for each skip that says
-    so, unless the item already holds that comment. An item whose title changed since the plan
-    read it is left. Returns the number of titles written."""
+    so, unless the item already holds that comment. Each skip also gets the skip mark, in one write.
+    An item whose title changed since the plan read it is left. Returns the number of titles
+    written."""
     written = 0
     for change in plan.changes:
         if _changed_since_read(store, change):
@@ -343,6 +371,7 @@ def apply_retitle(store: RoadmapStore, plan: RetitlePlan) -> int:
         body = _skip_comment_of(skip)
         if skip.comment and all(c.body != body for c in store.comments_on(skip.item.number)):
             store.comment(skip.item.number, body)
+        store.set_marks(skip.item, {RetitleRecordKey.SKIPPED: skip_hash(skip.item)})
     return written
 
 
@@ -396,4 +425,5 @@ __all__ = [
     "person_changed_title",
     "plan_retitle",
     "render_retitle_plan",
+    "skip_hash",
 ]

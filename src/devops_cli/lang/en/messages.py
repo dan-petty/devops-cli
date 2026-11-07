@@ -4207,6 +4207,10 @@ class RoadmapMessages:
             "planned": "the item is Planned",
             "unplanned": "the item is not Planned",
             "retitled": "a person did not change the title since the last job comment",
+            "retitle_skipped": (
+                "the run leaves the item: a person changed its title, its plan pull request has "
+                "no usable title, or the model gave no summary that passes the title form"
+            ),
         }
     )
     plan_repeat: dict[str, str] = field(

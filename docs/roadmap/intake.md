@@ -56,6 +56,7 @@ devops gh issues close <number> --reason not-planned
 - A Planned item takes the summary of the title of its plan pull request (`plan #<issue> <summary>`), which its job record names. The job makes no model call for it. When that title gives no valid summary, the job leaves the item and comments the reason once.
 - Another item gets one request to the `triage` model, and one more with the faults of the first reply. A reply that fails twice leaves the item.
 - It leaves a title that someone changed after the last comment of a job. It reads the title changes on the timeline of the item.
+- When it leaves an item, it writes the mark `retitle.skipped` once. The value is a hash of the title, the body and the `stage.pr` mark. The selection leaves the item out while the hash holds, so a later round reads nothing of it and makes no model request for it. A change to the title, the body or `stage.pr` selects it again. A comment does not.
 - Without `--confirm` it prints the new titles and writes nothing. With `--confirm` it writes each title and one comment with the marker `<!-- devops roadmap retitle -->`. `--dry-run` makes no request.
 - The Service runs the job as the row `retitle` of the model lane. The row is due on a first run and every 61 minutes. It runs after `refine` and before `stage`, so the stage job reads the new titles in the same round. Each run takes at most 25 items and writes as `--confirm` does. The row needs no clone.
 
