@@ -20,7 +20,7 @@
   - Verification: `uv run devops ci test tests/roadmap tests/commands/test_github_milestones.py`
 - [x] 3.2 Add `record_passing_run` to `ci/cache.py`, call it from the CI command, and move the CI cache tests onto it
   - Verification: `uv run devops ci test tests/ci tests/commands/test_ci.py`
-- [x] 3.3 The nine files import no private name of `devops_cli`
+- [x] 3.3 The nine files import no private name of `devops_cli`, build no `CliRunner` and no `Item(`
   - Verification: `! git grep -nF -e _run_intake_adapter -e _run_metrics_adapter -e _run_refine_adapter -e _run_release_comments_adapter -e _try_save_ci_cache -e _worktree_divergent_paths -- tests/ci tests/roadmap/test_roadmap_run.py tests/roadmap/test_roadmap_intake.py tests/roadmap/test_roadmap_refine.py tests/roadmap/test_roadmap_dry_runs.py tests/roadmap/test_roadmap_github_store.py`
 
 ## 4. Documents
@@ -33,7 +33,7 @@
 - [x] 5.1 Archive the change
   - Verification: `uv run devops openspec archive 3746-roadmap-tests-install-store-hook`
 
-## Workflow follow-up
+## Left for other items
 
-- Four patch sites stay (two `uvicorn.run`, two `run_due_jobs`) and one case is dropped (`--force` with a cache hit). Each needs a seam that another item owns: see Feasibility in proposal.md.
+- Four patch sites stay (two `uvicorn.run`, two `run_due_jobs`) and two CI cases are dropped (`--force` with a cache hit, and the warning of a tree that changed during a run). Each needs a seam that another item owns: see Feasibility in proposal.md. Issue #3885 tracks them.
 - Part 3 of #1335 splits the four largest roadmap test files.

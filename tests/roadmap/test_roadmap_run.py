@@ -29,11 +29,8 @@ from unittest.mock import patch
 
 import pytest
 import yaml
-from typer.testing import CliRunner
 
 from devops_cli.ai.mcp.server import roadmap_run
-from devops_cli.commands.roadmap import app as roadmap_app
-from devops_cli.commands.serve import app as serve_app
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
@@ -135,7 +132,6 @@ OPENED = CONST_ROADMAP_INTAKE_BATCH_KEYS[0]
 POLL_KEY = ("poll", "", "")
 # The Priority that makes an issue an Item, as a person sets it.
 PLACED = {ItemField.PRIORITY: "P2-Medium"}
-runner = CliRunner()
 run_intake_adapter = due_job_runner("intake")
 run_metrics_adapter = due_job_runner("metrics")
 run_refine_adapter = due_job_runner("refine")
@@ -708,7 +704,10 @@ def test_order_and_cross_job_triggers(seeded_store: InMemoryRoadmapStore, tmp_pa
 
 
 def test_refine_is_due_at_its_interval_after_its_last_success_and_on_a_first_run(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
 ) -> None:
     """Refine is due 31 min after its last success, not at 30, and on a first run; the CLI's dry
     run lists it (#1515)."""
@@ -727,9 +726,9 @@ def test_refine_is_due_at_its_interval_after_its_last_success_and_on_a_first_run
     at_31, at_30, first = due(timedelta(minutes=31)), due(timedelta(minutes=30)), due(None)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     _stamp_the_default_table(tmp_path, except_for=("refine",), refine=timedelta(minutes=61))
-    cli = runner.invoke(roadmap_app, ["run", "--dry-run", "-R", REPO])
+    result = cli(["roadmap", "run", "--dry-run", "-R", REPO])
 
-    assert (at_31, at_30, first, cli.exit_code, "Due: refine\n" in cli.output) == (
+    assert (at_31, at_30, first, result.exit_code, "Due: refine\n" in result.output) == (
         ("refine",),
         (),
         ("refine",),
@@ -739,7 +738,10 @@ def test_refine_is_due_at_its_interval_after_its_last_success_and_on_a_first_run
 
 
 def test_stage_is_due_at_its_interval_after_its_last_success_on_a_first_run_and_the_dry_run_lists_it(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
 ) -> None:
     """The stage row is due 37 min after its last success, not at 36, and on a first run; the
     CLI's dry run lists it after refine (#2659)."""
@@ -758,9 +760,15 @@ def test_stage_is_due_at_its_interval_after_its_last_success_on_a_first_run_and_
     at_37, at_36, first = due(timedelta(minutes=37)), due(timedelta(minutes=36)), due(None)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     _stamp_the_default_table(tmp_path, except_for=("intake", "refine", "stage"))
-    cli = runner.invoke(roadmap_app, ["run", "--dry-run", "-R", REPO])
+    result = cli(["roadmap", "run", "--dry-run", "-R", REPO])
 
-    assert (at_37, at_36, first, cli.exit_code, "Due: intake, refine, stage\n" in cli.output) == (
+    assert (
+        at_37,
+        at_36,
+        first,
+        result.exit_code,
+        "Due: intake, refine, stage\n" in result.output,
+    ) == (
         ("stage",),
         (),
         ("stage",),
@@ -821,7 +829,10 @@ def test_stage_is_due_in_a_round_where_refine_set_an_item_ready_and_failed_anoth
 
 
 def test_failure_isolation_and_cli_exit(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
 ) -> None:
     """A failed stub lets the next job run, keeps its own schedule stamp unwritten, and the CLI
     exits 1 naming it."""
@@ -845,7 +856,7 @@ def test_failure_isolation_and_cli_exit(
         raise RoadmapRunError("Crash [bold red]markup[/bold red]", failed_jobs=("intake",))
 
     with patch("devops_cli.roadmap.run.run_due_jobs", side_effect=failing_adapter):
-        res = runner.invoke(roadmap_app, ["run", "--confirm", "-R", REPO])
+        res = cli(["roadmap", "run", "--confirm", "-R", REPO])
 
     assert (
         exc_info.value.failed_jobs,
@@ -929,7 +940,10 @@ def test_idle_records_zero_or_one_store_calls(
 
 
 def test_no_prompt_and_cli_modes(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
 ) -> None:
     """Stub called with no confirm argument; CLI without confirm or with dry-run runs none."""
     received_args: list[dict[str, Any]] = []
@@ -944,10 +958,10 @@ def test_no_prompt_and_cli_modes(
 
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     _stamp_the_default_table(tmp_path, except_for=("stage_ready",), stage_ready=timedelta(days=1))
-    res_plain = runner.invoke(roadmap_app, ["run", "-R", REPO])
-    res_dry = runner.invoke(roadmap_app, ["run", "--dry-run", "--confirm", "-R", REPO])
+    res_plain = cli(["roadmap", "run", "-R", REPO])
+    res_dry = cli(["roadmap", "run", "--dry-run", "--confirm", "-R", REPO])
     stamped_before = _schedule(tmp_path)["stage_ready"]
-    res_confirm = runner.invoke(roadmap_app, ["run", "--confirm", "-R", REPO])
+    res_confirm = cli(["roadmap", "run", "--confirm", "-R", REPO])
 
     assert (
         had_confirm,
@@ -975,12 +989,13 @@ def service_settings(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_service_wiring(
     seeded_store: InMemoryRoadmapStore,
     roadmap_store_repos: list[str],
+    cli: Callable[..., Any],
 ) -> None:
     """`devops serve --service` passes the three lanes' jobs to create_service_app, with no
     reader of a round pause: no roadmap read has a budget refusal that names one (ADR 0016).
     Each lane's job opens the store and runs its own rows in its own clone (#1532, #1534)."""
     with patch("uvicorn.run") as mock_uvicorn:
-        res = runner.invoke(serve_app, ["--service"])
+        res = cli(["serve", "--service"])
         fastapi_app = mock_uvicorn.call_args[0][0]()
 
     batch = TriggerBatch(repo=REPO, counts={OPENED: 1}, first_at=NOW, last_at=NOW)
@@ -1021,7 +1036,9 @@ def test_service_wiring(
 
 
 @pytest.mark.usefixtures("service_settings")
-def test_the_service_that_serve_starts_reads_its_halt_and_budget_from_the_volume() -> None:
+def test_the_service_that_serve_starts_reads_its_halt_and_budget_from_the_volume(
+    cli: Callable[..., Any],
+) -> None:
     """`devops serve --service` gives the Service the state directory on its volume. A Service
     that starts there after a halt and after 60 requests in the budget window is still halted,
     and its budget still counts the 60 requests (#2474, #2523)."""
@@ -1033,7 +1050,7 @@ def test_the_service_that_serve_starts_reads_its_halt_and_budget_from_the_volume
     (volume / CONST_SERVICE_BUDGET_FILENAME).write_text(json.dumps(window), encoding="utf-8")
 
     with patch("uvicorn.run") as mock_uvicorn:
-        res = runner.invoke(serve_app, ["--service"])
+        res = cli(["serve", "--service"])
         manager = mock_uvicorn.call_args[0][0]().state.service_manager
 
     assert (res.exit_code, manager.pause.halted(), manager.budget.spent()) == (0, True, 60)
@@ -2863,18 +2880,21 @@ def test_the_alternatives_row_follows_refine_and_is_due_every_719_minutes_and_by
 
 
 def test_the_dry_run_of_the_cli_lists_the_alternatives_row(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
 ) -> None:
     """On a first run every row is due, and the CLI's dry run lists the alternatives row last
     (#2652)."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
 
-    cli = runner.invoke(roadmap_app, ["run", "--dry-run", "-R", REPO])
+    result = cli(["roadmap", "run", "--dry-run", "-R", REPO])
 
     assert (
-        cli.exit_code,
+        result.exit_code,
         "Due: metrics, implement, stage_ready, release_comments, intake, refine, retitle, stage,"
-        " alternatives\n" in cli.output,
+        " alternatives\n" in result.output,
     ) == (0, True)
 
 

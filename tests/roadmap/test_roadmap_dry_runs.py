@@ -15,10 +15,7 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.roadmap import app
-from devops_cli.dry_run import set_dry_run
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.github_store import (
@@ -36,7 +33,6 @@ from tests.support.fakes.model import ModelFake
 from tests.support.fakes.process import ProcessFake
 
 REPO = "dan-petty/devops-cli"
-runner = CliRunner()
 JOBS = ("intake", "refine", "alternatives", "stage", "implement")
 
 
@@ -69,9 +65,9 @@ def no_requests(
 
 @pytest.mark.parametrize("job", JOBS)
 def test_every_jobs_dry_run_makes_no_request_and_lists_the_requests_a_run_makes(
-    no_requests: None, job: str
+    no_requests: None, job: str, cli: Callable[..., Any]
 ) -> None:
-    result = runner.invoke(app, [job, "--repo", REPO, "--dry-run"])
+    result = cli(["roadmap", job, "--repo", REPO, "--dry-run"])
     assert (
         result.exit_code,
         "Dry run: no request was made" in result.output,
@@ -80,9 +76,11 @@ def test_every_jobs_dry_run_makes_no_request_and_lists_the_requests_a_run_makes(
     ) == (0, True, False, False), result.output
 
 
-def test_refine_dry_run_with_item_makes_no_requests(no_requests: None) -> None:
+def test_refine_dry_run_with_item_makes_no_requests(
+    no_requests: None, cli: Callable[..., Any]
+) -> None:
     """Refining a single item under dry-run makes no GitHub, process, or model call."""
-    result = runner.invoke(app, ["refine", "--repo", REPO, "--item", "123", "--dry-run"])
+    result = cli(["roadmap", "refine", "--repo", REPO, "--item", "123", "--dry-run"])
     assert (
         result.exit_code,
         "Dry run: no request was made" in result.output,
@@ -90,10 +88,12 @@ def test_refine_dry_run_with_item_makes_no_requests(no_requests: None) -> None:
     ) == (0, True, True), result.output
 
 
-def test_the_explain_dry_run_makes_no_request_and_lists_reads_only(no_requests: None) -> None:
+def test_the_explain_dry_run_makes_no_request_and_lists_reads_only(
+    no_requests: None, cli: Callable[..., Any]
+) -> None:
     """`explain` reads GitHub and git and writes nothing, so its plan holds the reads of a run and
     no write (#2911)."""
-    result = runner.invoke(app, ["explain", "7", "--repo", REPO, "--dry-run"])
+    result = cli(["roadmap", "explain", "7", "--repo", REPO, "--dry-run"])
     assert (
         result.exit_code,
         "Dry run: no request was made" in result.output,
@@ -103,10 +103,14 @@ def test_the_explain_dry_run_makes_no_request_and_lists_reads_only(no_requests: 
 
 
 @pytest.mark.parametrize("job", JOBS)
-def test_an_exported_dry_run_wins_over_confirm(no_requests: None, job: str) -> None:
-    set_dry_run(True)
-    result = runner.invoke(app, [job, "--repo", REPO, "--confirm"])
-    assert (result.exit_code, "Dry run: no request was made" in result.output) == (0, True)
+def test_an_exported_dry_run_with_confirm_is_refused_and_makes_no_request(
+    no_requests: None, job: str, cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`devops` turns an exported dry run into the `--dry-run` flag before the command runs, so
+    the command refuses `--confirm` as a second mode and makes no request."""
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "1")
+    result = cli(["roadmap", job, "--repo", REPO, "--confirm"])
+    assert (result.exit_code, "Pass one of" in result.output) == (1, True)
 
 
 @pytest.mark.parametrize(
@@ -119,8 +123,10 @@ def test_an_exported_dry_run_wins_over_confirm(no_requests: None, job: str) -> N
         ("implement", "--plan"),
     ],
 )
-def test_more_than_one_mode_flag_is_refused(no_requests: None, job: str, mode: str) -> None:
-    result = runner.invoke(app, [job, "--repo", REPO, "--dry-run", mode])
+def test_more_than_one_mode_flag_is_refused(
+    no_requests: None, job: str, mode: str, cli: Callable[..., Any]
+) -> None:
+    result = cli(["roadmap", job, "--repo", REPO, "--dry-run", mode])
     assert (result.exit_code, "Pass one of --dry-run" in result.output) == (1, True)
 
 

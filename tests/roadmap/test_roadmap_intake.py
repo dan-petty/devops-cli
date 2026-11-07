@@ -25,14 +25,12 @@ from fakeredis import FakeServer
 from fastmcp.exceptions import ToolError
 from pydantic import ValidationError
 from syrupy.assertion import SnapshotAssertion
-from typer.testing import CliRunner
 
 from devops_cli import entry
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.ai.mcp import server as mcp_server
 from devops_cli.ai.mcp.dispatcher import get_mcp_dispatcher, install_mcp_dispatcher
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, install_embedder
-from devops_cli.commands.roadmap import app
 from devops_cli.config.constants import CONST_ROADMAP_INTAKE_REASON_MARKER
 from devops_cli.config.settings import AIConfig
 from devops_cli.dry_run.state import in_dry_run_invocation
@@ -110,8 +108,6 @@ DEFAULT_PROPOSAL: dict[str, Any] = {
     "effort": "Low",
     "effort_reason": "one module.",
 }
-
-runner = CliRunner()
 
 
 @dataclass
@@ -374,12 +370,12 @@ def test_a_labels_file_it_cant_use_stops_intake_before_any_read_or_model_call(
 
 
 def test_intake_names_the_repository_whose_labels_file_declares_no_type(
-    opened: Roadmap, fake_model: FakeModel
+    opened: Roadmap, fake_model: FakeModel, run_intake: Callable[..., str]
 ) -> None:
     """The command hands the run its `--repo`, so the error names the repository."""
     opened.store.seed_file(".github/labels.yml", ONLY_EPIC)
     opened.issue("feat: export the board as CSV")
-    output = _intake("--plan", exit_code=1)
+    output = run_intake("--plan", exit_code=1)
     assert (
         f"{REPO}'s .github/labels.yml at the default branch declares no type/* label" in output,
         LABELS_RULE in output,
@@ -728,11 +724,13 @@ def test_intake_plan_lists_sub_issue_write(roadmap: Roadmap) -> None:
     assert f"sub-issue of #{parent}" in rendered
 
 
-def test_a_dry_run_lists_the_sub_issue_write_when_source_is_an_issue(tmp_path: Path) -> None:
+def test_a_dry_run_lists_the_sub_issue_write_when_source_is_an_issue(
+    tmp_path: Path, run_intake: Callable[..., str]
+) -> None:
     """A dry run with --source naming an issue of the repository lists the sub-issue write (#2035)."""
     body_file = tmp_path / "body.md"
     body_file.write_text("body text", encoding="utf-8")
-    output = _intake(
+    output = run_intake(
         "--title",
         "feat: split task",
         "--body-file",
@@ -1312,18 +1310,25 @@ def fake_model(model_fake: ModelFake, keyring_store: FakeKeyring) -> FakeModel:
     return model
 
 
-def _intake(*flags: str, exit_code: int = 0) -> str:
-    result = runner.invoke(app, ["intake", "--repo", REPO, *flags])
-    assert result.exit_code == exit_code, result.output
-    return " ".join(result.output.split())
+@pytest.fixture
+def run_intake(cli: Callable[..., Any]) -> Callable[..., str]:
+    """Run `devops roadmap intake --repo REPO <flags>`, check its exit code and return its output
+    on one line."""
+
+    def run(*flags: str, exit_code: int = 0) -> str:
+        result = cli("roadmap", "intake", "--repo", REPO, *flags)
+        assert result.exit_code == exit_code, result.output
+        return " ".join(result.output.split())
+
+    return run
 
 
 def test_plan_reads_and_asks_the_model_writes_nothing_and_reports_its_spend(
-    opened: Roadmap, fake_model: FakeModel
+    opened: Roadmap, fake_model: FakeModel, run_intake: Callable[..., str]
 ) -> None:
     number = opened.issue("feat: previewed")
     before = opened.store.job_writes()
-    preview = _intake("--plan")
+    preview = run_intake("--plan")
     assert (
         f"#{number} feat: previewed: type/feature, P2-Medium, Value Medium, Effort Low; to the "
         "backlog" in preview,
@@ -1337,14 +1342,14 @@ def test_plan_reads_and_asks_the_model_writes_nothing_and_reports_its_spend(
 
 
 def test_intake_plan_reports_a_possible_duplicate_with_the_writes_that_place_it(
-    opened: Roadmap, fake_model: FakeModel
+    opened: Roadmap, fake_model: FakeModel, run_intake: Callable[..., str]
 ) -> None:
     """`devops roadmap intake --plan` reports the possible original of a candidate, and the
     writes that place it: it closes nothing (#2218)."""
     parent = opened.issue("feat: parent issue", milestone=LATER)
     split = opened.finished("feat: split issue")
     fake_model.duplicates["feat: parent issue"] = "feat: split issue"
-    output = _intake("--issue", str(parent), "--plan")
+    output = run_intake("--issue", str(parent), "--plan")
     possible = (
         f"- possible duplicate: #{split}. The model names `feat: split issue` as the change that "
         "both ask for. - writes: "
@@ -1353,7 +1358,7 @@ def test_intake_plan_reports_a_possible_duplicate_with_the_writes_that_place_it(
 
 
 def test_a_quota_refresh_that_times_out_ends_the_plan_with_its_error_and_no_traceback(
-    fake_model: FakeModel, process_fake: ProcessFake
+    fake_model: FakeModel, process_fake: ProcessFake, cli: Callable[..., Any]
 ) -> None:
     """2026-10-18: `gh api rate_limit` ran past its timeout while intake read GitHub, and
     `devops roadmap intake --plan` ended in a `TimeoutExpired` traceback. The read of every
@@ -1362,7 +1367,7 @@ def test_a_quota_refresh_that_times_out_ends_the_plan_with_its_error_and_no_trac
     install_roadmap_store(lambda repo, **_: GitHubRoadmapStore(repo))
     timed_out = subprocess.TimeoutExpired(["gh", "api", "rate_limit"], 10.0)
     process_fake.answer(("gh", "api", "rate_limit"), ProcessAnswer(side_effect=timed_out))
-    result = runner.invoke(app, ["intake", "--repo", REPO, "--plan"])
+    result = cli("roadmap", "intake", "--repo", REPO, "--plan")
     output = " ".join(result.output.split())
     assert (
         result.exit_code,
@@ -1375,12 +1380,12 @@ def test_a_quota_refresh_that_times_out_ends_the_plan_with_its_error_and_no_trac
 
 
 def test_confirm_reports_what_it_placed_names_what_it_skipped_and_exits_one(
-    opened: Roadmap, fake_model: FakeModel
+    opened: Roadmap, fake_model: FakeModel, run_intake: Callable[..., str]
 ) -> None:
     """The person running it sees the placements, then which candidate failed and why (#1443)."""
     placed, refused = opened.issue("feat: placed"), opened.issue("feat: refused")
     opened.store.fail_write(write="label_issue", item=refused)
-    output = _intake("--confirm", exit_code=1)
+    output = run_intake("--confirm", exit_code=1)
     assert (
         "Intake placed 1 item(s)." in output,
         "Intake finished with candidates it could not write: the writes failed for 1 "
@@ -1391,11 +1396,11 @@ def test_confirm_reports_what_it_placed_names_what_it_skipped_and_exits_one(
 
 
 def test_plain_intake_previews_as_plan_does_and_says_what_it_spends(
-    opened: Roadmap, fake_model: FakeModel
+    opened: Roadmap, fake_model: FakeModel, run_intake: Callable[..., str]
 ) -> None:
     opened.issue("feat: previewed")
     before = opened.store.job_writes()
-    plain, planned = _intake(), _intake("--plan")
+    plain, planned = run_intake(), run_intake("--plan")
     note = " ".join(MESSAGES.roadmap.intake_plain_note.split())
     assert (
         note in plain,
@@ -1422,8 +1427,9 @@ def no_requests(
 
 def test_dry_run_makes_no_request_and_prints_the_requests_a_run_makes_in_order(
     no_requests: None,
+    run_intake: Callable[..., str],
 ) -> None:
-    output = _intake("--dry-run", "--issue", "7")
+    output = run_intake("--dry-run", "--issue", "7")
     steps = [
         "Dry run: no request was made",
         "REST read every issue, open and closed",
@@ -1590,19 +1596,20 @@ def test_a_dry_run_shows_the_exact_commands_the_store_runs() -> None:
 
 
 def test_a_dry_run_still_refuses_a_candidate_holding_a_secret(
-    no_requests: None, tmp_path: Path
+    no_requests: None, tmp_path: Path, run_intake: Callable[..., str]
 ) -> None:
     body = tmp_path / "body.md"
     body.write_text("It fails with token=ghp_abcdefghijklmnop1234", encoding="utf-8")
-    output = _intake("--title", "fix: auth", "--body-file", str(body), "--dry-run", exit_code=1)
+    output = run_intake("--title", "fix: auth", "--body-file", str(body), "--dry-run", exit_code=1)
     assert "secret" in output
 
 
 def test_a_dry_run_with_a_limit_makes_no_request_and_names_the_limit_per_candidate(
     no_requests: None,
+    run_intake: Callable[..., str],
 ) -> None:
     """`--limit` changes which candidates a run decides, not what a dry run sends (#1360)."""
-    output = _intake("--dry-run", "--limit", "3")
+    output = run_intake("--dry-run", "--limit", "3")
     assert (
         "Dry run: no request was made" in output,
         "[repeated for each of the 3 oldest candidates:" in output,
@@ -1611,11 +1618,11 @@ def test_a_dry_run_with_a_limit_makes_no_request_and_names_the_limit_per_candida
 
 
 def test_a_limited_plan_decides_the_oldest_candidates_and_names_those_it_leaves(
-    opened: Roadmap, fake_model: FakeModel
+    opened: Roadmap, fake_model: FakeModel, run_intake: Callable[..., str]
 ) -> None:
     """Without a record of earlier runs, the oldest candidates come first (#1360)."""
     numbers = [opened.issue(f"feat: candidate {n}") for n in range(1, 5)]
-    preview = _intake("--plan", "--limit", "2")
+    preview = run_intake("--plan", "--limit", "2")
     left = ", ".join(f"#{number}" for number in numbers[2:])
     assert (
         [request.title for request in fake_model.requests],
@@ -1623,18 +1630,22 @@ def test_a_limited_plan_decides_the_oldest_candidates_and_names_those_it_leaves(
     ) == (["feat: candidate 1", "feat: candidate 2"], True)
 
 
-def test_an_exported_dry_run_wins_over_confirm(
-    no_requests: None, monkeypatch: pytest.MonkeyPatch
+def test_an_exported_dry_run_with_confirm_is_refused_and_makes_no_request(
+    no_requests: None, monkeypatch: pytest.MonkeyPatch, run_intake: Callable[..., str]
 ) -> None:
+    """`devops` turns an exported dry run into the `--dry-run` flag before the command runs, so
+    the command refuses `--confirm` as a second mode."""
     monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "1")
-    assert "Dry run: no request was made" in _intake("--confirm")
+    assert "Pass one of" in run_intake("--confirm", exit_code=1)
 
 
 @pytest.mark.parametrize(
     "flags", [("--dry-run", "--plan"), ("--dry-run", "--confirm"), ("--plan", "--confirm")]
 )
-def test_the_mode_flags_exclude_each_other(no_requests: None, flags: tuple[str, ...]) -> None:
-    assert "one of --dry-run, --plan and --confirm" in _intake(*flags, exit_code=1)
+def test_the_mode_flags_exclude_each_other(
+    no_requests: None, flags: tuple[str, ...], run_intake: Callable[..., str]
+) -> None:
+    assert "one of --dry-run, --plan and --confirm" in run_intake(*flags, exit_code=1)
 
 
 def test_the_spend_meter_counts_every_request_the_ledger_paces_and_each_model_call(
@@ -1668,7 +1679,10 @@ def test_the_spend_meter_counts_every_request_the_ledger_paces_and_each_model_ca
 
 
 def test_an_unreachable_gateway_exits_non_zero_names_it_and_writes_nothing(
-    opened: Roadmap, config: Callable[..., Path], keyring_store: FakeKeyring
+    opened: Roadmap,
+    config: Callable[..., Path],
+    keyring_store: FakeKeyring,
+    run_intake: Callable[..., str],
 ) -> None:
     class Unreachable:
         def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
@@ -1679,12 +1693,12 @@ def test_an_unreachable_gateway_exits_non_zero_names_it_and_writes_nothing(
     install_embedder(Unreachable())
     opened.issue("feat: waits")
     before = opened.store.job_writes()
-    output = _intake("--confirm", exit_code=1)
+    output = run_intake("--confirm", exit_code=1)
     assert (f"gateway {gateway}" in output, opened.store.job_writes() == before) == (True, True)
 
 
 def test_a_new_candidate_and_a_possible_duplicate_are_each_filed(
-    opened: Roadmap, fake_model: FakeModel, tmp_path: Path
+    opened: Roadmap, fake_model: FakeModel, tmp_path: Path, run_intake: Callable[..., str]
 ) -> None:
     """A candidate that the model judges a duplicate is filed and placed like a new idea, and
     the report names its possible original (#2218)."""
@@ -1692,8 +1706,10 @@ def test_a_new_candidate_and_a_possible_duplicate_are_each_filed(
     body = tmp_path / "body.md"
     body.write_text("One entry point turns candidates into items.", encoding="utf-8")
     fake_model.duplicates["feat: item intake again"] = "feat(github): single-entry item intake"
-    possible = _intake("--title", "feat: item intake again", "--body-file", str(body), "--confirm")
-    filed = _intake("--title", "feat: a new idea", "--body-file", str(body), "--confirm")
+    possible = run_intake(
+        "--title", "feat: item intake again", "--body-file", str(body), "--confirm"
+    )
+    filed = run_intake("--title", "feat: a new idea", "--body-file", str(body), "--confirm")
     numbers = {i.title: i.number for i in opened.store.issues()}
     again, new = numbers["feat: item intake again"], numbers["feat: a new idea"]
     assert (
@@ -1706,8 +1722,10 @@ def test_a_new_candidate_and_a_possible_duplicate_are_each_filed(
     ) == (True, True, True, 3, ["New", "New"], ("source/agent", "type/feature"))
 
 
-def test_title_and_body_file_go_together(opened: Roadmap, fake_model: FakeModel) -> None:
-    assert "--body-file" in _intake("--title", "lonely", exit_code=1)
+def test_title_and_body_file_go_together(
+    opened: Roadmap, fake_model: FakeModel, run_intake: Callable[..., str]
+) -> None:
+    assert "--body-file" in run_intake("--title", "lonely", exit_code=1)
 
 
 class _RecordingDispatcher:
@@ -2025,14 +2043,14 @@ def test_intake_proposal_uses_triage_task_model_or_falls_back_to_ai_model(
 
 
 def test_intake_title_confirm_exits_non_zero_when_candidate_is_skipped(
-    opened: Roadmap, fake_model: FakeModel, tmp_path: Path
+    opened: Roadmap, fake_model: FakeModel, tmp_path: Path, run_intake: Callable[..., str]
 ) -> None:
     """devops roadmap intake --title ... --body-file ... --confirm exits non-zero when the candidate
     is skipped (#1677)."""
     body_file = tmp_path / "body.md"
     body_file.write_text("candidate body", encoding="utf-8")
     fake_model.proposals["A failing candidate"] = {"type": "type/perf"}
-    output = _intake(
+    output = run_intake(
         "--title",
         "A failing candidate",
         "--body-file",
@@ -2044,12 +2062,12 @@ def test_intake_title_confirm_exits_non_zero_when_candidate_is_skipped(
 
 
 def test_intake_confirm_over_existing_issues_exits_zero_when_skipped(
-    opened: Roadmap, fake_model: FakeModel
+    opened: Roadmap, fake_model: FakeModel, run_intake: Callable[..., str]
 ) -> None:
     """A run over existing candidates keeps exit 0 and lists its skips (#1677)."""
     issue = opened.issue("An existing issue")
     fake_model.proposals["An existing issue"] = {"type": "type/perf"}
-    output = _intake("--confirm", exit_code=0)
+    output = run_intake("--confirm", exit_code=0)
     assert f"#{issue} An existing issue: skipped, nothing written" in output
 
 
@@ -2182,11 +2200,13 @@ def test_a_retried_new_candidate_finds_the_issue_its_stopped_run_filed(roadmap: 
 
 
 def test_a_person_files_through_the_command_without_the_agent_label(
-    opened: Roadmap, fake_model: FakeModel, tmp_path: Path
+    opened: Roadmap, fake_model: FakeModel, tmp_path: Path, run_intake: Callable[..., str]
 ) -> None:
     body = tmp_path / "body.md"
     body.write_text("text", encoding="utf-8")
-    _intake("--title", "feat: mine", "--body-file", str(body), "--filed-by", "person", "--confirm")
+    run_intake(
+        "--title", "feat: mine", "--body-file", str(body), "--filed-by", "person", "--confirm"
+    )
     (new,) = [i.number for i in opened.store.issues() if i.title == "feat: mine"]
     assert _labels(opened, new) == ("type/feature",)
 

@@ -32,7 +32,6 @@ from hypothesis import strategies as st
 from markdown_it import MarkdownIt
 from markdown_it.rules_inline import StateInline, backtick
 from pydantic import ValidationError
-from typer.testing import CliRunner
 
 from devops_cli.ai.client.models import (
     AIClientError,
@@ -42,7 +41,6 @@ from devops_cli.ai.client.models import (
 )
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.commands.roadmap import app as roadmap_app
 from devops_cli.config import constants
 from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
@@ -1015,7 +1013,10 @@ def test_size_limit_guard(git_repo: Path, store: InMemoryRoadmapStore) -> None:
 
 
 def test_cli_refine_dry_run_and_confirm(
-    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    model_fake: ModelFake,
+    cli: Callable[..., Any],
 ) -> None:
     num = store.seed_issue("Feature to refine", body="Need refinement", fields=PLACED)
     item = _require_item(store, num)
@@ -1023,18 +1024,17 @@ def test_cli_refine_dry_run_and_confirm(
 
     mock_llm = MockLLMClient()
     model_fake.answer(mock_llm.proposal)
-    runner = CliRunner()
     # Dry run
-    res_dry = runner.invoke(
-        roadmap_app,
-        ["refine", "--repo", REPO, "--source", str(git_repo), "--item", str(num), "--dry-run"],
+    res_dry = cli(
+        ["roadmap", "refine", "--repo", REPO, "--source", str(git_repo), "--item", str(num)]
+        + ["--dry-run"]
     )
     assert (res_dry.exit_code, store.read_issue_body(num)) == (0, "Need refinement")
 
     # Confirm
-    res_confirm = runner.invoke(
-        roadmap_app,
-        ["refine", "--repo", REPO, "--source", str(git_repo), "--item", str(num), "--confirm"],
+    res_confirm = cli(
+        ["roadmap", "refine", "--repo", REPO, "--source", str(git_repo), "--item", str(num)]
+        + ["--confirm"]
     )
     updated = _require_item(store, num)
     assert (
@@ -1320,6 +1320,7 @@ def test_the_cli_exits_1_after_reporting_a_failed_item(
     store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
     mode: str | None,
+    cli: Callable[..., Any],
 ) -> None:
     """Verify `devops roadmap refine` prints its plan, writes the other items under --confirm,
     and exits 1 when an item's model call failed, in a preview too."""
@@ -1327,7 +1328,7 @@ def test_the_cli_exits_1_after_reporting_a_failed_item(
     scripted_gateway({first: _SCHEMA_MISS})
 
     args = ["refine", "--repo", REPO, "--source", str(git_repo), *([mode] if mode else [])]
-    result = CliRunner().invoke(roadmap_app, args)
+    result = cli(["roadmap", *args])
 
     assert (
         result.exit_code,
@@ -1747,6 +1748,7 @@ def test_a_round_whose_only_item_is_too_big_or_fails_still_records_it_through_th
     reply: str,
     marks: list[tuple[str, str | None]],
     exit_code: int,
+    cli: Callable[..., Any],
 ) -> None:
     """With nothing else to write, `devops roadmap refine --confirm` still applies the plan:
     the item's record is written and its body is not (#1539)."""
@@ -1754,7 +1756,7 @@ def test_a_round_whose_only_item_is_too_big_or_fails_still_records_it_through_th
     scripted_gateway({first: reply})
 
     args = ["refine", "--repo", REPO, "--source", str(git_repo), "--confirm"]
-    result = CliRunner().invoke(roadmap_app, args)
+    result = cli(["roadmap", *args])
 
     assert (result.exit_code, _writes_to(store, first)) == (
         exit_code,

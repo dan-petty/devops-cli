@@ -43,6 +43,7 @@ from devops_cli.roadmap.store import (
     RepositoryLabel,
     RoadmapStore,
 )
+from tests.support.builders import make_item
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
 from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -552,7 +553,7 @@ def test_a_quote_of_the_record_format_does_not_hide_the_real_record_block(world:
 
 def test_a_write_to_a_pull_request_or_an_issue_that_does_not_exist_raises(world: World) -> None:
     pull = world.seed("a pull request", labels=("priority/p1-high",), pull_request=True)
-    probe = Item(number=pull, title="a pull request", url="https://example.com/pull")
+    probe = make_item(number=pull, title="a pull request")
     for number in (pull, 99):
         with pytest.raises(GitHubOperationError, match="is not an issue"):
             world.store.set_field(

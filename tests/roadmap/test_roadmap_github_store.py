@@ -55,6 +55,7 @@ from devops_cli.roadmap.store import (
     RoadmapStore,
     get_roadmap_store,
 )
+from tests.support.builders import make_item
 from tests.support.fakes.github import (
     API,
     JSON_TYPE,
@@ -647,7 +648,7 @@ def test_a_body_or_field_write_to_a_pull_request_raises_without_writing() -> Non
     github = GitHubFake(REPO)
     github.seed_issue(918, labels=("priority/p1-high",), pull_request=True)
     store = fake_store(github)
-    probe = Item(number=918, title="#918", url=f"{ISSUE_URL}/918")
+    probe = make_item(number=918, title="#918")
     with pytest.raises(GitHubOperationError, match="#918 is not an issue"):
         store.read_issue_body(918)
     with pytest.raises(GitHubOperationError, match="#918 is not an issue"):

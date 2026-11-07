@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
-from typer.testing import CliRunner
 
 from devops_cli.ci.cache import (
     CacheRecord,
@@ -19,7 +20,6 @@ from devops_cli.ci.cache import (
     resolve_ci_cache_path,
     save_ci_cache,
 )
-from devops_cli.commands.ci import app
 from devops_cli.core.gitignore import get_index, reset_indexes
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
@@ -361,8 +361,12 @@ def test_clear_ci_cache(isolated_cache_dir: Path) -> None:
     assert cache_file.exists() is False
 
 
-def test_ci_cli_cache_hit_and_force(
-    isolated_cache_dir: Path, tmp_path: Path, git_fake: GitFake, monkeypatch: pytest.MonkeyPatch
+def test_ci_cli_uses_the_cache_of_the_tree_it_fingerprints(
+    isolated_cache_dir: Path,
+    tmp_path: Path,
+    git_fake: GitFake,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
 ) -> None:
     """Test CLI execution using the cache of the tree that the fingerprint describes."""
     (tmp_path / ".git").mkdir()
@@ -400,7 +404,7 @@ def test_ci_cli_cache_hit_and_force(
     )
     resolve_ci_cache_path(tmp_path).write_text(entry.model_dump_json(), encoding="utf-8")
 
-    result = CliRunner().invoke(app, ["--cache"])
+    result = cli("ci", "--cache")
 
     assert (result.exit_code, "Utilizing CI cache" in result.stdout) == (0, True)
 
@@ -413,10 +417,9 @@ def test_ci_cli_cache_hit_and_force(
         ["--files", "src/a.py"],
     ],
 )
-def test_a_file_argument_is_a_usage_error(cli_args: list[str]) -> None:
+def test_a_file_argument_is_a_usage_error(cli_args: list[str], cli: Callable[..., Any]) -> None:
     """Passing file arguments or --files is a UsageError with exit code 2."""
-    runner = CliRunner()
-    result = runner.invoke(app, cli_args)
+    result = cli("ci", *cli_args)
     assert result.exit_code == 2
 
 
