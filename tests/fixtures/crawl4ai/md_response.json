@@ -1,0 +1,8 @@
+{
+  "url": "https://example.com/docs/page",
+  "filter": "fit",
+  "query": null,
+  "cache": "0",
+  "markdown": "# Example page\n\nThe text of the page, as Markdown.\n",
+  "success": true
+}

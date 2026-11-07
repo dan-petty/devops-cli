@@ -242,6 +242,15 @@ WEB_SEARCH_FALLBACKS_TOTAL = Instrument(
     "Web searches that ran after Firecrawl failed, by the backend that answered and the result: "
     "ok for a search that returned its results (also none), error for a search that failed too",
 )
+CRAWL4AI_FETCHES_TOTAL = Instrument(
+    "devops_cli_crawl4ai_fetches_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Page text fetches through the Crawl4AI service, by result: ok, the HTTP status of a fetch that "
+    "the service refused, such as 401 for a wrong token, 429 at its rate limit or 504 when the page "
+    "took too long, or error for a fetch that got no answer or a reply that is not page text. A page "
+    "URL that the client refuses before it sends a request does not count",
+)
 ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL = Instrument(
     "devops_cli_roadmap_refine_comments_capped_total",
     InstrumentKind.COUNTER,
@@ -561,6 +570,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     GITHUB_GRAPHQL_POINTS_TOTAL,
     FIRECRAWL_SEARCHES_TOTAL,
     WEB_SEARCH_FALLBACKS_TOTAL,
+    CRAWL4AI_FETCHES_TOTAL,
     ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL,
     ROADMAP_ALTERNATIVES_TOTAL,
     ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
@@ -661,6 +671,7 @@ __all__ = [
     "CI_GATE_SLOT_WAIT",
     "COMMAND_DURATION",
     "COMMAND_TOTAL",
+    "CRAWL4AI_FETCHES_TOTAL",
     "EMBEDDING_CACHE_LOOKUPS_TOTAL",
     "EMBEDDING_CACHE_SIZE",
     "FINDINGS_TOTAL",

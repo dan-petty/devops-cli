@@ -155,6 +155,10 @@ CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
         "Firecrawl Configuration (`firecrawl`)",
         "Firecrawl web search API authentication settings.",
     ),
+    "crawl4ai": (
+        "Crawl4AI Configuration (`crawl4ai`)",
+        "Address of the Crawl4AI service that returns the text of a web page.",
+    ),
 }
 CONST_DOMAIN_EXCEPTION_MODULES: Final[tuple[str, ...]] = (
     "devops_cli.ai.client.models",
@@ -3049,6 +3053,11 @@ CONST_FIRECRAWL_RESULT_ERROR: Final[str] = "error"
 # The `backend` of `devops_cli_web_search_fallbacks_total`: the search that runs after Firecrawl
 # failed (#3876). Its `result` is `CONST_FIRECRAWL_RESULT_OK` or `CONST_FIRECRAWL_RESULT_ERROR`.
 CONST_WEB_SEARCH_BACKEND_DUCKDUCKGO: Final[str] = "duckduckgo"
+# The `result` of `devops_cli_crawl4ai_fetches_total` for a page whose text the Crawl4AI service
+# returned, and for a fetch that got no usable answer. A fetch that the service refused counts its
+# HTTP status.
+CONST_CRAWL4AI_RESULT_OK: Final[str] = "ok"
+CONST_CRAWL4AI_RESULT_ERROR: Final[str] = "error"
 # The most comments refine posts on one item in `CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS`.
 # A round that finds that many refine comments on the item leaves it alone, so a loop of replies
 # from another bot or workflow stops after this many comments (#2475).

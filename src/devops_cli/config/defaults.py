@@ -554,6 +554,16 @@ DEFAULT_DUCKDUCKGO_TIMEOUT_SECONDS: float = 15.0
 DEFAULT_DUCKDUCKGO_REGION: str = "us-en"
 DEFAULT_DUCKDUCKGO_SAFESEARCH: str = "moderate"
 
+# ── AI Page Text Defaults (Crawl4AI service) ────────────────────────────────────
+# Seconds that the Crawl4AI service may take to load and convert one page. Its own wall-clock
+# limit is 300 s; a page that is not ready by then is a failure for the caller too.
+DEFAULT_CRAWL4AI_TIMEOUT_SECONDS: float = 120.0
+# Characters of page text that a fetch returns. The rest is cut, and `truncated` is true.
+DEFAULT_PAGE_TEXT_MAX_CHARS: int = 100_000
+# Bytes of one reply that the client reads. A larger reply is refused. Each character of text takes
+# up to 4 bytes of UTF-8, and the JSON frame adds a little.
+DEFAULT_CRAWL4AI_MAX_REPLY_BYTES: int = 2 * 1024 * 1024  # 2 MiB
+
 DEFAULT_SIGNATURE_BODY: str = "..."
 DEFAULT_TOOL_INTERFACE_FORMAT: Literal["python", "markdown"] = "python"
 DEFAULT_PROJECT_VERSION: str = "0.1.0"

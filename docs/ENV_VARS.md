@@ -62,6 +62,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_CLOUDFLARE_ZONE_ID` | `cloudflare.zone_id` | No | Cloudflare Zone ID |
 | `DEVOPS_CLI_CONFIG` | *None* | No | Absolute path to project configuration file; outside devops-cli's own repository, the only one a `devops review` command reads |
 | `DEVOPS_CLI_CRAWL4AI_API_TOKEN` | `crawl4ai.api_token` | 🔒 Yes | Bearer token of the Crawl4AI service, which `devops k8s push-secrets` writes to Secret devops/crawl4ai and to Secret devops/devops-cli (stored in OS keyring) Also read from `CRAWL4AI_API_TOKEN`. |
+| `DEVOPS_CLI_CRAWL4AI_URL` | `crawl4ai.url` | No | Address of the Crawl4AI service that returns the text of a web page, such as `http://crawl4ai.devops.svc.cluster.local:11235` in the cluster. It has no default |
 | `DEVOPS_CLI_DATA_ANALYSIS_DIR` | `data.analysis_dir` | No | Storage directory for pre-analysis metadata JSON files |
 | `DEVOPS_CLI_DATA_AUDIT_LOG_PATH` | `data.audit_log_path` | No | Path to structured audit JSONL log file |
 | `DEVOPS_CLI_DATA_BENCHMARKS_DIR` | `data.benchmarks_dir` | No | Storage directory for benchmark test runs and embedding leaderboard reports |
