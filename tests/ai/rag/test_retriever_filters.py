@@ -107,9 +107,7 @@ def test_visibility_keyword_index_declared() -> None:
     assert vis_spec["field_schema"] == "keyword"
 
 
-def test_retriever_unscoped_search_excludes_private_visibility(
-    qdrant: Any, embedder: Any
-) -> None:
+def test_retriever_unscoped_search_excludes_private_visibility(qdrant: Any, embedder: Any) -> None:
     query_vector = embedder.embed_query("code")
     seed_scored_chunk(
         qdrant,
@@ -155,4 +153,3 @@ def test_retriever_unscoped_search_excludes_private_visibility(
     scoped_ids = [res.chunk.id for res in ctx_scoped.results]
     assert "p-private" in scoped_ids
     assert "p-public" not in scoped_ids
-

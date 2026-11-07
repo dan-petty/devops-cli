@@ -12,9 +12,18 @@ import pytest
 
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.rag.indexer import WorkspaceIndexer
-from devops_cli.ai.rag.ingest import ingest_repository, run_ingest_pass
+from devops_cli.ai.rag.ingest import (
+    _cleanup_removed_repos,
+    _load_repo_state,
+    _read_repo_visibility,
+    _resolve_repo_paths,
+    _update_points_visibility,
+    ingest_repository,
+    run_ingest_pass,
+)
+from devops_cli.ai.rag.qdrant import QdrantClientError
 from devops_cli.config.settings import AIConfig, Settings
-from devops_cli.exceptions import ConfigurationError
+from devops_cli.exceptions import ConfigurationError, GitOperationError
 from devops_cli.exceptions.ai import RagIngestError
 from tests.support.fakes.qdrant import FakeQdrantClient
 
@@ -555,3 +564,130 @@ def test_embedding_failure_halfway_records_no_head_and_resumes(tmp_path: Path) -
     )
     assert res.success is True
     assert state_file.exists()
+
+
+def test_resolve_repo_paths_invalid(tmp_path: Path) -> None:
+    with pytest.raises(GitOperationError, match="Invalid repository format"):
+        _resolve_repo_paths(tmp_path, "not-a-slug")
+
+    with pytest.raises(GitOperationError, match="Invalid repository slug components"):
+        _resolve_repo_paths(tmp_path, "../repo")
+
+    with pytest.raises(GitOperationError, match="Invalid repository slug components"):
+        _resolve_repo_paths(tmp_path, "owner/.hidden")
+
+
+def test_read_repo_visibility_edge_cases() -> None:
+    # Error exit code
+    mock_runner = MagicMock()
+    mock_res_err = MagicMock()
+    mock_res_err.returncode = 1
+    mock_runner.return_value = mock_res_err
+    assert _read_repo_visibility("owner/repo", mock_runner) == "private"
+
+    # Invalid JSON
+    mock_res_bad_json = MagicMock()
+    mock_res_bad_json.returncode = 0
+    mock_res_bad_json.stdout = "not json"
+    mock_runner.return_value = mock_res_bad_json
+    assert _read_repo_visibility("owner/repo", mock_runner) == "private"
+
+    # Private boolean false -> public
+    mock_res_priv_false = MagicMock()
+    mock_res_priv_false.returncode = 0
+    mock_res_priv_false.stdout = json.dumps({"private": False})
+    mock_runner.return_value = mock_res_priv_false
+    assert _read_repo_visibility("owner/repo", mock_runner) == "public"
+
+
+def test_load_repo_state_corrupt_file(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text("{not-valid-json", encoding="utf-8")
+    assert _load_repo_state(state_file) == {}
+
+
+def test_cleanup_removed_repos_qdrant_error(tmp_path: Path) -> None:
+    repo_state = tmp_path / "repos" / "owner" / "old-repo" / "state.json"
+    repo_state.parent.mkdir(parents=True, exist_ok=True)
+    repo_state.write_text("{}", encoding="utf-8")
+
+    fake_qdrant = FakeQdrantClient()
+    mock_qdrant = MagicMock(wraps=fake_qdrant)
+    mock_qdrant.delete_points_by_project.side_effect = QdrantClientError("delete failed")
+
+    indexer = WorkspaceIndexer(
+        qdrant=cast(Any, mock_qdrant),
+        embedder=FixedVectorEngine(),
+        cache_dir=tmp_path,
+    )
+    # Should log warning and not raise
+    _cleanup_removed_repos(tmp_path, ["owner/new-repo"], indexer)
+    assert not (tmp_path / "repos" / "owner" / "old-repo").exists()
+
+
+def test_update_points_visibility_qdrant_error(tmp_path: Path) -> None:
+    fake_qdrant = FakeQdrantClient()
+    mock_qdrant = MagicMock(wraps=fake_qdrant)
+    mock_qdrant.set_payload.side_effect = QdrantClientError("set_payload failed")
+
+    indexer = WorkspaceIndexer(
+        qdrant=cast(Any, mock_qdrant),
+        embedder=FixedVectorEngine(),
+        cache_dir=tmp_path,
+    )
+    # Should log warning and not raise
+    _update_points_visibility(indexer, "owner/repo", "public")
+    assert mock_qdrant.set_payload.called is True
+
+
+def test_ingest_empty_repository(tmp_path: Path) -> None:
+    bare = tmp_path / "empty.git"
+    bare.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "--bare"], cwd=bare, check=True, capture_output=True)
+
+    rag_dir = tmp_path / "rag"
+    fake_qdrant = FakeQdrantClient()
+    indexer = WorkspaceIndexer(
+        qdrant=cast(Any, fake_qdrant),
+        embedder=FixedVectorEngine(),
+        cache_dir=rag_dir,
+    )
+    gh_runner = _make_fake_gh_runner({"owner/empty": "public"})
+    res = ingest_repository(
+        "owner/empty",
+        data_dir=rag_dir,
+        remote_url=f"file://{bare}",
+        gh_runner=gh_runner,
+        indexer=indexer,
+    )
+    assert res.skipped is True
+    assert res.head == ""
+
+
+def test_run_ingest_pass_catches_repo_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = Settings.model_validate(
+        {
+            "service": {"repos": ["owner/bad", "owner/good"]},
+            "ai": {"rag": {"data_dir": str(tmp_path)}},
+            "qdrant": {"url": "http://localhost:6333"},
+        }
+    )
+
+    def _failing_ingest(repo: str, **kwargs: Any) -> Any:
+        if repo == "owner/bad":
+            raise RuntimeError("network down")
+        from devops_cli.ai.rag.ingest import IngestResult
+
+        return IngestResult(repo=repo, head="abc", branch="main", visibility="public", success=True)
+
+    monkeypatch.setattr("devops_cli.ai.rag.ingest.ingest_repository", _failing_ingest)
+    indexer = WorkspaceIndexer(
+        qdrant=cast(Any, FakeQdrantClient()),
+        embedder=FixedVectorEngine(),
+        cache_dir=tmp_path,
+    )
+
+    with pytest.raises(RagIngestError, match="RAG ingestion failed for repositories: owner/bad"):
+        run_ingest_pass(settings=settings, indexer=indexer)
