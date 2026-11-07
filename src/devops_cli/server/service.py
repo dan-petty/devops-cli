@@ -178,12 +178,13 @@ class RequestBudget:
     together (#2161, #2547).
 
     The budget is hard: each request asks `admit` for its place as the GitHub rate limiter lets
-    it go, so no hour holds more than the limit, whatever a round costs. A request the window
-    has no room for waits until the oldest request of the window leaves it. `admit` keeps the
-    request in the window at once, and with a `record`, in that file, so a pod that stops in
-    the middle of a round loses none, and a restart reads them back (#2474). Once `close` is
-    called, a request that would wait ends with an error instead, so a stop does not wait for
-    the window.
+    it go, so no hour holds more than the limit, whatever a round costs. It counts what GitHub
+    counts: a request that GitHub answers 304 gives its place back with `refund` (#3939). A
+    request the window has no room for waits until the oldest request of the window leaves it.
+    `admit` keeps the request in the window at once, and with a `record`, in that file, so a pod
+    that stops in the middle of a round loses none, and a restart reads them back (#2474). Once
+    `close` is called, a request that would wait ends with an error instead, so a stop does not
+    wait for the window.
 
     The cost of a round sets the poll cadence: the Service polls no faster than the budget pays
     for. The Service's /metrics shows the limit, the requests of the window as of the last
@@ -238,6 +239,25 @@ class RequestBudget:
                     details={"limit": self._limit},
                 )
             self._closed.wait(min(max(wait, 0.0), _BUDGET_WAIT_SLICE_SECONDS))
+        _report_spent(spent)
+
+    def refund(self) -> None:
+        """Take one request out of the window and the record, for a request that GitHub answers
+        with 304: GitHub does not count it against the rate limit that the budget protects
+        (#3939). It also leaves the cost of a round. The newest request leaves, because the
+        window keeps requests by their time only. Nothing leaves an empty window, as when the
+        request has left it already."""
+        with self._lock:
+            spent = self._spent_locked()
+            if self._sent:
+                at, count = self._sent.pop()
+                if count > 1:
+                    self._sent.append((at, count - 1))
+                self._admitted = max(self._admitted - 1, 0)
+                spent -= 1
+                if self._record is not None:
+                    kept = _RequestsSent.dump_python(list(self._sent), mode="json")
+                    keep_state_record(self._record, kept)
         _report_spent(spent)
 
     def close(self) -> None:
@@ -759,7 +779,7 @@ class ServiceManager:
 
     async def start(self) -> None:
         """Start worker threads and background polling loop."""
-        set_request_gate(self.budget.admit)
+        set_request_gate(self.budget.admit, self.budget.refund)
         for worker in self.workers.values():
             worker.start()
         self._tick_task = asyncio.create_task(self._tick_loop(), name="service-poll-tick")

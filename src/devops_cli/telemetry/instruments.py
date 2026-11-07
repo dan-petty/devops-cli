@@ -209,7 +209,9 @@ GITHUB_REQUESTS_TOTAL = Instrument(
     "that got no answer. The repo is the repository of the roadmap Service worker that sent the "
     "request, one of service.repos, and "
     "the row is the job row that sent it, such as metrics, intake, refine or alternatives; each is "
-    "other outside a worker or a row. A gh command and a request of the GitHub session both count",
+    "other outside a worker or a row. A gh command and a request of the GitHub session both count. "
+    "The counter holds every attempt. The request budget of the Service leaves out the attempts "
+    "with status 304, as GitHub does not count them against its rate limit",
 )
 GITHUB_THROTTLE_WAIT = Instrument(
     "devops_cli_github_throttle_wait_seconds",

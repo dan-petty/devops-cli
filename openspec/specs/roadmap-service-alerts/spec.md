@@ -95,7 +95,7 @@ Each description in the group SHALL end with `(k8s/README.md, Roadmap service)`,
 
 ### Requirement: A high request volume warns
 
-`RoadmapServiceGitHubRequestsHigh` SHALL fire when the Service sent more GitHub requests in 1 hour than 90% of the budget in `devops_cli_service_budget_limit_requests`, and SHALL join the two with `on()`, because their `instance` labels differ. `RoadmapServiceModelRequestsHigh` SHALL fire above 352 model requests in 1 hour that the cache did not answer. Both SHALL count the first value of a new series, and SHALL NOT count a series from before the hour.
+`RoadmapServiceGitHubRequestsHigh` SHALL fire when the Service sent more GitHub requests in 1 hour, not counting the answers with status 304, than 90% of the budget in `devops_cli_service_budget_limit_requests`, and SHALL join the two with `on()`, because their `instance` labels differ. `RoadmapServiceModelRequestsHigh` SHALL fire above 352 model requests in 1 hour that the cache did not answer. Both SHALL count the first value of a new series, and SHALL NOT count a series from before the hour.
 
 #### Scenario: 600 GitHub requests in an hour
 
@@ -136,6 +136,11 @@ Each description in the group SHALL end with `(k8s/README.md, Roadmap service)`,
 
 - **WHEN** the Service sent 300 model requests and the cache answered 600 more in an hour
 - **THEN** `RoadmapServiceModelRequestsHigh` stays quiet
+
+#### Scenario: 600 GitHub requests in an hour, 480 of them answered 304
+
+- **WHEN** `promtool test rules` evaluates 120 GitHub requests with status 200 and 480 with status 304 of the Service in an hour and a reported limit of 500
+- **THEN** `RoadmapServiceGitHubRequestsHigh` stays quiet
 
 ### Requirement: The webhook route has its own alert group
 The rule group `roadmap-service-webhooks` in `k8s/monitoring/prometheus-values.yaml`, separate from the group `roadmap-service`, SHALL hold the warning alert `RoadmapServiceWebhooksRejected`. Its description SHALL end with `(k8s/README.md, Roadmap service)`, and that section SHALL name the alert.

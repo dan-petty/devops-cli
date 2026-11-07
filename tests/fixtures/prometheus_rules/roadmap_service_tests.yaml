@@ -298,6 +298,22 @@ tests:
               summary: "The roadmap Service sent 600 GitHub requests in the last hour"
               description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (k8s/README.md, Roadmap service)."
 
+  - name: 600 GitHub requests in an hour with 480 answered 304 stay quiet
+    interval: 1m
+    input_series:
+      # GitHub does not count a 304 answer against its rate limit, and the budget leaves it out
+      # (#3939): 120 requests count.
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="core", status="200"}'
+        values: '0+2x90'
+      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="core", status="304"}'
+        values: '0+8x90'
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
+        values: '500x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapServiceGitHubRequestsHigh
+        exp_alerts: []
+
   - name: A GitHub request stream that starts in the hour counts its first flush
     interval: 5m
     input_series:

@@ -23,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
 from pydantic import TypeAdapter
 
@@ -411,6 +412,74 @@ def test_the_requests_of_a_session_are_admitted_by_the_service_budget(
         set_request_gate(None)
 
     assert budget.spent() == 1
+
+
+def test_a_request_that_gets_a_304_answer_leaves_the_budget(github_api: GitHubApiFake) -> None:
+    """GitHub does not count a conditional request that it answers 304 against the primary rate
+    limit, so the budget, which protects that limit, does not count it either. The 200 answer
+    stays in the budget (#3939)."""
+    from devops_cli.github.rate_limiter import set_request_gate
+
+    etag = {"etag": '"v1"'}
+    github_api.route(
+        "GET",
+        f"/repos/{REPO_A}/issues",
+        github_json([], headers=etag),
+        github_json([], headers=etag),
+    )
+    budget = RequestBudget(_Clock(), 100)
+    set_request_gate(budget.admit, budget.refund)
+    session = get_github_session()
+    try:
+        session.rest("GET", f"/repos/{REPO_A}/issues")
+        after_200 = budget.spent()
+        session.rest("GET", f"/repos/{REPO_A}/issues")
+    finally:
+        set_request_gate(None)
+
+    assert (after_200, budget.spent()) == (1, 1)
+
+
+def test_a_request_that_gets_no_answer_stays_in_the_budget(github_api: GitHubApiFake) -> None:
+    """GitHub may have counted a request that got no answer, and a gh command has no status to
+    read, so such a request keeps its place in the budget (#3939)."""
+    from devops_cli.github.rate_limiter import set_request_gate
+
+    github_api.route("GET", "/user", httpx2.ConnectError)
+    budget = RequestBudget(_Clock(), 100)
+    set_request_gate(budget.admit, budget.refund)
+    try:
+        with pytest.raises(exceptions.GitHubUnreadError) as raised:
+            get_github_session().rest("GET", "/user")
+    finally:
+        set_request_gate(None)
+
+    assert (type(raised.value), budget.spent()) == (exceptions.GitHubUnreadError, 1)
+
+
+def test_a_refund_frees_a_place_in_the_record_and_in_the_cost_of_a_round(tmp_path: Path) -> None:
+    """The refund leaves the window, the record on the volume and the cost that sets the poll
+    cadence, so a restart does not count the request again (#3939)."""
+    record = tmp_path / CONST_SERVICE_BUDGET_FILENAME
+    budget = RequestBudget(_Clock(), 360, record=record)
+    _send(budget, 40)
+    for _ in range(20):
+        budget.refund()
+    budget.count_round()
+
+    kept = sum(count for _, count in json.loads(record.read_text(encoding="utf-8")))
+    assert (budget.spent(), kept, budget.poll_interval(300.0, rounds_per_poll=4)) == (
+        20,
+        20,
+        800.0,
+    )
+
+
+def test_a_refund_with_nothing_in_the_window_is_ignored() -> None:
+    """A 304 can come after the window dropped its request, so the refund finds none to free."""
+    budget = RequestBudget(_Clock(), 100)
+    budget.refund()
+    assert budget.spent() == 0
 
 
 def test_the_poll_cadence_is_the_one_the_budget_pays_for() -> None:

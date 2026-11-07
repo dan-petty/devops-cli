@@ -913,7 +913,9 @@ ROADMAP_SERVICE_RULES = [
     (
         "RoadmapServiceGitHubRequestsHigh",
         "sum( "
-        + _window_count('devops_cli_github_requests_total{job="roadmap-service"}', "1h")
+        + _window_count(
+            'devops_cli_github_requests_total{job="roadmap-service", status!="304"}', "1h"
+        )
         + f' ) > on() 0.9 * max({CONST_SERVICE_METRIC_BUDGET_LIMIT}{{job="roadmap-service"}})',
         "0m",
         "warning",

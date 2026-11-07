@@ -759,12 +759,14 @@ serverFiles:
           # the hour has no room. The request counter comes over OTLP and the limit from the
           # scrape of the pod, so their instance labels differ and on() joins the two sums. A
           # Service that is down reports no limit: RoadmapServiceUnavailable covers that case.
+          # The sums leave out status 304: GitHub does not count such an answer against its rate
+          # limit, and the budget does not count it either (#3939).
           - alert: RoadmapServiceGitHubRequestsHigh
             expr: >-
               sum(
-              (last_over_time(devops_cli_github_requests_total{job="roadmap-service"}[1h])
-              unless last_over_time(devops_cli_github_requests_total{job="roadmap-service"}[1h] offset 1h))
-              or increase(devops_cli_github_requests_total{job="roadmap-service"}[1h])
+              (last_over_time(devops_cli_github_requests_total{job="roadmap-service", status!="304"}[1h])
+              unless last_over_time(devops_cli_github_requests_total{job="roadmap-service", status!="304"}[1h] offset 1h))
+              or increase(devops_cli_github_requests_total{job="roadmap-service", status!="304"}[1h])
               ) > on() 0.9 * max(devops_cli_service_budget_limit_requests{job="roadmap-service"})
             for: 0m
             labels:
