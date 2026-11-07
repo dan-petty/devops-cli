@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.84.0](https://github.com/dan-petty/devops-cli/compare/v0.83.2...v0.84.0) (2026-11-07)
+
+
+### Features
+
+* **k8s:** alert when Crawl4AI fetches fail ([#4037](https://github.com/dan-petty/devops-cli/issues/4037)) ([49f0f14](https://github.com/dan-petty/devops-cli/commit/49f0f1455b5038f16094f87aa1f1fa99be4f47e3))
+* **k8s:** run SearXNG in the devops namespace ([#4033](https://github.com/dan-petty/devops-cli/issues/4033)) ([9d223f4](https://github.com/dan-petty/devops-cli/commit/9d223f43ebb2738f4e5d8a879b759fcd2ef54c77)), closes [#3924](https://github.com/dan-petty/devops-cli/issues/3924)
+* **research:** add GitHub advisories and KEV to research advisories ([#4032](https://github.com/dan-petty/devops-cli/issues/4032)) ([61e6936](https://github.com/dan-petty/devops-cli/commit/61e6936b2178c9b557dc86046e2b18a692ade3c4)), closes [#3987](https://github.com/dan-petty/devops-cli/issues/3987)
+* **research:** add research sweep that files intake candidates ([#4055](https://github.com/dan-petty/devops-cli/issues/4055)) ([11ddee9](https://github.com/dan-petty/devops-cli/commit/11ddee90a273d036465e540b44d5ae8b6a5e8242))
+* **roadmap:** add a test-first manifest kind to the stage plan ([#3981](https://github.com/dan-petty/devops-cli/issues/3981)) ([8476163](https://github.com/dan-petty/devops-cli/commit/847616309e56f602bc6d673b7a99fee01d576352))
+* **roadmap:** check a plan number against its constant ([#4073](https://github.com/dan-petty/devops-cli/issues/4073)) ([324a3a5](https://github.com/dan-petty/devops-cli/commit/324a3a5c4d06fd772e90c58c612d5afd307acffa))
+* **roadmap:** name every caller of a changed function ([#4047](https://github.com/dan-petty/devops-cli/issues/4047)) ([24e9138](https://github.com/dan-petty/devops-cli/commit/24e91381d6a7e36fe9cb7886f105c15c5013ec94))
+* **roadmap:** the stage probe routes prompt changes to prompt rule tests ([#3989](https://github.com/dan-petty/devops-cli/issues/3989)) ([4aebde2](https://github.com/dan-petty/devops-cli/commit/4aebde2301351eebcd0105e485d460d792d144ab))
+
+
+### Code Refactoring
+
+* **cli:** source modules keep no accommodation for tests ([#4053](https://github.com/dan-petty/devops-cli/issues/4053)) ([33b57a9](https://github.com/dan-petty/devops-cli/commit/33b57a9da28c6533932ab2ff94abb730287e037c))
+* **roadmap:** remove the dead plan and review step classes ([#4074](https://github.com/dan-petty/devops-cli/issues/4074)) ([526834f](https://github.com/dan-petty/devops-cli/commit/526834f41cf8bb59257a1cff595819c9ee63aaea))
+
 ## [0.83.2](https://github.com/dan-petty/devops-cli/compare/v0.83.1...v0.83.2) (2026-11-07)
 
 
