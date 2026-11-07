@@ -3250,6 +3250,14 @@ class RoadmapMessages:
         "ai.tasks.stage.context_window, or ai.tasks.analysis.context_window, which the task "
         "stage uses when it sets none."
     )
+    # The window ended the tools of the review run before it made the least number of tool calls
+    # (#3911). The review has read almost none of the code, so its findings cannot be trusted and
+    # a plan with no finding would stage as clean.
+    stage_verify_window_starved: str = (
+        "The context window of {window} tokens ended the tools of the verification run after "
+        "{calls} tool call(s). The run needs at least {minimum} calls. Raise the setting "
+        "ai.tasks.verification.context_window."
+    )
     # The review run of a plan that passed the gates stopped with no findings (#3039).
     stage_verify_stopped: str = (
         "The verification run stopped before it gave its findings: {reason}. The plan passed the "

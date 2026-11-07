@@ -346,9 +346,14 @@ def test_the_review_takes_its_window_from_the_task_verification_and_not_from_sta
         verifier=ToolboxModel(reads.model()),
     )
 
+    # The window of 12,000 tokens ends the tools of the review after one call, so the review run
+    # fails the item (#3911), and the reason names the window of the task `verification`.
     request = json.loads(reads.prompt())
-    assert (len(plan.ready), request["files"]) == (1, {})
+    (failure,) = plan.failed
+    assert (plan.ready, request["files"]) == ((), {})
     assert (bool(reads.tools_offered[0]), reads.tools_offered[1]) == (True, [])
+    assert (failure.error, "12000 tokens" in failure.reason) == ("RoadmapStageError", True)
+    assert "ai.tasks.verification.context_window" in failure.reason
 
 
 def test_the_plan_is_returned_twice_then_stays_in_draft(

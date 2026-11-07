@@ -46,8 +46,14 @@ data:
         implement:
           model: deepseek-v4.1-flash-1017
           context_window: 256000
+        # The review run of a plan has the read tools of the planner and no parent task, so it
+        # takes the default window of 32,768 tokens when it sets none. The run ends its tools at
+        # three quarters of the window, which is 24,576 tokens: too soon for the first request and
+        # 8 tool calls (#3911). The window is the same as for analysis, and a run that the window
+        # ends too soon fails the item.
         verification:
           model: deepseek-v4.1-flash-1017
+          context_window: 256000
         chat:
           model: deepseek-v4.1-flash-1017
         embedding:
