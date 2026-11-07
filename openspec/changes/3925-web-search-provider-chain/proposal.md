@@ -31,7 +31,7 @@ Web search has one backend in `main`: the hosted Firecrawl API, and the credit o
 
 ## Impact
 
-- Code: `src/devops_cli/ai/web_search.py` (new), `src/devops_cli/ai/common_tools.py` (deleted), `src/devops_cli/roadmap/refine_investigation.py`, `src/devops_cli/roadmap/refine.py`, `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/exceptions/ai.py`, `src/devops_cli/telemetry/instruments.py`, `src/devops_cli/lang/en/messages.py`
+- Code: `src/devops_cli/ai/web_search.py` (new), `src/devops_cli/ai/common_tools.py` (deleted), `src/devops_cli/roadmap/refine/refine_investigation.py`, `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/exceptions/ai.py`, `src/devops_cli/telemetry/instruments.py`, `src/devops_cli/lang/en/messages.py`
 - Tests: `tests/ai/test_web_search.py` (new), `tests/ai/test_common_tools.py` (deleted), `tests/http/test_http_egress.py`, `tests/roadmap/`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `tests/fixtures/prometheus_rules/roadmap_service_activity_tests.yaml`
 - Documents: `docs/CONFIGURATION.md`, `docs/ENV_VARS.md`, `docs/ERRORS.md` and `docs/TELEMETRY.md` (generated), `k8s/README.md`, `docs/roadmap/alternatives.md`, `docs/roadmap/refine.md`
 - Manifests: the rules `RoadmapServiceWebSearchRefused` and `RoadmapServiceAlternativesNotSearching` in `k8s/monitoring/prometheus-values.yaml`
