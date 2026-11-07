@@ -1,0 +1,57 @@
+# The perimeter of the SearXNG pod (#3924). It has no limiter and no login, so this policy is the
+# access control: only the roadmap Service reaches the pod, and the pod reaches DNS and public
+# HTTPS pages only. `devops-default-perimeter` skips this pod, so it also gets no path to the
+# gateway or to the cache Valkey.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: searxng-perimeter
+  namespace: devops
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: searxng
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Only the roadmap Service calls the pod. A pod selector peer alone: kube-router refused a
+    # namespace and pod selector peer paired with `ports`.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: roadmap-service
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # 1. CoreDNS lookups
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 2. The engines: public HTTPS. The ranges are those of `devops-default-perimeter`: no
+    #    private range, no shared address space, no link-local range, no cloud metadata endpoint,
+    #    and no IETF protocol or benchmarking range.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 169.254.169.254/32
+              - 192.0.0.0/24
+              - 198.18.0.0/15
+      ports:
+        - protocol: TCP
+          port: 443

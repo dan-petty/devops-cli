@@ -40,6 +40,8 @@ LITELLM_KEY_PREFIX = "sk-"
 # The database password of Mattermost on CloudNativePG (#1391).
 MATTERMOST_DB_AUTH_KEY = "mattermost_db_password"
 _BASIC_AUTH_SECRET_TYPE: SecretType = "kubernetes.io/basic-auth"
+# The server secret of SearXNG (#3924). No Settings option reads it: only the pod does.
+SEARXNG_SECRET_KEY = "searxng_secret_key"
 
 
 @dataclass(frozen=True)
@@ -330,6 +332,22 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         ),
         restarts=(Workload("deployment", "crawl4ai"),),
         labels={"app.kubernetes.io/name": "crawl4ai"},
+    ),
+    # The server secret of SearXNG, which refuses to start with its default key (#3924). The pod
+    # reads the secret at start, so a change restarts it.
+    ClusterSecret(
+        namespace="devops",
+        name="searxng",
+        stack="devops",
+        entries=(
+            SecretEntry(
+                "SEARXNG_SECRET",
+                KeyringSource(SEARXNG_SECRET_KEY),
+                generator=SecretGenerator("hex", 32),
+            ),
+        ),
+        restarts=(Workload("deployment", "searxng"),),
+        labels={"app.kubernetes.io/name": "searxng"},
     ),
     ClusterSecret(
         namespace="devops",

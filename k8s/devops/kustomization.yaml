@@ -6,4 +6,5 @@ resources:
 - cronjob-runner.yaml
 - networkpolicy.yaml
 - crawl4ai
+- searxng
 - roadmap-service

@@ -7,14 +7,16 @@ metadata:
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
-  # Every pod of the namespace but the Crawl4AI pod: a browser that renders hostile pages must not
-  # reach the gateway or the cache Valkey. It has its own policy (crawl4ai/networkpolicy.yaml).
+  # Every pod of the namespace but the Crawl4AI pod and the SearXNG pod. A browser that renders
+  # hostile pages must not reach the gateway or the cache Valkey, and the search service needs
+  # neither. Each has its own policy (crawl4ai/networkpolicy.yaml, searxng/networkpolicy.yaml).
   podSelector:
     matchExpressions:
       - key: app.kubernetes.io/name
         operator: NotIn
         values:
           - crawl4ai
+          - searxng
   policyTypes:
     - Ingress
     - Egress

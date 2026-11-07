@@ -1,0 +1,46 @@
+# The settings of SearXNG (#3924). The image reads this file as /etc/searxng/settings.yml. It holds
+# no secret: the server secret reaches the pod as SEARXNG_SECRET, which SearXNG reads before the
+# file. The file keeps only the engines that need no key. The scraping engines of Google, Bing,
+# Brave, Startpage, Mojeek and Qwant were suspended by their upstream sites in October 2026
+# (SearXNG issues 6866 and 6819), and the keyed Brave engine is not used, so none of them is kept.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: searxng-settings
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: searxng
+    app.kubernetes.io/part-of: devops-cli-stack
+data:
+  settings.yml: |
+    use_default_settings:
+      engines:
+        # Every name is the `name` of an engine in the default settings.yml of the pinned image.
+        keep_only:
+          - duckduckgo
+          - wikipedia
+          - github
+          - pypi
+          - stackoverflow
+          - askubuntu
+          - superuser
+          - arxiv
+          - mdn
+          - docker hub
+    server:
+      # The limiter needs Valkey and refuses a plain machine client. The NetworkPolicy
+      # `searxng-perimeter` is the access control: only roadmap-service reaches the pod.
+      limiter: false
+      public_instance: false
+      image_proxy: false
+    search:
+      # The roadmap Service reads the reply as JSON.
+      formats:
+        - html
+        - json
+      autocomplete: ""
+      default_lang: en
+    outgoing:
+      request_timeout: 5.0
+      # The suffix names the project and holds no e-mail address.
+      useragent_suffix: https://github.com/dan-petty/devops-cli
