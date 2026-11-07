@@ -316,8 +316,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         labels={"app.kubernetes.io/name": "cloudflared"},
     ),
     # The bearer token of Crawl4AI, which refuses to listen beyond loopback without it (#3882).
-    # The manifests of the service add `deployment/crawl4ai` to `restarts` (#3884): the gate
-    # test of restart targets accepts a workload only when a manifest holds it.
+    # The pod reads the token at start, so a change restarts it.
     ClusterSecret(
         namespace="devops",
         name="crawl4ai",
@@ -329,6 +328,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 generator=SecretGenerator("urlsafe", 32),
             ),
         ),
+        restarts=(Workload("deployment", "crawl4ai"),),
         labels={"app.kubernetes.io/name": "crawl4ai"},
     ),
     ClusterSecret(

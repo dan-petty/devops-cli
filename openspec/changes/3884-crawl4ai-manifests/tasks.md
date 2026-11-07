@@ -19,12 +19,15 @@ Reads: `k8s/devops/networkpolicy.yaml`, `tests/support/k8s_tree.py`. Changes: `t
 
 Kind: other.
 
-Reads: `k8s/devops/roadmap-service/deployment.yaml`, `k8s/llm/portkey/networkpolicy.yaml`. Changes: `k8s/devops/networkpolicy.yaml`, `k8s/devops/kustomization.yaml`, `src/devops_cli/commands/k8s/stack_lifecycle.py`, `.github/workflows/ci.yml`. Creates: `k8s/devops/crawl4ai/deployment.yaml`, `k8s/devops/crawl4ai/service.yaml`, `k8s/devops/crawl4ai/networkpolicy.yaml`, `k8s/devops/crawl4ai/networkpolicy-client.yaml`, `k8s/devops/crawl4ai/kustomization.yaml`.
+Reads: `k8s/devops/roadmap-service/deployment.yaml`, `k8s/llm/portkey/networkpolicy.yaml`. Changes: `k8s/devops/networkpolicy.yaml`, `k8s/devops/kustomization.yaml`, `src/devops_cli/commands/k8s/stack_lifecycle.py`, `src/devops_cli/k8s/cluster_secrets.py`, `.github/workflows/ci.yml`. Creates: `k8s/devops/crawl4ai/deployment.yaml`, `k8s/devops/crawl4ai/service.yaml`, `k8s/devops/crawl4ai/networkpolicy.yaml`, `k8s/devops/crawl4ai/networkpolicy-client.yaml`, `k8s/devops/crawl4ai/kustomization.yaml`.
 
 - [x] 2.1 Add the five files of `k8s/devops/crawl4ai/`, make the default perimeter skip the pod, and list the folder in `k8s/devops/kustomization.yaml` and the four manifests in `MANIFESTS_BY_STACK["devops"]`
   - Verification: `uv run devops ci test tests/invariants/test_k8s_crawl4ai.py tests/commands/k8s/test_k8s_network_policies.py tests/invariants/test_k8s_argocd_apps.py` passes
 - [x] 2.2 Add the job `third-party-image-scan` to `.github/workflows/ci.yml`
   - Verification: `uv run devops ci test tests/invariants/test_workflow_contracts.py` passes
+
+- [x] 2.3 Add `restarts=(Workload("deployment", "crawl4ai"),)` to Secret `devops/crawl4ai`, so a new token restarts the pod, and show it in the Cluster Secrets table of `k8s/README.md`
+  - Verification: `uv run devops ci test tests/k8s/test_cluster_secret_plan.py tests/invariants/test_k8s_manifests.py` passes
 
 ## 3. Document the service
 

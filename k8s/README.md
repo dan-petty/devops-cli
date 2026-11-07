@@ -562,7 +562,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `llm/valkey-auth` | `VALKEY_PASSWORD` | keyring `valkey_password` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey`, `statefulset/open-webui` |
 | `llm/valkey-devops-auth` | `password` | keyring `valkey_devops_password` | yes | adopt the live value; else generate 64 hex | llm | `deployment/valkey-devops` |
 | `cloudflared/cloudflared-token` | `token` | keyring `cloudflare_tunnel_token` | no | adopt the live value; else skip with a warning | base | `deployment/cloudflared` |
-| `devops/crawl4ai` | `CRAWL4AI_API_TOKEN` | keyring `crawl4ai_api_token` | yes | adopt the live value; else generate `token_urlsafe(32)` | devops | none |
+| `devops/crawl4ai` | `CRAWL4AI_API_TOKEN` | keyring `crawl4ai_api_token` | yes | adopt the live value; else generate `token_urlsafe(32)` | devops | `deployment/crawl4ai` |
 | `devops/devops-cli` | `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` | keyring `service_github_app_private_key` | yes | adopt the live value; else fail | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_AI_API_KEY` | keyring `llm_gateway_master_key` | yes | adopt from `llm/llm-gateway-secrets master-key`; else fail | devops | `deployment/roadmap-service` |
 | `devops/devops-cli` | `DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS` | keyring `service_webhook_secrets` | no | adopt the live value; else skip with a warning | devops | `deployment/roadmap-service` |
