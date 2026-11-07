@@ -110,3 +110,4 @@ devops_cli_command_duration_seconds_count 60
 - **Public Git Repository**: [github.com/prometheus/prometheus](https://github.com/prometheus/prometheus)
 - **Published Container Image**: [hub.docker.com/r/prom/prometheus](https://hub.docker.com/r/prom/prometheus)
 - **DevOps CLI Prometheus Engine**: [src/devops_cli/commands/prometheus.py](../../../../commands/prometheus.py)
+- **DevOps CLI Prometheus Client**: [src/devops_cli/prometheus/client.py](../../../../prometheus/client.py)

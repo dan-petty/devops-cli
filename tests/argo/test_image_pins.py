@@ -6,7 +6,13 @@ from typing import Any
 
 import pytest
 
-from devops_cli.argo.image_pins import ImagePin, PinCheck, check_pins, kustomize_image_pins
+from devops_cli.argo.image_pins import (
+    ImagePin,
+    PinCheck,
+    check_application_pins,
+    check_pins,
+    kustomize_image_pins,
+)
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
 from tests.support.fakes.http import WebFake
@@ -84,3 +90,23 @@ def test_each_pin_is_checked_against_the_digest_its_tag_names_now(web: WebFake) 
         PinCheck(pins[2], error=f"The registry gives no manifest for {IMAGE}:gone (HTTP 404)."),
     ]
     assert [check.in_step for check in checks] == [True, False, False]
+
+
+def test_an_application_with_no_pin_sends_no_request(web: WebFake) -> None:
+    """The check of an application that pins nothing makes no request and returns no check."""
+    assert (check_application_pins(_application(None)), web.recorded) == ([], [])
+
+
+def test_the_pins_of_an_application_are_checked_against_the_public_registry(
+    web: WebFake,
+) -> None:
+    """Each pin of the application is read from its registry, and the result lists them in order."""
+    web.serve(RegistryFake({f"{IMAGE}:latest": MOVED}))
+    item = _application([f"{IMAGE}:latest@{PINNED}"])
+
+    checks = check_application_pins(item)
+
+    assert (checks, [check.in_step for check in checks]) == (
+        [PinCheck(ImagePin(f"{IMAGE}:latest", PINNED), current=MOVED)],
+        [False],
+    )

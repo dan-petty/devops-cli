@@ -149,7 +149,7 @@ flowchart TD
 
 ## 6. SRE Reliability, Observability & Quality Gates
 
-- **Structured Metrics & Telemetry**: Integrates with Prometheus query endpoints (`devops prometheus`) and Grafana dashboards (`devops grafana`) to monitor workstation and cluster health.
+- **Structured Metrics & Telemetry**: Integrates with Prometheus query endpoints (`devops prometheus`) and Grafana dashboards (`devops grafana`) to monitor workstation and cluster health. The API calls sit in the domain packages, behind public clients (`prometheus/client.py`, `grafana/client.py` and `argo/client.py`), and the commands only resolve settings and print. Each client builds its httpx2 client through the HTTP entry point, so the `web` fixture answers it in a test.
 - **Gated CI Quality Gate**: Automated enforcement of Python 3.14 runtime, Ruff formatting, Mypy strict typing, documentation freshness, test coverage, and static security scanning (`devops ci`).
 - **Releases by release-please**: release-please derives each version and the changelog from the Conventional Commit titles on `main`, and a scheduled workflow merges its release pull request every 6 hours when it passes the guards ([`RELEASE_CYCLE.md`](RELEASE_CYCLE.md)). devops-cli holds no release code.
 

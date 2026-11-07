@@ -3,27 +3,22 @@
 from __future__ import annotations
 
 import json
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import httpx2
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.argo import app
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
 from tests.support.fakes.http import WebFake
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.waits import wait_until
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 ARGOCD = "https://example.com/argo"
 SYNC_URL = f"{ARGOCD}/api/v1/applications/root-app/sync"
-
-runner = CliRunner()
 
 
 def test_gitops_models() -> None:
@@ -270,67 +265,54 @@ def test_gitops_tables_formatting() -> None:
     assert len(sync_table.rows) == 1
 
 
-def test_cli_gitops_watch_dry_run_once(tmp_path: Path) -> None:
+def test_cli_gitops_watch_dry_run_once(tmp_path: Path, cli: Callable[..., Any]) -> None:
     """Test CLI command devops argo gitops watch with --dry-run intercept."""
     manifest = tmp_path / "app.yaml"
     manifest.write_text("apiVersion: v1", encoding="utf-8")
 
-    result = runner.invoke(
-        app,
-        [
-            "gitops",
-            "watch",
-            "--path",
-            str(tmp_path),
-            "--app-name",
-            "root-app",
-            "--once",
-            "--dry-run",
-        ],
+    result = cli(
+        "argo",
+        "gitops",
+        "watch",
+        "--path",
+        str(tmp_path),
+        "--app-name",
+        "root-app",
+        "--once",
+        "--dry-run",
     )
     assert result.exit_code == 0
     assert "Plan for GitOps watch on 'root-app'" in result.output
     assert "api/v1/session" in result.output
 
 
-def test_cli_gitops_watch_once_execution(tmp_path: Path) -> None:
+def test_cli_gitops_watch_once_execution(tmp_path: Path, cli: Callable[..., Any]) -> None:
     """Test CLI command devops argo gitops watch with --once."""
     manifest = tmp_path / "app.yaml"
     manifest.write_text("apiVersion: v1", encoding="utf-8")
 
-    result = runner.invoke(
-        app,
-        [
-            "gitops",
-            "watch",
-            "--path",
-            str(tmp_path),
-            "--app-name",
-            "root-app",
-            "--once",
-        ],
+    result = cli(
+        "argo", "gitops", "watch", "--path", str(tmp_path), "--app-name", "root-app", "--once"
     )
     assert result.exit_code == 0
     assert "No manifest drift detected" in result.output or "GitOps" in result.output
 
 
-def test_cli_gitops_watch_json_output(tmp_path: Path) -> None:
+def test_cli_gitops_watch_json_output(tmp_path: Path, cli: Callable[..., Any]) -> None:
     """Test CLI command devops argo gitops watch with --json."""
     manifest = tmp_path / "app.yaml"
     manifest.write_text("apiVersion: v1", encoding="utf-8")
 
-    result = runner.invoke(
-        app,
-        [
-            "gitops",
-            "watch",
-            "--path",
-            str(tmp_path),
-            "--app-name",
-            "root-app",
-            "--once",
-            "--json",
-        ],
+    result = cli(
+        "argo",
+        "gitops",
+        "watch",
+        "--path",
+        str(tmp_path),
+        "--app-name",
+        "root-app",
+        "--once",
+        "--json",
     )
     assert result.exit_code == 0
     data = json.loads(result.output)
@@ -338,69 +320,42 @@ def test_cli_gitops_watch_json_output(tmp_path: Path) -> None:
     assert "synced" in data
 
 
-def test_cli_gitops_drift_command(tmp_path: Path) -> None:
+def test_cli_gitops_drift_command(tmp_path: Path, cli: Callable[..., Any]) -> None:
     """Test CLI command devops argo gitops drift."""
     manifest = tmp_path / "app.yaml"
     manifest.write_text("apiVersion: v1", encoding="utf-8")
 
-    result = runner.invoke(
-        app,
-        [
-            "gitops",
-            "drift",
-            "--path",
-            str(tmp_path),
-        ],
-    )
+    result = cli("argo", "gitops", "drift", "--path", str(tmp_path))
     assert result.exit_code == 0
 
 
-def test_cli_gitops_sync_command() -> None:
+def test_cli_gitops_sync_command(cli: Callable[..., Any]) -> None:
     """Test CLI command devops argo gitops sync with --dry-run."""
-    result = runner.invoke(
-        app,
-        [
-            "gitops",
-            "sync",
-            "--app-name",
-            "root-app",
-            "--dry-run",
-        ],
-    )
+    result = cli("argo", "gitops", "sync", "--app-name", "root-app", "--dry-run")
     assert result.exit_code == 0
     assert "DryRun" in result.output or "root-app" in result.output
 
 
-def test_cli_gitops_subcommand_under_cd(tmp_path: Path) -> None:
+def test_cli_gitops_subcommand_under_cd(tmp_path: Path, cli: Callable[..., Any]) -> None:
     """Test mounting of gitops under devops argo cd."""
-    result = runner.invoke(
-        app,
-        [
-            "cd",
-            "gitops",
-            "watch",
-            "--path",
-            str(tmp_path),
-            "--app-name",
-            "root-app",
-            "--once",
-            "--dry-run",
-        ],
+    result = cli(
+        "argo",
+        "cd",
+        "gitops",
+        "watch",
+        "--path",
+        str(tmp_path),
+        "--app-name",
+        "root-app",
+        "--once",
+        "--dry-run",
     )
     assert result.exit_code == 0
 
 
-def test_cli_gitops_invalid_app_name() -> None:
+def test_cli_gitops_invalid_app_name(cli: Callable[..., Any]) -> None:
     """Test validation rejection of invalid Kubernetes name."""
-    result = runner.invoke(
-        app,
-        [
-            "gitops",
-            "watch",
-            "--app-name",
-            "INVALID_NAME!!!",
-        ],
-    )
+    result = cli("argo", "gitops", "watch", "--app-name", "INVALID_NAME!!!")
     assert result.exit_code != 0
 
 
@@ -438,45 +393,29 @@ def test_manifest_state_persistence(tmp_path: Path) -> None:
     assert loaded[f1.resolve()][1] == state[f1.resolve()][1]
 
 
-def test_cli_gitops_watch_once_failure_exits_nonzero(tmp_path: Path) -> None:
+def test_cli_gitops_watch_once_failure_exits_nonzero(
+    tmp_path: Path, cli: Callable[..., Any], web: WebFake, argocd: str
+) -> None:
     """Ensure failed reconciliation in one-shot mode propagates non-zero exit code."""
+    from devops_cli.argo.gitops import compute_manifest_state, save_persisted_manifest_state
+
     manifest = tmp_path / "app.yaml"
     manifest.write_text("replicas: 1", encoding="utf-8")
+    save_persisted_manifest_state([tmp_path], compute_manifest_state([tmp_path]))
+    manifest.write_text("replicas: 2", encoding="utf-8")
+    web.respond("POST", SYNC_URL, 500, {"error": "sync refused"})
 
-    drift_evt = GitOpsDriftEvent(path=str(manifest), change_type="modified", timestamp=time.time())
-    failed_res = GitOpsSyncTriggerResult(
-        app_name="root-app",
-        status="Failed",
-        message="Simulated connection failure",
-        success=False,
+    result = cli(
+        "argo", "gitops", "watch", "--path", str(tmp_path), "--app-name", "root-app", "--once"
     )
 
-    with (
-        patch(
-            "devops_cli.argo.gitops.GitOpsWatcher.scan_drift",
-            return_value=[drift_evt],
-        ),
-        patch(
-            "devops_cli.argo.gitops.GitOpsWatcher.sync_now",
-            return_value=failed_res,
-        ),
-    ):
-        result = runner.invoke(
-            app,
-            [
-                "gitops",
-                "watch",
-                "--path",
-                str(tmp_path),
-                "--app-name",
-                "root-app",
-                "--once",
-            ],
-        )
-        assert result.exit_code != 0
+    assert (result.exit_code, web.requested) == (1, [SYNC_URL])
 
 
-def test_inspect_git_manifest_drift_success(tmp_path: Path) -> None:
+@pytest.mark.parametrize("separator", ["\0", "\n"], ids=["nul-separated", "newline-separated"])
+def test_inspect_git_manifest_drift_success(
+    tmp_path: Path, process_fake: ProcessFake, separator: str
+) -> None:
     """Test inspect_git_manifest_drift handles created, modified, deleted, and non-manifest files."""
     from devops_cli.argo.gitops import inspect_git_manifest_drift
 
@@ -487,8 +426,7 @@ def test_inspect_git_manifest_drift_success(tmp_path: Path) -> None:
     manifest3 = tmp_path / "deleted.yaml"
     ignored_file = tmp_path / "notes.txt"
     ignored_file.write_text("not a manifest", encoding="utf-8")
-
-    git_status_output = "\n".join(
+    status = separator.join(
         [
             "??",  # short line (<4 chars)
             f"?? {manifest1.resolve()}",  # created
@@ -497,34 +435,25 @@ def test_inspect_git_manifest_drift_success(tmp_path: Path) -> None:
             f" M {ignored_file.resolve()}",  # non-manifest
         ]
     )
+    process_fake.answer(["git", "status"], ProcessAnswer(stdout=status))
 
-    with patch(
-        "devops_cli.argo.gitops.run_subprocess",
-        return_value=MagicMock(returncode=0, stdout=git_status_output),
-    ):
-        events = inspect_git_manifest_drift([tmp_path])
-        assert len(events) == 3
-        types = {e.change_type for e in events}
-        assert types == {"created", "modified", "deleted"}
+    events = inspect_git_manifest_drift([tmp_path])
+
+    assert {event.change_type for event in events} == {"created", "modified", "deleted"}
+    assert len(events) == 3
 
 
-def test_inspect_git_manifest_drift_error_handling(tmp_path: Path) -> None:
+def test_inspect_git_manifest_drift_error_handling(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
     """Test inspect_git_manifest_drift returns empty list on failure or exception."""
     from devops_cli.argo.gitops import inspect_git_manifest_drift
 
-    # Non-zero returncode
-    with patch(
-        "devops_cli.argo.gitops.run_subprocess",
-        return_value=MagicMock(returncode=1, stdout=""),
-    ):
-        assert inspect_git_manifest_drift([tmp_path]) == []
+    process_fake.answer(["git", "status"], ProcessAnswer(returncode=1))
+    assert inspect_git_manifest_drift([tmp_path]) == []
 
-    # Exception raised
-    with patch(
-        "devops_cli.argo.gitops.run_subprocess",
-        side_effect=RuntimeError("git not installed"),
-    ):
-        assert inspect_git_manifest_drift([tmp_path]) == []
+    process_fake.answer(["git", "status"], ProcessAnswer(side_effect=RuntimeError("git gone")))
+    assert inspect_git_manifest_drift([tmp_path]) == []
 
 
 def test_inspect_git_manifest_drift_handles_spaces_non_ascii_and_renames(tmp_path: Path) -> None:
