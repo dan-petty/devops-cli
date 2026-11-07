@@ -73,6 +73,18 @@ def test_each_node_that_times_out_waits_longer_before_the_next_one(
     assert (0.5 <= first <= 0.55, 1.0 <= second <= 1.1, 2.0 <= third <= 2.2) == (True, True, True)
 
 
+def test_the_wait_between_nodes_stops_growing_at_the_cap(clock: ClockFake, web: WebFake) -> None:
+    """With more nodes than doublings to the cap, no wait is longer than the cap and its jitter."""
+    serve(web, lambda request: (_ for _ in ()).throw(httpx2.ReadTimeout("slow", request=request)))
+    engine = ollama_engine([f"http://example.com:{11434 + n}" for n in range(6)])
+
+    with pytest.raises(EmbeddingsError, match="ReadTimeout"):
+        engine.embed_texts(["test chunk"])
+
+    cap = defaults.DEFAULT_RAG_EMBEDDING_MAX_BACKOFF_SECONDS
+    assert (len(clock.waits), max(clock.waits) <= cap * 1.1) == (6, True)
+
+
 def test_a_batch_that_times_out_is_cut_into_smaller_ones(clock: ClockFake, web: WebFake) -> None:
     def reply(request: httpx2.Request) -> httpx2.Response:
         if len(inputs(request)) >= 4:

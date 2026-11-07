@@ -104,6 +104,20 @@ def test_a_document_and_a_query_of_one_text_have_two_valkey_keys(
     ) == (2, [["search_document: sample text"], ["search_query: sample text"]])
 
 
+def test_a_second_engine_reads_a_vector_of_a_prompted_model_from_valkey(
+    valkey_client: ValkeyClient, web: WebFake
+) -> None:
+    """The Valkey key follows the text with its prompt, so a model with a prompt gets its hit."""
+    sent = serve(web, ollama_reply)
+    config = ollama_config()
+    config.tasks.embedding.model = "nomic-embed-text"
+    first = EmbeddingsEngine(config, valkey_client=valkey_client).embed_texts(["shared chunk"])
+
+    second = EmbeddingsEngine(config, valkey_client=valkey_client).embed_texts(["shared chunk"])
+
+    assert (len(sent), second == first) == (1, True)
+
+
 def test_the_same_text_under_two_prompts_is_two_cache_misses(web: WebFake) -> None:
     """The cache keys hash the text after its prompt is applied."""
     sent = serve(web, ollama_reply)

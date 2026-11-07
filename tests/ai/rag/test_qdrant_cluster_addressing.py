@@ -58,18 +58,24 @@ def test_the_prefix_carries_no_leading_or_trailing_slash() -> None:
     assert not prefix.endswith("/")
 
 
-def test_a_cluster_address_builds_a_client_for_the_proxy_endpoint() -> None:
+def test_a_cluster_address_builds_a_client_for_the_proxy_endpoint(cluster: FakeCluster) -> None:
     """The defect this fixes: a cluster address was passed through as a plain URL."""
-    native = create_native_qdrant_client(CLUSTER_URL)
+    with serving_qdrant(prefix=f"/{PROXY_PREFIX}", collections=["devops_code"]) as served:
+        cluster.configuration.host = served.url
 
-    assert native._client.rest_uri == f"https://cluster.example.com:6443/{PROXY_PREFIX}"
+        create_native_qdrant_client(CLUSTER_URL).get_collections()
+
+    assert [(method, path) for method, path, _ in served.requests] == [
+        ("GET", f"/{PROXY_PREFIX}/collections")
+    ]
 
 
 def test_a_direct_address_is_unchanged() -> None:
     """Direct addressing keeps working for a Qdrant that is not in a cluster."""
-    native = create_native_qdrant_client(DIRECT_URL)
+    with serving_qdrant(collections=["devops_code"]) as served:
+        create_native_qdrant_client(served.url).get_collections()
 
-    assert native._client.rest_uri == DIRECT_URL
+    assert [(method, path) for method, path, _ in served.requests] == [("GET", "/collections")]
 
 
 def test_a_cluster_address_needs_no_host_validation(dns: DnsFake) -> None:

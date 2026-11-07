@@ -1,7 +1,8 @@
 """Properties of the source chunker over open-ended input: coverage, size and overlap.
 
-The chunker is a parser of files, so its invariants are tested with Hypothesis. The `ci` profile
-that `addopts` loads sets no deadline and a fixed seed; each property keeps a small example count.
+The chunker is a parser of files, so its invariants are tested with Hypothesis. Each property sets
+no deadline and keeps a small example count, so no property depends on the Hypothesis profile or on
+time.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from devops_cli.ai.rag.models import CodeChunk
 
 PROPERTY = settings(
     max_examples=30,
+    deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 
@@ -172,7 +174,7 @@ def test_a_heading_line_inside_a_code_fence_is_not_a_heading(
     assert [title for _, _, title in found] == [h.split(" ", 1)[1] for h in headings]
 
 
-@settings(max_examples=15)
+@settings(max_examples=15, deadline=None)
 @given(text=st.text(max_size=400))
 def test_markdown_headings_of_any_text_have_a_level_from_1_to_6_inside_the_text(
     text: str,
@@ -181,6 +183,40 @@ def test_markdown_headings_of_any_text_have_a_level_from_1_to_6_inside_the_text(
 
     lines = len(text.splitlines())
     assert all(1 <= level <= 6 and 0 <= line < max(1, lines) for line, level, _ in found)
+
+
+SOURCE_FILE_LINES = st.lists(
+    st.one_of(WORD, st.just(""), WORD.map(lambda word: f"## {word}")), min_size=1, max_size=40
+)
+
+
+@PROPERTY
+@given(
+    lines=SOURCE_FILE_LINES,
+    name=st.sampled_from(["docs.md", "values.yaml", "manifest.yml", "main.go"]),
+)
+def test_every_chunk_of_any_file_lies_inside_the_file_and_within_the_token_limit(
+    tmp_path: Path, lines: list[str], name: str
+) -> None:
+    """The line range and size of a chunk hold on the Markdown, YAML and tree-sitter paths too.
+
+    The text is not valid YAML or Go in most cases, so these paths fall back or split as they do on
+    a broken file in a repository. Their chunks keep the same bounds.
+    """
+    path = tmp_path / name
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    max_tokens = 64
+
+    chunks = SemanticChunker(chunk_size=10, chunk_overlap=2, max_tokens=max_tokens).chunk_file(
+        path, relative_to=tmp_path
+    )
+
+    total = len(lines)
+    assert all(
+        1 <= chunk.start_line <= chunk.end_line <= total
+        and count_chunk_tokens(chunk.content) <= max_tokens
+        for chunk in chunks
+    )
 
 
 @pytest.mark.parametrize("name", ["empty.cfg", "blank.cfg"])

@@ -13,8 +13,10 @@ from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
 from devops_cli.config.settings import AIConfig
 from devops_cli.valkey.client import ValkeyClient
 from tests.support.embedding_replies import (
+    SERVING_BACKEND,
     answer_posts,
     gateway_engine,
+    inputs,
     ollama_engine,
     serve,
 )
@@ -239,3 +241,27 @@ def test_a_gateway_with_no_deployment_left_gives_a_transient_error(
         gateway_engine().embed_texts(["one"])
 
     assert raised.value.is_transient is True
+
+
+def test_a_gateway_that_gives_fewer_vectors_than_texts_raises_naming_both_counts(
+    web: WebFake,
+) -> None:
+    """Two texts and one vector in the reply raise, so no text gets the vector of another."""
+    serve(
+        web,
+        lambda request: httpx2.Response(200, json={"data": [{"index": 0, "embedding": [0.5] * 4}]}),
+    )
+
+    with pytest.raises(EmbeddingsError, match="returned 1 embeddings for 2 texts"):
+        gateway_engine().embed_texts(["first text", "second text"])
+
+
+def test_an_ollama_node_that_gives_fewer_vectors_than_texts_gets_the_batch_cut(
+    web: WebFake,
+) -> None:
+    """The node gives one vector for two texts, so the batch is cut and each text gets its own."""
+    sent = serve(web, lambda request: httpx2.Response(200, json={"embeddings": [[0.5] * 4]}))
+
+    vectors = ollama_engine([SERVING_BACKEND]).embed_texts(["first text", "second text"])
+
+    assert (vectors, [len(inputs(request)) for request in sent]) == ([[0.5] * 4] * 2, [2, 1, 1])
