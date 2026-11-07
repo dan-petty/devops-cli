@@ -16,12 +16,12 @@ import yaml
 from pydantic_ai.messages import ModelMessagesTypeAdapter, ModelRequest, UserPromptPart
 
 from devops_cli.ai.context_budget import count_tokens
+from devops_cli.config import constants
 from devops_cli.config.constants import (
     CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE,
     CONST_ROADMAP_REFINE_TOOL_MAX_CHARS,
     CONST_ROADMAP_STAGE_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
-    CONST_ROADMAP_STAGE_MIN_TOOL_CALLS,
     CONST_ROADMAP_STAGE_SPEC_MAX_CHARS,
     CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS,
 )
@@ -322,7 +322,9 @@ def test_the_planner_window_of_the_example_configmap_fits_the_first_request_and_
 ):
     """The task `stage` takes the window of `analysis`. At 65,536 tokens the tools end after 4 to 6
     calls, and the model writes `x` in every text field of its plan (#3880)."""
-    needed = FIRST_REQUEST_TOKENS + CONST_ROADMAP_STAGE_MIN_TOOL_CALLS * TOOL_ANSWER_TOKENS
+    needed = (
+        FIRST_REQUEST_TOKENS + constants.CONST_ROADMAP_STAGE_MIN_TOOL_CALLS * TOOL_ANSWER_TOKENS
+    )
     window = _example_task("analysis")["context_window"]
 
     assert (_limit(window) >= needed, _limit(WINDOW) < needed) == (True, True)

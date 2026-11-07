@@ -29,10 +29,9 @@ from devops_cli.ai.client.models import (
 )
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config import settings
+from devops_cli.config import constants, settings
 from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS,
-    CONST_ROADMAP_STAGE_MIN_TOOL_CALLS,
     CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
 )
 from devops_cli.config.defaults import StageToolset
@@ -351,7 +350,7 @@ def test_a_plan_run_whose_tools_the_window_ends_too_soon_fails_and_names_the_win
         _plan(client)
 
     (trace,) = client.traces
-    assert (trace.limit, len(trace.tool_calls) < CONST_ROADMAP_STAGE_MIN_TOOL_CALLS) == (
+    assert (trace.limit, len(trace.tool_calls) < constants.CONST_ROADMAP_STAGE_MIN_TOOL_CALLS) == (
         RunLimit.WINDOW,
         True,
     )
@@ -371,7 +370,11 @@ def test_a_plan_run_whose_window_ends_the_tools_after_the_minimum_calls_gives_it
     plan = _plan(client)
 
     (trace,) = client.traces
-    assert (plan, trace.limit, len(trace.tool_calls) >= CONST_ROADMAP_STAGE_MIN_TOOL_CALLS) == (
+    assert (
+        plan,
+        trace.limit,
+        len(trace.tool_calls) >= constants.CONST_ROADMAP_STAGE_MIN_TOOL_CALLS,
+    ) == (
         _PLAN,
         RunLimit.WINDOW,
         True,
