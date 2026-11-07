@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from devops_cli.config.settings import GitHubAppConfig, ServiceConfig, Settings
+from devops_cli.config.settings import AITasksConfig, GitHubAppConfig, ServiceConfig, Settings
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.configmap import (
     render_active_devops_configmap,
@@ -219,15 +219,33 @@ def test_a_token_repository_of_the_active_config_is_not_rendered_into_the_servic
 
 
 def test_the_repository_template_renders_one_model_retry_for_the_cluster() -> None:
-    """The background tier serves one request at a time, so each model call of the Service and
-    the cluster Jobs is sent at most two times (#2494)."""
+    """Each model call of the Service and the cluster Jobs is sent at most two times (#2494)."""
     rendered = render_active_devops_configmap(
         k8s_dir=REPO_ROOT / "k8s", settings=_settings(["owner/repo"], APP)
     )
     inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
-    settings = Settings.model_validate(inner)
 
-    assert (settings.ai.model, settings.ai.max_retries) == ("devops-background", 1)
+    assert Settings.model_validate(inner).ai.max_retries == 1
+
+
+def test_every_chat_model_slot_of_the_rendered_template_names_one_hosted_group() -> None:
+    """The Service uses one chat model until most steps work most of the time (#3874). Every
+    task of `ai.tasks` and the default `ai.model` resolve to it. The embedding slot is the
+    embedding model, because a chat model cannot embed."""
+    rendered = render_active_devops_configmap(
+        k8s_dir=REPO_ROOT / "k8s", settings=_settings(["owner/repo"], APP)
+    )
+    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
+    ai = Settings.model_validate(inner).ai
+    chat_slots = {
+        name: ai.for_task(name).model for name in AITasksConfig.model_fields if name != "embedding"
+    }
+
+    assert (
+        ai.model,
+        {name: model for name, model in chat_slots.items() if model != "deepseek-v4.1-flash-1017"},
+        ai.for_task("embedding").model,
+    ) == ("deepseek-v4.1-flash-1017", {}, "qwen3-embedding:0.6b")
 
 
 def test_render_active_devops_configmap_missing_template_raises(tmp_path: Path) -> None:

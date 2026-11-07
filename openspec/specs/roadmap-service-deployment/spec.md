@@ -17,7 +17,7 @@ The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set `ai.max_ret
 
 #### Scenario: A deploy renders the ConfigMap from the repository's template
 - **WHEN** the active config sets `service.repos` and the App's settings, and the ConfigMap is rendered from `k8s/devops/configmap.example.yaml`
-- **THEN** the rendered config validates as settings with `ai.model` `devops-background` and `ai.max_retries` 1
+- **THEN** the rendered config validates as settings with `ai.max_retries` 1
 
 ### Requirement: The Service image runs the pinned OpenSpec
 The service stage of `Dockerfile` SHALL carry the `node` binary of a digest-pinned `node` image whose major version is the one in `.node-version`, and the OpenSpec that `devops install-tools --tool openspec` installs from the lockfile of `src/devops_cli/tools_lock/openspec`. The directory of its `openspec` link SHALL be on the `PATH` of the stage. The stage SHALL set `OPENSPEC_TELEMETRY=0`, `OPENSPEC_NO_UPDATE_CHECK=1` and `DO_NOT_TRACK=1`.
@@ -55,3 +55,10 @@ The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set the model o
 #### Scenario: The window fits
 - **WHEN** the window of the task `implement` is compared with the window of its group and with the step budget plus the turn reserve
 - **THEN** the window is not above the window of the group and is not below the step budget plus the turn reserve
+
+### Requirement: Every chat model slot of the Service names one model
+The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL name `deepseek-v4.1-flash-1017` for `ai.model` and for each task of `ai.tasks` except `embedding`, and SHALL name `qwen3-embedding:0.6b` for the task `embedding`. A comment in the template SHALL name the owner decision of 2026-11-07 and the condition that ends it.
+
+#### Scenario: The rendered template is read
+- **WHEN** the ConfigMap is rendered from the repository's template and validated as settings
+- **THEN** `ai.model` and the model of each task except `embedding`, with its parent task applied, are `deepseek-v4.1-flash-1017`, and the model of the task `embedding` is `qwen3-embedding:0.6b`

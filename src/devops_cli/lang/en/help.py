@@ -2060,6 +2060,8 @@ class RAGCommandHelp:
     drift: str = "Detect staleness and drift between the working tree and the Qdrant vector index."
     auto_sync: str = "Automatically re-index stale and newly added files."
     fail_on_drift: str = "Exit with code 1 if index drift or git commit divergence is detected."
+    ingest: str = "Index managed git repositories into the RAG vector collection."
+    repo: str = "Managed repository in owner/name form to ingest. Repeat to specify more than one repository."
 
 
 @dataclass(frozen=True)

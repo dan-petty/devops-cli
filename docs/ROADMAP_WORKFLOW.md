@@ -176,7 +176,7 @@ A stop has a class (`roadmap/failure.py`, #3065). A stop site that knows its cau
 | `ci_infra` | `retry` | The infrastructure failed, and every failure that no other class matches |
 | `no_change_in_fix` | `wait` | A fix step changed no file, so the failed check is as it was. A person reads the failed check in the stop |
 | `tests_lost` | `wait` | The agent removed or renamed a test that existed at the start of the step, and the plan on the default branch does not record it in `## Weakened checks` |
-| `head_moved` | `retry` | The agent moved HEAD, and a step makes the only commit |
+| `head_moved` | `retry` | The agent moved HEAD, and `git reset --soft` could not put it back. A step makes the only commit |
 | `output_cap` | `raise_limit` | A model reply reached the output cap of the step |
 | `limit_reached` | `raise_limit` | A step spent a token budget or a time limit of `roadmap.implement`. The reason names the setting and its value. See [the budgets](#checks-of-the-implement-job) |
 | `read_only_path` | `wait` | A command wrote to a path that the Job mounts read-only. A new attempt or a new runner image writes to the same path, so a person fixes the cause |

@@ -1217,7 +1217,7 @@ The example ConfigMap SHALL hold `roadmap.implement.effort` with its default val
 - **THEN** the value of `roadmap.implement.effort` is `low` and then `medium`
 
 ### Requirement: A stop site passes a typed class of its cause
-Each stop of the job whose cause has a class SHALL pass that class, and the stop comment and `implement.failure` SHALL hold it. The classifier SHALL NOT decide a class that a site passes. The words of the last message of the agent and the words of a task SHALL NOT change a class. A step that changed no file SHALL pass `no_change_in_fix` in a fix step and `plan_defect` in a group step.
+Each stop of the job whose cause has a class SHALL pass that class, and the stop comment and `implement.failure` SHALL hold it. The classifier SHALL NOT decide a class that a site passes. The words of the last message of the agent and the words of a task SHALL NOT change a class. A step that changed no file SHALL pass `no_change_in_fix` in a fix step and `plan_defect` in a group step. A step whose reset of a moved `HEAD` failed SHALL pass `head_moved`.
 
 #### Scenario: A fix step that changed no file
 - **WHEN** a fix step stops with the reason "The agent changed no file." and its last message says "The item is already implemented."
@@ -1228,7 +1228,7 @@ Each stop of the job whose cause has a class SHALL pass that class, and the stop
 - **THEN** the class is `plan_defect`
 
 #### Scenario: A lost test, a moved HEAD and the output cap
-- **WHEN** a step stops because the agent removed a test, moved HEAD, or reached the output cap
+- **WHEN** a step stops because the agent removed a test, because the reset of a head that the agent moved failed, or because it reached the output cap
 - **THEN** the classes are `tests_lost`, `head_moved` and `output_cap`
 
 #### Scenario: The tier decision

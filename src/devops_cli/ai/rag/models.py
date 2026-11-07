@@ -21,6 +21,7 @@ class CodeChunk(BaseModel):
     doc_type: str = "code"  # "code" | "doc" | "manifest"
     category: str = "code"  # "code" | "docs" | "iac" | "config" | "api_spec" | "architecture"
     project_name: str = "default"
+    visibility: str | None = None
     section_path: list[str] = Field(default_factory=list)
     symbol_names: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)

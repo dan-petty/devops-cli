@@ -356,17 +356,17 @@ def test_the_failure_text_in_the_message_is_masked(
     assert token not in _prompt(script, 2)
 
 
-def test_an_extra_turn_that_commits_stops_the_step_and_the_checkout_returns_to_its_start(
+def test_an_extra_turn_that_commits_is_reset_and_the_step_commits_the_repair(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
+    """The `wip:` commit of the first turn and the commit of the agent both fold into the one
+    commit of the step (#3575)."""
     _lint_fails_on_an_unused_import(programs)
     head = git(checkout, "rev-parse", "HEAD")
-    moved: list[str] = []
 
     def agent_commits() -> None:
         git(checkout, "add", "-A")
         git(checkout, "commit", "-q", "-m", "own commit")
-        moved.append(git(checkout, "rev-parse", "HEAD"))
 
     script = ModelScript(
         tool_calls(*NOT_TICKED, TICK),
@@ -378,12 +378,39 @@ def test_an_extra_turn_that_commits_stops_the_step_and_the_checkout_returns_to_i
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.reason, outcome.commit, is_clean_at_wip(checkout, head)) == (
+    assert (outcome.status, outcome.reason) == (StepStatus.DONE, "")
+    assert git(checkout, "rev-parse", "HEAD~1") == head
+    assert git(checkout, "rev-list", "--count", f"{head}..HEAD") == "1"
+    assert git(checkout, "rev-parse", "HEAD") == outcome.commit
+    assert "import os" not in (checkout / "tests" / "test_sample.py").read_text(encoding="utf-8")
+
+
+def test_an_extra_turn_that_commits_does_not_hide_a_failed_check_and_the_wip_commit_stays(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    _lint_fails_on_an_unused_import(programs)
+    head = git(checkout, "rev-parse", "HEAD")
+
+    def agent_commits() -> None:
+        git(checkout, "add", "-A")
+        git(checkout, "commit", "-q", "-m", "own commit")
+
+    script = ModelScript(
+        tool_calls(*NOT_TICKED, TICK),
+        say("Done."),
+        tool_calls(write_call("tests/test_sample.py", BAD_TEST + "\n")),
+        say("Fixed."),
+        effects={4: agent_commits},
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.commit, is_clean_at_wip(checkout, head)) == (
         StepStatus.STOPPED,
-        f"The agent moved HEAD from {head} to {moved[0]}. A step makes the only commit.",
         "",
         True,
     )
+    assert UNUSED.splitlines()[0] in outcome.reason
 
 
 def test_an_extra_turn_that_changes_the_verification_command_leaves_the_tasks_file_as_it_was(

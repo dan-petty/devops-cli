@@ -1321,25 +1321,47 @@ def _replay_failure(replay: BaseReplay) -> _Failure | None:
             )
 
 
+def _reset_moved_head(source: Path, expected: str) -> _Failure | None:
+    """Put a head that the agent moved back to `expected` with `git reset --soft`: the index and
+    the checkout keep the work of the agent (#3575). None when the head was at `expected` or the
+    reset worked, else the stop with the class `head_moved`."""
+    head = _head(source)
+    if head == expected:
+        return None
+    reset = ("reset", "--soft", expected)
+    done = _git(source, *reset)
+    if done.returncode != 0:
+        return _Failure(
+            MESSAGES.roadmap.implement_stop_head_moved.format(
+                start=expected,
+                head=head,
+                command=shlex.join([BIN_GIT, *reset]),
+                status=done.returncode,
+                output=_tail(done),
+            ),
+            klass=FailureClass.HEAD_MOVED,
+        )
+    print_muted(
+        MESSAGES.roadmap.implement_head_reset.format(start=expected, head=head), to_stderr=True
+    )
+    return None
+
+
 def _exit_failure(
     source: Path, inputs: StepInputs, keeper: WipKeeper, log: ToolCallLog
 ) -> _Failure | None:
     """The first exit check that fails, or None when every one passes. The step makes the only
-    commit, besides the `wip:` commits of its keeper (#3054), so a checkout that left the head of
-    the keeper fails the first check. The `tasks.md` is written
-    back first, whatever the run did to it. Once every check passes, `_tick_group` ticks the
+    commit, besides the `wip:` commits of its keeper (#3054), so a head that the agent moved is put
+    back first with `git reset --soft`, which keeps the work in the checkout, and the checks judge
+    that work (#3575). Only a reset that fails stops the step. The `tasks.md` is written
+    back next, whatever the run did to it. Once every check passes, `_tick_group` ticks the
     tasks of the group (#3488). The stray files of the agent are deleted before the checkout is
     staged (#3092)."""
     log.fail_to_pass = None
     log.verified.clear()
-    head = _head(source)
-    if head != keeper.expected_head:
-        return _Failure(
-            MESSAGES.roadmap.implement_stop_head_moved.format(
-                start=keeper.expected_head, head=head
-            ),
-            klass=FailureClass.HEAD_MOVED,
-        )
+    moved = _reset_moved_head(source, keeper.expected_head)
+    if moved is not None:
+        return moved
     keeper.fold()
     _restore_tasks(inputs)
     _remove_strays(source, inputs, log)

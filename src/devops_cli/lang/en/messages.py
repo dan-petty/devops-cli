@@ -1472,6 +1472,7 @@ class RAGMessages:
         "upserted [cyan]{chunks}[/cyan] chunk(s) into [magenta]{coll}[/magenta]."
     )
     cleared_collection: str = "Cleared collection: {coll}"
+    ingest_complete: str = "RAG ingestion complete. {succeeded} of {total} repositories indexed."
     no_matching_query: str = "No matching code/documentation found for query: {query}"
     stopped_for_run: str = (
         "RAG is off for the rest of this run: {error}. To fix it, serve {model} on a backend, "
@@ -2628,7 +2629,12 @@ class RoadmapMessages:
     )
     implement_tests_lost_file: str = "{path}: {tests}"
     implement_stop_head_moved: str = (
-        "The agent moved HEAD from {start} to {head}. A step makes the only commit."
+        "The agent moved HEAD from {start} to {head}, and the reset to {start} failed.\n"
+        "`{command}` exited with status {status}.\n{output}"
+    )
+    implement_head_reset: str = (
+        "The agent moved HEAD from {start} to {head}. The step reset HEAD to {start} and kept "
+        "the changes."
     )
     implement_stop_commit_failed: str = "The commit failed.\n{output}"
     implement_stop_hooks_install: str = (

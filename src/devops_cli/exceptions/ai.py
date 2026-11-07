@@ -202,6 +202,13 @@ _PYDANTIC_AI_NAMES: frozenset[str] = frozenset(
 )
 
 
+class RagIngestError(DevOpsCLIError, RuntimeError):
+    """Raised when one or more repositories fail during RAG ingestion."""
+
+    error_code = "RAG_INGEST_FAILED"
+    exit_code = CONST_EXIT_FAILURE
+
+
 def __getattr__(name: str) -> Any:
     if name in _PYDANTIC_AI_NAMES:
         from devops_cli.exceptions import ai_pydantic
@@ -233,6 +240,7 @@ __all__ = [
     "LibraryNotFoundError",
     "ModelBundleError",
     "ModelRetry",
+    "RagIngestError",
     "ReviewPoolError",
     "SkipToolExecution",
     "StructuredOutputSchemaError",
