@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: A conflict stop names the conflicted files
-When a rebase stops the item on a conflict, the job SHALL read the unmerged files with `git diff --name-only --diff-filter=U` before it aborts the rebase. The stop comment SHALL name each file, the job record SHALL hold the files as `implement.conflict`, and a retry SHALL clear the record. The job SHALL mask each path, SHALL list at most `CONST_ROADMAP_IMPLEMENT_REASON_PATHS` paths, and SHALL state the number of paths that the cut left out.
+When a rebase stops the item on a conflict, the job SHALL read the unmerged files with `git diff --name-only --diff-filter=U` before it aborts the rebase. The stop comment SHALL name each file, the job record SHALL hold the files as `implement.conflict`, and a retry or a clear rule of the Service SHALL clear the record. The job SHALL mask each path, SHALL list at most `CONST_ROADMAP_IMPLEMENT_REASON_PATHS` paths, and SHALL state the number of paths that the cut left out.
 
 #### Scenario: A conflict at the start of a run
 - **WHEN** the staged branch conflicts with the default branch in a real git repository when the job rebases at the start of the run

@@ -8,7 +8,7 @@ Issue #3646. A rebase that stops on a conflict stops the item with the class `co
 
 - `_sync` reads the unmerged files with `git diff --name-only --diff-filter=U -z` before `git rebase --abort`. Each path is masked and escaped. The list is cut to `CONST_ROADMAP_IMPLEMENT_REASON_PATHS` paths, and the text says how many paths the cut left out.
 - The reason of the stop names the files. `_StopError` carries them, and the stop passes the class `conflict` itself, so a file name cannot change the class.
-- The job record has a new key, `implement.conflict`, that holds the listed files as JSON. A stop sets it, and a retry clears it with the other marks of the stop.
+- The job record has a new key, `implement.conflict`, that holds the listed files as JSON. A stop sets it, and a retry or a clear rule of the Service clears it with the other marks of the stop.
 - The change alters what the stop comment and the job record hold, which a consumer observes. So it carries a spec delta.
 - The change fits one pull request.
 
@@ -24,8 +24,9 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/roadmap/store.py`, `src/devops_cli/lang/en/messages.py`.
-- Tests: `tests/roadmap/test_roadmap_implement_job.py`.
+- Code: `src/devops_cli/roadmap/implement_run.py`, `src/devops_cli/roadmap/store.py`, `src/devops_cli/roadmap/stop_clear.py`, `src/devops_cli/lang/en/messages.py`.
+- Tests: `tests/roadmap/test_roadmap_implement_job.py`, `tests/roadmap/test_roadmap_stop_clear.py`.
+- Documents: `docs/ROADMAP_WORKFLOW.md`.
 
 ## Acceptance
 

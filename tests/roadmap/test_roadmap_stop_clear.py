@@ -163,6 +163,14 @@ def test_a_clear_removes_the_failure_class_and_the_check_with_the_stop(
     ]
 
 
+def test_a_clear_removes_the_conflicted_files_with_the_stop(store: InMemoryRoadmapStore) -> None:
+    number = _blocked(store, implement_conflict='["docs/a.md"]')
+
+    _clear(store, Template(DIGEST_B))
+
+    assert _record(store, number).get("implement.conflict") is None
+
+
 def test_a_cleared_item_whose_plan_is_merged_is_planned(store: InMemoryRoadmapStore) -> None:
     number = _blocked(store)
     plans = PlannedChanges("main", {number: f"{number}-a-change"}, {})
