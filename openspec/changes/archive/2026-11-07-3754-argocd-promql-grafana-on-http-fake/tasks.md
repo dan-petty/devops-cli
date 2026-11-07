@@ -39,5 +39,5 @@
 
 ## 6. Archive
 
-- [ ] 6.1 Archive the change
+- [x] 6.1 Archive the change
   - Verification: `uv run devops openspec archive 3754-argocd-promql-grafana-on-http-fake`
