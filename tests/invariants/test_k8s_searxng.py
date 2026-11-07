@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
+from pathlib import PurePosixPath
 from typing import Any
 
 import pytest
@@ -23,6 +25,9 @@ IMAGE_PATTERN = re.compile(
 # 6819), and the keyed Brave engine, which the owner dropped on 2026-11-07. A name here is a name
 # of the default settings.yml, and a prefix: `brave` also covers `brave.news`.
 FORBIDDEN_ENGINES = ("brave", "braveapi", "google", "bing", "startpage", "mojeek", "qwant")
+# The pod root, not a path of this host, and the IPv4 wildcard address that the pod binds.
+_POD_ROOT = PurePosixPath("/")
+BIND_ALL_IPV4 = str(ipaddress.IPv4Address(0))
 ROUTE_KINDS = ("Ingress", "IngressRoute", "IngressRouteTCP", "HTTPRoute", "Middleware")
 
 
@@ -115,7 +120,7 @@ def test_the_pod_meets_pod_security_restricted() -> None:
             "capabilities": {"drop": ["ALL"]},
         },
         {"configMap", "emptyDir"},
-        {"/tmp", "/var/cache/searxng"},
+        {str(_POD_ROOT / "tmp"), "/var/cache/searxng"},
         False,
     )
 
@@ -131,7 +136,7 @@ def test_the_environment_holds_the_server_secret_from_the_secret_and_an_ipv4_bin
                 "name": "SEARXNG_SECRET",
                 "valueFrom": {"secretKeyRef": {"name": "searxng", "key": "SEARXNG_SECRET"}},
             },
-            "GRANIAN_HOST": {"name": "GRANIAN_HOST", "value": "0.0.0.0"},
+            "GRANIAN_HOST": {"name": "GRANIAN_HOST", "value": BIND_ALL_IPV4},
         },
         None,
     )

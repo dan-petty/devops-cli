@@ -238,6 +238,7 @@ def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing()
         [
             "cloudflared/cloudflared-token: token",
             "devops/crawl4ai: CRAWL4AI_API_TOKEN (if namespace devops exists)",
+            "devops/searxng: SEARXNG_SECRET (if namespace devops exists)",
             "devops/devops-cli: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY, DEVOPS_CLI_AI_API_KEY, DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS, DEVOPS_CLI_FIRECRAWL_API_KEY, DEVOPS_CLI_VALKEY_PASSWORD, DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN, DEVOPS_CLI_CRAWL4AI_API_TOKEN (if namespace devops exists)",
             "monitoring/grafana-admin: admin-user, admin-password",
             "monitoring/alertmanager-mattermost: url",
@@ -2362,12 +2363,19 @@ def test_deploy_stack_on_a_native_cluster_applies_the_rendered_config_map_and_no
     res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
     applied = cluster.writes()
     config_map = yaml.safe_load(cluster.stdin_of(_APPLY_STDIN))
+    # The only ConfigMap file that the stack applies is the settings of SearXNG (#3924). The
+    # ConfigMap `devops-cli-config` has no file: it is rendered and sent on stdin.
     assert (
         res.exit_code,
         applied[:2],
         config_map["metadata"]["name"],
         [cmd for cmd in applied if any("configmap" in part for part in cmd)],
-    ) == (0, [["kubectl", "apply", "-k", "k8s", *_CONTEXT], _APPLY_STDIN], "devops-cli-config", [])
+    ) == (
+        0,
+        [["kubectl", "apply", "-k", "k8s", *_CONTEXT], _APPLY_STDIN],
+        "devops-cli-config",
+        [["kubectl", "apply", "-f", "k8s/devops/searxng/configmap.yaml", *_CONTEXT]],
+    )
 
 
 def test_teardown_stack_devops_deletes_the_config_map_deploy_stack_rendered(

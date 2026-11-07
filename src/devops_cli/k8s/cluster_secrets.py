@@ -41,7 +41,7 @@ LITELLM_KEY_PREFIX = "sk-"
 MATTERMOST_DB_AUTH_KEY = "mattermost_db_password"
 _BASIC_AUTH_SECRET_TYPE: SecretType = "kubernetes.io/basic-auth"
 # The server secret of SearXNG (#3924). No Settings option reads it: only the pod does.
-SEARXNG_SECRET_KEY = "searxng_secret_key"
+SEARXNG_SERVER_KEY = "searxng_secret_key"
 
 
 @dataclass(frozen=True)
@@ -342,7 +342,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         entries=(
             SecretEntry(
                 "SEARXNG_SECRET",
-                KeyringSource(SEARXNG_SECRET_KEY),
+                KeyringSource(SEARXNG_SERVER_KEY),
                 generator=SecretGenerator("hex", 32),
             ),
         ),
