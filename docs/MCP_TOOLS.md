@@ -72,7 +72,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_views_spec`](#gh-views-spec) | `true` | Output JSON schema specification for all configured project views. |
 | [`gh_views_sync`](#gh-views-sync) | `false` | Synchronize standardized views with the remote GitHub Projects v2 board. |
 | [`grafana_dashboards_list`](#grafana-dashboards-list) | `true` | List all dashboards. |
-| [`hydrate_tool_domain`](#hydrate-tool-domain) | `true` | Advertise the tools for one domain, which are withheld from the listing by default.  Call this before browsing a domain's tools. Available lazy domains include `argo`, `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`, `prometheus`, `rag`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`, `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`. Pass the domain name alone, for example `k8s`. |
+| [`hydrate_tool_domain`](#hydrate-tool-domain) | `true` | Advertise the tools for one domain, which are withheld from the listing by default.  Call this before browsing a domain's tools. Available lazy domains include `argo`, `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`, `prometheus`, `rag`, `repos`, `research`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`, `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`. Pass the domain name alone, for example `k8s`. |
 | [`k8s_audit`](#k8s-audit) | `true` | Sanitize active K8s/Minikube cluster resource health using Derailed Popeye. |
 | [`k8s_bootstrap`](#k8s-bootstrap) | `false` | Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress. |
 | [`k8s_chaos`](#k8s-chaos) | `false` | Run resilience and chaos experiments against Kubernetes workloads. |
@@ -105,6 +105,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`prometheus_query`](#prometheus-query) | `true` | Execute an instant PromQL query. |
 | [`repos_list`](#repos-list) | `true` | List all cloned repositories. |
 | [`repos_sync`](#repos-sync) | `false` | Fetch (and optionally pull) all tracking branches across repos. |
+| [`research_inventory`](#research-inventory) | `true` | List every pin of the project as a typed component: Python packages, tools, container images, GitHub Actions, Helm charts and Terraform providers. It reads files only. |
 | [`review_branch`](#review-branch) | `true` | Review a git branch diff. |
 | [`review_export_feedback`](#review-export-feedback) | `true` | Append review verdicts to the JSONL feedback dataset, which `devops ai prompt-eval` reads.  Each session's findings.json and candidates.json are read, and only the findings whose verdict the dataset does not hold yet are appended. An export that finds none leaves the dataset as it was. Without --status only INVALIDATED verdicts are exported. The dataset changes no prompt and no later review.  A subject reviewed more than once is exported once: its sessions share their findings by fingerprint v2. Each finding has the newest verdict a person gave it in any of those sessions, or else the verdict of the session that review history counts. --status selects by that verdict. A session that records no subject, and a finding with no fingerprint v2, are exported on their own. |
 | [`review_findings`](#review-findings) | `true` | Inspect structured findings for a review session.  Each finding keeps its number, its place in findings.json, whatever filter the list applies, and `devops review verify --index` takes that number. With `--candidates` the list is candidates.json: every finding the review raised, the ones verification invalidated included, numbered for `devops review verify --candidate`. |
@@ -1166,8 +1167,8 @@ Advertise the tools for one domain, which are withheld from the listing by defau
 
 Call this before browsing a domain's tools. Available lazy domains include `argo`,
 `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
-`prometheus`, `rag`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`, `telemetry`,
-`tf`, `tls`, `valkey`, `vault` and `verify`.
+`prometheus`, `rag`, `repos`, `research`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`,
+`telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
 Pass the domain name alone, for example `k8s`.
 
 **Annotations:** `readOnlyHint: true`
@@ -1701,6 +1702,14 @@ Fetch (and optionally pull) all tracking branches across repos.
 | `base_dir` | `string` | No | - | - |
 | `pull` | `boolean` | No | `True` | - |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
+
+### `research_inventory`
+
+List every pin of the project as a typed component: Python packages, tools, container images, GitHub Actions, Helm charts and Terraform providers. It reads files only.
+
+**Annotations:** `readOnlyHint: true`
+
+*No parameters required.*
 
 ### `review_branch`
 

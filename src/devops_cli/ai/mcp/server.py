@@ -527,8 +527,8 @@ def hydrate_tool_domain(domain: str, ctx: Context | None = None) -> dict[str, An
 
     Call this before browsing a domain's tools. Available lazy domains include `argo`,
     `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
-    `prometheus`, `rag`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`, `telemetry`,
-    `tf`, `tls`, `valkey`, `vault` and `verify`.
+    `prometheus`, `rag`, `repos`, `research`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`,
+    `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
     Pass the domain name alone, for example `k8s`.
     """
     key = domain.strip().lower().removesuffix("_")
