@@ -1,0 +1,29 @@
+# Design
+
+## Decisions
+
+- **A `devops k8s` command, not a live pytest test.**: The test floor fakes the network and the keyring, and `docs/TESTING.md` forbids a skip on the state of the host, so a live test cannot reach the service. The owner chose a command on 2026-11-07. The command runs outside the test floor, its tests use the process, HTTP and keyring fakes, and a person repeats it at each digest bump.
+- **Two modules in `src/devops_cli/k8s/`, one of them shared.**: `service_probe.py` holds the throwaway pod (`probe_from_pod`, `PodTarget`, `PodProbeRow`) and knows no Crawl4AI name. `crawl4ai_check.py` holds the matrix, `is_refusal` and `CRAWL4AI_IMAGE`. #3929 checks SearXNG by the same method and reuses `service_probe.py`. The command module in `commands/k8s/` is a thin adapter: options, output and exit code.
+- **A refusal is a status of 400 or 403 with a body that is a JSON object with the one key `detail`.**: The pinned image answers a blocked URL with 400 and `{"detail":"URL blocked (SSRF protection): URL blocked"}`, so an empty body cannot be required. A second source reports 403. The body rule rejects a served page, because a page reply holds other keys (`markdown`, `html`) or is not JSON. The report records the status and the body length, so a 403 from another layer stays visible.
+- **The target URLs are composed at run time, and the report names a role.**: The roles are `<metadata>`, `<loopback>`, `<kubernetes-api>`, `<crawl4ai-service>` and `<roadmap-service>`. The Service hosts are built from the namespace, the Service name and the `svc` domain, and the metadata address comes from `CONST_CLOUD_METADATA_IPV4` in `src/devops_cli/config/constants.py`, so the module holds no address literal and the output holds no host name. This follows rule 8 of `SECURITY.md` and the committed-addresses invariant.
+- **The token comes from the keyring only.**: `get_crawl4ai_api_token` reads `crawl4ai_api_token`. The command reads it before it starts a process, so a missing entry changes nothing. It is not an option, an environment variable or an argument of a process.
+- **Requests go through a local `kubectl port-forward`.**: `spawn_detached` starts the forward, `http_client(EgressLevel.LOOPBACK)` sends the requests, and `terminate_process_group` stops the forward in a `finally`. The option `--local-port` names the local port, so the command opens no socket to find a free one. The command sends `GET /health` first: a forward that ends at once, or a service that does not answer, stops the command before a request carries the token.
+- **The throwaway pod never becomes ready.**: Service `crawl4ai` and the ingress rule of `crawl4ai-perimeter` select by the label `app.kubernetes.io/name`. A ready pod with that label would join the endpoints of the Service. So `kubectl run --overrides` sets a readiness probe that runs `false`, and the probes run with `kubectl exec`. The overrides also set the `restricted` security context, because namespace `devops` enforces Pod Security `restricted`.
+- **The pod is deleted in a `finally`.**: A failed start, a failed probe and an exception all end with `kubectl delete pod`. The pod name has a random suffix, so two runs never meet.
+- **The image digest check extends the existing check of the `k8s` row.**: `check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when_missing` in `tests/gate/k8s_checks/devops_runtime.py` already reads the rendered Deployment `crawl4ai`. It now compares the full image with `CRAWL4AI_IMAGE` and no longer only the prefix. One render and one check stay one.
+- **The command is not an MCP tool.**: It starts a pod, so it is not read-only, and no `k8s` command is in `CONST_MCP_EXPOSURE_TABLE`. `--dry-run` has the class `request-plan`.
+- **A missing control is not fixed here.**: If a route serves a body for an internal target, the person files the evidence upstream and as a comment on #3884. The change adds no compensating code (AGENTS.md rule 2).
+
+## Rejected alternatives
+
+- **A live pytest test with a marker.**: `tests/conftest.py` refuses a loopback connect and denies the keyring, and `docs/TESTING.md` forbids a skip on the state of the host.
+- **A manual procedure in `k8s/README.md`.**: It leaves no automated check, and the issue asks for a run at each digest bump.
+- **`kubectl exec` into the running Crawl4AI pod.**: The image has no shell, and the check would touch the running workload.
+- **An offline NetworkPolicy checker.**: `tests/commands/k8s/test_k8s_network_policies.py` already reads the policy document. It does not test the running cluster, which is the point of this item.
+- **A new SSRF scanner.**: No open, maintained scanner tests a running Crawl4AI service.
+- **A body that must be empty.**: The pinned image returns `URL blocked (SSRF protection)`, so this would fail on the correct image.
+- **Any status that is not 2xx as a refusal.**: A 500 is a fault, not a refusal, so a crash would pass.
+- **The token from an environment variable or from `kubectl get secret`.**: The value would pass through the process environment or the process list, which rule 1 of `SECURITY.md` forbids.
+- **An in-cluster Job instead of a port-forward.**: It needs a Job, a ServiceAccount and a policy change, and that costs more than the check.
+- **A free port found by a socket.**: The test floor refuses a socket, and an option is simpler for a person to read.
+- **The digest read at run time.**: The result would not match the image that a person tested.

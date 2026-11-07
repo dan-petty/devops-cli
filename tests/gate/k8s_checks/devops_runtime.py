@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 import yaml
+from devops_cli.k8s.crawl4ai_check import CRAWL4AI_IMAGE
 
 from tests.support.paths import REPO_ROOT
 
@@ -54,10 +55,16 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
         )["template"]["spec"]["containers"]
     }
     # The runner has no entry here: Image Updater writes its own entry (#2667).
-    # Deployment `crawl4ai` pins a third-party image by tag and digest (#3884).
+    # Deployment `crawl4ai` pins a third-party image by tag and digest (#3884). `devops k8s
+    # crawl4ai-check` names the image it was written for (#3894), so a bump fails here until a
+    # person runs the command against the new image and sets the constant.
     crawl4ai = next(c for c in containers if c[1] == "crawl4ai")
     assert crawl4ai[0] == "Deployment"
-    assert crawl4ai[2].startswith("unclecode/crawl4ai:")
+    assert crawl4ai[2] == CRAWL4AI_IMAGE, (
+        f"k8s/devops/crawl4ai/deployment.yaml pins {crawl4ai[2]}, but `devops k8s crawl4ai-check` "
+        f"was written for {CRAWL4AI_IMAGE}. Run `uv run devops k8s crawl4ai-check` against the new "
+        "image, then set CRAWL4AI_IMAGE in src/devops_cli/k8s/crawl4ai_check.py."
+    )
     containers.discard(crawl4ai)
     # Deployment `searxng` pins a third-party image by tag and digest (#3924).
     searxng = next(c for c in containers if c[1] == "searxng")
