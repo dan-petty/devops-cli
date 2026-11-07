@@ -22,9 +22,9 @@ Reads: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/roadmap/explain.py`
 
 Reads: `docs/ROADMAP_WORKFLOW.md`, `docs/commands/roadmap.md`, `src/devops_cli/lang/en/help.py`. Changes: `docs/ROADMAP_WORKFLOW.md`, `docs/commands/roadmap.md`, `docs/CLI_REFERENCE.md`, `README.md`.
 
-- [ ] 3.1 Edit the `devops roadmap explain` note of `docs/ROADMAP_WORKFLOW.md` to say that the command reports the tokens, the seconds, the repair rounds and the outcome counts of the last implement run, the count of dropped events, and the totals as a JSON object under `--json`. Run `uv run devops docs generate --sync-readme` so that `docs/commands/roadmap.md`, `docs/CLI_REFERENCE.md` and `README.md` hold the new help text and the new option
+- [x] 3.1 Edit the `devops roadmap explain` note of `docs/ROADMAP_WORKFLOW.md` to say that the command reports the tokens, the seconds, the repair rounds and the outcome counts of the last implement run, the count of dropped events, and the totals as a JSON object under `--json`. Run `uv run devops docs generate --sync-readme` so that `docs/commands/roadmap.md`, `docs/CLI_REFERENCE.md` and `README.md` hold the new help text and the new option
   - Verification: `uv run devops docs check` passes
-- [ ] 3.2 Edit `docs/ROADMAP_WORKFLOW.md`, then regenerate `docs/commands/roadmap.md`, `docs/CLI_REFERENCE.md` and `README.md` with `uv run devops docs generate --sync-readme`
+- [x] 3.2 Edit `docs/ROADMAP_WORKFLOW.md`, then regenerate `docs/commands/roadmap.md`, `docs/CLI_REFERENCE.md` and `README.md` with `uv run devops docs generate --sync-readme`
   - Verification: `uv run devops ci docs` passes
 
 ## Workflow follow-up
