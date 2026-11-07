@@ -49,6 +49,7 @@
 - [**Knowledge Base Catalog (`docs/KNOWLEDGE_BASE.md`)**](docs/KNOWLEDGE_BASE.md) — The manuals that ground the AI commands.
 - [**OpenTofu Modules (`tf/README.md`)**](tf/README.md) — Managed Kubernetes cluster modules.
 - [**Agent Records (`docs/agent/README.md`)**](docs/agent/README.md) — Compacted records of the early development phases.
+- [**Dashboard Tabs Audit (`docs/DASHBOARD_TABS_AUDIT.md`)**](docs/DASHBOARD_TABS_AUDIT.md) — Audit of five dashboard tabs against open terminal tools.
 
 ---
 
