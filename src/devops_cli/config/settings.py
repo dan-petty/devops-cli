@@ -1135,7 +1135,7 @@ class ServiceConfig(BaseModel):
         gt=0,
     )
     github_requests_per_hour: Annotated[int, Variable()] = Field(
-        description="The most GitHub requests the Service sends in one hour; a request that the last hour has no room for waits. The alert RoadmapServiceGitHubRequestsHigh follows this limit",
+        description="The most GitHub requests the Service sends in one hour, not counting those that GitHub answers with 304, as GitHub does not count them against its rate limit; a request that the last hour has no room for waits. The alert RoadmapServiceGitHubRequestsHigh follows this limit",
         default=DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR,
         gt=0,
     )
