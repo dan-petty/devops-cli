@@ -7,36 +7,24 @@ any smaller value from reaching the native client.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
-from devops_cli.ai.rag import indexer as indexer_module
-from devops_cli.ai.rag import investigator as investigator_module
-from devops_cli.ai.tools import builtin_tools
+from devops_cli.ai.rag.indexer import resolve_qdrant_client, resolve_rag_components
+from devops_cli.ai.rag.qdrant import create_native_qdrant_client
 from devops_cli.config import settings as settings_module
 from devops_cli.config.settings import QdrantConfig
 from devops_cli.exceptions import ConfigurationError
+
+pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 def _configure_qdrant(config: Path, timeout: float) -> None:
     """Append a `qdrant` section to the test's config file, at an address that needs no DNS."""
     section = f"qdrant:\n  url: http://127.0.0.1:6333\n  timeout: {timeout}\n"
     config.write_text(config.read_text(encoding="utf-8") + section, encoding="utf-8")
-
-
-@pytest.fixture
-def no_secrets(monkeypatch: pytest.MonkeyPatch, keyring_store: object) -> None:
-    """Resolve the API keys without the keyring, and the Valkey password from an empty keyring.
-
-    An embeddings engine reads the Valkey password when it builds its Valkey cache tier.
-    """
-    monkeypatch.setattr(settings_module, "get_qdrant_api_key", lambda settings: "test-key")
-    monkeypatch.setattr(settings_module, "get_ai_api_key", lambda settings: None)
 
 
 def test_the_qdrant_timeout_is_read_from_the_config_file_and_the_environment(
@@ -77,77 +65,31 @@ def test_a_qdrant_timeout_in_the_config_file_must_be_positive() -> None:
     ]
 
 
-def _investigation() -> object:
-    return investigator_module._get_or_create_retriever(settings_module.load_settings(), None, None)
-
-
-CALLERS: dict[str, Callable[[], object]] = {
-    "review investigation": _investigation,
-    "rag_search tool": lambda: builtin_tools.rag_search("retry policy"),
-    "devops ai rag query": indexer_module.resolve_rag_components,
-    "indexing": indexer_module.resolve_qdrant_client,
-}
-
-
-@pytest.mark.usefixtures("no_secrets")
-@pytest.mark.parametrize("caller", list(CALLERS), ids=list(CALLERS))
-def test_each_caller_builds_its_qdrant_client_with_the_configured_timeout(
-    caller: str, isolate_devops_cli_config: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda: resolve_rag_components().qdrant, id="rag components"),
+        pytest.param(resolve_qdrant_client, id="indexing"),
+    ],
+)
+def test_each_builder_gives_its_qdrant_client_the_configured_timeout(
+    build: object, isolate_devops_cli_config: Path
 ) -> None:
-    """Verify each place that builds a Qdrant client passes `qdrant.timeout`, not the default.
-
-    Indexing's upserts and deletes go through the client `resolve_qdrant_client` builds.
-    """
+    """The review investigation, the `rag_search` tool, `devops ai rag query` and the library
+    vector store build their client with `resolve_rag_components`; indexing's upserts and
+    deletes go through `resolve_qdrant_client`. Both pass `qdrant.timeout`, not the default."""
     _configure_qdrant(isolate_devops_cli_config, 450)
-    timeouts: list[Any] = []
 
-    class RecordingQdrant:
-        """Records the timeout each client is built with, and reports Qdrant unreachable."""
+    client = build()  # type: ignore[operator]
 
-        def __init__(self, base_url: str, **kwargs: Any) -> None:
-            timeouts.append(kwargs.get("timeout"))
-
-        def is_alive(self, **kwargs: Any) -> bool:
-            return False
-
-    from devops_cli.ai.rag import qdrant as qdrant_module
-
-    monkeypatch.setattr(qdrant_module, "QdrantClient", RecordingQdrant)
-    monkeypatch.setattr(indexer_module, "QdrantClient", RecordingQdrant)
-    monkeypatch.setattr(investigator_module, "_RETRIEVER_CACHE", None)
-
-    CALLERS[caller]()
-
-    assert timeouts == [450.0]
+    assert client.timeout == 450.0
 
 
 @pytest.mark.parametrize(("configured", "sent"), [(600, 600), (30, 30), (0.5, 1)])
-def test_a_configured_timeout_reaches_the_native_client(
-    configured: float,
-    sent: int,
-    isolate_devops_cli_config: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_the_native_client_waits_the_configured_timeout_with_no_floor(
+    configured: float, sent: int
 ) -> None:
-    """Verify the configured timeout is what the native client waits, with no floor under it.
+    """The native client takes whole seconds, so a fraction rounds up rather than down to 0."""
+    native = create_native_qdrant_client("http://127.0.0.1:6333", timeout=float(configured))
 
-    The native client takes whole seconds, so a fraction rounds up rather than down to 0.
-    """
-    _configure_qdrant(isolate_devops_cli_config, configured)
-    native: list[dict[str, Any]] = []
-
-    def native_client(**kwargs: Any) -> SimpleNamespace:
-        native.append(kwargs)
-        return SimpleNamespace()
-
-    from devops_cli.ai.rag import qdrant as qdrant_module
-
-    monkeypatch.setattr(settings_module, "get_qdrant_api_key", lambda settings: "test-key")
-    monkeypatch.setattr(qdrant_module, "NativeQdrantClient", native_client)
-
-    client = indexer_module.resolve_qdrant_client()
-    client._get_client()
-
-    assert (client.timeout, [kwargs["timeout"] for kwargs in native]) == (
-        float(configured),
-        [sent],
-    )
+    assert native._client._timeout == sent

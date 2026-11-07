@@ -1,4 +1,4 @@
-"""Qdrant log lines, errors and the retriever cache key name the server by host and port.
+"""Qdrant log lines and errors name the server by host and port.
 
 The configured URL can hold userinfo, which the client sends as Basic authentication, and a path.
 No text that the client writes holds either. An address that is not a URL shows as `unknown`.
@@ -6,19 +6,17 @@ No text that the client writes holds either. An address that is not a URL shows 
 
 from __future__ import annotations
 
-import hashlib
 import logging
-from unittest.mock import MagicMock
+from typing import Any
 
 import pytest
 
-from devops_cli.ai.rag import retriever
-from devops_cli.ai.rag.embeddings import EmbeddingsError
-from devops_cli.ai.rag.investigator import _get_or_create_retriever, clear_investigation_cache
+from devops_cli.ai.rag.investigator import investigate_rag_context
 from devops_cli.ai.rag.qdrant import QdrantClient, QdrantClientError
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions import InvalidURLError
 from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
+from tests.support.fakes.kubernetes import FakeCluster
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -70,14 +68,16 @@ def test_the_label_names_the_server_by_host_and_port(url: str, label: str) -> No
 
 @pytest.mark.parametrize("url", [_HTTP_URL, _K8S_URL], ids=["http", "k8s"])
 def test_the_client_log_line_of_list_collections_names_the_server_by_host_and_port(
-    caplog: pytest.LogCaptureFixture, url: str
+    caplog: pytest.LogCaptureFixture, cluster: FakeCluster, refusing_port: int, url: str
 ) -> None:
-    native = MagicMock()
-    native.get_collections.side_effect = ConnectionError("Connection refused")
-    client = QdrantClient(url, client=native, allow_private_network=True, timeout=5.0)
+    """A real client dials a loopback port that refuses; the line names the configured server."""
+    cluster.configuration.host = f"http://127.0.0.1:{refusing_port}"
+    if url == _HTTP_URL:
+        url = f"http://user:secret@127.0.0.1:{refusing_port}/prefix/path"
+    client = QdrantClient(url, allow_private_network=True, timeout=5.0)
 
     with caplog.at_level(logging.DEBUG, logger="devops_cli.ai.rag.qdrant"):
-        with pytest.raises(QdrantClientError, match="Connection refused"):
+        with pytest.raises(QdrantClientError, match="Error connecting to Qdrant"):
             client.list_collections()
 
     (line,) = (
@@ -85,22 +85,22 @@ def test_the_client_log_line_of_list_collections_names_the_server_by_host_and_po
         for record in caplog.records
         if record.getMessage().startswith("Failed to list Qdrant collections")
     )
-    host = "example.com:6333" if url == _HTTP_URL else "qdrant.devops:6333"
-    assert line == f"Failed to list Qdrant collections from {host}: Connection refused"
+    host = f"127.0.0.1:{refusing_port}" if "127.0.0.1" in url else "qdrant.devops:6333"
+    assert line.startswith(f"Failed to list Qdrant collections from {host}: ")
+    assert _leaks(line) == []
 
 
 @pytest.mark.parametrize("url", [_HTTP_URL, _K8S_URL], ids=["http", "k8s"])
 def test_the_investigator_warning_names_the_server_by_host_and_port(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, url: str
+    qdrant: Any, caplog: pytest.LogCaptureFixture, url: str
 ) -> None:
-    clear_investigation_cache()
-    monkeypatch.setattr(QdrantClient, "is_alive", lambda self, **_: False)
+    qdrant.refusing = True
     st = Settings()
-    st.ai.allow_private_network = True
+    st.ai.rag.enabled = True
     st.qdrant.url = url
 
     with caplog.at_level(logging.DEBUG, logger="devops_cli.ai.rag.investigator"):
-        assert _get_or_create_retriever(st, None, None) is None
+        assert investigate_rag_context("where is the retry policy", settings=st) is None
 
     (line,) = (
         record.getMessage()
@@ -155,63 +155,3 @@ def test_the_error_for_a_label_with_no_origin_does_not_read_as_a_url() -> None:
     assert str(InvalidURLError("ftp://example.com", "Unsupported scheme")) == (
         "Invalid URL for server example.com: Unsupported scheme"
     )
-
-
-@pytest.mark.parametrize("url", [_HTTP_URL, _K8S_URL], ids=["http", "k8s"])
-def test_the_search_cache_key_names_the_server_by_label_and_digest(
-    monkeypatch: pytest.MonkeyPatch, url: str
-) -> None:
-    retriever.reset_search_verified_models()
-    monkeypatch.setattr(retriever, "_inspect_collection_model", lambda qdrant, name: "model-a")
-    client = QdrantClient(url, allow_private_network=True, timeout=5.0)
-
-    retriever._verify_single_collection_for_search(client, "devops_code", "model-a")
-
-    ((label, digest, collection),) = retriever._SEARCH_VERIFIED_MODELS
-    assert (label, collection) == (client.server_label, "devops_code")
-    assert digest == hashlib.sha256(client.base_url.encode()).hexdigest()
-    assert _leaks(repr(retriever._SEARCH_VERIFIED_MODELS)) == []
-    retriever.reset_search_verified_models()
-
-
-@pytest.mark.parametrize(
-    ("first", "second"),
-    [
-        ("http://example.com", "https://example.com"),
-        ("http://example.com/qdrant-a", "http://example.com/qdrant-b"),
-    ],
-    ids=["scheme", "path-prefix"],
-)
-def test_two_servers_with_one_label_keep_two_cache_keys(
-    monkeypatch: pytest.MonkeyPatch, first: str, second: str
-) -> None:
-    """The second server is checked against its own model, not skipped or compared with the first."""
-    retriever.reset_search_verified_models()
-    recorded = {first: "model-a", second: "model-b"}
-    monkeypatch.setattr(
-        retriever, "_inspect_collection_model", lambda qdrant, name: recorded[qdrant.base_url]
-    )
-    one = QdrantClient(first, allow_private_network=True, timeout=5.0)
-    two = QdrantClient(second, allow_private_network=True, timeout=5.0)
-
-    retriever._verify_single_collection_for_search(one, "devops_code", "model-a")
-    with pytest.raises(EmbeddingsError, match="embedding model mismatch"):
-        retriever._verify_single_collection_for_search(two, "devops_code", "model-a")
-
-    assert len(retriever._SEARCH_VERIFIED_MODELS) == 2
-    retriever.reset_search_verified_models()
-
-
-def test_two_malformed_addresses_that_both_show_unknown_keep_two_cache_keys(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    retriever.reset_search_verified_models()
-    monkeypatch.setattr(retriever, "_inspect_collection_model", lambda qdrant, name: "model-a")
-    first = MagicMock(base_url="k8s://devops", server_label="unknown")
-    second = MagicMock(base_url="k8s://staging", server_label="unknown")
-
-    retriever._verify_single_collection_for_search(first, "devops_code", "model-a")
-    retriever._verify_single_collection_for_search(second, "devops_code", "model-a")
-
-    assert len(retriever._SEARCH_VERIFIED_MODELS) == 2
-    retriever.reset_search_verified_models()

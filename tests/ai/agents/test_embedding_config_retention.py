@@ -1,70 +1,77 @@
-"""Unit tests verifying embedding model configuration retention, tag preservation, and task overrides."""
+"""An embedding model keeps its configuration: settings, tags and task overrides."""
 
 from __future__ import annotations
+
+import json
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 
 from devops_cli.ai.agents.embeddings import Embedder
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, OllamaEmbeddingModel
-from devops_cli.config.settings import AIConfig, AIEmbeddingTaskOverride, Settings
+from devops_cli.config.settings import AIConfig, AIEmbeddingTaskOverride
+from tests.support.embedding_replies import ollama_reply, serve
+from tests.support.fakes.http import WebFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
-def _settings_without_valkey(refusing_port: int) -> Settings:
-    """Default settings whose Valkey cache is down, refused through `refusing_port`."""
-    settings = Settings()
-    settings.valkey.url = f"valkey://127.0.0.1:{refusing_port}"
-    return settings
-
-
-def test_embeddings_engine_defaults_to_active_settings(
-    monkeypatch: pytest.MonkeyPatch, refusing_port: int
+def test_an_engine_without_a_config_uses_the_model_and_nodes_of_the_settings(
+    config: Callable[..., Any], web: WebFake
 ) -> None:
-    """Verify that EmbeddingsEngine defaults to load_settings().ai rather than blank AIConfig."""
-    custom_settings = _settings_without_valkey(refusing_port)
-    custom_settings.ai.tasks.embedding.model = "embeddinggemma:300m"
-    custom_settings.ai.tasks.embedding.ollama_urls = ["http://192.0.2.10:11434"]
-    monkeypatch.setattr("devops_cli.config.settings.load_settings", lambda: custom_settings)
-
+    """EmbeddingsEngine defaults to the loaded `ai` settings rather than a blank AIConfig."""
+    config(
+        ai={
+            "tasks": {
+                "embedding": {
+                    "model": "embeddinggemma:300m",
+                    "ollama_urls": ["http://example.com:11434"],
+                }
+            }
+        }
+    )
+    sent = serve(web, ollama_reply)
     engine = EmbeddingsEngine()
-    assert engine.model == "embeddinggemma:300m"
-    assert engine._get_ollama_urls() == ["http://192.0.2.10:11434"]
+
+    engine.embed_texts(["hello"])
+
+    assert (engine.model, str(sent[0].url), json.loads(sent[0].content)["model"]) == (
+        "embeddinggemma:300m",
+        "http://example.com:11434/api/embed",
+        "embeddinggemma:300m",
+    )
 
 
-def test_embeddings_engine_respects_task_override() -> None:
-    """Verify that EmbeddingsEngine prioritizes ai.tasks.embedding.model if configured."""
+def test_an_engine_prefers_the_embedding_task_model_of_its_config() -> None:
     ai_cfg = AIConfig()
     ai_cfg.tasks.embedding = AIEmbeddingTaskOverride(model="custom-task-embed:v1")
 
-    engine = EmbeddingsEngine(ai_cfg)
-    assert engine.model == "custom-task-embed:v1"
+    assert EmbeddingsEngine(ai_cfg).model == "custom-task-embed:v1"
 
 
-def test_ollama_embedding_model_defaults_to_active_settings(
-    monkeypatch: pytest.MonkeyPatch, refusing_port: int
+def test_the_ollama_embedding_model_uses_the_model_of_the_settings(
+    config: Callable[..., Any],
 ) -> None:
-    """Verify OllamaEmbeddingModel inherits active embedding model from settings."""
-    custom_settings = _settings_without_valkey(refusing_port)
-    custom_settings.ai.tasks.embedding.model = "embeddinggemma:300m"
-    monkeypatch.setattr("devops_cli.config.settings.load_settings", lambda: custom_settings)
+    config(ai={"tasks": {"embedding": {"model": "embeddinggemma:300m"}}})
 
-    model = OllamaEmbeddingModel()
-    assert model.model_name == "embeddinggemma:300m"
+    assert OllamaEmbeddingModel().model_name == "embeddinggemma:300m"
 
 
-def test_embedder_preserves_colon_tags_in_model_name(
-    monkeypatch: pytest.MonkeyPatch, refusing_port: int
+@pytest.mark.parametrize(
+    ("spec", "model"),
+    [
+        ("ollama:embeddinggemma:300m", "embeddinggemma:300m"),
+        ("ollama:qwen3:14b-q8_0", "qwen3:14b-q8_0"),
+    ],
+)
+def test_an_embedder_keeps_the_colon_tag_of_a_model_name(
+    spec: str, model: str, config: Callable[..., Any], web: WebFake
 ) -> None:
-    """Verify Embedder does not truncate model names with colon tags (e.g. embeddinggemma:300m)."""
-    custom_settings = _settings_without_valkey(refusing_port)
-    custom_settings.ai.tasks.embedding.model = "embeddinggemma:300m"
-    monkeypatch.setattr("devops_cli.config.settings.load_settings", lambda: custom_settings)
+    """A model name such as embeddinggemma:300m is not cut at its tag."""
+    config(ai={"ollama_urls": ["http://example.com:11434"]})
+    sent = serve(web, ollama_reply)
 
-    embedder1 = Embedder("ollama:embeddinggemma:300m")
-    eng1 = embedder1._get_engine()
-    assert eng1.model == "embeddinggemma:300m"
+    Embedder(spec).embed_query_sync("hello")
 
-    embedder2 = Embedder("ollama:qwen3:14b-q8_0")
-    eng2 = embedder2._get_engine()
-    assert eng2.model == "qwen3:14b-q8_0"
+    assert json.loads(sent[0].content)["model"] == model
