@@ -159,7 +159,7 @@ Each clear by digest adds an entry (the class, the new digest and the time) to `
 
 ## The failure classes
 
-A stop has a class (`roadmap/failure.py`, #3065). A stop site that knows its cause passes the class itself (#3476): the classes `no_change_in_fix`, `tests_lost`, `head_moved`, `output_cap` and `limit_reached` come from the step, and no rule makes them. For any other stop, the classifier is a pure function of the error text, the exit status, the refusal of a tool, the name of the check and the log of the check. It never reads the last message of the agent, which is a claim that no check verified. A failure that no rule matches is `ci_infra`. The stop comment starts with the failed check and the end of its log, then names the class, the action taken and the action left. It shows the last message of the agent as a claim that no check verified. The Job log holds one line with the class and the action left. The Service adds 1 to `devops_cli_service_implement_failures_total` with the labels `class` and `repo` when a round reports the Job. A Job that left the Item with no result gets the class of the tail of its log.
+A stop has a class (`roadmap/failure.py`, #3065). A stop site that knows its cause passes the class itself (#3476): the classes `no_change_in_fix`, `tests_lost`, `head_moved`, `output_cap`, `limit_reached` and `outside_plan` come from the step, and no rule makes them. For any other stop, the classifier is a pure function of the error text, the exit status, the refusal of a tool, the name of the check and the log of the check. It never reads the last message of the agent, which is a claim that no check verified. A failure that no rule matches is `ci_infra`. The stop comment starts with the failed check and the end of its log, then names the class, the action taken and the action left. It shows the last message of the agent as a claim that no check verified. The Job log holds one line with the class and the action left. The Service adds 1 to `devops_cli_service_implement_failures_total` with the labels `class` and `repo` when a round reports the Job. A Job that left the Item with no result gets the class of the tail of its log.
 
 | Class | Default action | Meaning |
 | :--- | :--- | :--- |
@@ -181,6 +181,7 @@ A stop has a class (`roadmap/failure.py`, #3065). A stop site that knows its cau
 | `output_cap` | `raise_limit` | A model reply reached the output cap of the step |
 | `limit_reached` | `raise_limit` | A step spent a token budget or a time limit of `roadmap.implement`. The reason names the setting and its value. See [the budgets](#checks-of-the-implement-job) |
 | `read_only_path` | `wait` | A command wrote to a path that the Job mounts read-only. A new attempt or a new runner image writes to the same path, so a person fixes the cause |
+| `outside_plan` | `wait` | A fix step changed, added or deleted a path that the plan does not name (a path in a code span of any group, or a file of the change folder). The stop names the paths and holds the discarded diff. A person decides whether the plan changes |
 
 The Job runs these actions by itself:
 - the fix rounds of `roadmap.implement.repair_rounds` for a failed check,

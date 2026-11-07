@@ -2614,6 +2614,11 @@ class RoadmapMessages:
         "The agent made a symbolic link: {paths}. The step does not format a link."
     )
     implement_stop_no_change: str = "The agent changed no file."
+    implement_stop_outside_plan: str = (
+        "The fix step changed paths that the plan does not name: {paths}. A fix step may change "
+        "only the paths that the plan names and the files of the change folder. The cause of the "
+        "failed check may lie in another path. A person decides how to change the plan."
+    )
     implement_stop_no_test_file: str = "A behavior group changed no test file. Write the failing test first, in a file under tests/."
     implement_stop_base_passes: str = (
         "No test of the group fails on the base commit. The tests of {files} pass there, "
