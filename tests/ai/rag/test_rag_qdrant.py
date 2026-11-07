@@ -157,3 +157,79 @@ def test_qdrant_unreachable_server_raises_qdrant_client_error(refusing_port: int
     with pytest.raises(QdrantClientError) as raised:
         client.list_collections()
     assert raised.value.error_code == "DEVOPS_CLI_ERROR"
+
+
+def test_qdrant_must_not_list_filter(memory_qdrant_client: QdrantClient) -> None:
+    memory_qdrant_client.ensure_collection("filter_col", vector_size=4)
+    p1 = {
+        "id": "1",
+        "vector": [1.0, 0.0, 0.0, 0.0],
+        "payload": {"file_path": "a.py", "visibility": "public"},
+    }
+    p2 = {
+        "id": "2",
+        "vector": [0.0, 1.0, 0.0, 0.0],
+        "payload": {"file_path": "b.py", "visibility": "private"},
+    }
+    memory_qdrant_client.upsert_points("filter_col", [p1, p2])
+
+    res = memory_qdrant_client.search_points(
+        "filter_col",
+        query_vector=[0.0, 1.0, 0.0, 0.0],
+        filter_payload={"must_not": [{"key": "visibility", "value": "private"}]},
+        limit=5,
+    )
+    assert len(res) == 1
+    assert res[0]["payload"]["file_path"] == "a.py"
+
+
+def test_qdrant_set_payload(memory_qdrant_client: QdrantClient) -> None:
+    memory_qdrant_client.ensure_collection("payload_col", vector_size=4)
+    p1 = {
+        "id": "1",
+        "vector": [1.0, 0.0, 0.0, 0.0],
+        "payload": {"file_path": "a.py", "visibility": "public"},
+    }
+    memory_qdrant_client.upsert_points("payload_col", [p1])
+
+    # No filter returns True immediately
+    assert (
+        memory_qdrant_client.set_payload(
+            "payload_col", {"visibility": "private"}, filter_payload=None
+        )
+        is True
+    )
+
+    # Set payload on matching points
+    updated = memory_qdrant_client.set_payload(
+        "payload_col",
+        {"visibility": "private"},
+        filter_payload={"file_path": "a.py"},
+    )
+    assert updated is True
+    points = memory_qdrant_client.scroll_points("payload_col")
+    assert len(points) == 1
+    assert points[0]["payload"]["visibility"] == "private"
+
+
+def test_qdrant_set_payload_errors(
+    memory_qdrant_client: QdrantClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Not found collection returns False
+    res = memory_qdrant_client.set_payload(
+        "nonexistent_collection",
+        {"visibility": "public"},
+        filter_payload={"file_path": "a.py"},
+    )
+    assert res is False
+
+    # Arbitrary exception raises QdrantClientError
+    def _failing_exec(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("database crash")
+
+    monkeypatch.setattr(memory_qdrant_client, "_execute_with_retry", _failing_exec)
+    with pytest.raises(QdrantClientError) as exc_info:
+        memory_qdrant_client.set_payload(
+            "any_col", {"visibility": "public"}, filter_payload={"file_path": "a.py"}
+        )
+    assert "Set payload failed" in str(exc_info.value)

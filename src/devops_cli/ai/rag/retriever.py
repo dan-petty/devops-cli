@@ -75,6 +75,8 @@ def _build_rag_filter_payload(
         filter_payload["file_path"] = file_filter
     if project:
         filter_payload["project_name"] = project
+    else:
+        filter_payload["must_not"] = {"visibility": "private"}
     if language:
         filter_payload["language"] = language
     if category:

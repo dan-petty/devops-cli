@@ -337,6 +337,8 @@ def _build_chunk_point(
         "indexed_at": datetime.now(UTC).isoformat(),
         "embedding_model": embedding_model or "",
     }
+    if chunk.visibility:
+        payload["visibility"] = chunk.visibility
     if chunk.project_name == CONST_RAG_KB_PROJECT:
         payload["kb_digest"] = kb_digest or ""
     return {"id": chunk.id, "vector": vector, "payload": payload}
@@ -935,6 +937,7 @@ class WorkspaceIndexer:
         project: str | None = None,
         force: bool = False,
         include_kb: bool = False,
+        visibility: str | None = None,
         progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, Any]:
         """Incrementally index workspace files into Qdrant."""
@@ -974,6 +977,10 @@ class WorkspaceIndexer:
                 force=force,
                 progress_callback=progress_callback,
             )
+            if visibility:
+                for c in all_chunks:
+                    if c.project_name != CONST_RAG_KB_PROJECT and not c.visibility:
+                        c.visibility = visibility
 
             # Purge files deleted from disk since last index (scoped to scanned projects not forced)
             removed_files_count = 0

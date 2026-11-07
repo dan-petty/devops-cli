@@ -2631,6 +2631,7 @@ CONST_RAG_KB_PROJECT: Final[str] = "devops-cli-kb"
 CONST_RAG_PAYLOAD_INDEXES: Final[tuple[dict[str, Any], ...]] = (
     {"field_name": "project_name", "field_schema": "keyword", "is_tenant": True},
     {"field_name": "file_path", "field_schema": "keyword"},
+    {"field_name": "visibility", "field_schema": "keyword"},
 )
 
 # Helm releases that deploy DaemonSets across all cluster nodes
