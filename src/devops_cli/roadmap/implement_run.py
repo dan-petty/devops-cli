@@ -695,13 +695,9 @@ class _ItemRun:
                 timeout=timeout,
             )
             texts = MESSAGES.roadmap
-            reason = texts.implement_stop_rebase.format(
-                branch=self.default,
-                files=texts.implement_stop_rebase_files.format(files=_files_lines(files))
-                if files
-                else "",
-                output=str(exc),
-            )
+            reason = texts.implement_stop_rebase.format(branch=self.default, output=str(exc))
+            if files:
+                reason += texts.implement_stop_rebase_files.format(files=_files_lines(files))
             if aborted.returncode != 0:
                 reason += texts.implement_stop_abort_failed.format(output=_tail(aborted.stderr))
             raise _StopError(
