@@ -1,7 +1,7 @@
 # Tasks
 
 ## 1. Remove Test Detection from Product Code
-- [ ] 1.1 Remove `PYTEST_CURRENT_TEST` checks from `src/devops_cli/commands/ci.py` and environment pass-through in `src/devops_cli/core/process.py`; verify with `python -c "import os; from devops_cli.commands.ci import _clean_coverage_artifacts"`
+- [ ] 1.1 Remove `PYTEST_CURRENT_TEST` checks from `src/devops_cli/commands/ci.py`; verify with `python -c "import os; from devops_cli.commands.ci import _clean_coverage_artifacts"`
 - [ ] 1.2 Regenerate documentation with `uv run devops docs generate --sync-readme`
 
 ## 2. Extract CI Domain Logic to `ci/`

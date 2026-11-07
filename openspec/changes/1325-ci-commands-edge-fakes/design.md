@@ -8,7 +8,7 @@ Tests for `ci`, `test`, `devcontainer`, `workspace`, `install-tools`, `uv`, `bra
 ## Goals / Non-Goals
 
 **Goals:**
-- Eliminate `PYTEST_CURRENT_TEST` detection in `commands/ci.py` and `core/process.py`.
+- Eliminate `PYTEST_CURRENT_TEST` detection in `commands/ci.py`.
 - Extract CI domain logic into `src/devops_cli/ci/` as public functions.
 - Route child processes through `run_subprocess` and isolate tests with `ProcessFake`.
 - Move committed GitHub workflow assertions to `tests/invariants/test_workflows.py`.
@@ -22,7 +22,7 @@ Tests for `ci`, `test`, `devcontainer`, `workspace`, `install-tools`, `uv`, `bra
 ## Decisions
 
 ### 1. Remove `PYTEST_CURRENT_TEST` Detection
-- **Decision**: Delete lines checking `os.getenv("PYTEST_CURRENT_TEST")` in `src/devops_cli/commands/ci.py` and remove `"PYTEST_CURRENT_TEST"` from `core/process.py`.
+- **Decision**: Delete lines checking `os.getenv("PYTEST_CURRENT_TEST")` in `src/devops_cli/commands/ci.py`.
 - **Alternative considered**: Keep `PYTEST_CURRENT_TEST` detection for safety during test runs.
   - *Rejected*: Rule 2 of AGENTS.md explicitly orders: "Stop also when you swallow an error, make product code detect tests, or put a second fix on a fix." Product code must never detect when it runs under test.
 

@@ -6,7 +6,7 @@ Issue #1325 delivers Phase E package test refactoring for developer workflow com
 
 ## What Changes
 
-- Remove `PYTEST_CURRENT_TEST` detection branches from `src/devops_cli/commands/ci.py` and `src/devops_cli/core/process.py`.
+- Remove `PYTEST_CURRENT_TEST` detection branches from `src/devops_cli/commands/ci.py`.
 - Move check specs, gate cache, result assembly, and coverage cleanup functions into `src/devops_cli/ci/`.
 - Ensure test-target selection is hosted under `src/devops_cli/core/test_selection.py` and called through public functions.
 - Move workflow invariant tests from `tests/commands/test_ci.py` into `tests/invariants/test_workflows.py`.
@@ -28,7 +28,6 @@ None.
 
 - `src/devops_cli/commands/ci.py`: becomes a thin adapter delegating domain operations to `src/devops_cli/ci/`.
 - `src/devops_cli/ci/`: receives public domain functions for gate execution, check specification, and coverage management.
-- `src/devops_cli/core/process.py`: removes `PYTEST_CURRENT_TEST` environment pass-through.
 - `tests/commands/`: tests exercise command interfaces via `process_fake` without patching internals.
 - `tests/invariants/test_workflows.py`: hosts committed GitHub workflow and action invariants.
 
