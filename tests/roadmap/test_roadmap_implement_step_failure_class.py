@@ -23,7 +23,7 @@ from devops_cli.roadmap.implement_step import (
     run_fix_step,
     run_step,
 )
-from tests.support.fakes.process import ProcessFake
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
     WINDOW,
@@ -96,19 +96,32 @@ def test_a_group_step_that_changes_no_file_is_a_plan_defect(
     )
 
 
-def test_an_agent_that_moves_head_stops_the_step_with_head_moved(
+def test_a_reset_of_a_moved_head_that_fails_stops_the_step_with_head_moved(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
+    moved: list[tuple[str, str]] = []
+
     def agent_commits() -> None:
         (checkout / "src" / "other.py").write_text("OTHER = 3\n", encoding="utf-8")
+        before = git(checkout, "rev-parse", "HEAD")
         git(checkout, "add", "-A")
         git(checkout, "commit", "-q", "-m", "own commit")
+        moved.append((before, git(checkout, "rev-parse", "HEAD")))
 
+    programs.answer(
+        lambda call: call.argv[:3] == ("git", "reset", "--soft"),
+        ProcessAnswer(returncode=128, stderr="fatal: Could not parse object\n"),
+    )
     script = ModelScript(tool_calls(*the_whole_group()), say("Done."), effects={2: agent_commits})
 
     outcome = _step(store, checkout, script)
 
     assert (outcome.status, outcome.failure_class) == (StepStatus.STOPPED, FailureClass.HEAD_MOVED)
+    expected, head = moved[0]
+    assert outcome.reason == (
+        f"The agent moved HEAD from {expected} to {head}, and the reset to {expected} failed."
+        f"\n`git reset --soft {expected}` exited with status 128.\nfatal: Could not parse object"
+    )
 
 
 def test_a_step_that_ends_done_has_no_failure_class(
