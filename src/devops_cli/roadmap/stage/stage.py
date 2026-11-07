@@ -74,7 +74,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
@@ -1269,26 +1269,32 @@ def _failure_of(
 
 
 def _plan_each(
-    planner: _Planner, targets: Iterable[StageTarget]
+    planner: _Planner, targets: Iterable[StageTarget], writer: StageWriter | None = None
 ) -> tuple[list[StagedChange], list[OverBudget], list[StageFailure], list[Blocked]]:
+    """Plan each target in order. With a `writer`, the result of a target is written as soon as the
+    target is done, before the next target is planned (#4034)."""
     ready: list[StagedChange] = []
     stopped: list[OverBudget] = []
     failed: list[StageFailure] = []
     blocked: list[Blocked] = []
     for target in targets:
+        result: StagedChange | OverBudget | Blocked | StageFailure
         try:
-            outcome = planner.plan(target)
+            result = planner.plan(target)
         except AICredentialsError:
             raise
         except (AIClientError, RoadmapStageError, ToolExecutionError) as exc:
-            failed.append(_failure_of(target, exc))
-            continue
-        if isinstance(outcome, OverBudget):
-            stopped.append(outcome)
-        elif isinstance(outcome, Blocked):
-            blocked.append(outcome)
+            result = _failure_of(target, exc)
+        if writer is not None:
+            writer.settle(target, result)
+        if isinstance(result, StageFailure):
+            failed.append(result)
+        elif isinstance(result, OverBudget):
+            stopped.append(result)
+        elif isinstance(result, Blocked):
+            blocked.append(result)
         else:
-            ready.append(outcome)
+            ready.append(result)
     return ready, stopped, failed, blocked
 
 
@@ -1442,9 +1448,14 @@ def plan_stage(
     verifier: ToolboxModel | None = None,
     why: bool = False,
     now: datetime | None = None,
+    writer: StageWriter | None = None,
 ) -> StagePlan:
-    """Plans the stage of up to `limit` items without a write to GitHub. When an item is selected,
-    the clone moves to the staged commit, the default branch of `origin` after the fetch (#3301).
+    """Plans the stage of up to `limit` items. It writes nothing unless the caller gives a
+    `writer`: the writer then gets the removals and the rejections of the items the round does not
+    select before the first plan call, and the result of each selected item as soon as that item
+    is done, so a stop of the Service loses at most the item in progress (#4034). When an item is
+    selected, the clone moves to the staged commit, the default branch of `origin` after the fetch
+    (#3301).
 
     `source` is the clone of the repository, at the default branch. `limit` and `step_tokens`
     override `roadmap.stage.limit` and `roadmap.stage.step_tokens`. At `roadmap.stage.planned_limit`
@@ -1492,6 +1503,8 @@ def plan_stage(
         failed=tuple(_write_failure(f.item, f.error) for f in rejections.failures),
         rejections=rejections.found,
     )
+    if writer is not None:
+        writer.begin(plan, {target.item.number for target in selection.selected})
     if not selection.selected:
         return plan
     _move_clone(checkout, sha)
@@ -1518,7 +1531,7 @@ def plan_stage(
                 **reasons_of(store, (target.item for target in selection.selected)),
             },
         )
-        ready, stopped, failed, blocked = _plan_each(planner, selection.selected)
+        ready, stopped, failed, blocked = _plan_each(planner, selection.selected, writer)
     return replace(
         plan,
         ready=tuple(ready),
@@ -1789,22 +1802,16 @@ def _moved_section(moved: Sequence[MovedPath]) -> str:
     return f"{texts.stage_comment_moved}{lines}"
 
 
-def _moved_by_item(checkout: Path, plan: StagePlan) -> dict[int, tuple[MovedPath, ...]]:
-    """The named paths that the default branch changed after the base commit of `plan`, by the
-    number of each ready item (#3309). The default branch is fetched once, so the comparison holds
-    a commit that landed after the planner read the clone. A run with no ready change, or with no
-    base commit to compare, reads no git."""
-    if not plan.ready or not plan.sha:
-        return {}
+def _moved_for(checkout: Path, sha: str, change: StagedChange) -> tuple[MovedPath, ...]:
+    """The named paths of `change` that the default branch changed after the base commit `sha`
+    (#3309). The default branch is fetched for each item, just before its publish, so the
+    comparison holds a commit that landed during the plans of the earlier items. A run with no
+    base commit to compare reads no git."""
+    if not sha:
+        return ()
     default = default_branch(checkout, operation=_GIT_OPERATION)
     _git(checkout, "fetch", "-q", "origin", default)
-    branch = f"origin/{default}"
-    return {
-        change.target.item.number: tuple(
-            moved_paths(checkout, plan.sha, branch, _named_paths(change))
-        )
-        for change in plan.ready
-    }
+    return tuple(moved_paths(checkout, sha, f"origin/{default}", _named_paths(change)))
 
 
 def _notes(change: StagedChange, moved: Sequence[MovedPath] = ()) -> str:
@@ -2043,81 +2050,125 @@ def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now:
             )
 
 
-def apply_stage(
-    store: RoadmapStore, plan: StagePlan, *, source: Path | str, now: datetime | None = None
-) -> StageApplied:
-    """Writes the plan: removes the staged branches of closed items, writes each rejected plan
-    (#3503), stages each ready change, and stops each item whose group is over the budget. A write that fails stops its item, and
-    the others go on; rejected GitHub credentials stop the run. Each item that failed, in the plan
-    or in a write, gets the time and the error class in its job record, and the job leaves it for
-    `roadmap.stage.retry_hours` hours (#3493). The stop of the Service stops the run too, but it
-    is no failed item: the failures before it are recorded, and the run ends with the stop
-    (#2753)."""
-    checkout = Path(source)
-    removed: list[int] = []
-    rejected: list[int] = []
-    returned: list[int] = []
-    staged: list[int] = []
-    stopped: list[int] = []
-    failed: list[StageFailure] = []
-    staging = {change.target.item.number for change in plan.ready}
-    moved = _moved_by_item(checkout, plan)
-    phases = (
-        (
-            [
-                (r.item, partial(_remove_staged, store, plan.repo, checkout, r))
-                for r in plan.removals
-            ],
-            removed,
-        ),
-        (
-            [
-                (r.item, partial(_reject_plan, store, checkout, r, staged=r.number in staging))
-                for r in plan.rejections
-            ],
-            rejected,
-        ),
-        (
-            [(b.target.item, partial(_return_blocked, store, b)) for b in plan.blocked],
-            returned,
-        ),
-        (
-            [
-                (
-                    c.target.item,
-                    partial(
-                        _stage_one,
-                        store,
-                        plan.repo,
-                        checkout,
-                        plan.sha,
-                        c,
-                        moved[c.target.item.number],
-                    ),
-                )
-                for c in plan.ready
-            ],
-            staged,
-        ),
-        ([(o.target.item, partial(_stop_on_budget, store, o)) for o in plan.over_budget], stopped),
-    )
-    stopped_by: ServiceStoppingError | None = None
-    try:
-        for writes, done in phases:
-            write_each(writes, done, failed)
-    except ServiceStoppingError as stop:
-        stopped_by = stop
-    _record_failures(store, [*plan.failed, *failed], now or datetime.now(UTC))
-    if stopped_by is not None:
-        raise stopped_by
-    return StageApplied(
-        tuple(staged),
-        tuple(stopped),
-        tuple(failed),
-        tuple(removed),
-        tuple(returned),
-        tuple(rejected),
-    )
+class StageWriter:
+    """The writes of one stage round, made when each item is done (#4034).
+
+    `plan_stage` calls `begin` once, and `settle` for each selected item as soon as the item is
+    planned. A stop of the Service then ends the round and loses at most the item in progress.
+    `begin` removes the staged branches of closed items and writes the rejected plans of the items
+    the round does not select (#3503): these need no model. `settle` writes the rejection of a
+    selected item between its plan and its publish, then the result of the item, and reads the
+    moved paths of the item just before its publish. A write that fails stops its item, and the
+    others go on; rejected GitHub credentials stop the run. Each item that failed, in the plan or
+    in a write, gets the time and the error class in its job record, and the job leaves it for
+    `roadmap.stage.retry_hours` hours (#3493). The stop of the Service stops the run too, but it is
+    no failed item: the failures before it are recorded, and the run ends with the stop (#2753).
+    """
+
+    def __init__(self, store: RoadmapStore, source: Path | str, *, now: datetime | None = None):
+        self._store = store
+        self._source = Path(source)
+        self._now = now
+        self._repo = ""
+        self._sha = ""
+        self._rejections: dict[int, Rejection] = {}
+        self._removed: list[int] = []
+        self._rejected: list[int] = []
+        self._returned: list[int] = []
+        self._staged: list[int] = []
+        self._stopped: list[int] = []
+        self._failed: list[StageFailure] = []
+
+    def applied(self) -> StageApplied:
+        """What the round wrote so far."""
+        return StageApplied(
+            tuple(self._staged),
+            tuple(self._stopped),
+            tuple(self._failed),
+            tuple(self._removed),
+            tuple(self._returned),
+            tuple(self._rejected),
+        )
+
+    def begin(self, plan: StagePlan, selected: Collection[int]) -> None:
+        """Write what needs no model: the removals, the rejections of the items outside `selected`
+        and the failures that `plan` holds. A rejection of a selected item waits for its plan."""
+        self._repo, self._sha = plan.repo, plan.sha
+        self._rejections = {r.number: r for r in plan.rejections if r.number in selected}
+        with self._recording(plan.failed):
+            write_each(
+                [
+                    (r.item, partial(_remove_staged, self._store, plan.repo, self._source, r))
+                    for r in plan.removals
+                ],
+                self._removed,
+                self._failed,
+            )
+            write_each(
+                [
+                    (
+                        r.item,
+                        partial(_reject_plan, self._store, self._source, r, staged=False),
+                    )
+                    for r in plan.rejections
+                    if r.number not in selected
+                ],
+                self._rejected,
+                self._failed,
+            )
+
+    def settle(
+        self, target: StageTarget, result: StagedChange | OverBudget | Blocked | StageFailure
+    ) -> None:
+        """Write the result of one selected item: its rejection, if a person rejected its plan,
+        then the branch and the draft pull request of a change, the stop on the budget, the return
+        for open blockers, or the record of a failure."""
+        with self._recording((result,) if isinstance(result, StageFailure) else ()):
+            self._settle(target.item, result)
+
+    def _settle(
+        self, item: Item, result: StagedChange | OverBudget | Blocked | StageFailure
+    ) -> None:
+        store, source = self._store, self._source
+        if (rejection := self._rejections.pop(item.number, None)) is not None:
+            staged = isinstance(result, StagedChange)
+            write_each(
+                [(item, partial(_reject_plan, store, source, rejection, staged=staged))],
+                self._rejected,
+                self._failed,
+            )
+        if isinstance(result, StagedChange):
+            write_each([(item, partial(self._stage, result))], self._staged, self._failed)
+        elif isinstance(result, OverBudget):
+            write_each(
+                [(item, partial(_stop_on_budget, store, result))], self._stopped, self._failed
+            )
+        elif isinstance(result, Blocked):
+            write_each(
+                [(item, partial(_return_blocked, store, result))], self._returned, self._failed
+            )
+
+    def _stage(self, change: StagedChange) -> None:
+        moved = _moved_for(self._source, self._sha, change)
+        _stage_one(self._store, self._repo, self._source, self._sha, change, moved)
+
+    @contextmanager
+    def _recording(self, planned: Iterable[StageFailure]) -> Iterator[None]:
+        """Record the failures of the plan and the failures of the writes made in the block. The
+        stop of the Service leaves its own write undone, so the failures that came before are
+        recorded first and the stop goes on (#2753). Rejected credentials record nothing."""
+        mark = len(self._failed)
+        try:
+            yield
+        except ServiceStoppingError:
+            self._record(planned, mark)
+            raise
+        self._record(planned, mark)
+
+    def _record(self, planned: Iterable[StageFailure], mark: int) -> None:
+        _record_failures(
+            self._store, [*planned, *self._failed[mark:]], self._now or datetime.now(UTC)
+        )
 
 
 class StageResult(StrEnum):
@@ -2296,9 +2347,9 @@ __all__ = [
     "StageResult",
     "StageSelection",
     "StageTarget",
+    "StageWriter",
     "StagedChange",
     "Walk",
-    "apply_stage",
     "dry_run_stage",
     "emit_stage_results",
     "named_items",

@@ -107,7 +107,7 @@ from devops_cli.lang import MESSAGES
 
 # `alternatives` imports pydantic_ai too: import it here for the same reason (#2535).
 from devops_cli.roadmap.alternatives import (
-    apply_alternatives,
+    AlternativesWriter,
     plan_alternatives,
     raise_for_failed_checks,
     record_coverage,
@@ -135,7 +135,7 @@ from devops_cli.roadmap.retitle import apply_retitle, build_retitle_model, plan_
 # `stage` imports the model client, which imports pydantic_ai too: import it here for the same
 # reason (#2659).
 from devops_cli.roadmap.stage.stage import (
-    apply_stage,
+    StageWriter,
     emit_stage_results,
     parse_filters,
     plan_stage,
@@ -590,8 +590,10 @@ def _run_stage_adapter(
     count each item by its result (#2659). An item that failed is recorded in its job record and
     waits for `roadmap.stage.retry_hours` hours; the job fails, once the others are written, only
     when it tried items and handled none (#3493). A failure that no item explains, such as an
-    outage, ends the run at once."""
+    outage, ends the run at once. Each item is written when it is planned, so a stop of the
+    Service loses at most the item in progress (#4034)."""
     source = _job_clone("stage", clone_path)
+    writer = StageWriter(store, source)
     plan = plan_stage(
         store,
         repo=repo,
@@ -599,8 +601,9 @@ def _run_stage_adapter(
         filters=parse_filters(()),
         model=ToolboxModel(get_task_model("stage")),
         verifier=ToolboxModel(get_task_model("verification")),
+        writer=writer,
     )
-    applied = apply_stage(store, plan, source=source)
+    applied = writer.applied()
     emit_stage_results(plan, applied)
     synced = (
         sync_statuses(store, repo=repo, planned=plan.planned) if plan.planned is not None else None
@@ -681,15 +684,15 @@ def _run_alternatives_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> 
     `roadmap.alternatives.limit` open items, for an open tool that covers them (#2652).
     A failed check is recorded in its item's job record and the others are written; the
     job fails, naming the items, only when it tried items and checked none (#2949). A repository
-    the check is off for, such as a private one, costs a visibility read and nothing else. The
-    row sends the coverage gauges of the round before it writes, also when it writes nothing
-    (#2950)."""
-    plan = plan_alternatives(store, repo=repo)
+    the check is off for, such as a private one, costs a visibility read and nothing else. Each
+    check is written when it is done, so a kill of the worker loses at most the check in
+    progress, and a rate limit on a write ends the round with the checks that are written
+    (#4034). The row sends the coverage gauges of the round after the checks, also when it
+    writes nothing (#2950)."""
+    plan = plan_alternatives(store, repo=repo, writer=AlternativesWriter(store))
     record_coverage(plan)
     if plan.off_reason:
         logger.info("The alternatives check of %s is off: %s", repo, plan.off_reason)
-    if plan.has_writes:
-        apply_alternatives(store, plan)
     raise_for_failed_checks(plan)
     return JobOutcome()
 

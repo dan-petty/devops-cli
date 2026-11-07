@@ -305,15 +305,16 @@ def alternatives_cmd(
         return
     with _exit_on_failure("Could not check for alternatives"):
         _, store = _open_store(target)
-        plan = job.plan_alternatives(store, repo=target, item_number=item, limit=limit)
+        writer = job.AlternativesWriter(store) if confirm else None
+        plan = job.plan_alternatives(
+            store, repo=target, item_number=item, limit=limit, writer=writer
+        )
     write_stdout(job.render_alternatives_plan(plan) + "\n")
-    if not confirm:
+    if writer is None:
         if plan.has_writes:
             print_info(MESSAGES.roadmap.preview_only)
     elif plan.has_writes:
-        with _exit_on_failure("Could not write the checks"):
-            written = job.apply_alternatives(store, plan)
-        print_success(MESSAGES.roadmap.alternatives_applied.format(count=written))
+        print_success(MESSAGES.roadmap.alternatives_applied.format(count=writer.written))
     with _exit_on_failure("The check is incomplete"):
         job.raise_for_failed_checks(plan)
 
@@ -378,7 +379,7 @@ def stage_cmd(
     """Make Ready items Staged: a branch, an OpenSpec change in budgeted task groups, and a draft."""
     _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
     from devops_cli.roadmap.stage.stage import (
-        apply_stage,
+        StageWriter,
         dry_run_stage,
         emit_stage_results,
         parse_filters,
@@ -403,6 +404,7 @@ def stage_cmd(
     with _exit_on_failure("Could not plan staging"):
         _, store = _open_store(target)
         clone = source or model_clone(target)
+        writer = StageWriter(store, clone) if confirm else None
         plan = plan_stage(
             store,
             repo=target,
@@ -414,12 +416,12 @@ def stage_cmd(
             model=ToolboxModel(get_task_model("stage")),
             verifier=ToolboxModel(get_task_model("verification")),
             why=why,
+            writer=writer,
         )
     write_stdout(render_stage_plan(plan) + "\n")
     failures = list(plan.failed)
-    if confirm:
-        with _exit_on_failure("Could not stage"):
-            applied = apply_stage(store, plan, source=clone)
+    if writer is not None:
+        applied = writer.applied()
         emit_stage_results(plan, applied)
         print_success(
             MESSAGES.roadmap.stage_applied.format(

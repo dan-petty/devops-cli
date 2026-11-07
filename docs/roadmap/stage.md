@@ -12,6 +12,8 @@ For each item that a label filter names, the job does these things in order:
 4. It opens a draft pull request. The title is `docs(openspec): plan #<issue> <summary>`. The body starts with `Plans #<issue>` and holds no closing keyword. `build_plan_body` of `pull_form` builds it, and a body that breaks the plan form goes back to the model once, as a refused plan does. It adds the `type/*` and `scope/*` labels of the title to the draft.
 5. It writes one comment on the issue. The comment names the branch, the pull request, and the task groups with their measures. A label that GitHub refuses becomes a note in the comment.
 
+The job writes each item when the item is planned, and it plans the next item after that. A stop of the Service loses at most the item in progress. Before the first plan, it removes the staged branches of closed items and writes the rejected plans of the items that the round does not select, because these need no model. It writes the rejection of a selected item after the plan of that item and before the push. It reads the paths that moved on the default branch for one item, just before its push.
+
 The Status of the item stays Ready. The job does not mark the pull request ready. The Service does it, in its row `stage_ready`, when all checks of the draft have passed.
 
 The overlap read is one GraphQL request for each 100 open pull requests. The context lists each pull request whose files meet a path that the item body cites, with its number, title, state, plan mark and shared paths, and each other file that holds a cited metric name. The prompt writes each entry into `## Dependencies`, and the gate refuses a plan with an empty `dependencies` field when the context lists an overlap. The comment of the staged item states the number of GraphQL requests.
@@ -93,7 +95,7 @@ Refine reads the comment as `stage_return`, because it is a comment of the stage
 | Flag | What the run does |
 | :--- | :--- |
 | `--plan` (the default) | Reads GitHub and calls the model. It prints the changes that `--confirm` writes. It writes nothing. |
-| `--confirm` | Plans as `--plan` does, then makes the writes in git and on GitHub. |
+| `--confirm` | Plans as `--plan` does, and makes the writes in git and on GitHub for each item as soon as the item is planned. |
 | `--dry-run` | Makes no request. It prints the requests and the git commands that a run makes, with placeholders. |
 
 ## Where the rules are
