@@ -40,9 +40,9 @@ Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/stage/t
 
 Reads: `src/devops_cli/roadmap/stage/stage_references.py`, `tests/roadmap/stage/test_roadmap_stage_tools.py`. Changes: `src/devops_cli/roadmap/stage/stage_references.py`, `tests/roadmap/stage/test_roadmap_stage_tools.py`.
 
-- [ ] 5.1 Change the expected answer of `test_references_lists_every_file_that_holds_a_name_with_its_count` in `tests/roadmap/stage/test_roadmap_stage_tools.py` so that the line of the spec file of the fixture comes before the line of its source file, and add a test that `reference_answer` lists a spec path before a source path for the same name
+- [x] 5.1 Change the expected answer of `test_references_lists_every_file_that_holds_a_name_with_its_count` in `tests/roadmap/stage/test_roadmap_stage_tools.py` so that the line of the spec file of the fixture comes before the line of its source file, and add a test that `reference_answer` lists a spec path before a source path for the same name
   - Verification: `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_tools.py` fails on the base
-- [ ] 5.2 Put `specs` first in `_GROUPS` of `src/devops_cli/roadmap/stage/stage_references.py`, and update the comment above it and the module docstring so that they say a living spec comes before the source, the tests and the documents
+- [x] 5.2 Put `specs` first in `_GROUPS` of `src/devops_cli/roadmap/stage/stage_references.py`, and update the comment above it and the module docstring so that they say a living spec comes before the source, the tests and the documents
   - Verification: `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_tools.py` passes
 
 ## Workflow follow-up
