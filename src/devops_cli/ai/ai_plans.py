@@ -487,6 +487,42 @@ def plan_ai_rag_drift(
     ]
 
 
+def plan_ai_rag_ingest(
+    repo: Sequence[str] | None = None,
+    collection: str | None = None,
+    **kwargs: Any,
+) -> list[PlannedRequest]:
+    """Plan managed repository RAG ingestion requests."""
+    settings = load_settings()
+    col = collection or "devops-code"
+    target_repos = list(repo) if repo else list(settings.service.repos or ["<owner>/<repo>"])
+    requests: list[PlannedRequest] = []
+    for item in target_repos:
+        requests.extend(
+            [
+                PlannedRequest(
+                    method="GET",
+                    target=f"https://api.github.com/repos/{item}",
+                ),
+                PlannedRequest(
+                    method="GIT",
+                    target=f"git ls-remote --symref https://github.com/{item}.git HEAD",
+                ),
+                PlannedRequest(
+                    method="POST",
+                    target=_get_qdrant_target(f"/collections/{col}/points/count"),
+                    stdin=f'{{"filter": {{"must": [{{"key": "project", "match": {{"value": "{item}"}}}}]}}}}',
+                ),
+                PlannedRequest(
+                    method="PUT",
+                    target=_get_qdrant_target(f"/collections/{col}/points"),
+                    stdin='{"points": "<vector-points-batch>"}',
+                ),
+            ]
+        )
+    return requests
+
+
 def plan_ai_rag_index(
     path: Path | str = ".",
     project: str | None = None,

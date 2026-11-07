@@ -91,6 +91,7 @@ writes by name.
 | `devops_cli_github_throttle_wait_seconds` | Histogram | `s` | Time devops-cli waited before it sent a refused GitHub request again, by resource: one observation for each throttle. GitHub refused the request with a rate limit, or the GitHub session got a 5xx for a read. |
 | `devops_cli_github_graphql_points_total` | Counter | `1` | GraphQL points that GitHub reported each answer cost in its rateLimit field. |
 | `devops_cli_firecrawl_searches_total` | Counter | `1` | Firecrawl web searches, by result: ok, the HTTP status of a search that Firecrawl refused, such as 402 when the account has no credits or 429 at its rate limit, or error for a search that got no answer or a reply with no web results. |
+| `devops_cli_web_search_fallbacks_total` | Counter | `1` | Web searches that ran after Firecrawl failed, by the backend that answered and the result: ok for a search that returned its results (also none), error for a search that failed too. |
 | `devops_cli_roadmap_refine_comments_capped_total` | Counter | `1` | Refine comments that the cap on refine's comments on one item in 24 hours stopped: one count for each newest comment on an item that the cap left with no answer. The item waits on a person and takes no place under the round's limit. A later round that finds no newer comment on the item does not count it again. |
 | `devops_cli_roadmap_alternatives_total` | Counter | `1` | Checks of open items for an open tool that covers them, by verdict: covers, partly, none, not-applicable, rejected or in-use. One count for each check that the alternatives job writes to an item. A check that fails, or that the job skips because a person changed the item, counts nothing. |
 | `devops_cli_roadmap_alternatives_unchecked_items` | Gauge | `1` | Open items that the alternatives check can take and has not checked, by repo. An item in the retry delay after a failed check counts. An item in progress or from an author with no write access does not. The Service sends it at the start of each round of the check. |
@@ -112,6 +113,7 @@ writes by name.
 | `devops_cli_rag_drift_detected` | Gauge | `1` | Whether the last drift check of a project found drift in its files, its git head or its knowledge base: 1, or 0, by project. |
 | `devops_cli_rag_investigations_total` | Counter | `1` | RAG context retrievals that finished, by outcome: found when they returned context, or empty. |
 | `devops_cli_rag_stops_total` | Counter | `1` | Processes that turned RAG off for the rest of their run after an embedding failure. |
+| `devops_cli_rag_ingest_runs_total` | Counter | `1` | RAG repository ingestion runs, by repo and result: success or error. |
 | `devops_cli_vulnerability_lookups_total` | Counter | `1` | Packages looked up in a vulnerability database, by source, status and batch: true when one batch request looked them up. |
 | `devops_cli_threat_intel_lookups_total` | Counter | `1` | Domains that a threat-intelligence source was asked about, by source and status: ok, unavailable or failed. A domain that the cache answered is not counted. |
 | `devops_cli_project_releases` | Gauge | `1` | Total project releases tracked. |

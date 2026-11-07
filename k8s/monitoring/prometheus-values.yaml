@@ -852,7 +852,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: 'Firecrawl refused web searches of the roadmap Service with HTTP {{ $labels.result }} in the last hour'
-              description: "Firecrawl refused a web search of the roadmap Service with HTTP {{ $labels.result }}: 402 when the account has no credits, 429 at its rate limit. Refine goes on without the results (k8s/README.md, Roadmap service)."
+              description: "Firecrawl refused a web search of the roadmap Service with HTTP {{ $labels.result }}: 402 when the account has no credits, 429 at its rate limit. The search falls back to DuckDuckGo (k8s/README.md, Roadmap service)."
           # The alternatives check ran no search in 3 days while open items have no check (#2950).
           # The counter has the label result and the gauge has the label repo, so each side is
           # summed to one label set before `and on ()` joins them. The counter holds the searches

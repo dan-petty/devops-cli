@@ -734,3 +734,117 @@ def drift_cmd(
 
     if fail_on_drift and (report.drift_score > 0.0 or report.git_commit_drift):
         raise typer.Exit(code=1)
+
+
+def _render_ingest_results(
+    results: list[Any],
+    output_format: str = DEFAULT_TABLE_FORMAT,
+    json_output: bool = False,
+) -> None:
+    """Render RAG repository ingestion results table or serialized data."""
+    resolved = resolve_format(output_format, json_output=json_output)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        data = [
+            {
+                "repo": r.repo,
+                "branch": r.branch,
+                "head": r.head,
+                "visibility": r.visibility,
+                "success": r.success,
+            }
+            for r in results
+        ]
+        emit_serialized(data, resolved)
+        return
+
+    rows = [
+        [
+            r.repo,
+            r.branch or "-",
+            r.head[:8] if r.head else "-",
+            r.visibility or "public",
+            "[green]indexed[/green]" if r.success else "[red]failed[/red]",
+        ]
+        for r in results
+    ]
+    print_table(
+        title="RAG Repository Ingestion",
+        columns=[
+            ("Repository", "cyan"),
+            "Branch",
+            "Head",
+            "Visibility",
+            "Status",
+        ],
+        rows=rows,
+    )
+    succeeded = sum(1 for r in results if r.success)
+    total = len(results)
+    print_success(MESSAGES.rag.ingest_complete.format(succeeded=succeeded, total=total))
+
+
+@app.command("ingest")
+@dry_run_class("request-plan")
+def ingest_cmd(
+    repo: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--repo",
+            "-r",
+            help=HELP.rag.repo,
+        ),
+    ] = None,
+    collection: Annotated[
+        str | None,
+        typer.Option("--collection", "-c", help=HELP.rag.collection),
+    ] = None,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help=HELP.options.json_output),
+    ] = False,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain",
+            "-e",
+            help=HELP.rag.explain,
+        ),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Index managed git repositories into the RAG vector collection."""
+    if explain:
+        from devops_cli.ai.explain import render_explanation
+
+        render_explanation("rag")
+        return
+
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_rag_ingest
+        from devops_cli.dry_run import render_request_plan
+
+        plan = plan_ai_rag_ingest(
+            repo=repo,
+            collection=collection,
+        )
+        resolved = resolve_format(output_format, json_output=json_output)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized({"dry_run": True, "requests": [r.__dict__ for r in plan]}, resolved)
+            return
+        render_request_plan("Plan for AI RAG ingest on managed repositories", plan)
+        return
+
+    from devops_cli.ai.rag.ingest import run_ingest_pass
+
+    results = run_ingest_pass(
+        repo_filter=repo,
+        code_collection=collection,
+    )
+    _render_ingest_results(results, output_format=output_format, json_output=json_output)
