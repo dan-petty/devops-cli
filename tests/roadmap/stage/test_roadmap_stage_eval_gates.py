@@ -107,7 +107,7 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
     assert counts[DefectType.VERIFY_FORM] == (6, 0, 12)
     assert counts[DefectType.TASK_ORDER] == (1, 0, 8)
     assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)
-    assert report.judged() == (70, 307)
+    assert report.judged() == (71, 308)
 
 
 def test_the_judged_share_counts_the_caught_and_the_missed_and_not_the_rest(

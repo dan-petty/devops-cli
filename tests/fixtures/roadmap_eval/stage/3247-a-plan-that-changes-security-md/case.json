@@ -1,0 +1,36 @@
+{
+ "issue": 3247,
+ "pull": 3247,
+ "title": "feat(roadmap): require a security section in design.md for sensitive plans",
+ "change": "3247-require-a-security-section-for-sensitive",
+ "merge_commit": "0000000000000000000000000000000000000000",
+ "base_commit": "0000000000000000000000000000000000000000",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 5,
+  "fidelity": 4,
+  "task_quality": 4,
+  "rule_compliance": 3,
+  "accuracy": 3
+ },
+ "state": "open",
+ "summary": "The plan changes `SECURITY.md` and holds no security section. The stage check refuses the plan and requires a non-blank `## Security` section in `design.md`.",
+ "notes": [
+  "The plan is one for #3247 that changes `SECURITY.md` with no security text, expecting the security refusal.",
+  "The change was never merged as this plan, so `pull`, `merge_commit` and `base_commit` hold placeholders: the case reads no commit, and the facts hold the files of its tree."
+ ],
+ "defects": [
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "design.md",
+   "problem": "The plan changes `SECURITY.md` and holds no security section.",
+   "evidence": "Group 1 changes `SECURITY.md` and `security` is empty.",
+   "gate": "content",
+   "paths": [
+    "SECURITY.md"
+   ],
+   "message": "Add a non-blank `## Security` section to `design.md`."
+  }
+ ]
+}

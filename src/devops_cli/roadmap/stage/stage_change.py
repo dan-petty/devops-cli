@@ -168,6 +168,36 @@ PROMPT_PREFIX: Final[str] = "src/devops_cli/ai/tasks/roadmap_stage_"
 PROMPT_SUFFIX: Final[str] = ".md"
 PROMPT_RULE_TEST: Final[str] = "tests/roadmap/stage/test_roadmap_stage_prompt_rules.py"
 _LEGACY_PROMPT_RULE_TEST: Final[str] = "tests/roadmap/test_roadmap_stage_prompt_rules.py"
+
+
+class SecurityTriggerPaths(tuple[str, ...]):
+    """Paths that require a security section when changed (#3247):
+    - SECURITY.md: changes project security policies, disclosure, or requirements.
+    - pyproject.toml: adds or updates external dependencies.
+    - k8s/: modifies Kubernetes manifests, NetworkPolicies, or RBAC.
+    """
+
+
+SECURITY_TRIGGER_PATHS: Final[SecurityTriggerPaths] = SecurityTriggerPaths(
+    (
+        "SECURITY.md",
+        "pyproject.toml",
+        "k8s/",
+    )
+)
+SECURITY_TRIGGER_WORDS: Final[tuple[str, ...]] = (
+    "sanitizer",
+    "credential",
+    "keyring",
+    "egress",
+    "admission policy",
+    "networkpolicy",
+    "rbac",
+    "new host",
+    "loosen",
+    "loosened",
+    "loosening",
+)
 # An entry of `dependencies` that names an issue which must be delivered first: `#<number>: <reason>`
 # (#3224). An overlap or a metric sender keeps its own form, so the reader skips it.
 _ISSUE_DEPENDENCY: Final[re.Pattern[str]] = re.compile(r"^#(?P<number>[0-9]+):")
@@ -516,6 +546,7 @@ class StageProposal(_Reply):
     groups: list[StageGroup] = Field(min_length=1)
     criteria: list[StageCriterion] = Field(default_factory=list)
     dependencies: list[Line] = Field(default_factory=list)
+    security: Line = ""
     # The plan reader fills this list from `## Weakened checks` of `proposal.md` (#3490). The reply
     # schema does not show it: `render_change` writes no such section, so a key in a reply is lost.
     weakened_checks: SkipJsonSchema[list[WeakenedCheck]] = Field(default_factory=list)
@@ -1032,6 +1063,41 @@ def eval_replay_problems(groups: Sequence[StageGroup]) -> list[str]:
     ]
 
 
+def _security_search_texts(proposal: StageProposal) -> list[str]:
+    """The texts of `proposal` that a security trigger can match (#3247): the plan's Changes,
+    group paths and task texts."""
+    texts: list[str] = list(proposal.what_changes)
+    for group in proposal.groups:
+        texts.extend(group.changes)
+        texts.extend(group.reads)
+        texts.extend(_group_task_texts(group))
+        if group.process:
+            texts.append(group.process)
+    return texts
+
+
+def _matched_security_trigger(proposal: StageProposal) -> str | None:
+    """The first security trigger in list order that `proposal` matches, or None."""
+    texts = _security_search_texts(proposal)
+    for path in SECURITY_TRIGGER_PATHS:
+        path_lower = path.casefold()
+        if any(path_lower in t.casefold() for t in texts):
+            return path
+    for word in SECURITY_TRIGGER_WORDS:
+        word_lower = word.casefold()
+        if any(word_lower in t.casefold() for t in texts):
+            return word
+    return None
+
+
+def _security_problems(proposal: StageProposal) -> list[str]:
+    """One problem when `proposal` matches a security trigger and has no security text (#3247)."""
+    trigger = _matched_security_trigger(proposal)
+    if trigger is not None and not proposal.security.strip():
+        return [MESSAGES.roadmap.stage_problem_security.format(trigger=trigger)]
+    return []
+
+
 def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> list[str]:
     """What is wrong with the text of `proposal` that no schema says (#3200): a text that is too
     short or a placeholder word (`is_placeholder` of the pull request form), a `feasibility` that
@@ -1039,15 +1105,17 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
     entry while no group changes the message file (#3405), two tasks that state the same work
     (#3456), a plan that builds its own code and gives no cost of tokens and time in
     `existing_tool`, a plan that adds a rule of the plan check and gives no test that accepts
-    its own plan (#3404), and a plan that changes a planner prompt and cites no prompt-rule test
-    (#3347). The replay (`stage_eval_gates`) and the job both call this through `check_proposal`,
-    so one rule set judges both."""
+    its own plan (#3404), a plan that changes a planner prompt and cites no prompt-rule test
+    (#3347), and a plan that matches a security trigger with no security text (#3247). The replay
+    (`stage_eval_gates`) and the job both call this through `check_proposal`, so one rule set
+    judges both."""
     texts = MESSAGES.roadmap
     problems = [p for field, text in _plan_texts(proposal) for p in _text_problems(field, text)]
     problems.extend(_message_file_problems(proposal))
     problems.extend(_duplicate_task_problems(proposal))
     problems.extend(_self_acceptance_problems(proposal))
     problems.extend(_prompt_rule_problems(proposal))
+    problems.extend(_security_problems(proposal))
     lines = [_squash(line) for line in probes if line.strip()]
     if lines:
         feasibility = _squash(" ".join(proposal.feasibility))
@@ -1380,10 +1448,13 @@ def _design_file(proposal: StageProposal) -> str:
     rejected = _bullets(
         [f"**{r.alternative.strip()}**: {r.evidence.strip()}" for r in proposal.rejected]
     )
-    return (
+    content = (
         f"# Design\n\n## Decisions\n\n{decisions or texts.stage_none}\n\n"
         f"## Rejected alternatives\n\n{rejected or texts.stage_none}\n"
     )
+    if proposal.security.strip():
+        content += f"\n## Security\n\n{proposal.security.strip()}\n"
+    return content
 
 
 def _paths(paths: Sequence[str], created: Collection[str] = ()) -> str:

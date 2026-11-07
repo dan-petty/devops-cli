@@ -81,5 +81,6 @@
    "process": null,
    "kind": "behavior"
   }
- ]
+ ],
+ "security": "A caller cannot redirect telemetry egress across the trust boundary to an unapproved destination. A person confirms that only destination keys are refused. The test test_build_subprocess_env_refuses_gh_telemetry_endpoint_url fails if the rule breaks."
 }
