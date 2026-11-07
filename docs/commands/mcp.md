@@ -1,6 +1,6 @@
 # `devops mcp`
 
-FastMCP server and Model Context Protocol integrations.
+FastMCP server and Model Context Protocol integrations. The tool ai_fetch_page reads a web page through the Crawl4AI service. On a workstation, run `kubectl port-forward -n devops svc/crawl4ai 11235:11235` and set crawl4ai.url to http://127.0.0.1:11235. The token comes from the credential store, never from a tool parameter.
 
 ## Commands
 
