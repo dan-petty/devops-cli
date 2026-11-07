@@ -177,7 +177,7 @@ Every new test follows these rules. Some of them name a path, fixture or check t
 
 ### Coverage
 
-- The coverage floor is 85% of the lines of `src/` (`fail_under` in `pyproject.toml`). A pull request must also cover 90% of its changed lines: the `Changed-Line Coverage` step of `ci.yml` fails below that.
+- The coverage floor is 85% of the lines and branches of `src/` (`fail_under` in `pyproject.toml`). The aggregate CI job keeps `.data/coverage.xml` as an artifact for 7 days. A pull request must also cover 90% of its changed lines: the `Changed-Line Coverage` step of `ci.yml` fails below that.
 - A line that no public behaviour reaches is dead code. It is deleted, not covered by a test that reaches past the public interface.
 
 ### Floor and ratchets

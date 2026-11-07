@@ -270,6 +270,17 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+      # The step keeps the report that coverage xml writes; a run with no report warns.
+      - name: Upload Coverage XML
+        if: always() && github.event_name == 'pull_request' && steps.changes.outputs.outside_plan != 'false'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-xml
+          path: .data/coverage.xml
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
   # AGENTS.md rule 5: a check that averages more than 5 minutes is a P0 bug. The run of one pull
   # request is one sample, so this job reads the last twenty completed pushes to main from the
   # Actions API and fails when the mean of the `Tests & Coverage` check is over 300 s (#2699). The

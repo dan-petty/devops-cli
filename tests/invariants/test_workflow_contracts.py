@@ -1521,6 +1521,7 @@ PLAN_STEP = "Detect Plan-Only Changes"
 FULL_SUITE_STEP = "Tests & Coverage Quality Gate"
 PLAN_SUITE_STEP = "Plan-Only Invariant Tests"
 COVERAGE_STEP = "Changed-Line Coverage"
+UPLOAD_COVERAGE_XML_STEP = "Upload Coverage XML"
 SHARDS_STEP = "Require Passing Test Shards"
 COMBINE_STEP = "Combine and Check Coverage"
 # Only the exact text `false` selects the reduced run: a skipped filter step leaves no output.
@@ -1946,3 +1947,36 @@ def test_the_plan_check_job_fills_the_tiktoken_cache_from_the_committed_encoding
         True,
         True,
     )
+
+
+def test_the_test_job_uploads_the_coverage_xml_report() -> None:
+    """The aggregate job writes `.data/coverage.xml` for diff-cover, and `actions/upload-artifact`
+    keeps the report as an artifact for 7 days so a reviewer can inspect per-file figures (#2163).
+    The step runs with `if: always()` on pull requests outside plan, and warns if no report exists."""
+    steps = _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"]["test"]["steps"]
+    names = [s.get("name") for s in steps]
+    assert COVERAGE_STEP in names
+    assert UPLOAD_COVERAGE_XML_STEP in names
+    assert names.index(COVERAGE_STEP) < names.index(UPLOAD_COVERAGE_XML_STEP)
+
+    coverage_step = steps[names.index(COVERAGE_STEP)]
+    coverage_run = coverage_step.get("run", "")
+    assert "uv run coverage xml" in coverage_run
+    assert "diff-cover .data/coverage.xml" in coverage_run
+    assert coverage_run.index("uv run coverage xml") < coverage_run.index(
+        "diff-cover .data/coverage.xml"
+    )
+
+    upload_step = steps[names.index(UPLOAD_COVERAGE_XML_STEP)]
+    assert re.fullmatch(r"actions/upload-artifact@[0-9a-f]{40}", upload_step.get("uses", ""))
+    assert (
+        upload_step.get("if")
+        == "always() && github.event_name == 'pull_request' && steps.changes.outputs.outside_plan != 'false'"
+    )
+    assert upload_step.get("with") == {
+        "name": "coverage-xml",
+        "path": ".data/coverage.xml",
+        "include-hidden-files": True,
+        "if-no-files-found": "warn",
+        "retention-days": 7,
+    }
