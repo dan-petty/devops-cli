@@ -44,6 +44,11 @@ commit, whatever the working tree of the checkout holds.
 - The check `Semantic PR title`: it must exist and it must pass.
 - A `MODIFIED` requirement whose text in the base spec changed, or went, since the plan commit.
 
+A pull request that the implement job has taken over is the delivery of the item: its body closes
+the issue and holds no `Plans #<issue>` line. The command does not judge a delivery, so it prints
+no problem for such a pull request. A body that plans an issue keeps the rules of a plan, also
+when it holds a closing keyword: that plan closes an issue when it merges.
+
 ## The job in CI
 
 The job `Plan Check` of the workflow `.github/workflows/pr-title.yml` runs the command for each plan

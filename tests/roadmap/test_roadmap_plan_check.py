@@ -235,6 +235,35 @@ def test_a_body_with_a_closing_keyword_is_reported(stage_repo: StageRepo) -> Non
     assert [p.rule for p in result.problems] == ["body-closing"]
 
 
+def test_a_pull_request_that_became_the_delivery_is_not_judged(stage_repo: StageRepo) -> None:
+    """The implement job takes the plan pull request of the item over and writes the title and the
+    body of a delivery. The body closes the issue and plans none, so the command judges no plan
+    (PR #3961)."""
+    sha = _push(stage_repo, _change())
+    body = (
+        f"Closes #{ISSUE}\n\nThe job keeps every comment it reads.\n\n"
+        f"Change: `openspec/changes/archive/2026-11-07-{CHANGE}/`"
+    )
+
+    result = _run(
+        stage_repo,
+        _facts(stage_repo, sha=sha, title="fix(roadmap): keep every comment", body=body),
+    )
+
+    assert result.problems == ()
+
+
+def test_the_delivery_body_of_a_taken_over_plan_is_not_judged(stage_repo: StageRepo) -> None:
+    """The body of the delivery arrives before the title of the delivery, and the command judges
+    no plan body that closes an issue (PR #3961)."""
+    sha = _push(stage_repo, _change())
+    body = f"Closes #{ISSUE}\n\nThe job keeps every comment it reads."
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha, body=body))
+
+    assert result.problems == ()
+
+
 def test_a_failed_semantic_title_check_is_reported(stage_repo: StageRepo) -> None:
     sha = _push(stage_repo, _change())
 

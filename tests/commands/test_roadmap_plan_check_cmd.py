@@ -174,6 +174,28 @@ def test_a_valid_plan_exits_zero_with_no_line(
 
 
 @pytest.mark.usefixtures("openspec_fake")
+def test_a_pull_request_that_became_the_delivery_exits_zero_with_no_line(
+    stage_repo: StageRepo,
+    github_api,
+    openspec_fake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The implement job turned the plan pull request into the delivery of the item: the title and
+    the body are those of a delivery, and the plan check prints no problem (PR #3961)."""
+    head = _plan(stage_repo)
+    body = (
+        f"Closes #{ISSUE}\n\nThe job keeps every comment it reads.\n\n"
+        f"Change: `openspec/changes/archive/2026-11-07-{CHANGE}/`"
+    )
+    _routes(github_api, stage_repo, head, title="fix(roadmap): keep every comment", body=body)
+    monkeypatch.chdir(stage_repo.clone)
+
+    result = runner.invoke(app, ["plan-check", str(PULL), "--repo", REPO], catch_exceptions=False)
+
+    assert (result.exit_code, result.output) == (0, "")
+
+
+@pytest.mark.usefixtures("openspec_fake")
 @pytest.mark.parametrize(
     "changes",
     ["each module that names an old path", f"`openspec/changes/{CHANGE}/proposal.md`"],

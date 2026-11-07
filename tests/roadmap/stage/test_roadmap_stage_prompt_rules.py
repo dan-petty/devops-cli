@@ -510,3 +510,20 @@ def test_the_stage_prompt_says_the_plan_must_not_state_the_false_premise_again()
     prompt = load_task_prompt("roadmap_stage_change.md")
 
     assert "Do not plan again the premise that the reason shows to be false." in prompt
+
+
+# ── A command or an option that the issue removes or renames (#3287) ─────────
+
+
+def test_the_stage_prompt_requires_a_modified_requirement_for_a_removed_command() -> None:
+    """A base requirement can name the command or the option that the issue removes or renames,
+    and an unmodified one contradicts the removal in the living spec after the archive (#3287).
+    The stage job refuses such a plan, so the prompt asks for a `modified` requirement for each
+    base requirement that names the old name."""
+    (rule,) = re.findall(r"- When the issue removes or renames[^\n]*", _PROMPT)
+
+    assert "`modified`" in rule
+    assert "`devops` command or an option" in rule
+    assert "each base requirement that names the old name" in rule
+    assert "text that omits it" in rule
+    assert "refuses an unmodified base requirement that names it" in rule

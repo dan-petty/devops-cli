@@ -4,7 +4,8 @@ a text, with the count of lines in the file and the first of their numbers.
 The search is `git grep -n -F` over the whole commit and has no cap for a file, so a count is exact.
 The cap is on the files. A rename touches the specs, the tests, the documents and the generated
 files as well as the code, so the files that an answer keeps are taken in turn from each of these
-groups and not in path order: a long list of one group never hides another.
+groups and not in path order: a long list of one group never hides another. A living spec comes
+before the source, the tests and the documents, because it states what the change must update.
 """
 
 from __future__ import annotations
@@ -24,8 +25,9 @@ from devops_cli.roadmap.agent_run import empty_answer, ok_answer
 
 # `path:line:text` of one match, the path as git prints it. The path ends at the first `:<digits>:`.
 _MATCH: Final[re.Pattern[str]] = re.compile(r"(?P<path>.+?):(?P<line>\d+):")
-# The groups, in the order that the answer lists them and that the cap takes files from them.
-_GROUPS: Final[tuple[str, ...]] = ("source", "tests", "specs", "docs", "changes", "other")
+# The groups, in the order that the answer lists them and that the cap takes files from them: a
+# living spec first, then the source, the tests, the documents, the change folders and the rest.
+_GROUPS: Final[tuple[str, ...]] = ("specs", "source", "tests", "docs", "changes", "other")
 
 
 def _group_of(path: str) -> str:
