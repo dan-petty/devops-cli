@@ -260,6 +260,11 @@ DEFAULT_MCP_HOST = "127.0.0.1"
 DEFAULT_TRIVY_SEVERITIES = "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
 DEFAULT_TRIVY_SCAN_TYPE = "fs"
 DEFAULT_VULNERABILITY_LOOKUP_TIMEOUT_SECONDS: float = 10.0
+# Bytes of one OSV answer that the client reads. A larger answer is refused. The largest record of
+# api.osv.dev that we read on 2026-11-07 was under 0.5 MiB, and a batch answer holds ids only.
+DEFAULT_OSV_MAX_RESPONSE_BYTES: int = 4 * 1024 * 1024  # 4 MiB
+# The most queries that `POST /v1/querybatch` takes (https://google.github.io/osv.dev/post-v1-querybatch/).
+DEFAULT_OSV_BATCH_MAX_QUERIES: int = 1000
 DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS: float = 300.0
 # A database of osv-scanner or Trivy is 2.6 MB to 220 MB, so a fetch gets longer than a scan (#2131).
 DEFAULT_TOOL_DATABASE_FETCH_TIMEOUT_SECONDS: float = 900.0

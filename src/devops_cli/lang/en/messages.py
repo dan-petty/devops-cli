@@ -4677,6 +4677,18 @@ class ResearchMessages:
     name_column: str = "Name"
     version_column: str = "Version"
     location_column: str = "File"
+    advisories_title: str = "Advisories that affect the pins of the project"
+    advisories_plan: str = "Plan for research advisories"
+    advisories_summary: str = (
+        "{findings} advisories on {packages} of {queried} packages that OSV was asked about. "
+        "{unpinned} pins have no exact version, and {not_covered} components are not covered."
+    )
+    advisories_failure: str = "No answer for {name} {version} ({advisory}): {reason}"
+    advisories_query: str = "query"
+    advisory_column: str = "Advisory"
+    severity_column: str = "Severity"
+    affected_column: str = "Affected"
+    fixed_column: str = "Fixed in"
 
 
 @dataclass(frozen=True)

@@ -1,0 +1,72 @@
+{
+  "request": {
+    "queries": [
+      {
+        "package": {
+          "name": "idna",
+          "ecosystem": "PyPI"
+        },
+        "version": "3.6"
+      },
+      {
+        "package": {
+          "name": "markupsafe",
+          "ecosystem": "PyPI"
+        },
+        "version": "2.1.5"
+      },
+      {
+        "package": {
+          "name": "pyyaml",
+          "ecosystem": "PyPI"
+        },
+        "version": "5.3"
+      }
+    ]
+  },
+  "response": {
+    "results": [
+      {
+        "vulns": [
+          {
+            "id": "GHSA-65pc-fj4g-8rjx",
+            "modified": "2026-09-10T03:50:45.700124Z"
+          },
+          {
+            "id": "GHSA-jjg7-2v4v-x38h",
+            "modified": "2026-09-10T03:50:12.774088Z"
+          },
+          {
+            "id": "PYSEC-2024-60",
+            "modified": "2026-06-10T17:01:21.102419Z"
+          },
+          {
+            "id": "PYSEC-2026-215",
+            "modified": "2026-06-16T16:15:04.639265Z"
+          }
+        ]
+      },
+      {},
+      {
+        "vulns": [
+          {
+            "id": "GHSA-6757-jp84-gxfx",
+            "modified": "2026-05-04T08:57:14.897560Z"
+          },
+          {
+            "id": "GHSA-8q59-q68h-6hv4",
+            "modified": "2026-02-04T03:33:10.792778Z"
+          },
+          {
+            "id": "PYSEC-2020-96",
+            "modified": "2026-05-04T08:57:14.897560Z"
+          },
+          {
+            "id": "PYSEC-2021-142",
+            "modified": "2023-11-08T04:02:26.414885Z"
+          }
+        ]
+      }
+    ]
+  }
+}

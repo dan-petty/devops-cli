@@ -4157,6 +4157,14 @@
       "type": "object"
     }
   },
+  "research_advisories": {
+    "description": "List the advisories that affect the pins of the project. It asks OSV about the Python and Node packages, and counts the components that OSV cannot match.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    }
+  },
   "research_inventory": {
     "description": "List every pin of the project as a typed component: Python packages, tools, container images, GitHub Actions, Helm charts and Terraform providers. It reads files only.",
     "input_schema": {

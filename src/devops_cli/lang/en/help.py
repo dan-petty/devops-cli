@@ -2216,6 +2216,10 @@ class ResearchCommandHelp:
     inventory_root: str = (
         "Root of the repository to read. Default: the repository of the current directory."
     )
+    advisories: str = (
+        "List the advisories that affect the pins of the project. It asks OSV about the Python "
+        "and Node packages, and counts the components that OSV cannot match."
+    )
 
 
 @dataclass(frozen=True)

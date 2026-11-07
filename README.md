@@ -493,6 +493,7 @@ and draft readiness. |
 | [**status**](docs/commands/status.md) | `devops status [OPTIONS]` | Inspect published operational status of upstream cloud platforms (GitHub, Cloudflare) |
 | [**survey**](docs/commands/survey.md) | `devops survey [OPTIONS]` | Outward-facing capability and upstream maturity survey. |
 | [**research**](docs/commands/research.md) | `devops research inventory [OPTIONS]` | List every pin of the project as a typed component: Python packages, tools, container images, GitHub Actions, Helm charts and Terraform providers. It reads files only. |
+|  | `devops research advisories [OPTIONS]` | List the advisories that affect the pins of the project. It asks OSV about the Python and Node packages, and counts the components that OSV cannot match. |
 | [**format**](docs/commands/format.md) | `devops format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
 | [**lint**](docs/commands/lint.md) | `devops lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
 
