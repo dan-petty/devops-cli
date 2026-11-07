@@ -18,6 +18,7 @@ import pytest
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
+from devops_cli.research.kev import KevClient
 from devops_cli.research.models import (
     AdvisoryFinding,
     AdvisoryReport,
@@ -41,6 +42,7 @@ from devops_cli.research.sweep import (
 from devops_cli.roadmap.intake.intake import Filer
 from devops_cli.roadmap.intake.intake_model import GatewayIntakeModel
 from devops_cli.telemetry.instruments import RESEARCH_OPEN_FINDINGS
+from tests.research.github_recording import recorded
 from tests.research.osv_recording import RECORDED_REPO, serve_recorded_osv_on_github
 from tests.support.fakes.github import github_json, quota_headers
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -89,6 +91,7 @@ def _finding(
         summary="Arbitrary code execution while a file loads.",
         affected_range=">=0 <5.4",
         fixed_version="5.4",
+        source="OSV",
     )
 
 
@@ -105,6 +108,7 @@ def _report(
             findings=len(findings),
             unpinned=0,
             failed=len(failures or []),
+            exploited=0,
             not_covered={},
         ),
     )
@@ -267,6 +271,15 @@ def test_the_candidate_holds_advisory_ids_and_urls_and_no_private_host_or_addres
         assert private not in text
 
 
+def test_an_advisory_that_only_github_gave_links_to_the_page_of_github() -> None:
+    finding = _finding().model_copy(update={"source": "GitHub"})
+
+    body = finding_candidate(finding).body
+
+    assert "https://github.com/advisories/GHSA-aaaa-bbbb-cccc" in body
+    assert "osv.dev" not in body
+
+
 def test_a_long_package_name_leaves_the_name_out_of_the_title() -> None:
     finding = _finding(name="@scope/a-package-with-a-name-that-is-too-long-for-a-title")
 
@@ -342,6 +355,9 @@ def test_the_command_files_the_critical_findings_of_the_recorded_repository(
     keyring_store: Any,
 ) -> None:
     serve_recorded_osv_on_github(github_api)
+    github_api.route(
+        "GET", KevClient.URL, github_json(recorded("known_exploited_vulnerabilities.json"))
+    )
     _route_search(github_api)
     roadmap_store.seed_file(
         ".github/labels.yml", (REPO_ROOT / ".github/labels.yml").read_text("utf-8")

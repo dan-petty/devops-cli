@@ -56,6 +56,7 @@ ACTIONABLE_SEVERITIES: Final[frozenset[str]] = frozenset(
 )
 _MARKER = re.compile(rf"<!-- {re.escape(CONST_RESEARCH_FINDING_MARKER)}: (\S+) -->")
 _OSV_URL: Final[str] = "https://osv.dev/vulnerability/{id}"
+_GITHUB_ADVISORY_URL: Final[str] = "https://github.com/advisories/{id}"
 
 
 def source_id(finding: AdvisoryFinding) -> str:
@@ -64,6 +65,12 @@ def source_id(finding: AdvisoryFinding) -> str:
     finding."""
     component = finding.component
     return f"{component.ecosystem.value}:{component.name}@{component.version}:{finding.advisory_id}"
+
+
+def _advisory_url(finding: AdvisoryFinding, advisory: str) -> str:
+    """The public page of an advisory: GitHub holds the advisories that only its source gave (#3987)."""
+    template = _GITHUB_ADVISORY_URL if finding.source == "GitHub" else _OSV_URL
+    return template.format(id=advisory)
 
 
 def finding_marker(finding: AdvisoryFinding) -> str:
@@ -118,7 +125,7 @@ def finding_candidate(finding: AdvisoryFinding) -> NewCandidate:
         texts.sweep_body_expected.format(fixed=fixed),
         "",
         texts.sweep_body_advisories,
-        *(f"- {advisory}: {_OSV_URL.format(id=advisory)}" for advisory in ids),
+        *(f"- {advisory}: {_advisory_url(finding, advisory)}" for advisory in ids),
         f"- {texts.sweep_body_range}: {finding.affected_range}",
         "",
         finding_marker(finding),
