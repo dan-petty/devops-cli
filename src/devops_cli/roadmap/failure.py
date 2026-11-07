@@ -9,7 +9,7 @@ message of the agent, which is a claim that no check verified (#3476). `ACTION_B
 table of defaults: each class has exactly one `FailureAction`.
 
 **Typed classes.** A stop site that knows its cause passes the class itself: `no_change_in_fix`,
-`tests_lost`, `head_moved`, `output_cap` and `limit_reached` come from the step, and no rule below
+`tests_lost`, `head_moved`, `output_cap`, `limit_reached` and `outside_plan` come from the step, and no rule below
 makes them. The rules are the fallback for a stop whose cause has no class of its own.
 
 **Order of the rules.** The first rule that matches wins, and the order goes from the cause that is
@@ -64,6 +64,7 @@ class FailureClass(StrEnum):
     OUTPUT_CAP = "output_cap"
     READ_ONLY_PATH = "read_only_path"
     LIMIT_REACHED = "limit_reached"
+    OUTSIDE_PLAN = "outside_plan"
 
 
 class FailureAction(StrEnum):
@@ -100,6 +101,7 @@ ACTION_BY_CLASS: Final[Mapping[FailureClass, FailureAction]] = MappingProxyType(
         FailureClass.OUTPUT_CAP: FailureAction.RAISE_LIMIT,
         FailureClass.READ_ONLY_PATH: FailureAction.WAIT,
         FailureClass.LIMIT_REACHED: FailureAction.RAISE_LIMIT,
+        FailureClass.OUTSIDE_PLAN: FailureAction.WAIT,
     }
 )
 

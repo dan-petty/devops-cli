@@ -866,7 +866,7 @@ Before the exit checks stage the checkout, and again after the extra turn, the s
 - **THEN** the step deletes the file
 
 #### Scenario: A fix step with a new test file
-- **WHEN** a fix step runs and the model writes a new file under `tests/`
+- **WHEN** a fix step runs and the model writes a new file under `tests/` that the plan names
 - **THEN** the step keeps the file and stages it
 
 #### Scenario: A staged stray file
@@ -1408,3 +1408,22 @@ The prompt of the step SHALL list each command of `LOCAL_COMMANDS` in `src/devop
 #### Scenario: A listed command is no refusal
 - **WHEN** The model calls the shell tool with `uv run devops ai repomap`.
 - **THEN** The command reaches the process edge, the refusal counter is unchanged, and no refusal comes back.
+
+### Requirement: A fix step changes only the paths that the plan names
+A fix step SHALL stop with the class `outside_plan` when it changed, added or deleted a path that the plan does not name. The plan names a path in a code span of the text of any group of its `tasks.md`, which includes the `Reads:` line, the `Changes:` line and the tasks. A file under the change folder of the item is always allowed. The stop SHALL reset the checkout, SHALL name each path in its reason, and SHALL run no repair round. A group step SHALL NOT be subject to this rule.
+
+#### Scenario: A fix step edits a path that the plan does not name
+- **WHEN** a fix step writes `src/sample.py`, which the plan names, and `src/other.py`, which it does not
+- **THEN** the step reports stopped with the class `outside_plan`, the reason names `src/other.py` and not `src/sample.py`, the diff holds the edit of `src/other.py`, no repair round ran, and the checkout is at its start commit
+
+#### Scenario: A fix step adds an unnamed file
+- **WHEN** a fix step writes a new file `tests/test_sample_fix.py` that the plan does not name
+- **THEN** the step reports stopped with the class `outside_plan`
+
+#### Scenario: A fix step deletes an unnamed file
+- **WHEN** a fix step deletes `src/other.py`, which the plan does not name
+- **THEN** the step reports stopped with the class `outside_plan`, and the file is back in the checkout
+
+#### Scenario: A fix step edits only named paths and the change folder
+- **WHEN** a fix step edits `src/sample.py`, which the plan names, and `design.md` of the change folder
+- **THEN** the step ends done

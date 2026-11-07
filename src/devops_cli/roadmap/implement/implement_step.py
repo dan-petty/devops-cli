@@ -135,7 +135,7 @@ from devops_cli.roadmap.implement.implement_shell_policy import (
     shown,
 )
 from devops_cli.roadmap.implement.implement_shell_refusal import ShellRefusal
-from devops_cli.roadmap.implement.implement_strays import stray_files
+from devops_cli.roadmap.implement.implement_strays import stray_files, unplanned_paths
 from devops_cli.roadmap.implement.implement_test_names import lost_since, unrecorded_tests
 from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace
@@ -1347,6 +1347,26 @@ def _reset_moved_head(source: Path, expected: str) -> _Failure | None:
     return None
 
 
+def _outside_plan_failure(source: Path, inputs: StepInputs, base: str) -> _Failure | None:
+    """Why a fix step stops when it changed, added or deleted a path that the plan does not name,
+    else None (#3824). The fix of a failed check whose cause lies in another path is a decision for
+    a person: the step writes no compensating code. The failure has no repair paths, so no extra
+    turn follows. A group step is not checked."""
+    if inputs.fix is None:
+        return None
+    names = _git_output(source, "diff", "--cached", "--name-only", "--no-renames", "-z", base)
+    groups = parse_task_groups(inputs.tasks_md)
+    change = inputs.change.relative_to(source).as_posix()
+    outside = unplanned_paths([name for name in names.split("\0") if name], groups, change)
+    if not outside:
+        return None
+    paths = _paths_text([f"`{name}`" for name in outside])
+    return _Failure(
+        MESSAGES.roadmap.implement_stop_outside_plan.format(paths=paths),
+        klass=FailureClass.OUTSIDE_PLAN,
+    )
+
+
 def _exit_failure(
     source: Path, inputs: StepInputs, keeper: WipKeeper, log: ToolCallLog
 ) -> _Failure | None:
@@ -1373,6 +1393,9 @@ def _exit_failure(
             FailureClass.NO_CHANGE_IN_FIX if inputs.fix is not None else FailureClass.PLAN_DEFECT
         )
         return _Failure(MESSAGES.roadmap.implement_stop_no_change, klass=no_change)
+    outside = _outside_plan_failure(source, inputs, keeper.base)
+    if outside is not None:
+        return outside
     lost = _tests_failure(source, keeper.base, inputs.recorded_tests)
     if lost:
         return _Failure(lost, klass=FailureClass.TESTS_LOST)

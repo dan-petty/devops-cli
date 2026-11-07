@@ -17,6 +17,10 @@ stray file is an untracked file that git does not ignore (`git ls-files --others
 A directory in the list is a stray file at any place: git lists a directory only when it holds a
 nested git repository.
 
+A fix step is stricter (#3824): it may change only a path that the plan names or a file under the
+change folder (`unplanned_paths`). A path of the plan is a code span in the text of any group, so
+the `Reads:` line, the `Changes:` line and the tasks all name paths.
+
 This module only decides. The step lists the files, unstages and deletes the stray ones and reports
 them. A fix step names no file in its group, so it applies the same rule with the four project
 directories (#3488).
@@ -53,3 +57,18 @@ def stray_files(untracked: Iterable[str], group: TaskGroup, change: str) -> list
             continue
         strays.append(name)
     return strays
+
+
+def unplanned_paths(changed: Iterable[str], groups: Iterable[TaskGroup], change: str) -> list[str]:
+    """The names of `changed` that the plan does not name, in their order (#3824). `changed` holds
+    every path that a step added, changed or deleted, relative to the checkout. The plan names a
+    path in a code span of the text of any of its `groups`. A file under the change folder `change`
+    is always allowed."""
+    named = frozenset().union(*(_named(group) for group in groups))
+    folder = PurePosixPath(change)
+    return [
+        name
+        for name in changed
+        if posixpath.normpath(name) not in named
+        and not PurePosixPath(posixpath.normpath(name)).is_relative_to(folder)
+    ]
