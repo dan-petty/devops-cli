@@ -123,6 +123,8 @@ def test_parse_key_date_invalid() -> None:
 def test_get_ssh_key_prefix_resolution(tmp_path: Path, config: Callable[..., Path]) -> None:
     from devops_cli.crypto.ssh_keys import format_managed_key_filename, get_ssh_key_prefix
 
+    (tmp_path / ".git").mkdir()  # The config search ends here, so no file of the host counts.
+
     # 1. Config setting override
     config(ssh={"key_prefix": "custom-prod"})
     assert get_ssh_key_prefix(tmp_path) == "custom-prod"
@@ -142,6 +144,20 @@ def test_get_ssh_key_prefix_resolution(tmp_path: Path, config: Callable[..., Pat
     plain_dir = tmp_path / "my_plain_repo"
     plain_dir.mkdir()
     assert get_ssh_key_prefix(plain_dir) == "my_plain_repo"
+
+
+def test_a_config_file_in_a_directory_without_a_project_marker_names_no_prefix(
+    tmp_path: Path,
+) -> None:
+    """A `config.yaml` in an ancestor that is no project root, as a stray file in `/tmp`, is no
+    project config: the key takes the name of its directory (#3585)."""
+    from devops_cli.crypto.ssh_keys import get_ssh_key_prefix
+
+    (tmp_path / "config.yaml").write_text("ssh:\n  key_prefix: stray\n", encoding="utf-8")
+    workspace = tmp_path / "my_plain_repo"
+    workspace.mkdir()
+
+    assert get_ssh_key_prefix(workspace) == "my_plain_repo"
 
 
 def test_devcontainer_name_survives_urls_next_to_comments(tmp_path: Path) -> None:

@@ -38,6 +38,7 @@ from devops_cli.commands.install_tools import (
 )
 from devops_cli.dry_run import get_dry_run_class
 from devops_cli.main import app
+from tests.support.tools import link_at_pin
 
 runner = CliRunner()
 
@@ -339,8 +340,14 @@ def test_devcontainer_update_dry_run_preview(tmp_path: Path) -> None:
 # =============================================================================
 
 
-def test_mark_only_commands_under_global_dry_run(tmp_path: Path) -> None:
-    """Verify devops --dry-run runs mark-only commands normally without error."""
+def test_mark_only_commands_under_global_dry_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify devops --dry-run runs mark-only commands normally without error.
+
+    `install-tools status` reads its target directory, then PATH. The test gives it an empty
+    target directory and an empty PATH, so no tool of the host shows (#3585, #3025).
+    """
     # 1. devcontainer list
     res_list = runner.invoke(
         app, ["--dry-run", "devcontainer", "list", "--base-dir", str(tmp_path)]
@@ -360,7 +367,34 @@ def test_mark_only_commands_under_global_dry_run(tmp_path: Path) -> None:
     assert "DevContainer manifest is valid" in res_val.output
 
     # 3. install-tools status
-    res_status = runner.invoke(app, ["--dry-run", "install-tools", "status"])
+    empty_path = tmp_path / "empty-path"
+    empty_path.mkdir()
+    monkeypatch.setenv("PATH", str(empty_path))
+    res_status = runner.invoke(
+        app, ["--dry-run", "install-tools", "status", "--target-dir", str(tmp_path / "bin")]
+    )
     assert res_status.exit_code == 0, res_status.output
     assert "DevOps Tool" in res_status.output
     assert "not installed" in res_status.output
+
+
+def test_install_tools_status_shows_a_tool_at_its_pin_under_global_dry_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A host that has the devcontainer CLI at its pin shows `at pin` on the row of the tool, and
+    a host that has none shows `not installed` there (#3025)."""
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-path"))
+    target = tmp_path / "bin"
+
+    def row() -> str:
+        result = runner.invoke(
+            app, ["--dry-run", "install-tools", "status", "--target-dir", str(target)]
+        )
+        assert result.exit_code == 0, result.output
+        return next(line for line in result.output.splitlines() if "devcontainers-cli" in line)
+
+    absent = row()
+    link_at_pin("devcontainers-cli", target)
+    present = row()
+
+    assert ("not installed" in absent, "at pin" in present) == (True, True)

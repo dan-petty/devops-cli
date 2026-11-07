@@ -62,6 +62,8 @@ def _resolve_prefix_from_project_config(target_dir: Path) -> str | None:
     """Inspect target directory and ancestors for project/devcontainer config.yaml with key_prefix."""
     import os
 
+    from devops_cli.config.settings import project_config_directories
+
     env_cfg = os.environ.get("DEVOPS_CLI_CONFIG")
     if env_cfg:
         prefix = _extract_prefix_from_yaml(Path(env_cfg))
@@ -75,13 +77,11 @@ def _resolve_prefix_from_project_config(target_dir: Path) -> str | None:
         ".devops.yaml",
         ".devcontainer/.devops.yaml",
     )
-    for d in (target_dir, *target_dir.parents):
+    for d in project_config_directories(target_dir):
         for name in candidate_names:
             prefix = _extract_prefix_from_yaml(d / name)
             if prefix:
                 return prefix
-        if (d / ".git").exists() or (d / ".devcontainer").exists():
-            break
     return None
 
 

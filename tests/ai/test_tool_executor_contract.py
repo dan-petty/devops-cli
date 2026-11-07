@@ -1035,12 +1035,16 @@ def test_the_direct_executor_records_the_network_of_the_host(
 
 
 def test_the_direct_executor_refuses_a_network_profile_before_it_starts_the_tool(
-    direct_executor: ToolExecutor, scenario: Scenario
+    direct_executor: ToolExecutor, scenario: Scenario, tmp_path: Path
 ) -> None:
     """The direct executor gives a tool the whole network of the host, so it cannot give the tool
     a network profile. It refuses the request before the tool starts, and so does the fake that
-    stands in for it. The floor of the suite refuses to start Popeye, so a start raises another
-    error."""
+    stands in for it. A stand-in for Popeye is first on PATH, so no tool of the host is resolved,
+    and it writes a marker if it ever starts."""
+    marker = tmp_path / "popeye-started"
+    stand_in = scenario.tools_dir / "popeye"
+    stand_in.write_text(f"#!/bin/sh\n: > '{marker}'\n", encoding="utf-8")
+    stand_in.chmod(0o755)
     request = ToolRequest(
         tool="popeye",
         arguments=("version",),
@@ -1051,6 +1055,8 @@ def test_the_direct_executor_refuses_a_network_profile_before_it_starts_the_tool
 
     with pytest.raises(SandboxError, match="cannot run the network profile kube-api"):
         direct_executor.run(request)
+
+    assert not marker.exists()
 
 
 def test_each_executor_names_itself_in_the_record_of_its_run(scenario: Scenario) -> None:
