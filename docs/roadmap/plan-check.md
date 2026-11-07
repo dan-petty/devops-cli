@@ -53,6 +53,12 @@ condition reads the author of the pull request, not the actor of the event. A jo
 condition skips reports Success, so the pull requests of a person, of another bot and of the
 release pass.
 
+The condition reads the title of the event, and the command reads the pull request when it runs.
+The implement job takes the plan pull request over and rewrites its title and body to the form of a
+delivery, so a run of that edit reads a pull request that is no longer a plan. The command reports
+no problem for a pull request whose title and body hold neither the plan title nor the line
+`Plans #<issue>`: the form of a plan no longer applies to it.
+
 The job needs `Semantic PR title` and runs after it, also when it failed, because the command then
 reports that check as a problem. The job holds the permissions `checks`, `contents` and
 `pull-requests`, all read. It posts no status and makes no review. A new push gives a new run.

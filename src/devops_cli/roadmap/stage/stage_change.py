@@ -152,6 +152,9 @@ _SELF_ACCEPTANCE_MARKS: Final[tuple[str, ...]] = (
     "content_problems",
     "no problem",
 )
+# An entry of `dependencies` that names an issue which must be delivered first: `#<number>: <reason>`
+# (#3224). An overlap or a metric sender keeps its own form, so the reader skips it.
+_ISSUE_DEPENDENCY: Final[re.Pattern[str]] = re.compile(r"^#(?P<number>[0-9]+):")
 _SENTENCE_END: Final[str] = f"{string.whitespace}."
 REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
 # The stage prompt and each module that holds a check of `check_proposal` or of the gates it
@@ -979,6 +982,16 @@ def _overlap_problems(dependencies: Sequence[str], overlaps: Sequence[Overlap]) 
             continue
         problems.append(texts.stage_problem_dependencies.format(pull=overlap.number, path=path))
     return problems
+
+
+def issue_dependencies(dependencies: Sequence[str]) -> list[int]:
+    """The number of each `dependencies` entry that names an issue, in the order of the entries
+    (#3224). An entry of another form, such as an overlap or a metric sender, gives no number."""
+    return [
+        int(found.group("number"))
+        for entry in dependencies
+        if (found := _ISSUE_DEPENDENCY.match(entry.strip())) is not None
+    ]
 
 
 def closing_keyword_in(text: str) -> str | None:

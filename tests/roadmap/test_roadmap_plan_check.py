@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import subprocess
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
@@ -53,6 +53,7 @@ class _Tool:
 class _Reads:
     pull: PullRequest
     bodies: Mapping[int, str]
+    states: Mapping[int, str] = field(default_factory=dict)
 
     def get_pull(self, repo: str, number: int) -> PullRequest:
         del repo, number
@@ -63,7 +64,7 @@ class _Reads:
         return IssueView(
             number=number,
             title=ISSUE_TITLE,
-            state="open",
+            state=self.states.get(number, "open"),
             body=self.bodies.get(number),
         )
 
@@ -82,7 +83,13 @@ def _checks(
 
 
 def _facts(
-    repo: StageRepo, *, sha: str, title: str = TITLE, body: str = BODY, issue_body: str = ""
+    repo: StageRepo,
+    *,
+    sha: str,
+    title: str = TITLE,
+    body: str = BODY,
+    issue_body: str = "",
+    states: Mapping[int, str] | None = None,
 ) -> _Reads:
     base = repo.git("rev-parse", "main")
     pull = PullRequest(
@@ -90,7 +97,7 @@ def _facts(
         head=CommitRef(sha=sha, ref="plan", repository="example/roadmap"),
         base=CommitRef(sha=base, ref="main", repository="example/roadmap"),
     )
-    return _Reads(pull=pull, bodies={PULL: body, ISSUE: issue_body})
+    return _Reads(pull=pull, bodies={PULL: body, ISSUE: issue_body}, states=states or {})
 
 
 def _push(repo: StageRepo, files: Mapping[str, str], *, branch: str = "plan") -> str:
@@ -193,6 +200,30 @@ def test_a_body_with_no_plan_reference_is_reported(stage_repo: StageRepo) -> Non
     result = _run(stage_repo, _facts(stage_repo, sha=sha, body="The plan does a thing."))
 
     assert [p.rule for p in result.problems] == ["body-plans"]
+
+
+def test_a_pull_request_that_is_no_longer_a_plan_is_no_problem(stage_repo: StageRepo) -> None:
+    """The implement job takes the plan pull request over and rewrites its title and body to the
+    form of a delivery. A run of that edit reads a pull request that is no longer a plan, so the
+    plan form no longer applies to it and the command reports no problem."""
+    sha = _push(stage_repo, _change())
+    body = (
+        "The check reports a plan that depends on an open issue.\n\n"
+        f"Closes #{ISSUE}\n\n"
+        f"Change: `openspec/changes/{CHANGE}/`"
+    )
+
+    result = _run(
+        stage_repo,
+        _facts(
+            stage_repo,
+            sha=sha,
+            title="feat(roadmap): record and check plan dependencies",
+            body=body,
+        ),
+    )
+
+    assert result.problems == ()
 
 
 def test_a_body_with_a_closing_keyword_is_reported(stage_repo: StageRepo) -> None:
@@ -380,6 +411,39 @@ def test_an_openspec_problem_is_reported(stage_repo: StageRepo) -> None:
     result = _run(stage_repo, _facts(stage_repo, sha=sha), tool=_Tool(report))
 
     assert [(p.path, p.rule) for p in result.problems] == [(CHANGE, "openspec")]
+
+
+# ── The issue that the plan depends on (#3224) ────────────────────────────────
+
+PROPOSAL = f"openspec/changes/{CHANGE}/proposal.md"
+DEPENDENCY = "#3224: the dependency record"
+
+
+def test_an_open_issue_dependency_is_reported(stage_repo: StageRepo) -> None:
+    sha = _push(stage_repo, _change(make_stage_proposal(dependencies=[DEPENDENCY])))
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha, states={3224: "open"}))
+
+    (problem,) = result.problems
+    assert (problem.path, problem.rule) == (PROPOSAL, "issue-dependency")
+    assert "#3224" in problem.message
+
+
+def test_a_dependency_that_is_not_open_is_no_problem(stage_repo: StageRepo) -> None:
+    sha = _push(stage_repo, _change(make_stage_proposal(dependencies=[DEPENDENCY])))
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha, states={3224: "closed"}))
+
+    assert "issue-dependency" not in {problem.rule for problem in result.problems}
+
+
+def test_an_overlap_entry_is_no_issue_dependency(stage_repo: StageRepo) -> None:
+    overlap = "pull request #3955 changes `src/devops_cli/commands/roadmap.py`"
+    sha = _push(stage_repo, _change(make_stage_proposal(dependencies=[overlap])))
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha))
+
+    assert "issue-dependency" not in {problem.rule for problem in result.problems}
 
 
 # ── The size of each group (#3499) ────────────────────────────────────────────
