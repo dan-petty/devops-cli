@@ -9,7 +9,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/implement/implement_step.py`, `sr
 - [x] 1.2 Remove `PLAN` and `REVIEW` from `StepClass` and from its docstring. Remove `plan` and `review` from `CONST_ROADMAP_IMPLEMENT_STEP_CLASSES` and from the comment above it. Change the description of `roadmap.implement.ladder`. Remove the keys `plan` and `review` from the ladder in `k8s/devops/configmap.example.yaml`.
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_step_classes.py tests/config/test_settings.py tests/config/test_k8s_devops_runtime.py`
 - [x] 1.3 Check that no code or test names the removed classes.
-  - Verification: `$ ! git grep -nE 'StepClass\.(PLAN|REVIEW)' src/ tests/`
+  - Verification: `$ ! git grep -n -F StepClass.PLAN src/ tests/` `$ ! git grep -n -F StepClass.REVIEW src/ tests/`
 
 ## 2. Fix the documents that name the old classes
 
