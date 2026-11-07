@@ -541,7 +541,7 @@ def test_test_modules_repeat_no_floor_resets() -> None:
         ("tests/ai/client/test_ai_request_priority.py", "_clean_state"),
         ("tests/k8s/test_k8s_service.py", "reset_k8s_service"),
         ("tests/ai/client/test_ollama_dynamic_leasing.py", "_reset_slots"),
-        ("tests/ai/mcp/test_fastmcp_contracts.py", "reset_domain_gate"),
+        ("tests/ai/mcp/test_mcp_domain_hydration.py", "reset_domain_gate"),
         ("tests/k8s/test_k8s_context_resolution.py", "clear_context_cache"),
         ("tests/commands/test_config_field_validation.py", "_reset_cache"),
         ("tests/ai/rag/test_rag_investigator.py", "_reset_investigation_cache"),

@@ -2,23 +2,23 @@
 
 ## 1. Deny a named parameter in a path restriction
 
-Reads: `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_mcp.py`. Changes: `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_mcp.py`.
+Reads: `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_mcp_exposure_table.py`. Changes: `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_mcp_exposure_table.py`.
 
-- [ ] 1.1 In `tests/ai/mcp/test_mcp.py`, add a test that gives a path restriction a `denied` set holding `env` and asserts that the generated schema of the tool has no `env` property
-  - Verification: `uv run devops ci test tests/ai/mcp/test_mcp.py` fails on the base
+- [ ] 1.1 In `tests/ai/mcp/test_mcp_exposure_table.py`, add a test that gives a path restriction a `denied` set holding `env` and asserts that the generated schema of the tool has no `env` property
+  - Verification: `uv run devops ci test tests/ai/mcp/test_mcp_exposure_table.py` fails on the base
 - [ ] 1.2 Read `denied` in `_introspect_command_parameters` of `src/devops_cli/ai/mcp/generator.py` and skip each parameter that it names, before any `allowed` check. Document the key in the comment above `_PATH_PARAM_RESTRICTIONS`
-  - Verification: `uv run devops ci test tests/ai/mcp/test_mcp.py` passes
+  - Verification: `uv run devops ci test tests/ai/mcp/test_mcp_exposure_table.py` passes
 
 ## 2. Deny env on sandbox deploy, drop valkey set, and update dependent tests
 
-Reads: `src/devops_cli/ai/mcp/generator.py`, `src/devops_cli/config/constants.py`, `tests/ai/mcp/test_mcp.py`, `tests/ai/mcp/test_fastmcp_contracts.py`. Changes: `src/devops_cli/ai/mcp/generator.py`, `src/devops_cli/config/constants.py`, `tests/ai/mcp/test_mcp.py`, `tests/ai/mcp/test_fastmcp_contracts.py`.
+Reads: `src/devops_cli/ai/mcp/generator.py`, `src/devops_cli/config/constants.py`, `tests/ai/mcp/test_mcp_exposure_table.py`, `tests/ai/mcp/test_mcp_tool_registry.py`. Changes: `src/devops_cli/ai/mcp/generator.py`, `src/devops_cli/config/constants.py`, `tests/ai/mcp/test_mcp_exposure_table.py`, `tests/ai/mcp/test_mcp_tool_registry.py`.
 
-- [ ] 2.1 In `tests/ai/mcp/test_mcp.py`, add a test that asserts the schema of `sandbox_deploy` has no `env` property and that the generated tool names hold no `valkey_set`
-  - Verification: `uv run devops ci test tests/ai/mcp/test_mcp.py` fails on the base
+- [ ] 2.1 In `tests/ai/mcp/test_mcp_exposure_table.py`, add a test that asserts the schema of `sandbox_deploy` has no `env` property and that the generated tool names hold no `valkey_set`
+  - Verification: `uv run devops ci test tests/ai/mcp/test_mcp_exposure_table.py` fails on the base
 - [ ] 2.2 Add `("sandbox", "deploy")` to `_PATH_PARAM_RESTRICTIONS` with `denied` holding `env`. Remove `("valkey", "set")` from `CONST_MCP_EXPOSURE_TABLE` in `src/devops_cli/config/constants.py` and from `_PATH_PARAM_RESTRICTIONS`
-  - Verification: `uv run devops ci test tests/ai/mcp/test_mcp.py` passes
-- [ ] 2.3 Add `("valkey", "set")` to `mcp_command_exclusions` and update `test_export_schemas_command` to check `tf_apply.json` in `tests/ai/mcp/test_mcp.py`. Update `floor_expected_false` and input contract tests in `tests/ai/mcp/test_fastmcp_contracts.py` to use `tf_apply` instead of `valkey_set`
-  - Verification: `uv run devops ci test tests/ai/mcp/test_mcp.py tests/ai/mcp/test_fastmcp_contracts.py` passes
+  - Verification: `uv run devops ci test tests/ai/mcp/test_mcp_exposure_table.py` passes
+- [ ] 2.3 Add `("valkey", "set")` to `mcp_command_exclusions` and update `test_export_schemas_command` to check `tf_apply.json` in `tests/commands/test_mcp_tools_and_schema_export.py`. Update `floor_expected_false` in `tests/ai/mcp/test_mcp_tool_registry.py` and the input contract tests in `tests/ai/mcp/test_mcp_argument_refusal.py` to use `tf_apply` instead of `valkey_set`
+  - Verification: `uv run devops ci test tests/ai/mcp/test_mcp_exposure_table.py tests/commands/test_mcp_tools_and_schema_export.py tests/ai/mcp/test_mcp_tool_registry.py tests/ai/mcp/test_mcp_argument_refusal.py` passes
 
 ## 3. Add the free-text sink guard and allow-list k8s_diff_helm values
 

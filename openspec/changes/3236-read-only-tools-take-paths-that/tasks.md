@@ -3,18 +3,18 @@
 ## 1. Add the confinement tables and the guard
 
 Reads: `src/devops_cli/core/paths.py`, `src/devops_cli/ai/mcp/generator.py`.
-Changes: `src/devops_cli/ai/mcp/path_confinement.py` (new), `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_mcp.py`.
+Changes: `src/devops_cli/ai/mcp/path_confinement.py` (new), `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_path_confinement.py`.
 
-- [ ] 1.1 In `tests/ai/mcp/test_mcp.py`, write tests that the `gh_pages_verify` tool refuses `../../etc/passwd` and the `ai_ast_graph` tool refuses `/etc` with a `ValidationError` that names the parameter and starts no command, and that `docs` resolves under the work tree. Verify `uv run devops ci test tests/ai/mcp/test_mcp.py` fails on the base
-- [ ] 1.2 Write `src/devops_cli/ai/mcp/path_confinement.py` with `PATH_CONFINEMENTS` (`ai_ast_graph`: `target_dir`; `gh_pages_verify`: `root_dir`) and `NOT_A_FILE_PATH` (`security_intel_network`: `target`, with the reason). In `generator.py`, add `_check_path_confinement(tool_name, kwargs)`, which calls `safe_resolve_subpath` with `error_cls=ValidationError` against the work tree of the process and writes the resolved value back, and call it in `_create_tool_function` beside `_check_oidc_token_reference`. Verify `uv run devops ci test tests/ai/mcp/test_mcp.py` passes
+- [ ] 1.1 In `tests/ai/mcp/test_path_confinement.py`, write tests that the `gh_pages_verify` tool refuses `../../etc/passwd` and the `ai_ast_graph` tool refuses `/etc` with a `ValidationError` that names the parameter and starts no command, and that `docs` resolves under the work tree. Verify `uv run devops ci test tests/ai/mcp/test_path_confinement.py` fails on the base
+- [ ] 1.2 Write `src/devops_cli/ai/mcp/path_confinement.py` with `PATH_CONFINEMENTS` (`ai_ast_graph`: `target_dir`; `gh_pages_verify`: `root_dir`) and `NOT_A_FILE_PATH` (`security_intel_network`: `target`, with the reason). In `generator.py`, add `_check_path_confinement(tool_name, kwargs)`, which calls `safe_resolve_subpath` with `error_cls=ValidationError` against the work tree of the process and writes the resolved value back, and call it in `_create_tool_function` beside `_check_oidc_token_reference`. Verify `uv run devops ci test tests/ai/mcp/test_path_confinement.py` passes
 
 ## 2. Publish no output path for two tools
 
-Reads: `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_fastmcp_contracts.py`.
-Changes: `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_fastmcp_contracts.py`.
+Reads: `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_mcp_tool_registry.py`.
+Changes: `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_mcp_tool_registry.py`.
 
-- [ ] 2.1 In `tests/ai/mcp/test_fastmcp_contracts.py`, assert that the schema of `ai_ast_graph` holds no `output_path` and that of `k8s_security_stream` holds no `output`. Verify `uv run devops ci test tests/ai/mcp/test_fastmcp_contracts.py` fails on the base
-- [ ] 2.2 Add `_PATH_PARAM_RESTRICTIONS` entries for `("ai", "ast", "graph")` and `("k8s", "security-stream")` that allow every option of the command but the output option. Verify `uv run devops ci test tests/ai/mcp/test_fastmcp_contracts.py` passes
+- [ ] 2.1 In `tests/ai/mcp/test_mcp_tool_registry.py`, assert that the schema of `ai_ast_graph` holds no `output_path` and that of `k8s_security_stream` holds no `output`. Verify `uv run devops ci test tests/ai/mcp/test_mcp_tool_registry.py` fails on the base
+- [ ] 2.2 Add `_PATH_PARAM_RESTRICTIONS` entries for `("ai", "ast", "graph")` and `("k8s", "security-stream")` that allow every option of the command but the output option. Verify `uv run devops ci test tests/ai/mcp/test_mcp_tool_registry.py` passes
 
 ## 3. Audit the path parameters of the role tools
 

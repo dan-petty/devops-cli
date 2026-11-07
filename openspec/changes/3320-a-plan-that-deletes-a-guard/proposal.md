@@ -39,7 +39,7 @@ None.
 ## Feasibility
 
 - `probes` states "The path `src/devops_cli/roadmap/stage_change.py` is a file of the staging commit." The module holds `check_proposal` and `render_change`, the two functions that the issue names.
-- `probes` states "The path `tests/ai/mcp/test_mcp.py` is a file of the staging commit." Its `test_all_cli_commands_are_either_exposed_or_excluded` holds the hand-written `mcp_command_exclusions` tuple that the issue cites.
+- `probes` states "The path `tests/ai/mcp/test_mcp_exposure_table.py` is a file of the staging commit." Its `test_all_cli_commands_are_either_exposed_or_excluded` holds the hand-written `mcp_command_exclusions` tuple that the issue cites.
 - `probes` states "The path `openspec/config.yaml` is a file of the staging commit." It holds a `rules:` block with a `proposal:` list, so a proposal rule is a data edit.
 - `probes` states "The path `src/devops_cli/config/constants.py` is a file of the staging commit." It holds the `CONST_*` inventories that the issue cites as guard lists.
 - `probes` states "The path `AGENTS.md` is a file of the staging commit." Its rule 5 reads "Never lower a security or quality threshold: only the owner can allow it."

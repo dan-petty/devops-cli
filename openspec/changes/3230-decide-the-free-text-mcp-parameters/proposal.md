@@ -9,8 +9,8 @@ The MCP guard of #3222 finds a secret parameter by the words of its name, so a p
 - `_PATH_PARAM_RESTRICTIONS` in `src/devops_cli/ai/mcp/generator.py` takes an optional `denied` set, and `_introspect_command_parameters` omits each parameter that it names.
 - The `("sandbox", "deploy")` restriction denies `env`, so the tool publishes no `env` parameter.
 - The `("valkey", "set")` row leaves `CONST_MCP_EXPOSURE_TABLE` and `_PATH_PARAM_RESTRICTIONS`, so the server publishes no `valkey_set` tool.
-- `tests/ai/mcp/test_mcp.py` adds `("valkey", "set")` to `mcp_command_exclusions`, and `test_export_schemas_command` verifies `tf_apply.json` instead of `valkey_set.json`.
-- `tests/ai/mcp/test_fastmcp_contracts.py` drops `valkey_set` from `floor_expected_false` and tests input validation and log masking with `tf_apply`.
+- `tests/ai/mcp/test_mcp_exposure_table.py` adds `("valkey", "set")` to `mcp_command_exclusions`, and `test_export_schemas_command` in `tests/commands/test_mcp_tools_and_schema_export.py` verifies `tf_apply.json` instead of `valkey_set.json`.
+- `tests/ai/mcp/test_mcp_tool_registry.py` drops `valkey_set` from `floor_expected_false`, and `tests/ai/mcp/test_mcp_argument_refusal.py` tests input validation and log masking with `tf_apply`.
 - `CONST_MCP_FREE_TEXT_SINK_PARAMETER_NAMES` and `CONST_MCP_FREE_TEXT_SINK_ALLOWLIST` in `src/devops_cli/config/constants.py` name the free-text sink names and the allowed parameters with a reason.
 - `CONST_MCP_FREE_TEXT_SINK_ALLOWLIST` names `("k8s_diff_helm", "values")` with its reason.
 - A new guard test in `tests/ai/mcp/test_mcp_tool_secrets.py` fails on an unallowed sink parameter, and on an allow-list entry that matches no parameter.
@@ -33,7 +33,7 @@ None.
 
 - Code: `src/devops_cli/ai/mcp/generator.py`, `src/devops_cli/config/constants.py`
 - Documents: `SECURITY.md`, `docs/MCP_TOOLS.md`
-- Tests: `tests/ai/mcp/test_mcp.py`, `tests/ai/mcp/test_mcp_tool_secrets.py`, `tests/ai/mcp/test_fastmcp_contracts.py`
+- Tests: `tests/ai/mcp/test_mcp_exposure_table.py`, `tests/commands/test_mcp_tools_and_schema_export.py`, `tests/ai/mcp/test_mcp_tool_secrets.py`, `tests/ai/mcp/test_mcp_tool_registry.py`, `tests/ai/mcp/test_mcp_argument_refusal.py`
 
 ## Feasibility
 
@@ -42,8 +42,8 @@ None.
 - A check of all published FastMCP tools finds three parameters matching the free-text sink names `env`, `values`, `value`, `data`: `sandbox_deploy.env`, `valkey_set.value`, and `k8s_diff_helm.values`.
 - `sandbox_deploy.env` is omitted through `denied`, and `valkey_set` is removed.
 - `k8s_diff_helm.values` accepts paths to values YAML files and stays published with an entry in `CONST_MCP_FREE_TEXT_SINK_ALLOWLIST`.
-- `tests/ai/mcp/test_fastmcp_contracts.py` lines 269, 1188, 1217, 1233 and `tests/ai/mcp/test_mcp.py` lines 166, 640 reference `valkey_set` and are updated to use `tf_apply` and list `valkey set` under exclusions.
-- Verification commands: `uv run devops ci test tests/ai/mcp/test_mcp_tool_secrets.py`, `uv run devops ci test tests/ai/mcp/test_mcp.py`, `uv run devops ci test tests/ai/mcp/test_fastmcp_contracts.py`, and `uv run devops ci docs`.
+- `tests/ai/mcp/test_mcp_tool_registry.py` and `tests/ai/mcp/test_mcp_argument_refusal.py` and `tests/ai/mcp/test_mcp_exposure_table.py` and `tests/commands/test_mcp_tools_and_schema_export.py` reference `valkey_set` and are updated to use `tf_apply` and list `valkey set` under exclusions.
+- Verification commands: `uv run devops ci test tests/ai/mcp/test_mcp_tool_secrets.py`, `uv run devops ci test tests/ai/mcp/test_mcp_exposure_table.py`, `uv run devops ci test tests/commands/test_mcp_tools_and_schema_export.py`, `uv run devops ci test tests/ai/mcp/test_mcp_tool_registry.py`, `uv run devops ci test tests/ai/mcp/test_mcp_argument_refusal.py`, and `uv run devops ci docs`.
 
 ## Existing Tool Considered
 
