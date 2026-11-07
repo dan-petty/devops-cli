@@ -61,6 +61,12 @@ class SSRFBlockedError(SecurityError):
         self.details["target_url"] = bounded_target
 
 
+class ResponseTooLargeError(SecurityError):
+    """Raised when the body of a response passes the byte cap of its client."""
+
+    error_code = "RESPONSE_TOO_LARGE"
+
+
 class KeyringUnavailableError(SecurityError):
     """Raised when the OS Keyring service is unreachable or uninitialized."""
 

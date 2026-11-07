@@ -1,0 +1,991 @@
+{
+  "results": [
+    {
+      "source": {
+        "path": "uv.lock",
+        "type": "lockfile"
+      },
+      "packages": [
+        {
+          "package": {
+            "name": "idna",
+            "version": "3.6",
+            "ecosystem": "PyPI"
+          },
+          "groups": [
+            {
+              "ids": [
+                "PYSEC-2024-60",
+                "GHSA-jjg7-2v4v-x38h"
+              ],
+              "aliases": [
+                "CVE-2024-3651",
+                "GHSA-jjg7-2v4v-x38h",
+                "PYSEC-2024-60"
+              ],
+              "max_severity": "7.5"
+            },
+            {
+              "ids": [
+                "PYSEC-2026-215",
+                "GHSA-65pc-fj4g-8rjx"
+              ],
+              "aliases": [
+                "CVE-2026-45409",
+                "GHSA-65pc-fj4g-8rjx",
+                "PYSEC-2026-215"
+              ],
+              "max_severity": "6.9"
+            }
+          ],
+          "vulnerabilities": [
+            {
+              "affected": [
+                {
+                  "database_specific": {
+                    "source": "https://github.com/pypa/advisory-database/blob/main/vulns/idna/PYSEC-2024-60.yaml"
+                  },
+                  "package": {
+                    "ecosystem": "PyPI",
+                    "name": "idna",
+                    "purl": "pkg:pypi/idna"
+                  },
+                  "ranges": [
+                    {
+                      "events": [
+                        {
+                          "introduced": "0"
+                        },
+                        {
+                          "fixed": "1d365e17e10d72d0b7876316fc7b9ca0eebdd38d"
+                        }
+                      ],
+                      "repo": "https://github.com/kjd/idna",
+                      "type": "GIT"
+                    },
+                    {
+                      "events": [
+                        {
+                          "introduced": "0.1"
+                        },
+                        {
+                          "fixed": "3.7"
+                        }
+                      ],
+                      "type": "ECOSYSTEM"
+                    }
+                  ],
+                  "versions": [
+                    "0.1",
+                    "0.2",
+                    "0.3",
+                    "0.4",
+                    "0.5",
+                    "0.6",
+                    "0.7",
+                    "0.8",
+                    "0.9",
+                    "1.0",
+                    "1.1",
+                    "2.0",
+                    "2.1",
+                    "2.10",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6",
+                    "2.7",
+                    "2.8",
+                    "2.9",
+                    "3.0",
+                    "3.1",
+                    "3.2",
+                    "3.3",
+                    "3.4",
+                    "3.5",
+                    "3.6",
+                    "v3.3",
+                    "v3.2",
+                    "v3.1",
+                    "v3.0",
+                    "v2.10",
+                    "v2.9",
+                    "v2.8",
+                    "v2.7",
+                    "v2.6",
+                    "v2.5",
+                    "v2.4",
+                    "v2.3",
+                    "v2.2",
+                    "v2.1",
+                    "v2.0",
+                    "v1.1",
+                    "v1.0",
+                    "v0.9",
+                    "v0.8",
+                    "v0.7",
+                    "v0.6",
+                    "v0.5",
+                    "v0.4",
+                    "v0.3",
+                    "v0.2"
+                  ]
+                }
+              ],
+              "aliases": [
+                "CVE-2024-3651",
+                "GHSA-jjg7-2v4v-x38h"
+              ],
+              "details": "A vulnerability was identified in the kjd/idna library, specifically within the `idna.encode()` function, affecting version 3.6. The issue arises from the function's handling of crafted input strings, which can lead to quadratic complexity and consequently, a denial of service condition. This vulnerability is triggered by a crafted input that causes the `idna.encode()` function to process the input with considerable computational load, significantly increasing the processing time in a quadratic manner relative to the input size.",
+              "id": "PYSEC-2024-60",
+              "modified": "2026-06-10T17:01:21.102419358Z",
+              "published": "2024-07-07T18:15:00Z",
+              "references": [
+                {
+                  "type": "EVIDENCE",
+                  "url": "https://huntr.com/bounties/93d78d07-d791-4b39-a845-cbfabc44aadb"
+                },
+                {
+                  "type": "FIX",
+                  "url": "https://huntr.com/bounties/93d78d07-d791-4b39-a845-cbfabc44aadb"
+                },
+                {
+                  "type": "FIX",
+                  "url": "https://github.com/kjd/idna/commit/1d365e17e10d72d0b7876316fc7b9ca0eebdd38d"
+                },
+                {
+                  "type": "ADVISORY",
+                  "url": "https://github.com/advisories/GHSA-jjg7-2v4v-x38h"
+                }
+              ],
+              "schema_version": "1.7.5",
+              "severity": [
+                {
+                  "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+                  "type": "CVSS_V3"
+                }
+              ]
+            },
+            {
+              "affected": [
+                {
+                  "database_specific": {
+                    "source": "https://github.com/pypa/advisory-database/blob/main/vulns/idna/PYSEC-2026-215.yaml"
+                  },
+                  "ecosystem_specific": {},
+                  "package": {
+                    "ecosystem": "PyPI",
+                    "name": "idna",
+                    "purl": "pkg:pypi/idna"
+                  },
+                  "ranges": [
+                    {
+                      "events": [
+                        {
+                          "introduced": "0"
+                        },
+                        {
+                          "fixed": "3.15"
+                        }
+                      ],
+                      "type": "ECOSYSTEM"
+                    }
+                  ],
+                  "versions": [
+                    "0.1",
+                    "0.2",
+                    "0.3",
+                    "0.4",
+                    "0.5",
+                    "0.6",
+                    "0.7",
+                    "0.8",
+                    "0.9",
+                    "1.0",
+                    "1.1",
+                    "2.0",
+                    "2.1",
+                    "2.10",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6",
+                    "2.7",
+                    "2.8",
+                    "2.9",
+                    "3.0",
+                    "3.1",
+                    "3.10",
+                    "3.11",
+                    "3.12",
+                    "3.13",
+                    "3.14",
+                    "3.2",
+                    "3.3",
+                    "3.4",
+                    "3.5",
+                    "3.6",
+                    "3.7",
+                    "3.8",
+                    "3.9"
+                  ]
+                }
+              ],
+              "aliases": [
+                "CVE-2026-45409",
+                "GHSA-65pc-fj4g-8rjx"
+              ],
+              "details": "Internationalized Domain Names in Applications (IDNA) for Python provides support for Internationalized Domain Names in Applications (IDNA) and Unicode IDNA Compatibility Processing. In versions prior to 3.15, payloads such as `\"\\u0660\" * N` or `\"\\u30fb\" * N + \"\\u6f22\"` utilize the `valid_contexto` function prior to length rejection, and for high values of `N` will take a long time to process. This is the same issue as CVE-2024-3651, however the original remediation in 2024 was not a complete fix. A specially crafted argument to the `idna.encode()` function could consume significant resources. This may lead to a denial-of-service. Starting in version 3.14, the function rejects long inputs as soon as practicable prior to any further processing to minimize resource consumption. In version 3.15, this approach was extended to lesser used alternate functions (i.e. per-label conversions and codec support). A workaround is available. Domain names cannot exceed 253 characters in length. If this length limit is enforced prior to passing the domain to the `idna.encode()` function, it should no longer consume significant resources. This is triggered by arbitrarily large inputs that would not occur in normal usage, but may be passed to the library assuming there is no preliminary input validation by the higher-level application.",
+              "id": "PYSEC-2026-215",
+              "modified": "2026-06-16T16:15:04.639265054Z",
+              "published": "2026-06-05T23:16:43.343Z",
+              "references": [
+                {
+                  "type": "ADVISORY",
+                  "url": "https://github.com/kjd/idna/security/advisories/GHSA-65pc-fj4g-8rjx"
+                }
+              ],
+              "schema_version": "1.7.5",
+              "severity": [
+                {
+                  "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+                  "type": "CVSS_V3"
+                }
+              ]
+            },
+            {
+              "affected": [
+                {
+                  "database_specific": {
+                    "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/05/GHSA-65pc-fj4g-8rjx/GHSA-65pc-fj4g-8rjx.json"
+                  },
+                  "package": {
+                    "ecosystem": "PyPI",
+                    "name": "idna",
+                    "purl": "pkg:pypi/idna"
+                  },
+                  "ranges": [
+                    {
+                      "events": [
+                        {
+                          "introduced": "0"
+                        },
+                        {
+                          "fixed": "3.15"
+                        }
+                      ],
+                      "type": "ECOSYSTEM"
+                    }
+                  ],
+                  "versions": [
+                    "0.1",
+                    "0.2",
+                    "0.3",
+                    "0.4",
+                    "0.5",
+                    "0.6",
+                    "0.7",
+                    "0.8",
+                    "0.9",
+                    "1.0",
+                    "1.1",
+                    "2.0",
+                    "2.1",
+                    "2.10",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6",
+                    "2.7",
+                    "2.8",
+                    "2.9",
+                    "3.0",
+                    "3.1",
+                    "3.10",
+                    "3.11",
+                    "3.12",
+                    "3.13",
+                    "3.14",
+                    "3.2",
+                    "3.3",
+                    "3.4",
+                    "3.5",
+                    "3.6",
+                    "3.7",
+                    "3.8",
+                    "3.9"
+                  ]
+                }
+              ],
+              "aliases": [
+                "CVE-2026-45409",
+                "PYSEC-2026-215"
+              ],
+              "database_specific": {
+                "cwe_ids": [
+                  "CWE-1333"
+                ],
+                "github_reviewed": true,
+                "github_reviewed_at": "2026-05-19T14:34:32Z",
+                "nvd_published_at": "2026-06-05T23:16:43Z",
+                "severity": "MODERATE"
+              },
+              "details": "This is the same issue as CVE-2024-3651, however the original remediation in 2024 was not a complete fix. Payloads such as `\"\\u0660\" * N` or `\"\\u30fb\" * N + \"\\u6f22\"` utilize the `valid_contexto` function prior to length rejection, and for high values of `N` will take a long time to process.\n\n### Impact\nA specially crafted argument to the `idna.encode()` function could consume significant resources. This may lead to a denial-of-service.\n\n### Patches\nStarting in version 3.14, the function rejects long inputs as soon as practicable prior to any further processing to minimize resource consumption. In version 3.15, this approach was extended to lesser used alternate functions (i.e. per-label conversions and codec support).\n\n### Workarounds\nDomain names cannot exceed 253 characters in length, if this length limit is enforced prior to passing the domain to the `idna.encode()` function it should no longer consume significant resources. This is triggered by arbitrarily large inputs that would not occur in normal usage, but may be passed to the library assuming there is no preliminary input validation by the higher-level application.",
+              "id": "GHSA-65pc-fj4g-8rjx",
+              "modified": "2026-09-10T03:50:45.700124422Z",
+              "published": "2026-05-19T14:34:32Z",
+              "references": [
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/kjd/idna/security/advisories/GHSA-65pc-fj4g-8rjx"
+                },
+                {
+                  "type": "ADVISORY",
+                  "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-45409"
+                },
+                {
+                  "type": "PACKAGE",
+                  "url": "https://github.com/kjd/idna"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/pypa/advisory-database/tree/main/vulns/idna/PYSEC-2026-215.yaml"
+                }
+              ],
+              "schema_version": "1.9.0",
+              "severity": [
+                {
+                  "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+                  "type": "CVSS_V3"
+                },
+                {
+                  "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N",
+                  "type": "CVSS_V4"
+                }
+              ],
+              "summary": "Internationalized Domain Names in Applications (IDNA): Specially crafted inputs to idna.encode() can bypass CVE-2024-3651 fix"
+            },
+            {
+              "affected": [
+                {
+                  "database_specific": {
+                    "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2024/04/GHSA-jjg7-2v4v-x38h/GHSA-jjg7-2v4v-x38h.json"
+                  },
+                  "package": {
+                    "ecosystem": "PyPI",
+                    "name": "idna",
+                    "purl": "pkg:pypi/idna"
+                  },
+                  "ranges": [
+                    {
+                      "events": [
+                        {
+                          "introduced": "0"
+                        },
+                        {
+                          "fixed": "3.7"
+                        }
+                      ],
+                      "type": "ECOSYSTEM"
+                    }
+                  ],
+                  "versions": [
+                    "0.1",
+                    "0.2",
+                    "0.3",
+                    "0.4",
+                    "0.5",
+                    "0.6",
+                    "0.7",
+                    "0.8",
+                    "0.9",
+                    "1.0",
+                    "1.1",
+                    "2.0",
+                    "2.1",
+                    "2.10",
+                    "2.2",
+                    "2.3",
+                    "2.4",
+                    "2.5",
+                    "2.6",
+                    "2.7",
+                    "2.8",
+                    "2.9",
+                    "3.0",
+                    "3.1",
+                    "3.2",
+                    "3.3",
+                    "3.4",
+                    "3.5",
+                    "3.6"
+                  ]
+                }
+              ],
+              "aliases": [
+                "CVE-2024-3651",
+                "PYSEC-2024-60"
+              ],
+              "database_specific": {
+                "cwe_ids": [
+                  "CWE-1333",
+                  "CWE-400"
+                ],
+                "github_reviewed": true,
+                "github_reviewed_at": "2024-04-11T21:32:40Z",
+                "nvd_published_at": "2024-07-07T18:15:09Z",
+                "severity": "MODERATE"
+              },
+              "details": "### Impact\nA specially crafted argument to the `idna.encode()` function could consume significant resources. This may lead to a denial-of-service.\n\n### Patches\nThe function has been refined to reject such strings without the associated resource consumption in version 3.7.\n\n### Workarounds\nDomain names cannot exceed 253 characters in length, if this length limit is enforced prior to passing the domain to the `idna.encode()` function it should no longer consume significant resources. This is triggered by arbitrarily large inputs that would not occur in normal usage, but may be passed to the library assuming there is no preliminary input validation by the higher-level application.\n\n### References\n* https://huntr.com/bounties/93d78d07-d791-4b39-a845-cbfabc44aadb",
+              "id": "GHSA-jjg7-2v4v-x38h",
+              "modified": "2026-09-10T03:50:12.774088619Z",
+              "published": "2024-04-11T21:32:40Z",
+              "references": [
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/kjd/idna/security/advisories/GHSA-jjg7-2v4v-x38h"
+                },
+                {
+                  "type": "ADVISORY",
+                  "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-3651"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/kjd/idna/commit/1d365e17e10d72d0b7876316fc7b9ca0eebdd38d"
+                },
+                {
+                  "type": "PACKAGE",
+                  "url": "https://github.com/kjd/idna"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/pypa/advisory-database/tree/main/vulns/idna/PYSEC-2024-60.yaml"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://huntr.com/bounties/93d78d07-d791-4b39-a845-cbfabc44aadb"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://lists.debian.org/debian-lts-announce/2024/05/msg00006.html"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/4YQUPYH3SVZ5GFF2CDQ55FCM575AZTF2"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/F2S5E23N6E52S46KGNYTDFB75LOC4N4D"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/S5IDLLD2IKSIVRBSLB34WTSYGLMWUFWF"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/ULSC7HBJKXB3BZV367WM5BR6DFEC4Z43"
+                }
+              ],
+              "schema_version": "1.9.0",
+              "severity": [
+                {
+                  "score": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+                  "type": "CVSS_V3"
+                },
+                {
+                  "score": "CVSS:4.0/AV:L/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N",
+                  "type": "CVSS_V4"
+                }
+              ],
+              "summary": "Internationalized Domain Names in Applications (IDNA) vulnerable to denial of service from specially crafted inputs to idna.encode"
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "pyyaml",
+            "version": "5.3",
+            "ecosystem": "PyPI"
+          },
+          "groups": [
+            {
+              "ids": [
+                "PYSEC-2020-96",
+                "GHSA-6757-jp84-gxfx"
+              ],
+              "aliases": [
+                "CVE-2020-1747",
+                "GHSA-6757-jp84-gxfx",
+                "PYSEC-2020-96"
+              ],
+              "max_severity": "9.8"
+            },
+            {
+              "ids": [
+                "PYSEC-2021-142",
+                "GHSA-8q59-q68h-6hv4"
+              ],
+              "aliases": [
+                "CVE-2020-14343",
+                "GHSA-8q59-q68h-6hv4",
+                "PYSEC-2021-142"
+              ],
+              "max_severity": "9.8"
+            }
+          ],
+          "vulnerabilities": [
+            {
+              "affected": [
+                {
+                  "database_specific": {
+                    "source": "https://github.com/pypa/advisory-database/blob/main/vulns/pyyaml/PYSEC-2020-96.yaml"
+                  },
+                  "package": {
+                    "ecosystem": "PyPI",
+                    "name": "pyyaml",
+                    "purl": "pkg:pypi/pyyaml"
+                  },
+                  "ranges": [
+                    {
+                      "events": [
+                        {
+                          "introduced": "5.1"
+                        },
+                        {
+                          "fixed": "5.3.1"
+                        }
+                      ],
+                      "type": "ECOSYSTEM"
+                    }
+                  ],
+                  "versions": [
+                    "5.1",
+                    "5.1.1",
+                    "5.1.2",
+                    "5.2b1",
+                    "5.2",
+                    "5.3b1",
+                    "5.3"
+                  ]
+                }
+              ],
+              "aliases": [
+                "CVE-2020-1747",
+                "GHSA-6757-jp84-gxfx"
+              ],
+              "details": "A vulnerability was discovered in the PyYAML library in versions before 5.3.1, where it is susceptible to arbitrary code execution when it processes untrusted YAML files through the full_load method or with the FullLoader loader. Applications that use the library to process untrusted input may be vulnerable to this flaw. An attacker could use this flaw to execute arbitrary code on the system by abusing the python/object/new constructor.",
+              "id": "PYSEC-2020-96",
+              "modified": "2026-05-04T08:57:14.897560893Z",
+              "published": "2020-03-24T15:15:00Z",
+              "references": [
+                {
+                  "type": "REPORT",
+                  "url": "https://bugzilla.redhat.com/show_bug.cgi?id=CVE-2020-1747"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/yaml/pyyaml/pull/386"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/WORRFHPQVAFKKXXWLSSW6XKUYLWM6CSH/"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/ZBJA3SGNJKCAYPSHOHWY3KBCWNM5NYK2/"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/K5HEPD7LEVDPCITY5IMDYWXUMX37VFMY/"
+                },
+                {
+                  "type": "WEB",
+                  "url": "http://lists.opensuse.org/opensuse-security-announce/2020-04/msg00017.html"
+                },
+                {
+                  "type": "WEB",
+                  "url": "http://lists.opensuse.org/opensuse-security-announce/2020-05/msg00017.html"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/MMQXSZXNJT6ERABJZAAICI3DQSQLCP3D/"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/7PPAS6C4SZRDQLR7C22A5U3QOLXY33JX/"
+                },
+                {
+                  "type": "ADVISORY",
+                  "url": "https://github.com/advisories/GHSA-6757-jp84-gxfx"
+                }
+              ],
+              "schema_version": "1.7.5"
+            },
+            {
+              "affected": [
+                {
+                  "database_specific": {
+                    "source": "https://github.com/pypa/advisory-database/blob/main/vulns/pyyaml/PYSEC-2021-142.yaml"
+                  },
+                  "package": {
+                    "ecosystem": "PyPI",
+                    "name": "pyyaml",
+                    "purl": "pkg:pypi/pyyaml"
+                  },
+                  "ranges": [
+                    {
+                      "events": [
+                        {
+                          "introduced": "0"
+                        },
+                        {
+                          "fixed": "5.4"
+                        }
+                      ],
+                      "type": "ECOSYSTEM"
+                    }
+                  ],
+                  "versions": [
+                    "3.01",
+                    "3.02",
+                    "3.03",
+                    "3.04",
+                    "3.05",
+                    "3.06",
+                    "3.07",
+                    "3.08",
+                    "3.09",
+                    "3.10",
+                    "3.11",
+                    "3.12",
+                    "3.13",
+                    "3.13b1",
+                    "3.13rc1",
+                    "4.2b1",
+                    "4.2b2",
+                    "4.2b4",
+                    "5.1",
+                    "5.1.1",
+                    "5.1.2",
+                    "5.1b1",
+                    "5.1b3",
+                    "5.1b5",
+                    "5.1b7",
+                    "5.2",
+                    "5.2b1",
+                    "5.3",
+                    "5.3.1",
+                    "5.3b1",
+                    "5.4b1",
+                    "5.4b2"
+                  ]
+                }
+              ],
+              "aliases": [
+                "CVE-2020-14343",
+                "GHSA-8q59-q68h-6hv4"
+              ],
+              "details": "A vulnerability was discovered in the PyYAML library in versions before 5.4, where it is susceptible to arbitrary code execution when it processes untrusted YAML files through the full_load method or with the FullLoader loader. Applications that use the library to process untrusted input may be vulnerable to this flaw. This flaw allows an attacker to execute arbitrary code on the system by abusing the python/object/new constructor. This flaw is due to an incomplete fix for CVE-2020-1747.",
+              "id": "PYSEC-2021-142",
+              "modified": "2023-11-08T04:02:26.414885Z",
+              "published": "2021-02-09T21:15:00Z",
+              "references": [
+                {
+                  "type": "REPORT",
+                  "url": "https://bugzilla.redhat.com/show_bug.cgi?id=1860466"
+                },
+                {
+                  "type": "ADVISORY",
+                  "url": "https://github.com/advisories/GHSA-8q59-q68h-6hv4"
+                }
+              ],
+              "schema_version": "1.7.3"
+            },
+            {
+              "affected": [
+                {
+                  "database_specific": {
+                    "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2021/04/GHSA-6757-jp84-gxfx/GHSA-6757-jp84-gxfx.json"
+                  },
+                  "package": {
+                    "ecosystem": "PyPI",
+                    "name": "pyyaml",
+                    "purl": "pkg:pypi/pyyaml"
+                  },
+                  "ranges": [
+                    {
+                      "events": [
+                        {
+                          "introduced": "5.1b7"
+                        },
+                        {
+                          "fixed": "5.3.1"
+                        }
+                      ],
+                      "type": "ECOSYSTEM"
+                    }
+                  ],
+                  "versions": [
+                    "5.1",
+                    "5.1.1",
+                    "5.1.2",
+                    "5.1b7",
+                    "5.2",
+                    "5.2b1",
+                    "5.3",
+                    "5.3b1"
+                  ]
+                }
+              ],
+              "aliases": [
+                "CVE-2020-1747",
+                "PYSEC-2020-96"
+              ],
+              "database_specific": {
+                "cwe_ids": [
+                  "CWE-20"
+                ],
+                "github_reviewed": true,
+                "github_reviewed_at": "2021-04-07T22:29:00Z",
+                "nvd_published_at": "2020-03-24T15:15:00Z",
+                "severity": "CRITICAL"
+              },
+              "details": "A vulnerability was discovered in the PyYAML library in versions before 5.3.1, where it is susceptible to arbitrary code execution when it processes untrusted YAML files through the full_load method or with the FullLoader loader. Applications that use the library to process untrusted input may be vulnerable to this flaw. An attacker could use this flaw to execute arbitrary code on the system by abusing the python/object/new constructor.",
+              "id": "GHSA-6757-jp84-gxfx",
+              "modified": "2026-05-04T08:57:14.897560893Z",
+              "published": "2021-04-20T16:14:24Z",
+              "references": [
+                {
+                  "type": "ADVISORY",
+                  "url": "https://nvd.nist.gov/vuln/detail/CVE-2020-1747"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/github/advisory-database/pull/4942"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/yaml/pyyaml/pull/386"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/yaml/pyyaml/commit/0cedb2a0697b2bc49e4f3841b8d4590b6b15657e"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/yaml/pyyaml/commit/5080ba513377b6355a0502104846ee804656f1e0"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://bugzilla.redhat.com/show_bug.cgi?id=CVE-2020-1747"
+                },
+                {
+                  "type": "ADVISORY",
+                  "url": "https://github.com/advisories/GHSA-6757-jp84-gxfx"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/pypa/advisory-database/tree/main/vulns/pyyaml/PYSEC-2020-96.yaml"
+                },
+                {
+                  "type": "PACKAGE",
+                  "url": "https://github.com/yaml/pyyaml"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/7PPAS6C4SZRDQLR7C22A5U3QOLXY33JX"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/K5HEPD7LEVDPCITY5IMDYWXUMX37VFMY"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/MMQXSZXNJT6ERABJZAAICI3DQSQLCP3D"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/WORRFHPQVAFKKXXWLSSW6XKUYLWM6CSH"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://lists.fedoraproject.org/archives/list/package-announce@lists.fedoraproject.org/message/ZBJA3SGNJKCAYPSHOHWY3KBCWNM5NYK2"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://www.oracle.com/security-alerts/cpujul2022.html"
+                },
+                {
+                  "type": "WEB",
+                  "url": "http://lists.opensuse.org/opensuse-security-announce/2020-04/msg00017.html"
+                },
+                {
+                  "type": "WEB",
+                  "url": "http://lists.opensuse.org/opensuse-security-announce/2020-05/msg00017.html"
+                }
+              ],
+              "schema_version": "1.9.0",
+              "severity": [
+                {
+                  "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                  "type": "CVSS_V3"
+                },
+                {
+                  "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+                  "type": "CVSS_V4"
+                }
+              ],
+              "summary": "Improper Input Validation in PyYAML"
+            },
+            {
+              "affected": [
+                {
+                  "database_specific": {
+                    "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2021/03/GHSA-8q59-q68h-6hv4/GHSA-8q59-q68h-6hv4.json"
+                  },
+                  "package": {
+                    "ecosystem": "PyPI",
+                    "name": "pyyaml",
+                    "purl": "pkg:pypi/pyyaml"
+                  },
+                  "ranges": [
+                    {
+                      "events": [
+                        {
+                          "introduced": "0"
+                        },
+                        {
+                          "fixed": "5.4"
+                        }
+                      ],
+                      "type": "ECOSYSTEM"
+                    }
+                  ],
+                  "versions": [
+                    "3.01",
+                    "3.02",
+                    "3.03",
+                    "3.04",
+                    "3.05",
+                    "3.06",
+                    "3.07",
+                    "3.08",
+                    "3.09",
+                    "3.10",
+                    "3.11",
+                    "3.12",
+                    "3.13",
+                    "3.13b1",
+                    "3.13rc1",
+                    "4.2b1",
+                    "4.2b2",
+                    "4.2b4",
+                    "5.1",
+                    "5.1.1",
+                    "5.1.2",
+                    "5.1b1",
+                    "5.1b3",
+                    "5.1b5",
+                    "5.1b7",
+                    "5.2",
+                    "5.2b1",
+                    "5.3",
+                    "5.3.1",
+                    "5.3b1",
+                    "5.4b1",
+                    "5.4b2"
+                  ]
+                }
+              ],
+              "aliases": [
+                "CVE-2020-14343",
+                "PYSEC-2021-142"
+              ],
+              "database_specific": {
+                "cwe_ids": [
+                  "CWE-20"
+                ],
+                "github_reviewed": true,
+                "github_reviewed_at": "2021-03-25T21:15:23Z",
+                "nvd_published_at": "2021-02-09T21:15:00Z",
+                "severity": "CRITICAL"
+              },
+              "details": "A vulnerability was discovered in the PyYAML library in versions before 5.4, where it is susceptible to arbitrary code execution when it processes untrusted YAML files through the full_load method or with the FullLoader loader. Applications that use the library to process untrusted input may be vulnerable to this flaw. This flaw allows an attacker to execute arbitrary code on the system by abusing the python/object/new constructor. This flaw is due to an incomplete fix for CVE-2020-1747.",
+              "id": "GHSA-8q59-q68h-6hv4",
+              "modified": "2026-02-04T03:33:10.792778Z",
+              "published": "2021-03-25T21:26:26Z",
+              "references": [
+                {
+                  "type": "ADVISORY",
+                  "url": "https://nvd.nist.gov/vuln/detail/CVE-2020-14343"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/SeldonIO/seldon-core/issues/2252"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/yaml/pyyaml/issues/420"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/yaml/pyyaml/issues/420#issuecomment-663673966"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/yaml/pyyaml/commit/a001f2782501ad2d24986959f0239a354675f9dc"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://bugzilla.redhat.com/show_bug.cgi?id=1860466"
+                },
+                {
+                  "type": "ADVISORY",
+                  "url": "https://github.com/advisories/GHSA-8q59-q68h-6hv4"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/pypa/advisory-database/tree/main/vulns/pyyaml/PYSEC-2021-142.yaml"
+                },
+                {
+                  "type": "PACKAGE",
+                  "url": "https://github.com/yaml/pyyaml"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://pypi.org/project/PyYAML"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://www.oracle.com/security-alerts/cpuapr2022.html"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://www.oracle.com/security-alerts/cpujul2022.html"
+                }
+              ],
+              "related": [
+                "CVE-2026-24009"
+              ],
+              "schema_version": "1.9.0",
+              "severity": [
+                {
+                  "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                  "type": "CVSS_V3"
+                },
+                {
+                  "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+                  "type": "CVSS_V4"
+                }
+              ],
+              "summary": "Improper Input Validation in PyYAML"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
