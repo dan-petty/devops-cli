@@ -94,11 +94,14 @@ jobs:
   # `always()` lets the job run after a failed title check: the command then reports that check
   # as a problem. Without it, GitHub skips a job whose needed job failed. The condition reads the
   # author of the pull request, not `github.actor`, because a person who pushes to the branch of
-  # the Service becomes the actor. GitHub compares both operators with no regard to case.
+  # the Service becomes the actor. GitHub compares both operators with no regard to case. It reads
+  # the title and the body too: the implement job changes the body of the plan pull request to the
+  # delivery form (`Closes #<issue>`) when it marks it ready, and a delivery pull request can keep a
+  # title of the plan form (#3958). A plan body starts with the line `Plans #<issue>`.
   plan-check:
     name: Plan Check
     needs: semantic-title
-    if: "${{ always() && github.event.pull_request.user.login == 'devops-cli-service[bot]' && startsWith(github.event.pull_request.title, 'docs(openspec): plan #') }}"
+    if: "${{ always() && github.event.pull_request.user.login == 'devops-cli-service[bot]' && startsWith(github.event.pull_request.title, 'docs(openspec): plan #') && startsWith(github.event.pull_request.body, 'Plans #') }}"
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
