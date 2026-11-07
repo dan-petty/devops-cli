@@ -403,6 +403,7 @@ TYPED_BY_SITE = {
     FailureClass.HEAD_MOVED,
     FailureClass.OUTPUT_CAP,
     FailureClass.LIMIT_REACHED,
+    FailureClass.OUTSIDE_PLAN,
 }
 
 
@@ -486,6 +487,7 @@ def test_the_classes_are_the_nineteen_of_the_taxonomy() -> None:
         "output_cap",
         "read_only_path",
         "limit_reached",
+        "outside_plan",
     }
 
 
@@ -514,6 +516,7 @@ def test_the_default_actions_are_the_ones_of_the_design() -> None:
         "output_cap": "raise_limit",
         "read_only_path": "wait",
         "limit_reached": "raise_limit",
+        "outside_plan": "wait",
     }
 
 

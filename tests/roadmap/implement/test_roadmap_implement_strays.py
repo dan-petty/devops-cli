@@ -297,10 +297,10 @@ def test_a_nested_git_repository_is_removed_with_its_files(
     assert git(checkout, "status", "--porcelain") == ""
 
 
-def test_a_fix_step_keeps_the_new_file_that_it_writes(
+def test_a_fix_step_keeps_the_new_file_that_the_plan_names(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    new = write_call("tests/test_sample_fix.py", TEST_BODY)
+    new = write_call("tests/test_sample.py", TEST_BODY)
     script = ModelScript(tool_calls(write_call("src/sample.py", SHOUT_CODE), new), say("Fixed."))
 
     outcome = run_fix_step(
@@ -313,7 +313,7 @@ def test_a_fix_step_keeps_the_new_file_that_it_writes(
     )
 
     assert (outcome.status, outcome.removed) == (StepStatus.DONE, ())
-    assert "tests/test_sample_fix.py" in _committed(checkout)
+    assert "tests/test_sample.py" in _committed(checkout)
 
 
 def test_a_stopped_step_still_resets_the_checkout_after_it_removed_a_stray_file(
