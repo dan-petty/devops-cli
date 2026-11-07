@@ -35,7 +35,7 @@ import functools
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
-from typing import Any, Concatenate, cast
+from typing import Any, Concatenate, Final, cast
 
 from devops_cli.config.constants import CONST_GH_ISSUE_STATE_REASON_REOPENED
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
@@ -95,6 +95,10 @@ WRITES = frozenset(
         "unlabel_issue",
         "write_issue_body",
     }
+)
+
+REGISTRY_COUNTS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("table", "WRITES", "tests/support/fakes/roadmap_store.py"),
 )
 
 

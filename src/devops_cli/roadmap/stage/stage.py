@@ -190,6 +190,7 @@ from devops_cli.roadmap.stage.stage_overlap import (
 )
 from devops_cli.roadmap.stage.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage.stage_probe import blocked_by, probe_premise
+from devops_cli.roadmap.stage.stage_registry import matches, registry_table
 from devops_cli.roadmap.stage.stage_rejected import (
     ReadFailure,
     RejectedPlan,
@@ -1006,6 +1007,19 @@ class _Planner:
 
     def _request(self, target: StageTarget) -> dict[str, Any]:
         item = target.item
+        context = collect_context(
+            self._source,
+            self._sha,
+            item.body,
+            max_tokens=min(
+                CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS, self._window // _WINDOW_SHARE_CONTEXT
+            ),
+        )
+        registry = registry_table(self._source)
+        matched = matches(registry, (item.title, item.body), tuple(self._tree.paths_in(item.body)))
+        if matched:
+            lines = [f"- {entry.path} ({entry.declaring_path}:{entry.line})" for entry in matched]
+            context = f"{context}\n\n### Registry places\n\n" + "\n".join(lines)
         request: dict[str, Any] = {
             "number": item.number,
             "title": item.title,
@@ -1013,14 +1027,7 @@ class _Planner:
                 item.body,
                 min(CONST_ROADMAP_STAGE_BODY_MAX_TOKENS, self._window // _WINDOW_SHARE_BODY),
             ),
-            "context": collect_context(
-                self._source,
-                self._sha,
-                item.body,
-                max_tokens=min(
-                    CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS, self._window // _WINDOW_SHARE_CONTEXT
-                ),
-            ),
+            "context": context,
             "capabilities": self._capabilities(),
             "budget": self._budget,
         }
@@ -1125,6 +1132,7 @@ class _Planner:
             # The citation rule reads the staged commit, the one the probe and the model read
             # (#3422), and never the working tree.
             read_text=partial(_read_staged_file, self._source, self._sha),
+            registry=registry_table(self._source),
         )
         if problems:
             return _Refused(" ".join(problems), proposal)

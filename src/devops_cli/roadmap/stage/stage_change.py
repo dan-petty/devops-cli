@@ -14,6 +14,7 @@ reads.
 
 from __future__ import annotations
 
+import ast
 import re
 import string
 import unicodedata
@@ -58,6 +59,12 @@ from devops_cli.roadmap.stage.stage_criteria import (
 from devops_cli.roadmap.stage.stage_form import form_problems, search_problems
 from devops_cli.roadmap.stage.stage_move import move_prefix_problems, move_verify_problems
 from devops_cli.roadmap.stage.stage_paths import StagedTree, change_folder_paths, path_problems
+from devops_cli.roadmap.stage.stage_registry import (
+    RegistryCount,
+    matches,
+    missing_test_paths,
+    registry_table,
+)
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
 from devops_cli.roadmap.step_rules import rules_sections
 
@@ -879,6 +886,7 @@ class ProposalGate(StrEnum):
     CRITERIA = "criteria"
     DEPENDENCIES = "dependencies"
     CREATES = "creates"
+    REGISTRY = "registry"
 
 
 def check_gates(
@@ -893,6 +901,7 @@ def check_gates(
     search_evidence: Mapping[str, Sequence[str]] | None = None,
     plan_creates: Mapping[str, int] | None = None,
     read_text: Callable[[str], str | None] | None = None,
+    registry: Sequence[RegistryCount] | None = None,
 ) -> dict[ProposalGate, list[str]]:
     """What each gate of `check_proposal` finds wrong in `proposal`, one sentence each, under the
     name of the gate. Every gate has a key, and a gate that finds nothing has an empty list. The
@@ -903,7 +912,10 @@ def check_gates(
         ProposalGate.CITATION: _plan_citation_problems(proposal, read_text),
         ProposalGate.FORM: form_problems(proposal.groups),
         ProposalGate.EVAL_REPLAY: eval_replay_problems(proposal.groups),
-        ProposalGate.PATHS: path_problems(proposal.groups, tree),
+        ProposalGate.PATHS: [
+            *path_problems(proposal.groups, tree),
+            *_stale_test_path_problems(proposal, tree, read_text),
+        ],
         ProposalGate.WHAT_CHANGES: _what_changes_problems(proposal, tree),
         ProposalGate.MOVE_PREFIX: move_prefix_problems(proposal.groups, tree),
         ProposalGate.MOVE_VERIFY: move_verify_problems(proposal.groups, tree),
@@ -913,6 +925,10 @@ def check_gates(
         ),
         ProposalGate.DEPENDENCIES: _overlap_problems(proposal.dependencies, overlaps),
         ProposalGate.CREATES: creates_problems(proposal.groups, plan_creates or {}),
+        ProposalGate.REGISTRY: registry_problems(
+            proposal,
+            registry if registry is not None else registry_table(Path.cwd()),
+        ),
     }
 
 
@@ -928,6 +944,7 @@ def check_proposal(
     search_evidence: Mapping[str, Sequence[str]] | None = None,
     plan_creates: Mapping[str, int] | None = None,
     read_text: Callable[[str], str | None] | None = None,
+    registry: Sequence[RegistryCount] | None = None,
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
@@ -956,8 +973,72 @@ def check_proposal(
         search_evidence=search_evidence,
         plan_creates=plan_creates,
         read_text=read_text,
+        registry=registry,
     )
     return [problem for problems in found.values() for problem in problems]
+
+
+def registry_problems(
+    proposal: StageProposal,
+    registry: Sequence[RegistryCount],
+) -> list[str]:
+    """One sentence for each declared registry or ratchet place that the plan misses (#3254)."""
+    task_texts = [
+        text
+        for group in proposal.groups
+        for text in (group.test, group.implementation, group.documentation)
+        if text
+    ]
+    changed_paths = [path for group in proposal.groups for path in group.changes]
+    matched = matches(registry, task_texts, changed_paths)
+    problems: list[str] = []
+    seen: set[str] = set()
+    for entry in matched:
+        if not any(entry.path in text for text in task_texts):
+            location = f"{entry.declaring_path}:{entry.line}"
+            key = f"{entry.path}:{location}"
+            if key not in seen:
+                seen.add(key)
+                problems.append(
+                    MESSAGES.roadmap.stage_problem_registry.format(
+                        token=entry.token,
+                        path=entry.path,
+                        location=location,
+                    )
+                )
+    return problems
+
+
+def _docstrings_in(source: str) -> list[str]:
+    """The docstrings of module, functions and classes in `source`."""
+    try:
+        module_ast = ast.parse(source)
+    except SyntaxError:
+        return []
+    docs: list[str] = []
+    if doc := ast.get_docstring(module_ast):
+        docs.append(doc)
+    for node in ast.walk(module_ast):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if d := ast.get_docstring(node):
+                docs.append(d)
+    return docs
+
+
+def _stale_test_path_problems(
+    proposal: StageProposal,
+    tree: StagedTree,
+    read_text: Callable[[str], str | None] | None,
+) -> list[str]:
+    """One sentence for each test path in a docstring or a spec that names no file of the commit."""
+    texts = [_spec_file(spec) for spec in proposal.specs]
+    if read_text is not None:
+        for path in (p for g in proposal.groups for p in g.changes if p.endswith(".py")):
+            content = read_text(path)
+            if content:
+                texts.extend(_docstrings_in(content))
+    missing = missing_test_paths(tree, texts)
+    return [MESSAGES.roadmap.stage_problem_missing_test_file.format(path=path) for path in missing]
 
 
 def creates_problems(groups: Sequence[StageGroup], creators: Mapping[str, int]) -> list[str]:
