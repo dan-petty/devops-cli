@@ -42,6 +42,7 @@ from devops_cli.telemetry.instruments import (
     FIRECRAWL_SEARCHES_TOTAL,
     GITHUB_REQUESTS_TOTAL,
     GITHUB_THROTTLE_WAIT,
+    ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
     ROADMAP_ITEM_AGE,
     ROADMAP_OLDEST_ITEM,
     ROADMAP_TOOL_CALLS_PER_RUN,
@@ -200,6 +201,8 @@ SERVED_SERIES = frozenset(
         # The age of each roadmap state and its number, sent by the metrics row (#2919).
         ROADMAP_ITEM_AGE.name,
         ROADMAP_OLDEST_ITEM.name,
+        # The items that the alternatives check has not checked, sent by its row (#2950).
+        ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS.name,
         # The calls of the stage planner's tools, and its plan runs (#3240).
         ROADMAP_TOOL_CALLS_PER_RUN.name,
         ROADMAP_TOOL_CALLS_TOTAL.name,
@@ -317,6 +320,7 @@ def test_the_baseline_rule_set() -> None:
         ("PrometheusSizeLimitCutHistory", "warning"),
         ("PrometheusStorageNearClaim", "warning"),
         ("PyroscopeQueryErrors", "warning"),
+        ("RoadmapServiceAlternativesNotSearching", "warning"),
         ("RoadmapServiceFirecrawlRefused", "warning"),
         ("RoadmapServiceGitHubRequestsHigh", "warning"),
         ("RoadmapServiceGitHubThrottled", "critical"),
@@ -952,6 +956,16 @@ ROADMAP_SERVICE_ACTIVITY_RULES = [
         )
         + " ) > 0",
         "0m",
+        "warning",
+    ),
+    (
+        "RoadmapServiceAlternativesNotSearching",
+        "sum by (repo) (last_over_time("
+        'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service"}[7d])) > 0'
+        " and on () (sum( "
+        + _window_count('devops_cli_firecrawl_searches_total{job="roadmap-service"}', "3d")
+        + " ) or vector(0)) == 0",
+        "1h",
         "warning",
     ),
 ]

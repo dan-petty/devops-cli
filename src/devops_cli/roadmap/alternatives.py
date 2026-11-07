@@ -127,7 +127,13 @@ from devops_cli.roadmap.store import (
     is_repository_name,
 )
 from devops_cli.roadmap.trust import is_approved, is_trusted, trusted_replies
-from devops_cli.telemetry.instruments import ROADMAP_ALTERNATIVES_TOTAL, emit
+from devops_cli.telemetry.instruments import (
+    ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE,
+    ROADMAP_ALTERNATIVES_SEARCHES,
+    ROADMAP_ALTERNATIVES_TOTAL,
+    ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
+    emit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -468,11 +474,23 @@ class CheckFailure:
 
 
 @dataclass(frozen=True)
+class Coverage:
+    """How far the check reaches over the items that it can take (#2950): `unchecked` counts the
+    eligible items with no check, an item in the retry delay too, and `oldest_age` is the age of the
+    oldest check among the eligible items, or None while none has a check."""
+
+    unchecked: int
+    oldest_age: timedelta | None
+
+
+@dataclass(frozen=True)
 class Selection:
-    """The items a run checks, and the open ones it leaves because their check is current."""
+    """The items a run checks, the open ones it leaves because their check is current, and the
+    coverage of the eligible items. `coverage` is None for a named item, which reads no scan."""
 
     selected: list[Item]
     current: list[Item]
+    coverage: Coverage | None = None
 
 
 @dataclass(frozen=True)
@@ -484,6 +502,7 @@ class AlternativesPlan:
     failures: list[CheckFailure] = field(default_factory=list)
     current: list[Item] = field(default_factory=list)
     off_reason: str | None = None
+    coverage: Coverage | None = None
     dry_run: bool = False
     requests: tuple[PlannedRequest, ...] = ()
     write_requests: tuple[PlannedRequest, ...] = ()
@@ -564,17 +583,23 @@ def select_items(
     """Up to `limit` items to check, or up to `first_pass_limit` while an eligible item has no
     check, in the order the module's docstring gives, and the eligible
     items whose check is current. An item whose check failed less than `retry_days` days ago is in
-    neither list. `item_number` names the one open item to check, whatever its failure."""
+    neither list, but the coverage counts it. `item_number` names the one open item to check, whatever its failure."""
     if item_number is not None:
         item = store.item(item_number)
         return Selection([item] if item and item.state is GitHubState.OPEN else [], [])
     unchecked: list[Item] = []
     due: list[tuple[datetime, Item]] = []
     current: list[Item] = []
+    without_check = 0
+    oldest_check: datetime | None = None
     for item in filter(_is_eligible, store.items()):
+        checked_at = _checked_at(item)
+        if checked_at is None:
+            without_check += 1
+        elif oldest_check is None or checked_at < oldest_check:
+            oldest_check = checked_at
         if _in_retry_delay(item, retry_days, now):
             continue
-        checked_at = _checked_at(item)
         if checked_at is None:
             unchecked.append(item)
         elif _is_due(item, checked_at, recheck_days, now):
@@ -584,7 +609,8 @@ def select_items(
     ordered = sorted(unchecked, key=lambda it: it.number)
     ordered += [item for _, item in sorted(due, key=lambda pair: (pair[0], pair[1].number))]
     cap = first_pass_limit if unchecked and first_pass_limit is not None else limit
-    return Selection(ordered[:cap], current)
+    coverage = Coverage(without_check, None if oldest_check is None else now - oldest_check)
+    return Selection(ordered[:cap], current, coverage)
 
 
 def _request(item: Item, comments: Sequence[IssueComment], adrs: Sequence[Adr]) -> str:
@@ -1050,7 +1076,7 @@ def plan_alternatives(
         now=moment,
     )
     if not selection.selected:
-        return AlternativesPlan(repo=repo, current=selection.current)
+        return AlternativesPlan(repo=repo, current=selection.current, coverage=selection.coverage)
     model = investigator or get_task_model("analysis")
     # The ADRs are the same for each item, and a skip-class item makes no model call (#3505). The
     # model sees only the entries that fit the cap, so only they can be confirmed.
@@ -1067,7 +1093,26 @@ def plan_alternatives(
             failures.append(outcome)
         else:
             checks.append(outcome)
-    return AlternativesPlan(repo=repo, checks=checks, failures=failures, current=selection.current)
+    return AlternativesPlan(
+        repo=repo,
+        checks=checks,
+        failures=failures,
+        current=selection.current,
+        coverage=selection.coverage,
+    )
+
+
+def record_coverage(plan: AlternativesPlan) -> None:
+    """Sends the two coverage gauges of `plan` for its repository: the eligible items with no
+    check, and the age of the oldest check. The age is left out while no item has a check. A plan
+    with no coverage, a named item or a check that is off, sends nothing (#2950)."""
+    coverage = plan.coverage
+    if coverage is None:
+        return
+    attributes = {"repo": plan.repo}
+    emit(ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS, coverage.unchecked, attributes)
+    if coverage.oldest_age is not None:
+        emit(ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE, coverage.oldest_age.total_seconds(), attributes)
 
 
 def _unchanged_since_read(store: RoadmapStore, check: Check) -> bool:
@@ -1083,7 +1128,8 @@ def _unchanged_since_read(store: RoadmapStore, check: Check) -> bool:
 
 def apply_alternatives(store: RoadmapStore, plan: AlternativesPlan) -> int:
     """Writes each check: the body block, the job record, then the comment, and counts it in
-    `devops_cli_roadmap_alternatives_total` by its verdict. Then records each failure in the job
+    `devops_cli_roadmap_alternatives_total` by its verdict. It also observes the searches of the
+    check in `devops_cli_roadmap_alternatives_searches` by its verdict (#2950). Then records each failure in the job
     record of its item: the time and the class of the error. Returns how many checks it wrote; a
     check whose body a person changed since the read is left for the next run."""
     written = 0
@@ -1105,6 +1151,7 @@ def apply_alternatives(store: RoadmapStore, plan: AlternativesPlan) -> int:
         )
         store.comment(number, check.comment)
         emit(ROADMAP_ALTERNATIVES_TOTAL, 1, {"verdict": check.verdict.value})
+        emit(ROADMAP_ALTERNATIVES_SEARCHES, len(check.searches), {"verdict": check.verdict.value})
         written += 1
     for failure in plan.failures:
         store.set_marks(
@@ -1190,6 +1237,7 @@ __all__ = [
     "Check",
     "CheckFailure",
     "CheckedTool",
+    "Coverage",
     "Search",
     "Selection",
     "ToolFacts",
@@ -1199,6 +1247,7 @@ __all__ = [
     "dry_run_alternatives",
     "plan_alternatives",
     "raise_for_failed_checks",
+    "record_coverage",
     "render_alternatives_plan",
     "select_items",
     "skip_class_of",
