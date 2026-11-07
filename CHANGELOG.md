@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.83.0](https://github.com/dan-petty/devops-cli/compare/v0.82.0...v0.83.0) (2026-11-07)
+
+
+### Features
+
+* **roadmap:** record and check plan dependencies ([#3957](https://github.com/dan-petty/devops-cli/issues/3957)) ([5520193](https://github.com/dan-petty/devops-cli/commit/5520193a0b5a2e6f7d7aecb9e58c6b7e5743c555))
+
 ## [0.82.0](https://github.com/dan-petty/devops-cli/compare/v0.81.0...v0.82.0) (2026-11-07)
 
 
