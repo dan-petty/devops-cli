@@ -79,11 +79,23 @@ The first exit check SHALL put `HEAD` back at the commit where the step started,
 - **THEN** the step reports stopped with the class `head_moved`, and the reason names the reset command, its exit status and the output of git
 
 ### Requirement: The verification commands of a group are the code spans of its Verification lines
-The verification commands of a group SHALL be the code spans of the `Verification:` lines of its tasks, each one once, in the order of the file. The step SHALL run each one in the checkout as a list of words, never through a shell. It SHALL refuse to run one whose first word is not a program of the verification list (the shell allowlist, `openspec` and `devops`) and is not the `!` of a negative search in the fixed shape.
+The verification commands of a group SHALL be the code spans of the `Verification:` lines of its tasks that start with `$ `, with the mark removed, each one once, in the order of the file. Every other code span of such a line SHALL be prose. The step SHALL run each command as a list of words, never through a shell, and SHALL stop with the reason when the first word is not a program of the verification list or the `!` of a negative search in the fixed shape.
 
 #### Scenario: Two lines name one command
-- **WHEN** two tasks of the group name `uv run devops ci test tests/test_sample.py` and the second names `uv run devops docs check` as well
+- **WHEN** two tasks of the group name `$ uv run devops ci test tests/test_sample.py` and the second names `$ uv run devops docs check` as well
 - **THEN** the step runs `uv run devops ci test tests/test_sample.py` once and `uv run devops docs check` once, in that order
+
+#### Scenario: A prose code span beside a marked command
+- **WHEN** a task holds a `Verification:` line with the code span `tagged_image` and the code span `$ pytest tests/roadmap/test_step_files.py`
+- **THEN** the commands of the group are `pytest tests/roadmap/test_step_files.py` only
+
+#### Scenario: A line with no mark
+- **WHEN** a task holds a `Verification:` line with the code span `pytest tests/roadmap/test_step_files.py` and no mark
+- **THEN** the group has no command from that line
+
+#### Scenario: A marked command that the step refuses
+- **WHEN** a task holds the code span `$ nosuchprogram --version` on its `Verification:` line
+- **THEN** the step stops with a reason that names `nosuchprogram` as a program that is not in the allowed list
 
 ### Requirement: A step refuses an input that does not fit the window
 The step SHALL count the tokens of its instructions and its user message before the first model request. When the count is more than the `context_window` of `ai.tasks.implement` minus `CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS`, the step SHALL raise `RoadmapImplementError`, SHALL name the measure and the limit in its message, and SHALL make no model request and change nothing in the checkout.

@@ -20,5 +20,5 @@ Reads: `openspec/config.yaml`, `docs/roadmap/plan-recheck.md`. Changes: `openspe
 
 Reads: nothing. Changes: `openspec/changes/3596-read-only-the-marked-code-spans` (moved by the archive command).
 
-- [ ] 3.1 Archive the change
+- [x] 3.1 Archive the change
   - Verification: `$ uv run devops openspec check`
