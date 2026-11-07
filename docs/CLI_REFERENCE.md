@@ -6721,7 +6721,7 @@ devops roadmap alternatives [OPTIONS]
 
 ### `devops roadmap retitle`
 
-**Shorten the title summary of open items that is over 60 characters. The job keeps the type and the scope. A Planned item takes the summary of its plan pull request title and needs no model call; another item gets one model call. The job leaves a title that a person changed after the last job comment. Without --confirm, it prints the new titles and writes nothing.**
+**Shorten the title summary of open items that is over 60 characters. The job keeps the type and the scope. A Planned item takes the summary of its plan pull request title and needs no model call; another item gets one model call. The job leaves a title that a person changed after the last job comment. An item that the job leaves gets the mark retitle.skipped, and the job does not select it again until its title, body or plan pull request changes. Without --confirm, it prints the new titles and writes nothing.**
 
 ```bash
 devops roadmap retitle [OPTIONS]

@@ -272,8 +272,21 @@ class ImplementRecordKey(StrEnum):
     CONTINUATIONS = "implement.continuations"
 
 
+class RetitleRecordKey(StrEnum):
+    """What the retitle job records in an Item's job record (#4038): `retitle.skipped` holds a
+    hash of the title, the body and the `stage.pr` mark that the job read when it left the item
+    with a long title. The selection leaves out the item while the hash holds."""
+
+    SKIPPED = "retitle.skipped"
+
+
 JobRecord = dict[
-    ItemField | RefineRecordKey | AlternativesRecordKey | StageRecordKey | ImplementRecordKey,
+    ItemField
+    | RefineRecordKey
+    | AlternativesRecordKey
+    | StageRecordKey
+    | ImplementRecordKey
+    | RetitleRecordKey,
     str | None,
 ]
 
@@ -583,6 +596,7 @@ _JOB_RECORD_KEYS = frozenset(
         *AlternativesRecordKey,
         *StageRecordKey,
         *ImplementRecordKey,
+        *RetitleRecordKey,
     )
 )
 
@@ -1043,6 +1057,7 @@ __all__ = [
     "Milestone",
     "RefineRecordKey",
     "RepositoryFacts",
+    "RetitleRecordKey",
     "RoadmapStore",
     "StageRecordKey",
     "Verdict",

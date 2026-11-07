@@ -538,8 +538,9 @@ def retitle_requests(
     """What `devops roadmap retitle` reads, in order, and the writes `--confirm` makes after them
     (#3486). The run reads every issue. For each item with a long title it reads the comments and
     the title changes of the item, then the title of its plan pull request when the item is
-    Planned, or runs the model when it is not. `--item` names the item, and `limit` caps the
-    items of a run."""
+    Planned, or runs the model when it is not. An item that the run leaves gets one write of the
+    body with the skip mark (#4038), and the next run does not read it again. `--item` names the
+    item, and `limit` caps the items of a run."""
     del limit
     store = StoreRequests(repo)
     texts = MESSAGES.roadmap
@@ -559,9 +560,10 @@ def retitle_requests(
         *within(store.pull_title(subject, _p("pull")), cond["planned"], each_item),
         *within([model], cond["unplanned"], each_item),
     ]
-    writes = within(
-        [*store.set_title(subject), *store.comment(subject)], cond["retitled"], each_item
-    )
+    writes = [
+        *within([*store.set_title(subject), *store.comment(subject)], cond["retitled"], each_item),
+        *within(store.set_marks(subject), cond["retitle_skipped"], each_item),
+    ]
     return tuple(reads), tuple(writes)
 
 
