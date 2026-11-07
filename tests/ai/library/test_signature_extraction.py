@@ -84,7 +84,7 @@ def test_a_class_signature_records_bases_methods_and_properties() -> None:
         sig.name,
         "Sample class docstring." in (sig.docstring or ""),
         "SampleBase" in sig.bases,
-        sorted(sig.methods)[:1],
+        "__init__" in sig.methods,
         "label" in sig.properties,
         sig.methods["compute"].parameters[-1].default,
-    ) == ("SampleClass", True, True, ["__init__"], True, "2.0")
+    ) == ("SampleClass", True, True, True, True, "2.0")

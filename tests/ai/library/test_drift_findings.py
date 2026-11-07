@@ -81,6 +81,17 @@ def test_a_call_through_a_module_import_or_an_alias_is_checked(tmp_path: Path) -
     ) == (1, True, ["legacy_calc"])
 
 
+def test_a_function_imported_under_an_alias_is_checked(tmp_path: Path) -> None:
+    report = _audit(
+        tmp_path,
+        "from demolib import legacy_calc as old\n\ndef run():\n    return old(val=42)\n",
+    )
+
+    assert [(f.symbol, f.issue_type) for f in report.findings] == [
+        ("legacy_calc", DriftIssueType.DEPRECATED_CALL)
+    ]
+
+
 def test_a_file_that_does_not_parse_is_counted_and_skipped(tmp_path: Path) -> None:
     contracts_dir = tmp_path / "libraries"
     write_demo_contract(contracts_dir)
