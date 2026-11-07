@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from devops_cli.config.constants import CONST_GH_CLI
 from tests.support.fakes.github import API
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 PROJECT_WORDS = ("projectV2", "ProjectV2", "roadmap.toml")
 """What a GraphQL request that reads or writes a project board, or a read of the old roadmap
@@ -286,6 +287,20 @@ class GitHubFake:
             return answer
 
         return dispatch
+
+    def install(self, fake: ProcessFake) -> None:
+        """Answer each `gh` command that `fake` is asked to run as this repository, and leave
+        every other program to the answers of `fake`."""
+
+        def is_gh(call: ProcessCall) -> bool:
+            return bool(call.argv) and Path(call.argv[0]).name == CONST_GH_CLI
+
+        def answer(call: ProcessCall) -> ProcessAnswer:
+            stdin = call.stdin if isinstance(call.stdin, str) else None
+            done = self(list(call.argv[1:]), input=stdin)
+            return ProcessAnswer(returncode=done.returncode, stdout=done.stdout, stderr=done.stderr)
+
+        fake.answer(is_gh, answer)
 
     def _answer(self, args: list[str], stdin: str | None) -> Any:
         if args[0].startswith(f"{API}/"):

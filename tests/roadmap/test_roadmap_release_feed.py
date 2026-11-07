@@ -18,7 +18,7 @@ from devops_cli.roadmap.release_feed import (
     closing_numbers,
     pull_numbers,
 )
-from tests.roadmap_github_fake import GitHubFake
+from tests.support.fakes.github_repository import GitHubFake
 
 REPO = "example/roadmap"
 PUBLISHED = datetime(2026, 11, 2, 9, 30, tzinfo=UTC)

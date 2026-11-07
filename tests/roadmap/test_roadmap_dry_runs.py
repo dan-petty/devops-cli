@@ -10,22 +10,15 @@ DNS and process starts refused, and fake `gh`, `git` and `kubectl` on PATH that 
 from __future__ import annotations
 
 import json
-import os
 import socket
-import subprocess
-from collections.abc import Callable
-from pathlib import Path
+from collections.abc import Callable, Iterator
 from typing import Any
-from unittest.mock import patch
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.roadmap import app
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.request_plan import StoreRequests
-from devops_cli.roadmap.stores import store as roadmap_store_module
 from devops_cli.roadmap.stores.github_store import (
     comments_endpoint,
     issue_args,
@@ -33,10 +26,13 @@ from devops_cli.roadmap.stores.github_store import (
     listing_path,
     milestones_endpoint,
 )
+from devops_cli.roadmap.stores.store import install_roadmap_store
 from tests.support.fakes.github import API
+from tests.support.fakes.http import WebFake
+from tests.support.fakes.model import ModelFake
+from tests.support.fakes.process import ProcessFake
 
 REPO = "dan-petty/devops-cli"
-runner = CliRunner()
 JOBS = ("intake", "refine", "alternatives", "stage", "implement")
 
 
@@ -51,35 +47,27 @@ def _fail(what: str) -> Callable[..., Any]:
 
 
 @pytest.fixture
-def no_requests(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A roadmap store, a `gh` runner, a process and a socket that fail the test when a dry run
-    opens, runs, starts or connects one; the session's socket guard covers the rest."""
-    from devops_cli.ai import client as ai_client
-    from devops_cli.github import rate_limiter
-    from devops_cli.roadmap.stores import github_store
-
-    monkeypatch.setattr(roadmap_store_module, "get_roadmap_store", _fail("opened a store"))
-    monkeypatch.setattr(github_store.GitHubRoadmapStore, "_run", _fail("ran gh"))
-    monkeypatch.setattr(rate_limiter, "run_gh", _fail("ran gh"))
-    monkeypatch.setattr(rate_limiter, "run_subprocess", _fail("started gh"))
-    monkeypatch.setattr(subprocess, "Popen", _fail("started a process"))
+def no_requests(
+    process_fake: ProcessFake,
+    web: WebFake,
+    model_fake: ModelFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[None]:
+    """A roadmap store, a process, an HTTP request, a model call and a socket that fail the test
+    when a dry run opens, starts, sends, calls or connects one; the session's socket guard covers
+    the rest."""
+    install_roadmap_store(_fail("opened a store"))
     monkeypatch.setattr(socket.socket, "connect", _fail("connected"))
     monkeypatch.setattr(socket, "getaddrinfo", _fail("resolved a name"))
-    monkeypatch.setattr(ai_client, "get_llm_client", _fail("called LLM"))
-    monkeypatch.setattr("devops_cli.roadmap.refine.refine.get_llm_client", _fail("called LLM"))
-    monkeypatch.setattr("devops_cli.roadmap.refine.refine.get_task_model", _fail("called LLM"))
-    monkeypatch.setattr("devops_cli.roadmap.stage.stage.get_llm_client", _fail("called LLM"))
-    monkeypatch.setattr(
-        "devops_cli.roadmap.refine.refine_investigation.web_search", _fail("called search")
-    )
-    monkeypatch.setattr("devops_cli.roadmap.alternatives.get_task_model", _fail("called LLM"))
+    yield
+    assert (process_fake.calls, web.recorded, model_fake.call_count) == ([], [], 0)
 
 
 @pytest.mark.parametrize("job", JOBS)
 def test_every_jobs_dry_run_makes_no_request_and_lists_the_requests_a_run_makes(
-    no_requests: None, job: str
+    no_requests: None, job: str, cli: Callable[..., Any]
 ) -> None:
-    result = runner.invoke(app, [job, "--repo", REPO, "--dry-run"])
+    result = cli(["roadmap", job, "--repo", REPO, "--dry-run"])
     assert (
         result.exit_code,
         "Dry run: no request was made" in result.output,
@@ -88,9 +76,11 @@ def test_every_jobs_dry_run_makes_no_request_and_lists_the_requests_a_run_makes(
     ) == (0, True, False, False), result.output
 
 
-def test_refine_dry_run_with_item_makes_no_requests(no_requests: None) -> None:
+def test_refine_dry_run_with_item_makes_no_requests(
+    no_requests: None, cli: Callable[..., Any]
+) -> None:
     """Refining a single item under dry-run makes no GitHub, process, or model call."""
-    result = runner.invoke(app, ["refine", "--repo", REPO, "--item", "123", "--dry-run"])
+    result = cli(["roadmap", "refine", "--repo", REPO, "--item", "123", "--dry-run"])
     assert (
         result.exit_code,
         "Dry run: no request was made" in result.output,
@@ -98,10 +88,12 @@ def test_refine_dry_run_with_item_makes_no_requests(no_requests: None) -> None:
     ) == (0, True, True), result.output
 
 
-def test_the_explain_dry_run_makes_no_request_and_lists_reads_only(no_requests: None) -> None:
+def test_the_explain_dry_run_makes_no_request_and_lists_reads_only(
+    no_requests: None, cli: Callable[..., Any]
+) -> None:
     """`explain` reads GitHub and git and writes nothing, so its plan holds the reads of a run and
     no write (#2911)."""
-    result = runner.invoke(app, ["explain", "7", "--repo", REPO, "--dry-run"])
+    result = cli(["roadmap", "explain", "7", "--repo", REPO, "--dry-run"])
     assert (
         result.exit_code,
         "Dry run: no request was made" in result.output,
@@ -111,10 +103,14 @@ def test_the_explain_dry_run_makes_no_request_and_lists_reads_only(no_requests: 
 
 
 @pytest.mark.parametrize("job", JOBS)
-def test_an_exported_dry_run_wins_over_confirm(no_requests: None, job: str) -> None:
-    with patch("devops_cli.commands.roadmap.is_dry_run", return_value=True):
-        result = runner.invoke(app, [job, "--repo", REPO, "--confirm"])
-    assert (result.exit_code, "Dry run: no request was made" in result.output) == (0, True)
+def test_an_exported_dry_run_with_confirm_is_refused_and_makes_no_request(
+    no_requests: None, job: str, cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`devops` turns an exported dry run into the `--dry-run` flag before the command runs, so
+    the command refuses `--confirm` as a second mode and makes no request."""
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "1")
+    result = cli(["roadmap", job, "--repo", REPO, "--confirm"])
+    assert (result.exit_code, "Pass one of" in result.output) == (1, True)
 
 
 @pytest.mark.parametrize(
@@ -127,8 +123,10 @@ def test_an_exported_dry_run_wins_over_confirm(no_requests: None, job: str) -> N
         ("implement", "--plan"),
     ],
 )
-def test_more_than_one_mode_flag_is_refused(no_requests: None, job: str, mode: str) -> None:
-    result = runner.invoke(app, [job, "--repo", REPO, "--dry-run", mode])
+def test_more_than_one_mode_flag_is_refused(
+    no_requests: None, job: str, mode: str, cli: Callable[..., Any]
+) -> None:
+    result = cli(["roadmap", job, "--repo", REPO, "--dry-run", mode])
     assert (result.exit_code, "Pass one of --dry-run" in result.output) == (1, True)
 
 
@@ -362,15 +360,16 @@ def test_each_field_write_of_a_placement_reads_its_issue_first() -> None:
 
 @pytest.mark.parametrize("job", JOBS)
 def test_a_dry_run_through_the_entry_point_starts_no_process_and_opens_no_connection(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    process_fake: ProcessFake,
+    web: WebFake,
     job: str,
 ) -> None:
     """`devops_cli.entry.main` runs each job's `--dry-run`, as the `devops` script does, with
-    connections, DNS and process starts recorded and refused, and fake `gh`, `git` and
-    `kubectl` first on PATH logging any call. The run succeeds, prints its plan, and nothing
-    is recorded or logged. It runs in this process, so the CLI's import cost is paid once."""
+    connections and DNS recorded and refused, and the process and HTTP fakes recording any
+    start or request. The run succeeds, prints its plan, and nothing is recorded. It runs in
+    this process, so the CLI's import cost is paid once."""
     from devops_cli.entry import main
 
     attempts: list[str] = []
@@ -386,15 +385,6 @@ def test_a_dry_run_through_the_entry_point_starts_no_process_and_opens_no_connec
         monkeypatch.setattr(socket.socket, name, refuse(name))
     monkeypatch.setattr(socket, "getaddrinfo", refuse("getaddrinfo"))
     monkeypatch.setattr(socket, "create_connection", refuse("create_connection"))
-    monkeypatch.setattr(subprocess, "Popen", refuse("a process"))
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    log = tmp_path / "calls.log"
-    for tool in ("gh", "git", "kubectl"):
-        fake = bin_dir / tool
-        fake.write_text(f'#!/bin/sh\necho "{tool} $@" >> {log}\nexit 1\n', encoding="utf-8")
-        fake.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}/usr/bin{os.pathsep}/bin")
     try:
         main(["roadmap", job, "--dry-run", "--repo", REPO])
         code: object = 0
@@ -404,8 +394,9 @@ def test_a_dry_run_through_the_entry_point_starts_no_process_and_opens_no_connec
         code,
         "Dry run: no request was made" in capsys.readouterr().out,
         attempts,
-        log.exists(),
-    ) == (0, True, [], False)
+        process_fake.calls,
+        web.recorded,
+    ) == (0, True, [], [], [])
 
 
 def test_intakes_dry_run_shows_the_exact_gh_command_of_every_store_request() -> None:

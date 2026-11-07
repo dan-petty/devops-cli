@@ -24,7 +24,9 @@ can rely on it for the promises the GitHub adapter keeps.
 A test makes a job's write fail as a `gh` call fails part-way through a run with `fail_write`: a
 502, a timeout or a secondary rate limit, before GitHub applies the write or after it. `writes`
 names every write the job made or tried, in order. `fail_listing` makes the next listing of a
-repository directory fail, and `listed` names every directory that was listed.
+repository directory fail, and `listed` names every directory that was listed. `fail_read`
+makes a read of the repository, such as its visibility or its changes, fail, and `reads` names every read of an Item and
+of the last change of a path, in order.
 """
 
 from __future__ import annotations
@@ -73,6 +75,9 @@ from devops_cli.roadmap.stores.store import (
     with_record,
 )
 
+# The reads that `fail_read` can fail.
+READS = frozenset({"changes_since", "repository_is_private"})
+
 DEFAULT_ROADMAP_MEMORY_REPO = "example/roadmap"
 DEFAULT_ROADMAP_MEMORY_ACTOR = "devops-cli"
 # The author of an issue the fake opens: GitHub gives every issue an association.
@@ -103,6 +108,7 @@ class Fault:
     applied: bool = False
     write: str | None = None
     item: int | None = None
+    error: Exception | None = None
 
 
 def _number(args: tuple[object, ...]) -> int | None:
@@ -191,9 +197,12 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._fault = Fault()
         self._counted_writes = 0
         self._listing_error: Exception | None = None
+        self._read_errors: dict[str, Exception] = {}
         # Every write this view made or tried, and every directory it listed, in order.
         self.writes: list[str] = []
         self.listed: list[str] = []
+        # Every read of an Item (`item`) and of a path's last change (`path_changed_at`).
+        self.reads: list[str] = []
 
     def as_actor(self, actor: str) -> InMemoryRoadmapStore:
         """The same roadmap, written by a person: changes carry their name, and no job record."""
@@ -208,19 +217,35 @@ class InMemoryRoadmapStore(RoadmapStore):
         applied: bool = False,
         write: str | None = None,
         item: int | None = None,
+        error: Exception | None = None,
     ) -> None:
         """Fail one write of this view as a gh call fails: the `at`-th, counted from 1, of the
-        writes named `write` on issue `item` (any write, on any item, when None) raises
-        `GitHubOperationError` once. With `applied`, GitHub applied the write and the call
+        writes named `write` on issue `item` (any write, on any item, when None) raises `error`,
+        else `GitHubOperationError`, once. With `applied`, GitHub applied the write and the call
         still reports a failure, so the change stays in place; else nothing changes."""
         if write is not None and write not in WRITES:
             raise ValueError(f"{write} is no write of the store.")
-        self._fault = Fault(at=at, applied=applied, write=write, item=item)
+        self._fault = Fault(at=at, applied=applied, write=write, item=item, error=error)
         self._counted_writes = 0
 
     def fail_listing(self, error: Exception) -> None:
         """Make the next listing of a repository directory raise `error`."""
         self._listing_error = error
+
+    def fail_read(self, read: str, error: Exception | None) -> None:
+        """Make every call of the store method `read` raise `error`, until `error` is None. The
+        reads that can fail are `repository_is_private` and `changes_since`."""
+        if read not in READS:
+            raise ValueError(f"{read} is no read that the fake can fail.")
+        if error is None:
+            self._read_errors.pop(read, None)
+        else:
+            self._read_errors[read] = error
+
+    def _readable(self, read: str) -> None:
+        """Raise the error `fail_read` set for `read`, if any."""
+        if read in self._read_errors:
+            raise self._read_errors[read]
 
     def _attempt[R](self, name: str, number: int | None, apply: Callable[[], R]) -> R:
         """Make a write, or fail it as the fault says."""
@@ -230,10 +255,10 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._counted_writes += counted
         failing = counted and self._counted_writes == fault.at
         if failing and not fault.applied:
-            raise GitHubOperationError("HTTP 502", operation="roadmap.write")
+            raise fault.error or GitHubOperationError("HTTP 502", operation="roadmap.write")
         done = apply()
         if failing:
-            raise GitHubOperationError(
+            raise fault.error or GitHubOperationError(
                 "HTTP 502 after the write applied", operation="roadmap.write"
             )
         return done
@@ -609,6 +634,7 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     def path_changed_at(self, path: str) -> datetime | None:
         """When the newest commit `seed_commit` recorded for `path` was made, or None."""
+        self.reads.append("path_changed_at")
         return max(self._roadmap.commits.get(path, []), default=None)
 
     def repository_file(self, path: str, *, ref: str | None = None) -> str:
@@ -643,7 +669,8 @@ class InMemoryRoadmapStore(RoadmapStore):
         return found
 
     def repository_is_private(self) -> bool:
-        """Whether the repository is private."""
+        """Whether the repository is private, or the error `fail_read` set."""
+        self._readable("repository_is_private")
         return self._roadmap.is_private
 
     def repository_facts(self, full_name: str) -> RepositoryFacts | None:
@@ -667,6 +694,7 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     def item(self, number: int) -> Item | None:
         """The Item numbered `number`, or None when that issue is no Item."""
+        self.reads.append("item")
         issue = self._roadmap.issues.get(number)
         return next(iter(select_items([self._read(issue)])), None) if issue else None
 
@@ -727,6 +755,7 @@ class InMemoryRoadmapStore(RoadmapStore):
     def changes_since(self, since: datetime, *, except_actor: str | None = None) -> list[Change]:
         """The changes made at or after `since`, oldest first, without those `except_actor`
         made; an empty actor leaves out nothing."""
+        self._readable("changes_since")
         cutoff = as_utc(since)
         skipped = except_actor or None
         return [

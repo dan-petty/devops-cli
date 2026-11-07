@@ -75,12 +75,12 @@ class _StopsOnComments(InMemoryRoadmapStore):
     falls in the plan of that item, after the plans of the items before it."""
 
     stopped = 0
-    reads = 0
+    comment_reads = 0
 
     def comments_on(self, number: int) -> list[IssueComment]:
         if number == self.stopped:
-            self.reads += 1
-            if self.reads == 2:
+            self.comment_reads += 1
+            if self.comment_reads == 2:
                 raise stop_error()
         return super().comments_on(number)
 

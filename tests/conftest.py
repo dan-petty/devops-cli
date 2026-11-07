@@ -130,6 +130,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.output.console": ("reset_console",),
     "devops_cli.review.canary": ("clear_canary_cache",),
     "devops_cli.review.rules_pack": ("reset_rules_pack_cache",),
+    "devops_cli.roadmap.stores.store": ("reset_roadmap_store",),
     "devops_cli.security.reference_extractor": ("reset_reference_extractor_caches",),
     "devops_cli.security.secrets": ("reset_resolver",),
     "devops_cli.telemetry.logfire": ("reset_logfire_bridge",),

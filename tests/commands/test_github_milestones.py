@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
@@ -12,7 +11,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.gh import milestones_app
 from devops_cli.exceptions.git import GitHubUnreadError
 from devops_cli.github.milestones import calculate_milestone_progress
-from devops_cli.roadmap.stores.store import GitHubState, Milestone, RoadmapStore
+from devops_cli.roadmap.stores.store import GitHubState, Milestone, get_roadmap_store
 from tests.support.fakes.github import API, GitHubApiFake, github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
@@ -170,23 +169,16 @@ def test_cli_milestones_list_refuses_an_unknown_state(roadmap_store: InMemoryRoa
     assert (res.exit_code, "Unsupported state 'merged'" in res.output) == (1, True)
 
 
-def test_cli_milestones_list_names_a_failed_read(
-    github_api: GitHubApiFake,
-    github_roadmap_factory: Callable[..., RoadmapStore],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_cli_milestones_list_names_a_failed_read(github_api: GitHubApiFake) -> None:
     """When GitHub can't be read, list exits 1 and names the read instead of finding nothing.
     The GitHub store reads the milestones through the process's session, which GitHub answers
     with a 502 through its retries: the session's unread error names the listing and the
     status (#983)."""
-    from devops_cli.roadmap.stores import store as roadmap_module
-
     listing = f"/repos/{REPO}/milestones?state=all&per_page=100"
     github_api.route("GET", listing, github_json({"message": "Server Error"}, status=502))
-    monkeypatch.setattr(roadmap_module, "get_roadmap_store", github_roadmap_factory)
     res = runner.invoke(milestones_app, ["list", "--repo", REPO])
     with pytest.raises(GitHubUnreadError) as raised:
-        github_roadmap_factory(REPO).milestones()
+        get_roadmap_store(REPO).milestones()
     assert (
         res.exit_code,
         f"GitHub gave no readable answer to GET {listing} (page 1) (HTTP 502)"

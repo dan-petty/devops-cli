@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast, runtime_checkable
@@ -985,12 +985,36 @@ class RoadmapStore(Protocol):
         or None when GitHub has no such repository (#2650). A read that cannot complete raises."""
 
 
+type StoreFactory = Callable[..., RoadmapStore]
+
+# The factory that `install_roadmap_store` put in place of the GitHub store, if any.
+_INSTALLED_STORE_FACTORY: StoreFactory | None = None
+
+
+def install_roadmap_store(factory: StoreFactory) -> None:
+    """Open every roadmap store through `factory` until `reset_roadmap_store`.
+
+    `get_roadmap_store(repo, runner=runner)` then returns `factory(repo, runner=runner)`. A test
+    installs the in-memory store this way (ADR 0007).
+    """
+    global _INSTALLED_STORE_FACTORY
+    _INSTALLED_STORE_FACTORY = factory
+
+
+def reset_roadmap_store() -> None:
+    """Remove the factory that `install_roadmap_store` installed: `get_roadmap_store` opens the
+    GitHub store again."""
+    global _INSTALLED_STORE_FACTORY
+    _INSTALLED_STORE_FACTORY = None
+
+
 def get_roadmap_store(repo: str, *, runner: GhRunner | None = None) -> RoadmapStore:
     """Open the roadmap store for `repo`, its `gh` commands through `runner` when one is given.
 
-    Every caller builds its store here, so a test replaces this one function with a fixture
-    that returns the in-memory adapter.
+    Every caller builds its store here. The installed factory, if any, answers instead of GitHub.
     """
+    if _INSTALLED_STORE_FACTORY is not None:
+        return _INSTALLED_STORE_FACTORY(repo, runner=runner)
     from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 
     if runner is None:
@@ -1030,6 +1054,7 @@ __all__ = [
     "field_values",
     "find_milestone",
     "get_roadmap_store",
+    "install_roadmap_store",
     "is_name_segment",
     "is_repository_name",
     "item_of",
@@ -1039,6 +1064,7 @@ __all__ = [
     "require_milestone",
     "require_unchanged",
     "require_value",
+    "reset_roadmap_store",
     "select_candidates",
     "select_items",
     "split_record",

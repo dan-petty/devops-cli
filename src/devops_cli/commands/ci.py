@@ -1397,19 +1397,8 @@ def _try_save_ci_cache(
     before_fingerprint: str | None = None,
 ) -> None:
     """Persist successful CI run into cache if working tree did not change during the run."""
-    from devops_cli.ci.cache import (
-        CICachedCheck,
-        compute_workspace_fingerprint,
-        save_ci_cache,
-    )
+    from devops_cli.ci.cache import CacheRecord, CICachedCheck, record_passing_run
 
-    fp_info = compute_workspace_fingerprint(root=root, options=ci_options)
-    if not fp_info:
-        return
-    fingerprint, head_sha = fp_info
-    if before_fingerprint is not None and fingerprint != before_fingerprint:
-        print_warning(MESSAGES.ci.cache_tree_changed, safe=True)
-        return
     cached_checks = [
         CICachedCheck(
             name=res.name,
@@ -1421,14 +1410,14 @@ def _try_save_ci_cache(
         )
         for res in results
     ]
-    save_ci_cache(
-        fingerprint=fingerprint,
-        head_sha=head_sha,
+    recorded = record_passing_run(
+        root=root,
         checks=cached_checks,
         options=ci_options,
-        passed=True,
-        root=root,
+        before_fingerprint=before_fingerprint,
     )
+    if recorded is CacheRecord.TREE_CHANGED:
+        print_warning(MESSAGES.ci.cache_tree_changed, safe=True)
 
 
 def _try_fast_cached_ci(
