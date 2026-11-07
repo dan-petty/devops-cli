@@ -19,14 +19,14 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli.exceptions import RoadmapRefineError, ServiceStoppingError
-from devops_cli.roadmap.refine import plan_refine
+from devops_cli.roadmap.refine.refine import plan_refine
 from devops_cli.roadmap.run import _run_refine_adapter
-from devops_cli.roadmap.store import ItemField
+from devops_cli.roadmap.stores.store import ItemField
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.service_stop import stop_error
 
 if TYPE_CHECKING:
-    from devops_cli.roadmap.store import IssueComment
+    from devops_cli.roadmap.stores.store import IssueComment
     from tests.support.fakes.model import ModelFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -108,7 +108,7 @@ def _round_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
     return [
         record.getMessage()
         for record in caplog.records
-        if record.name == "devops_cli.roadmap.refine"
+        if record.name == "devops_cli.roadmap.refine.refine"
         and record.getMessage().startswith("Refine round")
     ]
 
@@ -121,7 +121,7 @@ def test_a_round_that_stops_in_item_three_keeps_items_one_and_two_and_the_next_r
     store.stopped = third
     model_fake.answer(_READY)
 
-    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.refine"):
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.refine.refine"):
         with pytest.raises(ServiceStoppingError) as stopped:
             _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
     after_stop = _statuses(store, [first, second, third])
@@ -155,7 +155,7 @@ def test_a_write_that_fails_costs_the_other_items_nothing_and_the_round_logs_its
     store.fail_write(write="write_issue_body", item=second)
     model_fake.answer(_READY)
 
-    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.refine"):
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.refine.refine"):
         with pytest.raises(RoadmapRefineError) as raised:
             _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
 

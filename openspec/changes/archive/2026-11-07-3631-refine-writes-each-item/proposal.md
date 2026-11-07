@@ -6,13 +6,13 @@ A refine round of the Service plans all its items first and writes after. A stop
 
 ## What Changes
 
-- `plan_refine` in `src/devops_cli/roadmap/refine.py` takes an optional `writer`. It gives the writer the count of candidates and the result of each item as soon as that item is done. Without a writer it writes nothing, as before.
+- `plan_refine` in `src/devops_cli/roadmap/refine/refine.py` takes an optional `writer`. It gives the writer the count of candidates and the result of each item as soon as that item is done. Without a writer it writes nothing, as before.
 - A new `RefineWriter` in the same module writes each result with the same code as `apply_refine`. `apply_refine` is now a loop over the same per-item functions, so the CLI and the Service share one write path.
 - A write that fails for one item is logged and counted, and the next item still runs. Rejected GitHub credentials and the stop of the Service end the round.
 - `raise_for_failed_items` also names the items whose write failed.
 - `_run_refine_adapter` in `src/devops_cli/roadmap/run.py` runs the round with a `RefineWriter`.
 - The round logs one line at its start and one at its end, with the counts of items taken, written and failed. The texts are fields of `RoadmapMessages`.
-- `tests/roadmap/test_roadmap_refine_round.py` holds the tests. One call in `tests/roadmap/test_roadmap_refine_placeholder.py` feeds the writer.
+- `tests/roadmap/refine/test_roadmap_refine_round.py` holds the tests. One call in `tests/roadmap/refine/test_roadmap_refine_placeholder.py` feeds the writer.
 - The `roadmap-refine` capability gains requirements for the per-item write and the round log, because the Service behavior changes.
 - The change fits one pull request. The live run over three rollouts needs a release period and moves to #3793.
 
@@ -28,8 +28,8 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/refine.py`, `src/devops_cli/roadmap/run.py`, `src/devops_cli/lang/en/messages.py`
-- Tests: `tests/roadmap/test_roadmap_refine_round.py`, `tests/roadmap/test_roadmap_refine_placeholder.py`
+- Code: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/run.py`, `src/devops_cli/lang/en/messages.py`
+- Tests: `tests/roadmap/refine/test_roadmap_refine_round.py`, `tests/roadmap/refine/test_roadmap_refine_placeholder.py`
 
 ## Feasibility
 
