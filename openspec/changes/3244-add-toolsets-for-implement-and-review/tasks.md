@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/ai/mcp/roles.py`, `src/devops_cli/roadmap/stage/stage_tools.py`, `src/devops_cli/config/settings.py`, `docs/roadmap/stage.md`. Changes: `src/devops_cli/roadmap/tools.py` (new), `tests/roadmap/test_roadmap_tools.py` (new).
 
-- [ ] 1.1 Write the failing tests in `tests/roadmap/test_roadmap_tools.py`: each entry has a one-line purpose, a boolean read-only flag and a holder, `tool_names` raises for an unknown holder, `check_tables` names a table and its missing tool, and the real role tables and toolset holders pass the check
+- [x] 1.1 Write the failing tests in `tests/roadmap/test_roadmap_tools.py`: each entry has a one-line purpose, a boolean read-only flag and a holder, `tool_names` raises for an unknown holder, `check_tables` names a table and its missing tool, and the real role tables and toolset holders pass the check
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_tools.py` fails on the base
-- [ ] 1.2 Add `src/devops_cli/roadmap/tools.py` with the `ToolEntry` record, the `TOOLS` table for the holders `stage`, `stage-extended`, `implement`, `planning`, `implementation` and `review`, and the functions `tool_names` and `check_tables`
+- [x] 1.2 Add `src/devops_cli/roadmap/tools.py` with the `ToolEntry` record, the `TOOLS` table for the holders `stage`, `stage-extended`, `implement`, `planning`, `implementation` and `review`, and the functions `tool_names` and `check_tables`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_tools.py` passes
 
 ## 2. Choose the stage tools from the registry
