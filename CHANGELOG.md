@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.79.0](https://github.com/dan-petty/devops-cli/compare/v0.78.0...v0.79.0) (2026-11-07)
+
+
+### Features
+
+* **ai:** fetch page text with the Crawl4AI service ([#3943](https://github.com/dan-petty/devops-cli/issues/3943)) ([038e71c](https://github.com/dan-petty/devops-cli/commit/038e71c8c64fb53ce3ebfeceb8a77e582e8fb562)), closes [#3887](https://github.com/dan-petty/devops-cli/issues/3887)
+
 ## [0.78.0](https://github.com/dan-petty/devops-cli/compare/v0.77.2...v0.78.0) (2026-11-07)
 
 
