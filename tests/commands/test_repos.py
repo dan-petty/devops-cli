@@ -995,16 +995,16 @@ def test_core_repo_safe_paths_and_tracked_files(tmp_path: Path, git_fake: GitFak
     assert base / "src" / "app.py" in walked
 
     # 4. get_repo_origin_name parsing
-    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.core.repo import get_repo_origin_name, reset_repo_caches
 
-    get_repo_origin_name.cache_clear()
+    reset_repo_caches()
     git_fake.answer(
         lambda c: "remote" in c.argv,
         ProcessAnswer(stdout="git@github.com:dan-petty/devops-cli.git\n"),
     )
     ssh_origin = get_repo_origin_name(base)
 
-    get_repo_origin_name.cache_clear()
+    reset_repo_caches()
     git_fake.answer(
         lambda c: "remote" in c.argv,
         ProcessAnswer(stdout="https://github.com/dan-petty/devops-cli\n"),
@@ -1150,7 +1150,6 @@ def test_repo_origin_lru_caching(tmp_path: Path, git_fake: GitFake) -> None:
         ["git", "remote", "get-url", "origin"],
         ProcessAnswer(stdout="git@github.com:org/cached-repo.git\n"),
     )
-    get_repo_origin_name.cache_clear()
     res1 = get_repo_origin_name(tmp_path)
     res2 = get_repo_origin_name(tmp_path)
     remote_calls = [c for c in git_fake.calls if "remote" in c.argv]

@@ -292,13 +292,9 @@ def test_dotted_set_rejects_top_level_section_overwrite() -> None:
         dotted_set(settings, "github", "invalid_string_overwrite")
 
 
-def test_config_commands_comprehensive(tmp_path: Path) -> None:
+def test_config_commands_comprehensive() -> None:
     """Verify config show, get, set, output, env, auth-headless, audit-stream subcommands."""
-    cfg_file = tmp_path / "config.yaml"
-    with (
-        patch("devops_cli.config.settings.CONFIG_PATH", cfg_file),
-        patch("devops_cli.commands.config._gh_auth_status", return_value=True),
-    ):
+    with patch("devops_cli.commands.config._gh_auth_status", return_value=True):
         res_show = runner.invoke(main_app, ["config", "show"])
         assert res_show.exit_code == 0
 

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
@@ -30,6 +30,7 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.settings import Settings, load_settings, reset_settings_cache
+from devops_cli.core.repo import install_own_source_dir
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
@@ -89,7 +90,11 @@ def hostile_repo(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def user_level(monkeypatch: pytest.MonkeyPatch, isolate_user_data_root: Path) -> Iterator[Path]:
+def user_level(
+    monkeypatch: pytest.MonkeyPatch,
+    isolate_user_data_root: Path,
+    global_config: Callable[[dict[str, Any]], None],
+) -> Path:
     """The user's own config, naming the user's gateway, with neither `DEVOPS_CLI_CONFIG` nor
     `DEVOPS_CLI_DATA_DIR` set, as a shell outside this repository's devcontainer has them.
 
@@ -97,29 +102,19 @@ def user_level(monkeypatch: pytest.MonkeyPatch, isolate_user_data_root: Path) ->
     when no `DEVOPS_CLI_CONFIG` names another. Returns the user-level data root a review's
     relative data paths resolve under.
     """
-    from devops_cli.config import settings
-
-    config = settings.CONFIG_PATH
-    assert config.is_relative_to(Path(os.environ["HOME"]))
-    before = config.read_text(encoding="utf-8") if config.exists() else None
-    made = [parent for parent in reversed(config.parents) if not parent.exists()]
-    config.parent.mkdir(parents=True, exist_ok=True)
-    config.write_text(
-        f"ai:\n  gateway_url: {_USER_GATEWAY}\n  allow_private_network: true\n"
-        "  rag:\n    enabled: false\n",
-        encoding="utf-8",
+    global_config(
+        {
+            "ai": {
+                "gateway_url": _USER_GATEWAY,
+                "allow_private_network": True,
+                "rag": {"enabled": False},
+            }
+        }
     )
     monkeypatch.delenv("DEVOPS_CLI_CONFIG", raising=False)
     monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
     reset_settings_cache()
-    yield isolate_user_data_root
-    if before is None:
-        config.unlink()
-    else:
-        config.write_text(before, encoding="utf-8")
-    for directory in reversed(made):
-        directory.rmdir()
-    reset_settings_cache()
+    return isolate_user_data_root
 
 
 def _seen_by_a_review[T](
@@ -762,7 +757,7 @@ def own_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         f"ai:\n  gateway_url: {_OWN_GATEWAY}\n", encoding="utf-8"
     )
     (repo / ".git").mkdir()
-    monkeypatch.setattr("devops_cli.core.repo._own_source_dir", lambda: package.resolve())
+    install_own_source_dir(package.resolve())
     return repo
 
 
@@ -846,9 +841,7 @@ def test_every_worktree_of_devops_clis_own_repository_is_trusted(
 
     run_from_main = [is_own_source_repository(checkout) for checkout in checkouts]
     exit_code, reviews = _seen_by_a_review(linked, lambda _: ReviewSessionStore.root(), monkeypatch)
-    monkeypatch.setattr(
-        "devops_cli.core.repo._own_source_dir", lambda: (linked / "src" / "devops_cli").resolve()
-    )
+    install_own_source_dir((linked / "src" / "devops_cli").resolve())
     run_from_linked = [is_own_source_repository(checkout) for checkout in checkouts]
 
     assert (run_from_main, run_from_linked, exit_code, reviews) == (
@@ -919,7 +912,7 @@ def test_an_installed_devops_cli_trusts_no_repository(
         package = site_packages / "devops_cli"
         monkeypatch.setattr(site, "getsitepackages", lambda: [str(site_packages)])
     package.mkdir(parents=True)
-    monkeypatch.setattr("devops_cli.core.repo._own_source_dir", lambda: package.resolve())
+    install_own_source_dir(package.resolve())
 
     exit_code, gateways = _seen_by_a_review(
         own_repo, lambda settings: settings.ai.gateway_url, monkeypatch

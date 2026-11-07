@@ -842,15 +842,17 @@ def isolate_end_leftover_processes(
 
 
 @pytest.fixture(autouse=True)
-def isolate_own_source_repository(monkeypatch: pytest.MonkeyPatch) -> None:
+def isolate_own_source_repository() -> None:
     """Run every test as a devops-cli installed in site-packages runs, trusting no repository as
     its own (#972). The suite imports devops-cli from the checkout it runs in, which would make
     that checkout trusted: a review started there would read its `config.yaml` and `.data`. A test
-    of the trusted repository points `_own_source_dir` at a repository of its own."""
+    of the trusted repository installs a source directory of its own with `install_own_source_dir`.
+    The floor removes it after the test, as it does every cache of `core.repo`."""
     import sysconfig
 
-    installed = Path(sysconfig.get_paths()["purelib"]).resolve() / "devops_cli"
-    monkeypatch.setattr("devops_cli.core.repo._own_source_dir", lambda: installed)
+    from devops_cli.core.repo import install_own_source_dir
+
+    install_own_source_dir(Path(sysconfig.get_paths()["purelib"]).resolve() / "devops_cli")
 
 
 @pytest.fixture(scope="session")

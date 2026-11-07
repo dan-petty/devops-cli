@@ -44,7 +44,7 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root
 from devops_cli.lang import MESSAGES
 from tests.support.fakes.git import GitFake
-from tests.support.fakes.process import ProcessAnswer
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.hung_children import (
     fake_program,
     hung_with_grandchild,
@@ -130,28 +130,20 @@ _NPM_AUDIT_READINGS = [
 ]
 
 
-def _answer_npm_audit_with(monkeypatch: pytest.MonkeyPatch, recording: str) -> None:
+def _answer_npm_audit_with(process_fake: ProcessFake, recording: str) -> None:
     """Answer `npm audit` with exit 1 and a report recorded from npm, every other command with
     success."""
     report = (FIXTURES / "npm_audit" / f"{recording}.json").read_text(encoding="utf-8")
-
-    def run(cmd: list[str], *args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
-        return (
-            subprocess.CompletedProcess(cmd, 1, report, "")
-            if cmd[0] == "npm"
-            else subprocess.CompletedProcess(cmd, 0, "", "")
-        )
-
-    monkeypatch.setattr("subprocess.run", run)
+    process_fake.answer("npm", ProcessAnswer(returncode=1, stdout=report))
 
 
 @pytest.mark.parametrize(("recording", "reported", "not_reported"), _NPM_AUDIT_READINGS)
 def test_the_audit_command_says_whether_npm_audit_found_vulnerabilities_or_could_not_run(
-    monkeypatch: pytest.MonkeyPatch, recording: str, reported: str, not_reported: str
+    process_fake: ProcessFake, recording: str, reported: str, not_reported: str
 ) -> None:
     """The command reads npm's report as `devops ci maintain` does, so a registry that cannot be
     reached is not reported as a vulnerable pin."""
-    _answer_npm_audit_with(monkeypatch, recording)
+    _answer_npm_audit_with(process_fake, recording)
 
     result = runner.invoke(app, ["audit"])
 
@@ -161,11 +153,11 @@ def test_the_audit_command_says_whether_npm_audit_found_vulnerabilities_or_could
 
 @pytest.mark.parametrize(("recording", "reported", "not_reported"), _NPM_AUDIT_READINGS)
 def test_the_gate_row_of_the_audit_check_reads_npm_audit_as_the_audit_command_does(
-    monkeypatch: pytest.MonkeyPatch, recording: str, reported: str, not_reported: str
+    process_fake: ProcessFake, recording: str, reported: str, not_reported: str
 ) -> None:
     """A single check run, `devops ci --only audit`, fails its row and gives the same reading
     under the check's output."""
-    _answer_npm_audit_with(monkeypatch, recording)
+    _answer_npm_audit_with(process_fake, recording)
 
     result = runner.invoke(app, ["--only", "audit", "--check", "--no-cache"])
 

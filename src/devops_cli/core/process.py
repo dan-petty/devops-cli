@@ -100,7 +100,6 @@ DEFAULT_ALLOWED_ENV_VARS: frozenset[str] = frozenset(
         "GIT_COMMITTER_NAME",
         "GIT_COMMITTER_EMAIL",
         "CI",
-        "PYTEST_CURRENT_TEST",
         # A number only. `pytest-xdist` counts the CPUs of the node, not of the pod, so a child that
         # runs `pytest` (the gate of `devops ci`) must keep the bound that the runner pod sets
         # (#2806).
@@ -753,24 +752,6 @@ class DefaultProcessRunner:
     ) -> subprocess.CompletedProcess[str]:
         full_cmd = list(cmd)
         _validate_subprocess_cwd(cwd)
-        if getattr(subprocess.run, "__module__", "") != "subprocess":
-            return await asyncio.to_thread(
-                self.run,
-                full_cmd,
-                input=None,
-                cwd=cwd,
-                env=env,
-                capture_output=capture_output,
-                text=text,
-                check=check,
-                quiet=quiet,
-                timeout=timeout,
-                isolate_env=isolate_env,
-                extra_allowed_env=extra_allowed_env,
-                local_read=local_read,
-                intent=intent,
-            )
-
         if is_dry_run() and not (local_read or intent in ("read", "local_read")):
             if not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(full_cmd):
                 from devops_cli.output import print_dry_run_command
@@ -1184,127 +1165,20 @@ async def run_subprocess_async(
     extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Execute a subprocess command asynchronously with non-blocking I/O, unified timeout bounds,
-    dry-run reporting, W3C trace context propagation, OpenTelemetry tracing, and ambient environment isolation."""
-    _validate_subprocess_cwd(cwd)
-    if getattr(subprocess.run, "__module__", "") != "subprocess":
-        return await asyncio.to_thread(
-            run_subprocess,
-            cmd,
-            cwd=cwd,
-            env=env,
-            capture_output=capture_output,
-            text=text,
-            check=check,
-            quiet=quiet,
-            timeout=timeout,
-            isolate_env=isolate_env,
-            extra_allowed_env=extra_allowed_env,
-        )
-
-    if is_dry_run() and not quiet and not _QUIET_SUBPROCESS_ARGS.intersection(cmd):
-        from devops_cli.output import print_dry_run_command
-
-        print_dry_run_command(cmd, cwd=str(cwd) if cwd else None)
-
-    bin_name = Path(cmd[0]).name if cmd else "unknown"
-    start_time = time.perf_counter()
-
-    sub_env = build_subprocess_env(
+    dry-run reporting, W3C trace context propagation, OpenTelemetry tracing, and ambient environment isolation,
+    through the active process runner."""
+    return await get_process_runner().run_async(
+        cmd,
+        cwd=cwd,
         env=env,
+        capture_output=capture_output,
+        text=text,
+        check=check,
+        quiet=quiet,
+        timeout=timeout,
         isolate_env=isolate_env,
-        extra_allowed_keys=extra_allowed_env,
+        extra_allowed_env=extra_allowed_env,
     )
-    # The first GitHub call runs `gh auth token`, a blocking child; keep it off the event loop.
-    await asyncio.to_thread(_pin_github_token, cmd, sub_env, env)
-
-    with trace_span(
-        f"subprocess.{bin_name}",
-        attributes=_subprocess_span_attributes(cmd, bin_name, cwd, timeout),
-    ) as span_h:
-        get_tracer().inject_trace_env(sub_env)
-        stdout_pipe = asyncio.subprocess.PIPE if capture_output else None
-        stderr_pipe = asyncio.subprocess.PIPE if capture_output else None
-
-        try:
-            proc = await _spawn_under_stop(
-                cmd,
-                cwd=cwd,
-                env=sub_env,
-                stdout=stdout_pipe,
-                stderr=stderr_pipe,
-                start_new_session=(os.name == "posix"),
-            )
-            stdout_bytes, stderr_bytes = await _communicate_or_stop_group(proc, cmd, timeout)
-        except FileNotFoundError:
-            dur = time.perf_counter() - start_time
-            span_h.set_attribute("subprocess.executable_found", False)
-            span_h.set_attribute("subprocess.exit_code", CONST_EXIT_COMMAND_NOT_FOUND)
-            span_h.set_attribute("process.exit.code", CONST_EXIT_COMMAND_NOT_FOUND)
-            span_h.set_attribute("subprocess.duration_seconds", dur)
-            span_h.set_attribute("subprocess.status", "not_found")
-            span_h.add_event("subprocess_not_found", {"bin": bin_name})
-            if check:
-                raise
-            return subprocess.CompletedProcess(
-                cmd,
-                returncode=CONST_EXIT_COMMAND_NOT_FOUND,
-                stdout="",
-                stderr=f"Executable '{bin_name}' not found in PATH",
-            )
-
-        ret_code = proc.returncode if proc.returncode is not None else 0
-        stdout_str = (
-            stdout_bytes.decode("utf-8", errors="replace")
-            if (text and stdout_bytes is not None)
-            else (stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else "")
-        )
-        stderr_str = (
-            stderr_bytes.decode("utf-8", errors="replace")
-            if (text and stderr_bytes is not None)
-            else (stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else "")
-        )
-
-        dur = time.perf_counter() - start_time
-        span_h.set_attribute("subprocess.exit_code", ret_code)
-        span_h.set_attribute("process.exit.code", ret_code)
-        span_h.set_attribute("subprocess.duration_seconds", dur)
-        span_h.set_attribute("subprocess.status", "ok" if ret_code == 0 else "non_zero")
-
-        if stdout_bytes:
-            span_h.set_attribute("subprocess.stdout_bytes", len(stdout_bytes))
-        if stderr_bytes:
-            span_h.set_attribute("subprocess.stderr_bytes", len(stderr_bytes))
-
-        if ret_code != 0 and check:
-            span_h.set_attribute("error", True)
-            raw_sample = (stderr_str or stdout_str or "")[:400]
-            from devops_cli.security.sanitizer import mask_secrets
-
-            err_sample = mask_secrets(raw_sample) if raw_sample else ""
-            if err_sample:
-                span_h.set_attribute("subprocess.error_sample", err_sample)
-            span_h.add_event(
-                "subprocess_failed",
-                {"exit_code": ret_code, "error_sample": err_sample},
-            )
-            raise subprocess.CalledProcessError(ret_code, cmd, output=stdout_str, stderr=stderr_str)
-
-        span_h.add_event(
-            "subprocess_completed",
-            {"exit_code": ret_code, "duration_seconds": dur},
-        )
-
-        emit(
-            SUBPROCESS_DURATION,
-            dur,
-            {"bin": bin_name, "status": "ok" if ret_code == 0 else "error"},
-        )
-        return subprocess.CompletedProcess(
-            cmd,
-            returncode=ret_code,
-            stdout=stdout_str,
-            stderr=stderr_str,
-        )
 
 
 _JSON_UNSET = object()

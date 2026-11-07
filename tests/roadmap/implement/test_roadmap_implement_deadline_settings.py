@@ -4,6 +4,7 @@ runner sets on them."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
 
@@ -34,17 +35,11 @@ VARIABLES = (
 MARGIN_SECONDS = 600
 
 
-@pytest.fixture
-def config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """An empty user config file, with the project layer absent and the variables unset."""
-    path = tmp_path / "config.yaml"
-    path.write_text("", encoding="utf-8")
-    monkeypatch.setattr(settings, "CONFIG_PATH", path)
-    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(tmp_path / "no-project-config.yaml"))
+@pytest.fixture(autouse=True)
+def unset_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Leave the deadline variables unset, so the config file and the defaults decide."""
     for name in VARIABLES:
         monkeypatch.delenv(name, raising=False)
-    settings.reset_settings_cache()
-    return path
 
 
 def _deadlines() -> tuple[int, int, int]:
@@ -56,17 +51,21 @@ def _deadlines() -> tuple[int, int, int]:
     )
 
 
-def test_the_defaults_are_70_minutes_90_minutes_and_four_hours(config_file: Path) -> None:
+def test_the_defaults_are_70_minutes_90_minutes_and_four_hours() -> None:
     assert _deadlines() == (4200, 5400, 14400)
 
 
 def test_a_config_file_and_a_variable_set_the_stall_the_extension_and_the_ceiling(
-    config_file: Path, monkeypatch: pytest.MonkeyPatch
+    config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config_file.write_text(
-        "roadmap:\n  implement:\n    deadline_stall_seconds: 3000\n"
-        "    deadline_extension_seconds: 4000\n    item_time_limit_seconds: 9000\n",
-        encoding="utf-8",
+    config(
+        roadmap={
+            "implement": {
+                "deadline_stall_seconds": 3000,
+                "deadline_extension_seconds": 4000,
+                "item_time_limit_seconds": 9000,
+            }
+        }
     )
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS", "10000")
 
@@ -83,14 +82,16 @@ def test_a_config_file_and_a_variable_set_the_stall_the_extension_and_the_ceilin
     ],
 )
 def test_a_stall_above_the_extension_or_an_extension_above_the_ceiling_is_refused(
-    config_file: Path, stall: int, extension: int, ceiling: int
+    config: Callable[..., Path], stall: int, extension: int, ceiling: int
 ) -> None:
-    config_file.write_text(
-        "roadmap:\n  implement:\n"
-        f"    deadline_stall_seconds: {stall}\n"
-        f"    deadline_extension_seconds: {extension}\n"
-        f"    deadline_ceiling_seconds: {ceiling}\n",
-        encoding="utf-8",
+    config(
+        roadmap={
+            "implement": {
+                "deadline_stall_seconds": stall,
+                "deadline_extension_seconds": extension,
+                "deadline_ceiling_seconds": ceiling,
+            }
+        }
     )
 
     with pytest.raises(ValidationError, match="deadline"):

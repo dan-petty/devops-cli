@@ -1578,7 +1578,6 @@ def _config_layers() -> ConfigLayers:
     a caller editing one before saving must not rewrite what every later load sees.
     """
     cache_key = (
-        str(CONFIG_PATH),
         os.environ.get(PROJECT_CONFIG_ENV, ""),
         os.getcwd(),
         reads_untrusted_trees(),

@@ -429,7 +429,6 @@ def test_a_config_file_still_holding_the_removed_ai_durable_block_loads(
         encoding="utf-8",
     )
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(config_path))
-    monkeypatch.setattr("devops_cli.config.settings.CONFIG_PATH", config_path)
     reset_settings_cache()
 
     loaded = load_settings()

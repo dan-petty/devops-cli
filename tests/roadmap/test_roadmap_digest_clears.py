@@ -98,31 +98,19 @@ def test_the_comment_time_is_read_and_a_bad_time_raises(store: InMemoryRoadmapSt
 
 
 def test_the_limits_default_to_one_for_a_class_and_three_for_an_item(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    path = tmp_path / "config.yaml"
-    path.write_text("", encoding="utf-8")
-    monkeypatch.setattr(settings, "CONFIG_PATH", path)
-    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(tmp_path / "no-project-config.yaml"))
     for name in ("PER_CLASS", "PER_ITEM"):
         monkeypatch.delenv(f"DEVOPS_CLI_ROADMAP_IMPLEMENT_DIGEST_CLEARS_{name}", raising=False)
-    settings.reset_settings_cache()
 
     implement = settings.load_settings().roadmap.implement
 
     assert (implement.digest_clears_per_class, implement.digest_clears_per_item) == (1, 3)
 
 
-def test_the_limits_come_from_the_variables(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    path = tmp_path / "config.yaml"
-    path.write_text("", encoding="utf-8")
-    monkeypatch.setattr(settings, "CONFIG_PATH", path)
-    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(tmp_path / "no-project-config.yaml"))
+def test_the_limits_come_from_the_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_CLASS", "2")
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_ITEM", "5")
-    settings.reset_settings_cache()
 
     implement = settings.load_settings().roadmap.implement
 

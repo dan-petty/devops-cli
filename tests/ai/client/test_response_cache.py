@@ -574,7 +574,6 @@ def test_ai_cache_status_and_clear_read_settings(
     )
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(data_dir))
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_file))
-    monkeypatch.setattr("devops_cli.config.settings.CONFIG_PATH", cfg_file)
     reset_llm_response_cache()
     reset_settings_cache()
 
