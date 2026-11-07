@@ -8,7 +8,7 @@
 - [Configuration Reference](CONFIGURATION.md) — Configuration file hierarchy, settings, and validation rules.
 - [FastMCP Tools](MCP_TOOLS.md) — Registered FastMCP tools for AI assistants and MCP clients.
 - [Roadmap Workflow](ROADMAP_WORKFLOW.md) — The eight steps of an issue, its states, labels, actors and the three human gates.
-- Roadmap jobs — [the package layout](roadmap/README.md), and one page for each job: [intake](roadmap/intake.md), [refine](roadmap/refine.md), [alternatives](roadmap/alternatives.md), [stage](roadmap/stage.md), [implement](roadmap/implement.md) and [inbox](roadmap/inbox.md).
+- Roadmap jobs — [the package layout](roadmap/package-layout.md), and one page for each job: [intake](roadmap/intake.md), [refine](roadmap/refine.md), [alternatives](roadmap/alternatives.md), [stage](roadmap/stage.md), [implement](roadmap/implement.md) and [inbox](roadmap/inbox.md).
 - [Routine Tasks](ROUTINE_TASKS.md) — Operational task matrix, cadences, and engineering methodology.
 - [SDLC Workflow](SDLC.md) — Software development lifecycle and branch governance policies.
 - [Testing Guide](TESTING.md) — Testing vocabulary, test doubles, and quality gate standards.

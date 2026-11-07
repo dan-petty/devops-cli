@@ -1,6 +1,6 @@
 # The roadmap workflow
 
-This page is the one place that names the steps of an issue's life, from the first report to the release. Other documents link here and do not repeat the steps. A test (`tests/invariants/test_roadmap_workflow_doc.py`) keeps this page in step with `.github/labels.yml` and with the code. The modules of the jobs are in the subpackages of `src/devops_cli/roadmap/`, and [the package layout](roadmap/README.md) lists them.
+This page is the one place that names the steps of an issue's life, from the first report to the release. Other documents link here and do not repeat the steps. A test (`tests/invariants/test_roadmap_workflow_doc.py`) keeps this page in step with `.github/labels.yml` and with the code. The modules of the jobs are in the subpackages of `src/devops_cli/roadmap/`, and [the package layout](roadmap/package-layout.md) lists them.
 
 ## Purpose
 
