@@ -410,7 +410,7 @@ def test_intakes_dry_run_shows_the_exact_gh_command_of_every_store_request() -> 
 
 def test_the_alternatives_dry_run_lists_the_gh_command_and_the_url_of_each_request() -> None:
     """The plan names the exact `gh` command of each GitHub request, and the method and the URL
-    of each Firecrawl and PyPI request (#2650)."""
+    of the web search of the first configured provider and of each PyPI request (#2650, #3925)."""
     from devops_cli.roadmap.alternatives import AlternativesPlan, dry_run_alternatives
 
     plan = dry_run_alternatives(REPO, item=7)
@@ -419,7 +419,7 @@ def test_the_alternatives_dry_run_lists_the_gh_command_and_the_url_of_each_reque
         type(plan),
         plan.dry_run,
         plan.has_writes,
-        ("POST", "https://api.firecrawl.dev/v2/search") in argvs,
+        ("POST", "https://html.duckduckgo.com/html/") in argvs,
         ("GET", "https://pypi.org/pypi/<package>/json") in argvs,
         ("gh", "api", "repos/<owner/name>") in argvs,
         ("gh", "api", "repos/<owner/name>/releases/latest") in argvs,

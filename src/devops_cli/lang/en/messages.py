@@ -2288,7 +2288,7 @@ class RoadmapMessages:
     # Why a refine round had no web search (#2398).
     refine_web_search_off: str = "Web search is off: {reason}."
     refine_web_off_private: str = "the repository is private"
-    refine_web_off_no_key: str = "no Firecrawl key is set"
+    refine_web_off_no_provider: str = "no search provider is configured"
     refine_web_off_unread: str = "the repository's visibility could not be read"
     refine_none: str = "No items to refine."
     # The warnings of refine for an item whose model call failed or whose investigation stopped.
@@ -4054,7 +4054,7 @@ class RoadmapMessages:
             "open_pulls": "the open pull requests",
             "repository_labels": "the labels of the repository",
             "visibility": "whether the repository is private",
-            "web_search": "a Firecrawl web search for {subject}",
+            "web_search": "a web search for {subject}",
             "repository_facts": "the repository {subject}",
             "latest_release": "the latest release of {subject}",
             "pypi_package": "the PyPI record of the package {subject}",
@@ -4073,7 +4073,7 @@ class RoadmapMessages:
     # The requests of a dry run that no `gh` command makes (#2650).
     plan_methods: dict[str, str] = field(
         default_factory=lambda: {
-            "search": "Firecrawl search",
+            "search": "{provider} search",
             "pypi": "PyPI read",
             "model": "model call",
         }
@@ -4082,7 +4082,7 @@ class RoadmapMessages:
         default_factory=lambda: {
             "posted": "the change posts a comment",
             "job_drafts": "the pull request is an open draft of a job",
-            "check_on": "the repository is public and a Firecrawl key is set",
+            "check_on": "the repository is public and a search provider is configured",
             "adr_read": "the run checks an item that is no skip class",
             "issues_unread": "the run has not read every issue yet",
             "labels_differ": "the labels of the repository differ from .github/labels.yml",

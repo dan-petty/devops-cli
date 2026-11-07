@@ -544,12 +544,27 @@ DEFAULT_JSON_REPAIR_MAX_LENGTH: int = 50 * 1024 * 1024  # 50 MiB
 DEFAULT_TOOL_EXTRACT_PAGE_SIZE: int = 32 * 1024  # 32 KiB
 DEFAULT_TOOL_EXTRACT_OVERLAP: int = 1024  # 1 KiB
 
-# ── AI Firecrawl Search Defaults ────────────────────────────────────────────────
+# ── AI Web Search Defaults ──────────────────────────────────────────────────────
+# The providers that `web_search` can ask (#3925). The default list is the order of the asks: a
+# provider that is not configured is skipped, and `searxng` has no provider class yet (#3927).
+SearchProviderName = Literal["searxng", "duckduckgo", "firecrawl"]
+DEFAULT_SEARCH_PROVIDERS: Final[tuple[SearchProviderName, ...]] = (
+    "searxng",
+    "duckduckgo",
+    "firecrawl",
+)
+DEFAULT_SEARCH_LANGUAGE: str = "en"
+DEFAULT_WEB_SEARCH_LIMIT: int = 5
+# The time after which a search starts no more providers.
+DEFAULT_WEB_SEARCH_DEADLINE_SECONDS: float = 60.0
+# A query holds at most this many characters and words.
+DEFAULT_WEB_SEARCH_QUERY_MAX_CHARS: int = 400
+DEFAULT_WEB_SEARCH_QUERY_MAX_WORDS: int = 50
 DEFAULT_FIRECRAWL_SEARCH_URL: str = "https://api.firecrawl.dev/v2/search"
-DEFAULT_FIRECRAWL_SEARCH_LIMIT: int = 5
 DEFAULT_FIRECRAWL_TIMEOUT_SECONDS: float = 30.0
-# The fallback search of DuckDuckGo (#3876). The region and the safe-search level are the defaults
-# of the `ddgs` package.
+# The search of DuckDuckGo (#3876). The region and the safe-search level are the defaults of the
+# `ddgs` package, and the URL is the one of its engine.
+DEFAULT_DUCKDUCKGO_SEARCH_URL: str = "https://html.duckduckgo.com/html/"
 DEFAULT_DUCKDUCKGO_TIMEOUT_SECONDS: float = 15.0
 DEFAULT_DUCKDUCKGO_REGION: str = "us-en"
 DEFAULT_DUCKDUCKGO_SAFESEARCH: str = "moderate"

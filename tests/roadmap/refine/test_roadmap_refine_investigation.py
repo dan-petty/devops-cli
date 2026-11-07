@@ -369,19 +369,25 @@ def test_the_tools_read_only_the_pinned_commit(git_repo: Path) -> None:
     )
 
 
-def test_web_search_is_absent_without_a_key(git_repo: Path) -> None:
+def test_web_search_is_absent_when_the_round_does_not_allow_it(git_repo: Path) -> None:
     tools = InvestigationTools(source=git_repo, sha=inspect_checkout(git_repo, REPO))
 
     assert [tool.name for tool in tools.tools()] == ["search_code", "list_files", "read_file"]
 
 
-def test_web_search_adds_each_url_and_stops_at_its_cap(git_repo: Path, web: WebFake) -> None:
+@pytest.fixture
+def firecrawl_only(config: Callable[..., Path]) -> None:
+    """A chain of Firecrawl alone, with a key, so a search reaches the one URL that `web` serves."""
+    config(search={"providers": ["firecrawl"]}, firecrawl={"api_key": "fc-test"})
+
+
+def test_web_search_adds_each_url_and_stops_at_its_cap(
+    git_repo: Path, web: WebFake, firecrawl_only: None
+) -> None:
     result = {"title": "Gitleaks", "url": "https://example.com/gitleaks", "description": "Scans."}
     reply = {"success": True, "data": {"web": [result]}}
     web.content(_FIRECRAWL_URL, json.dumps(reply).encode())
-    tools = InvestigationTools(
-        source=git_repo, sha=inspect_checkout(git_repo, REPO), firecrawl_key="fc-test"
-    )
+    tools = InvestigationTools(source=git_repo, sha=inspect_checkout(git_repo, REPO), web=True)
 
     answers = [
         tools.search_web("gitleaks dir") for _ in range(CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES + 1)
@@ -626,7 +632,7 @@ def test_a_round_on_a_public_repository_with_a_key_settles_a_fact_from_the_web(
     returned validates."""
     for name in ("DEVOPS_CLI_FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY"):
         monkeypatch.delenv(name, raising=False)
-    config(firecrawl={"api_key": "fc-test"})
+    config(search={"providers": ["firecrawl"]}, firecrawl={"api_key": "fc-test"})
     store.seed_visibility(is_private=False)
     url = "https://example.com/gitleaks"
     result = {"title": "Gitleaks", "url": url, "description": "Scans a directory."}
@@ -967,7 +973,7 @@ def test_a_run_with_no_limits_keeps_the_limits_and_retries_of_refine(git_repo: P
 
 
 def test_a_web_search_adds_each_http_url_it_returns_and_cuts_its_answer(
-    web: WebFake,
+    web: WebFake, firecrawl_only: None
 ) -> None:
     found = [
         {"title": "Gitleaks", "url": "https://example.com/gitleaks", "description": "Scans."},
@@ -976,18 +982,32 @@ def test_a_web_search_adds_each_http_url_it_returns_and_cuts_its_answer(
     web.content(_FIRECRAWL_URL, json.dumps({"success": True, "data": {"web": found}}).encode())
     cited: set[str] = set()
 
-    answer = cited_web_search("gitleaks", "fc-test", cited, results=5)
+    answer = cited_web_search("gitleaks", cited, results=5)
 
     assert (answer, cited) == (
-        "Gitleaks\nhttps://example.com/gitleaks\nScans.\n\nLocal\nfile:///etc/passwd\nNot a web page.",
+        "Gitleaks\nhttps://example.com/gitleaks\nScans.",
         {"https://example.com/gitleaks"},
     )
     assert json.loads(web.sent[0].content) == {"query": "gitleaks", "limit": 5}
 
 
-def test_a_failed_web_search_answers_as_text(web: WebFake) -> None:
+def test_a_refused_query_answers_as_text_and_sends_no_request(
+    web: WebFake, firecrawl_only: None
+) -> None:
     cited: set[str] = set()
 
-    answer = cited_web_search("gitleaks", "fc-test", cited, results=5)
+    answer = cited_web_search("why does 192.168.1.20 refuse", cited, results=5)
 
-    assert (answer, cited) == ("The search failed: HTTPStatusError.", set())
+    assert (answer, cited, web.sent) == (
+        "The search was refused: the query holds a private address.",
+        set(),
+        [],
+    )
+
+
+def test_a_failed_web_search_answers_as_text(web: WebFake, firecrawl_only: None) -> None:
+    cited: set[str] = set()
+
+    answer = cited_web_search("gitleaks", cited, results=5)
+
+    assert (answer, cited) == ("The search failed: no provider answered.", set())

@@ -229,6 +229,27 @@ class RagIngestError(DevOpsCLIError, RuntimeError):
     exit_code = CONST_EXIT_FAILURE
 
 
+class WebSearchError(DevOpsCLIError):
+    """Base of the errors of `web_search`. A caller that cannot stop on a search catches it."""
+
+    error_code = "WEB_SEARCH_ERROR"
+    exit_code = CONST_EXIT_FAILURE
+
+
+class SearchFailed(WebSearchError):
+    """Raised when no provider of a web search answered: each one failed, was skipped, or the
+    deadline ended the search."""
+
+    error_code = "WEB_SEARCH_FAILED"
+
+
+class SearchQueryRefused(WebSearchError):
+    """Raised when the guard stops a web search query before any provider runs. The message names
+    the rule and never holds the query."""
+
+    error_code = "WEB_SEARCH_QUERY_REFUSED"
+
+
 def __getattr__(name: str) -> Any:
     if name in _PYDANTIC_AI_NAMES:
         from devops_cli.exceptions import ai_pydantic
@@ -263,8 +284,11 @@ __all__ = [
     "PageTextError",
     "RagIngestError",
     "ReviewPoolError",
+    "SearchFailed",
+    "SearchQueryRefused",
     "SkipToolExecution",
     "StructuredOutputSchemaError",
     "ToolFailed",
     "UnexpectedModelBehavior",
+    "WebSearchError",
 ]

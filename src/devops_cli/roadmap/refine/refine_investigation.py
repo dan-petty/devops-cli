@@ -1,8 +1,8 @@
 """Refine's investigation (#2398): one pydantic-ai agent run, with read-only tools on the commit
 refine pinned, for an item whose proposal leaves a question with no verified source.
 
-The tools search, list and read that commit with git, and search the web through Firecrawl when the
-round allows it. Each tool answer is plain text, cut to `CONST_ROADMAP_REFINE_TOOL_MAX_CHARS`. An
+The tools search, list and read that commit with git, and search the web through the configured providers when
+the round allows it. Each tool answer is plain text, cut to `CONST_ROADMAP_REFINE_TOOL_MAX_CHARS`. An
 answer that found nothing or could not run carries its outcome (`empty_answer`, `error_answer`),
 and each URL a web search returns joins `allowed_urls`, the URLs a source may cite.
 `UsageLimits` caps a run. The run's errors become refine's own classes, and its usage goes to
@@ -20,9 +20,7 @@ from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol, cast
-from urllib.parse import urlsplit
 
-import httpx2
 from pydantic import BaseModel
 from pydantic_ai import Agent, ModelRetry, RunContext, Tool, capture_run_messages
 from pydantic_ai.capabilities import PrepareTools
@@ -41,8 +39,8 @@ from pydantic_ai.messages import (
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import UsageLimits
 
-from devops_cli.ai.common_tools import web_search
 from devops_cli.ai.context_budget import count_tokens
+from devops_cli.ai.web_search import web_search
 from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import (
     CONST_ROADMAP_INVESTIGATION_MAX_BLOB_BYTES,
@@ -58,6 +56,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
+from devops_cli.exceptions.ai import SearchFailed, SearchQueryRefused
 from devops_cli.roadmap.agent_run import (
     RunLimit,
     RunTrace,
@@ -111,20 +110,21 @@ def cut(lines: list[str], *, max_chars: int = CONST_ROADMAP_REFINE_TOOL_MAX_CHAR
     return text if len(kept) == len(lines) else f"{text}\n(more lines are left out)"
 
 
-def cited_web_search(query: str, key: str, allowed_urls: set[str], *, results: int) -> str:
+def cited_web_search(query: str, allowed_urls: set[str], *, results: int) -> str:
     """One web search of `results` results, as the text a tool answers: each result's
-    title, URL and description. Each http or https URL joins `allowed_urls`, the URLs a source
-    may cite. A failed search is answered as text, so it cannot stop the run (#2398)."""
+    title, URL and snippet. Each URL joins `allowed_urls`, the URLs a source may cite. A refused
+    query and a search that no provider answered are answered as text, so they cannot stop the
+    run (#2398, #3925)."""
     try:
-        found = web_search(query, key, limit=results)
-    except (httpx2.HTTPError, ValueError) as exc:
-        return f"The search failed: {type(exc).__name__}."
+        found = web_search(query, limit=results)
+    except SearchQueryRefused as exc:
+        return str(exc)
+    except SearchFailed:
+        return "The search failed: no provider answered."
     lines: list[str] = []
-    for result in found:
-        url = str(result.get("url") or "")
-        if urlsplit(url).scheme in {"http", "https"}:
-            allowed_urls.add(url)
-        lines.append(f"{result.get('title') or ''}\n{url}\n{result.get('description') or ''}")
+    for hit in found:
+        allowed_urls.add(hit.url)
+        lines.append(f"{hit.title}\n{hit.url}\n{hit.snippet}")
     return cut("\n\n".join(lines).splitlines()) or "No result."
 
 
@@ -157,13 +157,13 @@ class InvestigationTools:
     A tool answers each failure as text, so no argument the model sends can stop the run: a
     path outside the repository, a binary file, output that is not UTF-8, or a command that runs
     out of time. A failure is an `error_answer` and a call that finds nothing is an
-    `empty_answer`, so the run can count each. `search_web` is a tool only when `firecrawl_key` is
+    `empty_answer`, so the run can count each. `search_web` is a tool only when `web` is
     set, and it runs at most `CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES` searches.
     """
 
     source: Path
     sha: str
-    firecrawl_key: str | None = None
+    web: bool = False
     allowed_urls: set[str] = field(default_factory=set)
     searches: int = 0
     searched: list[str] = field(default_factory=list)
@@ -289,26 +289,25 @@ class InvestigationTools:
             query: A short search query.
         """
         self.searched.append(f"search_web {query!r}")
-        if not self.firecrawl_key:
+        if not self.web:
             return "Web search is off."
         if self.searches >= CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES:
             return "The search limit for this item is reached."
         self.searches += 1
         return cited_web_search(
             query,
-            self.firecrawl_key,
             self.allowed_urls,
             results=CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY,
         )
 
     def tools(self) -> list[Tool[None]]:
-        """The tools of the run: the git tools, and the web search when a key is set."""
+        """The tools of the run: the git tools, and the web search when the round allows it."""
         methods: list[Callable[..., str | ToolReturn]] = [
             self.search_code,
             self.list_files,
             self.read_file,
         ]
-        if self.firecrawl_key:
+        if self.web:
             methods.append(self.search_web)
         return [Tool(method, takes_ctx=False) for method in methods]
 
