@@ -27,6 +27,7 @@ from devops_cli.roadmap.refine.refine import (
     RefineFailure,
     RefinementProposal,
     RefinePlan,
+    RefineWriter,
     apply_refine,
     plan_refine,
     raise_for_failed_items,
@@ -269,7 +270,12 @@ def test_a_placeholder_failure_three_rounds_in_a_row_does_not_suspend_the_refine
     timeout = RefinePlan(repo=REPO, failed_items=[_failure(store.item(1), placeholder=False)])
 
     def rounds(plan: RefinePlan) -> FailureLedger:
-        monkeypatch.setattr(run, "plan_refine", lambda *_, **__: plan)
+        def planned(*_: Any, writer: RefineWriter, **__: Any) -> RefinePlan:
+            for failure in plan.failed_items:
+                writer.settle(failure)
+            return plan
+
+        monkeypatch.setattr(run, "plan_refine", planned)
         ledger = FailureLedger()
         for _ in range(ledger.limit):
             try:

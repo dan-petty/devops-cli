@@ -126,7 +126,7 @@ from devops_cli.roadmap.intake.intake import (
 # `refine` imports pydantic_ai. The Python 3.14 import lock deadlocks when two worker threads
 # import it for the first time together, so import it at module level, in the Service's main
 # thread, before any worker starts (#2535).
-from devops_cli.roadmap.refine.refine import apply_refine, plan_refine, raise_for_failed_items
+from devops_cli.roadmap.refine.refine import RefineWriter, plan_refine
 from devops_cli.roadmap.release_comments import comment_releases
 from devops_cli.roadmap.release_feed import GitHubReleaseFeed
 from devops_cli.roadmap.release_roll import cluster_digests
@@ -549,18 +549,22 @@ def _run_refine_adapter(
     clone_path: Path | None = None,
     **_: Any,
 ) -> JobOutcome:
-    """Run refine job and return JobOutcome; it fails, once the other items are written, when the
-    model call failed for any item. The stop of the Service ends the run, but the items that
-    failed before it still fail the run (#2753)."""
+    """Run refine job and return JobOutcome; each item is written when it is done, so the stop
+    of the Service loses at most the item in progress (#3631). The job fails, once the other
+    items are written, when the model call or the write failed for any item. The stop ends the
+    run, but the items that failed before it still fail the run (#2753)."""
     source = _job_clone("refine", clone_path)
-    plan = plan_refine(store, repo=repo, source=source)
+    writer = RefineWriter(store, repo)
     try:
-        readied = apply_refine(store, plan).readied_count if plan.has_writes else 0
+        plan = plan_refine(store, repo=repo, source=source, writer=writer)
+        writer.write_waiting(plan)
     except ServiceStoppingError:
-        raise_for_failed_items(plan)
+        writer.end()
+        writer.raise_for_failures()
         raise
-    raise_for_failed_items(plan, readied)
-    return JobOutcome(set_ready=readied > 0)
+    writer.end()
+    writer.raise_for_failures()
+    return JobOutcome(set_ready=writer.readied_count > 0)
 
 
 def _run_retitle_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOutcome:

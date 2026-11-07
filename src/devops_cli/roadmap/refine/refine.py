@@ -168,8 +168,13 @@ from devops_cli.config.settings import get_firecrawl_api_key, load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.dry_run.requests import PlannedRequest
-from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
-from devops_cli.exceptions.roadmap import RoadmapRefineError
+from devops_cli.exceptions.base import DevOpsCLIError
+from devops_cli.exceptions.git import (
+    GitHubOperationError,
+    GitHubRateLimitError,
+    GitHubUnauthenticatedError,
+)
+from devops_cli.exceptions.roadmap import RoadmapRefineError, ServiceStoppingError
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import (
@@ -482,10 +487,18 @@ class RefinePlan:
 
 @dataclass(frozen=True)
 class RefineApplied:
-    refined_count: int
-    readied_count: int
-    split_count: int
-    comments_posted: int
+    refined_count: int = 0
+    readied_count: int = 0
+    split_count: int = 0
+    comments_posted: int = 0
+
+    def __add__(self, other: RefineApplied) -> RefineApplied:
+        return RefineApplied(
+            self.refined_count + other.refined_count,
+            self.readied_count + other.readied_count,
+            self.split_count + other.split_count,
+            self.comments_posted + other.comments_posted,
+        )
 
 
 # ── The check of the alternatives job (#2652) ────────────────────────────────
@@ -2571,8 +2584,12 @@ def plan_refine(
     investigator: Any = None,
     intake_model: IntakeModel | None = None,
     verifier: Any = None,
+    writer: RefineWriter | None = None,
 ) -> RefinePlan:
-    """Plans refinement for eligible candidates without writing anything to GitHub.
+    """Plans refinement for eligible candidates. It writes nothing to GitHub unless the caller
+    gives a `writer`: the writer then gets the count of candidates and the result of each item as
+    soon as that item is done, so a stop of the Service loses at most the item in progress
+    (#3631).
 
     `model` is the proposal step's client and `investigator` the investigation's pydantic-ai
     model; each defaults to the `analysis` task's (#2398). `intake_model` plans the new issues
@@ -2583,6 +2600,8 @@ def plan_refine(
     sha = inspect_checkout(source_path, repo)
 
     candidates, waiting = select_candidates(store, item_number=item_number, limit=limit)
+    if writer is not None:
+        writer.begin(len(candidates))
     waiting_writes = any(w.cap_stop is not None or w.notice for w in waiting)
     if not candidates:
         return RefinePlan(repo=repo, sha=sha, waiting_items=waiting, has_writes=waiting_writes)
@@ -2618,9 +2637,14 @@ def plan_refine(
         except AICredentialsError:
             raise
         except AIClientError as exc:
-            failed.append(_failed_item(cand, repo, exc))
+            failure = _failed_item(cand, repo, exc)
+            failed.append(failure)
+            if writer is not None:
+                writer.settle(failure)
             continue
         refined.append(res)
+        if writer is not None:
+            writer.settle(res)
 
     has_writes = (
         waiting_writes
@@ -2676,9 +2700,12 @@ def _failed_item(item: Item, repo: str, exc: AIClientError) -> RefineFailure:
     return failure
 
 
-def raise_for_failed_items(plan: RefinePlan, readied_count: int = 0) -> None:
-    """Fail a run in which the model call failed for any item, once the others are written.
-    The error carries `readied_count`, the items the run set Ready before it failed (#2659).
+def raise_for_failed_items(
+    plan: RefinePlan, readied_count: int = 0, unwritten: Sequence[int] = ()
+) -> None:
+    """Fail a run in which the model call failed for any item, or the write failed for the item
+    numbers in `unwritten`, once the others are written. The error carries `readied_count`, the
+    items the run set Ready before it failed (#2659).
 
     The error names each skipped item with its error's class and schema violation count. It is
     raised outside the handler that caught the model's error and is not chained to it, so a
@@ -2688,17 +2715,24 @@ def raise_for_failed_items(plan: RefinePlan, readied_count: int = 0) -> None:
     item is its record, and a ledger that counts failed rounds counts none (#3478).
     """
     failed = [failure for failure in plan.failed_items if not failure.placeholder]
-    if not failed:
+    if not failed and not unwritten:
         return
-    items = ", ".join(
-        MESSAGES.roadmap.refine_failed_item.format(
-            number=failure.item.number, error=failure.error, violations=failure.violations
+    texts = MESSAGES.roadmap
+    parts: list[str] = []
+    if failed:
+        items = ", ".join(
+            texts.refine_failed_item.format(
+                number=failure.item.number, error=failure.error, violations=failure.violations
+            )
+            for failure in failed
         )
-        for failure in failed
-    )
+        parts.append(texts.refine_failed.format(count=len(failed), items=items))
+    if unwritten:
+        items = ", ".join(f"#{number}" for number in unwritten)
+        parts.append(texts.refine_write_failed.format(count=len(unwritten), items=items))
     raise RoadmapRefineError(
-        MESSAGES.roadmap.refine_failed.format(count=len(failed), items=items),
-        failed_items=[failure.item.number for failure in failed],
+        "; ".join(parts),
+        failed_items=[*(failure.item.number for failure in failed), *unwritten],
         readied_count=readied_count,
     )
 
@@ -2765,25 +2799,20 @@ def _failure_marks(item: Item, failure: JobFailure | None, tries: int) -> JobRec
     }
 
 
-def _record_unwritten(store: RoadmapStore, plan: RefinePlan) -> None:
-    """Record what refine saw of the items it wrote no section to, where the next round would
-    only repeat it: an item too big to refine, an item whose job failed (#3632), and an item the
-    model's reply never validated for."""
-    for r in plan.refined_items:
-        if r.record_only and _body_unchanged_since_read(store, r.item.number, r.body_hash):
-            store.set_marks(
-                r.item,
-                {
-                    RefineRecordKey.BODY_HASH: r.body_hash,
-                    RefineRecordKey.SECTION_HASH: r.section_hash,
-                    RefineRecordKey.NEXT_STEP: r.next_step.value,
-                    **_failure_marks(r.item, r.failure, r.tries),
-                    **_without_verdict(r.item),
-                },
-            )
-    for failure in plan.failed_items:
-        if failure.item_caused:
-            _record_failure(store, failure)
+def _record_unwritten(store: RoadmapStore, r: RefinedItem) -> None:
+    """Record what refine saw of an item it wrote no section to, where the next round would
+    only repeat it: an item too big to refine, or an item whose job failed (#3632)."""
+    if r.record_only and _body_unchanged_since_read(store, r.item.number, r.body_hash):
+        store.set_marks(
+            r.item,
+            {
+                RefineRecordKey.BODY_HASH: r.body_hash,
+                RefineRecordKey.SECTION_HASH: r.section_hash,
+                RefineRecordKey.NEXT_STEP: r.next_step.value,
+                **_failure_marks(r.item, r.failure, r.tries),
+                **_without_verdict(r.item),
+            },
+        )
 
 
 def _record_cap_stops(store: RoadmapStore, plan: RefinePlan) -> None:
@@ -2890,60 +2919,157 @@ def _refine_marks(r: RefinedItem, deferred: Sequence[int]) -> JobRecord:
     return marks
 
 
+def _apply_refined(store: RoadmapStore, r: RefinedItem) -> RefineApplied:
+    """Write the result of one item: its body, marks, Status and comment, or only the record of
+    an item too big to refine or whose job failed. The counts are zero for an item that refine
+    leaves as it is."""
+    if r.skip_reason is not None:
+        _record_unwritten(store, r)
+        return RefineApplied()
+
+    # Race condition check: ensure body did not change between read and write
+    if not _outside_unchanged_since_read(store, r.item.number, r.read_hash):
+        return RefineApplied()
+
+    # The deferred parts are filed first: an item whose parts are not all filed is not set
+    # Ready, and the next round files the rest (#2423)
+    deferred = _file_deferrals(store, r) if r.deferred else ()
+    if deferred is None:
+        return RefineApplied()
+
+    # Write body
+    store.write_issue_body(r.item.number, r.new_body)
+
+    marks = _refine_marks(r, deferred)
+
+    # Status change & marks: a Ready item refine finds not ready goes back to New (#1515)
+    readied = 0
+    if r.is_ready:
+        store.set_field(r.item, ItemField.STATUS, CONST_ROADMAP_STATUS_READY, marks=marks)
+        readied = 1
+    elif r.item.status == CONST_ROADMAP_STATUS_READY:
+        store.set_field(r.item, ItemField.STATUS, CONST_ROADMAP_STATUS_NEW, marks=marks)
+    else:
+        store.set_marks(r.item, marks)
+
+    # Comment
+    comments = 0
+    comment = _with_deferrals(r.reason_comment, deferred)
+    if comment:
+        store.comment(r.item.number, comment)
+        comments = 1
+    return RefineApplied(
+        refined_count=1,
+        readied_count=readied,
+        split_count=1 if r.needs_split else 0,
+        comments_posted=comments,
+    )
+
+
+def _apply_result(store: RoadmapStore, result: RefinedItem | RefineFailure) -> RefineApplied:
+    """Write the result of one item: a refinement, or the record of a failure that the item's
+    own text caused (#3631)."""
+    if isinstance(result, RefinedItem):
+        return _apply_refined(store, result)
+    if result.item_caused:
+        _record_failure(store, result)
+    return RefineApplied()
+
+
+def _apply_waiting(store: RoadmapStore, plan: RefinePlan) -> int:
+    """Write what the round owes the items it left alone: the record of each comment that the cap
+    stopped, what the selection read of the comments of each waiting item (#3667), and the notice
+    to each author the jobs do not trust. Returns the comments written."""
+    _record_cap_stops(store, plan)
+    _record_waits(store, plan)
+    return _tell_outside_authors(store, plan)
+
+
 def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
     """Applies the planned writes to GitHub: updates issue body, marks, status and comments,
     records the body of an item too big to refine or failing on its own text, and records each
     comment that the cap on refine's comments stopped."""
-    refined_count = readied_count = split_count = comments_posted = 0
+    applied = RefineApplied()
+    for refined in plan.refined_items:
+        applied += _apply_result(store, refined)
+    for failure in plan.failed_items:
+        applied += _apply_result(store, failure)
+    return applied + RefineApplied(comments_posted=_apply_waiting(store, plan))
 
-    for r in plan.refined_items:
-        if r.skip_reason is not None:
-            continue
 
-        # Race condition check: ensure body did not change between read and write
-        if not _outside_unchanged_since_read(store, r.item.number, r.read_hash):
-            continue
+class RefineWriter:
+    """The writes of one refine round, made when each item is done (#3631).
 
-        # The deferred parts are filed first: an item whose parts are not all filed is not set
-        # Ready, and the next round files the rest (#2423)
-        deferred = _file_deferrals(store, r) if r.deferred else ()
-        if deferred is None:
-            continue
+    `plan_refine` gives it the count of candidates and the result of each item. A stop of the
+    Service then ends the round and loses at most the item in progress, and the next round takes
+    the items that are not yet written. A write that fails is logged and counted, and the next
+    item still runs. Rejected GitHub credentials and the stop of the Service end the round.
+    """
 
-        # Write body
-        store.write_issue_body(r.item.number, r.new_body)
-        refined_count += 1
+    def __init__(self, store: RoadmapStore, repo: str) -> None:
+        self._store = store
+        self._repo = repo
+        self._taken = 0
+        self._written = 0
+        self._failures: list[RefineFailure] = []
+        self._unwritten: list[int] = []
+        self.readied_count = 0
 
-        marks = _refine_marks(r, deferred)
+    @property
+    def failed_count(self) -> int:
+        """The items whose model call or write failed."""
+        return len(self._failures) + len(self._unwritten)
 
-        # Status change & marks: a Ready item refine finds not ready goes back to New (#1515)
-        if r.is_ready:
-            store.set_field(r.item, ItemField.STATUS, CONST_ROADMAP_STATUS_READY, marks=marks)
-            readied_count += 1
-        elif r.item.status == CONST_ROADMAP_STATUS_READY:
-            store.set_field(r.item, ItemField.STATUS, CONST_ROADMAP_STATUS_NEW, marks=marks)
-        else:
-            store.set_marks(r.item, marks)
+    def begin(self, taken: int) -> None:
+        """Log the start of the round with the count of items it takes."""
+        self._taken = taken
+        logger.info(MESSAGES.roadmap.refine_round_started.format(repo=self._repo, taken=taken))
 
-        if r.needs_split:
-            split_count += 1
+    def settle(self, result: RefinedItem | RefineFailure) -> None:
+        """Write the result of one item as soon as the item is done."""
+        number = result.item.number
+        if isinstance(result, RefineFailure):
+            self._failures.append(result)
+        try:
+            applied = _apply_result(self._store, result)
+        except GitHubUnauthenticatedError, ServiceStoppingError:
+            raise
+        except DevOpsCLIError as exc:
+            logger.warning(
+                MESSAGES.roadmap.refine_write_failed_warning.format(
+                    number=number, repo=self._repo, error=type(exc).__name__
+                )
+            )
+            if isinstance(result, RefinedItem):
+                self._unwritten.append(number)
+            return
+        if isinstance(result, RefinedItem):
+            self._written += 1
+            self.readied_count += applied.readied_count
 
-        # Comment
-        comment = _with_deferrals(r.reason_comment, deferred)
-        if comment:
-            store.comment(r.item.number, comment)
-            comments_posted += 1
+    def write_waiting(self, plan: RefinePlan) -> None:
+        """Write what the plan owes the items the round left alone."""
+        _apply_waiting(self._store, plan)
 
-    _record_unwritten(store, plan)
-    _record_cap_stops(store, plan)
-    _record_waits(store, plan)
-    comments_posted += _tell_outside_authors(store, plan)
-    return RefineApplied(
-        refined_count=refined_count,
-        readied_count=readied_count,
-        split_count=split_count,
-        comments_posted=comments_posted,
-    )
+    def end(self) -> None:
+        """Log the end of the round with the counts of items taken, written and failed."""
+        logger.info(
+            MESSAGES.roadmap.refine_round_ended.format(
+                repo=self._repo,
+                taken=self._taken,
+                written=self._written,
+                failed=self.failed_count,
+            )
+        )
+
+    def raise_for_failures(self) -> None:
+        """Fail the round when a model call or a write failed for any item, once the others are
+        written."""
+        raise_for_failed_items(
+            RefinePlan(repo=self._repo, failed_items=self._failures),
+            self.readied_count,
+            self._unwritten,
+        )
 
 
 def _step_lines(plan: RefinePlan, step: NextStep) -> list[str]:
@@ -3025,6 +3151,7 @@ __all__ = [
     "RefineApplied",
     "RefineFailure",
     "RefinePlan",
+    "RefineWriter",
     "RefinedItem",
     "RefinementProposal",
     "WaitingItem",
