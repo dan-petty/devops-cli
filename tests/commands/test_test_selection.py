@@ -10,9 +10,8 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from devops_cli.ci.cache import resolve_coverage_index_path
-from devops_cli.commands import ci as ci_module
-from devops_cli.commands.ci import _normalize_repo_rel_path, get_check_spec
 from devops_cli.commands.ci import app as ci_app
+from devops_cli.commands.ci import get_check_spec
 from devops_cli.config.constants import (
     CONST_CI_SLOWEST_TESTS_SHOWN,
     CONST_CONFTEST_FILENAME,
@@ -30,6 +29,8 @@ from devops_cli.core.test_selection import (
     module_path_for_source,
     select_tests_for_sources,
 )
+from tests.support.ci_root import tracked_blobs
+from tests.support.fakes.process import ProcessFake
 from tests.support.paths import REPO_ROOT, TESTS_ROOT
 from tests.support.session_spawns import RecordedSpawn, record_spawns
 
@@ -39,8 +40,11 @@ runner = CliRunner()
 
 
 @pytest.fixture
-def project(tmp_path: Path) -> Path:
-    """Build a miniature project with a source tree and a matching test tree."""
+def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Build a miniature project with a source tree and a matching test tree, as the current
+    directory and so the root that `devops ci test` verifies."""
+    (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
     src = tmp_path / "src" / "devops_cli"
     (src / "security").mkdir(parents=True)
     (src / "security" / "secrets.py").write_text("VALUE = 1\n", encoding="utf-8")
@@ -60,6 +64,11 @@ def project(tmp_path: Path) -> Path:
         "from devops_cli.other import thing\n", encoding="utf-8"
     )
     return tmp_path
+
+
+def _pytest_runs(process_fake: ProcessFake) -> list[list[str]]:
+    """The command line of each pytest run the command started, in order."""
+    return [list(call.argv) for call in process_fake.calls if "pytest" in call.argv]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -380,106 +389,81 @@ def test_a_change_that_forces_a_full_run_selects_the_suite_without_reading_the_t
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_cli_runs_only_the_covering_tests(monkeypatch: pytest.MonkeyPatch, project: Path) -> None:
+def test_cli_runs_only_the_covering_tests(process_fake: ProcessFake, project: Path) -> None:
     """Passing a source file narrows the pytest invocation to its covering tests."""
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
 
     result = runner.invoke(ci_app, ["test", "src/devops_cli/security/secrets.py"])
 
     assert result.exit_code == 0
-    assert "tests/test_credential_flow.py" in called[0]
-    assert "tests/test_unrelated.py" not in called[0]
+    assert "tests/test_credential_flow.py" in _pytest_runs(process_fake)[0]
+    assert "tests/test_unrelated.py" not in _pytest_runs(process_fake)[0]
 
 
-def test_cli_without_paths_runs_the_whole_suite(
-    monkeypatch: pytest.MonkeyPatch, project: Path
-) -> None:
+def test_cli_without_paths_runs_the_whole_suite(process_fake: ProcessFake, project: Path) -> None:
     """Omitting paths preserves the original full-suite behaviour."""
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
 
     result = runner.invoke(ci_app, ["test"])
 
     assert result.exit_code == 0
-    assert not any(arg.startswith("tests/") for arg in called[0])
+    assert not any(arg.startswith("tests/") for arg in _pytest_runs(process_fake)[0])
 
 
 def test_cli_falls_back_to_full_suite_for_uncovered_sources(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """An uncovered source escalates to the full suite rather than verifying nothing."""
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
 
     result = runner.invoke(ci_app, ["test", "src/devops_cli/orphan.py"])
 
     assert result.exit_code == 0
-    assert not any(arg.startswith("tests/") for arg in called[0])
+    assert not any(arg.startswith("tests/") for arg in _pytest_runs(process_fake)[0])
     assert "Falling back to the full suite" in result.output
 
 
 def test_cli_refuses_a_silent_green_with_no_fallback(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """With --no-fallback an uncovered source fails instead of reporting success.
 
     Reporting a pass without executing a single test is the one outcome a pre-commit
     hook must never produce.
     """
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
 
     result = runner.invoke(ci_app, ["test", "src/devops_cli/orphan.py", "--no-fallback"])
 
     assert result.exit_code == 1
-    assert called == []
+    assert _pytest_runs(process_fake) == []
     assert "Refusing to report success" in result.output
 
 
 def test_cli_exits_cleanly_for_documentation_only_changes(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """A docs-only commit runs nothing and succeeds, without a spurious failure."""
-    called: list[list[str]] = []
     (project / "README.md").write_text("# docs\n", encoding="utf-8")
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
 
     result = runner.invoke(ci_app, ["test", "README.md"])
 
-    assert (result.exit_code, called) == (0, [])
+    assert (result.exit_code, _pytest_runs(process_fake)) == (0, [])
 
 
 def _invoke_test_with(
-    monkeypatch: pytest.MonkeyPatch, project: Path, *args: str
+    process_fake: ProcessFake, project: Path, *args: str
 ) -> tuple[Result, list[list[str]]]:
-    """`devops ci test <args>` run on the project with pytest doubled: the result and the pytest
-    command lines the run started."""
-    called: list[list[str]] = []
-
-    def record(cmd: list[str], **_: object) -> bool:
-        called.append(cmd)
-        return True
-
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", record)
-    return runner.invoke(ci_app, ["test", *args]), called
+    """`devops ci test <args>` run on the project with every program faked: the result and the
+    pytest command lines the run started."""
+    return runner.invoke(ci_app, ["test", *args]), _pytest_runs(process_fake)
 
 
 def test_cli_runs_the_test_modules_of_a_tests_directory(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """A directory under tests/ runs its test modules at any depth, and not its helpers (#2868)."""
     (project / "tests" / "pkg" / "deep").mkdir(parents=True)
     for name in ("test_a.py", "deep/test_b.py", "helper.py"):
         (project / "tests" / "pkg" / name).write_text("X = 1\n", encoding="utf-8")
 
-    result, called = _invoke_test_with(monkeypatch, project, "tests/pkg/")
+    result, called = _invoke_test_with(process_fake, project, "tests/pkg/")
 
     run_targets = sorted(arg for arg in called[0] if arg.startswith("tests/"))
     assert (result.exit_code, run_targets) == (
@@ -490,7 +474,7 @@ def test_cli_runs_the_test_modules_of_a_tests_directory(
 
 @pytest.mark.parametrize("directory", ["tests/empty", "tests/..", "docs", "."])
 def test_cli_refuses_a_directory_that_gives_no_test_module(
-    monkeypatch: pytest.MonkeyPatch, project: Path, directory: str
+    process_fake: ProcessFake, project: Path, directory: str
 ) -> None:
     """A directory without a test module under tests/, and one outside src/ and tests/, exit 1
     with an error that names it, and start no pytest (#2868)."""
@@ -498,19 +482,19 @@ def test_cli_refuses_a_directory_that_gives_no_test_module(
     (project / "tests" / "empty" / "helper.py").write_text("X = 1\n", encoding="utf-8")
     (project / "docs").mkdir()
 
-    result, called = _invoke_test_with(monkeypatch, project, directory)
+    result, called = _invoke_test_with(process_fake, project, directory)
 
     assert (result.exit_code, called, f"'{directory}'" in result.output) == (1, [], True)
 
 
 def test_cli_refuses_a_directory_with_a_fallback_too(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """The full-suite fallback does not turn a refused directory into a run: the argument is the
     mistake, not a source without a test (#2868)."""
     (project / "docs").mkdir()
 
-    result, called = _invoke_test_with(monkeypatch, project, "docs", "--fallback")
+    result, called = _invoke_test_with(process_fake, project, "docs", "--fallback")
 
     assert (result.exit_code, called) == (1, [])
 
@@ -518,22 +502,22 @@ def test_cli_refuses_a_directory_with_a_fallback_too(
 @pytest.mark.parametrize("missing", ["tests/invariantz", "tests/pkg/test_nothere.py"])
 @pytest.mark.parametrize("extra", [(), ("--fallback",)])
 def test_cli_refuses_a_path_that_does_not_exist(
-    monkeypatch: pytest.MonkeyPatch, project: Path, missing: str, extra: tuple[str, ...]
+    process_fake: ProcessFake, project: Path, missing: str, extra: tuple[str, ...]
 ) -> None:
     """A mistyped or renamed path exits 1 with an error that names it, and starts no pytest, so a
     green exit always means that a test ran (#2868)."""
     (project / "tests" / "pkg").mkdir(parents=True)
 
-    result, called = _invoke_test_with(monkeypatch, project, missing, *extra)
+    result, called = _invoke_test_with(process_fake, project, missing, *extra)
 
     assert (result.exit_code, called, f"'{missing}'" in result.output) == (1, [], True)
 
 
 def test_cli_runs_the_tests_covering_a_source_directory(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """A directory under src/ runs the tests that cover the modules inside it (#2868)."""
-    result, called = _invoke_test_with(monkeypatch, project, "src/devops_cli/security")
+    result, called = _invoke_test_with(process_fake, project, "src/devops_cli/security")
 
     run_targets = [arg for arg in called[0] if arg.startswith("tests/")]
     assert (result.exit_code, "tests/test_credential_flow.py" in run_targets) == (0, True)
@@ -607,15 +591,13 @@ def test_the_test_run_starts_pytest_in_a_session_of_its_own(
     """`devops ci test`, narrowed or whole, starts pytest through asyncio in a session of its
     own, whose whole process group a timeout or a signal stops, and not through
     `subprocess.run`, whose timeout kills only `uv`: `refuse_nested_test_runs` fails the real
-    `uv` that would start. The double sits at the stdlib, so `devops_cli.commands.ci` is left
-    with no session runner of its own that a later test's patch would miss (#1669)."""
+    `uv` that would start. The double sits at the stdlib (#1669)."""
     _code, narrowed = _started_runs(monkeypatch, project, "src/devops_cli/security/secrets.py")
     _code, full = _started_runs(monkeypatch, project)
 
-    assert (
-        [("pytest" in run.argv, run.kwargs.get("start_new_session")) for run in narrowed + full],
-        "run_subprocess_async" in vars(ci_module),
-    ) == ([(True, True), (True, True)], False)
+    assert [
+        ("pytest" in run.argv, run.kwargs.get("start_new_session")) for run in narrowed + full
+    ] == [(True, True), (True, True)]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -624,7 +606,7 @@ def test_the_test_run_starts_pytest_in_a_session_of_its_own(
 
 
 def test_cli_selects_tests_from_coverage_index_and_names_selector(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """With an index mapping src/a.py to test_a.py and test_far.py, test runs both and names index."""
     (project / "src" / "a.py").write_text("A = 1\n", encoding="utf-8")
@@ -639,12 +621,9 @@ def test_cli_selects_tests_from_coverage_index_and_names_selector(
     )
     save_index(index, index_path)
 
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
-    monkeypatch.setattr(
-        "devops_cli.ci.cache.compute_worktree_blob_hashes",
-        lambda root=Path("."): {
+    tracked_blobs(
+        process_fake,
+        {
             "src/a.py": "h_a",
             "tests/test_a.py": "h_ta",
             "tests/test_far.py": "h_tf",
@@ -653,7 +632,7 @@ def test_cli_selects_tests_from_coverage_index_and_names_selector(
 
     result = runner.invoke(ci_app, ["test", "src/a.py"])
 
-    targets = [arg for arg in called[0] if arg.startswith("tests/")]
+    targets = [arg for arg in _pytest_runs(process_fake)[0] if arg.startswith("tests/")]
     assert (result.exit_code, targets, "coverage index" in result.output) == (
         0,
         ["tests/test_a.py", "tests/test_far.py"],
@@ -662,7 +641,7 @@ def test_cli_selects_tests_from_coverage_index_and_names_selector(
 
 
 def test_cli_test_selects_tests_for_modified_files_since_build(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """When a file is modified since index build, its covering tests are also selected."""
     (project / "src" / "a.py").write_text("A = 1\n", encoding="utf-8")
@@ -683,12 +662,9 @@ def test_cli_test_selects_tests_for_modified_files_since_build(
     )
     save_index(index, index_path)
 
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
-    monkeypatch.setattr(
-        "devops_cli.ci.cache.compute_worktree_blob_hashes",
-        lambda root=Path("."): {
+    tracked_blobs(
+        process_fake,
+        {
             "src/a.py": "h_a",
             "src/b.py": "h_b_new",
             "tests/test_a.py": "h_ta",
@@ -698,7 +674,7 @@ def test_cli_test_selects_tests_for_modified_files_since_build(
 
     result = runner.invoke(ci_app, ["test", "src/a.py"])
 
-    targets = [arg for arg in called[0] if arg.startswith("tests/")]
+    targets = [arg for arg in _pytest_runs(process_fake)[0] if arg.startswith("tests/")]
     assert (result.exit_code, targets) == (
         0,
         ["tests/test_a.py", "tests/test_b.py"],
@@ -706,7 +682,7 @@ def test_cli_test_selects_tests_for_modified_files_since_build(
 
 
 def test_cli_test_added_test_file_selects_itself_without_fallback(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """A newly added test file selects itself and causes no fallback."""
     (project / "src" / "a.py").write_text("A = 1\n", encoding="utf-8")
@@ -721,12 +697,9 @@ def test_cli_test_added_test_file_selects_itself_without_fallback(
     )
     save_index(index, index_path)
 
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
-    monkeypatch.setattr(
-        "devops_cli.ci.cache.compute_worktree_blob_hashes",
-        lambda root=Path("."): {
+    tracked_blobs(
+        process_fake,
+        {
             "src/a.py": "h_a",
             "tests/test_a.py": "h_ta",
             "tests/test_new.py": "h_new",
@@ -734,10 +707,10 @@ def test_cli_test_added_test_file_selects_itself_without_fallback(
     )
 
     result_direct = runner.invoke(ci_app, ["test", "tests/test_new.py", "--no-fallback"])
-    targets_direct = [arg for arg in called[0] if arg.startswith("tests/")]
+    targets_direct = [arg for arg in _pytest_runs(process_fake)[0] if arg.startswith("tests/")]
 
     result_drift = runner.invoke(ci_app, ["test", "src/a.py", "--no-fallback"])
-    targets_drift = [arg for arg in called[1] if arg.startswith("tests/")]
+    targets_drift = [arg for arg in _pytest_runs(process_fake)[1] if arg.startswith("tests/")]
 
     assert (
         result_direct.exit_code,
@@ -752,9 +725,7 @@ def test_cli_test_added_test_file_selects_itself_without_fallback(
     )
 
 
-def test_cli_test_deleted_test_file_is_dropped(
-    monkeypatch: pytest.MonkeyPatch, project: Path
-) -> None:
+def test_cli_test_deleted_test_file_is_dropped(process_fake: ProcessFake, project: Path) -> None:
     """A deleted test file in the index is not passed to pytest."""
     (project / "src" / "a.py").write_text("A = 1\n", encoding="utf-8")
     (project / "tests" / "test_a.py").write_text("def test_a(): pass\n", encoding="utf-8")
@@ -767,22 +738,16 @@ def test_cli_test_deleted_test_file_is_dropped(
     )
     save_index(index, index_path)
 
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
-    monkeypatch.setattr(
-        "devops_cli.ci.cache.compute_worktree_blob_hashes",
-        lambda root=Path("."): {"src/a.py": "h_a", "tests/test_a.py": "h_ta"},
-    )
+    tracked_blobs(process_fake, {"src/a.py": "h_a", "tests/test_a.py": "h_ta"})
 
     result = runner.invoke(ci_app, ["test", "src/a.py"])
 
-    targets = [arg for arg in called[0] if arg.startswith("tests/")]
+    targets = [arg for arg in _pytest_runs(process_fake)[0] if arg.startswith("tests/")]
     assert (result.exit_code, targets) == (0, ["tests/test_a.py"])
 
 
 def test_cli_test_trigger_file_conftest_forces_full_run(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """tests/conftest.py forces full suite run with or without index, and fails on --no-fallback."""
     (project / "tests" / "conftest.py").write_text("# fixture\n", encoding="utf-8")
@@ -795,20 +760,14 @@ def test_cli_test_trigger_file_conftest_forces_full_run(
         built_at=100.0,
     )
 
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
-    monkeypatch.setattr(
-        "devops_cli.ci.cache.compute_worktree_blob_hashes",
-        lambda root=Path("."): {"src/a.py": "h_a", "tests/conftest.py": "h_c"},
-    )
+    tracked_blobs(process_fake, {"src/a.py": "h_a", "tests/conftest.py": "h_c"})
 
     res_no_idx = runner.invoke(ci_app, ["test", "tests/conftest.py"])
-    targets_no_idx = [arg for arg in called[0] if arg.startswith("tests/")]
+    targets_no_idx = [arg for arg in _pytest_runs(process_fake)[0] if arg.startswith("tests/")]
 
     save_index(index, index_path)
     res_with_idx = runner.invoke(ci_app, ["test", "tests/conftest.py"])
-    targets_with_idx = [arg for arg in called[1] if arg.startswith("tests/")]
+    targets_with_idx = [arg for arg in _pytest_runs(process_fake)[1] if arg.startswith("tests/")]
 
     res_no_fb = runner.invoke(ci_app, ["test", "tests/conftest.py", "--no-fallback"])
 
@@ -825,7 +784,7 @@ def test_cli_test_trigger_file_conftest_forces_full_run(
 
 
 def test_cli_test_a_support_module_that_registers_a_fixture_forces_full_run(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """A module under tests/support/ that defines a fixture forces the full suite with or
     without an index, as a conftest does, because the fixture it registers reaches tests that
@@ -845,20 +804,14 @@ def test_cli_test_a_support_module_that_registers_a_fixture_forces_full_run(
         built_at=100.0,
     )
 
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
-    monkeypatch.setattr(
-        "devops_cli.ci.cache.compute_worktree_blob_hashes",
-        lambda root=Path("."): {"src/a.py": "h_a", support: "h_s"},
-    )
+    tracked_blobs(process_fake, {"src/a.py": "h_a", support: "h_s"})
 
     res_no_idx = runner.invoke(ci_app, ["test", support])
-    targets_no_idx = [arg for arg in called[0] if arg.startswith("tests/")]
+    targets_no_idx = [arg for arg in _pytest_runs(process_fake)[0] if arg.startswith("tests/")]
 
     save_index(index, index_path)
     res_with_idx = runner.invoke(ci_app, ["test", support])
-    targets_with_idx = [arg for arg in called[1] if arg.startswith("tests/")]
+    targets_with_idx = [arg for arg in _pytest_runs(process_fake)[1] if arg.startswith("tests/")]
 
     res_no_fb = runner.invoke(ci_app, ["test", support, "--no-fallback"])
 
@@ -875,7 +828,7 @@ def test_cli_test_a_support_module_that_registers_a_fixture_forces_full_run(
 
 
 def test_cli_test_a_plain_support_module_runs_the_test_modules_importing_it(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """A module under tests/support/ that registers nothing runs the test modules that import
     it, directly or through another support module, even under --no-fallback, and not the whole
@@ -891,34 +844,33 @@ def test_cli_test_a_plain_support_module_runs_the_test_modules_importing_it(
     (project / "tests" / "test_builders.py").write_text(
         "from tests.support.builders import ROOT\n", encoding="utf-8"
     )
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
 
     result = runner.invoke(ci_app, ["test", "tests/support/paths.py", "--no-fallback"])
 
-    targets = [arg for cmd in called for arg in cmd if arg.startswith("tests")]
+    targets = [arg for cmd in _pytest_runs(process_fake) for arg in cmd if arg.startswith("tests")]
     assert (result.exit_code, targets) == (0, ["tests/test_builders.py", "tests/test_paths.py"])
 
 
 @pytest.mark.parametrize("prefix", ["", "./"])
 @pytest.mark.parametrize("name", sorted(CONST_FULL_RUN_TRIGGER_NAMES))
 def test_cli_test_every_trigger_name_forces_a_full_run_as_given_or_after_a_dot_slash(
-    monkeypatch: pytest.MonkeyPatch, project: Path, name: str, prefix: str
+    process_fake: ProcessFake, project: Path, name: str, prefix: str
 ) -> None:
     """With no index, each trigger name refuses under --no-fallback and runs the full suite
     under --fallback, whether or not it is given after `./`: only that prefix is dropped, so
     `.python-version` keeps its leading dot and stays a trigger."""
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
-    monkeypatch.setattr("devops_cli.core.coverage_index.load_index", lambda _: CoverageIndex())
 
     refused = runner.invoke(ci_app, ["test", f"{prefix}{name}", "--no-fallback"])
     full = runner.invoke(ci_app, ["test", f"{prefix}{name}", "--fallback"])
 
-    targets = [arg for cmd in called for arg in cmd if arg.startswith("tests")]
-    assert (refused.exit_code, name in refused.output, full.exit_code, len(called), targets) == (
+    targets = [arg for cmd in _pytest_runs(process_fake) for arg in cmd if arg.startswith("tests")]
+    assert (
+        refused.exit_code,
+        name in refused.output,
+        full.exit_code,
+        len(_pytest_runs(process_fake)),
+        targets,
+    ) == (
         1,
         True,
         0,
@@ -932,9 +884,15 @@ def test_cli_test_every_trigger_name_forces_a_full_run_as_given_or_after_a_dot_s
     [("./.python-version", ".python-version"), ("../x.py", "../x.py"), ("./src/a.py", "src/a.py")],
 )
 def test_a_relative_path_loses_only_a_leading_dot_slash(
-    tmp_path: Path, given: str, normalized: str
+    process_fake: ProcessFake, project: Path, given: str, normalized: str
 ) -> None:
-    assert _normalize_repo_rel_path(given, tmp_path) == normalized
+    (project / "src" / "a.py").write_text("A = 1\n", encoding="utf-8")
+    (project / "tests" / "test_a.py").write_text("def test_a(): pass\n", encoding="utf-8")
+
+    result = runner.invoke(ci_app, ["test", given])
+
+    said = " ".join(result.output.split())
+    assert (normalized in said, given != normalized and given in said) == (True, False)
 
 
 @pytest.mark.parametrize(
@@ -945,7 +903,7 @@ def test_a_relative_path_loses_only_a_leading_dot_slash(
     ],
 )
 def test_cli_test_a_trigger_changed_since_the_index_was_built_selects_by_text(
-    monkeypatch: pytest.MonkeyPatch, project: Path, trigger: str, text: str | None
+    process_fake: ProcessFake, project: Path, trigger: str, text: str | None
 ) -> None:
     """Once a support module that registers a fixture, or the project's dependencies, changed
     and were committed, the index is stale, not a reason to run the whole suite on every later
@@ -961,17 +919,11 @@ def test_cli_test_a_trigger_changed_since_the_index_was_built_selects_by_text(
         built_at=100.0,
     )
     save_index(index, resolve_coverage_index_path(project))
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
-    monkeypatch.setattr(
-        "devops_cli.ci.cache.compute_worktree_blob_hashes",
-        lambda root=Path("."): {secrets: "h_s", trigger: "h_new"},
-    )
+    tracked_blobs(process_fake, {secrets: "h_s", trigger: "h_new"})
 
     result = runner.invoke(ci_app, ["test", secrets, "--no-fallback"])
 
-    targets = [arg for cmd in called for arg in cmd if arg.startswith("tests/")]
+    targets = [arg for cmd in _pytest_runs(process_fake) for arg in cmd if arg.startswith("tests/")]
     output = " ".join(result.output.split())
     assert (result.exit_code, targets, trigger in output, "stale" in output) == (
         0,
@@ -982,7 +934,7 @@ def test_cli_test_a_trigger_changed_since_the_index_was_built_selects_by_text(
 
 
 def test_cli_test_a_helper_deleted_since_the_index_was_built_forces_a_full_run(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """A helper module under tests/ that the index knew and that is gone now, deleted or renamed
     away, may have registered a fixture and leaves its importers broken, neither of which can be
@@ -996,30 +948,25 @@ def test_cli_test_a_helper_deleted_since_the_index_was_built_forces_a_full_run(
         built_at=100.0,
     )
     save_index(index, resolve_coverage_index_path(project))
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
-    monkeypatch.setattr(
-        "devops_cli.ci.cache.compute_worktree_blob_hashes", lambda root=Path("."): {secrets: "h_s"}
-    )
+    tracked_blobs(process_fake, {secrets: "h_s"})
 
     refused = runner.invoke(ci_app, ["test", secrets, "--no-fallback"])
     full = runner.invoke(ci_app, ["test", secrets])
 
-    targets = [arg for cmd in called for arg in cmd if arg.startswith("tests")]
+    targets = [arg for cmd in _pytest_runs(process_fake) for arg in cmd if arg.startswith("tests")]
     outputs = " ".join(" ".join(result.output.split()) for result in (refused, full))
     assert (
         refused.exit_code,
         gone in refused.output,
         full.exit_code,
-        len(called),
+        len(_pytest_runs(process_fake)),
         targets,
         "selected by name and import" in outputs,
     ) == (1, True, 0, 1, [], False)
 
 
 def test_cli_test_helper_without_index_runs_importing_tests(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """With no index, tests/helper.py runs tests importing it and never passes helper itself."""
     (project / "tests" / "helper.py").write_text("HELPER = 1\n", encoding="utf-8")
@@ -1028,13 +975,9 @@ def test_cli_test_helper_without_index_runs_importing_tests(
     )
     (project / "tests" / "test_other.py").write_text("def test_x(): pass\n", encoding="utf-8")
 
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
-
     result = runner.invoke(ci_app, ["test", "tests/helper.py"])
 
-    targets = [arg for arg in called[0] if arg.startswith("tests/")]
+    targets = [arg for arg in _pytest_runs(process_fake)[0] if arg.startswith("tests/")]
     assert (
         result.exit_code,
         targets,
@@ -1043,12 +986,9 @@ def test_cli_test_helper_without_index_runs_importing_tests(
 
 
 def test_cli_test_text_fallback_with_no_index_and_version_1_index(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """Text-based selector is attributed when index is missing or version 1."""
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
 
     res_no_idx = runner.invoke(ci_app, ["test", "src/devops_cli/security/secrets.py"])
 
@@ -1066,7 +1006,7 @@ def test_cli_test_text_fallback_with_no_index_and_version_1_index(
 
 
 def test_cli_test_unindexed_source_falls_back_per_source(
-    monkeypatch: pytest.MonkeyPatch, project: Path
+    process_fake: ProcessFake, project: Path
 ) -> None:
     """An index with src/a.py but not src/c.py runs index tests for a.py and text tests for c.py."""
     (project / "src" / "a.py").write_text("A = 1\n", encoding="utf-8")
@@ -1087,12 +1027,9 @@ def test_cli_test_unindexed_source_falls_back_per_source(
     )
     save_index(index, index_path)
 
-    called: list[list[str]] = []
-    monkeypatch.setattr("devops_cli.commands.ci._get_project_root", lambda: project)
-    monkeypatch.setattr("devops_cli.commands.ci._run", lambda cmd, **kw: called.append(cmd) or True)
-    monkeypatch.setattr(
-        "devops_cli.ci.cache.compute_worktree_blob_hashes",
-        lambda root=Path("."): {
+    tracked_blobs(
+        process_fake,
+        {
             "src/a.py": "h_a",
             "src/c.py": "h_c",
             "tests/test_a.py": "h_ta",
@@ -1102,7 +1039,7 @@ def test_cli_test_unindexed_source_falls_back_per_source(
 
     result = runner.invoke(ci_app, ["test", "src/a.py", "src/c.py"])
 
-    targets = [arg for arg in called[0] if arg.startswith("tests/")]
+    targets = [arg for arg in _pytest_runs(process_fake)[0] if arg.startswith("tests/")]
     assert (
         result.exit_code,
         targets,

@@ -77,15 +77,6 @@ if TYPE_CHECKING:
     from devops_cli.ci.mutate import MutationTarget
     from devops_cli.core.test_selection import SuiteImports
 
-_ORIG_RUN_SUBPROCESS = run_subprocess
-
-
-def _current_run_subprocess() -> Any:
-    from devops_cli.core.process import run_subprocess as core_run
-
-    runner = getattr(sys.modules.get(__name__), "run_subprocess", core_run)
-    return core_run if runner is _ORIG_RUN_SUBPROCESS else runner
-
 
 def _asks_for_help(ctx: Any, args: list[str]) -> bool:
     """Whether a subcommand's arguments ask for its help, which Click prints without running it.
@@ -125,18 +116,12 @@ def _get_project_root() -> Path:
 
 
 def _announce_gate_root(root: Path) -> None:
-    """Name the tree the gate checks, warning when it is a worktree git no longer knows."""
-    from devops_cli.core.repo import is_stale_linked_worktree
+    """Name the tree the gate checks, with a warning for each thing that slows or breaks it."""
+    from devops_cli.ci.diagnostics import gate_root_warnings
 
     print_info(MESSAGES.ci.gate_root.format(root=root), safe=True)
-    if is_stale_linked_worktree(root):
-        stale = MESSAGES.ci.gate_root_stale.format(root=root, root_arg=shlex.quote(str(root)))
-        print_warning(stale, safe=True)
-    from devops_cli.ci import diagnostics
-
-    if fstype := diagnostics.slow_mount_fstype(root):
-        slow = MESSAGES.ci.gate_root_slow_mount.format(root=root, fstype=fstype)
-        print_warning(slow, safe=True)
+    for warning in gate_root_warnings(root):
+        print_warning(warning, safe=True)
 
 
 class CheckResult(BaseModel):
@@ -326,7 +311,7 @@ def _returncode(
     full_cmd = _with_uv_preview(cmd)
     if own_session:
         return _session_returncode(full_cmd, root, timeout, capture_output, env)
-    result = _current_run_subprocess()(
+    result = run_subprocess(
         full_cmd, cwd=root, timeout=timeout, capture_output=capture_output, env=env
     )
     return int(result.returncode)
@@ -364,7 +349,7 @@ def _audit_failure_line(cmd: Sequence[str], run: subprocess.CompletedProcess[str
 def _report_audit(cmd: list[str]) -> bool:
     """Run one audit command with its output captured, which its verdict reads. When it was not
     clean, show the output and say why; whether it was clean."""
-    run: subprocess.CompletedProcess[str] = _current_run_subprocess()(
+    run: subprocess.CompletedProcess[str] = run_subprocess(
         _with_uv_preview(cmd),
         cwd=_get_project_root(),
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -413,9 +398,9 @@ def _is_recent_coverage_file(path: Path, threshold_seconds: float = 60.0) -> boo
         return False
 
 
-def _unlink_coverage_path(path: Path, *, force: bool) -> None:
+def _unlink_coverage_path(path: Path) -> None:
     """Unlink a coverage file if not protected by active process ownership."""
-    if not force and (_is_active_coverage_worker(path) or _is_recent_coverage_file(path)):
+    if _is_active_coverage_worker(path) or _is_recent_coverage_file(path):
         return
     try:
         path.unlink(missing_ok=True)
@@ -423,7 +408,7 @@ def _unlink_coverage_path(path: Path, *, force: bool) -> None:
         pass
 
 
-def _clean_coverage_artifacts(*, force: bool = False) -> None:
+def _clean_coverage_artifacts() -> None:
     """Clean up residual `.coverage.*` worker files from the checked tree and .data/.
 
     The combined `.data/.coverage` stays: `devops ci coverage --build-index` and CI's
@@ -431,19 +416,11 @@ def _clean_coverage_artifacts(*, force: bool = False) -> None:
     """
     if is_dry_run():
         return
-    if not force and os.getenv("PYTEST_CURRENT_TEST"):
-        return
-
     current_root = _get_project_root()
-    if os.getenv("PYTEST_CURRENT_TEST"):
-        workspace_root = Path(__file__).resolve().parent.parent.parent.parent
-        if current_root.resolve() == workspace_root.resolve():
-            return
-
     for target_dir in (current_root, current_root / ".data"):
         if target_dir.exists():
             for path in target_dir.glob(".coverage.*"):
-                _unlink_coverage_path(path, force=force)
+                _unlink_coverage_path(path)
 
 
 def _format_process_output(raw: str | bytes | None) -> str:
@@ -561,14 +538,14 @@ async def _execute_check_async(
             requests=_planned_requests(check_spec),
         )
 
-    start_time = time.perf_counter()
+    start_time = clock.monotonic()
     root = _get_project_root()
 
     with trace_span(check_spec.span_name):
         try:
             proc = await _run_check_commands(check_spec, root, timeout, capture_output)
             passed = proc.returncode == 0
-            dur = time.perf_counter() - start_time
+            dur = clock.monotonic() - start_time
             _count_check(check_spec.metric_step, passed=passed)
             from devops_cli.output import format_duration
 
@@ -586,7 +563,7 @@ async def _execute_check_async(
                 stderr=_format_process_output(getattr(proc, "stderr", "")),
             )
         except subprocess.TimeoutExpired as exc:
-            dur = time.perf_counter() - start_time
+            dur = clock.monotonic() - start_time
             _count_check(check_spec.metric_step, passed=False)
             badge = _format_check_badge(False)
             timeout_val = exc.timeout or timeout
@@ -657,6 +634,8 @@ def _resolve_pytest_cmd(*, shard: int = 1, shards: int = 1) -> list[str]:
     combines the data of every shard does both. A shard also warns on, and does not fail on, an
     unused snapshot: the snapshots of the tests in the other shards are unused in it.
     """
+    from devops_cli.core.test_selection import shard_test_files
+
     cmd = [
         "uv",
         "run",
@@ -671,33 +650,8 @@ def _resolve_pytest_cmd(*, shard: int = 1, shards: int = 1) -> list[str]:
         "--cov-report=",
         "--cov-fail-under=0",
         "--snapshot-warn-unused",
-        *_shard_test_files(shard, shards, _get_project_root()),
+        *shard_test_files(shard, shards, _get_project_root()),
     ]
-
-
-def _shard_test_files(shard: int, shards: int, root: Path) -> list[str]:
-    """The sorted repo-relative paths of the test modules of shard `shard` of `shards` (#2371).
-
-    The modules go one by one, heaviest first (most lines, then path), to the shard with the fewest
-    lines so far, and a tie goes to the lower shard. The split reads only the tree, so every runner
-    computes the same lists and no stored data can go out of date.
-    """
-
-    def line_count(module: str) -> int:
-        with (root / module).open("rb") as handle:
-            return sum(1 for _ in handle)
-
-    weighted = sorted(
-        ((line_count(module), module) for module in _directory_modules("tests", root)),
-        key=lambda item: (-item[0], item[1]),
-    )
-    weights = [0] * shards
-    parts: list[list[str]] = [[] for _ in range(shards)]
-    for lines, module in weighted:
-        lightest = weights.index(min(weights))
-        weights[lightest] += lines
-        parts[lightest].append(module)
-    return sorted(parts[shard - 1])
 
 
 def _with_test_shard(specs: Sequence[CheckSpec], *, shard: int, shards: int) -> list[CheckSpec]:
@@ -1288,17 +1242,6 @@ async def _run_all_checks_async(
         return _assemble_ci_results(py_result, selected_specs, raw_results)
 
 
-def _run_all_checks(
-    *, lint_fix: bool = True, format_fix: bool = True, docs_fix: bool = False
-) -> list[tuple[str, bool]]:
-    """Synchronous entrypoint for executing CI pipeline."""
-    results = asyncio.run(
-        _run_all_checks_async(lint_fix=lint_fix, format_fix=format_fix, docs_fix=docs_fix)
-    )
-    _print_failures(results)
-    return [(res.name, res.passed) for res in results]
-
-
 def _print_failures(results: list[CheckResult]) -> None:
     """Print diagnostic failure outputs for failed CI checks."""
     if is_dry_run() or any(res.dry_run for res in results):
@@ -1621,34 +1564,12 @@ def _check_trigger_files(all_paths: set[str], fallback: bool, imports: SuiteImpo
     return False
 
 
-def _directory_modules(directory: str, root: Path) -> list[str]:
-    """The files a directory argument stands for, as sorted repo-relative paths: the test modules
-    inside a directory of tests/, and the Python modules inside a directory of src/, at any depth.
-    None for a directory elsewhere, and for one that holds no such file (#2868)."""
-    from devops_cli.config.constants import (
-        CONST_PYTHON_FILE_SUFFIX,
-        CONST_SOURCE_ROOT_DIR,
-        CONST_TESTS_ROOT_DIR,
-    )
-    from devops_cli.core.test_selection import is_test_module
-
-    tree = next(iter(Path(os.path.normpath(directory)).parts), "")
-    if tree not in (CONST_SOURCE_ROOT_DIR, CONST_TESTS_ROOT_DIR):
-        return []
-    found = (root / directory).rglob(f"*{CONST_PYTHON_FILE_SUFFIX}")
-    return sorted(
-        file.relative_to(root).as_posix()
-        for file in found
-        if file.is_file() and (tree == CONST_SOURCE_ROOT_DIR or is_test_module(file))
-    )
-
-
 def _expand_directories(paths: set[str], root: Path, imports: SuiteImports) -> set[str]:
     """The paths with each directory replaced by the files it stands for. A path that does not
     exist, and a directory that gives no file, are refused with an error that names them: running
     no test must not be a pass. A trigger file that is gone, such as a deleted conftest.py, still
     forces the full run (#2868)."""
-    from devops_cli.core.test_selection import forces_full_run
+    from devops_cli.core.test_selection import directory_modules, forces_full_run
 
     expanded: set[str] = set()
     for path in paths:
@@ -1660,7 +1581,7 @@ def _expand_directories(paths: set[str], root: Path, imports: SuiteImports) -> s
         elif not (root / path).is_dir():
             expanded.add(path)
         else:
-            modules = _directory_modules(path, root)
+            modules = directory_modules(path, root)
             if not modules:
                 print_error(
                     MESSAGES.ci.directory_without_tests.format(directory=path),
@@ -1913,7 +1834,7 @@ def _narrowed_workers(targets: list[str] | None) -> str | None:
 
 def _head_seed(root: Path) -> int:
     """A shuffle seed derived from HEAD: its commit hash's leading eight hex digits."""
-    result = _current_run_subprocess()(["git", "rev-parse", "HEAD"], cwd=root, quiet=True)
+    result = run_subprocess(["git", "rev-parse", "HEAD"], cwd=root, quiet=True)
     if result.returncode != 0:
         print_error(MESSAGES.ci.repeat_seed_unavailable, prefix=False)
         raise typer.Exit(1)
@@ -2436,7 +2357,7 @@ _MUTMUT_RESULTS = [*_MUTMUT, "results", "--all", "true"]
 def _capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     """Run a command in the checked tree as `_run` would, returning its captured output."""
     argv = list(_planned_request_for_cmd(cmd).argv)
-    completed: subprocess.CompletedProcess[str] = _current_run_subprocess()(
+    completed: subprocess.CompletedProcess[str] = run_subprocess(
         argv, cwd=_get_project_root(), capture_output=True
     )
     return completed
