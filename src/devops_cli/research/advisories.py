@@ -75,12 +75,20 @@ WatchKey = tuple[str, str | None]
 
 
 @dataclass
+class _Pin:
+    """The components that pin one release, and that release."""
+
+    version: Version
+    components: list[Component] = field(default_factory=list)
+
+
+@dataclass
 class _Plan:
     """What a run asks, and what it leaves out."""
 
     osv: dict[PackageKey, list[Component]] = field(default_factory=dict)
-    actions: dict[PinKey, list[Component]] = field(default_factory=dict)
-    repositories: dict[WatchKey, dict[PinKey, list[Component]]] = field(default_factory=dict)
+    actions: dict[PinKey, _Pin] = field(default_factory=dict)
+    repositories: dict[WatchKey, dict[PinKey, _Pin]] = field(default_factory=dict)
     not_covered: Counter[str] = field(default_factory=Counter)
     unpinned: int = 0
 
@@ -130,7 +138,7 @@ def _plan(inventory: Inventory, watch: WatchList) -> _Plan:
         )
         if component.ecosystem is not Ecosystem.GITHUB_ACTIONS and entry is None:
             plan.not_covered[component.ecosystem.value] += 1
-        elif pinned_version(component.version) is None:
+        elif (release := pinned_version(component.version)) is None:
             plan.unpinned += 1
         else:
             pin = (component.name, component.version)
@@ -139,7 +147,7 @@ def _plan(inventory: Inventory, watch: WatchList) -> _Plan:
                 if entry is None
                 else plan.repositories.setdefault((entry.repo, entry.package), {})
             )
-            group.setdefault(pin, []).append(component)
+            group.setdefault(pin, _Pin(release)).components.append(component)
     return plan
 
 
@@ -257,7 +265,7 @@ def _github_finding(
 
 
 def _github_matches(
-    components: list[Component],
+    pin: _Pin,
     lookup: GhsaLookup,
     package: str | None,
     ecosystem: str | None,
@@ -268,10 +276,9 @@ def _github_matches(
     no `package` every vulnerability of an advisory counts. An advisory with a range that cannot be
     read is a failure.
     """
+    components, version = pin.components, pin.version
     if lookup.status != "ok":
         return [], [_failure(components, "", lookup.reason)]
-    version = pinned_version(components[0].version)
-    assert version is not None
     findings: list[AdvisoryFinding] = []
     failures: list[LookupFailure] = []
     for advisory in lookup.advisories:
@@ -303,8 +310,8 @@ def _github_findings(
     if plan.actions:
         names = sorted({name for name, _ in plan.actions})
         lookups = github.for_packages(_GITHUB_ACTIONS, names)
-        for (name, _), components in plan.actions.items():
-            found, failed = _github_matches(components, lookups[name], name, _GITHUB_ACTIONS)
+        for (name, _), pin in plan.actions.items():
+            found, failed = _github_matches(pin, lookups[name], name, _GITHUB_ACTIONS)
             findings += found
             failures += failed
     lookups_by_repository: dict[str, GhsaLookup] = {}
@@ -313,10 +320,8 @@ def _github_findings(
     ):
         if repository not in lookups_by_repository:
             lookups_by_repository[repository] = github.for_repository(repository)
-        for components in pins.values():
-            found, failed = _github_matches(
-                components, lookups_by_repository[repository], package, None
-            )
+        for pin in pins.values():
+            found, failed = _github_matches(pin, lookups_by_repository[repository], package, None)
             findings += found
             failures += failed
     return findings, failures
