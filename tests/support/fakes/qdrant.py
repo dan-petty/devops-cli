@@ -6,8 +6,13 @@ upserts, cosine search, payload filtering, and simulated unreachable / refusing 
 
 from __future__ import annotations
 
+import json
 import math
-from collections.abc import Iterator, Sequence
+import threading
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 import pytest
@@ -37,9 +42,24 @@ class FakeQdrantClient(QdrantProtocol):
         self.collections: dict[str, list[dict[str, Any]]] = {}
         self.vector_sizes: dict[str, int] = {}
         self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+        # Called with the collection name at the start of each search, so a test can hold or
+        # fail one collection's search, as a slow or failing server does.
+        self.on_search: Callable[[str], None] | None = None
+        # The operations that raise `QdrantClientError`, as a server that refuses them does.
+        self.failing_operations: set[str] = set()
+
+    def fail_operation(self, *names: str) -> None:
+        """Make each later call of the operations `names` raise `QdrantClientError`."""
+        self.failing_operations.update(names)
+
+    def recover(self) -> None:
+        """Make every operation answer again."""
+        self.failing_operations.clear()
 
     def _record(self, name: str, *args: Any, **kwargs: Any) -> None:
         self.calls.append((name, args, kwargs))
+        if name in self.failing_operations:
+            raise QdrantClientError(f"Simulated {name} failure")
 
     def is_alive(self, *, force_check: bool = False) -> bool:
         self._record("is_alive", force_check=force_check)
@@ -147,6 +167,8 @@ class FakeQdrantClient(QdrantProtocol):
             filter_payload=filter_payload,
             score_threshold=score_threshold,
         )
+        if self.on_search is not None:
+            self.on_search(name)
         points = self.collections.get(name, [])
         scored: list[dict[str, Any]] = []
         for p in points:
@@ -227,6 +249,7 @@ class FakeQdrantClient(QdrantProtocol):
             file_paths,
             project_name=project_name,
             batch_size=batch_size,
+            wait=wait,
         )
         if name in self.collections:
             path_set = set(file_paths)
@@ -252,7 +275,9 @@ class FakeQdrantClient(QdrantProtocol):
     ) -> bool:
         if self.refusing:
             raise QdrantClientError("Server is unreachable")
-        self._record("delete_points_by_project", name, project_name, batch_size=batch_size)
+        self._record(
+            "delete_points_by_project", name, project_name, batch_size=batch_size, wait=wait
+        )
         if name in self.collections:
             self.collections[name] = [
                 p
@@ -262,12 +287,18 @@ class FakeQdrantClient(QdrantProtocol):
         return True
 
 
-def seed_knowledge_base(fake: FakeQdrantClient, docs_collection: str = "devops_docs") -> None:
+def seed_knowledge_base(
+    fake: FakeQdrantClient,
+    docs_collection: str = "devops_docs",
+    *,
+    embedding_model: str | None = None,
+) -> None:
     """Hold the installed knowledge base's digest in `docs_collection`, as an indexed store does.
 
     A RAG search checks the knowledge base before it searches, and rebuilds it when the store
     holds none of its points. With this point the check finds the knowledge base current and
-    rebuilds nothing. The point's vector is empty, so it matches no query.
+    rebuilds nothing. The point's vector is empty, so it matches no query. A test that indexes
+    into the same store gives the embedder's model as `embedding_model`, as the indexer records it.
     """
     fake.upsert_points(
         docs_collection,
@@ -278,10 +309,200 @@ def seed_knowledge_base(fake: FakeQdrantClient, docs_collection: str = "devops_d
                 "payload": {
                     "project_name": CONST_RAG_KB_PROJECT,
                     "kb_digest": knowledge_base_digest(),
+                    **({"embedding_model": embedding_model} if embedding_model else {}),
                 },
             }
         ],
     )
+
+
+def seed_chunk(
+    fake: FakeQdrantClient,
+    embedder: Any,
+    content: str,
+    *,
+    collection: str = "devops_code",
+    file_path: str = "src/main.py",
+    point_id: str | None = None,
+    **payload: Any,
+) -> str:
+    """Hold one chunk in `collection`, as the indexer stores it, and return its point id.
+
+    The vector is the embedder's vector of `content`, so a search for that text scores 1.0.
+    """
+    point = point_id or f"{file_path}:{len(fake.collections.get(collection, []))}"
+    vector = embedder.embed_texts([content], is_query=False)[0]
+    fake.ensure_collection(collection, len(vector))
+    fake.upsert_points(
+        collection,
+        [
+            {
+                "id": point,
+                "vector": vector,
+                "payload": {
+                    "file_path": file_path,
+                    "start_line": 1,
+                    "end_line": 10,
+                    "content": content,
+                    "language": "python",
+                    "project_name": "devops-cli",
+                    "embedding_model": embedder.model,
+                    **payload,
+                },
+            }
+        ],
+    )
+    return point
+
+
+def seed_scored_chunk(
+    fake: FakeQdrantClient,
+    query_vector: Sequence[float],
+    score: float,
+    content: str,
+    *,
+    collection: str = "devops_code",
+    file_path: str = "src/main.py",
+    point_id: str | None = None,
+    **payload: Any,
+) -> str:
+    """Hold one chunk in `collection` that a search with `query_vector` scores exactly `score`.
+
+    The vector of the point is `score` times the unit query vector plus a unit vector at right
+    angles to it, so the cosine similarity of the two is `score`. `query_vector` needs two or more
+    dimensions and must not be all zero.
+    """
+    norm = math.sqrt(sum(x * x for x in query_vector))
+    unit = [x / norm for x in query_vector]
+    axis = min(range(len(unit)), key=lambda i: abs(unit[i]))
+    other = [1.0 if i == axis else 0.0 for i in range(len(unit))]
+    along = sum(a * b for a, b in zip(other, unit, strict=True))
+    ortho = [o - along * u for o, u in zip(other, unit, strict=True)]
+    ortho_norm = math.sqrt(sum(x * x for x in ortho))
+    spread = math.sqrt(max(0.0, 1.0 - score * score))
+    vector = [score * u + spread * o / ortho_norm for u, o in zip(unit, ortho, strict=True)]
+    point = point_id or f"{file_path}:{len(fake.collections.get(collection, []))}"
+    fake.ensure_collection(collection, len(vector))
+    fake.upsert_points(
+        collection,
+        [
+            {
+                "id": point,
+                "vector": vector,
+                "payload": {
+                    "file_path": file_path,
+                    "start_line": 1,
+                    "end_line": 10,
+                    "content": content,
+                    "language": "python",
+                    **payload,
+                },
+            }
+        ],
+    )
+    return point
+
+
+@dataclass
+class ServedQdrant:
+    """The address of a loopback Qdrant REST server, what it answers, and what it received."""
+
+    url: str
+    collections: list[str] = field(default_factory=list)
+    points: list[dict[str, Any]] = field(default_factory=list)
+    drop_connections: int = 0
+    collection_info: dict[str, Any] | None = None
+    requests: list[tuple[str, str, dict[str, str]]] = field(default_factory=list)
+    bodies: list[tuple[str, str, Any]] = field(default_factory=list)
+
+    def headers_of_requests(self) -> list[dict[str, str]]:
+        """The headers of each request, in the order the server received them."""
+        return [headers for _, _, headers in self.requests]
+
+
+def _served_result(served: ServedQdrant, prefix: str, method: str, path: str) -> Any:
+    """The `result` of the REST answer for one request, or None for a path the server lacks."""
+    if method == "GET" and path == f"{prefix}/collections":
+        return {"collections": [{"name": name} for name in served.collections]}
+    if not path.startswith(f"{prefix}/collections/"):
+        return None
+    is_collection = path.removeprefix(prefix).count("/") == 2
+    if method == "GET" and served.collection_info is not None and is_collection:
+        return served.collection_info
+    if method == "POST" and path.endswith("/points/query"):
+        return {"points": served.points}
+    if method == "PUT" and path.endswith("/index"):
+        return {"operation_id": 0, "status": "completed"}
+    if method == "PUT":
+        return True
+    return None
+
+
+@contextmanager
+def serving_qdrant(
+    *, prefix: str = "", collections: Sequence[str] = (), points: Sequence[dict[str, Any]] = ()
+) -> Iterator[ServedQdrant]:
+    """A loopback server that speaks the part of the Qdrant REST API that searches and collection setup use.
+
+    It answers `GET <prefix>/collections` with `collections`, `GET <prefix>/collections/<name>`
+    with `collection_info` when the test sets it, `POST <prefix>/collections/<name>/
+    points/query` with `points`, and `PUT` of a collection or of its index with success. Every other
+    path answers 404, as a collection that does not exist does. It records each request's method,
+    path and headers, and the JSON body of each request that has one. The next `drop_connections` requests are cut without an answer, as a tunnel
+    that closes a keep-alive connection cuts them. A test of what the real native client sends or
+    retries, such as its API key header, the proxy prefix of a cluster address or the retry of a
+    dropped connection, reads the record. The prefix is the path that a Kubernetes API server
+    proxies a Service under.
+    """
+    served = ServedQdrant(url="", collections=list(collections), points=list(points))
+
+    class Handler(BaseHTTPRequestHandler):
+        def _answer(self, method: str) -> None:
+            headers = {k.lower(): v for k, v in self.headers.items()}
+            served.requests.append((method, self.path, headers))
+            length = int(headers.get("content-length", "0"))
+            if length:
+                served.bodies.append((method, self.path, json.loads(self.rfile.read(length))))
+            if served.drop_connections > 0:
+                served.drop_connections -= 1
+                self.close_connection = True
+                return
+            result = _served_result(served, prefix, method, self.path.split("?")[0])
+            if result is None:
+                body, status = b"{}", 404
+            else:
+                body = json.dumps({"result": result, "status": "ok", "time": 0.0}).encode()
+                status = 200
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self) -> None:
+            self._answer("GET")
+
+        def do_POST(self) -> None:
+            self._answer("POST")
+
+        def do_PUT(self) -> None:
+            self._answer("PUT")
+
+        def log_message(self, format: str, *args: Any) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    served.url = f"http://127.0.0.1:{server.server_address[1]}"
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
+    thread.start()
+    try:
+        yield served
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
 
 
 @pytest.fixture

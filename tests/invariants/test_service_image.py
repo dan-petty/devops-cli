@@ -6,6 +6,7 @@ They read only committed files, so they need no network, no image build and no s
 from __future__ import annotations
 
 import re
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from packaging.version import Version
@@ -23,6 +24,9 @@ GH_RELEASE_DOWNLOAD_PATH = re.compile(r"download/(?P<tag>[^/]+)/(?P<asset>[^/]+)
 # gh v2.102.1 is the first GitHub CLI release that cli/cli builds with Go 1.27.2 or later
 # (`toolchain go1.27.3` in its go.mod) and with golang.org/x/net v0.60.0 (#1492).
 GH_FIRST_SAFE_VERSION = Version("2.102.1")
+
+# The `exp:` field of a `.trivyignore` entry, in the form that Trivy parses: `exp:YYYY-MM-DD`.
+TRIVYIGNORE_EXP = re.compile(r"exp:(?P<day>\d{4}-\d{2}-\d{2})")
 
 # The HIGH Go findings that Trivy reports in gh v2.102.0 (Go 1.27.1, golang.org/x/net v0.58.0).
 # Go 1.27.2 and golang.org/x/net v0.60.0 fix them, so the pinned gh build does not have them.
@@ -138,6 +142,85 @@ def test_trivyignore_ignores_no_go_finding_that_the_pinned_gh_fixes() -> None:
     }
 
     assert ignored & GH_GO_FINDINGS_FIXED_IN_THE_PIN == set()
+
+
+def _trivyignore_problems(text: str, today: date) -> list[str]:
+    """Return one problem for each entry of a `.trivyignore` text that breaks the file's rule.
+
+    The header of the file says that a pinned finding records a reason and an expiration date. An
+    entry needs a comment line right above it (the reason) and an `exp:YYYY-MM-DD` field that is
+    after `today`: Trivy stops to apply an entry on the day of its date, and it skips an entry
+    whose date it cannot parse.
+    """
+    problems: list[str] = []
+    has_reason = False
+    for number, raw in enumerate(text.splitlines(), start=1):
+        line = raw.strip()
+        if line.startswith("#"):
+            has_reason = True
+            continue
+        if not line:
+            has_reason = False
+            continue
+        entry, *fields = line.split()
+        if not has_reason:
+            problems.append(f"line {number}: {entry} has no reason in the comment above it")
+        has_reason = False
+        exps = [field for field in fields if field.startswith("exp:")]
+        match = TRIVYIGNORE_EXP.fullmatch(exps[0]) if exps else None
+        if match is None:
+            problems.append(f"line {number}: {entry} has no exp:YYYY-MM-DD date")
+        elif date.fromisoformat(match["day"]) <= today:
+            problems.append(f"line {number}: {entry} expired on {match['day']}")
+    return problems
+
+
+def test_trivyignore_entry_with_a_reason_and_a_future_exp_date_has_no_problem() -> None:
+    """Verify that an entry with a reason above it and a later exp date passes."""
+    text = "# header\n\n# Reason: tracked in #1.\nCVE-2026-1 exp:2026-11-21\n"
+
+    assert _trivyignore_problems(text, date(2026, 11, 20)) == []
+
+
+def test_trivyignore_entry_without_a_reason_is_a_problem() -> None:
+    """Verify that an entry with no comment right above it fails, also after a blank line."""
+    text = "# header\n\nCVE-2026-1 exp:2026-11-21\n# Reason.\n\nCVE-2026-2 exp:2026-11-21\n"
+
+    assert _trivyignore_problems(text, date(2026, 11, 1)) == [
+        "line 3: CVE-2026-1 has no reason in the comment above it",
+        "line 6: CVE-2026-2 has no reason in the comment above it",
+    ]
+
+
+def test_trivyignore_entry_without_a_valid_exp_date_is_a_problem() -> None:
+    """Verify that an entry with no exp field, or an exp that Trivy cannot parse, fails."""
+    text = "# Reason.\nCVE-2026-1\n# Reason.\nCVE-2026-2 exp:21-11-2026\n"
+
+    assert _trivyignore_problems(text, date(2026, 11, 1)) == [
+        "line 2: CVE-2026-1 has no exp:YYYY-MM-DD date",
+        "line 4: CVE-2026-2 has no exp:YYYY-MM-DD date",
+    ]
+
+
+def test_trivyignore_entry_is_a_problem_on_and_after_its_exp_date() -> None:
+    """Verify that an entry fails on the day of its exp date, when Trivy stops to apply it."""
+    text = "# Reason.\nCVE-2026-1 exp:2026-11-21\n"
+
+    assert _trivyignore_problems(text, date(2026, 11, 20)) == []
+    assert _trivyignore_problems(text, date(2026, 11, 21)) == [
+        "line 2: CVE-2026-1 expired on 2026-11-21"
+    ]
+
+
+def test_every_trivyignore_entry_has_a_reason_and_an_exp_date_that_is_not_past() -> None:
+    """Verify that each entry of the committed `.trivyignore` has a reason and a later exp date.
+
+    The test reads the wall clock on purpose: an ignore must end by itself, so after its date the
+    test fails with the image scan, and the failure is the reminder to fix the finding (#3881).
+    """
+    text = (REPO_ROOT / ".trivyignore").read_text(encoding="utf-8")
+
+    assert _trivyignore_problems(text, datetime.now(UTC).date()) == []
 
 
 def _service_stage() -> list[list[str]]:
