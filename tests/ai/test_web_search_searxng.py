@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 import httpx2
@@ -29,10 +28,11 @@ from devops_cli.telemetry.instruments import WEB_SEARCHES_TOTAL
 from tests.support.fakes.dns import DnsFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.otlp import FakeCollector
+from tests.support.paths import FIXTURES
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
-_REPLY = Path(__file__).parents[1] / "fixtures" / "searxng" / "search_reply.json"
+_REPLY = FIXTURES / "searxng" / "search_reply.json"
 _LOOPBACK = "http://127.0.0.1:8080"
 _SERVICE = "http://searxng.devops.svc.cluster.local:8080"
 _SERVICE_ADDRESS = "10.0.0.5"
