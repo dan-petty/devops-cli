@@ -128,9 +128,9 @@ def test_no_flag_and_no_variable_still_executes(
     ("cli_args", "planned", "not_planned"),
     [
         pytest.param(
-            ["--dry-run", "k8s", "configure-urls", "--stack", "infra"],
-            '"action": "configure_monitoring_urls"',
-            None,
+            ["--dry-run", "k8s", "configure-urls", "--stack", "logging"],
+            '"details": {}',
+            "argocd.url",
             id="option-value-after-the-subcommand",
         ),
         pytest.param(

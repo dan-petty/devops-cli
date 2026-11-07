@@ -9,6 +9,7 @@ from syrupy.assertion import SnapshotAssertion
 
 from devops_cli.dry_run import (
     format_command,
+    in_dry_run_invocation,
     is_dry_run,
     is_dry_run_requested,
     render_dry_run_result,
@@ -48,6 +49,15 @@ def test_the_dry_run_state_follows_the_last_setting() -> None:
     assert is_dry_run() is True
     set_dry_run(False)
     assert is_dry_run() is False
+
+
+def test_the_dry_run_state_marks_the_invocation_as_a_dry_run() -> None:
+    set_dry_run(False)
+    assert in_dry_run_invocation() is False
+    set_dry_run(True)
+    assert in_dry_run_invocation() is True
+    set_dry_run(False)
+    assert in_dry_run_invocation() is False
 
 
 def test_a_command_is_formatted_with_the_directory_it_runs_in(tmp_path: Path) -> None:
