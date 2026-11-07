@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -104,7 +104,7 @@ def test_first_run_indexes_and_records_head(tmp_path: Path) -> None:
     rag_dir = tmp_path / "rag"
 
     indexer = WorkspaceIndexer(
-        qdrant=fake_qdrant,  # type: ignore[arg-type]
+        qdrant=cast(Any, fake_qdrant),
         embedder=embedder,
         cache_dir=rag_dir,
     )
@@ -144,7 +144,7 @@ def test_removed_repository_cleanup_leaves_workstation_projects(tmp_path: Path) 
     fake_qdrant = FakeQdrantClient()
     embedder = FixedVectorEngine()
     indexer = WorkspaceIndexer(
-        qdrant=fake_qdrant,  # type: ignore[arg-type]
+        qdrant=cast(Any, fake_qdrant),
         embedder=embedder,
         cache_dir=rag_dir,
     )
@@ -220,7 +220,7 @@ def test_empty_service_repos_fails_before_requests_and_cleanup(tmp_path: Path) -
     fake_qdrant = FakeQdrantClient()
     embedder = FixedVectorEngine()
     indexer = WorkspaceIndexer(
-        qdrant=fake_qdrant,  # type: ignore[arg-type]
+        qdrant=cast(Any, fake_qdrant),
         embedder=embedder,
         cache_dir=rag_dir,
     )
@@ -280,7 +280,7 @@ def test_visibility_change_rewrites_payload_and_updates_search(tmp_path: Path) -
     embedder = FixedVectorEngine()
     rag_dir = tmp_path / "rag"
     indexer = WorkspaceIndexer(
-        qdrant=fake_qdrant,  # type: ignore[arg-type]
+        qdrant=cast(Any, fake_qdrant),
         embedder=embedder,
         cache_dir=rag_dir,
     )
@@ -319,7 +319,7 @@ def test_failed_repository_continues_and_reports_error(tmp_path: Path) -> None:
     fake_qdrant = FakeQdrantClient()
     embedder = FixedVectorEngine()
     indexer = WorkspaceIndexer(
-        qdrant=fake_qdrant,  # type: ignore[arg-type]
+        qdrant=cast(Any, fake_qdrant),
         embedder=embedder,
         cache_dir=rag_dir,
     )
@@ -356,7 +356,7 @@ def test_push_edits_deletes_renames(tmp_path: Path) -> None:
     embedder = FixedVectorEngine()
     rag_dir = tmp_path / "rag"
     indexer = WorkspaceIndexer(
-        qdrant=fake_qdrant,  # type: ignore[arg-type]
+        qdrant=cast(Any, fake_qdrant),
         embedder=embedder,
         cache_dir=rag_dir,
     )
@@ -406,7 +406,7 @@ def test_emptied_collection_causes_reindex(tmp_path: Path) -> None:
     embedder = FixedVectorEngine()
     rag_dir = tmp_path / "rag"
     indexer = WorkspaceIndexer(
-        qdrant=fake_qdrant,  # type: ignore[arg-type]
+        qdrant=cast(Any, fake_qdrant),
         embedder=embedder,
         cache_dir=rag_dir,
     )
@@ -442,7 +442,7 @@ def test_renamed_default_branch(tmp_path: Path) -> None:
     embedder = FixedVectorEngine()
     rag_dir = tmp_path / "rag"
     indexer = WorkspaceIndexer(
-        qdrant=fake_qdrant,  # type: ignore[arg-type]
+        qdrant=cast(Any, fake_qdrant),
         embedder=embedder,
         cache_dir=rag_dir,
     )
@@ -489,7 +489,7 @@ def test_pass_leaves_roadmap_clone_untouched(tmp_path: Path) -> None:
     embedder = FixedVectorEngine()
     rag_dir = tmp_path / "rag"
     indexer = WorkspaceIndexer(
-        qdrant=fake_qdrant,  # type: ignore[arg-type]
+        qdrant=cast(Any, fake_qdrant),
         embedder=embedder,
         cache_dir=rag_dir,
     )
@@ -522,7 +522,7 @@ def test_embedding_failure_halfway_records_no_head_and_resumes(tmp_path: Path) -
     fake_qdrant = FakeQdrantClient()
     embedder_fail = FixedVectorEngine(fail_after=1)
     indexer = WorkspaceIndexer(
-        qdrant=fake_qdrant,  # type: ignore[arg-type]
+        qdrant=cast(Any, fake_qdrant),
         embedder=embedder_fail,
         cache_dir=rag_dir,
     )
@@ -542,7 +542,7 @@ def test_embedding_failure_halfway_records_no_head_and_resumes(tmp_path: Path) -
 
     embedder_ok = FixedVectorEngine()
     indexer_ok = WorkspaceIndexer(
-        qdrant=fake_qdrant,  # type: ignore[arg-type]
+        qdrant=cast(Any, fake_qdrant),
         embedder=embedder_ok,
         cache_dir=rag_dir,
     )

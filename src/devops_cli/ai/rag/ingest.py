@@ -11,11 +11,16 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.ai.rag.indexer import WorkspaceIndexer, resolve_rag_components
+from devops_cli.ai.rag.qdrant import QdrantClientError
 from devops_cli.config.constants import CONST_GH_CLI, CONST_GIT_CLI
 from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.paths import is_forbidden_system_path, safe_resolve_subpath
 from devops_cli.core.repo import resolve_data_path
-from devops_cli.exceptions import ConfigurationError, GitOperationError
+from devops_cli.exceptions import (
+    ConfigurationError,
+    DevOpsCLIError,
+    GitOperationError,
+)
 from devops_cli.exceptions.ai import RagIngestError
 from devops_cli.output.file_writer import write_json_file
 from devops_cli.telemetry.instruments import RAG_INGEST_RUNS_TOTAL, emit
@@ -62,16 +67,17 @@ def _read_repo_visibility(repo: str, gh_runner: Any) -> str:
     """Read repository visibility from GitHub API, counting public as public and others as private."""
     owner, name = repo.split("/")
     res = gh_runner([CONST_GH_CLI, "api", f"repos/{owner}/{name}"], check=False, quiet=True)
-    if getattr(res, "returncode", 1) != 0:
+    if res.returncode != 0:
         return "private"
     try:
-        data = json.loads(getattr(res, "stdout", "") or "{}")
+        stdout_text = res.stdout if isinstance(res.stdout, str) else ""
+        data = json.loads(stdout_text or "{}")
         raw_vis = str(data.get("visibility", "")).lower()
         if raw_vis == "public":
             return "public"
         if "private" in data and not data["private"]:
             return "public"
-    except Exception as exc:
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         logger.debug("Failed to parse GitHub repo payload for %s: %s", repo, exc)
     return "private"
 
@@ -143,7 +149,7 @@ def _cleanup_removed_repos(
             try:
                 indexer.qdrant.delete_points_by_project(indexer.code_collection, proj, wait=True)
                 indexer.qdrant.delete_points_by_project(indexer.docs_collection, proj, wait=True)
-            except Exception as exc:
+            except (QdrantClientError, DevOpsCLIError) as exc:
                 logger.warning("Failed to delete points for removed repository '%s': %s", proj, exc)
             shutil.rmtree(state_file.parent, ignore_errors=True)
 
@@ -152,8 +158,11 @@ def _load_repo_state(state_file: Path) -> dict[str, Any]:
     """Read JSON state file if present."""
     if state_file.exists():
         try:
-            return json.loads(state_file.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
-        except Exception as exc:
+            content = state_file.read_text(encoding="utf-8")
+            data = json.loads(content)
+            if isinstance(data, dict):
+                return data
+        except (json.JSONDecodeError, OSError) as exc:
             logger.debug("Failed reading state file %s: %s", state_file, exc)
     return {}
 
@@ -172,7 +181,7 @@ def _update_points_visibility(
                 filter_payload={"project_name": repo},
                 wait=True,
             )
-        except Exception as exc:
+        except (QdrantClientError, DevOpsCLIError) as exc:
             logger.warning("Failed rewriting visibility for %s in %s: %s", repo, coll, exc)
 
 
