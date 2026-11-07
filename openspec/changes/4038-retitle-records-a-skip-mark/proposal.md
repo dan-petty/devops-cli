@@ -41,7 +41,7 @@ None.
 - `RoadmapStore.set_marks(item, marks)` writes marks in one call and changes no field. `open_items()` returns each item with its `job_record` and its `body` with the record block taken out, so the check needs no extra read and the write of the mark does not change the body.
 - `body_hash.hash_text` gives the SHA-256 hash, so no new library is needed.
 - No merged or open pull request and no newer issue or ADR supersedes the item: #3535, #3630 and #3811 added the row and the schedule only, and no open pull request touches `retitle.py`.
-- Check of the new tests against the real code: `uv run devops ci test tests/roadmap/test_roadmap_retitle_skip.py` fails on the unchanged selection (14 of 17 tests fail; the 3 that pass are controls that hold with no mark). `uv run devops ci fail-to-pass --base origin/main` is the proof for the pull request.
+- Check of the new tests against the real code: `uv run devops ci test tests/roadmap/test_roadmap_retitle_skip.py` fails on the unchanged selection (15 of 17 tests fail on the call; the 2 that pass are controls that hold with no mark). `uv run devops ci fail-to-pass --base origin/main` is the proof for the pull request.
 - Risks settled in `design.md`: the hash covers the whole body, a model failure is recorded as a skip, and the key family lands before the failure-class issues of #3027.
 
 ## Existing Tool Considered

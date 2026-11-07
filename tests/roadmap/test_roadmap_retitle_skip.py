@@ -11,11 +11,7 @@ from typing import Any
 import pytest
 
 from devops_cli.roadmap.retitle import RetitleReply, apply_retitle, long_title_items, plan_retitle
-from devops_cli.roadmap.stores.store import (
-    ItemField,
-    RetitleRecordKey,
-    StageRecordKey,
-)
+from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore, JobWrite
 
 REPO = "example/roadmap"
@@ -23,6 +19,9 @@ LONG = "Shorten the title of an item that a job leaves out because it is too lon
 OLD = f"fix(roadmap): {LONG}"
 OTHER_LONG = "Shorten the title of an item that a person edited after the job left it"
 NEW_SUMMARY = "Shorten the long title of an item"
+# The key of `RetitleRecordKey.SKIPPED`. The tests name it as text, so that they fail in the call
+# phase, and not at the import, while the key family does not exist.
+SKIPPED = "retitle.skipped"
 JOB_COMMENT = "<!-- devops roadmap intake: reason -->\nPlaced."
 
 
@@ -109,7 +108,7 @@ def _round(store: InMemoryRoadmapStore, model: FakeModel, *, limit: int | None =
 
 
 def _skip_marks(store: InMemoryRoadmapStore) -> list[JobWrite]:
-    return [w for w in store.job_writes() if w.key == RetitleRecordKey.SKIPPED.value]
+    return [w for w in store.job_writes() if w.key == SKIPPED]
 
 
 def _numbers(store: InMemoryRoadmapStore) -> list[int]:
@@ -171,7 +170,7 @@ def test_skip_mark_does_not_change_the_hash_that_it_holds(store: CountingStore) 
 
     item = store.item(number)
     assert item is not None
-    assert item.job_record.get(RetitleRecordKey.SKIPPED)
+    assert {str(k): v for k, v in item.job_record.items()}.get(SKIPPED)
     assert "retitle.skipped" not in item.body
     assert _numbers(store) == []
 
@@ -238,6 +237,8 @@ def test_returns_when_changed_and_the_new_round_decides_the_item_again(
 def test_returns_when_changed_a_mark_that_is_not_the_current_hash_selects_the_item(
     store: CountingStore,
 ) -> None:
+    from devops_cli.roadmap.stores.store import RetitleRecordKey
+
     number = _item(store)
     item = store.item(number)
     assert item is not None

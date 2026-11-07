@@ -237,14 +237,6 @@ class StageRecordKey(StrEnum):
     REJECTED = "stage.rejected"
 
 
-class RetitleRecordKey(StrEnum):
-    """What the retitle job records in an Item's job record (#4038): `retitle.skipped`, the hash
-    of the title, the body and the `stage.pr` mark that the job read when it left the Item with
-    a long title as it was. The job selects the Item again when the hash changes."""
-
-    SKIPPED = "retitle.skipped"
-
-
 class ImplementRecordKey(StrEnum):
     """What the implement job records in an Item's job record (#2665): the last task group that
     passed, the commit the job ended on, the branch and the pull request it works on (#2714), the
