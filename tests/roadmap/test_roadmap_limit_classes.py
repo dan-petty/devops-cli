@@ -135,6 +135,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "window",
         "room that the first plan request leaves below the limit of the tools for their answers",
     ),
+    "CONST_ROADMAP_STAGE_MIN_TOOL_CALLS": (
+        "window",
+        "least tool calls before the window ends the tools of a plan run; fewer fails the item",
+    ),
     "CONST_ROADMAP_STAGE_REFERENCE_NAME_MAX_CHARS": (
         "kept",
         "the text `references` searches for; a name is short, and a longer text is no name",

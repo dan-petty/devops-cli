@@ -1725,12 +1725,10 @@ def _run_report(trace: RunTrace) -> str:
     ]
     if calls:
         listed = texts.stage_comment_calls.format(calls="\n".join(calls))
-    elif any(trace.offered):
+    else:
         listed = texts.stage_comment_no_calls.format(
             offered=sum(1 for tools in trace.offered if tools), requests=len(trace.offered)
         )
-    else:
-        listed = texts.stage_comment_no_tools_offered
     counts = ", ".join(
         texts.stage_comment_tool_count.format(name=name, calls=made, empty=empty)
         for name, (made, empty) in trace.tool_counts().items()
