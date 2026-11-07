@@ -1,0 +1,18 @@
+# Design
+
+## Decisions
+
+- **Put the rule in a ConfigMap under `k8s/logging` and mount it into the single binary, with the ruler's local storage at `/etc/loki/rules`.**: The rules sidecar is off (`sidecar.rules.enabled: false`), and turning it on makes the Loki pod watch the Kubernetes API, which the values file records as a crashloop (#1652). A mounted file needs no API access and no ServiceAccount token.
+- **Set `alertmanager_url` to `http://prometheus-alertmanager.monitoring.svc.cluster.local:9093`.**: Grafana already names that Service and port in `k8s/monitoring/grafana-values.yaml:134:url: http://prometheus-alertmanager.monitoring.svc.cluster.local:9093`, so the ruler uses the address the stack already serves.
+- **Alert on any eviction line in the last hour, so the threshold is 0.**: Every eviction drops the KV cache of the only model of the tier, and the tier logged 0 lines from the restart to 17:10Z. A single line is already the event that the issue measures at 55 to 330 s of swap.
+- **Filter the stream on the literal `model predicted to exceed available memory, evicting`.**: The issue quotes that line from the Loki stream `{service_name="ollama-48gib"}`. A narrower literal counts the eviction and not another line that holds the word.
+- **Add one egress rule to `k8s/logging/networkpolicy.yaml` and one ingress rule to `k8s/monitoring/networkpolicy.yaml`, both for TCP 9093 and the `logging` namespace.**: The logging perimeter admits only intra-namespace and DNS egress, and the monitoring perimeter admits nothing from `logging` on 9093. The ruler has no other path to Alertmanager.
+- **Test the rule by reading it and applying its parts to a fixture of log lines in the existing `tests/prometheus/test_k8s_monitoring_alerting.py`.**: No maintained tool evaluates LogQL offline. `promtool` refuses a LogQL expression, and the repository rejected a Python LogQL evaluator in `2026-10-25-1431-loki-logql-passthrough`. The test holds the selector, the filter, the window and the threshold without emulating a pipeline.
+- **Add a new capability `loki-ruler-alerts` instead of adding to an existing one.**: No listed capability covers alert rules of the Loki ruler. `loki-release-pin` covers the chart and image pin, `log-and-metric-retention` covers a Prometheus disk rule, and `alertmanager-mattermost-receiver` covers the Mattermost receiver.
+
+## Rejected alternatives
+
+- **Turn on the chart's rules sidecar and label the ConfigMap for it.**: `k8s/logging/loki-values.yaml:117:# Disable rule sidecar container in dev-mode Monolithic cluster to eliminate k8s API watch crashloop` and `k8s/logging/loki-values.yaml:122:# With the rules sidecar off, no Loki pod calls the Kubernetes API, so none mounts a ServiceAccount`. The sidecar needs the API watch and a token, both of which the values turn off.
+- **Build a LogQL evaluator in Python for the test.**: The repository rejected that path in `openspec/changes/archive/2026-10-25-1431-loki-logql-passthrough/design.md`: `Emulating pipelines in Python resulted in partial evaluation, silent omission of selectors, and unvetted pod selection (#1431).`
+- **Emit a Prometheus metric for evictions with an Alloy log-to-metric step.**: The issue records that Prometheus has no metric with `ollama` in its name, and the refine block rejects the Alloy step: `It adds a metric pipeline and cardinality for a rare event.`
+- **Run `promtool test rules` over the LogQL rule as the other rule tests do.**: The issue states that `promtool check rules` refuses a LogQL expression with `parse error: unexpected character: '|'`. The promtool tests of `tests/prometheus/test_k8s_monitoring_alerting.py` read the PromQL rules of `k8s/monitoring/prometheus-values.yaml` only.
