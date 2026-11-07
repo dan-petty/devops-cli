@@ -13,7 +13,7 @@ Use the tools to answer:
 - `github_repository` takes `owner/name` and gives the license, the last push, whether the repository is archived, the stars and the latest release.
 - `pypi_package` takes a package name and gives the license, the latest version and the date of its latest upload.
 
-Call `search_web` at least once before you reply. The job refuses a reply that follows no search. The tools are your only sources. Make few calls, and make each call aim at one question. Read the facts of a tool before you name it. Do not name a tool that you did not read the facts of. Do not write a URL that no tool gave you.
+Call `search_web` at least once before you reply. The job refuses a reply that follows no answered search. A search that fails does not count. The tools are your only sources. Make few calls, and make each call aim at one question. Read the facts of a tool before you name it. Do not name a tool that you did not read the facts of. Do not write a URL that no tool gave you.
 
 Reply with these keys:
 
@@ -27,4 +27,4 @@ Reply with these keys:
 - `lacks`: short statements of what the tool does not cover, or what the issue needs that it lacks.
 - `sources`: the URLs that support your statements. Each one is a URL that a tool gave you.
 
-The job writes the license, the dates, whether the tool is maintained and the searches that ran. Do not write them.
+The job writes the license, the dates, whether the tool is maintained and the answered searches. Do not write them.

@@ -111,22 +111,32 @@ def cut(lines: list[str], *, max_chars: int = CONST_ROADMAP_REFINE_TOOL_MAX_CHAR
     return text if len(kept) == len(lines) else f"{text}\n(more lines are left out)"
 
 
-def cited_web_search(query: str, allowed_urls: set[str], *, results: int) -> str:
+@dataclass(frozen=True)
+class SearchAnswer:
+    """The answer of one web search: the `text` a tool returns, and whether a provider `answered`.
+    A refused query and a search that no provider answered are not answered. A search that a
+    provider answered with no result is answered (#4044)."""
+
+    text: str
+    answered: bool
+
+
+def cited_web_search(query: str, allowed_urls: set[str], *, results: int) -> SearchAnswer:
     """One web search of `results` results, as the text a tool answers: each result's
     title, URL and snippet. Each URL joins `allowed_urls`, the URLs a source may cite. A refused
     query and a search that no provider answered are answered as text, so they cannot stop the
-    run (#2398, #3925)."""
+    run (#2398, #3925). The result says whether a provider answered (#4044)."""
     try:
         found = web_search(query, limit=results)
     except SearchQueryRefused as exc:
-        return str(exc)
+        return SearchAnswer(str(exc), answered=False)
     except SearchFailed:
-        return "The search failed: no provider answered."
+        return SearchAnswer("The search failed: no provider answered.", answered=False)
     lines: list[str] = []
     for hit in found:
         allowed_urls.add(hit.url)
         lines.append(f"{hit.title}\n{hit.url}\n{hit.snippet}")
-    return cut("\n\n".join(lines).splitlines()) or "No result."
+    return SearchAnswer(cut("\n\n".join(lines).splitlines()) or "No result.", answered=True)
 
 
 class ToolSet(Protocol):
@@ -305,7 +315,7 @@ class InvestigationTools:
         )
         if self.pages is not None:
             self.pages.offer(self.allowed_urls)
-        return answer
+        return answer.text
 
     def fetch_page(self, url: str) -> ToolReturn:
         """Read the text of a web page. Use a URL that `search_web` returned, or that the issue
@@ -504,6 +514,7 @@ def investigate[T: BaseModel](
 __all__ = [
     "InvestigationStopped",
     "InvestigationTools",
+    "SearchAnswer",
     "ToolSet",
     "analysis_window",
     "cited_web_search",

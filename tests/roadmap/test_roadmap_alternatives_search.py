@@ -96,7 +96,7 @@ def _fail_first_search(web: WebFake) -> None:
     web.serve(server)
 
 
-def _record(store: InMemoryRoadmapStore, number: int) -> dict[Any, str]:
+def _record(store: InMemoryRoadmapStore, number: int) -> dict[Any, str | None]:
     item = store.item(number)
     assert item is not None
     return item.job_record

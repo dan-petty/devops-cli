@@ -16,8 +16,8 @@ class, and the job makes no model call and no search for it.
 
 **The run.** For every other item, `investigate` of refine's investigation runs the agent with
 three tools: a web search, a GitHub repository read and a PyPI package read. A reply
-that follows no search gets one more turn to search; the job refuses a second reply that follows
-no search, and refuses `not-applicable` from the model. The tools are the only sources. They
+that follows no answered search gets one more turn to search; the job refuses a second reply that
+follows no answered search, and refuses `not-applicable` from the model. The tools are the only sources. They
 keep the URLs they returned, the facts they read and the searches they ran, and the job writes
 those into the record: the model writes only the verdict, its reason, the URL of the tool, and what it
 covers and lacks. The job refuses a reply that cites a URL no tool returned, and sets `maintained` from
@@ -272,8 +272,9 @@ def _yes_no(answer: bool) -> str:
 
 @dataclass(frozen=True)
 class Search:
-    """One search that ran: its query, and how many results with an http or https URL it
-    returned. A failed search returned none (#2944)."""
+    """One search that a provider answered: its query, and how many results with an http or https
+    URL it returned. A search with no result is an answer. A search that no provider answered, and
+    a refused query, are not recorded (#2944, #4044)."""
 
     query: str
     results: int
@@ -286,19 +287,20 @@ class AlternativesTools:
     `CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS` reads together. A tool answers a failed read, or a
     read over its limit, as text, so no argument the model sends can stop the run; a spent GitHub
     quota still stops it. The tools keep what they return: the URLs a source may cite, the facts
-    by URL, and the searches that ran.
+    by URL, and the answered searches.
     """
 
     store: RoadmapStore
     allowed_urls: set[str] = field(default_factory=set)
     facts: dict[str, ToolFacts] = field(default_factory=dict)
     searches: list[Search] = field(default_factory=list)
+    search_calls: int = 0
     fact_reads: int = 0
     pages: PageFetch | None = None
 
     @property
     def queries(self) -> list[str]:
-        """The query of each search that ran."""
+        """The query of each answered search."""
         return [search.query for search in self.searches]
 
     def search_web(self, query: str) -> str:
@@ -307,19 +309,21 @@ class AlternativesTools:
         Args:
             query: A short search query.
         """
-        if len(self.searches) >= CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES:
+        if self.search_calls >= CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES:
             return MESSAGES.roadmap.alternatives_search_limit
+        self.search_calls += 1
         found: set[str] = set()
         answer = cited_web_search(
             query,
             found,
             results=CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS,
         )
-        self.searches.append(Search(query, len(found)))
+        if answer.answered:
+            self.searches.append(Search(query, len(found)))
         self.allowed_urls |= {normalize_url(url) for url in found}
         if self.pages is not None:
             self.pages.offer(found)
-        return answer
+        return answer.text
 
     def fetch_page(self, url: str) -> ToolReturn:
         """Read the text of a web page. Use a URL that `search_web` returned, or that the issue
@@ -682,7 +686,7 @@ def _search_missing(tools: AlternativesTools) -> str | None:
 
 def _retry_message(reply: AlternativesReply, tools: AlternativesTools) -> str | None:
     """The message that sends `reply` back to the model once, or None. Another turn can mend a
-    verdict that only the job sets, and a reply that follows no search (#3505)."""
+    verdict that only the job sets, and a reply that follows no answered search (#3505, #4044)."""
     texts = MESSAGES.roadmap
     messages = [
         message
@@ -787,7 +791,7 @@ def _considered_section(tools: Sequence[CheckedTool]) -> list[str]:
 
 
 def _search_section(searches: Sequence[Search]) -> list[str]:
-    """The searches that ran, each with its result count (#2944)."""
+    """The answered searches, each with its result count (#2944, #4044)."""
     texts = MESSAGES.roadmap
     return _list_section(
         texts.alternatives_comment_queries,
