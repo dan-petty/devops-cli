@@ -862,6 +862,115 @@ def test_a_conflict_on_the_rebase_before_the_push_pushes_the_commits_that_passed
     assert "conflict" in job_world.issue_comments()[0].lower()
 
 
+def _conflict_on_main(world: JobWorld, names: list[str]) -> None:
+    """Make the staged branch and `main` both add each file of `names` with other text, so a rebase
+    of the branch onto `main` stops on one conflict for each file."""
+    repo = world.repo
+    repo.git("fetch", "-q", "origin", BRANCH)
+    repo.git("switch", "-q", "-c", "stage-side", f"origin/{BRANCH}")
+    for name in names:
+        (repo.clone / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo.clone / name).write_text("The branch.\n", encoding="utf-8")
+    repo.git("add", "-A")
+    repo.git("-c", "user.name=devops-roadmap[bot]", "commit", "-q", "-m", "fix(roadmap): more")
+    repo.git("push", "-q", "--force", "origin", f"stage-side:{BRANCH}")
+    repo.git("switch", "-q", "main")
+    repo.git("branch", "-q", "-D", "stage-side")
+    for name in names:
+        (repo.clone / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo.clone / name).write_text("Main.\n", encoding="utf-8")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", "main adds the same files")
+    repo.git("push", "-q", "origin", "main")
+
+
+def test_a_conflict_on_the_rebase_at_the_start_names_the_conflicted_files(
+    job_world: JobWorld,
+) -> None:
+    _conflict_on_main(job_world, ["docs/a.md", "docs/b.md"])
+
+    job_world.run(two_groups())
+
+    comment = job_world.issue_comments()[0]
+    _, record = _item(job_world)
+    assert (
+        "Failure class: `conflict`" in comment,
+        "- docs/a.md" in comment and "- docs/b.md" in comment,
+        json.loads(record["implement.conflict"] or "[]"),
+    ) == (True, True, ["docs/a.md", "docs/b.md"])
+
+
+def test_a_conflict_on_the_rebase_before_the_push_names_the_conflicted_files(
+    job_world: JobWorld,
+) -> None:
+    move_main_when(
+        job_world,
+        lambda call: command_text(call).startswith("uv run devops docs generate"),
+        docs_effect,
+    )
+
+    job_world.run(two_groups())
+
+    comment = job_world.issue_comments()[0]
+    _, record = _item(job_world)
+    assert (
+        "Failure class: `conflict`" in comment,
+        "- src/devops_cli/shout.py" in comment,
+        json.loads(record["implement.conflict"] or "[]"),
+    ) == (True, True, ["src/devops_cli/shout.py"])
+
+
+def test_a_retry_clears_the_conflicted_files_with_the_stop(job_world: JobWorld) -> None:
+    item = job_world.store.item(1)
+    assert item is not None
+    job_world.store.set_marks(
+        item,
+        {ImplementRecordKey.STOPPED: "rebase", ImplementRecordKey.CONFLICT: '["docs/a.md"]'},
+    )
+    job_world.store.comment(1, f"{MARKER}\nStopped at rebase.")
+    job_world.store.seed_comment(1, "implement: retry", author_association="OWNER")
+
+    job_world.run(two_groups())
+
+    _, record = _item(job_world)
+    assert record.get("implement.conflict") is None
+
+
+def test_a_list_of_conflicted_files_above_the_limit_is_cut_and_the_comment_counts_the_rest(
+    job_world: JobWorld,
+) -> None:
+    limit = constants.CONST_ROADMAP_IMPLEMENT_REASON_PATHS
+    names = [f"docs/file-{number:03d}.md" for number in range(limit + 3)]
+    _conflict_on_main(job_world, names)
+
+    job_world.run(two_groups())
+
+    comment = job_world.issue_comments()[0]
+    _, record = _item(job_world)
+    assert (
+        f"- {names[limit - 1]}" in comment,
+        f"- {names[limit]}" in comment,
+        "and 3 more" in comment,
+        json.loads(record["implement.conflict"] or "[]"),
+    ) == (True, False, True, names[:limit])
+
+
+def test_a_secret_in_the_path_of_a_conflicted_file_reaches_neither_comment_nor_record(
+    job_world: JobWorld,
+) -> None:
+    _conflict_on_main(job_world, [f"docs/{TOKEN}.md"])
+
+    job_world.run(two_groups())
+
+    _, record = _item(job_world)
+    recorded = record["implement.conflict"] or ""
+    assert (TOKEN in job_world.issue_comments()[0], TOKEN in recorded, "docs/" in recorded) == (
+        False,
+        False,
+        True,
+    )
+
+
 def test_a_step_that_stops_does_not_stop_the_next_item(job_world: JobWorld) -> None:
     second = seed_staged(job_world.store, pull=6)
     push_staged_branch(job_world.repo, number=second)
