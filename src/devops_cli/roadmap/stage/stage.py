@@ -874,6 +874,10 @@ class _Planner:
         self._specs = specs
         self._known = frozenset(specs)
         self._requirements = {name: spec.requirements for name, spec in specs.items()}
+        # The statement of each base requirement, by capability and name: an added requirement
+        # that removes a command needs a `modified` requirement for each base requirement that
+        # names it (#3287).
+        self._requirement_texts = {name: dict(spec.statements) for name, spec in specs.items()}
         self._tree = tree
         self._budget = budget
         self._window = window
@@ -1117,6 +1121,7 @@ class _Planner:
             self._known,
             self._tree_of(target, proposal),
             requirements=self._requirements,
+            requirement_texts=self._requirement_texts,
             issue_body=target.item.body,
             probes=self._probe_lines,
             overlaps=self._overlaps,

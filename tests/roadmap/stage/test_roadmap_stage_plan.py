@@ -2098,6 +2098,68 @@ def test_a_spec_delta_on_test_paths_goes_back_to_the_model_with_the_problem(
     assert len(plan.ready) == 1
 
 
+# ── A base requirement that names a removed command (#3287) ───────────────────
+
+INTAKE_EVAL = "devops roadmap intake-eval"
+STALE_COMMAND_REQUIREMENT = "The intake-eval command runs each case"
+STALE_COMMAND_SPEC = (
+    "# comment-thread Specification\n\n## Purpose\n"
+    "Keeps every comment of a thread when the job reads it, so a later step sees the whole "
+    "thread.\n\n## Requirements\n\n"
+    f"### Requirement: {STALE_COMMAND_REQUIREMENT}\n"
+    f"`{INTAKE_EVAL}` SHALL run each case of the folder.\n\n"
+    "#### Scenario: One case\n- **WHEN** the command runs\n- **THEN** it runs the case\n"
+)
+
+
+def _scenarios() -> list[dict[str, str]]:
+    """The one scenario of each requirement of the sample spec delta."""
+    return [{"name": "The case", "when": "the command runs", "then": "the case runs"}]
+
+
+def _removal_delta(*, modified: bool = False) -> dict[str, Any]:
+    """The delta of the known capability `comment-thread` of a plan that removes the command
+    `devops roadmap intake-eval`: the removal, and the base requirement that names the command in
+    `modified` when `modified` is set."""
+    rewritten = {
+        "name": STALE_COMMAND_REQUIREMENT,
+        "text": "The `devops roadmap eval intake` command SHALL run each case.",
+        "scenarios": _scenarios(),
+    }
+    return {
+        "capability": "comment-thread",
+        "added": [
+            {
+                "name": "The old command is gone",
+                "text": f"The `{INTAKE_EVAL}` command MUST NOT exist.",
+                "scenarios": _scenarios(),
+            }
+        ],
+        "modified": [rewritten] if modified else [],
+    }
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_base_requirement_that_names_a_removed_command_goes_back_to_the_model(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    stage_repo.track({"openspec/specs/comment-thread/spec.md": STALE_COMMAND_SPEC})
+    model_fake.answer(
+        make_stage_proposal(specs=[_removal_delta()]),
+        make_stage_proposal(specs=[_removal_delta(modified=True)]),
+    )
+
+    plan = _plan(store, stage_repo)
+
+    calls = _requests(model_fake)
+    assert len(calls) == 2
+    assert "problem" not in calls[0]
+    problem = calls[1]["problem"]
+    assert INTAKE_EVAL in problem
+    assert STALE_COMMAND_REQUIREMENT in problem
+    assert len(plan.ready) == 1
+
+
 # ── The criteria (#3019) ──────────────────────────────────────────────────────
 
 THREE_CRITERIA = (
