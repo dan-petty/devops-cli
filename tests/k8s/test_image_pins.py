@@ -35,6 +35,8 @@ _HUB = "registry-1.docker.io"
 _DIGEST = "sha256:" + "a" * 64
 _CRAWL4AI = "unclecode/crawl4ai"
 _CRAWL4AI_DIGEST = "sha256:0b05666882bfb67f45d559a5b827839c54127b74aedd723f8ab338a3571b5fc9"
+_SEARXNG = "searxng/searxng"
+_SEARXNG_DIGEST = "sha256:aecad882e86eeb022b76351c8dce4eb48d0cbb16a5f1691f77ea32c96d317502"
 
 _PATH_APPLICATION = """apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -407,6 +409,24 @@ def test_an_image_with_a_tag_and_a_digest_is_a_pin_that_resolves_by_its_digest(
         ("web",),
         {},
         [(image, "docker.io", _CRAWL4AI_DIGEST, None)],
+    )
+
+
+def test_an_image_with_a_registry_host_a_date_tag_and_a_digest_resolves_by_its_digest(
+    tmp_path: Path, process_fake: ProcessFake, web: WebFake
+) -> None:
+    """The SearXNG image names Docker Hub in full and a date tag with a commit (#3924). It is a
+    pin, and the registry is asked for the manifest of the digest."""
+    image = f"docker.io/{_SEARXNG}:2026.10.23-629368e40@{_SEARXNG_DIGEST}"
+    _chart_answers(process_fake)
+    web.serve(RegistryFake({f"{_HUB}/{_SEARXNG}:{_SEARXNG_DIGEST}": _SEARXNG_DIGEST}, host=_HUB))
+
+    pins = collect_image_pins(_tree(tmp_path, image))
+
+    assert (pins.pinned[image], pins.latest, _resolve(image)) == (
+        ("web",),
+        {},
+        [(image, "docker.io", _SEARXNG_DIGEST, None)],
     )
 
 

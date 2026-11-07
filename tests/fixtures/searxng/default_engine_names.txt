@@ -1,0 +1,353 @@
+# Engine names of searx/settings.yml in image docker.io/searxng/searxng:2026.10.23-629368e40. A bump of the image refreshes this file (k8s/README.md, "SearXNG").
+1337x
+1x
+360search
+360search videos
+500px
+9gag
+Torznab EZTV
+abcnyheter
+acfun
+ahmia
+alpine linux packages
+anaconda
+annas archive
+ansa
+apk mirror
+apple app store
+apple maps
+arch linux wiki
+artic
+artstation
+arxiv
+askubuntu
+astrophysics data system
+avalw
+ayo
+azure
+baidu
+baidu images
+baidu kaifa
+bandcamp
+bilibili
+bing
+bing images
+bing news
+bing videos
+bitbucket
+bitchute
+boardreader
+bpb
+brave
+brave.images
+brave.news
+brave.videos
+braveapi
+bt4g
+btdigg
+cachy os packages
+caddy.community
+chefkoch
+chinaso news
+cl0q
+cloudflareai
+codeberg
+core.ac.uk
+crates.io
+crossref
+crowdview
+currency
+dailymotion
+ddg definitions
+deepl
+deezer
+destatis
+deviantart
+devicons
+dictzone
+discuss.python
+docker hub
+dogpile
+dogpile images
+dogpile news
+dogpile videos
+duckduckgo
+duckduckgo images
+duckduckgo news
+duckduckgo videos
+duckduckgo weather
+duckduckgo web
+duden
+ebay
+elasticsearch
+emojipedia
+encyclosearch
+erowid
+etymonline
+europepmc
+exaapi
+fastbot
+fdroid
+findborg
+findborg images
+findborg news
+findborg videos
+findfiles
+findfiles images
+findfiles music
+findfiles videos
+findthatmeme
+fireball
+fireball news
+fireball videos
+flaticon
+flickr
+flickr_api
+free software directory
+freesound
+frinkiac
+fynd
+fyyd
+gabanza
+geizhals
+genius
+gentoo
+giphy
+gitea.com
+github
+github code
+gitlab
+gmx
+goodreads
+google
+google cse
+google cse images
+google images
+google news
+google play apps
+google play movies
+google scholar
+google videos
+grokipedia
+habrahabr
+hackernews
+hex
+hoogle
+huggingface
+huggingface datasets
+huggingface spaces
+iconify
+il post
+imdb
+imgur
+ina
+ipernity
+iqiyi
+iseek
+jina
+jisho
+kavunka demo
+keenable
+kickass
+kozmonavt
+kukei
+lemmy comments
+lemmy communities
+lemmy posts
+lemmy users
+lib.rs
+library genesis
+libretranslate
+lingva
+littlelayer
+lobste.rs
+lucide
+luxxle
+luxxle images
+luxxle news
+luxxle videos
+magnific
+mankier
+marginalia
+mastodon hashtags
+mastodon users
+material icons
+mdn
+media.ccc.de
+mediathekviewweb
+metacpan
+metacrawler
+microsoft learn
+minecraft wiki
+mixcloud
+mojeek
+mojeek images
+mojeek news
+moviepilot
+mozhi
+mwmbl
+mymemory translated
+national vulnerability database
+naver
+naver images
+naver news
+naver videos
+neocities
+neosearch
+niconico
+nixos wiki
+npm
+nyaa
+odysee
+ollama
+openairedatasets
+openairepublications
+openalex
+openclipart
+openlibrary
+openmeteo
+openrepos
+openstreetmap
+openverse
+packagist
+pdbe
+peertube
+pexels
+photon
+pi-hole.community
+picjumbo
+pinterest
+piped
+piped.music
+piratebay
+pixabay images
+pixabay videos
+pixiv
+pkg.go.dev
+podchaser
+privacywall
+privacywall images
+privacywall videos
+pub.dev
+public domain image archive
+pubmed
+pypi
+quark
+quark images
+qwant
+qwant images
+qwant news
+qwant videos
+radio browser
+rawweb
+reloado
+repology
+resulthunter
+resulthunter images
+reuters
+rottentomatoes
+rubygems
+rumble
+s1search
+searchch
+searchmysite
+searchrockit
+searchrockit images
+searchrockit news
+searchzee
+searchzee news
+seekninja
+selfhst icons
+semantic scholar
+senscritique
+sepiasearch
+seznam
+shopify stock
+sina
+sogou
+sogou images
+sogou videos
+sogou wechat
+solidtorrents
+soundcloud
+sourcehut
+springer nature
+stackoverflow
+startpage
+startpage images
+startpage news
+startpagina
+startpagina images
+startpagina news
+startpagina videos
+steam
+stocksnap
+superuser
+swisscows
+swisscows images
+swisscows news
+swisscows videos
+tagesschau
+tiger
+tiger news
+tineye
+tmdb
+tokyotoshokan
+tonline
+tonline images
+tonline news
+tonline videos
+tootfinder
+torch
+tusksearch
+tusksearch images
+tusksearch news
+tusksearch videos
+unobtanium
+unsplash
+uxwing
+vimeo
+voidlinux
+vuhuv
+vuhuv images
+vuhuv videos
+wallhaven
+wiby
+wikibooks
+wikicommons.audio
+wikicommons.files
+wikicommons.images
+wikicommons.videos
+wikidata
+wikimini
+wikinews
+wikipedia
+wikiquote
+wikisource
+wikispecies
+wikiversity
+wikivoyage
+wiktionary
+wolframalpha
+wolframalpha_api
+wordnik
+woxikon.de synonyme
+wttr.in
+xonaly
+xprivo
+xprivo news
+xprivo videos
+yacy
+yacy images
+yahoo
+yahoo news
+yandex
+yandex api
+yandex images
+yandex music
+yep
+youtube
+youtube_api
+z-library
+zapmeta
+zoo search

@@ -47,7 +47,7 @@ def test_devops_stack_manifests_integrity() -> None:
         all(p.exists() for p in manifests),
         "networkpolicy.yaml" in filenames,
         "serviceaccount.yaml" in filenames,
-        "configmap.yaml" in filenames,
+        any(p.parent.name == "devops" and p.name == "configmap.yaml" for p in manifests),
         "cronjob.yaml" in filenames,
         "deployment.yaml" in filenames,
         "service.yaml" in filenames,
@@ -63,7 +63,7 @@ def test_devops_stack_manifests_integrity() -> None:
             if f"{p.parent.name}/{p.name}" in rate_limit_then_ingress
         ],
     ) == (
-        20,
+        25,
         True,
         True,
         True,
@@ -103,10 +103,11 @@ def test_deploy_stack_devops_dry_run(isolate_devops_cli_config: Path) -> None:
         result = runner.invoke(app, ["deploy-stack", "--stack", "devops"])
         assert (
             result.exit_code,
-            "configmap.yaml" in result.output,
+            "devops/configmap.yaml" in result.output,
             "roadmap-service" in result.output,
             "cronjob.yaml" in result.output,
-        ) == (0, False, True, True)
+            "searxng/configmap.yaml" in result.output,
+        ) == (0, False, True, True, True)
     finally:
         set_dry_run(False)
 
