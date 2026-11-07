@@ -296,6 +296,7 @@ Address of the Crawl4AI service that returns the text of a web page.
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `url` | `Union` | - | `DEVOPS_CLI_CRAWL4AI_URL` | Address of the Crawl4AI service that returns the text of a web page, such as `http://crawl4ai.devops.svc.cluster.local:11235` in the cluster. It has no default |
+
 ## Web Search Configuration (`search`)
 
 The providers that web search asks, in order, and the language of the search.
