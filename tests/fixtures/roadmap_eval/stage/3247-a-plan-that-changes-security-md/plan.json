@@ -1,0 +1,76 @@
+{
+ "summary": "require a security section for sensitive plans",
+ "pull_request_body": "This change adds a security section requirement for plans that touch security triggers.",
+ "why": "Issue #3247: security and scope questions are left to the model, so plan reviews and fixes returned findings that needed a person. A deterministic trigger and a non-blank security section make the plan answer what crosses a trust boundary, what a person must confirm, and what test fails if the rule breaks.",
+ "what_changes": [
+  "Refuse a plan that changes `SECURITY.md` with no security text in `src/devops_cli/roadmap/stage/stage_change.py`."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "`check_proposal` of `src/devops_cli/roadmap/stage/stage_change.py` checks content problems."
+ ],
+ "existing_tool": "The change adds about 90 lines to `src/devops_cli/roadmap/stage/stage_change.py` at a cost of 30k tokens and 4 hours to build, keep and fix.",
+ "builds_own": true,
+ "decisions": [
+  {
+   "decision": "Put refusal in content_problems",
+   "reason": "It collects plan text rules."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Let model edit design.md directly",
+   "evidence": "render_change writes design.md."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "roadmap-stage",
+   "purpose": null,
+   "added": [
+    {
+     "name": "Require security section for sensitive plans",
+     "text": "The proposal check SHALL refuse a plan that names a security trigger and holds no security text.",
+     "scenarios": [
+      {
+       "name": "Plan changes SECURITY.md",
+       "when": "A plan changes SECURITY.md with no security text",
+       "then": "The check returns a security problem"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Refuse a plan that changes SECURITY.md with no security text",
+   "kind": "behavior",
+   "reads": [
+    "SECURITY.md"
+   ],
+   "changes": [
+    "SECURITY.md",
+    "src/devops_cli/roadmap/stage/stage_change.py",
+    "tests/roadmap/stage/test_roadmap_stage_security.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "test_a_plan_that_changes_security_md_with_no_security_text_is_refused",
+   "implementation": "Check for security trigger and require non-blank security text",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_security.py",
+   "process": null
+  }
+ ],
+ "criteria": [
+  {
+   "criterion": "The proposal check refuses a plan that touches a security trigger and holds no security text.",
+   "group": 1,
+   "reason": null
+  }
+ ],
+ "dependencies": [],
+ "security": ""
+}

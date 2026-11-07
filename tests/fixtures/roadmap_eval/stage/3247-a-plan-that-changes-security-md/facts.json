@@ -1,0 +1,10 @@
+{
+ "tracked": [
+  "SECURITY.md",
+  "src/devops_cli/roadmap/stage/stage_change.py",
+  "tests/roadmap/stage/test_roadmap_stage_security.py"
+ ],
+ "capabilities": [
+  "roadmap-stage"
+ ]
+}

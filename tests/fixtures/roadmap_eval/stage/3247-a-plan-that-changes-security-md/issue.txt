@@ -1,0 +1,9 @@
+# Item #3247: feat(roadmap): require a security section in design.md for sensitive plans
+
+## Problem or Motivation
+
+Security and scope questions are left to the model, so plan reviews and fixes returned findings that needed a person, such as a loosened guard, a stored URL, ambient environment variables and a credential redaction in the wrong layer. A deterministic trigger and a non-blank security section make the plan answer what crosses a trust boundary, what a person must confirm, and what test fails if the rule breaks.
+
+### Acceptance criteria
+
+- [ ] The proposal check refuses a plan that touches a security trigger and holds no security text.

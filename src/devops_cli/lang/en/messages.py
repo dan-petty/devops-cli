@@ -3580,6 +3580,11 @@ class RoadmapMessages:
         "A group changes `{path}`, and does not list `{test}` in `reads` or `changes` or verify it. "
         "List `{test}` in `reads` or `changes`, and give a `verify` command that names `{test}`."
     )
+    # A plan that names a security trigger has non-blank security text in design.md (#3247).
+    stage_problem_security: str = (
+        "The plan matches the security trigger `{trigger}` and has no security text. Add a "
+        "non-blank `## Security` section to `design.md`."
+    )
     # A plan states the work of each task once: a duplicate task spends the budget of the group on
     # no change (#3456).
     stage_group_one: str = "group {first}"
