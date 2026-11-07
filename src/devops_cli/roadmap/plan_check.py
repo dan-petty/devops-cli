@@ -10,6 +10,10 @@ The gates take a `StageProposal` and a `StagedTree`, so the command reads a chec
 `refs/pull/<number>/head` and reads the head files with `git show` and `git ls-tree`. The GitHub
 client gives the title, the body, the base and the check runs. Each problem has a path, a rule and
 a message; a person reads one line for each and an agent reads the JSON array.
+
+The implement job takes the plan pull request of the item over and writes the title and the body
+of a delivery, which closes the issue and plans none (PR #3961). Such a pull request is no plan,
+so the command reports no problem for it.
 """
 
 from __future__ import annotations
@@ -140,6 +144,18 @@ def issue_number(body: str) -> int | None:
     return None
 
 
+def _is_a_delivery(body: str) -> bool:
+    """Whether `body` is the body of the delivery of the item, and not the body of a plan.
+
+    The implement job takes the plan pull request of the item over and writes the title and the
+    body of a delivery, which closes the issue and plans none (PR #3961). A pull request that has
+    become the delivery is no plan, so the command judges it no more. A body that plans an issue
+    keeps the rules of a plan, also when it holds a closing keyword: that plan closes an issue
+    when it merges.
+    """
+    return issue_number(body) is None and closing_keyword_in(body) is not None
+
+
 def read_pull(client: PlanReads, repo: str, number: int) -> PullFacts:
     """The title, body and commits of pull request `number`."""
     pull = client.get_pull(repo, number)
@@ -157,7 +173,9 @@ def read_pull(client: PlanReads, repo: str, number: int) -> PullFacts:
 def is_plan(facts: PullFacts) -> bool:
     """Whether the pull request is a plan: its title holds the plan title, or its body holds the
     `Plans #<issue>` line. A pull request that the implement job has taken over holds neither, so
-    it is a delivery and the plan form no longer applies to it (#3224)."""
+    it is a delivery and the plan form no longer applies to it (#3224, PR #3961)."""
+    if _is_a_delivery(facts.body):
+        return False
     return facts.title.strip().startswith(_PLAN_TITLE) or issue_number(facts.body) is not None
 
 
@@ -448,7 +466,11 @@ def plan_check(
     client: PlanReads | None = None,
     check_reader: CheckReader = read_check_runs,
 ) -> PlanCheckResult:
-    """The problems of plan pull request `number` of `repo`, read in the checkout `source`."""
+    """The problems of plan pull request `number` of `repo`, read in the checkout `source`.
+
+    A pull request that has become the delivery of the item is no plan: the command reports no
+    problem for it.
+    """
     reads = client or _session_client()
     facts = read_pull(reads, repo, number)
     if not is_plan(facts):
