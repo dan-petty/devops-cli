@@ -667,7 +667,10 @@ def test_a_failed_repository_read_is_answered_as_text_and_logged(
     with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.alternatives"):
         answer = tools.github_repository("example/scanner")
 
-    assert (answer, [r.getMessage() for r in caplog.records]) == (
+    assert (
+        answer,
+        [r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.alternatives"],
+    ) == (
         "The read failed: GitHubOperationError.",
         ["A repository read of the alternatives check failed: GitHubOperationError."],
     )
@@ -809,7 +812,10 @@ def test_a_pypi_package_that_does_not_exist_or_fails_to_read_is_answered_as_text
     with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.alternatives"):
         answers = [tools.pypi_package(name) for name in ("none-such", "broken", "../x", "a b")]
 
-    assert (answers, [r.getMessage() for r in caplog.records]) == (
+    assert (
+        answers,
+        [r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.alternatives"],
+    ) == (
         [
             "PyPI has no package none-such.",
             "The read failed: HTTPStatusError.",
@@ -957,7 +963,11 @@ def test_the_decisions_are_cut_by_whole_entries_the_oldest_go_first_and_a_warnin
         decisions.startswith("ADR 0009: Newest decision\n"),
         decisions.endswith("Nine 499**: rejected, for a reason."),
         "ADR 0008" in decisions or "ADR 0007" in decisions,
-        [record.getMessage() for record in caplog.records],
+        [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == "devops_cli.roadmap.adr"
+        ],
     ) == (
         True,
         True,
