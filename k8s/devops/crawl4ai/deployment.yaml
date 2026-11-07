@@ -1,0 +1,130 @@
+# Crawl4AI renders a page in Chromium and returns its text (#3884). Upstream ships no Kubernetes
+# manifest, only a Dockerfile and a compose file, so this file follows the compose file: a read-only
+# root, the six tmpfs paths as volumes, 1 Gi of shared memory, and 4 Gi of memory. The pod reaches
+# only DNS and public web pages (networkpolicy.yaml), and only the roadmap Service calls it.
+# The image is a pin: Renovate bumps the tag and the digest together. Read the advisories of the
+# project before a bump (k8s/README.md, "Crawl4AI").
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crawl4ai
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: crawl4ai
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  # One pod, and Recreate: a second pod during a rollout would double the memory of Chromium.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: crawl4ai
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: crawl4ai
+        app.kubernetes.io/part-of: devops-cli-stack
+    spec:
+      # The image is 2.3 GB, and the root disk of the control-plane node has the least free space
+      # (k8s/README.md, Local-Path Volume Placement).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+      # The pod calls no Kubernetes API, so it mounts no token.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # The ID of user `appuser` in the image. A name cannot be checked against runAsNonRoot.
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: crawl4ai
+          image: unclecode/crawl4ai:0.9.5@sha256:0b05666882bfb67f45d559a5b827839c54127b74aedd723f8ab338a3571b5fc9
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 11235
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # Not set, on purpose: CRAWL4AI_ALLOW_INTERNAL_URLS, CRAWL4AI_HOOKS_ENABLED,
+          # CRAWL4AI_EXECUTE_JS_ENABLED and the key of any model provider. Without a token the
+          # server binds the loopback address only, so the Secret must exist before the pod starts.
+          env:
+            - name: CRAWL4AI_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: crawl4ai
+                  key: CRAWL4AI_API_TOKEN
+            # An IPv4 bind. The default `[::]` takes IPv4 only when the node allows it.
+            - name: GUNICORN_BIND
+              value: 0.0.0.0:11235
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: redis
+              mountPath: /var/lib/redis
+            - name: outputs
+              mountPath: /var/lib/crawl4ai/outputs
+            - name: crawl4ai-home
+              mountPath: /home/appuser/.crawl4ai
+            - name: url-seeder
+              mountPath: /home/appuser/.cache/url_seeder
+            - name: gunicorn
+              mountPath: /home/appuser/.gunicorn
+            - name: dev-shm
+              mountPath: /dev/shm
+          # /health is the only route that needs no token. The start takes time: supervisord starts
+          # Redis and the app, and the app starts the browser pool.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 11235
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 11235
+            periodSeconds: 15
+            timeoutSeconds: 5
+          # First limits, from the compose file of the project. Measure, then change.
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+              ephemeral-storage: 512Mi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+              ephemeral-storage: 2Gi
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: redis
+          emptyDir: {}
+        - name: outputs
+          emptyDir: {}
+        - name: crawl4ai-home
+          emptyDir: {}
+        - name: url-seeder
+          emptyDir: {}
+        - name: gunicorn
+          emptyDir: {}
+        # Chromium needs a large /dev/shm. The memory counts toward the 4 Gi limit.
+        - name: dev-shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi

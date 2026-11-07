@@ -5,4 +5,5 @@ resources:
 - cronjob.yaml
 - cronjob-runner.yaml
 - networkpolicy.yaml
+- crawl4ai
 - roadmap-service

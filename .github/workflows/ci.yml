@@ -875,3 +875,51 @@ jobs:
       - name: Resolve the Image Pins
         if: steps.changes.outputs.pins == 'true'
         run: uv run devops k8s image-pins
+
+  # Scans the third-party image that Deployment `crawl4ai` pins, when a pull request changes the
+  # manifest, and only reports (#3884). The image is not ours to rebuild: a finding in it is
+  # fixed by the upstream release that a Renovate pull request brings, so the scan never fails
+  # the job. The job reads the finding in its log, and the person who merges the bump reads it too.
+  # A pull request that changes the manifest not at all skips the scan, and the job reports success.
+  third-party-image-scan:
+    name: Third-Party Image Scan
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read # paths-filter reads the changed files from the REST API
+
+    steps:
+      - name: Detect Crawl4AI Image Changes
+        id: changes
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            crawl4ai:
+              - 'k8s/devops/crawl4ai/deployment.yaml'
+
+      - name: Check out repository
+        if: steps.changes.outputs.crawl4ai == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Read the Pinned Image
+        if: steps.changes.outputs.crawl4ai == 'true'
+        id: image
+        run: |
+          image=$(sed -n 's/^ *image: *\(unclecode\/crawl4ai:[^ ]*\) *$/\1/p' k8s/devops/crawl4ai/deployment.yaml)
+          test "$(printf '%s\n' "$image" | wc -l)" = 1 && test -n "$image"
+          echo "ref=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Scan the Crawl4AI Image for Vulnerabilities
+        if: steps.changes.outputs.crawl4ai == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.image.outputs.ref }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          version: v0.75.0

@@ -263,7 +263,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             True,
             SecretGenerator("urlsafe", 32),
             None,
-            (),
+            ("deployment/crawl4ai",),
         ),
         (
             "devops/devops-cli",

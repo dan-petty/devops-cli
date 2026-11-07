@@ -472,9 +472,32 @@ def test_every_trivy_scan_runs_the_trivy_tools_lock_pins() -> None:
     ] == [
         ("ci.yml", "service-image", pinned),
         ("ci.yml", "runner-image", pinned),
+        ("ci.yml", "third-party-image-scan", pinned),
         ("release.yml", "service-image", pinned),
         ("release.yml", "runner-image", pinned),
     ]
+
+
+def test_the_third_party_image_scan_reports_and_never_fails_the_job() -> None:
+    """The Crawl4AI image is not ours to rebuild, so its scan exits 0 whatever it finds, and the job
+    scans only when a pull request changes the manifest that pins the image (#3884)."""
+    job = _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"]["third-party-image-scan"]
+    (scan,) = [
+        step for _, step in _extract_steps_with_action({"jobs": {"scan": job}}, "trivy-action")
+    ]
+    (detect,) = [step for step in job["steps"] if "paths-filter" in str(step.get("uses", ""))]
+
+    assert (
+        scan["with"]["exit-code"],
+        scan["with"]["image-ref"],
+        yaml.safe_load(detect["with"]["filters"]),
+        scan["if"],
+    ) == (
+        "0",
+        "${{ steps.image.outputs.ref }}",
+        {"crawl4ai": ["k8s/devops/crawl4ai/deployment.yaml"]},
+        "steps.changes.outputs.crawl4ai == 'true'",
+    )
 
 
 def assert_audit_workflow_contract(workflow: dict[str, Any], text: str) -> None:

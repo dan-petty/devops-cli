@@ -33,6 +33,8 @@ _ALERTMANAGER = "quay.io/example/alertmanager:v1.0.0"
 _CLOUDFLARED = "cloudflare/cloudflared:2026.10.4"
 _HUB = "registry-1.docker.io"
 _DIGEST = "sha256:" + "a" * 64
+_CRAWL4AI = "unclecode/crawl4ai"
+_CRAWL4AI_DIGEST = "sha256:0b05666882bfb67f45d559a5b827839c54127b74aedd723f8ab338a3571b5fc9"
 
 _PATH_APPLICATION = """apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -388,6 +390,24 @@ def test_each_image_resolves_to_its_digest_or_to_the_resolvers_error(web: WebFak
             "it needs credentials (HTTP 401).",
         ),
     ]
+
+
+def test_an_image_with_a_tag_and_a_digest_is_a_pin_that_resolves_by_its_digest(
+    tmp_path: Path, process_fake: ProcessFake, web: WebFake
+) -> None:
+    """The Crawl4AI image names a release tag and the digest of its index (#3884). It is a pin, not
+    a `latest` image, and the registry is asked for the manifest of the digest."""
+    image = f"{_CRAWL4AI}:0.9.5@{_CRAWL4AI_DIGEST}"
+    _chart_answers(process_fake)
+    web.serve(RegistryFake({f"{_HUB}/{_CRAWL4AI}:{_CRAWL4AI_DIGEST}": _CRAWL4AI_DIGEST}, host=_HUB))
+
+    pins = collect_image_pins(_tree(tmp_path, image))
+
+    assert (pins.pinned[image], pins.latest, _resolve(image)) == (
+        ("web",),
+        {},
+        [(image, "docker.io", _CRAWL4AI_DIGEST, None)],
+    )
 
 
 def test_each_image_resolves_as_an_anonymous_client(web: WebFake) -> None:
