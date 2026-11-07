@@ -788,6 +788,18 @@ Do these steps in this order. Step 1 does not need the cluster.
 
 Do not restart the pod to clear a halt before you know its cause. A restart clears the halt, the hourly budget and the count of failed rounds.
 
+### Crawl4AI
+
+`deployment/crawl4ai` runs [Crawl4AI](https://github.com/unclecode/crawl4ai) 0.9.5 (Apache-2.0), a service that renders a web page in Chromium and returns its text as Markdown (`POST /md`). Upstream ships no Helm chart and no Kubernetes manifest, so `k8s/devops/crawl4ai/` follows its compose file: one replica with the `Recreate` strategy, a read-only root, an `emptyDir` for each of the six paths that the compose file mounts as tmpfs, 1 Gi of shared memory at `/dev/shm`, and 4 Gi of memory. The pod meets Pod Security `restricted` and runs as user 999, the ID of `appuser` in the image. It mounts no service account token. Service `crawl4ai` answers on port 11235 inside the cluster. No Ingress, Traefik route or tunnel entry names it.
+
+- **Access.** Only the pods of `roadmap-service` may call it (`crawl4ai-perimeter` and `roadmap-service-to-crawl4ai`). A Job pod cannot. Every route but `/health` needs the bearer token in Secret `crawl4ai`. Without the token the server binds the loopback address only, so the Secret must exist before the pod starts. A person creates it with `devops k8s push-secrets --stack devops` (see [Cluster Secrets](#cluster-secrets)).
+- **Egress.** The pod reaches CoreDNS and public TCP 80 and 443. The ranges that the rule removes are those of `devops-default-perimeter`: private, shared, link-local, cloud metadata and special-purpose addresses. This policy is the main control against a request to an internal address. The filter inside Crawl4AI is the second control, and it had bypasses in 0.8 and 0.9. `devops-default-perimeter` skips this pod, so the pod has no path to the gateway or to the cache Valkey.
+- **Switches that stay off.** The Deployment sets none of `CRAWL4AI_ALLOW_INTERNAL_URLS`, `CRAWL4AI_HOOKS_ENABLED` and `CRAWL4AI_EXECUTE_JS_ENABLED`, and it holds no key of a model provider. A test holds this.
+- **The pin.** The image names a release tag and the digest of its multi-platform index. Renovate reads `k8s/**/*.yaml` and bumps the tag and the digest in one pull request. `devops k8s image-pins` resolves the pin. The CI job `image-pins` runs it, and the image scan reports the third-party digest without failing the pull request.
+- **The advisory watch.** The project has had many security advisories since 2026-06, and the fixes arrive as releases. Read the [advisories](https://github.com/unclecode/crawl4ai/security/advisories) before you merge a bump, and merge a bump that fixes an advisory without delay. Only 0.9.x gets fixes.
+- **The log.** `kubectl -n devops logs deploy/crawl4ai` shows supervisord, Redis and the app. A blocked request shows as `URL blocked (SSRF protection)` with HTTP 400. The first start is slow because the image is 2.3 GB.
+- **The limits.** The first limits are 1 Gi of memory as the request and 4 Gi as the limit, 500m and 2 CPUs, and 2 Gi of ephemeral storage. On a workstation, one idle container used about 500 MiB, and four pages at once used under 750 MiB and two CPUs. Measure on the cluster, then change them.
+
 ### Agent sessions
 
 `k8s/agents/` defines read-only identity and boundaries for autonomous AI agent sessions running against the cluster:
@@ -1326,7 +1338,13 @@ k8s/
 │   ├── configmap.example.yaml # devops-cli config template: deploy-stack renders ConfigMap devops-cli-config from it and config.yaml
 │   ├── cronjob.yaml          # Suspended CronJob devops-cli, the template of every cluster job
 │   ├── cronjob-runner.yaml   # Suspended CronJob devops-cli-runner, the template of the implement job's runner Job
-│   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out
+│   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out; skips the crawl4ai pod
+│   ├── crawl4ai/             # Crawl4AI page-text service: Deployment, Service and the NetworkPolicies of the pod and of its one client
+│   │   ├── kustomization.yaml
+│   │   ├── deployment.yaml
+│   │   ├── networkpolicy-client.yaml
+│   │   ├── networkpolicy.yaml
+│   │   └── service.yaml
 │   └── roadmap-service/      # Continuous roadmap service Deployment, Service, Ingress, rate-limit Middleware, NetworkPolicies, PVC, ServiceAccount and Role
 │       ├── kustomization.yaml
 │       ├── admissionpolicy.yaml

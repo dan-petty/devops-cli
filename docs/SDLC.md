@@ -236,6 +236,9 @@ GitHub Pages publishes `main:/docs` when a pull request merges. The `Docs Site B
 #### The Image Pins (`ci.yml`, `image-pins`)
 A wrong image tag under `k8s/` fails only when Argo CD syncs. The `Image Pins` job runs `devops k8s image-pins` on the pull request first. The command renders each Argo CD Application as Argo CD does: a path source with `kubectl kustomize`, and a chart source with the pinned `helm`, the value files of the repository and no test manifests. It fails on an image that has no digest and the `latest` tag or no tag, unless an `ImageUpdater` object names it. It then resolves each image once with a HEAD request of its manifest, which Docker Hub does not count, as an anonymous client, and fails on an image that its registry does not hold or refuses. It does not resolve the images that an `ImageUpdater` object names, because Image Updater moves them, or the images of a registry that only the cluster reaches. The job checks only when a pull request changes `k8s/`, the command's `image_pins.py` modules, the registry module `src/devops_cli/docker/registry.py` or `ci.yml`. On any other pull request, the job skips the check and reports success.
 
+#### The Third-Party Image Scan (`ci.yml`, `third-party-image-scan`)
+The cluster runs the image of Crawl4AI by the digest that `k8s/devops/crawl4ai/deployment.yaml` pins. The project does not build that image, so it cannot fix a finding in it: the fix is the upstream release that a Renovate pull request brings. The `Third-Party Image Scan` job runs Trivy on the pinned reference when a pull request changes that file. It looks for fixed findings of severity HIGH and CRITICAL, prints them in the log, and never fails the job. The person who merges the bump reads the log. On any other pull request, the job skips the scan and reports success.
+
 ---
 
 ### Phase 5: Automated Code Review & Peer Review Governance
