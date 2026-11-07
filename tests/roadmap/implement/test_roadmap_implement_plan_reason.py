@@ -82,7 +82,7 @@ def test_a_planned_item_with_a_refused_merged_plan_leaves_the_queue_and_explain_
 # and it has no `Verification:` line, so the plan reader refuses it.
 NO_WAY_FORWARD_TASKS = PLACEHOLDER_TASKS.replace("1.1 x", "1.1 Add `src/devops_cli/shout.py`")
 NO_WAY_FORWARD_TASKS = NO_WAY_FORWARD_TASKS.replace(", `tests/test_shout.py` (new)", "").replace(
-    "\n  - Verification: `uv run devops ci test tests/test_shout.py`", ""
+    "\n  - Verification: `$ uv run devops ci test tests/test_shout.py`", ""
 )
 
 

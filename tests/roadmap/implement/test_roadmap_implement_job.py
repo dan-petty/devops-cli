@@ -1489,18 +1489,18 @@ TWO_BEHAVIOR_TASKS = """\
 Reads: `CONTEXT.md`. Changes: `tests/test_shout.py` (new), `src/devops_cli/shout.py` (new).
 
 - [ ] 1.1 Add the failing test `tests/test_shout.py` for `src/devops_cli/shout.py`
-  - Verification: `uv run devops ci test tests/test_shout.py` fails on the base
+  - Verification: `$ uv run devops ci test tests/test_shout.py` fails on the base
 - [ ] 1.2 Add `shout` to `src/devops_cli/shout.py`
-  - Verification: `uv run devops ci test tests/test_shout.py`
+  - Verification: `$ uv run devops ci test tests/test_shout.py`
 
 ## 2. The second group
 
 Reads: `CONTEXT.md`. Changes: `tests/test_whisper.py` (new), `src/devops_cli/whisper.py` (new).
 
 - [ ] 2.1 Add the failing test `tests/test_whisper.py` for `src/devops_cli/whisper.py`
-  - Verification: `uv run devops ci test tests/test_whisper.py` fails on the base
+  - Verification: `$ uv run devops ci test tests/test_whisper.py` fails on the base
 - [ ] 2.2 Add `whisper` to `src/devops_cli/whisper.py`
-  - Verification: `uv run devops ci test tests/test_whisper.py`
+  - Verification: `$ uv run devops ci test tests/test_whisper.py`
 
 ## Criteria
 
@@ -1578,22 +1578,22 @@ def _guard_tasks(name: str, *, behavior: bool) -> str:
             "Reads: `CONTEXT.md`. Changes: `tests/test_shout.py` (new), "
             "`src/devops_cli/shout.py` (new).\n\n"
             "- [ ] 1.1 Add the failing test `tests/test_shout.py` for `src/devops_cli/shout.py`\n"
-            "  - Verification: `uv run devops ci test tests/test_shout.py` fails on the base\n"
+            "  - Verification: `$ uv run devops ci test tests/test_shout.py` fails on the base\n"
             f"- [ ] 1.2 Add the guard `{name}` to `src/devops_cli/shout.py`\n"
-            "  - Verification: `uv run devops ci test tests/test_shout.py`\n"
+            "  - Verification: `$ uv run devops ci test tests/test_shout.py`\n"
         )
     else:
         first = (
             "Reads: `CONTEXT.md`. Changes: `src/devops_cli/shout.py` (new), `tests/test_shout.py` (new).\n\n"
             f"- [ ] 1.1 Add the guard `{name}` to `src/devops_cli/shout.py`\n"
-            "  - Verification: `uv run devops ci test tests/test_shout.py`\n"
+            "  - Verification: `$ uv run devops ci test tests/test_shout.py`\n"
         )
     return (
         f"# Tasks\n\n## 1. The first group\n\n{first}\n"
         "## 2. The second group\n\n"
         "Reads: `CONTEXT.md`. Changes: `CONTEXT.md`.\n\n"
         "- [ ] 2.1 Document the function in `CONTEXT.md`\n"
-        "  - Verification: `uv run devops docs check`\n\n"
+        "  - Verification: `$ uv run devops docs check`\n\n"
         "## Criteria\n\n- Group 1: The job keeps every comment.\n"
     )
 

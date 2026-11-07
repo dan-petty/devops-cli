@@ -70,14 +70,14 @@ TASKS = """\
 Reads: `CONTEXT.md`. Changes: `src/devops_cli/shout.py` (new), `tests/test_shout.py` (new).
 
 - [ ] 1.1 Add `src/devops_cli/shout.py`
-  - Verification: `uv run devops ci test tests/test_shout.py`
+  - Verification: `$ uv run devops ci test tests/test_shout.py`
 
 ## 2. The second group
 
 Reads: `CONTEXT.md`. Changes: `CONTEXT.md`.
 
 - [ ] 2.1 Document the function in `CONTEXT.md`
-  - Verification: `uv run devops docs check`
+  - Verification: `$ uv run devops docs check`
 
 ## Criteria
 

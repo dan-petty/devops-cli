@@ -19,6 +19,7 @@ from devops_cli.roadmap.implement.implement_shell_policy import (
 from devops_cli.roadmap.stage.stage_form import is_valid_verify
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.step_files import (
+    COMMAND_MARK,
     MARKDOWN,
     TaskGroup,
     parse_task_groups,
@@ -210,7 +211,7 @@ def _judge_task(request: PlanRequest, target: TaskGroup) -> tuple[str, Amendment
     task_num = f"{target.number}.{len(target.tasks) + 1}"
     task_lines = [f"- [ ] {task_num} {request.new}"]
     if request.verify:
-        task_lines.append(f"  - Verification: `{request.verify}`")
+        task_lines.append(f"  - Verification: `{COMMAND_MARK}{request.verify}`")
     task_block = "\n".join(task_lines)
     new_text = target.text.rstrip() + f"\n{task_block}\n\n"
     amendment = Amendment(

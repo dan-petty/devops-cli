@@ -42,9 +42,9 @@ BEHAVIOR = """\
 ## 1. The first group
 
 - [ ] Add the failing test `tests/test_sample.py` for `src/sample.py`
-  - Verification: `uv run devops ci test tests/test_sample.py` fails on the base
+  - Verification: `$ uv run devops ci test tests/test_sample.py` fails on the base
 - [ ] Add `shout` to `src/sample.py`
-  - Verification: `uv run devops ci test tests/test_sample.py`
+  - Verification: `$ uv run devops ci test tests/test_sample.py`
 """
 TICKED_BEHAVIOR = BEHAVIOR.replace("- [ ] Add", "- [x] Add")
 TEST_PATH = "tests/test_sample.py"
@@ -255,7 +255,7 @@ def test_a_group_that_says_it_is_behavior_needs_a_test_file(
 Kind: behavior.
 
 - [ ] Add `shout` to `src/sample.py`
-  - Verification: `uv run devops ci test tests/test_sample.py`
+  - Verification: `$ uv run devops ci test tests/test_sample.py`
 """
     checkout = make_checkout(tmp_path, tasks)
     ticked = tasks.replace("- [ ] Add", "- [x] Add")

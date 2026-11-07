@@ -50,7 +50,7 @@ GROUP = parse_task_groups(
     "## 1. The group\n\n"
     "Reads: none. Changes: `src/sample.py`, `tests/test_sample.py` (new).\n\n"
     "- [ ] 1.1 Add the test `tests/test_sample.py`\n"
-    "  - Verification: `uv run devops ci test tests/test_sample.py`\n"
+    "  - Verification: `$ uv run devops ci test tests/test_sample.py`\n"
     "- [ ] 1.2 Write `docs/NOTES.md`\n"
 )[0]
 

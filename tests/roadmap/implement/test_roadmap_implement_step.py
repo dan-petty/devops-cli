@@ -148,7 +148,7 @@ def test_the_text_of_a_group_runs_from_its_heading_to_the_next_heading() -> None
         second.text.splitlines()[0],
     ) == (
         "## 1. The first group",
-        "  - Verification: `uv run devops ci test tests/test_sample.py` and `uv run devops docs check`",
+        "  - Verification: `$ uv run devops ci test tests/test_sample.py` and `$ uv run devops docs check`",
         "## 2. The second group",
     )
 
@@ -402,7 +402,7 @@ def test_a_task_that_the_agent_removes_is_restored_and_the_group_is_ticked(
 ) -> None:
     shorter = TICKED.replace(
         "- [x] Add `shout` to `src/sample.py`\n"
-        "  - Verification: `uv run devops ci test tests/test_sample.py` and `uv run devops docs check`\n",
+        "  - Verification: `$ uv run devops ci test tests/test_sample.py` and `$ uv run devops docs check`\n",
         "",
     )
     script = ModelScript(

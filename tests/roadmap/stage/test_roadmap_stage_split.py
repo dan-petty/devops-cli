@@ -86,7 +86,7 @@ def test_ask_split_sends_group_with_text_as_it_is() -> None:
         "title": "Group from tasks.md",
         "tokens": 45000,
         "over_budget": True,
-        "text": "## 2. Group from tasks.md\n\n- [ ] Task in group\n  - Verification: `uv run devops ci test`\n",
+        "text": "## 2. Group from tasks.md\n\n- [ ] Task in group\n  - Verification: `$ uv run devops ci test`\n",
     }
     request: dict[str, Any] = {
         "number": 99,

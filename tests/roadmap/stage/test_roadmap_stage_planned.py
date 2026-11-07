@@ -237,7 +237,7 @@ def _plan_creating(path: str) -> str:
         "# Tasks\n\n## 1. The module\n\n"
         f"Reads: `src/devops_cli/shout.py`. Changes: `{path}` (new).\n\n"
         f"- [ ] Add `{path}`\n"
-        "  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_constants.py`\n"
+        "  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_stage_constants.py`\n"
     )
 
 

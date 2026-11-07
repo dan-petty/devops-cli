@@ -3683,10 +3683,11 @@ class RoadmapMessages:
     )
     # The implement step reads a verification command from the line `Verification:` under a task,
     # and from no other text (`step_files`). So a task is its work, a line break, and that line.
-    stage_task_test: str = "{test}\n  - Verification: `{verify}` fails on the base"
-    stage_task_pass: str = "{work}\n  - Verification: `{verify}` passes"
+    # The command is the code span that starts with `$ `. The step reads no other code span as one.
+    stage_task_test: str = "{test}\n  - Verification: `$ {verify}` fails on the base"
+    stage_task_pass: str = "{work}\n  - Verification: `$ {verify}` passes"
     stage_task_process: str = "{work}, and run this check by hand: {process}"
-    stage_task_documents: str = "{work}\n  - Verification: `uv run devops ci docs` passes"
+    stage_task_documents: str = "{work}\n  - Verification: `$ uv run devops ci docs` passes"
     # The step that regenerates the documents. A group that changes a command, an option or a
     # message ends its documents task with it. The plan reader splits the task at this text.
     stage_task_regenerate: str = ", and run `{command}`"
@@ -3847,7 +3848,9 @@ class RoadmapMessages:
     plan_recheck_live: str = (
         "{live} folders count. {cleanup} folders of closed issues are left out of every count."
     )
-    plan_recheck_unverified: str = "{count} of {live} folders have no `Verification:` line."
+    plan_recheck_unverified: str = (
+        "{count} of {live} folders have no marked `Verification:` command."
+    )
     plan_recheck_unreadable: str = "{count} of {live} folders fail the plan reader."
     # The refusals of each gate and the comparison with a branch (#3498).
     plan_recheck_case: str = "case to review"

@@ -171,7 +171,7 @@ def _task_lines(*groups: dict[str, Any]) -> list[str]:
 def test_a_deletion_that_keeps_behavior_renders_one_task_with_its_command_and_no_test() -> None:
     assert _task_lines(OTHER) == [
         "- [ ] 1.1 Delete `unused_probe` from `StreamingTokenProcessor`",
-        "  - Verification: `! git grep -n -w unused_probe src/ tests/ docs/` passes",
+        "  - Verification: `$ ! git grep -n -w unused_probe src/ tests/ docs/` passes",
     ]
 
 
@@ -182,7 +182,7 @@ def test_the_groups_of_the_mutation_report_plan_render_with_no_contrived_test() 
         "- [ ] 1.1 Run `uv run devops ci mutate` and write one row for each test file, and run "
         "this check by hand: Open the report. Check that a row names each of the 18 test files.",
         "- [ ] 2.1 Delete each test file with no unique mutant in the report",
-        "  - Verification: `uv run devops ci test tests/commands` passes",
+        "  - Verification: `$ uv run devops ci test tests/commands` passes",
     ]
 
 
@@ -197,9 +197,9 @@ def test_an_other_group_renders_no_test_and_no_failure_on_the_base(group: dict[s
 def test_a_behavior_group_renders_its_failing_test_first_and_then_its_implementation() -> None:
     assert _task_lines(BEHAVIOR) == [
         "- [ ] 1.1 Write `test_the_job_keeps_the_last_comment` in `tests/test_sample.py`",
-        "  - Verification: `uv run devops ci test tests/test_sample.py` fails on the base",
+        "  - Verification: `$ uv run devops ci test tests/test_sample.py` fails on the base",
         "- [ ] 1.2 Keep the last comment in `src/devops_cli/sample.py`",
-        "  - Verification: `uv run devops ci test tests/test_sample.py` passes",
+        "  - Verification: `$ uv run devops ci test tests/test_sample.py` passes",
     ]
 
 
@@ -223,7 +223,7 @@ def test_a_group_with_documentation_renders_the_documentation_task_after_its_wor
     assert len([line for line in lines if line.startswith("- [ ] ")]) == number
     assert lines[-2:] == [
         f"- [ ] 1.{number} Document the change in `docs/TESTING.md`",
-        "  - Verification: `uv run devops ci docs` passes",
+        "  - Verification: `$ uv run devops ci docs` passes",
     ]
 
 
@@ -244,7 +244,7 @@ def test_a_group_that_changes_a_command_renders_the_regeneration_step_in_its_doc
     assert lines[-2:] == [
         f"- [ ] 1.{number} Document the flag in `docs/CLI_REFERENCE.md`, and run "
         "`uv run devops docs generate --sync-readme`",
-        "  - Verification: `uv run devops ci docs` passes",
+        "  - Verification: `$ uv run devops ci docs` passes",
     ]
 
 
@@ -259,7 +259,7 @@ def test_a_group_that_changes_only_a_document_renders_no_regeneration_step() -> 
 
     assert lines[-2:] == [
         "- [ ] 1.2 Document the disclosure contact in `SECURITY.md`",
-        "  - Verification: `uv run devops ci docs` passes",
+        "  - Verification: `$ uv run devops ci docs` passes",
     ]
 
 

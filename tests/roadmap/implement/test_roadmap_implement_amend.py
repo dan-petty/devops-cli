@@ -21,7 +21,7 @@ SAMPLE_TASKS = """\
 Reads: `src/devops_cli/sample.py`. Changes: `tests/commands/test_sample.py`, `src/devops_cli/new_file.py` (new).
 
 - [ ] 1.1 In `tests/commands/test_sample.py`, write tests. Verify that `uv run pytest tests/commands/test_sample.py` passes
-  - Verification: `uv run pytest tests/commands/test_sample.py`
+  - Verification: `$ uv run pytest tests/commands/test_sample.py`
 - [ ] 1.2 Implement the change
 
 ## 2. Second group
@@ -29,9 +29,9 @@ Reads: `src/devops_cli/sample.py`. Changes: `tests/commands/test_sample.py`, `sr
 Reads: `src/devops_cli/sample.py`. Changes: `src/devops_cli/sample.py`.
 
 - [ ] 2.1 First task of group 2
-  - Verification: `uv run devops ci test tests/roadmap/test_sample.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/test_sample.py`
 - [ ] 2.2 Second task of group 2
-  - Verification: `uv run devops ci test tests/roadmap/test_sample.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/test_sample.py`
 
 ## Criteria
 
@@ -50,7 +50,7 @@ DONE_TASKS = """\
 Reads: `src/devops_cli/sample.py`. Changes: `tests/roadmap/test_sample.py`.
 
 - [x] 1.1 In `tests/roadmap/test_sample.py`, write tests
-  - Verification: `uv run devops ci test tests/roadmap/test_sample.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/test_sample.py`
 
 ## Workflow follow-up
 
@@ -165,7 +165,7 @@ def test_judge_applies_path_request_for_tracked_file_with_same_name() -> None:
     assert "Changes: `tests/roadmap/test_sample.py`" in outcome.tasks_md
     assert "In `tests/roadmap/test_sample.py`" in outcome.tasks_md
     assert "Verify that `uv run pytest tests/roadmap/test_sample.py` passes" in outcome.tasks_md
-    assert "Verification: `uv run pytest tests/roadmap/test_sample.py`" in outcome.tasks_md
+    assert "Verification: `$ uv run pytest tests/roadmap/test_sample.py`" in outcome.tasks_md
     # Group 2 should be unchanged
     assert "## 2. Second group" in outcome.tasks_md
     # Criteria should keep the old path untouched
@@ -314,7 +314,9 @@ def test_judge_applies_task_request_as_new_unticked_task() -> None:
     outcome = judge(request, SAMPLE_TASKS, tree)
     assert isinstance(outcome, Applied)
     assert "- [ ] 2.3 Third task of group 2" in outcome.tasks_md
-    assert "Verification: `uv run devops ci test tests/roadmap/test_sample.py`" in outcome.tasks_md
+    assert (
+        "Verification: `$ uv run devops ci test tests/roadmap/test_sample.py`" in outcome.tasks_md
+    )
     assert "- [ ] 2.1 First task of group 2" in outcome.tasks_md
     assert "- [ ] 2.2 Second task of group 2" in outcome.tasks_md
 

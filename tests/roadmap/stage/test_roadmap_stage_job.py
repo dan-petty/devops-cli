@@ -373,7 +373,7 @@ OPEN_PLAN = f"""\
 Reads: `src/devops_cli/shout.py`. Changes: `{NEW_MODULE}` (new).
 
 - [ ] Add `{NEW_MODULE}`
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_constants.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_stage_constants.py`
 """
 
 
