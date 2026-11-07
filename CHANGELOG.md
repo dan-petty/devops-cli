@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.83.1](https://github.com/dan-petty/devops-cli/compare/v0.83.0...v0.83.1) (2026-11-07)
+
+
+### Code Refactoring
+
+* **ai:** remove the agent test switches and test models ([#4017](https://github.com/dan-petty/devops-cli/issues/4017)) ([226394c](https://github.com/dan-petty/devops-cli/commit/226394ca1fa59aab4c7956c4c6c3c2a110bda8c4))
+
 ## [0.83.0](https://github.com/dan-petty/devops-cli/compare/v0.82.0...v0.83.0) (2026-11-07)
 
 
