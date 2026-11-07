@@ -87,6 +87,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "the size of the answer of one search; the cap on characters bounds it",
     ),
+    "CONST_ROADMAP_PAGE_FETCH_MAX": (
+        "kept",
+        "page fetches of one item; each one loads a page in the browser of the Crawl4AI service",
+    ),
+    "CONST_ROADMAP_PAGE_FETCH_MAX_CHARS": (
+        "kept",
+        "the size of one page answer; the same as another tool answer, bounded by the window",
+    ),
     "CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL": (
         "kept",
         "paths in the context; the context says how many it left out, and the tools read the rest",
