@@ -428,6 +428,23 @@ def test_the_alternatives_dry_run_lists_the_gh_command_and_the_url_of_each_reque
     ) == (AlternativesPlan, True, True, True, True, True, True, True, {"model call"})
 
 
+def test_the_alternatives_dry_run_lists_the_get_of_the_searxng_search_when_it_is_first(
+    config: Callable[..., Any],
+) -> None:
+    """The method of the request comes from the provider: SearXNG searches with GET (#3927)."""
+    from devops_cli.roadmap.alternatives import dry_run_alternatives
+
+    config(search={"providers": ["searxng", "duckduckgo"], "searxng_url": "http://127.0.0.1:8080"})
+
+    plan = dry_run_alternatives(REPO, item=7)
+
+    argvs = [request.argv for request in plan.requests]
+    assert (
+        ("GET", "http://127.0.0.1:8080/search") in argvs,
+        ("POST", "https://html.duckduckgo.com/html/") in argvs,
+    ) == (True, False)
+
+
 def test_the_alternatives_dry_run_lists_the_reads_of_the_adrs() -> None:
     """The run lists `docs/adr` and each file of it once for the run, when it checks an item that
     is no skip class (#3505)."""

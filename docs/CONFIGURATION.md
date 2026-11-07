@@ -303,8 +303,9 @@ The providers that web search asks, in order, and the language of the search.
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
-| `providers` | `list` | `['searxng', 'duckduckgo', 'firecrawl']` | `DEVOPS_CLI_SEARCH_PROVIDERS` | The providers of web search, in the order that a search asks them: `searxng`, `duckduckgo` or `firecrawl`. A provider that is not configured is skipped, and `searxng` is skipped until its provider exists (#3927). A search goes to the next provider when one fails or returns no hit, and the first provider with a hit answers |
+| `providers` | `list` | `['searxng', 'duckduckgo', 'firecrawl']` | `DEVOPS_CLI_SEARCH_PROVIDERS` | The providers of web search, in the order that a search asks them: `searxng`, `duckduckgo` or `firecrawl`. A provider that is not configured is skipped: `searxng` without `search.searxng_url`, and `firecrawl` without its key. A search goes to the next provider when one fails or returns no hit, and the first provider with a hit answers |
 | `language` | `str` | `en` | `DEVOPS_CLI_SEARCH_LANGUAGE` | The language of a web search, as the `Accept-Language` of its request |
+| `searxng_url` | `Union` | - | `DEVOPS_CLI_SEARCH_SEARXNG_URL` | Address of the SearXNG service for web search, such as `http://searxng.devops.svc.cluster.local:8080` in the cluster, or `http://127.0.0.1:8080` on a workstation after `kubectl port-forward -n devops svc/searxng 8080:8080`. A cluster address needs `ai.allow_private_network`. It has no default, and `searxng` is skipped without it |
 
 ## Top-Level Settings
 

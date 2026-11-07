@@ -64,6 +64,11 @@ data:
     # ConfigMap.
     crawl4ai:
       url: http://crawl4ai.devops.svc.cluster.local:11235
+    # The SearXNG service in namespace devops, which searches the web with no key. The cluster
+    # address needs ai.allow_private_network. On a workstation, set the address to
+    # http://127.0.0.1:8080 after `kubectl port-forward -n devops svc/searxng 8080:8080`.
+    search:
+      searxng_url: http://searxng.devops.svc.cluster.local:8080
     telemetry:
       enabled: true
       endpoint: http://otel-collector-opentelemetry-collector.otel.svc.cluster.local:4318

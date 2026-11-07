@@ -546,7 +546,7 @@ DEFAULT_TOOL_EXTRACT_OVERLAP: int = 1024  # 1 KiB
 
 # ── AI Web Search Defaults ──────────────────────────────────────────────────────
 # The providers that `web_search` can ask (#3925). The default list is the order of the asks: a
-# provider that is not configured is skipped, and `searxng` has no provider class yet (#3927).
+# provider that is not configured is skipped, and `searxng` is not configured without its address.
 SearchProviderName = Literal["searxng", "duckduckgo", "firecrawl"]
 DEFAULT_SEARCH_PROVIDERS: Final[tuple[SearchProviderName, ...]] = (
     "searxng",
@@ -568,6 +568,13 @@ DEFAULT_DUCKDUCKGO_SEARCH_URL: str = "https://html.duckduckgo.com/html/"
 DEFAULT_DUCKDUCKGO_TIMEOUT_SECONDS: float = 15.0
 DEFAULT_DUCKDUCKGO_REGION: str = "us-en"
 DEFAULT_DUCKDUCKGO_SAFESEARCH: str = "moderate"
+# The SearXNG provider (#3927). The categories are those of the engines that the manifest keeps: the
+# general engines, the technical ones (`it`) and the scientific ones (`science`). The live check of
+# #3929 holds them to the pinned image. The reply holds the text of up to 20 results, so the cap
+# leaves room.
+DEFAULT_SEARXNG_CATEGORIES: str = "general,it,science"
+DEFAULT_SEARXNG_TIMEOUT_SECONDS: float = 30.0
+DEFAULT_SEARXNG_MAX_REPLY_BYTES: int = 1024 * 1024  # 1 MiB
 
 # ── AI Page Text Defaults (Crawl4AI service) ────────────────────────────────────
 # Seconds that the Crawl4AI service may take to load and convert one page. Its own wall-clock
