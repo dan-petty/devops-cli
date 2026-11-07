@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.support.fakes.mcp_dispatcher import DispatcherFake
+if TYPE_CHECKING:
+    # Imported for the annotation only: pytest loads this conftest before it isolates HOME, and
+    # an import of devops-cli here would bind its paths under the real HOME (#1311, #1312).
+    from tests.support.fakes.mcp_dispatcher import DispatcherFake
 
 
 @pytest.fixture
