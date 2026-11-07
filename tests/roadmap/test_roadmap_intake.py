@@ -1019,7 +1019,10 @@ def test_a_run_that_stops_after_the_status_write_is_finished_by_the_next_run(
     writes only what it holds no label for, and leaves one reason comment."""
     number = roadmap.issue("feat: resumable")
     roadmap.store.fail_write(write="set_field", applied=True)
-    with pytest.raises(RoadmapIntakeError, match=f"#{number} \\(GitHubOperationError: HTTP 502\\)"):
+    with pytest.raises(
+        RoadmapIntakeError,
+        match=f"#{number} \\(GitHubOperationError: HTTP 502 after the write applied\\)",
+    ):
         roadmap.run(FakeModel())
     stopped = roadmap.fields(number)
     writes = roadmap.run(FakeModel())
@@ -1388,7 +1391,11 @@ def test_confirm_reports_what_it_placed_names_what_it_skipped_and_exits_one(
 ) -> None:
     """The person running it sees the placements, then which candidate failed and why (#1443)."""
     placed, refused = opened.issue("feat: placed"), opened.issue("feat: refused")
-    opened.store.fail_write(write="label_issue", item=refused)
+    opened.store.fail_write(
+        write="label_issue",
+        item=refused,
+        error=GitHubOperationError("HTTP 502: Bad Gateway", operation="roadmap.write"),
+    )
     output = run_intake("--confirm", exit_code=1)
     assert (
         "Intake placed 1 item(s)." in output,
