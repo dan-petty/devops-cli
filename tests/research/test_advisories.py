@@ -10,24 +10,11 @@ import httpx2
 from devops_cli.research.advisories import advisory_requests, find_advisories
 from devops_cli.research.inventory import read_inventory
 from devops_cli.security.vulnerability_lookup import OSVClient
+from tests.research.osv_recording import RECORD_URL, RECORDED, RECORDED_REPO, serve_recorded_osv
 from tests.support.fakes.http import WebFake
 from tests.support.paths import FIXTURES
 
-RECORDED = FIXTURES / "research" / "advisories"
-RECORDED_REPO = RECORDED / "repo"
 MINI_REPO = FIXTURES / "research" / "repo"
-RECORD_URL = "https://api.osv.dev/v1/vulns/{}"
-
-
-def serve_recorded_osv(web: WebFake) -> dict[str, object]:
-    """Serve the answers that api.osv.dev gave for the packages of the recorded repository on
-    2026-11-07: the batch query, and each record it names. Return the request that was recorded."""
-    recording = json.loads((RECORDED / "osv" / "querybatch.json").read_text(encoding="utf-8"))
-    web.respond("POST", OSVClient.BATCH_URL, 200, recording["response"])
-    for path in (RECORDED / "osv" / "vulns").glob("*.json"):
-        web.respond("GET", RECORD_URL.format(path.stem), 200, json.loads(path.read_text("utf-8")))
-    request: dict[str, object] = recording["request"]
-    return request
 
 
 def test_a_pinned_version_in_an_affected_range_gives_a_finding(web: WebFake) -> None:

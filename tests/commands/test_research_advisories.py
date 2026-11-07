@@ -9,7 +9,7 @@ from typing import Any
 from devops_cli.research.advisories import find_advisories
 from devops_cli.research.inventory import read_inventory
 from devops_cli.security.vulnerability_lookup import OSVClient
-from tests.research.test_advisories import RECORDED_REPO, serve_recorded_osv
+from tests.research.osv_recording import RECORDED_REPO, serve_recorded_osv
 from tests.support.fakes.http import WebFake
 
 
