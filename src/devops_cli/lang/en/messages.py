@@ -3851,6 +3851,10 @@ class RoadmapMessages:
     plan_check_moved_missing: str = (
         "The base spec of `{capability}` no longer holds the requirement `{requirement}`."
     )
+    plan_check_issue_dependency: str = (
+        "The plan depends on issue #{number}, and that issue is open. The plan merges after the "
+        "issue that it must deliver first, so the issue closes before the plan merges."
+    )
     plan_check_group_over_budget: str = (
         "Group {number}, `{title}`, measures {tokens} tokens. A step takes at most {budget} "
         "tokens (`roadmap.stage.step_tokens`). Split the group."
@@ -3868,6 +3872,7 @@ class RoadmapMessages:
     plan_check_request_body: str = "the body of pull request {number}"
     plan_check_request_issue: str = "the issue that the body plans"
     plan_check_request_issue_condition: str = "the body holds the line `Plans #`"
+    plan_check_request_dependency_issue: str = "the state of each issue that the plan depends on"
     plan_check_request_checks: str = "the checks of the head commit"
     # `devops roadmap plan-recheck` (#3492).
     plan_recheck_line: str = "{result} {folder}"
