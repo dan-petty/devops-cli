@@ -6,7 +6,8 @@ record run against both adapters: the in-memory one, and the GitHub one over `Gi
 through the world's own helpers, never through the job's store. The GitHub store keeps the
 listing of every issue for its life, so a case reads an Item after a person's change with
 `item`, which reads the issue again, as the next store would. The other cases run against the
-in-memory adapter; `tests/test_roadmap_github_store.py` pins the GitHub adapter's own requests.
+in-memory adapter; the `test_roadmap_github_store_*.py` files pin the GitHub adapter's own
+requests.
 A milestone is a planning bucket: any title, identified by its number and ordered by its due
 date.
 """
