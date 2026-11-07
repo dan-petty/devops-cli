@@ -280,7 +280,7 @@ def test_ai_pipeline_refuses_unknown_persona(cli: Callable[..., Any]) -> None:
 def test_ai_pipeline_dry_run_exits_zero(cli: Callable[..., Any]) -> None:
     """Verify pipeline runs under dry run mode without real execution."""
     res = cli("--dry-run", "ai", "pipeline", "review repo")
-    assert res.exit_code == 0
+    assert (res.exit_code, "devops ai pipeline" in res.stdout) == (0, True)
 
 
 def test_ai_config_updates_connection_options(cli: Callable[..., Any]) -> None:
