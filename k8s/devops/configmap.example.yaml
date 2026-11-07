@@ -59,6 +59,11 @@ data:
     # DEVOPS_CLI_VALKEY_PASSWORD, never from this ConfigMap.
     valkey:
       url: valkey://valkey-devops.llm.svc.cluster.local:6379/0
+    # The Crawl4AI service in namespace devops, which gives the text of a web page. Its token
+    # reaches the pod from Secret devops-cli as DEVOPS_CLI_CRAWL4AI_API_TOKEN, never from this
+    # ConfigMap.
+    crawl4ai:
+      url: http://crawl4ai.devops.svc.cluster.local:11235
     telemetry:
       enabled: true
       endpoint: http://otel-collector-opentelemetry-collector.otel.svc.cluster.local:4318

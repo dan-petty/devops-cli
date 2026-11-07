@@ -190,6 +190,26 @@ class StructuredOutputSchemaError(DevOpsCLIError, ValueError):
     error_code = "STRUCTURED_OUTPUT_SCHEMA_INVALID"
 
 
+class PageTextError(DevOpsCLIError):
+    """Raised when the Crawl4AI service returns no usable text for a page.
+
+    `reason` tells what failed: the HTTP status that the service answered with, the class of a
+    transport failure, or that the reply is not page text. `status` is that HTTP status, else None.
+    The message and the details hold neither the token nor the page URL.
+    """
+
+    error_code = "PAGE_TEXT_ERROR"
+    exit_code = CONST_EXIT_FAILURE
+
+    def __init__(self, reason: str, *, status: int | None = None) -> None:
+        self.reason = reason
+        self.status = status
+        super().__init__(
+            f"A Crawl4AI page fetch failed: {reason}.",
+            details={"status": status} if status is not None else None,
+        )
+
+
 _PYDANTIC_AI_NAMES: frozenset[str] = frozenset(
     {
         "ApprovalRequired",
@@ -240,6 +260,7 @@ __all__ = [
     "LibraryNotFoundError",
     "ModelBundleError",
     "ModelRetry",
+    "PageTextError",
     "RagIngestError",
     "ReviewPoolError",
     "SkipToolExecution",

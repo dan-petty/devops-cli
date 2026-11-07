@@ -289,6 +289,14 @@ Firecrawl web search API authentication settings.
 |---|---|---|---|---|
 | `api_key` | `Union` | - | `DEVOPS_CLI_FIRECRAWL_API_KEY` | - |
 
+## Crawl4AI Configuration (`crawl4ai`)
+
+Address of the Crawl4AI service that returns the text of a web page.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `url` | `Union` | - | `DEVOPS_CLI_CRAWL4AI_URL` | Address of the Crawl4AI service that returns the text of a web page, such as `http://crawl4ai.devops.svc.cluster.local:11235` in the cluster. It has no default |
+
 ## Top-Level Settings
 
 Top-level workstation and environment settings.

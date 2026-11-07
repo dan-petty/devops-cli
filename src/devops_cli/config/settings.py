@@ -1304,6 +1304,16 @@ class FirecrawlConfig(BaseModel):
     api_key: str | None = None
 
 
+class Crawl4AIConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    url: Annotated[HttpUrlStr | None, Variable()] = Field(
+        default=None,
+        description="Address of the Crawl4AI service that returns the text of a web page, such "
+        "as `http://crawl4ai.devops.svc.cluster.local:11235` in the cluster. It has no default",
+    )
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         extra="ignore",
@@ -1353,6 +1363,7 @@ class Settings(BaseSettings):
     service: ServiceConfig = ServiceConfig()
     roadmap: RoadmapConfig = RoadmapConfig()
     firecrawl: FirecrawlConfig = FirecrawlConfig()
+    crawl4ai: Crawl4AIConfig = Crawl4AIConfig()
     # The values that `load_settings` returned, so `save_settings` writes only the keys that
     # changed after the load (#1999). Settings made in code have none, and start from the defaults.
     _loaded: dict[str, Any] | None = PrivateAttr(default=None)
@@ -1962,6 +1973,12 @@ def get_firecrawl_api_key(settings: Settings | None = None) -> str | None:
     """Resolve the Firecrawl web search API key."""
     active_settings = settings or load_settings()
     return _resolve("firecrawl.api_key", active_settings)
+
+
+def get_crawl4ai_api_token(settings: Settings | None = None) -> str | None:
+    """Resolve the bearer token of the Crawl4AI service."""
+    active_settings = settings or load_settings()
+    return _resolve("crawl4ai.api_token", active_settings)
 
 
 def _canonical_key(key: str) -> str:
