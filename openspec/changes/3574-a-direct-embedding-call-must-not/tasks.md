@@ -22,7 +22,7 @@ Reads: `src/devops_cli/commands/k8s/networking.py`, `tests/commands/k8s/test_k8s
 
 Reads: `tests/ai/benchmark/test_k8s_llm_gateway.py`, `k8s/llm/profiles/services.yaml`, `k8s/llm/profiles/ollama-profiles.yaml`. Changes: `tests/ai/benchmark/test_k8s_llm_gateway.py`.
 
-- [ ] 3.1 Add a `_single_model_tiers_of(url)` helper that returns `_tiers_of(url) & set(SINGLE_MODEL_TIERS)`. Add `test_the_default_embedding_url_names_no_tier_that_loads_one_chat_model`, which asserts `(bool(_tiers_of(DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL)), _single_model_tiers_of(DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL)) == (True, set())`. Add the negative control `test_the_embedding_url_check_names_the_48gib_tier`, which builds `http://ollama-48gib.llm.svc.cluster.local:11434` and asserts that `_single_model_tiers_of` returns `{"ollama-48gib"}`. Cite `#3574` and `#3567` in the docstrings
+- [ ] 3.1 In `tests/ai/benchmark/test_k8s_llm_gateway.py`, add a `_single_model_tiers_of(url)` helper that returns `_tiers_of(url) & set(SINGLE_MODEL_TIERS)`. Add `test_the_default_embedding_url_names_no_tier_that_loads_one_chat_model`, which asserts `(bool(_tiers_of(DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL)), _single_model_tiers_of(DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL)) == (True, set())`. Add the negative control `test_the_embedding_url_check_names_the_48gib_tier`, which builds `http://ollama-48gib.llm.svc.cluster.local:11434` and asserts that `_single_model_tiers_of` returns `{"ollama-48gib"}`. Cite `#3574` and `#3567` in the docstrings
   - Verification: `$ uv run devops ci test tests/ai/benchmark/test_k8s_llm_gateway.py` passes
 
 ## 4. Regenerate the configuration documents
