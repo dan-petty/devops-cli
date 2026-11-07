@@ -19,7 +19,7 @@ from devops_cli.config.constants import (
 from devops_cli.exceptions import GitHubOperationError, GitHubRateLimitError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
-from devops_cli.roadmap.refine import (
+from devops_cli.roadmap.refine.refine import (
     NextStep,
     RefinementProposal,
     render_proposal_section,
@@ -32,7 +32,7 @@ from devops_cli.roadmap.repair import (
     plan_repair,
     render_repair_plan,
 )
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.stores.store import (
     CloseReason,
     ImplementRecordKey,
     Item,
@@ -62,7 +62,7 @@ FILLER = (
 )
 # The evidence of #3255: a real sentence. The pass lists no return that gives one.
 SENTENCE = (
-    "The premise is not false: `form_problems` is defined at src/devops_cli/roadmap/stage_form.py:85 "
+    "The premise is not false: `form_problems` is defined at src/devops_cli/roadmap/stage/stage_form.py:85 "
     "and `title_problems` is imported by a test, so both gates exist and can be tightened."
 )
 

@@ -22,9 +22,9 @@ import pytest
 from pydantic_ai.messages import ModelResponse
 
 from devops_cli.github.rate_limiter import get_github_rate_limiter
-from devops_cli.roadmap.implement import parse_implement_filters, plan_implement
-from devops_cli.roadmap.implement_run import ImplementApplied, apply_implement
-from devops_cli.roadmap.store import ItemField, StageRecordKey
+from devops_cli.roadmap.implement.implement import parse_implement_filters, plan_implement
+from devops_cli.roadmap.implement.implement_run import ImplementApplied, apply_implement
+from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import API, GitHubApiFake, github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
@@ -70,14 +70,14 @@ TASKS = """\
 Reads: `CONTEXT.md`. Changes: `src/devops_cli/shout.py` (new), `tests/test_shout.py` (new).
 
 - [ ] 1.1 Add `src/devops_cli/shout.py`
-  - Verification: `uv run devops ci test tests/test_shout.py`
+  - Verification: `$ uv run devops ci test tests/test_shout.py`
 
 ## 2. The second group
 
 Reads: `CONTEXT.md`. Changes: `CONTEXT.md`.
 
 - [ ] 2.1 Document the function in `CONTEXT.md`
-  - Verification: `uv run devops docs check`
+  - Verification: `$ uv run devops docs check`
 
 ## Criteria
 
@@ -565,7 +565,9 @@ def _world(
     repo.track({STEPS_FILE: STEPS_DECLARATION})
     monkeypatch.setattr("devops_cli.core.process_hardening._prctl", lambda *_args: 0)
     # The runner Job acts as the App, with a token for the one repository. The test mints no token.
-    monkeypatch.setattr("devops_cli.roadmap.implement_run.acts_as_github_app", lambda: True)
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement.implement_run.acts_as_github_app", lambda: True
+    )
     api, programs = github_api_and_gh
     # A watch that waits out the monitor's timeout moves the clock past the reset of the quota.
     for resource in ("core", "graphql"):

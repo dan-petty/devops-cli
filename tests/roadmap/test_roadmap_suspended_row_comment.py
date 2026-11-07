@@ -25,7 +25,7 @@ from devops_cli.config.defaults import (
 from devops_cli.exceptions import RoadmapRunError
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.roadmap.run import FailureLedger, JobOutcome, build_stub_table, run_due_jobs
-from devops_cli.roadmap.store import IssueComment
+from devops_cli.roadmap.stores.store import IssueComment
 from tests.support.fakes.roadmap_store import DEFAULT_ROADMAP_MEMORY_ACTOR, InMemoryRoadmapStore
 
 REPO = "example-org/repo1"

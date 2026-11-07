@@ -1,0 +1,563 @@
+"""A fake GitHub repository answering the roadmap store's `gh` commands (#1125, #1361, #2399).
+
+`GitHubFake` is a whole repository at the `gh` process edge: REST issues, with their labels and
+bodies, milestones, comments, events and files, each write applied to what later reads return.
+It answers `PATCH` of an issue with its fields as JSON on stdin (`--input -`), as `gh api` sends
+them: `labels` replaces the issue's labels and `body` its body. It also answers the project
+metrics reads (the repository, its Actions runs and its traffic), `gh api user` with its `login`,
+and `gh api rate_limit` with a full quota that resets in a minute. It keeps every argv, and
+`project_calls` gives each one that names a project board, so a test shows that a roadmap job
+sends none. Neither starts `gh` nor opens a socket. `GitHubFake.process` stands in for
+`subprocess.run` itself, answering `gh` and passing every other program, such as `git`, to the
+real one.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import time
+from collections.abc import Callable, Iterable, Mapping
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, unquote, urlsplit
+
+from devops_cli.config.constants import CONST_GH_CLI
+from tests.support.fakes.github import API
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+
+PROJECT_WORDS = ("projectV2", "ProjectV2", "roadmap.toml")
+"""What a GraphQL request that reads or writes a project board, or a read of the old roadmap
+file, names; a `gh project` command is one too."""
+
+
+def _writes(args: list[str]) -> bool:
+    """Whether the request writes: a `-X` other than GET."""
+    return "-X" in args and args[args.index("-X") + 1] != "GET"
+
+
+def gh_variables(args: list[str]) -> dict[str, str]:
+    """The `-f`/`-F` fields of a `gh api graphql` argv, by name."""
+    pairs = (args[i + 1] for i, arg in enumerate(args) if arg in ("-f", "-F"))
+    return dict(pair.split("=", 1) for pair in pairs)
+
+
+class GitHubFake:
+    """One repository's issues and milestones, answering the store's `gh` commands.
+
+    `issues` maps a number to its REST payload. `files` maps a path to its text, or to the
+    `(exit code, output)` `gh` gives for it, such as a 502. `traffic_answer`, when set, is the
+    `(exit code, output)` that `gh` gives for every traffic path, such as the 403 that an
+    installation token gets (#2752).
+    """
+
+    def __init__(
+        self,
+        repo: str,
+        *,
+        milestones: Iterable[dict[str, Any]] = (),
+        files: dict[str, str | tuple[int, str]] | None = None,
+        events: Iterable[dict[str, Any]] = (),
+        commits: Iterable[str] = (),
+        login: str = "roadmap-bot",
+        traffic_answer: tuple[int, str] | None = None,
+    ) -> None:
+        self.repo = repo
+        self.login = login
+        self.traffic_answer = traffic_answer
+        self.milestones = list(milestones)
+        self.files = dict(files or {})
+        self.events = list(events)
+        self.commits = set(commits)
+        self.check_runs: dict[str, list[dict[str, str]]] = {}
+        self.issues: dict[int, dict[str, Any]] = {}
+        self.pulls: dict[int, dict[str, Any]] = {}
+        self.label_catalog: list[dict[str, Any]] = []
+        self.comments: dict[int, list[str]] = {}
+        self.blockers: dict[int, list[int]] = {}
+        self.releases: list[dict[str, Any]] = []
+        self.repositories: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {}
+        self.calls: list[list[str]] = []
+        self.stdins: list[str | None] = []
+        self._fault_at = 0
+        self._fault_applied = False
+
+    # ── Seeding ──
+
+    def seed_comment(self, number: int, body: str) -> None:
+        """A comment on issue `number`, which GitHub counts in the `comments` of its listing."""
+        self.comments.setdefault(number, []).append(body)
+        self.issues[number]["comments"] = len(self.comments[number])
+
+    def seed_issue(
+        self,
+        number: int,
+        title: str = "",
+        *,
+        state: str = "open",
+        body: str = "",
+        labels: Iterable[str] = (),
+        milestone: str | None = None,
+        sub_issues: int = 0,
+        parent: int | None = None,
+        parent_repo: str | None = None,
+        pull_request: bool = False,
+        author_association: str = "COLLABORATOR",
+        author_login: str | None = None,
+        updated_at: datetime | None = None,
+    ) -> None:
+        """Issue `number` with `labels` and `body`, which may hold a record block. It has
+        `sub_issues` sub-issues, which GitHub counts in each issue's `sub_issues_summary`. It is
+        a sub-issue of issue `parent` of `parent_repo`, this repository by default, which GitHub
+        gives in each issue's `parent_issue_url`. Its author has `author_association` with the
+        repository and the login `author_login`, which GitHub gives in `user.login`."""
+        self.issues[number] = {
+            "id": number,
+            "number": number,
+            "title": title or f"Issue {number}",
+            "html_url": f"https://github.com/{self.repo}/issues/{number}",
+            "repository_url": f"https://api.github.com/repos/{self.repo}",
+            "parent_issue_url": (
+                None
+                if parent is None
+                else f"https://api.github.com/repos/{parent_repo or self.repo}/issues/{parent}"
+            ),
+            "body": body,
+            "state": state,
+            "labels": [{"name": label} for label in labels],
+            "milestone": self._milestone(milestone),
+            "node_id": f"I_{number}",
+            "author_association": author_association,
+            "user": None if author_login is None else {"login": author_login},
+            "created_at": "2026-10-01T00:00:00Z",
+            "updated_at": _wire(updated_at or datetime(2026, 10, 2, tzinfo=UTC)),
+            "comments": 0,
+            "sub_issues_summary": {"total": sub_issues, "completed": 0, "percent_completed": 0},
+            "issue_dependencies_summary": {
+                "blocked_by": 0,
+                "blocking": 0,
+                "total_blocked_by": 0,
+                "total_blocking": 0,
+            },
+        }
+        if pull_request:
+            self.issues[number]["pull_request"] = {
+                "url": f"https://api.github.com/repos/{self.repo}/pulls/{number}",
+                "html_url": f"https://github.com/{self.repo}/pull/{number}",
+            }
+
+    def block(self, blocked: int, blocker: int) -> None:
+        """Issue `blocker` blocks issue `blocked`. GitHub counts it in the `blocked_by` summary
+        of `blocked`, and lists it at `dependencies/blocked_by` (#1127)."""
+        held = self.blockers.setdefault(blocked, [])
+        held.append(blocker)
+        summary = self.issues[blocked]["issue_dependencies_summary"]
+        summary["blocked_by"] = summary["total_blocked_by"] = len(held)
+
+    def seed_check_run(self, sha: str, name: str, *, conclusion: str) -> None:
+        """A completed check run of the commit `sha` that ended with `conclusion`."""
+        self.check_runs.setdefault(sha, []).append(
+            {"name": name, "status": "completed", "conclusion": conclusion}
+        )
+
+    def seed_pull(
+        self,
+        number: int,
+        title: str = "",
+        *,
+        head_ref: str,
+        draft: bool = False,
+        state: str = "open",
+        updated_at: datetime | None = None,
+        head_sha: str = "0" * 40,
+    ) -> None:
+        """Pull request `number` on branch `head_ref`: its issue, and its entry in the pull
+        request listing."""
+        self.seed_issue(number, title, state=state, pull_request=True, updated_at=updated_at)
+        self.pulls[number] = {
+            "number": number,
+            "title": title or f"Pull request {number}",
+            "html_url": f"https://github.com/{self.repo}/pull/{number}",
+            "state": state,
+            "draft": draft,
+            "head": {"ref": head_ref, "sha": head_sha},
+            "updated_at": self.issues[number]["updated_at"],
+        }
+
+    def seed_release(
+        self,
+        tag: str,
+        body: str,
+        published_at: datetime,
+        *,
+        draft: bool = False,
+        prerelease: bool = False,
+    ) -> None:
+        """Release `tag` with the changelog `body`, published at `published_at`. The listing of
+        `releases` gives the seeded ones newest first, as GitHub does."""
+        self.releases.append(
+            {
+                "tag_name": tag,
+                "html_url": f"https://github.com/{self.repo}/releases/tag/{tag}",
+                "body": body,
+                "published_at": _wire(published_at),
+                "draft": draft,
+                "prerelease": prerelease,
+            }
+        )
+
+    def seed_label(self, name: str, color: str, description: str | None = "") -> None:
+        """A label of the repository; GitHub gives a missing description as null."""
+        self.label_catalog.append({"name": name, "color": color, "description": description})
+
+    def seed_repository(
+        self, repository: dict[str, Any], release: dict[str, Any] | None = None
+    ) -> None:
+        """Another repository, by the `full_name` of its REST payload, and its latest release,
+        which GitHub answers 404 when there is none (#2650)."""
+        self.repositories[repository["full_name"]] = (repository, release)
+
+    def labels(self, number: int) -> list[str]:
+        """The labels issue `number` holds now."""
+        return [label["name"] for label in self.issues[number]["labels"]]
+
+    def body(self, number: int) -> str:
+        """The body issue `number` holds now, its record block included."""
+        return str(self.issues[number]["body"] or "")
+
+    def project_calls(self) -> list[list[str]]:
+        """Every request sent that names a project board or `.github/roadmap.toml`."""
+        return [
+            args
+            for args in self.calls
+            if args[0] == "project" or any(word in " ".join(args) for word in PROJECT_WORDS)
+        ]
+
+    def traffic_calls(self) -> list[str]:
+        """The path of every traffic request sent, in order."""
+        return [
+            arg
+            for args in self.calls
+            for arg in args[1:]
+            if arg.startswith("repos/") and "/traffic/" in arg
+        ]
+
+    def writes(self) -> list[list[str]]:
+        """Every request sent that writes: a `-X` other than GET."""
+        return [args for args in self.calls if _writes(args)]
+
+    def fail_write(self, *, at: int = 1, applied: bool = False) -> None:
+        """Fail one request that writes, as `gh` fails part-way through a run: the `at`-th write
+        from now, counted from 1, answers a 502 once. With `applied`, GitHub applied the write
+        and the answer still reports the failure, so the change stays in place."""
+        self._fault_at = len(self.writes()) + at
+        self._fault_applied = applied
+
+    # ── The process edge ──
+
+    def __call__(self, args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        self.calls.append(args)
+        self.stdins.append(kwargs.get("input"))
+        reply: Any
+        if _writes(args) and len(self.writes()) == self._fault_at:
+            self._fault_at = 0
+            if self._fault_applied:
+                self._answer(args, kwargs.get("input"))
+            reply = (1, "gh: HTTP 502 (HTTP 502)")
+        else:
+            reply = self._answer(args, kwargs.get("input"))
+        returncode, output = reply if isinstance(reply, tuple) else (0, reply)
+        text = output if isinstance(output, str) else json.dumps(output)
+        return subprocess.CompletedProcess(args, returncode, text, "" if returncode == 0 else text)
+
+    def process(
+        self, run: Callable[..., subprocess.CompletedProcess[str]]
+    ) -> Callable[..., subprocess.CompletedProcess[str]]:
+        """A stand-in for `subprocess.run` that answers `gh`, given as a list or a tuple, as this
+        fake, raising `CalledProcessError` for a failed answer under `check=True` as `run` does,
+        and hands every other program to `run`, the real `subprocess.run`."""
+
+        def dispatch(cmd: Any, *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            if not (isinstance(cmd, list | tuple) and cmd and Path(cmd[0]).name == CONST_GH_CLI):
+                return run(cmd, *args, **kwargs)
+            answer = self(list(cmd[1:]), **kwargs)
+            if kwargs.get("check"):
+                answer.check_returncode()
+            return answer
+
+        return dispatch
+
+    def install(self, fake: ProcessFake) -> None:
+        """Answer each `gh` command that `fake` is asked to run as this repository, and leave
+        every other program to the answers of `fake`."""
+
+        def is_gh(call: ProcessCall) -> bool:
+            return bool(call.argv) and Path(call.argv[0]).name == CONST_GH_CLI
+
+        def answer(call: ProcessCall) -> ProcessAnswer:
+            stdin = call.stdin if isinstance(call.stdin, str) else None
+            done = self(list(call.argv[1:]), input=stdin)
+            return ProcessAnswer(returncode=done.returncode, stdout=done.stdout, stderr=done.stderr)
+
+        fake.answer(is_gh, answer)
+
+    def _answer(self, args: list[str], stdin: str | None) -> Any:
+        if args[0].startswith(f"{API}/"):
+            return self._listing(args[0].removeprefix(f"{API}/"))
+        assert args[0] == "api", f"not a gh command the store sends: {args}"
+        if args[1] == "graphql":
+            return self._graphql(args)
+        if args[1] == "user":
+            return f"{self.login}\n"
+        if args[1] == "rate_limit":
+            reset = int(time.time()) + 60
+            quota = {"limit": 5000, "remaining": 5000, "used": 0, "reset": reset}
+            return {"resources": {name: quota for name in ("core", "graphql", "search")}}
+        return self._rest(args, stdin)
+
+    def _graphql(self, args: list[str]) -> Any:
+        query = gh_variables(args).get("query", "")
+        if "timelineItems" in query:
+            connection = {"totalCount": 0, "nodes": []}
+            return {"data": {"repository": {"issue": {"timelineItems": connection}}}}
+        if "isPrivate" in query:
+            return {"data": {"repository": {"isPrivate": False}}}
+        raise AssertionError(f"no fake for the GraphQL request: {query[:120]}")
+
+    # ── REST ──
+
+    def _listing(self, path: str) -> Any:
+        """A REST listing the store reads through its session (`RunnerSession`, #983): every
+        page, as the session follows GitHub's links, or the first failed one."""
+        per_page = int(parse_qs(urlsplit(path).query).get("per_page", ["30"])[0])
+        listing: list[Any] = []
+        page = 1
+        while True:
+            entries = self._rest(["api", f"{path}&page={page}"], None)
+            if not isinstance(entries, list):
+                return entries
+            listing += entries
+            if len(entries) < per_page:
+                return listing
+            page += 1
+
+    def _rest(self, args: list[str], stdin: str | None) -> Any:
+        method = args[args.index("-X") + 1] if "-X" in args else "GET"
+        path = next(arg for arg in args[1:] if "/" in arg and not arg.startswith(("-", "Accept")))
+        fields = dict(
+            args[index + 1].split("=", 1)
+            for index, arg in enumerate(args)
+            if arg in ("-f", "-F") and "=" in args[index + 1]
+        )
+        url = urlsplit(path)
+        query = {key: values[0] for key, values in parse_qs(url.query).items()}
+        other = self._other_repository(url.path)
+        if other is not None:
+            return other
+        if url.path == f"repos/{self.repo}":
+            open_issues = sum(issue["state"] == "open" for issue in self.issues.values())
+            return {"stargazers_count": 0, "forks_count": 0, "open_issues_count": open_issues}
+        parts = url.path.removeprefix(f"repos/{self.repo}/").split("/")
+        if "--paginate" in args:
+            return self._paginate_rest(method, parts, query, fields, args)
+        return self._route(method, parts, query, fields, args, stdin)
+
+    def _other_repository(self, path: str) -> Any:
+        """The answer for a repository seeded with `seed_repository`, or its latest release, or
+        None when `path` names neither."""
+        name = path.removeprefix("repos/")
+        if name in self.repositories:
+            return self.repositories[name][0]
+        name = name.removesuffix("/releases/latest")
+        if name != path.removeprefix("repos/") and name in self.repositories:
+            release = self.repositories[name][1]
+            return release if release is not None else (1, "gh: Not Found (HTTP 404)")
+        return None
+
+    def _paginate_rest(
+        self,
+        method: str,
+        parts: list[str],
+        query: dict[str, str],
+        fields: dict[str, str],
+        args: list[str],
+    ) -> Any:
+        per_page = int(query.get("per_page", "100"))
+        pages: list[Any] = []
+        page = 1
+        while True:
+            entries = self._route(method, parts, {**query, "page": str(page)}, fields, args, None)
+            if not isinstance(entries, list):
+                return entries
+            pages.append(entries)
+            if len(entries) < per_page:
+                break
+            page += 1
+        return "".join(json.dumps(p) for p in pages)
+
+    def _commit_route(self, parts: list[str]) -> Any:
+        """The check runs of a commit, or the commit itself when the fake holds it."""
+        if parts[-1:] == ["check-runs"]:
+            runs = self.check_runs.get(parts[1], [])
+            return {"total_count": len(runs), "check_runs": runs}
+        return {"sha": parts[1]} if parts[1] in self.commits else (1, "HTTP 422")
+
+    def _route(
+        self,
+        method: str,
+        parts: list[str],
+        query: dict[str, str],
+        fields: dict[str, str],
+        args: list[str],
+        stdin: str | None,
+    ) -> Any:
+        page = int(query.get("page", "1"))
+        if parts[0] == "contents":
+            name = unquote("/".join(parts[1:]))
+            return self.files[name] if name in self.files else (1, "gh: Not Found (HTTP 404)")
+        if parts[0] == "commits":
+            return self._commit_route(parts)
+        if "/".join(parts) == "issues/events":
+            size = int(query.get("per_page", "100"))
+            return self.events[(page - 1) * size : page * size]
+        if parts == ["actions", "runs"]:
+            return {"total_count": 0, "workflow_runs": []}
+        if parts[0] == "traffic" and self.traffic_answer is not None:
+            return self.traffic_answer
+        if parts[0] == "traffic":
+            return [] if parts[1] == "popular" else {"count": 0, "uniques": 0}
+        if parts[0] == "milestones":
+            return self.milestones if page == 1 else []
+        if parts[0] in ("pulls", "labels", "releases"):
+            return self._catalog(parts[0], query, page)
+        if parts == ["issues"]:
+            labels = [arg.split("=", 1)[1] for arg in args if arg.startswith("labels[]=")]
+            return self._issues(method, query, fields | {"labels": json.dumps(labels)}, page)
+        return self._issue_route(method, int(parts[1]), parts[2:], fields, page, stdin)
+
+    def _blockers_page(self, number: int, page: int) -> list[dict[str, Any]]:
+        """A page of 100 issues that block issue `number`, as GitHub lists them at
+        `dependencies/blocked_by` (#1127)."""
+        held = [self.issues[blocker] for blocker in self.blockers.get(number, [])]
+        return held[(page - 1) * 100 : page * 100]
+
+    def _issue_events(self, number: int, page: int) -> list[dict[str, Any]]:
+        """The events of issue `number` on its own listing, a page of 100 as the store asks for:
+        the seeded events of that issue, without their `issue` key, as GitHub lists them there
+        (#2919)."""
+        own = [
+            {key: value for key, value in event.items() if key != "issue"}
+            for event in self.events
+            if (event.get("issue") or {}).get("number") == number
+        ]
+        return own[(page - 1) * 100 : page * 100]
+
+    def _catalog(self, kind: str, query: dict[str, str], page: int) -> list[dict[str, Any]]:
+        """A page of the pull request listing, the open ones by default, of the labels, or of the
+        releases, newest first."""
+        if kind == "releases":
+            listed = sorted(self.releases, key=lambda r: r["published_at"], reverse=True)
+        else:
+            listed = (
+                list(self.label_catalog)
+                if kind == "labels"
+                else [
+                    pull
+                    for pull in self.pulls.values()
+                    if query.get("state", "open") in ("all", pull["state"])
+                ]
+            )
+        per_page = int(query.get("per_page", "30"))
+        return listed[(page - 1) * per_page : page * per_page]
+
+    def _issues(self, method: str, query: dict[str, str], fields: dict[str, str], page: int) -> Any:
+        if method == "POST":
+            number = max(self.issues, default=0) + 1
+            self.seed_issue(number, fields["title"], labels=json.loads(fields["labels"]))
+            self.issues[number]["body"] = fields.get("body", "")
+            return self.issues[number]
+        listed = [
+            issue
+            for issue in self.issues.values()
+            if query.get("state", "open") in ("all", issue["state"])
+            and self._in_milestone(issue, query.get("milestone"))
+        ]
+        per_page = int(query.get("per_page", "100"))
+        return listed[(page - 1) * per_page : page * per_page]
+
+    def _issue_route(
+        self,
+        method: str,
+        number: int,
+        rest: list[str],
+        fields: dict[str, str],
+        page: int,
+        stdin: str | None,
+    ) -> Any:
+        listings = {"events": self._issue_events, "dependencies/blocked_by": self._blockers_page}
+        if (listing := listings.get("/".join(rest))) is not None and (
+            number in self.issues or rest == ["events"]
+        ):
+            return listing(number, page)
+        if number not in self.issues:
+            return (1, "gh: Not Found (HTTP 404)")
+        issue = self.issues[number]
+        if rest == ["labels"]:
+            if fields["labels[]"] not in self.labels(number):
+                issue["labels"].append({"name": fields["labels[]"]})
+            return issue["labels"]
+        if rest == ["comments"] and method == "POST":
+            self.seed_comment(number, fields["body"])
+            return {}
+        if rest == ["sub_issues"] and method == "POST":
+            sub_id = int(fields["sub_issue_id"])
+            child = next(
+                (i for i in self.issues.values() if i.get("id") == sub_id or i["number"] == sub_id),
+                None,
+            )
+            if child is None:
+                return (1, "gh: Not Found (HTTP 404)")
+            issue["sub_issues_summary"]["total"] += 1
+            child["parent_issue_url"] = f"https://api.github.com/repos/{self.repo}/issues/{number}"
+            return child
+        if rest == ["comments"]:
+            bodies = self.comments.get(number, []) if page == 1 else []
+            return [{"body": body, "created_at": "2026-10-01T00:00:00Z"} for body in bodies]
+        if method == "PATCH":
+            self._edit(issue, json.loads(stdin) if stdin else fields)
+        return issue
+
+    @staticmethod
+    def _edit(issue: dict[str, Any], fields: Mapping[str, Any]) -> None:
+        """Apply an issue `PATCH`: `labels` replaces the labels, `body` the body, and `state`
+        and `state_reason` the state and the reason of a close."""
+        for name in ("state", "state_reason"):
+            if name in fields:
+                issue[name] = fields[name]
+        if "labels" in fields:
+            issue["labels"] = [{"name": label} for label in fields["labels"]]
+        if "body" in fields:
+            issue["body"] = fields["body"]
+
+    def close(self, number: int, reason: str) -> None:
+        """Close issue `number` for `reason`."""
+        self.issues[number].update(state="closed", state_reason=reason)
+
+    def _milestone(self, title: str | None) -> dict[str, Any] | None:
+        found = next((m for m in self.milestones if m["title"] == title), None)
+        return {"number": found["number"], "title": title} if found else None
+
+    @staticmethod
+    def _in_milestone(issue: dict[str, Any], milestone: str | None) -> bool:
+        held = issue["milestone"]
+        if milestone is None:
+            return True
+        if milestone == "none":
+            return held is None
+        return held is not None and str(held["number"]) == milestone
+
+
+def _wire(moment: datetime) -> str:
+    """A moment as GitHub writes it in a payload."""
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

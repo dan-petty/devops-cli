@@ -869,7 +869,7 @@ The stage job SHALL give the model every capability under `openspec/specs/`. A p
 `check_proposal` SHALL refuse a path in `creates` that is a test module under `tests/` unless it is in `tests/invariants/` or in the directory that mirrors the package of a source file that the plan changes.
 
 #### Scenario: A flat test path is refused
-- **WHEN** a group creates `tests/test_stage.py` and the plan changes `src/devops_cli/roadmap/stage.py`
+- **WHEN** a group creates `tests/test_stage.py` and the plan changes `src/devops_cli/roadmap/stage/stage.py`
 - **THEN** `check_proposal` returns a problem that names the path and the directory `tests/roadmap`
 
 #### Scenario: A mirrored or an invariant test path is accepted
@@ -1189,7 +1189,7 @@ The job SHALL check the groups of a split reply for the form of their `verify` c
 `form_problems` SHALL give a problem for each `test`, `implementation` or `documentation` text of a group that holds one word or less, with a code span counted as one word. The problem SHALL name the group by its number and its title, and the part of the text.
 
 #### Scenario: A bare filename as the first task
-- **WHEN** the `test` of a behavior group is `src/devops_cli/roadmap/stage_form.py`
+- **WHEN** the `test` of a behavior group is `src/devops_cli/roadmap/stage/stage_form.py`
 - **THEN** `form_problems` gives one problem, and it names the group and the part `test`
 
 #### Scenario: A single word as the work
@@ -1201,7 +1201,7 @@ The job SHALL check the groups of a split reply for the form of their `verify` c
 - **THEN** `form_problems` gives one problem
 
 #### Scenario: A task with a verb and an object
-- **WHEN** the `test` of a group is `Add a test in tests/roadmap/test_roadmap_stage_form.py for a bare filename task`
+- **WHEN** the `test` of a group is `Add a test in tests/roadmap/stage/test_roadmap_stage_form.py for a bare filename task`
 - **THEN** `form_problems` gives no problem for the task
 
 ### Requirement: A plan text is no placeholder
@@ -1429,7 +1429,7 @@ A `StageGroup` SHALL reject a path in `changes` or `creates` that is `openspec/c
 - **THEN** validation fails
 
 #### Scenario: A change-folder path in reads
-- **WHEN** a `StageGroup` sets `reads` to `openspec/changes/3060-model-tier-ladder/proposal.md` and changes `src/devops_cli/roadmap/stage_change.py`
+- **WHEN** a `StageGroup` sets `reads` to `openspec/changes/3060-model-tier-ladder/proposal.md` and changes `src/devops_cli/roadmap/stage/stage_change.py`
 - **THEN** validation succeeds
 
 ### Requirement: The path check reports a change-folder path
@@ -1454,30 +1454,30 @@ The roadmap stage prompt SHALL state that an implementation group must not chang
 The stage plan check SHALL refuse a group that moves a top-level Python module by name prefix and leaves another module of that prefix for no later group. A top-level module is a `.py` file directly under the folder. A file whose name starts with `test_`, and `conftest.py`, is no module of a job prefix.
 
 #### Scenario: A move group omits a module of its prefix
-- **WHEN** The staged tree holds `src/devops_cli/roadmap/stage_ready.py` and `src/devops_cli/roadmap/stage_verify.py`, and one group lists `src/devops_cli/roadmap/stage_ready.py` in `changes` and `src/devops_cli/roadmap/stage/ready.py` in `creates`, with no later group.
-- **THEN** `check_proposal` returns a problem that names `src/devops_cli/roadmap/stage_verify.py`.
+- **WHEN** The staged tree holds `src/devops_cli/roadmap/stage/stage_ready.py` and `src/devops_cli/roadmap/stage/stage_verify.py`, and one group lists `src/devops_cli/roadmap/stage/stage_ready.py` in `changes` and `src/devops_cli/roadmap/stage/ready.py` in `creates`, with no later group.
+- **THEN** `check_proposal` returns a problem that names `src/devops_cli/roadmap/stage/stage_verify.py`.
 
 #### Scenario: A later group moves the missing module
-- **WHEN** The staged tree holds `src/devops_cli/roadmap/stage_ready.py` and `src/devops_cli/roadmap/stage_verify.py`, the first group moves `stage_ready.py` into `stage/`, and a later group moves `stage_verify.py` into `stage/`.
+- **WHEN** The staged tree holds `src/devops_cli/roadmap/stage/stage_ready.py` and `src/devops_cli/roadmap/stage/stage_verify.py`, the first group moves `stage_ready.py` into `stage/`, and a later group moves `stage_verify.py` into `stage/`.
 - **THEN** `check_proposal` returns no problem for either module.
 
 #### Scenario: A move group leaves a module of another prefix
-- **WHEN** The staged tree holds `src/devops_cli/roadmap/stage_ready.py` and `src/devops_cli/roadmap/status.py`, and a group moves `stage_ready.py` into `stage/`.
+- **WHEN** The staged tree holds `src/devops_cli/roadmap/stage/stage_ready.py` and `src/devops_cli/roadmap/status.py`, and a group moves `stage_ready.py` into `stage/`.
 - **THEN** `check_proposal` returns no problem for `src/devops_cli/roadmap/status.py`.
 
 #### Scenario: A move group leaves a test module
-- **WHEN** The staged tree holds `src/devops_cli/roadmap/stage_ready.py` and `tests/roadmap/test_roadmap_stage_ready.py`, and a group moves `stage_ready.py` into `stage/`.
-- **THEN** `check_proposal` returns no problem for `tests/roadmap/test_roadmap_stage_ready.py`.
+- **WHEN** The staged tree holds `src/devops_cli/roadmap/stage/stage_ready.py` and `tests/roadmap/stage/test_roadmap_stage_ready.py`, and a group moves `stage_ready.py` into `stage/`.
+- **THEN** `check_proposal` returns no problem for `tests/roadmap/stage/test_roadmap_stage_ready.py`.
 
 ### Requirement: A move group verifies the whole prefix
 The stage plan check SHALL refuse a move group whose `! git grep` verify literal equals the import path of one top-level module of the moved prefix, the bare prefix included.
 
 #### Scenario: A move group verifies one sampled import
-- **WHEN** A move group for prefix `stage` gives the verify command `! git grep -n -F devops_cli.roadmap.stage_ready src/ tests/`.
+- **WHEN** A move group for prefix `stage` gives the verify command `! git grep -n -F devops_cli.roadmap.stage.stage_ready src/ tests/`.
 - **THEN** `check_proposal` returns a problem that says the verify command must cover the prefix.
 
 #### Scenario: A move group verifies the bare prefix
-- **WHEN** A move group for prefix `stage` gives the verify command `! git grep -n -F devops_cli.roadmap.stage src/ tests/`.
+- **WHEN** A move group for prefix `stage` gives the verify command `! git grep -n -F devops_cli.roadmap.stage.stage src/ tests/`.
 - **THEN** `check_proposal` returns a problem, because the literal names `stage.py` and matches the new `stage/` package.
 
 #### Scenario: A move group verifies the dotted prefix
@@ -1499,18 +1499,18 @@ The stage context builder SHALL list each open pull request that changes a path 
 - **THEN** The context holds one entry with number 3173, its title, its state and `docs/TELEMETRY.md`.
 
 #### Scenario: A fake pull request changes a path that no item body cites
-- **WHEN** A test gives the builder a fake client that holds pull request 3173, which changes `docs/TELEMETRY.md`, and an item body that cites only `src/devops_cli/roadmap/stage.py`.
+- **WHEN** A test gives the builder a fake client that holds pull request 3173, which changes `docs/TELEMETRY.md`, and an item body that cites only `src/devops_cli/roadmap/stage/stage.py`.
 - **THEN** The context holds no overlap entry.
 
 ### Requirement: A plan pull request carries a plan mark
 The stage context builder SHALL mark an open pull request whose title has the type `docs(openspec)` as a plan pull request.
 
 #### Scenario: A plan pull request overlaps a cited path
-- **WHEN** A test gives the builder a fake client that holds pull request 3252, titled `docs(openspec): plan #3252 stage context`, which changes `src/devops_cli/roadmap/stage_overlap.py`, and an item body that cites that path.
-- **THEN** The context entry holds the number, the title, the state, the plan mark and `src/devops_cli/roadmap/stage_overlap.py`.
+- **WHEN** A test gives the builder a fake client that holds pull request 3252, titled `docs(openspec): plan #3252 stage context`, which changes `src/devops_cli/roadmap/stage/stage_overlap.py`, and an item body that cites that path.
+- **THEN** The context entry holds the number, the title, the state, the plan mark and `src/devops_cli/roadmap/stage/stage_overlap.py`.
 
 #### Scenario: A pull request that is no plan carries no mark
-- **WHEN** A test gives the builder a fake client that holds pull request 3253, titled `feat(roadmap): stage context`, which changes `src/devops_cli/roadmap/stage.py`, and an item body that cites that path.
+- **WHEN** A test gives the builder a fake client that holds pull request 3253, titled `feat(roadmap): stage context`, which changes `src/devops_cli/roadmap/stage/stage.py`, and an item body that cites that path.
 - **THEN** The context entry holds the number and no plan mark.
 
 ### Requirement: A cited metric lists its other senders
@@ -1614,8 +1614,8 @@ The stage prompt MUST ask the planner to call search_code with the literal of ea
 When a cited path is no file at the root of the staging commit and the staged tree holds files with the same name under a folder, the stage probe SHALL name those files and give the existing file as the candidate.
 
 #### Scenario: Cited bare name with a file under a folder
-- **WHEN** The issue cites `stage_specs.py`, the staging commit holds no root `stage_specs.py`, and `src/devops_cli/roadmap/stage_specs.py` is a file of the commit.
-- **THEN** The probe line for `stage_specs.py` says the path is no file at the root of the staging commit, names `src/devops_cli/roadmap/stage_specs.py` as the candidate, and lists `stage_specs.py` in `missing`.
+- **WHEN** The issue cites `stage_specs.py`, the staging commit holds no root `stage_specs.py`, and `src/devops_cli/roadmap/stage/stage_specs.py` is a file of the commit.
+- **THEN** The probe line for `stage_specs.py` says the path is no file at the root of the staging commit, names `src/devops_cli/roadmap/stage/stage_specs.py` as the candidate, and lists `stage_specs.py` in `missing`.
 
 #### Scenario: Cited root file lists no same-name file
 - **WHEN** The issue cites `README.md` and the staging commit holds `README.md` at the root.
@@ -1666,23 +1666,12 @@ The context of the first plan request and the longest answer of `read_spec` SHAL
 - **WHEN** `RunTrace.combined` gets two traces that hold one and two entries
 - **THEN** the result holds the three entries in order
 
-### Requirement: The comment states why a run made no tool call
-The comment of a staged item whose plan runs made no tool call SHALL state the reason. When no request offered a tool, the comment SHALL say that each request reached the tool-removal limit of the context window. When some request offered tools, the comment SHALL say on how many of the requests tools were offered, and that the model called none.
-
-#### Scenario: A run that offered no tool
-- **WHEN** a plan run has a window so small that the first request offers no tool, and the model gives its plan
-- **THEN** the comment says that the run offered no tool because each request reached the tool-removal limit of the context window
-
-#### Scenario: A run that offered tools
-- **WHEN** a plan run offers tools in its one request and the model gives its plan with no tool call
-- **THEN** the comment says that the run offered tools on 1 of 1 request(s) and the model called none
-
 ### Requirement: The window of the analysis task is documented with its source
 The page `docs/roadmap/stage.md` SHALL state the `context_window` of the task `analysis` and the file that sets it, and the `max_input_tokens` of the model of that task and the file that sets it. The stated values SHALL equal the values in `k8s/devops/configmap.example.yaml` and `k8s/llm/gateway/config.yaml`.
 
 #### Scenario: The page and the files agree
 - **WHEN** a test reads the two files and the page
-- **THEN** the page states 65,536 and `k8s/devops/configmap.example.yaml`, and 1,048,576 and `k8s/llm/gateway/config.yaml`, as the files hold them
+- **THEN** the page states 256,000 and `k8s/devops/configmap.example.yaml`, and 1,048,576 and `k8s/llm/gateway/config.yaml`, as the files hold them
 
 ### Requirement: The refine investigation request is measured against the tool-removal limit
 A test SHALL build the first request of a refine investigation at a window of 65536 tokens, count its tokens as the run hook counts them, print the count with the limit of 49152 tokens, and assert that the request of a large item stays under the limit. Refine SHALL NOT change.
@@ -1846,7 +1835,7 @@ The proposal check SHALL return a problem when a repository path in a code span 
 - **THEN** `check_proposal` returns a problem that names the unlisted path
 
 #### Scenario: What Changes names a path that a group changes
-- **WHEN** A proposal has a What Changes item with the code span `src/devops_cli/roadmap/stage_change.py`, and a group lists that path in `changes`
+- **WHEN** A proposal has a What Changes item with the code span `src/devops_cli/roadmap/stage/stage_change.py`, and a group lists that path in `changes`
 - **THEN** `check_proposal` returns no problem for that path
 
 #### Scenario: What Changes names a path that a group creates
@@ -1927,7 +1916,7 @@ The message of a path that the staged tree lacks SHALL name the `creates` list o
 The missing-path message SHALL end with the hint that names the tracked files of the same name, or that states that no file has the name.
 
 #### Scenario: A tracked file has the same name
-- **WHEN** the tree holds `src/devops_cli/roadmap/stage.py` and a group names `src/devops_cli/new/stage.py`
+- **WHEN** the tree holds `src/devops_cli/roadmap/stage/stage.py` and a group names `src/devops_cli/new/stage.py`
 - **THEN** the problem ends with the text of `stage_path_same_name` for `stage.py`
 
 #### Scenario: A later group creates the path
@@ -1938,7 +1927,7 @@ The missing-path message SHALL end with the hint that names the tracked files of
 The module docstring of `stage_paths.py` SHALL state that `path_problems` judges both the stage reply and the change folder.
 
 #### Scenario: A reader opens the module
-- **WHEN** a test reads the module docstring of `src/devops_cli/roadmap/stage_paths.py`
+- **WHEN** a test reads the module docstring of `src/devops_cli/roadmap/stage/stage_paths.py`
 - **THEN** the docstring holds `change folder` and `reply`
 
 ### Requirement: The tuicr bullet needs a source change
@@ -1949,7 +1938,7 @@ The task renderer SHALL add the tuicr review bullet only when at least one task 
 - **THEN** the rendered `tasks.md` holds no bullet that starts with `Pending a person: review the diff in tuicr`.
 
 #### Scenario: A plan that changes source gets the bullet
-- **WHEN** a plan has one group that changes `src/devops_cli/roadmap/stage_change.py`
+- **WHEN** a plan has one group that changes `src/devops_cli/roadmap/stage/stage_change.py`
 - **THEN** the rendered `tasks.md` holds the tuicr review bullet.
 
 ### Requirement: An empty workflow follow-up section is omitted
@@ -2026,25 +2015,25 @@ The job SHALL start the branch of a staged item at the staged commit of its roun
 - **THEN** the parent of the commit of the new branch is the staged commit of the round, and the new commit of `origin/main` is not an ancestor of the new branch
 
 ### Requirement: A plan that adds a text rule carries its self-acceptance test
-A plan with a behavior group that changes `src/devops_cli/roadmap/stage_change.py` SHALL give a group test text that names `StageProposal`, `content_problems` and no problem, so the plan holds no text that its own rule refuses.
+A plan with a behavior group that changes `src/devops_cli/roadmap/stage/stage_change.py` SHALL give a group test text that names `StageProposal`, `content_problems` and no problem, so the plan holds no text that its own rule refuses.
 
 #### Scenario: Plan without the test is refused
-- **WHEN** `check_proposal` receives a valid proposal with a behavior group that changes `src/devops_cli/roadmap/stage_change.py` and no group test text that names `StageProposal`, `content_problems` and no problem.
+- **WHEN** `check_proposal` receives a valid proposal with a behavior group that changes `src/devops_cli/roadmap/stage/stage_change.py` and no group test text that names `StageProposal`, `content_problems` and no problem.
 - **THEN** `check_proposal` returns one problem that names `StageProposal` and `content_problems`.
 
 #### Scenario: Plan with the test is accepted
-- **WHEN** `check_proposal` receives a valid proposal with a behavior group that changes `src/devops_cli/roadmap/stage_change.py` and a group test text that names `StageProposal`, `content_problems` and no problem.
+- **WHEN** `check_proposal` receives a valid proposal with a behavior group that changes `src/devops_cli/roadmap/stage/stage_change.py` and a group test text that names `StageProposal`, `content_problems` and no problem.
 - **THEN** `check_proposal` returns no self-acceptance problem.
 
 ### Requirement: A plan that changes no plan check needs no self-acceptance test
-A plan whose groups change no path in `src/devops_cli/roadmap/stage_change.py` MUST NOT be refused by the self-acceptance rule.
+A plan whose groups change no path in `src/devops_cli/roadmap/stage/stage_change.py` MUST NOT be refused by the self-acceptance rule.
 
 #### Scenario: Plan that changes another file is accepted
-- **WHEN** `check_proposal` receives a valid proposal whose groups change only `src/devops_cli/roadmap/stage.py`.
+- **WHEN** `check_proposal` receives a valid proposal whose groups change only `src/devops_cli/roadmap/stage/stage.py`.
 - **THEN** `check_proposal` returns no self-acceptance problem.
 
 #### Scenario: Plan that only refactors the plan check is accepted
-- **WHEN** `check_proposal` receives a valid proposal with an other group that changes `src/devops_cli/roadmap/stage_change.py`.
+- **WHEN** `check_proposal` receives a valid proposal with an other group that changes `src/devops_cli/roadmap/stage/stage_change.py`.
 - **THEN** `check_proposal` returns no self-acceptance problem.
 
 ### Requirement: The staging prompt states the self-acceptance test rule
@@ -2062,8 +2051,8 @@ The stage job SHALL record the staged hits of each `-e` literal of a negative-se
 - **THEN** check_proposal returns one problem that names the literal `gone_name` and says that the search already passes before the change.
 
 #### Scenario: A move group names a module with a second literal
-- **WHEN** A move group for prefix `stage` gives the verify command `! git grep -n -e devops_cli.roadmap.stage_ready -e devops_cli.roadmap.stage -- src/ tests/`.
-- **THEN** check_proposal returns two problems: the problem of the move and the problem of the created module, and each names the literal `devops_cli.roadmap.stage`.
+- **WHEN** A move group for prefix `stage` gives the verify command `! git grep -n -e devops_cli.roadmap.stage.stage_ready -e devops_cli.roadmap.stage.stage -- src/ tests/`.
+- **THEN** check_proposal returns two problems: the problem of the move and the problem of the created module, and each names the literal `devops_cli.roadmap.stage.stage`.
 
 ### Requirement: A plan run counts each tool call by outcome
 A plan run of the toolbox SHALL add 1 to `devops_cli_roadmap_tool_calls_total` for each tool call of the toolset. The labels SHALL be `tool`, `row` (`stage`), `toolset` (`base` or `extended`) and `outcome` (`ok`, `empty` or `error`). A call that no tool answers SHALL count as `error`.
@@ -2188,7 +2177,7 @@ The verifier SHALL check the paths, the premise, the scope against the criteria,
 - **THEN** its tools are exactly the nine read tools of the toolset `base`
 
 #### Scenario: A read is listed in the comment
-- **WHEN** the verifier reads `src/devops_cli/roadmap/stage_verify.py` during a run
+- **WHEN** the verifier reads `src/devops_cli/roadmap/stage/stage_verify.py` during a run
 - **THEN** the trace of the item holds that read, and the comment of the staged item lists the path
 
 ### Requirement: A review run has its own row in the metrics of the tool calls
@@ -2221,30 +2210,30 @@ When a verification run ends with no reply, the failure of the item SHALL name t
 - **THEN** the schema accepts the reply, and the title passes the form check
 
 ### Requirement: A plan that changes the stage prompt or a stage gate gives the eval replay task
-The stage job SHALL refuse a plan whose groups change `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/roadmap/stage_form.py`, `src/devops_cli/roadmap/stage_paths.py`, `src/devops_cli/roadmap/stage_criteria.py` or `src/devops_cli/roadmap/stage_eval_gates.py` unless one group task holds the command `uv run devops roadmap eval stage --replay` and the words `score`, `before` and `after`.
+The stage job SHALL refuse a plan whose groups change `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/stage/stage_form.py`, `src/devops_cli/roadmap/stage/stage_paths.py`, `src/devops_cli/roadmap/stage/stage_criteria.py` or `src/devops_cli/roadmap/stage/stage_eval_gates.py` unless one group task holds the command `uv run devops roadmap eval stage --replay` and the words `score`, `before` and `after`.
 
 #### Scenario: Prompt change without a replay task
 - **WHEN** A plan changes `src/devops_cli/ai/tasks/roadmap_stage_change.md` and no group task holds the replay command with the before and after score.
 - **THEN** `check_proposal` returns a problem that names the changed path and the replay command.
 
 #### Scenario: Gate change without a replay task
-- **WHEN** A plan changes `src/devops_cli/roadmap/stage_eval_gates.py` and no group task holds the replay command with the before and after score.
+- **WHEN** A plan changes `src/devops_cli/roadmap/stage/stage_eval_gates.py` and no group task holds the replay command with the before and after score.
 - **THEN** `check_proposal` returns a problem that names the changed path and the replay command.
 
 #### Scenario: Check module change without a replay task
-- **WHEN** A plan changes `src/devops_cli/roadmap/stage_paths.py` and no group task holds the replay command with the before and after score.
+- **WHEN** A plan changes `src/devops_cli/roadmap/stage/stage_paths.py` and no group task holds the replay command with the before and after score.
 - **THEN** `check_proposal` returns a problem that names the changed path and the replay command.
 
 #### Scenario: Replay command without the score
-- **WHEN** A plan changes `src/devops_cli/roadmap/stage_change.py` and one group task holds `uv run devops roadmap eval stage --replay` but not the words `score`, `before` and `after`.
+- **WHEN** A plan changes `src/devops_cli/roadmap/stage/stage_change.py` and one group task holds `uv run devops roadmap eval stage --replay` but not the words `score`, `before` and `after`.
 - **THEN** `check_proposal` returns a problem that asks for the before and after score.
 
 #### Scenario: Trigger path with a replay task
-- **WHEN** A plan changes `src/devops_cli/roadmap/stage_change.py` and one group task holds `uv run devops roadmap eval stage --replay`, `score`, `before` and `after`.
+- **WHEN** A plan changes `src/devops_cli/roadmap/stage/stage_change.py` and one group task holds `uv run devops roadmap eval stage --replay`, `score`, `before` and `after`.
 - **THEN** `check_proposal` returns no problem for the eval replay rule.
 
 #### Scenario: Unrelated source change
-- **WHEN** A plan changes only `src/devops_cli/roadmap/stage.py`.
+- **WHEN** A plan changes only `src/devops_cli/roadmap/stage/stage.py`.
 - **THEN** `check_proposal` returns no problem for the eval replay rule.
 
 ### Requirement: A plan pull request closed with no merge leaves a comment on the issue
@@ -2476,8 +2465,8 @@ The stage prompt MUST tell the planner to cite a symbol instead of a line number
 The stage job SHALL list each path that a group of the plan names under `reads` or `changes` and that a commit on the default branch changed after the plan's base.
 
 #### Scenario: A named plan path changes on main
-- **WHEN** The plan names `src/devops_cli/roadmap/stage_change.py` under `reads` and a later commit on the default branch changes that file.
-- **THEN** The comment of the staged item names `src/devops_cli/roadmap/stage_change.py` and the commit that changed it.
+- **WHEN** The plan names `src/devops_cli/roadmap/stage/stage_change.py` under `reads` and a later commit on the default branch changes that file.
+- **THEN** The comment of the staged item names `src/devops_cli/roadmap/stage/stage_change.py` and the commit that changed it.
 
 #### Scenario: An unnamed path changes on main
 - **WHEN** A commit after the base changes a file that no group of the plan names under `reads` or `changes`.
@@ -2522,3 +2511,43 @@ The stage job SHALL build the body of the draft pull request with `build_plan_bo
 #### Scenario: A second refusal stops the item
 - **WHEN** both replies have a `pull_request_body` of 5 characters
 - **THEN** the job stops the item, opens no draft pull request and pushes nothing
+
+### Requirement: The comment states that the model chose no tool
+The comment of a staged item whose plan runs made no tool call SHALL say on how many of the requests tools were offered, and that the model called none.
+
+#### Scenario: A run that offered tools
+- **WHEN** a plan run offers tools in its one request and the model gives its plan with no tool call
+- **THEN** the comment says that the run offered tools on 1 of 1 request(s) and the model called none
+
+### Requirement: A plan run whose window ends the tools too soon fails the item
+When the context window ends the tools of a plan run before the run made `CONST_ROADMAP_STAGE_MIN_TOOL_CALLS` tool calls, the run SHALL raise `RoadmapStageError`, whatever its reply is. The message SHALL name the window in tokens, the count of calls, the setting `ai.tasks.stage.context_window` and the parent setting `ai.tasks.analysis.context_window`. The job SHALL record that error for the item. A review run SHALL NOT raise it.
+
+#### Scenario: The window ends the tools after one call
+- **WHEN** a plan run has a window of 12000 tokens, reads a big file, and the window takes the tools after fewer calls than the least number
+- **THEN** the run raises `RoadmapStageError` that names the window, `ai.tasks.stage.context_window` and `ai.tasks.analysis.context_window`, though the model gave a valid plan
+
+#### Scenario: The window ends the tools after the least number of calls
+- **WHEN** a plan run has a window that ends the tools after `CONST_ROADMAP_STAGE_MIN_TOOL_CALLS` calls or more, and the model gives its plan
+- **THEN** the run returns the plan
+
+#### Scenario: A review run
+- **WHEN** a review run has a window of 12000 tokens that ends its tools after one call, and the model gives its findings
+- **THEN** the run returns the findings
+
+#### Scenario: The job records the window
+- **WHEN** the stage job runs an item with a window of 8192 tokens, and the model answers a plan after one call
+- **THEN** the item fails with `RoadmapStageError` and the reason names `ai.tasks.stage.context_window`
+
+### Requirement: The planner window of the example ConfigMap fits a plan run
+The context window of the task `analysis` in `k8s/devops/configmap.example.yaml` SHALL leave room, below the point where the run ends its tools, for the first plan request and `CONST_ROADMAP_STAGE_MIN_TOOL_CALLS` tool answers of the longest size.
+
+#### Scenario: The example window
+- **WHEN** a test reads the window of the task `analysis` in the example ConfigMap
+- **THEN** the point where the run ends its tools is at least the tokens of the first request plus the tokens of the least number of long tool answers, and the window of 65536 tokens is below that point
+
+### Requirement: The stage writes the mark before each verification command
+The stage job SHALL write the code span of each `Verification:` line it writes as `$ ` followed by the command, for a task that tests, a task that implements and a task that documents, so that the implement step reads the command.
+
+#### Scenario: A staged group
+- **WHEN** the stage job writes the tasks of a `behavior` group with the `verify` command `uv run devops ci test tests/test_sample.py`
+- **THEN** the `Verification:` line of each of its first two tasks holds the code span `$ uv run devops ci test tests/test_sample.py`, and `parse_task_groups` reads the command without the mark

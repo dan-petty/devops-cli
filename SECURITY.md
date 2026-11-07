@@ -46,13 +46,36 @@ All code authored in or evaluated by DevOps CLI must strictly adhere to the foll
     - **The review.** An item of a bot is text that no person wrote. It reaches Ready only after the review of refine approves the issue and the proposal (`refine.judge`). The stage, implement and alternatives jobs take it only with that approval. The approval holds only for the body that the review read. A body edit ends it, and a refine round reviews the item again.
     - **The controls.** The review is a model, and text in an item can mislead it, so it is no security control. The controls are the login, the filter for replies, and the person who merges each pull request. Refine and the alternatives job give their models only the replies of a person with write access and of the App's bot. A comment of a bot starts no `implement: retry`, because that check keeps the association test.
     - **The risk that stays.** `github-actions[bot]` is the identity of every workflow of the repository. A workflow that copies untrusted text into an issue gives that text a path to Ready, behind the review. A record block in that text would forge the approval, because the job record is a hidden block of the issue body. The audit workflow writes a fixed text, and refine neutralizes `<!` in the text that it files for a Service item (#2478). So neither gives that path today.
-    - **The tests.** `tests/roadmap/test_roadmap_trust.py` and `tests/roadmap/test_roadmap_refine_trust.py` fail when any of this breaks.
+    - **The tests.** `tests/roadmap/test_roadmap_trust.py` and `tests/roadmap/refine/test_roadmap_refine_trust.py` fail when any of this breaks.
 
 ---
 
 ## MCP Server on the Network
 
 The `streamable-http` transport of `devops mcp serve` is a network listener, and it fails closed (`src/devops_cli/ai/mcp/remote.py`). It refuses to start without the `mcp.token` credential (`DEVOPS_CLI_MCP_TOKEN`, at least 32 characters), and it needs `--allow-remote` for a host that is not loopback. Every request must carry that token as a bearer token. The server compares it in constant time before any tool runs, and answers 401 otherwise. The server is meant to be reachable only from the LiteLLM gateway, which holds the token, and a NetworkPolicy must admit only the gateway. The role of a connection is its path: `/planning/mcp`, `/implementation/mcp` and `/review/mcp` each serve a separate `FastMCP` server that holds only the tools of its role (`src/devops_cli/ai/mcp/roles.py`), so a tool outside the role does not exist on that path. A job role holds a tool only when the role table names it and the exposure table marks it read-only. The table names no tool that reads or writes a path that a model gives, because on the server the path is a path of the server. The `ops` role holds every tool, has no endpoint and is never served over the network. A role server has no resource, no prompt and no `hydrate_tool_domain`, so no connection changes what another connection sees. The server logs the role and the tool name of each call, and no argument. `tests/ai/mcp/test_mcp_http.py` and `tests/ai/mcp/test_mcp_roles.py` fail when any of this breaks.
+
+## A Finding with No Fix
+
+A scanner can name a finding that no update of the pinned package solves yet. The agent then adds a time-limited ignore entry itself and does not ask the owner. The entry expires by itself, and the failing scan after the date is the reminder. The owner set these limits on 2026-11-07, and the owner can lift them.
+
+**When the rule applies.** A scanner (Trivy on an image, OSV, `uv audit` or `npm audit`) names a vulnerable package or a vendored library, and no released version of the package that the project pins holds the fix. Prove it in a pull request comment: the fixed version that the scanner names, the newest release of the pinned package, what the `go.mod` or lock file of that release holds, and the date you read it. If any released version holds the fix, bump the pin instead. The two-week release rule still applies. Do not ignore the finding.
+
+**What the agent does.**
+1. Add one entry to `.trivyignore`, or to the ignore file of the other scanner. Scope it as narrowly as the scanner allows: the finding ID, and the path or package when the file format holds them. Give it a reason, a link to the tracking issue, and an `exp:` date. The date is the day of the entry plus 3 days.
+2. Search open issues for a duplicate, then file the tracking issue "bump `<package>` and drop the ignore".
+3. Open the pull request with the entry.
+
+**Renewal.** On the date, check again for a released fix. If one exists, bump the pin and delete the entry. If none exists, renew the entry for 3 more days and put the new proof in the pull request. The first entry and its renewals last at most 14 days in all. After that, stop and ask the owner: a longer ignore is the owner's decision. An entry that the owner names with another date keeps that date.
+
+**What the agent never does.**
+- Ignore a finding of severity CRITICAL. Ask the owner.
+- Ignore a secret finding (gitleaks), a finding in code of this project, or a finding for which a fix exists.
+- Ignore a finding of a package that only the owner pins, by a decision that an ADR records.
+- Use a wildcard.
+- Lower the severity threshold, turn off `ignore-unfixed`, or turn off a scanner.
+- Add an ignore without a reason, an `exp:` date and a tracking issue.
+
+**Report.** The pull request comment lists each ignore that the agent added, its expiry and its tracking issue. The final message of the agent says the same.
 
 ## Reporting a Vulnerability
 

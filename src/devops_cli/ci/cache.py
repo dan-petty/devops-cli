@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import time
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -352,13 +353,51 @@ def clear_ci_cache(root: Path = Path(".")) -> None:
             logger.debug("Failed unlinking CI cache: %s", exc)
 
 
+class CacheRecord(StrEnum):
+    """What `record_passing_run` did."""
+
+    RECORDED = "recorded"
+    # The working tree changed while the checks ran, so the result describes no tree.
+    TREE_CHANGED = "tree_changed"
+    # The tree has no fingerprint, such as a directory with no commit and no tracked file.
+    NO_FINGERPRINT = "no_fingerprint"
+
+
+def record_passing_run(
+    *,
+    root: Path,
+    checks: list[CICachedCheck],
+    options: dict[str, Any],
+    before_fingerprint: str | None = None,
+) -> CacheRecord:
+    """Persist a passing run of the worktree at `root` when its tree is the tree that the run
+    started on: the fingerprint now equals `before_fingerprint`, or the run took none."""
+    fp_info = compute_workspace_fingerprint(root=root, options=options)
+    if not fp_info:
+        return CacheRecord.NO_FINGERPRINT
+    fingerprint, head_sha = fp_info
+    if before_fingerprint is not None and fingerprint != before_fingerprint:
+        return CacheRecord.TREE_CHANGED
+    save_ci_cache(
+        fingerprint=fingerprint,
+        head_sha=head_sha,
+        checks=checks,
+        options=options,
+        passed=True,
+        root=root,
+    )
+    return CacheRecord.RECORDED
+
+
 __all__ = [
     "CICacheEntry",
     "CICachedCheck",
+    "CacheRecord",
     "clear_ci_cache",
     "compute_workspace_fingerprint",
     "compute_worktree_blob_hashes",
     "get_ci_cache",
+    "record_passing_run",
     "resolve_ci_cache_path",
     "resolve_coverage_index_path",
     "save_ci_cache",

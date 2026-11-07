@@ -26,7 +26,7 @@ from devops_cli.github.issues import (
     parse_issue,
     render_issue,
 )
-from devops_cli.roadmap.store import GitHubState, ItemField
+from devops_cli.roadmap.stores.store import GitHubState, ItemField
 from tests.support.fakes.github import JSON_TYPE, GitHubApiFake, github_json, next_page
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore

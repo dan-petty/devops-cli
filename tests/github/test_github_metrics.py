@@ -45,8 +45,8 @@ from devops_cli.github.metrics import (
     parse_tag_datetime,
     reset_refused_paths,
 )
-from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.store import Change, ItemField, RoadmapStore, StageRecordKey
+from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
+from devops_cli.roadmap.stores.store import Change, ItemField, RoadmapStore, StageRecordKey
 from devops_cli.telemetry.instruments import (
     PROJECT_FORKS,
     PROJECT_ITEM_LABELS,
@@ -62,9 +62,9 @@ from devops_cli.telemetry.instruments import (
     ROADMAP_ITEM_AGE,
     ROADMAP_OLDEST_ITEM,
 )
-from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import RunnerSession
+from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore

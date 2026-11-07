@@ -61,6 +61,8 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_CLOUDFLARE_TUNNEL_TOKEN` | `cloudflare.tunnel_token` | 🔒 Yes | Cloudflare Tunnel token that `devops k8s push-secrets` writes to the cluster (stored in OS keyring) |
 | `DEVOPS_CLI_CLOUDFLARE_ZONE_ID` | `cloudflare.zone_id` | No | Cloudflare Zone ID |
 | `DEVOPS_CLI_CONFIG` | *None* | No | Absolute path to project configuration file; outside devops-cli's own repository, the only one a `devops review` command reads |
+| `DEVOPS_CLI_CRAWL4AI_API_TOKEN` | `crawl4ai.api_token` | 🔒 Yes | Bearer token of the Crawl4AI service, which `devops k8s push-secrets` writes to Secret devops/crawl4ai and to Secret devops/devops-cli (stored in OS keyring) Also read from `CRAWL4AI_API_TOKEN`. |
+| `DEVOPS_CLI_CRAWL4AI_URL` | `crawl4ai.url` | No | Address of the Crawl4AI service that returns the text of a web page, such as `http://crawl4ai.devops.svc.cluster.local:11235` in the cluster. It has no default |
 | `DEVOPS_CLI_DATA_ANALYSIS_DIR` | `data.analysis_dir` | No | Storage directory for pre-analysis metadata JSON files |
 | `DEVOPS_CLI_DATA_AUDIT_LOG_PATH` | `data.audit_log_path` | No | Path to structured audit JSONL log file |
 | `DEVOPS_CLI_DATA_BENCHMARKS_DIR` | `data.benchmarks_dir` | No | Storage directory for benchmark test runs and embedding leaderboard reports |
@@ -122,13 +124,15 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_RUNS_INDEX_PASSWORD` | `runs.index_password` | 🔒 Yes | Run index Valkey password (stored in OS keyring) |
 | `DEVOPS_CLI_RUNS_INDEX_URL` | `runs.index_url` | No | Valkey holding the run index shared by workstations (set by `devops ai runs connect`) |
 | `DEVOPS_CLI_SANDBOX_EXCLUDE_HOME_DIR` | `sandbox.exclude_home_dir` | No | Exclude user home directory entirely from sandbox access (/home/**/* and ~/**/*) |
+| `DEVOPS_CLI_SEARCH_LANGUAGE` | `search.language` | No | The language of a web search, as the `Accept-Language` of its request |
+| `DEVOPS_CLI_SEARCH_PROVIDERS` | `search.providers` | No | The providers of web search, in the order that a search asks them: `searxng`, `duckduckgo` or `firecrawl`. A provider that is not configured is skipped, and `searxng` is skipped until its provider exists (#3927). A search goes to the next provider when one fails or returns no hit, and the first provider with a hit answers |
 | `DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS` | `service.drain_timeout_seconds` | No | Shutdown drain timeout for running service jobs in seconds |
 | `DEVOPS_CLI_SERVICE_GITHUB_APP_APP_ID` | `service.github_app.app_id` | No | ID of the GitHub App that the roadmap Service and the cluster jobs act as |
 | `DEVOPS_CLI_SERVICE_GITHUB_APP_INSTALLATION_ID` | `service.github_app.installation_id` | No | ID of the App's installation on the account that owns the managed repositories |
 | `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` | `service.github_app.private_key` | 🔒 Yes | PEM private key of the GitHub App (stored in OS keyring). A process whose environment holds it acts as the App |
 | `DEVOPS_CLI_SERVICE_GITHUB_APP_SLUG` | `service.github_app.slug` | No | Slug of the GitHub App; its bot's login is `<slug>[bot]` |
 | `DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY` | `service.github_app.token_repository` | No | owner/name of the one repository that an installation token may name. Set on a runner Job by the Service, so a step cannot push to another repository. With it unset, a token covers every repository of the installation |
-| `DEVOPS_CLI_SERVICE_GITHUB_REQUESTS_PER_HOUR` | `service.github_requests_per_hour` | No | The most GitHub requests the Service sends in one hour; a request that the last hour has no room for waits. The alert RoadmapServiceGitHubRequestsHigh follows this limit |
+| `DEVOPS_CLI_SERVICE_GITHUB_REQUESTS_PER_HOUR` | `service.github_requests_per_hour` | No | The most GitHub requests the Service sends in one hour, not counting those that GitHub answers with 304, as GitHub does not count them against its rate limit; a request that the last hour has no room for waits. The alert RoadmapServiceGitHubRequestsHigh follows this limit |
 | `DEVOPS_CLI_SERVICE_MODEL_CALL_CONCURRENCY` | `service.model_call_concurrency` | No | The most model calls the Service keeps in flight at once; a lane that waits does so in the Service, where no stall timer runs |
 | `DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS` | `service.poll_interval_seconds` | No | Periodic polling interval for service mode in seconds |
 | `DEVOPS_CLI_SERVICE_REPOS` | `service.repos` | No | Target repository list for service mode |

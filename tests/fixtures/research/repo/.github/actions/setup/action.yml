@@ -1,0 +1,5 @@
+name: setup
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@dddddddddddddddddddddddddddddddddddddddd # v6.1.0

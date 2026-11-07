@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic_ai.messages import (
     FinishReason,
     ModelMessage,
@@ -35,7 +35,7 @@ from pydantic_ai.models.test import TestStreamedResponse
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import RequestUsage
 
-from devops_cli.ai.client.models import LLMResponse
+from devops_cli.ai.client.models import LLMResponse, StructuredOutputValidationError
 from devops_cli.ai.client.structured import StructuredOutputMixin
 from devops_cli.config.settings import AIConfig
 
@@ -148,7 +148,9 @@ class ModelAnswer:
     output_tokens: int = 20
 
 
-AnswerType = str | ModelAnswer | BaseModel | Exception | type[Exception]
+AnswerType = (
+    str | ModelAnswer | BaseModel | Exception | type[Exception] | Callable[[str], "AnswerType"]
+)
 RoutePattern = str | re.Pattern[str] | Callable[[str], bool]
 
 
@@ -365,6 +367,12 @@ class ModelFake(Model):
                         return schema.model_validate_json(answer.content)
                     if hasattr(schema, "model_validate"):
                         return schema.model_validate(json.loads(answer.content))
+                except ValidationError as exc:
+                    raise StructuredOutputValidationError(
+                        f"The reply does not fit {schema.__name__}: {str(exc)[:300]}",
+                        violations=exc.error_count(),
+                        error_types=tuple(sorted({e["type"] for e in exc.errors()})),
+                    ) from exc
                 except Exception:
                     pass
         return answer.content
@@ -574,19 +582,21 @@ class ModelFake(Model):
     def _resolve_answer(self, prompt: str) -> ModelAnswer:
         for predicate, candidate in self._routes:
             if predicate(prompt):
-                return self._materialize_answer(candidate)
+                return self._materialize_answer(candidate, prompt)
 
         if self._queue:
             candidate = self._queue.pop(0)
             self._last_answer = candidate
-            return self._materialize_answer(candidate)
+            return self._materialize_answer(candidate, prompt)
 
         if self._last_answer is not None:
-            return self._materialize_answer(self._last_answer)
+            return self._materialize_answer(self._last_answer, prompt)
 
         return ModelAnswer(content=self.default_response)
 
-    def _materialize_answer(self, candidate: AnswerType) -> ModelAnswer:
+    def _materialize_answer(self, candidate: AnswerType, prompt: str) -> ModelAnswer:
+        if callable(candidate) and not isinstance(candidate, (type, BaseModel, Exception)):
+            return self._materialize_answer(candidate(prompt), prompt)
         if isinstance(candidate, type) and issubclass(candidate, Exception):
             raise candidate("Model error")
         if isinstance(candidate, Exception):

@@ -13,7 +13,7 @@ import pytest
 from devops_cli.ai.review.adjudication import Verdict
 from devops_cli.ai.review_schema import Finding, SavedFinding
 from devops_cli.config.constants import CONST_STATUS_VERIFIED
-from devops_cli.roadmap.store import Candidate, Item, Milestone
+from devops_cli.roadmap.stores.store import Candidate, Item, Milestone
 from tests.support.builders import (
     make_candidate,
     make_finding,

@@ -57,6 +57,7 @@ RUNS_PASSWORD = "runs-keyring-value-0001"
 CACHE_PASSWORD = "cache-keyring-value-0001"
 DEVOPS_CACHE_PASSWORD = "devops-cache-keyring-value-0001"
 TUNNEL_TOKEN = "tunnel-keyring-value-0001"
+CRAWL4AI_TOKEN = "crawl4ai-keyring-value-0001"
 FULL_KEYRING = {
     LLM_GATEWAY_MASTER_KEY: GATEWAY_KEY,
     "qdrant_api_key": QDRANT_KEY,
@@ -65,6 +66,7 @@ FULL_KEYRING = {
     DEVOPS_CACHE_VALKEY_AUTH_KEY: DEVOPS_CACHE_PASSWORD,
     "cloudflare_tunnel_token": TUNNEL_TOKEN,
     "service_github_app_private_key": APP_KEY,
+    "crawl4ai_api_token": CRAWL4AI_TOKEN,
 }
 TABLE_REFS = {secret.ref for secret in CLUSTER_SECRETS}
 
@@ -237,8 +239,10 @@ def test_apply_is_one_server_side_apply_of_a_list_on_stdin(
             "llm/valkey-auth": ["VALKEY_PASSWORD"],
             "llm/valkey-devops-auth": ["password"],
             "cloudflared/cloudflared-token": ["token"],
+            "devops/crawl4ai": ["CRAWL4AI_API_TOKEN"],
             "devops/devops-cli": [
                 "DEVOPS_CLI_AI_API_KEY",
+                "DEVOPS_CLI_CRAWL4AI_API_TOKEN",
                 APP_KEY_ENTRY,
                 "DEVOPS_CLI_VALKEY_PASSWORD",
             ],
@@ -264,6 +268,7 @@ def test_keyring_values_without_live_secrets_are_created_and_restart_nothing(
         {
             APP_KEY_ENTRY: APP_KEY,
             "DEVOPS_CLI_AI_API_KEY": GATEWAY_KEY,
+            "DEVOPS_CLI_CRAWL4AI_API_TOKEN": CRAWL4AI_TOKEN,
             "DEVOPS_CLI_VALKEY_PASSWORD": DEVOPS_CACHE_PASSWORD,
         },
         [],
@@ -352,7 +357,10 @@ def test_the_devops_api_key_is_adopted_from_the_gateway_secret_never_generated(
     cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
 ) -> None:
     backend = _install(
-        monkeypatch, cluster, keyring_store, values={"service_github_app_private_key": APP_KEY}
+        monkeypatch,
+        cluster,
+        keyring_store,
+        values={"service_github_app_private_key": APP_KEY, "crawl4ai_api_token": CRAWL4AI_TOKEN},
     )
     cluster.add_secret("llm", "llm-gateway-secrets", {"master-key": "sk-live-gateway-0001"})
     cluster.add_secret("llm", "valkey-devops-auth", {"password": "live-devops-cache-0001"})
@@ -366,6 +374,7 @@ def test_the_devops_api_key_is_adopted_from_the_gateway_secret_never_generated(
         {
             APP_KEY_ENTRY: APP_KEY,
             "DEVOPS_CLI_AI_API_KEY": "sk-live-gateway-0001",
+            "DEVOPS_CLI_CRAWL4AI_API_TOKEN": CRAWL4AI_TOKEN,
             "DEVOPS_CLI_VALKEY_PASSWORD": "live-devops-cache-0001",
         },
     )
@@ -542,6 +551,7 @@ def test_stack_devops_reads_the_app_key_gateway_key_and_webhook_secrets_and_runs
             "firecrawl_api_key",
             DEVOPS_CACHE_VALKEY_AUTH_KEY,
             "mattermost_command_token",
+            "crawl4ai_api_token",
         },
         [],
         APP_KEY,
@@ -605,6 +615,40 @@ def test_no_value_reaches_argv_logs_or_output(
     texts = [argv, caplog.text, result.output, result.stderr if result.stderr_bytes else ""]
     assert (result.exit_code, [v for v in values + encoded if any(v in t for t in texts)]) == (
         0,
+        [],
+    )
+
+
+def test_the_crawl4ai_token_is_made_once_for_both_secrets_and_reaches_no_output(
+    cluster: FakeCluster,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    keyring_store: FakeKeyring,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    backend = _install(
+        monkeypatch,
+        cluster,
+        keyring_store,
+        values={k: v for k, v in FULL_KEYRING.items() if k != "crawl4ai_api_token"},
+    )
+    dry_run = _push("--stack", "devops", "--dry-run")
+    result = _push("--stack", "devops")
+    token = backend.writes["crawl4ai_api_token"]
+    argv = " ".join(" ".join(call.argv) for call in cluster.calls)
+    texts = [argv, caplog.text, result.output, dry_run.output]
+    encoded = base64.b64encode(token.encode()).decode()
+    assert (
+        result.exit_code,
+        len(token) >= 43,
+        cluster.live_data("devops", "crawl4ai"),
+        cluster.live_data("devops", "devops-cli")["DEVOPS_CLI_CRAWL4AI_API_TOKEN"],
+        [t for t in texts if token in t or encoded in t],
+    ) == (
+        0,
+        True,
+        {"CRAWL4AI_API_TOKEN": token},
+        token,
         [],
     )
 

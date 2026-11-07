@@ -173,23 +173,12 @@ The text of the model in the comment and the block SHALL make no image, no HTML 
 - **WHEN** a person comments after the job's comment and a later check runs
 - **THEN** the request to the model holds that comment in `replies`
 
-### Requirement: The check is off without a public repository and a key
-The check SHALL be off when the repository is private, when its visibility cannot be read, or when no Firecrawl key is set. The plan SHALL say why, and the run SHALL make no model call, no search and no write.
-
-#### Scenario: A private repository
-- **WHEN** the repository is private
-- **THEN** the plan says that the check is off because the repository is private, and no search runs
-
-#### Scenario: No Firecrawl key
-- **WHEN** the repository is public and no Firecrawl key is set
-- **THEN** the plan says that no Firecrawl key is set, and no search runs
-
 ### Requirement: A dry run makes no request
-`devops roadmap alternatives --dry-run` SHALL make no request, and SHALL print the requests a run makes, with the exact `gh` command of each GitHub request and the URL of each Firecrawl and PyPI request.
+`devops roadmap alternatives --dry-run` SHALL make no request, and SHALL print the requests a run makes, with the exact `gh` command of each GitHub request, the URL of the request of the first configured search provider and the URL of each PyPI request.
 
 #### Scenario: A dry run
 - **WHEN** the command runs with `--dry-run`
-- **THEN** it exits 0 after it makes no GitHub, model, Firecrawl or PyPI request, and its output lists the requests a run makes
+- **THEN** it exits 0 after it makes no GitHub, model, search or PyPI request, and its output lists the requests a run makes
 
 ### Requirement: The recheck window is a setting
 The setting `roadmap.alternatives.recheck_days` SHALL be an integer of at least 1, default 30, and SHALL decide when a check is old.
@@ -345,7 +334,7 @@ For an item that is no skip class, the check SHALL refuse a reply that follows n
 
 #### Scenario: A reply with no search gets one more turn
 - **WHEN** the model answers a `feat` item with the verdict `none` and no search, then searches, then answers with the verdict `none`
-- **THEN** the model received three requests, the check is written with the query of the search, and the counter `devops_cli_firecrawl_searches_total` has a point
+- **THEN** the model received three requests, the check is written with the query of the search, and the counter `devops_cli_web_searches_total` has a point
 
 #### Scenario: Two replies with no search
 - **WHEN** the model answers a `feat` item twice with a verdict and no search
@@ -574,3 +563,14 @@ For each check that it writes, the job SHALL observe the histogram `devops_cli_r
 #### Scenario: A check that is not written
 - **WHEN** a check fails, a person changes the body between the read and the write, or a run only plans
 - **THEN** the histogram has no point for that item
+
+### Requirement: The check is off without a public repository and a search provider
+The check SHALL be off when the repository is private, when its visibility cannot be read, or when no search provider is configured. The plan SHALL say why, and the run SHALL make no model call, no search and no write.
+
+#### Scenario: A private repository
+- **WHEN** the repository is private
+- **THEN** the plan says that the check is off because the repository is private, and no search runs
+
+#### Scenario: No search provider
+- **WHEN** the repository is public and no search provider is configured
+- **THEN** the plan says that no search provider is configured, and no search runs

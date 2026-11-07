@@ -17,7 +17,7 @@ from devops_cli.github.issues import (
     resolve_updated_labels,
 )
 from devops_cli.github.milestones import calculate_milestone_progress
-from devops_cli.roadmap.store import GitHubState, Milestone
+from devops_cli.roadmap.stores.store import GitHubState, Milestone
 from tests.support.fakes.github import github_json, next_page
 from tests.support.fakes.process import ProcessAnswer
 

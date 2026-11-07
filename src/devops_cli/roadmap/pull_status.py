@@ -24,8 +24,8 @@ from devops_cli.config.constants import (
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.merge_readiness import read_closing_issues
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap import store as roadmap_store
-from devops_cli.roadmap.store import ItemField
+from devops_cli.roadmap.stores import store as roadmap_store
+from devops_cli.roadmap.stores.store import ItemField
 
 # The Statuses that each target replaces; no Status at all is replaced too.
 _REPLACES: Final[dict[str, frozenset[str | None]]] = {

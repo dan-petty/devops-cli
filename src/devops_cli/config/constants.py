@@ -155,6 +155,14 @@ CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
         "Firecrawl Configuration (`firecrawl`)",
         "Firecrawl web search API authentication settings.",
     ),
+    "crawl4ai": (
+        "Crawl4AI Configuration (`crawl4ai`)",
+        "Address of the Crawl4AI service that returns the text of a web page.",
+    ),
+    "search": (
+        "Web Search Configuration (`search`)",
+        "The providers that web search asks, in order, and the language of the search.",
+    ),
 }
 CONST_DOMAIN_EXCEPTION_MODULES: Final[tuple[str, ...]] = (
     "devops_cli.ai.client.models",
@@ -251,6 +259,7 @@ CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
         "prometheus",
         "rag",
         "repos",
+        "research",
         "roadmap",
         "sandbox",
         "scan",
@@ -371,6 +380,7 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("pr", "threads", "resolve"), 60.0, False, False),
     (("pr", "update"), 60.0, False, False),
     (("prometheus", "query"), 30.0, True, False),
+    (("research", "inventory"), 30.0, True, True),
     (("repos", "list"), 30.0, True, False),
     (("repos", "sync"), 120.0, False, False),
     (("review", "branch"), 300.0, True, False),
@@ -3039,14 +3049,22 @@ CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL: Final[int] = 50
 # The context names the requirements of at most this many specs, and at most this many for each (#3012).
 CONST_ROADMAP_REFINE_MAX_SPECS: Final[int] = 10
 CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC: Final[int] = 100
-# The `result` of `devops_cli_firecrawl_searches_total` for a search that returned its web results,
-# and for one that got no answer or a reply with no web results. A search that Firecrawl refused
-# counts under its HTTP status (#2475).
-CONST_FIRECRAWL_RESULT_OK: Final[str] = "ok"
-CONST_FIRECRAWL_RESULT_ERROR: Final[str] = "error"
-# The `backend` of `devops_cli_web_search_fallbacks_total`: the search that runs after Firecrawl
-# failed (#3876). Its `result` is `CONST_FIRECRAWL_RESULT_OK` or `CONST_FIRECRAWL_RESULT_ERROR`.
-CONST_WEB_SEARCH_BACKEND_DUCKDUCKGO: Final[str] = "duckduckgo"
+# The `result` of `devops_cli_web_searches_total` (#3925), besides the HTTP status of a provider that
+# refused a search: the provider returned hits, returned none, answered with a reply it could not
+# read, or did not answer. The last three belong to a search that no provider answered or that the
+# guard refused, and their `backend` is `none`.
+CONST_WEB_SEARCH_RESULT_OK: Final[str] = "ok"
+CONST_WEB_SEARCH_RESULT_EMPTY: Final[str] = "empty"
+CONST_WEB_SEARCH_RESULT_DEGRADED: Final[str] = "degraded"
+CONST_WEB_SEARCH_RESULT_ERROR: Final[str] = "error"
+CONST_WEB_SEARCH_RESULT_REFUSED: Final[str] = "refused"
+CONST_WEB_SEARCH_RESULT_EXHAUSTED: Final[str] = "exhausted"
+CONST_WEB_SEARCH_BACKEND_NONE: Final[str] = "none"
+# The `result` of `devops_cli_crawl4ai_fetches_total` for a page whose text the Crawl4AI service
+# returned, and for a fetch that got no usable answer. A fetch that the service refused counts its
+# HTTP status.
+CONST_CRAWL4AI_RESULT_OK: Final[str] = "ok"
+CONST_CRAWL4AI_RESULT_ERROR: Final[str] = "error"
 # The most comments refine posts on one item in `CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS`.
 # A round that finds that many refine comments on the item leaves it alone, so a loop of replies
 # from another bot or workflow stops after this many comments (#2475).
@@ -3084,7 +3102,7 @@ CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS: Final[int] = 300
 # limit of a run (`CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE`), and the two counts are the
 # loop guard of the job: a model that calls tools without end stops at them, long before the Job
 # deadline. They are 8 and 7.5 times the old counts, and the answers of 100 requests fill the
-# planner window of 65,536 tokens before the counts end the run (#3206).
+# window of 65,536 tokens before the counts end the run (#3206).
 CONST_ROADMAP_REFINE_INVESTIGATION_MAX_REQUESTS: Final[int] = 100
 CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS: Final[int] = 150
 CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS: Final[int] = 4
@@ -3115,12 +3133,17 @@ CONST_ROADMAP_STAGE_SPEC_MAX_CHARS: Final[int] = 16000
 # cap that does not grow with the window. A cap is also at most a share of a small window
 # (`_WINDOW_SHARE_CONTEXT` and `_WINDOW_SHARE_BODY` in the stage module). For the planner window of
 # 65,536 tokens, the hook that ends the tools (`CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE`)
-# stops them at 49,152 tokens. The request with the prompts and the names of the capabilities
+# stops them at 49,152 tokens. That window is too small for a run (`CONST_ROADMAP_STAGE_MIN_TOOL_CALLS`). The request with the prompts and the names of the capabilities
 # counts about 34,000 tokens at the caps. The reserve is the room that the first request leaves
 # below that limit for the answers of the tools. `read_spec` gives the capabilities on demand.
 CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS: Final[int] = 20_480
 CONST_ROADMAP_STAGE_BODY_MAX_TOKENS: Final[int] = 8_192
 CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS: Final[int] = 8_192
+# The least tool calls that a plan run makes before the window ends its tools (#3880). A run that
+# the window stops sooner has read almost none of the code, and the model answers with a
+# placeholder text. At the window of 65,536 tokens, the runs made 4 and 6 calls and failed; at
+# 256,000 tokens, a run made 40 calls and staged the item.
+CONST_ROADMAP_STAGE_MIN_TOOL_CALLS: Final[int] = 8
 # The three extra tools of the planner (#3238). `references` names a text of at most 100
 # characters and lists at most 60 files, with the count of matches of each (the count is exact: the
 # search has no cap for a file). `read_issue` shows the first 1500 characters of a body, the last
@@ -3170,8 +3193,8 @@ CONST_ROADMAP_ALTERNATIVES_MAINTAINED_DAYS: Final[int] = 365
 CONST_ROADMAP_ALTERNATIVES_MAX_LICENSE_CHARS: Final[int] = 100
 CONST_ROADMAP_ALTERNATIVES_LICENSE_CLASSIFIER: Final[str] = "License :: "
 CONST_ROADMAP_ALTERNATIVES_CLASSIFIER_SEPARATOR: Final[str] = " :: "
-# The longest body, in tokens, that reaches the model with an item: a quarter of the planner window
-# of 65,536 tokens that the example ConfigMap sets (#3206).
+# The longest body, in tokens, that reaches the model with an item: a quarter of a window of 65,536
+# tokens. A larger window gives no larger cap (#3206).
 CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS: Final[int] = 16384
 # The ADRs of a repository, as the check reads them (#3505): the directory that holds them, and the
 # most tokens of their titles and options that reach the model with an item, half of the body cap.

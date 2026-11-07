@@ -223,7 +223,7 @@ _SIMILAR_TO_AN_API_KEY = "ai.api_key, firecrawl.api_key, anthropic.api_key"
         pytest.param(
             ["firecrawl.apikey", "--from-file", "-"],
             "Unknown config key: 'firecrawl.apikey'\n"
-            "Known keys with a similar name: firecrawl.api_key, ai.api_key, qdrant.api_key\n",
+            "Known keys with a similar name: firecrawl.api_key, crawl4ai.api_token, ai.api_key\n",
             id="from-stdin",
         ),
     ],
@@ -248,7 +248,7 @@ def test_config_get_of_an_unknown_key_names_the_similar_keys(cli: Any) -> None:
     assert (result.exit_code, result.output) == (
         1,
         "Unknown config key: 'firecrawl.apikey'\n"
-        "Known keys with a similar name: firecrawl.api_key, ai.api_key, qdrant.api_key\n",
+        "Known keys with a similar name: firecrawl.api_key, crawl4ai.api_token, ai.api_key\n",
     )
 
 

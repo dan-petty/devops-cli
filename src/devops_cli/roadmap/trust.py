@@ -26,7 +26,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.roadmap.body_hash import is_unchanged
-from devops_cli.roadmap.store import IssueComment, Item, JudgeVerdict, RefineRecordKey
+from devops_cli.roadmap.stores.store import IssueComment, Item, JudgeVerdict, RefineRecordKey
 
 _BOT_LOGIN_SUFFIX = "[bot]"
 """How GitHub ends the login of every bot account."""

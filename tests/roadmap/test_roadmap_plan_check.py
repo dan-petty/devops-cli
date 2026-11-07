@@ -18,14 +18,14 @@ from devops_cli.github.client import CommitRef, IssueView, PullRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.plan_check import PlanCheckResult, plan_check
-from devops_cli.roadmap.stage_change import (
+from devops_cli.roadmap.stage.stage_change import (
     StageGroup,
     StageProposal,
     measure_groups,
     render_change,
     shared_texts,
 )
-from devops_cli.roadmap.store import encode_job_record, with_record
+from devops_cli.roadmap.stores.store import encode_job_record, with_record
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import VALID_REPORT, StageRepo, heavy_group
 
@@ -262,6 +262,21 @@ def test_an_unreadable_tasks_file_is_reported(stage_repo: StageRepo) -> None:
     files[f"openspec/changes/{CHANGE}/tasks.md"] = tasks.replace(
         "Reads: `src/devops_cli/sample.py`. Changes:", "Changes:"
     )
+    sha = _push(stage_repo, files)
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha))
+
+    assert [(p.path, p.rule) for p in result.problems] == [("tasks.md", "read")]
+
+
+def test_a_criterion_of_group_zero_is_reported_as_a_read_problem(stage_repo: StageRepo) -> None:
+    files = _change(
+        make_stage_proposal(
+            criteria=[{"criterion": "The command prints one line for each problem", "group": 1}]
+        )
+    )
+    path = f"openspec/changes/{CHANGE}/tasks.md"
+    files[path] = files[path].replace("Group 1:", "Group 0:")
     sha = _push(stage_repo, files)
 
     result = _run(stage_repo, _facts(stage_repo, sha=sha))

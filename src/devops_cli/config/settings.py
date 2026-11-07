@@ -124,6 +124,8 @@ from devops_cli.config.defaults import (
     DEFAULT_RUNS_DATA_DIR,
     DEFAULT_SAMPLES_DATA_DIR,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
+    DEFAULT_SEARCH_LANGUAGE,
+    DEFAULT_SEARCH_PROVIDERS,
     DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS,
     DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR,
     DEFAULT_SERVICE_MODEL_CALL_CONCURRENCY,
@@ -137,6 +139,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_TIMEOUT_SECONDS,
     DEFAULT_VALKEY_URL,
     DEFAULT_WORKSPACE_FILE,
+    SearchProviderName,
     StageToolset,
 )
 from devops_cli.config.env import (
@@ -152,8 +155,8 @@ from devops_cli.core.dns_names import OptionalConfiguredDomain
 from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.lang import ERRORS
-from devops_cli.roadmap.implement_size import MIN_MEMORY_LIMIT_GI
-from devops_cli.roadmap.stage_filter import split_filter_entry
+from devops_cli.roadmap.implement.implement_size import MIN_MEMORY_LIMIT_GI
+from devops_cli.roadmap.stage.stage_filter import split_filter_entry
 from devops_cli.valkey.endpoint import ValkeyEndpoint, parse_valkey_url
 
 if typing.TYPE_CHECKING:
@@ -1135,7 +1138,7 @@ class ServiceConfig(BaseModel):
         gt=0,
     )
     github_requests_per_hour: Annotated[int, Variable()] = Field(
-        description="The most GitHub requests the Service sends in one hour; a request that the last hour has no room for waits. The alert RoadmapServiceGitHubRequestsHigh follows this limit",
+        description="The most GitHub requests the Service sends in one hour, not counting those that GitHub answers with 304, as GitHub does not count them against its rate limit; a request that the last hour has no room for waits. The alert RoadmapServiceGitHubRequestsHigh follows this limit",
         default=DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR,
         gt=0,
     )
@@ -1304,6 +1307,30 @@ class FirecrawlConfig(BaseModel):
     api_key: str | None = None
 
 
+class Crawl4AIConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    url: Annotated[HttpUrlStr | None, Variable()] = Field(
+        default=None,
+        description="Address of the Crawl4AI service that returns the text of a web page, such "
+        "as `http://crawl4ai.devops.svc.cluster.local:11235` in the cluster. It has no default",
+    )
+
+
+class SearchConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    providers: Annotated[list[SearchProviderName], Variable()] = Field(
+        description="The providers of web search, in the order that a search asks them: `searxng`, `duckduckgo` or `firecrawl`. A provider that is not configured is skipped, and `searxng` is skipped until its provider exists (#3927). A search goes to the next provider when one fails or returns no hit, and the first provider with a hit answers",
+        default_factory=lambda: list(DEFAULT_SEARCH_PROVIDERS),
+    )
+    language: Annotated[str, Variable()] = Field(
+        description="The language of a web search, as the `Accept-Language` of its request",
+        default=DEFAULT_SEARCH_LANGUAGE,
+        min_length=2,
+    )
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         extra="ignore",
@@ -1353,6 +1380,8 @@ class Settings(BaseSettings):
     service: ServiceConfig = ServiceConfig()
     roadmap: RoadmapConfig = RoadmapConfig()
     firecrawl: FirecrawlConfig = FirecrawlConfig()
+    crawl4ai: Crawl4AIConfig = Crawl4AIConfig()
+    search: SearchConfig = SearchConfig()
     # The values that `load_settings` returned, so `save_settings` writes only the keys that
     # changed after the load (#1999). Settings made in code have none, and start from the defaults.
     _loaded: dict[str, Any] | None = PrivateAttr(default=None)
@@ -1962,6 +1991,12 @@ def get_firecrawl_api_key(settings: Settings | None = None) -> str | None:
     """Resolve the Firecrawl web search API key."""
     active_settings = settings or load_settings()
     return _resolve("firecrawl.api_key", active_settings)
+
+
+def get_crawl4ai_api_token(settings: Settings | None = None) -> str | None:
+    """Resolve the bearer token of the Crawl4AI service."""
+    active_settings = settings or load_settings()
+    return _resolve("crawl4ai.api_token", active_settings)
 
 
 def _canonical_key(key: str) -> str:

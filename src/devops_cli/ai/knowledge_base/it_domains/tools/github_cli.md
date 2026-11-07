@@ -70,7 +70,7 @@ devops gh api repos/<owner>/<repo>/releases/tags/<tag>
 
 ## 4. Best Practice Guidance
 
-1. **Target the Default Branch**: PRs for features and bug fixes target `main`. release-please opens the only release PR, and a person merges it.
+1. **Target the Default Branch**: PRs for features and bug fixes target `main`. release-please opens the only release PR, and a scheduled workflow or a person merges it.
 2. **Monitor Remote CI to Green**: Never submit a PR without actively monitoring remote CI checks (`devops pr monitor <pr>`) until all checks pass.
 3. **Structured PR Titles**: Follow Conventional Commits format in PR titles (`feat(scope): ...`, `fix(scope): ...`). The squash commit takes the title, and release-please writes it as the changelog line.
 4. **Fine-Grained Permissions**: Use fine-grained GitHub Personal Access Tokens scoped to specific repositories with minimal required permissions (`Contents: Read/Write`, `Pull Requests: Read/Write`, `Workflows: Read`).

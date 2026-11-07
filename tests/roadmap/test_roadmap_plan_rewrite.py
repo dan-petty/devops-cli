@@ -7,11 +7,11 @@ from __future__ import annotations
 import difflib
 from datetime import date
 
-from devops_cli.roadmap.implement_shell_policy import Verification, read_verification
+from devops_cli.roadmap.implement.implement_shell_policy import Verification, read_verification
 from devops_cli.roadmap.plan_read import read_change
 from devops_cli.roadmap.plan_rewrite import rewrite_plan
-from devops_cli.roadmap.stage_change import render_change
-from devops_cli.roadmap.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_change import render_change
+from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.builders import make_stage_proposal
 
@@ -99,9 +99,9 @@ def test_a_behavior_group_gets_the_fails_on_the_base_form_and_any_other_group_pa
     added = _added_lines(NO_VERIFICATION, rewritten)
 
     assert added == [
-        "  - Verification: `uv run devops ci test tests/test_sample.py` fails on the base",
-        "  - Verification: `uv run devops ci test tests/test_keep.py tests/test_more.py` passes",
-        "  - Verification: `uv run devops ci docs` passes",
+        "  - Verification: `$ uv run devops ci test tests/test_sample.py` fails on the base",
+        "  - Verification: `$ uv run devops ci test tests/test_keep.py tests/test_more.py` passes",
+        "  - Verification: `$ uv run devops ci docs` passes",
     ]
     first = parse_task_groups(rewritten)[0]
     assert first.tasks[0].verification == ("uv run devops ci test tests/test_sample.py",)
@@ -129,13 +129,13 @@ def test_a_group_that_has_a_verification_line_is_left_as_it_is() -> None:
     tasks = NO_VERIFICATION.replace(
         "- [ ] 3.1 Describe the sample in `docs/guide.md`",
         "- [ ] 3.1 Describe the sample in `docs/guide.md`\n"
-        "  - Verification: `uv run devops ci docs` passes",
+        "  - Verification: `$ uv run devops ci docs` passes",
     )
 
     rewritten = rewrite_plan(ROOT, _files(tasks), TREE).files[TASKS_PATH]
 
     assert len(_added_lines(tasks, rewritten)) == 2
-    assert rewritten.count("`uv run devops ci docs`") == 1
+    assert rewritten.count("`$ uv run devops ci docs`") == 1
 
 
 def test_a_command_that_the_step_refuses_is_not_written() -> None:
@@ -156,7 +156,7 @@ Reads: none. Changes: `src/devops_cli/sample.py`, `tests/test_real.py` (new).
 
 - [ ] 1.1 Write the failing test in `tests/test_real.py`, and let it write `tests/test_sample.py` and
   read `src/devops_cli/sample.py` and `tests/test_late.py`
-  - Verification: `uv run devops ci test tests/test_real.py` passes
+  - Verification: `$ uv run devops ci test tests/test_real.py` passes
 - [ ] 1.2 Add `src/devops_cli/missing.py` (new)
 
 ## 2. Add the late test
@@ -164,7 +164,7 @@ Reads: none. Changes: `src/devops_cli/sample.py`, `tests/test_real.py` (new).
 Reads: none. Changes: `tests/test_late.py` (new).
 
 - [ ] 2.1 Write the late test
-  - Verification: `uv run devops ci test tests/test_late.py` passes
+  - Verification: `$ uv run devops ci test tests/test_late.py` passes
 """
 
 
@@ -200,14 +200,14 @@ def test_a_path_on_a_reads_line_stays_and_a_verification_line_is_never_edited() 
         .replace("read `src/devops_cli/sample.py`", "read `docs/note.md`")
         .replace(
             "passes\n- [ ] 1.2",
-            "passes\n  - Verification: `uv run devops ci test tests/test_sample.py` passes\n- [ ] 1.2",
+            "passes\n  - Verification: `$ uv run devops ci test tests/test_sample.py` passes\n- [ ] 1.2",
         )
     )
 
     rewritten = rewrite_plan(ROOT, _files(tasks), TREE).files[TASKS_PATH]
 
     assert "read `docs/note.md`" in rewritten
-    assert "  - Verification: `uv run devops ci test tests/test_sample.py` passes" in rewritten
+    assert "  - Verification: `$ uv run devops ci test tests/test_sample.py` passes" in rewritten
 
 
 def test_a_folder_with_no_design_gets_a_stub_that_the_plan_reader_accepts() -> None:

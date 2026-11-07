@@ -67,7 +67,7 @@ from devops_cli.github.rate_limiter import (
 )
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.store import ItemField
+from devops_cli.roadmap.stores.store import ItemField
 
 logger = logging.getLogger(__name__)
 

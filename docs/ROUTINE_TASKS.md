@@ -44,6 +44,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Feature / PR Lifecycle** | Remote Branch Audit & Pruning | Step 8 | `git fetch --prune origin` | Prunes merged, closed, or superseded remote tracking branches | Zero orphan remote branches on origin |
 | **Release (a person)** | Release Pull Request Merge | Step 1 | GitHub web UI | A person reads the version and changelog of the release-please pull request and squash-merges it; `release.yml` then publishes. Agents have no step ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)) | GitHub release, tag, packages and images published |
 | **Security & Audits** | Dependency Security Audit | Weekly | `uv run devops ci audit` (`uv audit`, `npm audit`) | Scans installed packages and the lockfile of each Node tool in `tools.lock` for known vulnerabilities | 0 known vulnerabilities |
+| **Security & Audits** | Ignore Entry Renewal | Daily / Pre-PR | `git grep -n 'exp:' .trivyignore` | Renews or drops each ignore entry before its `exp:` date, as [SECURITY.md](../SECURITY.md#a-finding-with-no-fix) says | No entry is past its date; the image scans pass |
 | **Security & Audits** | Static Security Scan (SAST) | Weekly | `uv run devops ci security` (`bandit`) | Static security scan for code vulnerabilities | 0 issues in `src/`; 0 high/medium issues in `tests/` |
 | **Security & Audits** | Kubernetes Manifest Scans | Per Manifest Change | `devops k8s lint` / `devops k8s check-deprecated` / `devops scan trivy <dir> --type config` | Validates manifests against K8s security best practices (cluster health: `devops k8s audit`) | Zero deprecated APIs or misconfigurations |
 | **Security & Audits** | Codebase Deduplication & Invariant Audit | Weekly / Pre-PR | `uv run ruff check --config pyproject.toml .` && `uv run devops ci test tests/test_architectural_invariants.py tests/test_ruff_complexity_cap.py` | Ruff `C901` enforces complexity <= 10 and the tests hold its configuration; the tests enforce nesting <= 5, the `C901` marker ceiling and shared helper adoption | Zero invariant violations |
@@ -222,9 +223,9 @@ sequenceDiagram
 
 ---
 
-### Cadence C: Releases (a Person Merges)
+### Cadence C: Releases (a Scheduled Merge)
 
-release-please opens and updates the release pull request from the pull request titles on `main`. A person reads the version and the changelog in it, then squash-merges it. `release.yml` then creates the GitHub release and its tag, and publishes the packages and images. release-please writes `CHANGELOG.md`, `.release-please-manifest.json` and the version lines, so nobody edits those by hand. Agents change `release.yml` and the release-please configuration through ordinary pull requests, as any other file. [`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md) is the procedure.
+release-please opens and updates the release pull request from the pull request titles on `main`. The workflow `release-merge.yml` squash-merges it every 6 hours when it passes the guards, unless a person set the label `hold-release`. A person can read the version and the changelog in it and squash-merge it at any time. `release.yml` then creates the GitHub release and its tag, and publishes the packages and images. release-please writes `CHANGELOG.md`, `.release-please-manifest.json` and the version lines, so nobody edits those by hand. Agents change `release.yml` and the release-please configuration through ordinary pull requests, as any other file. [`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md) is the procedure.
 
 ---
 
@@ -236,6 +237,7 @@ Executed weekly, or when dependencies are updated.
 - **Frequency**: Weekly & in every CI run.
 - **Methodology**: Scans packages in `uv.lock` against Open Source Vulnerabilities (OSV) database, and the `package-lock.json` of each Node tool in `tools.lock` against npm's advisory database, without installing it.
 - **Command**: `uv run devops ci audit`, or `uv audit` and `npm audit --package-lock-only --json --prefix src/devops_cli/tools_lock/<tool>`.
+- **Ignore entries**: An entry in `.trivyignore` expires by itself, and the scan fails after its `exp:` date. Before the date, renew or drop the entry as [SECURITY.md](../SECURITY.md#a-finding-with-no-fix) says. This document does not repeat that rule.
 
 #### 2. Static Application Security Testing (SAST - `bandit`)
 - **Frequency**: Pre-commit / CI gate.

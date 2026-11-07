@@ -21,10 +21,10 @@ from devops_cli.roadmap.claim import (
     plan_claim,
     render_claim_plan,
 )
-from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.store import GitHubState, Item, ItemField, RoadmapStore
-from tests.roadmap_github_fake import GitHubFake
+from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
+from devops_cli.roadmap.stores.store import GitHubState, Item, ItemField, RoadmapStore
 from tests.support.fakes.github import RunnerSession
+from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"

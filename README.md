@@ -490,6 +490,7 @@ and draft readiness. |
 | [**tui**](docs/commands/tui.md) | `devops tui [OPTIONS]` | Interactive terminal UI dashboard for workstation situational awareness. |
 | [**status**](docs/commands/status.md) | `devops status [OPTIONS]` | Inspect published operational status of upstream cloud platforms (GitHub, Cloudflare) |
 | [**survey**](docs/commands/survey.md) | `devops survey [OPTIONS]` | Outward-facing capability and upstream maturity survey. |
+| [**research**](docs/commands/research.md) | `devops research inventory [OPTIONS]` | List every pin of the project as a typed component: Python packages, tools, container images, GitHub Actions, Helm charts and Terraform providers. It reads files only. |
 | [**format**](docs/commands/format.md) | `devops format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
 | [**lint**](docs/commands/lint.md) | `devops lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
 

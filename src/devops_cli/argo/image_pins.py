@@ -15,9 +15,12 @@ from typing import Any
 
 import httpx2
 
+from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.docker.registry import tag_digest
 from devops_cli.exceptions.docker import RegistryReadError
 from devops_cli.exceptions.security import SSRFBlockedError
+from devops_cli.http.egress import EgressLevel
+from devops_cli.http.entry import http_client
 
 
 @dataclass(frozen=True)
@@ -85,3 +88,15 @@ def check_pins(pins: list[ImagePin], client: httpx2.Client, *, timeout: float) -
         except (RegistryReadError, SSRFBlockedError, httpx2.HTTPError) as exc:
             checks.append(PinCheck(pin, error=str(exc)))
     return checks
+
+
+def check_application_pins(application: Mapping[str, Any]) -> list[PinCheck]:
+    """Check each image that `application` pins against its public registry.
+
+    An application with no pin sends no request. The client dials the public level only.
+    """
+    pins = kustomize_image_pins(application)
+    if not pins:
+        return []
+    with http_client(EgressLevel.PUBLIC) as client:
+        return check_pins(pins, client, timeout=DEFAULT_HTTP_TIMEOUT_SECONDS)

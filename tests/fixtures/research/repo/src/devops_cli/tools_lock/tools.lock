@@ -1,0 +1,36 @@
+python_version = "3.14"
+
+[binary.kubectl]
+version = "1.37.1"
+description = "Kubernetes CLI"
+source = "https://github.com/kubernetes/kubernetes"
+bin = "kubectl"
+format = "binary"
+
+[binary.kubectl.platforms.linux-amd64]
+url = "https://dl.k8s.io/release/v1.37.1/bin/linux/amd64/kubectl"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+
+[binary.homebrewed]
+version = "2.0.0"
+description = "A tool whose source is no GitHub repository"
+source = "https://downloads.example.com/homebrewed"
+bin = "homebrewed"
+format = "binary"
+
+[binary.homebrewed.platforms.linux-amd64]
+url = "https://downloads.example.com/homebrewed/2.0.0/homebrewed"
+sha256 = "1111111111111111111111111111111111111111111111111111111111111111"
+
+[python.bandit]
+version = "1.9.4"
+description = "PyCQA Bandit Python security linter"
+source = "https://github.com/PyCQA/bandit"
+requirements = "bandit.txt"
+entry_points = ["bandit"]
+
+[npm.example-npm]
+version = "1.14.3"
+description = "An example Node tool"
+source = "https://github.com/example-org/example-npm"
+bin = "example-npm"

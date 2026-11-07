@@ -17,7 +17,7 @@ from typer.testing import CliRunner, Result
 from devops_cli.ai.mcp.server import gh_project_reconcile
 from devops_cli.commands.gh import app, milestones_app
 from devops_cli.github.projects import MutationBudget
-from devops_cli.roadmap.store import GitHubState
+from devops_cli.roadmap.stores.store import GitHubState
 from tests.project_reconcile_fake import REPO, ProjectGitHub, card, issue
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore

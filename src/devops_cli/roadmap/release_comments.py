@@ -34,7 +34,7 @@ from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.release_feed import GitHubReleaseFeed, ReleaseInfo
 from devops_cli.roadmap.release_roll import RolledDigests, live_release
-from devops_cli.roadmap.store import RoadmapStore
+from devops_cli.roadmap.stores.store import RoadmapStore
 
 logger = logging.getLogger(__name__)
 

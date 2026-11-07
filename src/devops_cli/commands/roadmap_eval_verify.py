@@ -52,15 +52,15 @@ def _run(
 ) -> None:
     from devops_cli.ai.client import get_llm_client
     from devops_cli.config.settings import load_settings
-    from devops_cli.roadmap.intake_model import gateway_address
-    from devops_cli.roadmap.stage_eval_cases import (
+    from devops_cli.roadmap.intake.intake_model import gateway_address
+    from devops_cli.roadmap.stage.stage_eval_cases import (
         cases_with_commit,
         left_out_note,
         load_cases,
         select_cases,
     )
-    from devops_cli.roadmap.stage_toolbox import ToolboxModel
-    from devops_cli.roadmap.stage_verify_eval import (
+    from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
+    from devops_cli.roadmap.stage.stage_verify_eval import (
         evaluate_cases,
         planned_verify_calls,
         render_verify,

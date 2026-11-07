@@ -215,6 +215,10 @@
   color: "C2E0C6"
   description: "Output formats of commands: JSON, YAML and tables"
 
+- name: "scope/research"
+  color: "5319E7"
+  description: "The research agent: the pins of the project and the news about them"
+
 - name: "autorelease: pending"
   color: "EDEDED"
   description: "The release pull request that release-please keeps open"
@@ -226,6 +230,10 @@
 - name: "release-now"
   color: "B60205"
   description: "A person sets it on a fix pull request: its merge turns on auto-merge of the release pull request"
+
+- name: "hold-release"
+  color: "B60205"
+  description: "A person sets it on the release pull request: the scheduled merge skips it"
 
 # ── Roadmap Item Fields (ADR 0016) ──────────────────────────────────────────
 # One label of each family holds a field of a roadmap item. A roadmap job that

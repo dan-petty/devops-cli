@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from devops_cli.roadmap.store import GitHubState, Milestone
+from devops_cli.roadmap.stores.store import GitHubState, Milestone
 
 
 class MilestoneProgress(BaseModel):

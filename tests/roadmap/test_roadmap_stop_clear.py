@@ -25,7 +25,7 @@ from devops_cli.roadmap.digest_clears import (
 from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureAction, FailureClass
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stop_clear import ClearLimits, StopsCleared, clear_stops
-from devops_cli.roadmap.store import ImplementRecordKey, IssueComment, Item, ItemField
+from devops_cli.roadmap.stores.store import ImplementRecordKey, IssueComment, Item, ItemField
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import STAGE_REPO
 
@@ -161,6 +161,14 @@ def test_a_clear_removes_the_failure_class_and_the_check_with_the_stop(
         None,
         None,
     ]
+
+
+def test_a_clear_removes_the_conflicted_files_with_the_stop(store: InMemoryRoadmapStore) -> None:
+    number = _blocked(store, implement_conflict='["docs/a.md"]')
+
+    _clear(store, Template(DIGEST_B))
+
+    assert _record(store, number).get("implement.conflict") is None
 
 
 def test_a_cleared_item_whose_plan_is_merged_is_planned(store: InMemoryRoadmapStore) -> None:

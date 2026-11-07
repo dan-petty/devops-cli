@@ -10,33 +10,29 @@ DNS and process starts refused, and fake `gh`, `git` and `kubectl` on PATH that 
 from __future__ import annotations
 
 import json
-import os
 import socket
-import subprocess
-from collections.abc import Callable
-from pathlib import Path
+from collections.abc import Callable, Iterator
 from typing import Any
-from unittest.mock import patch
 
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.roadmap import app
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap import store as roadmap_store_module
-from devops_cli.roadmap.github_store import (
+from devops_cli.roadmap.request_plan import StoreRequests
+from devops_cli.roadmap.stores.github_store import (
     comments_endpoint,
     issue_args,
     issues_endpoint,
     listing_path,
     milestones_endpoint,
 )
-from devops_cli.roadmap.request_plan import StoreRequests
+from devops_cli.roadmap.stores.store import install_roadmap_store
 from tests.support.fakes.github import API
+from tests.support.fakes.http import WebFake
+from tests.support.fakes.model import ModelFake
+from tests.support.fakes.process import ProcessFake
 
 REPO = "dan-petty/devops-cli"
-runner = CliRunner()
 JOBS = ("intake", "refine", "alternatives", "stage", "implement")
 
 
@@ -51,35 +47,27 @@ def _fail(what: str) -> Callable[..., Any]:
 
 
 @pytest.fixture
-def no_requests(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A roadmap store, a `gh` runner, a process and a socket that fail the test when a dry run
-    opens, runs, starts or connects one; the session's socket guard covers the rest."""
-    from devops_cli.ai import client as ai_client
-    from devops_cli.github import rate_limiter
-    from devops_cli.roadmap import github_store
-
-    monkeypatch.setattr(roadmap_store_module, "get_roadmap_store", _fail("opened a store"))
-    monkeypatch.setattr(github_store.GitHubRoadmapStore, "_run", _fail("ran gh"))
-    monkeypatch.setattr(rate_limiter, "run_gh", _fail("ran gh"))
-    monkeypatch.setattr(rate_limiter, "run_subprocess", _fail("started gh"))
-    monkeypatch.setattr(subprocess, "Popen", _fail("started a process"))
+def no_requests(
+    process_fake: ProcessFake,
+    web: WebFake,
+    model_fake: ModelFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[None]:
+    """A roadmap store, a process, an HTTP request, a model call and a socket that fail the test
+    when a dry run opens, starts, sends, calls or connects one; the session's socket guard covers
+    the rest."""
+    install_roadmap_store(_fail("opened a store"))
     monkeypatch.setattr(socket.socket, "connect", _fail("connected"))
     monkeypatch.setattr(socket, "getaddrinfo", _fail("resolved a name"))
-    monkeypatch.setattr(ai_client, "get_llm_client", _fail("called LLM"))
-    monkeypatch.setattr("devops_cli.roadmap.refine.get_llm_client", _fail("called LLM"))
-    monkeypatch.setattr("devops_cli.roadmap.refine.get_task_model", _fail("called LLM"))
-    monkeypatch.setattr("devops_cli.roadmap.stage.get_llm_client", _fail("called LLM"))
-    monkeypatch.setattr(
-        "devops_cli.roadmap.refine_investigation.web_search", _fail("called search")
-    )
-    monkeypatch.setattr("devops_cli.roadmap.alternatives.get_task_model", _fail("called LLM"))
+    yield
+    assert (process_fake.calls, web.recorded, model_fake.call_count) == ([], [], 0)
 
 
 @pytest.mark.parametrize("job", JOBS)
 def test_every_jobs_dry_run_makes_no_request_and_lists_the_requests_a_run_makes(
-    no_requests: None, job: str
+    no_requests: None, job: str, cli: Callable[..., Any]
 ) -> None:
-    result = runner.invoke(app, [job, "--repo", REPO, "--dry-run"])
+    result = cli(["roadmap", job, "--repo", REPO, "--dry-run"])
     assert (
         result.exit_code,
         "Dry run: no request was made" in result.output,
@@ -88,9 +76,11 @@ def test_every_jobs_dry_run_makes_no_request_and_lists_the_requests_a_run_makes(
     ) == (0, True, False, False), result.output
 
 
-def test_refine_dry_run_with_item_makes_no_requests(no_requests: None) -> None:
+def test_refine_dry_run_with_item_makes_no_requests(
+    no_requests: None, cli: Callable[..., Any]
+) -> None:
     """Refining a single item under dry-run makes no GitHub, process, or model call."""
-    result = runner.invoke(app, ["refine", "--repo", REPO, "--item", "123", "--dry-run"])
+    result = cli(["roadmap", "refine", "--repo", REPO, "--item", "123", "--dry-run"])
     assert (
         result.exit_code,
         "Dry run: no request was made" in result.output,
@@ -98,10 +88,12 @@ def test_refine_dry_run_with_item_makes_no_requests(no_requests: None) -> None:
     ) == (0, True, True), result.output
 
 
-def test_the_explain_dry_run_makes_no_request_and_lists_reads_only(no_requests: None) -> None:
+def test_the_explain_dry_run_makes_no_request_and_lists_reads_only(
+    no_requests: None, cli: Callable[..., Any]
+) -> None:
     """`explain` reads GitHub and git and writes nothing, so its plan holds the reads of a run and
     no write (#2911)."""
-    result = runner.invoke(app, ["explain", "7", "--repo", REPO, "--dry-run"])
+    result = cli(["roadmap", "explain", "7", "--repo", REPO, "--dry-run"])
     assert (
         result.exit_code,
         "Dry run: no request was made" in result.output,
@@ -111,10 +103,14 @@ def test_the_explain_dry_run_makes_no_request_and_lists_reads_only(no_requests: 
 
 
 @pytest.mark.parametrize("job", JOBS)
-def test_an_exported_dry_run_wins_over_confirm(no_requests: None, job: str) -> None:
-    with patch("devops_cli.commands.roadmap.is_dry_run", return_value=True):
-        result = runner.invoke(app, [job, "--repo", REPO, "--confirm"])
-    assert (result.exit_code, "Dry run: no request was made" in result.output) == (0, True)
+def test_an_exported_dry_run_with_confirm_is_refused_and_makes_no_request(
+    no_requests: None, job: str, cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`devops` turns an exported dry run into the `--dry-run` flag before the command runs, so
+    the command refuses `--confirm` as a second mode and makes no request."""
+    monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "1")
+    result = cli(["roadmap", job, "--repo", REPO, "--confirm"])
+    assert (result.exit_code, "Pass one of" in result.output) == (1, True)
 
 
 @pytest.mark.parametrize(
@@ -127,14 +123,16 @@ def test_an_exported_dry_run_wins_over_confirm(no_requests: None, job: str) -> N
         ("implement", "--plan"),
     ],
 )
-def test_more_than_one_mode_flag_is_refused(no_requests: None, job: str, mode: str) -> None:
-    result = runner.invoke(app, [job, "--repo", REPO, "--dry-run", mode])
+def test_more_than_one_mode_flag_is_refused(
+    no_requests: None, job: str, mode: str, cli: Callable[..., Any]
+) -> None:
+    result = cli(["roadmap", job, "--repo", REPO, "--dry-run", mode])
     assert (result.exit_code, "Pass one of --dry-run" in result.output) == (1, True)
 
 
 def test_each_dry_run_returns_its_jobs_result_type_marked_as_a_dry_run() -> None:
-    from devops_cli.roadmap.intake import IntakePlan, dry_run_intake
-    from devops_cli.roadmap.refine import RefinePlan, dry_run_refine
+    from devops_cli.roadmap.intake.intake import IntakePlan, dry_run_intake
+    from devops_cli.roadmap.refine.refine import RefinePlan, dry_run_refine
 
     refined = dry_run_refine(REPO, ref=None)
     taken = dry_run_intake(REPO, ref=None)
@@ -154,7 +152,7 @@ def test_a_plan_is_built_by_the_stores_own_argument_builders() -> None:
     """The reads a refine plan lists are the argv the store's builders give, with placeholders
     where a read gives the value: the milestones once, then each open milestone's issues, the
     backlog, and every issue for the dependencies a proposal names."""
-    from devops_cli.roadmap.refine import dry_run_refine
+    from devops_cli.roadmap.refine.refine import dry_run_refine
 
     planned = [request.argv[1:] for request in dry_run_refine(REPO, ref=None).requests]
     expected = [
@@ -198,6 +196,21 @@ def test_a_refine_round_plans_a_read_of_each_cited_path_and_an_item_plan_none() 
     ) == ([(texts.plan_conditions["still_waiting"], texts.plan_repeat["block_path"])], [])
 
 
+def test_a_refine_round_plans_the_record_of_the_comments_it_read_of_a_waiting_item() -> None:
+    """A round records, on a waiting item whose comments it read, what they gave: a read of the
+    issue, then one `PATCH` of its job record. `--item` refines its item, so its plan records no
+    wait (#3667)."""
+    from devops_cli.roadmap.request_plan import refine_requests
+
+    _, writes = refine_requests(REPO, None)
+    _, single = refine_requests(REPO, None, item=7)
+    unrecorded = MESSAGES.roadmap.plan_conditions["wait_unrecorded"]
+    assert (
+        [_shape(r) for r in writes if r.condition == unrecorded],
+        [r for r in single if r.condition == unrecorded],
+    ) == ([f"api repos/{REPO}/issues/<item>", "issue patch"], [])
+
+
 def test_a_refine_round_plans_the_record_of_a_comment_the_cap_stops_and_an_item_plan_none() -> None:
     """A round records, on an item that the cap on refine's comments leaves alone, when its
     newest comment was made: a read of the issue, then one `PATCH` of its job record. `--item`
@@ -239,7 +252,7 @@ def test_a_refine_round_plans_the_read_and_the_notice_for_an_item_of_an_untruste
 def test_a_refine_plan_lists_the_intake_requests_of_a_deferred_part() -> None:
     """A round and a refine of one item each list the requests of one new intake candidate, and
     the record of its number, when the proposal defers a part (#2423)."""
-    from devops_cli.roadmap.intake_requests import planned_requests
+    from devops_cli.roadmap.intake.intake_requests import planned_requests
     from devops_cli.roadmap.request_plan import refine_requests
 
     deferred = MESSAGES.roadmap.plan_conditions["deferred"]
@@ -301,7 +314,7 @@ def test_a_field_write_plans_one_read_of_its_issue_and_one_patch() -> None:
 def test_no_roadmap_plan_lists_a_request_to_a_project_board() -> None:
     """Every job's plan: intake, a refine round, a refine of one item and a return. No request
     is a `gh project` command, names `projectV2` or reads `.github/roadmap.toml` (ADR 0016)."""
-    from devops_cli.roadmap.intake import dry_run_intake
+    from devops_cli.roadmap.intake.intake import dry_run_intake
     from devops_cli.roadmap.request_plan import refine_requests
     from devops_cli.roadmap.return_item import dry_run_return
 
@@ -331,7 +344,7 @@ def test_no_roadmap_plan_lists_a_request_to_a_project_board() -> None:
 def test_each_field_write_of_a_placement_reads_its_issue_first() -> None:
     """A placement writes Status, Value, Effort and Priority, each a read of the issue and then
     one `PATCH`, and reads no listing between them."""
-    from devops_cli.roadmap.intake import dry_run_intake
+    from devops_cli.roadmap.intake.intake import dry_run_intake
 
     writes = [r for r in dry_run_intake(REPO, ref="main", issues=(7,)).writes if r.argv]
     patches = [i for i, r in enumerate(writes) if _shape(r) == "issue patch"]
@@ -347,15 +360,16 @@ def test_each_field_write_of_a_placement_reads_its_issue_first() -> None:
 
 @pytest.mark.parametrize("job", JOBS)
 def test_a_dry_run_through_the_entry_point_starts_no_process_and_opens_no_connection(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    process_fake: ProcessFake,
+    web: WebFake,
     job: str,
 ) -> None:
     """`devops_cli.entry.main` runs each job's `--dry-run`, as the `devops` script does, with
-    connections, DNS and process starts recorded and refused, and fake `gh`, `git` and
-    `kubectl` first on PATH logging any call. The run succeeds, prints its plan, and nothing
-    is recorded or logged. It runs in this process, so the CLI's import cost is paid once."""
+    connections and DNS recorded and refused, and the process and HTTP fakes recording any
+    start or request. The run succeeds, prints its plan, and nothing is recorded. It runs in
+    this process, so the CLI's import cost is paid once."""
     from devops_cli.entry import main
 
     attempts: list[str] = []
@@ -371,15 +385,6 @@ def test_a_dry_run_through_the_entry_point_starts_no_process_and_opens_no_connec
         monkeypatch.setattr(socket.socket, name, refuse(name))
     monkeypatch.setattr(socket, "getaddrinfo", refuse("getaddrinfo"))
     monkeypatch.setattr(socket, "create_connection", refuse("create_connection"))
-    monkeypatch.setattr(subprocess, "Popen", refuse("a process"))
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    log = tmp_path / "calls.log"
-    for tool in ("gh", "git", "kubectl"):
-        fake = bin_dir / tool
-        fake.write_text(f'#!/bin/sh\necho "{tool} $@" >> {log}\nexit 1\n', encoding="utf-8")
-        fake.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}/usr/bin{os.pathsep}/bin")
     try:
         main(["roadmap", job, "--dry-run", "--repo", REPO])
         code: object = 0
@@ -389,13 +394,14 @@ def test_a_dry_run_through_the_entry_point_starts_no_process_and_opens_no_connec
         code,
         "Dry run: no request was made" in capsys.readouterr().out,
         attempts,
-        log.exists(),
-    ) == (0, True, [], False)
+        process_fake.calls,
+        web.recorded,
+    ) == (0, True, [], [], [])
 
 
 def test_intakes_dry_run_shows_the_exact_gh_command_of_every_store_request() -> None:
     """Only the embedding and model calls, which run no `gh`, have no argv (#742, #1125)."""
-    from devops_cli.roadmap.intake import dry_run_intake
+    from devops_cli.roadmap.intake.intake import dry_run_intake
 
     plan = dry_run_intake(REPO, ref="main")
     bare = {request.method for request in plan.requests + plan.writes if not request.argv}
@@ -404,7 +410,7 @@ def test_intakes_dry_run_shows_the_exact_gh_command_of_every_store_request() -> 
 
 def test_the_alternatives_dry_run_lists_the_gh_command_and_the_url_of_each_request() -> None:
     """The plan names the exact `gh` command of each GitHub request, and the method and the URL
-    of each Firecrawl and PyPI request (#2650)."""
+    of the web search of the first configured provider and of each PyPI request (#2650, #3925)."""
     from devops_cli.roadmap.alternatives import AlternativesPlan, dry_run_alternatives
 
     plan = dry_run_alternatives(REPO, item=7)
@@ -413,7 +419,7 @@ def test_the_alternatives_dry_run_lists_the_gh_command_and_the_url_of_each_reque
         type(plan),
         plan.dry_run,
         plan.has_writes,
-        ("POST", "https://api.firecrawl.dev/v2/search") in argvs,
+        ("POST", "https://html.duckduckgo.com/html/") in argvs,
         ("GET", "https://pypi.org/pypi/<package>/json") in argvs,
         ("gh", "api", "repos/<owner/name>") in argvs,
         ("gh", "api", "repos/<owner/name>/releases/latest") in argvs,

@@ -112,8 +112,8 @@ from devops_cli.roadmap.alternatives import (
     raise_for_failed_checks,
     record_coverage,
 )
-from devops_cli.roadmap.implement_submit import run_implement_round
-from devops_cli.roadmap.intake import (
+from devops_cli.roadmap.implement.implement_submit import run_implement_round
+from devops_cli.roadmap.intake.intake import (
     IntakeApplied,
     IntakePlan,
     IntakeRecord,
@@ -126,7 +126,7 @@ from devops_cli.roadmap.intake import (
 # `refine` imports pydantic_ai. The Python 3.14 import lock deadlocks when two worker threads
 # import it for the first time together, so import it at module level, in the Service's main
 # thread, before any worker starts (#2535).
-from devops_cli.roadmap.refine import apply_refine, plan_refine, raise_for_failed_items
+from devops_cli.roadmap.refine.refine import RefineWriter, plan_refine
 from devops_cli.roadmap.release_comments import comment_releases
 from devops_cli.roadmap.release_feed import GitHubReleaseFeed
 from devops_cli.roadmap.release_roll import cluster_digests
@@ -134,7 +134,7 @@ from devops_cli.roadmap.retitle import apply_retitle, build_retitle_model, plan_
 
 # `stage` imports the model client, which imports pydantic_ai too: import it here for the same
 # reason (#2659).
-from devops_cli.roadmap.stage import (
+from devops_cli.roadmap.stage.stage import (
     apply_stage,
     emit_stage_results,
     parse_filters,
@@ -142,10 +142,10 @@ from devops_cli.roadmap.stage import (
     raise_for_failed,
     raise_for_failed_round,
 )
-from devops_cli.roadmap.stage_ready import mark_stage_ready
-from devops_cli.roadmap.stage_toolbox import ToolboxModel
+from devops_cli.roadmap.stage.stage_ready import mark_stage_ready
+from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.status_sync import sync_statuses
-from devops_cli.roadmap.store import Change, ChangeKind, RoadmapStore
+from devops_cli.roadmap.stores.store import Change, ChangeKind, RoadmapStore
 from devops_cli.roadmap.trust import is_person_comment
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.server.service import (
@@ -157,7 +157,7 @@ from devops_cli.server.service import (
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
 if TYPE_CHECKING:
-    from devops_cli.roadmap.intake_model import IntakeModel
+    from devops_cli.roadmap.intake.intake_model import IntakeModel
 
 logger = logging.getLogger(__name__)
 
@@ -462,7 +462,7 @@ def _run_intake_adapter(
     skips when a placement raises, and a candidate whose placement raised is
     decided again after the fresh ones. A candidate whose write fails is skipped, the round's
     others are placed, and the job then fails naming it (#1443)."""
-    from devops_cli.roadmap.intake_model import build_intake_model
+    from devops_cli.roadmap.intake.intake_model import build_intake_model
 
     record_path = repo_dir / CONST_ROADMAP_INTAKE_RECORD_FILENAME
     record = read_intake_record(record_path)
@@ -508,7 +508,7 @@ def _intake_one(
     own decision code (ADR 0017). The record of what it decided is merged into the intake record
     before any placement, as the intake job writes it; an issue that is no candidate, such as
     an Item a person edited, is decided by no one and writes nothing."""
-    from devops_cli.roadmap.intake_model import build_intake_model
+    from devops_cli.roadmap.intake.intake_model import build_intake_model
 
     record_path = repo_dir / CONST_ROADMAP_INTAKE_RECORD_FILENAME
     record = read_intake_record(record_path)
@@ -549,18 +549,22 @@ def _run_refine_adapter(
     clone_path: Path | None = None,
     **_: Any,
 ) -> JobOutcome:
-    """Run refine job and return JobOutcome; it fails, once the other items are written, when the
-    model call failed for any item. The stop of the Service ends the run, but the items that
-    failed before it still fail the run (#2753)."""
+    """Run refine job and return JobOutcome; each item is written when it is done, so the stop
+    of the Service loses at most the item in progress (#3631). The job fails, once the other
+    items are written, when the model call or the write failed for any item. The stop ends the
+    run, but the items that failed before it still fail the run (#2753)."""
     source = _job_clone("refine", clone_path)
-    plan = plan_refine(store, repo=repo, source=source)
+    writer = RefineWriter(store, repo)
     try:
-        readied = apply_refine(store, plan).readied_count if plan.has_writes else 0
+        plan = plan_refine(store, repo=repo, source=source, writer=writer)
+        writer.write_waiting(plan)
     except ServiceStoppingError:
-        raise_for_failed_items(plan)
+        writer.end()
+        writer.raise_for_failures()
         raise
-    raise_for_failed_items(plan, readied)
-    return JobOutcome(set_ready=readied > 0)
+    writer.end()
+    writer.raise_for_failures()
+    return JobOutcome(set_ready=writer.readied_count > 0)
 
 
 def _run_retitle_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOutcome:
@@ -1464,7 +1468,7 @@ def service_job(
     `clone_dirname` for a coalesced trigger batch, on the roadmap store of the batch's
     repository, counting its failed rounds in `failures`. The store reads no repository file: a
     repository needs no roadmap configuration (ADR 0016)."""
-    from devops_cli.roadmap import store as roadmap_store
+    from devops_cli.roadmap.stores import store as roadmap_store
 
     repo = batch.repo
     run_due_jobs(

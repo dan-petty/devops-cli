@@ -190,6 +190,26 @@ class StructuredOutputSchemaError(DevOpsCLIError, ValueError):
     error_code = "STRUCTURED_OUTPUT_SCHEMA_INVALID"
 
 
+class PageTextError(DevOpsCLIError):
+    """Raised when the Crawl4AI service returns no usable text for a page.
+
+    `reason` tells what failed: the HTTP status that the service answered with, the class of a
+    transport failure, or that the reply is not page text. `status` is that HTTP status, else None.
+    The message and the details hold neither the token nor the page URL.
+    """
+
+    error_code = "PAGE_TEXT_ERROR"
+    exit_code = CONST_EXIT_FAILURE
+
+    def __init__(self, reason: str, *, status: int | None = None) -> None:
+        self.reason = reason
+        self.status = status
+        super().__init__(
+            f"A Crawl4AI page fetch failed: {reason}.",
+            details={"status": status} if status is not None else None,
+        )
+
+
 _PYDANTIC_AI_NAMES: frozenset[str] = frozenset(
     {
         "ApprovalRequired",
@@ -207,6 +227,27 @@ class RagIngestError(DevOpsCLIError, RuntimeError):
 
     error_code = "RAG_INGEST_FAILED"
     exit_code = CONST_EXIT_FAILURE
+
+
+class WebSearchError(DevOpsCLIError):
+    """Base of the errors of `web_search`. A caller that cannot stop on a search catches it."""
+
+    error_code = "WEB_SEARCH_ERROR"
+    exit_code = CONST_EXIT_FAILURE
+
+
+class SearchFailed(WebSearchError):
+    """Raised when no provider of a web search answered: each one failed, was skipped, or the
+    deadline ended the search."""
+
+    error_code = "WEB_SEARCH_FAILED"
+
+
+class SearchQueryRefused(WebSearchError):
+    """Raised when the guard stops a web search query before any provider runs. The message names
+    the rule and never holds the query."""
+
+    error_code = "WEB_SEARCH_QUERY_REFUSED"
 
 
 def __getattr__(name: str) -> Any:
@@ -240,10 +281,14 @@ __all__ = [
     "LibraryNotFoundError",
     "ModelBundleError",
     "ModelRetry",
+    "PageTextError",
     "RagIngestError",
     "ReviewPoolError",
+    "SearchFailed",
+    "SearchQueryRefused",
     "SkipToolExecution",
     "StructuredOutputSchemaError",
     "ToolFailed",
     "UnexpectedModelBehavior",
+    "WebSearchError",
 ]

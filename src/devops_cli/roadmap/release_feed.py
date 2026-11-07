@@ -19,7 +19,7 @@ from pydantic import ValidationError as MalformedPayloadError
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.error_classifier import classify_gh_failure, gh_http_status
 from devops_cli.github.rate_limiter import run_gh
-from devops_cli.roadmap.github_store import GhRunner
+from devops_cli.roadmap.stores.github_store import GhRunner
 
 _PULL_LINK = re.compile(r"\(\[#(\d+)\]\(")
 _CLOSING = re.compile(

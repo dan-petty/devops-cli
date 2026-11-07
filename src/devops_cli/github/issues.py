@@ -22,8 +22,8 @@ from devops_cli.exceptions.git import (
 )
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import get_github_session
-from devops_cli.roadmap import store as roadmap_store
-from devops_cli.roadmap.store import GitHubState, RoadmapStore
+from devops_cli.roadmap.stores import store as roadmap_store
+from devops_cli.roadmap.stores.store import GitHubState, RoadmapStore
 
 logger = logging.getLogger(__name__)
 

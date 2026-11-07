@@ -39,6 +39,8 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
         "allowed": frozenset({"trace_id"}),
         "required": frozenset({"trace_id"}),
     },
+    # No `root`: the tool reads the repository of the server's working directory.
+    ("research", "inventory"): {"allowed": frozenset(), "required": frozenset()},
     ("valkey", "ping"): {"allowed": frozenset(), "required": frozenset()},
     ("valkey", "stats"): {"allowed": frozenset(), "required": frozenset()},
     ("valkey", "info"): {"allowed": frozenset({"section"}), "required": frozenset()},

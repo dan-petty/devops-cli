@@ -2,6 +2,66 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.79.0](https://github.com/dan-petty/devops-cli/compare/v0.78.0...v0.79.0) (2026-11-07)
+
+
+### Features
+
+* **ai:** fetch page text with the Crawl4AI service ([#3943](https://github.com/dan-petty/devops-cli/issues/3943)) ([038e71c](https://github.com/dan-petty/devops-cli/commit/038e71c8c64fb53ce3ebfeceb8a77e582e8fb562)), closes [#3887](https://github.com/dan-petty/devops-cli/issues/3887)
+
+## [0.78.0](https://github.com/dan-petty/devops-cli/compare/v0.77.2...v0.78.0) (2026-11-07)
+
+
+### Features
+
+* **k8s:** add the Crawl4AI token to the cluster secrets ([#3937](https://github.com/dan-petty/devops-cli/issues/3937)) ([5e6eb59](https://github.com/dan-petty/devops-cli/commit/5e6eb59733d6efea4e4d346c4a1232a572962041))
+* **research:** list every pin of the project ([#3945](https://github.com/dan-petty/devops-cli/issues/3945)) ([cb65daa](https://github.com/dan-petty/devops-cli/commit/cb65daae249199dbe973b603382b94682f0bcf93)), closes [#3896](https://github.com/dan-petty/devops-cli/issues/3896)
+
+
+### Bug Fixes
+
+* **roadmap:** a fix step edits only the paths the plan names ([#3944](https://github.com/dan-petty/devops-cli/issues/3944)) ([7745fa8](https://github.com/dan-petty/devops-cli/commit/7745fa8ffbb6282033969b94d8201bf003ef4212))
+* **roadmap:** read only the marked code spans of a plan ([#3912](https://github.com/dan-petty/devops-cli/issues/3912)) ([72c52c6](https://github.com/dan-petty/devops-cli/commit/72c52c6f1bd1e2dd3ce1eca28a28cef10ccf13ba))
+* **service:** the request budget counts only what GitHub counts ([#3946](https://github.com/dan-petty/devops-cli/issues/3946)) ([b3f8793](https://github.com/dan-petty/devops-cli/commit/b3f8793fe0e1fcabfc0b28555d3c93a618200c79))
+
+## [0.77.2](https://github.com/dan-petty/devops-cli/compare/v0.77.1...v0.77.2) (2026-11-07)
+
+
+### Bug Fixes
+
+* **roadmap:** refine writes each item when it is done ([#3935](https://github.com/dan-petty/devops-cli/issues/3935)) ([c9c0979](https://github.com/dan-petty/devops-cli/commit/c9c09798bf971b0816829e9fcffea5d1fd74e344))
+
+
+### Code Refactoring
+
+* **roadmap:** group the job modules in subpackages ([#3897](https://github.com/dan-petty/devops-cli/issues/3897)) ([bff2f14](https://github.com/dan-petty/devops-cli/commit/bff2f14fd6908f45048601cca252b964ba542f28))
+
+## [0.77.1](https://github.com/dan-petty/devops-cli/compare/v0.77.0...v0.77.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* **roadmap:** a rebase stop names the conflicted files ([#3922](https://github.com/dan-petty/devops-cli/issues/3922)) ([dd0cca7](https://github.com/dan-petty/devops-cli/commit/dd0cca79f71af4371a6d958db8ea3634773fb836))
+* **roadmap:** an unchanged refine item reads no comments ([#3918](https://github.com/dan-petty/devops-cli/issues/3918)) ([38420cb](https://github.com/dan-petty/devops-cli/commit/38420cb7c759aed2f5ac706e545baa62bdb318a6))
+* **roadmap:** fail the plan run when the window ends the tools too soon ([#3923](https://github.com/dan-petty/devops-cli/issues/3923)) ([e71144a](https://github.com/dan-petty/devops-cli/commit/e71144a0a4e6cc8814083749f5edba4083d52418))
+* **roadmap:** the plan reader reports a criterion of group 0 ([#3933](https://github.com/dan-petty/devops-cli/issues/3933)) ([8a5ca70](https://github.com/dan-petty/devops-cli/commit/8a5ca70d232f88247fff0d416164dcd5e7ac8b8a))
+
+## [0.77.0](https://github.com/dan-petty/devops-cli/compare/v0.76.2...v0.77.0) (2026-11-07)
+
+
+### Features
+
+* **ai:** web search falls back to DuckDuckGo ([#3900](https://github.com/dan-petty/devops-cli/issues/3900)) ([61b5c43](https://github.com/dan-petty/devops-cli/commit/61b5c43991533942a44562d575ced2686321f0ae))
+* **k8s:** add warnings and errors above logs, narrow both by pod ([#3886](https://github.com/dan-petty/devops-cli/issues/3886)) ([6d105c2](https://github.com/dan-petty/devops-cli/commit/6d105c204a1c0fb8eb4b1964d71e3bbe3594be45))
+* **k8s:** Name one chat model for every slot of the Service ([#3891](https://github.com/dan-petty/devops-cli/issues/3891)) ([4189c93](https://github.com/dan-petty/devops-cli/commit/4189c93906b225c4a61d26d01193f9b5012a8fb0))
+* **rag:** index managed repos and exclude private from search ([#3895](https://github.com/dan-petty/devops-cli/issues/3895)) ([3cd4eba](https://github.com/dan-petty/devops-cli/commit/3cd4eba504911fcb905a3c822a0fd738977d677a)), closes [#1389](https://github.com/dan-petty/devops-cli/issues/1389)
+
+
+### Bug Fixes
+
+* **roadmap:** name the reason of a failed intake write ([#3879](https://github.com/dan-petty/devops-cli/issues/3879)) ([a341524](https://github.com/dan-petty/devops-cli/commit/a341524d7b6559ee7e4460301b43a56a8df55685))
+* **roadmap:** reset a head that the agent moved ([#3883](https://github.com/dan-petty/devops-cli/issues/3883)) ([0ff477f](https://github.com/dan-petty/devops-cli/commit/0ff477fab5b2e31e924ed73c5d0d0e13cb6c6df1)), closes [#3575](https://github.com/dan-petty/devops-cli/issues/3575)
+
 ## [0.76.2](https://github.com/dan-petty/devops-cli/compare/v0.76.1...v0.76.2) (2026-11-07)
 
 

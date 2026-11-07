@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from devops_cli.roadmap.store import ItemField
+from devops_cli.roadmap.stores.store import ItemField
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
@@ -27,14 +27,14 @@ TASKS = """\
 ## 1. The first group
 
 - [ ] Add the failing test `tests/test_sample.py` for `src/sample.py`
-  - Verification: `uv run devops ci test tests/test_sample.py`
+  - Verification: `$ uv run devops ci test tests/test_sample.py`
 - [ ] Add `shout` to `src/sample.py`
-  - Verification: `uv run devops ci test tests/test_sample.py` and `uv run devops docs check`
+  - Verification: `$ uv run devops ci test tests/test_sample.py` and `$ uv run devops docs check`
 
 ## 2. The second group
 
 - [x] Document the function in `docs/SAMPLE.md`
-  - Verification: `uv run devops docs check`
+  - Verification: `$ uv run devops docs check`
 
 ## Workflow follow-up
 

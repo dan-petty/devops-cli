@@ -22,7 +22,7 @@ EDGE_FIXTURES: Final[tuple[tuple[str, str], ...]] = (
     ("devops_cli.http.egress", "dns"),
     ("devops_cli.config.os_keyring", "keyring_store"),
     ("devops_cli.security.tool_executor", "tool_executor_fake"),
-    ("devops_cli.roadmap.store", "roadmap_store"),
+    ("devops_cli.roadmap.stores.store", "roadmap_store"),
     ("devops_cli.openspec.tool", "openspec_fake"),
     ("devops_cli.ai.mcp.dispatcher", "mcp_dispatcher"),
     ("devops_cli.valkey.client", "valkey"),

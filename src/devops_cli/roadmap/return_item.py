@@ -14,10 +14,10 @@ from devops_cli.config.constants import CONST_ROADMAP_STATUS_NEW
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.roadmap.request_plan import StoreRequests
-from devops_cli.roadmap.store import ItemField
+from devops_cli.roadmap.stores.store import ItemField
 
 if TYPE_CHECKING:
-    from devops_cli.roadmap.store import RoadmapStore
+    from devops_cli.roadmap.stores.store import RoadmapStore
 
 
 @dataclass(frozen=True)

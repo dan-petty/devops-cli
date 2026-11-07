@@ -2288,7 +2288,7 @@ class RoadmapMessages:
     # Why a refine round had no web search (#2398).
     refine_web_search_off: str = "Web search is off: {reason}."
     refine_web_off_private: str = "the repository is private"
-    refine_web_off_no_key: str = "no Firecrawl key is set"
+    refine_web_off_no_provider: str = "no search provider is configured"
     refine_web_off_unread: str = "the repository's visibility could not be read"
     refine_none: str = "No items to refine."
     # The warnings of refine for an item whose model call failed or whose investigation stopped.
@@ -2333,6 +2333,15 @@ class RoadmapMessages:
         "the model call failed for {count} item(s), and refine skipped them: {items}"
     )
     refine_failed_item: str = "#{number} ({error}, {violations} schema violation(s))"
+    # The log of a round: its start and its end, and an item whose write failed (#3631).
+    refine_round_started: str = "Refine round for {repo} started: {taken} item(s) taken."
+    refine_round_ended: str = (
+        "Refine round for {repo} ended: taken={taken}, written={written}, failed={failed}."
+    )
+    refine_write_failed_warning: str = (
+        "Refine wrote nothing more for #{number} in {repo}: the write failed ({error})."
+    )
+    refine_write_failed: str = "refine could not write {count} item(s), and went on: {items}"
     # `devops roadmap alternatives` (#2650).
     alternatives_title: str = "# Alternatives check for {repo}"
     alternatives_off: str = "The check is off: {reason}."
@@ -2605,6 +2614,11 @@ class RoadmapMessages:
         "The agent made a symbolic link: {paths}. The step does not format a link."
     )
     implement_stop_no_change: str = "The agent changed no file."
+    implement_stop_outside_plan: str = (
+        "The fix step changed paths that the plan does not name: {paths}. A fix step may change "
+        "only the paths that the plan names and the files of the change folder. The cause of the "
+        "failed check may lie in another path. A person decides how to change the plan."
+    )
     implement_stop_no_test_file: str = "A behavior group changed no test file. Write the failing test first, in a file under tests/."
     implement_stop_base_passes: str = (
         "No test of the group fails on the base commit. The tests of {files} pass there, "
@@ -2875,6 +2889,7 @@ class RoadmapMessages:
     draft_check_runs: str = "A check runs: {name}."
     draft_check_runs_unnamed: str = "A check runs."
     implement_stop_rebase: str = "The rebase onto origin/{branch} stopped.\n{output}"
+    implement_stop_rebase_files: str = "\nConflicted files:\n{files}"
     implement_stop_abort_failed: str = "\nThe abort of the rebase failed too.\n{output}"
     implement_stop_program_failed: str = "{command} exited with status {status}.\n{output}"
     implement_stop_program_timeout: str = "{command} ran out of time after {seconds} s."
@@ -3203,6 +3218,14 @@ class RoadmapMessages:
     stage_violations: str = "{count} schema violation(s)"
     # The plan run of the toolbox stopped with no plan; `reason` is the fixed text of its stop.
     stage_run_stopped: str = "The plan run stopped before it gave a plan: {reason}."
+    # The window ended the tools of the plan run before it made the least number of tool calls
+    # (#3880). The model has then read almost none of the code and writes a placeholder text.
+    stage_window_starved: str = (
+        "The context window of {window} tokens ended the tools of the plan run after {calls} "
+        "tool call(s). The run needs at least {minimum} calls. Raise the setting "
+        "ai.tasks.stage.context_window, or ai.tasks.analysis.context_window, which the task "
+        "stage uses when it sets none."
+    )
     # The review run of a plan that passed the gates stopped with no findings (#3039).
     stage_verify_stopped: str = (
         "The verification run stopped before it gave its findings: {reason}. The plan passed the "
@@ -3246,15 +3269,11 @@ class RoadmapMessages:
         "{input_tokens} input tokens and {output_tokens} output tokens. {calls}"
     )
     stage_comment_calls: str = "The tool calls, in order:\n\n{calls}"
-    # A run with no tool call states why (#3477): no request offered a tool, because the request
-    # reached the limit of the context window, or the run offered tools and the model chose none.
+    # A run with no tool call states that the run offered tools and the model chose none. A run
+    # whose window ends its tools before the least calls fails the item (#3880).
     stage_comment_no_calls: str = (
         "The model made no tool call. The run offered tools on {offered} of {requests} "
         "request(s), and the model called none."
-    )
-    stage_comment_no_tools_offered: str = (
-        "The model made no tool call. The run offered no tool, because each request reached the "
-        "tool-removal limit of the context window."
     )
     stage_comment_call: str = "{index}. `{name}({argument})`"
     # The line after the list of calls (#3240): the calls and the empty answers of each tool.
@@ -3669,10 +3688,11 @@ class RoadmapMessages:
     )
     # The implement step reads a verification command from the line `Verification:` under a task,
     # and from no other text (`step_files`). So a task is its work, a line break, and that line.
-    stage_task_test: str = "{test}\n  - Verification: `{verify}` fails on the base"
-    stage_task_pass: str = "{work}\n  - Verification: `{verify}` passes"
+    # The command is the code span that starts with `$ `. The step reads no other code span as one.
+    stage_task_test: str = "{test}\n  - Verification: `$ {verify}` fails on the base"
+    stage_task_pass: str = "{work}\n  - Verification: `$ {verify}` passes"
     stage_task_process: str = "{work}, and run this check by hand: {process}"
-    stage_task_documents: str = "{work}\n  - Verification: `uv run devops ci docs` passes"
+    stage_task_documents: str = "{work}\n  - Verification: `$ uv run devops ci docs` passes"
     # The step that regenerates the documents. A group that changes a command, an option or a
     # message ends its documents task with it. The plan reader splits the task at this text.
     stage_task_regenerate: str = ", and run `{command}`"
@@ -3736,6 +3756,9 @@ class RoadmapMessages:
     )
     plan_read_bad_criterion: str = (
         "`tasks.md` holds a criterion that the reader cannot read: {text}"
+    )
+    plan_read_bad_criterion_model: str = (
+        "`tasks.md` holds a criterion that breaks a rule of the plan: {text} ({reason})"
     )
     plan_read_bad_requirement: str = (
         "`{path}` holds a requirement with no scenario, so the reader cannot read it."
@@ -3830,7 +3853,9 @@ class RoadmapMessages:
     plan_recheck_live: str = (
         "{live} folders count. {cleanup} folders of closed issues are left out of every count."
     )
-    plan_recheck_unverified: str = "{count} of {live} folders have no `Verification:` line."
+    plan_recheck_unverified: str = (
+        "{count} of {live} folders have no marked `Verification:` command."
+    )
     plan_recheck_unreadable: str = "{count} of {live} folders fail the plan reader."
     # The refusals of each gate and the comparison with a branch (#3498).
     plan_recheck_case: str = "case to review"
@@ -4029,7 +4054,7 @@ class RoadmapMessages:
             "open_pulls": "the open pull requests",
             "repository_labels": "the labels of the repository",
             "visibility": "whether the repository is private",
-            "web_search": "a Firecrawl web search for {subject}",
+            "web_search": "a web search for {subject}",
             "repository_facts": "the repository {subject}",
             "latest_release": "the latest release of {subject}",
             "pypi_package": "the PyPI record of the package {subject}",
@@ -4048,7 +4073,7 @@ class RoadmapMessages:
     # The requests of a dry run that no `gh` command makes (#2650).
     plan_methods: dict[str, str] = field(
         default_factory=lambda: {
-            "search": "Firecrawl search",
+            "search": "{provider} search",
             "pypi": "PyPI read",
             "model": "model call",
         }
@@ -4057,7 +4082,7 @@ class RoadmapMessages:
         default_factory=lambda: {
             "posted": "the change posts a comment",
             "job_drafts": "the pull request is an open draft of a job",
-            "check_on": "the repository is public and a Firecrawl key is set",
+            "check_on": "the repository is public and a search provider is configured",
             "adr_read": "the run checks an item that is no skip class",
             "issues_unread": "the run has not read every issue yet",
             "labels_differ": "the labels of the repository differ from .github/labels.yml",
@@ -4067,6 +4092,10 @@ class RoadmapMessages:
             "capped": (
                 "the cap on refine's comments leaves the item alone, and no earlier round "
                 "recorded its newest comment"
+            ),
+            "wait_unrecorded": (
+                "the round read the comments of the waiting item, and its job record does not "
+                "hold what they gave"
             ),
             "deferred": "the proposal defers a part of the item",
             "outside_author": "an account that the jobs do not trust opened the item",
@@ -4563,6 +4592,62 @@ class SurveyMessages:
 
 
 @dataclass(frozen=True)
+class ReleaseMessages:
+    """What the pick of the release pull request says (#3921). Each `refusal_*` text names one
+    guard that keeps the pull request from merging."""
+
+    refusal_not_open: str = "Pull request {number} is not open."
+    refusal_draft: str = "Pull request {number} is a draft."
+    refusal_author: str = (
+        "Pull request {number} was opened by {author}, not by the release App {app}."
+    )
+    refusal_branch: str = (
+        "Pull request {number} is not from a release-please branch of {base}: its head is {head}."
+    )
+    refusal_label: str = "Pull request {number} has no label `{label}`."
+    refusal_hold: str = "Pull request {number} has the label `{label}`: a person holds the release."
+    refusal_title: str = (
+        "The title of pull request {number} is not `chore(main): release <version>`."
+    )
+    refusal_file: str = (
+        "Pull request {number} changes `{path}`, which release-please does not write."
+    )
+    refusal_checks_unread: str = "The checks of {subject} could not be read: {reason}."
+    refusal_no_required: str = "The rules of {base} name no required check."
+    refusal_required_missing: str = (
+        "The required check `{name}` has not run on the head of pull request {number}."
+    )
+    refusal_required_state: str = (
+        "The required check `{name}` is {state} on the head of pull request {number}."
+    )
+    refusal_other_failed: str = "The check `{name}` failed on the head of pull request {number}."
+    refusal_base_red: str = "The required check `{name}` failed on the head of {base}."
+    refusal_mergeable: str = (
+        "GitHub does not report pull request {number} as mergeable (state: {state})."
+    )
+    subject_pull: str = "the head of pull request {number}"
+    subject_base: str = "the head of {base}"
+    picked: str = "Pull request {number} may merge at {sha}."
+    none_picked: str = "No release pull request may merge now."
+    no_release_pull: str = "No open pull request has the label `{label}`."
+    refused: str = "Pull request {number} does not merge: {reason}"
+    unread: str = "The release pull request could not be read: {reason}"
+    usage_repo: str = "The repository to read, as owner/name."
+    usage_app: str = "The login of the release App, as `<slug>[bot]`."
+
+
+@dataclass(frozen=True)
+class ResearchMessages:
+    inventory_title: str = "Pins of the project"
+    inventory_summary: str = "{total} components, {unknown} with an unknown ecosystem."
+    kind_column: str = "Kind"
+    ecosystem_column: str = "Ecosystem"
+    name_column: str = "Name"
+    version_column: str = "Version"
+    location_column: str = "File"
+
+
+@dataclass(frozen=True)
 class LanguageCatalog:
     persona_titles: PersonaTitles = field(default_factory=PersonaTitles)
     messages: GeneralMessages = field(default_factory=GeneralMessages)
@@ -4571,6 +4656,8 @@ class LanguageCatalog:
     review: ReviewMessages = field(default_factory=ReviewMessages)
     ai: AIMessages = field(default_factory=AIMessages)
     survey: SurveyMessages = field(default_factory=SurveyMessages)
+    release: ReleaseMessages = field(default_factory=ReleaseMessages)
+    research: ResearchMessages = field(default_factory=ResearchMessages)
     benchmark: BenchmarkMessages = field(default_factory=BenchmarkMessages)
     config: ConfigMessages = field(default_factory=ConfigMessages)
     install: InstallMessages = field(default_factory=InstallMessages)

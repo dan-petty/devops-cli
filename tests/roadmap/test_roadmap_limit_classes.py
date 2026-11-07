@@ -30,7 +30,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
 )
-from devops_cli.roadmap.implement_step import output_cap
+from devops_cli.roadmap.implement.implement_step import output_cap
 from tests.support.paths import REPO_ROOT
 
 CLASSES: Final = frozenset({"raised", "guard", "window", "setting", "kept", "other"})
@@ -134,6 +134,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS": (
         "window",
         "room that the first plan request leaves below the limit of the tools for their answers",
+    ),
+    "CONST_ROADMAP_STAGE_MIN_TOOL_CALLS": (
+        "window",
+        "least tool calls before the window ends the tools of a plan run; fewer fails the item",
     ),
     "CONST_ROADMAP_STAGE_REFERENCE_NAME_MAX_CHARS": (
         "kept",

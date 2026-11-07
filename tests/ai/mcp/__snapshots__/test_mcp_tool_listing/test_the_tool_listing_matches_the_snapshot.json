@@ -2702,7 +2702,7 @@
     }
   },
   "hydrate_tool_domain": {
-    "description": "Advertise the tools for one domain, which are withheld from the listing by default.\n\nCall this before browsing a domain's tools. Available lazy domains include `argo`,\n`benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,\n`prometheus`, `rag`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`, `telemetry`,\n`tf`, `tls`, `valkey`, `vault` and `verify`.\nPass the domain name alone, for example `k8s`.",
+    "description": "Advertise the tools for one domain, which are withheld from the listing by default.\n\nCall this before browsing a domain's tools. Available lazy domains include `argo`,\n`benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,\n`prometheus`, `rag`, `repos`, `research`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`,\n`telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.\nPass the domain name alone, for example `k8s`.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -4133,6 +4133,14 @@
           "type": "boolean"
         }
       },
+      "type": "object"
+    }
+  },
+  "research_inventory": {
+    "description": "List every pin of the project as a typed component: Python packages, tools, container images, GitHub Actions, Helm charts and Terraform providers. It reads files only.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
       "type": "object"
     }
   },

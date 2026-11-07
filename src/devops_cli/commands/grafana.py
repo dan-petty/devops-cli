@@ -5,12 +5,9 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
-from http import HTTPStatus
 from pathlib import Path
 from typing import Annotated, Any
-from urllib.parse import quote
 
-import httpx2
 import typer
 
 from devops_cli.config.constants import (
@@ -20,14 +17,13 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_GRAFANA_DASHBOARDS_DIR,
     DEFAULT_GRAFANA_FOLDER_ID,
-    DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.config.settings import Settings, get_grafana_token, load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
-from devops_cli.exceptions import SSRFBlockedError
+from devops_cli.grafana.client import DashboardSyncResult, GrafanaClient
 from devops_cli.grafana.grafana_plans import (
     plan_grafana_alerts,
     plan_grafana_dashboards_export,
@@ -38,7 +34,6 @@ from devops_cli.grafana.grafana_plans import (
     plan_grafana_search,
 )
 from devops_cli.http.egress import configured_level
-from devops_cli.http.entry import http_client
 from devops_cli.http.urls import service_base_url
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.models.grafana import (
@@ -46,7 +41,6 @@ from devops_cli.models.grafana import (
     DashboardSyncOutcome,
     GrafanaAlertRule,
     GrafanaDashboard,
-    GrafanaDashboardDetail,
     GrafanaDatasource,
 )
 from devops_cli.output import (
@@ -102,9 +96,9 @@ def _client_args(settings: Settings) -> tuple[str, dict[str, str]]:
     return base, headers
 
 
-def _client(settings: Settings) -> httpx2.Client:
+def _client(settings: Settings, base: str, headers: dict[str, str]) -> GrafanaClient:
     """A Grafana client that dials the configured level: loopback, or private with the flag."""
-    return http_client(configured_level(settings.ai))
+    return GrafanaClient(base, headers, configured_level(settings.ai))
 
 
 def _dry_run_base_url() -> str:
@@ -141,17 +135,11 @@ def dashboards_list(
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    with _client(settings) as http_client:
-        response = http_client.get(
-            f"{base}/api/search",
-            headers=headers,
-            params={"type": "dash-db"},
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
+    with _client(settings, base, headers) as grafana:
+        items = grafana.list_dashboards()
 
     rows: list[list[str]] = []
-    for item in response.json():
+    for item in items:
         dash = GrafanaDashboard.model_validate(item)
         rows.append([dash.uid, dash.title, dash.folder_title])
     print_table(
@@ -205,16 +193,11 @@ def dashboards_export(
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    with _client(settings) as http_client:
-        response = http_client.get(
-            f"{base}/api/dashboards/uid/{uid}",
-            headers=headers,
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
+    with _client(settings, base, headers) as grafana:
+        stored = grafana.dashboard(uid)
 
     dest = output or Path(f"{uid}.json")
-    write_json_file(dest, response.json())
+    write_json_file(dest, stored)
     print_success(MESSAGES.grafana.exported_success.format(dest=dest))
 
 
@@ -268,17 +251,9 @@ def dashboards_import(
         dashboard.pop("id", None)
         dashboard.pop("uid", None)
 
-    with _client(settings) as http_client:
-        response = http_client.post(
-            f"{base}/api/dashboards/db",
-            headers=headers,
-            json={"dashboard": dashboard, "folderId": folder_id, "overwrite": True},
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-    print_success(
-        MESSAGES.grafana.imported_success.format(slug=response.json().get("slug", "unknown"))
-    )
+    with _client(settings, base, headers) as grafana:
+        saved = grafana.import_dashboard(dashboard, folder_id)
+    print_success(MESSAGES.grafana.imported_success.format(slug=saved.get("slug", "unknown")))
 
 
 # =============================================================================
@@ -286,73 +261,26 @@ def dashboards_import(
 # =============================================================================
 
 
-def _is_provisioned(
-    http_client: httpx2.Client, base: str, headers: dict[str, str], uid: str
-) -> bool:
-    """Report whether Grafana holds a dashboard as provisioned, so an API save cannot replace it.
-
-    Read from `meta.provisioned` rather than the refusal's wording. A failed lookup counts as
-    not provisioned, so the refused save is reported as the failure it was.
-    """
-    if not uid:
-        return False
-    try:
-        response = http_client.get(
-            f"{base}/api/dashboards/uid/{quote(uid, safe='')}",
-            headers=headers,
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        return GrafanaDashboardDetail.model_validate(response.json()).meta.provisioned
-    except httpx2.HTTPError, ValueError:
-        return False
-
-
-def _post_dashboard(
-    http_client: httpx2.Client, base: str, headers: dict[str, str], dash_file: Path
-) -> DashboardSyncOutcome:
-    """Post one dashboard file; Grafana refusing a provisioned dashboard is a skip."""
-    raw = json.loads(dash_file.read_text(encoding="utf-8"))
-    dashboard = raw.get("dashboard", raw)
-    title = dashboard.get("title", dash_file.stem)
-    response = http_client.post(
-        f"{base}/api/dashboards/db",
-        headers=headers,
-        json={"dashboard": dashboard, "overwrite": True},
-        timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-    )
-    try:
-        response.raise_for_status()
-    except httpx2.HTTPStatusError as exc:
-        uid = str(dashboard.get("uid") or "")
-        if exc.response.status_code != HTTPStatus.BAD_REQUEST or not _is_provisioned(
-            http_client, base, headers, uid
-        ):
-            raise
-        print_warning(
-            MESSAGES.grafana.sync_skipped_provisioned.format(title=title, file=dash_file.name),
-            prefix=False,
-        )
-        return DashboardSyncOutcome.SKIPPED
-    print_success(MESSAGES.grafana.synced_dashboard.format(title=title, file=dash_file.name))
-    return DashboardSyncOutcome.SYNCED
-
-
-def _sync_dashboard_file(
-    http_client: httpx2.Client, base: str, headers: dict[str, str], dash_file: Path
-) -> DashboardSyncOutcome:
-    """Sync one dashboard file, reporting a failure without stopping the run.
-
-    A refused address stops the run: the refusal applies to each file, and the `exit_on` of the
-    app reports it.
-    """
-    try:
-        return _post_dashboard(http_client, base, headers, dash_file)
-    except SSRFBlockedError:
-        raise
-    except Exception as exc:
-        print_error(ERRORS.grafana.sync_failed.format(file=dash_file.name, exc=exc), prefix=False)
-        return DashboardSyncOutcome.FAILED
+def _report_sync(result: DashboardSyncResult) -> DashboardSyncOutcome:
+    """Print what the sync did with one file, and return its outcome."""
+    match result.outcome:
+        case DashboardSyncOutcome.SYNCED:
+            print_success(
+                MESSAGES.grafana.synced_dashboard.format(title=result.title, file=result.file)
+            )
+        case DashboardSyncOutcome.SKIPPED:
+            print_warning(
+                MESSAGES.grafana.sync_skipped_provisioned.format(
+                    title=result.title, file=result.file
+                ),
+                prefix=False,
+            )
+        case DashboardSyncOutcome.FAILED:
+            print_error(
+                ERRORS.grafana.sync_failed.format(file=result.file, exc=result.error),
+                prefix=False,
+            )
+    return result.outcome
 
 
 @dashboards_app.command("sync")
@@ -393,9 +321,9 @@ def dashboards_sync(
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    with _client(settings) as http_client:
+    with _client(settings, base, headers) as grafana:
         outcomes = Counter(
-            _sync_dashboard_file(http_client, base, headers, dash_file) for dash_file in json_files
+            _report_sync(grafana.sync_dashboard(dash_file)) for dash_file in json_files
         )
 
     summary = MESSAGES.grafana.sync_completed.format(
@@ -518,19 +446,12 @@ def search(
 
     settings = load_settings()
     base, headers = _client_args(settings)
-    params = {"query": query} if query else {}
 
-    with _client(settings) as http_client:
-        response = http_client.get(
-            f"{base}/api/search",
-            headers=headers,
-            params=params,
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
+    with _client(settings, base, headers) as grafana:
+        items = grafana.search(query)
 
     rows: list[list[str]] = []
-    for item in response.json():
+    for item in items:
         dash = GrafanaDashboard.model_validate(item)
         rows.append(
             [
@@ -572,16 +493,11 @@ def datasources(
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    with _client(settings) as http_client:
-        response = http_client.get(
-            f"{base}/api/datasources",
-            headers=headers,
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
+    with _client(settings, base, headers) as grafana:
+        items = grafana.datasources()
 
     rows: list[list[str]] = []
-    for item in response.json():
+    for item in items:
         ds = GrafanaDatasource.model_validate(item)
         rows.append(
             [
@@ -619,16 +535,11 @@ def alerts(
     settings = load_settings()
     base, headers = _client_args(settings)
 
-    with _client(settings) as http_client:
-        response = http_client.get(
-            f"{base}/api/v1/provisioning/alert-rules",
-            headers=headers,
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
+    with _client(settings, base, headers) as grafana:
+        items = grafana.alert_rules()
 
     rows: list[list[str]] = []
-    for item in response.json():
+    for item in items:
         rule = GrafanaAlertRule.model_validate(item)
         rows.append([rule.uid, rule.title, rule.folder_uid, rule.condition])
     print_table(

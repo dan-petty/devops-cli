@@ -79,11 +79,23 @@ The first exit check SHALL put `HEAD` back at the commit where the step started,
 - **THEN** the step reports stopped with the class `head_moved`, and the reason names the reset command, its exit status and the output of git
 
 ### Requirement: The verification commands of a group are the code spans of its Verification lines
-The verification commands of a group SHALL be the code spans of the `Verification:` lines of its tasks, each one once, in the order of the file. The step SHALL run each one in the checkout as a list of words, never through a shell. It SHALL refuse to run one whose first word is not a program of the verification list (the shell allowlist, `openspec` and `devops`) and is not the `!` of a negative search in the fixed shape.
+The verification commands of a group SHALL be the code spans of the `Verification:` lines of its tasks that start with `$ `, with the mark removed, each one once, in the order of the file. Every other code span of such a line SHALL be prose. The step SHALL run each command as a list of words, never through a shell, and SHALL stop with the reason when the first word is not a program of the verification list or the `!` of a negative search in the fixed shape.
 
 #### Scenario: Two lines name one command
-- **WHEN** two tasks of the group name `uv run devops ci test tests/test_sample.py` and the second names `uv run devops docs check` as well
+- **WHEN** two tasks of the group name `$ uv run devops ci test tests/test_sample.py` and the second names `$ uv run devops docs check` as well
 - **THEN** the step runs `uv run devops ci test tests/test_sample.py` once and `uv run devops docs check` once, in that order
+
+#### Scenario: A prose code span beside a marked command
+- **WHEN** a task holds a `Verification:` line with the code span `tagged_image` and the code span `$ pytest tests/roadmap/test_step_files.py`
+- **THEN** the commands of the group are `pytest tests/roadmap/test_step_files.py` only
+
+#### Scenario: A line with no mark
+- **WHEN** a task holds a `Verification:` line with the code span `pytest tests/roadmap/test_step_files.py` and no mark
+- **THEN** the group has no command from that line
+
+#### Scenario: A marked command that the step refuses
+- **WHEN** a task holds the code span `$ nosuchprogram --version` on its `Verification:` line
+- **THEN** the step stops with a reason that names `nosuchprogram` as a program that is not in the allowed list
 
 ### Requirement: A step refuses an input that does not fit the window
 The step SHALL count the tokens of its instructions and its user message before the first model request. When the count is more than the `context_window` of `ai.tasks.implement` minus `CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS`, the step SHALL raise `RoadmapImplementError`, SHALL name the measure and the limit in its message, and SHALL make no model request and change nothing in the checkout.
@@ -854,7 +866,7 @@ Before the exit checks stage the checkout, and again after the extra turn, the s
 - **THEN** the step deletes the file
 
 #### Scenario: A fix step with a new test file
-- **WHEN** a fix step runs and the model writes a new file under `tests/`
+- **WHEN** a fix step runs and the model writes a new file under `tests/` that the plan names
 - **THEN** the step keeps the file and stages it
 
 #### Scenario: A staged stray file
@@ -1375,7 +1387,7 @@ A negative search with `-e` options SHALL have `--` after its last literal and b
 - **THEN** the step stops with the reason that names both forms of the search, and starts no process
 
 ### Requirement: The prompt lists the local devops commands of the catalog
-The prompt of the step SHALL list each command of `LOCAL_COMMANDS` in `src/devops_cli/roadmap/implement_shell_policy.py` with its access class and its use, and `docs/ROADMAP_WORKFLOW.md` SHALL hold the same table. `LOCAL_COMMANDS` SHALL hold `ci test`, `ai repomap`, `ai ast`, `docs generate` and `openspec check`, and no command with the access `network`. A call of a listed command through `uv run` SHALL pass the shell policy and SHALL NOT count as a refusal.
+The prompt of the step SHALL list each command of `LOCAL_COMMANDS` in `src/devops_cli/roadmap/implement/implement_shell_policy.py` with its access class and its use, and `docs/ROADMAP_WORKFLOW.md` SHALL hold the same table. `LOCAL_COMMANDS` SHALL hold `ci test`, `ai repomap`, `ai ast`, `docs generate` and `openspec check`, and no command with the access `network`. A call of a listed command through `uv run` SHALL pass the shell policy and SHALL NOT count as a refusal.
 
 #### Scenario: The prompt holds the table
 - **WHEN** The prompt of the step is built.
@@ -1396,3 +1408,22 @@ The prompt of the step SHALL list each command of `LOCAL_COMMANDS` in `src/devop
 #### Scenario: A listed command is no refusal
 - **WHEN** The model calls the shell tool with `uv run devops ai repomap`.
 - **THEN** The command reaches the process edge, the refusal counter is unchanged, and no refusal comes back.
+
+### Requirement: A fix step changes only the paths that the plan names
+A fix step SHALL stop with the class `outside_plan` when it changed, added or deleted a path that the plan does not name. The plan names a path in a code span of the text of any group of its `tasks.md`, which includes the `Reads:` line, the `Changes:` line and the tasks. A file under the change folder of the item is always allowed. The stop SHALL reset the checkout, SHALL name each path in its reason, and SHALL run no repair round. A group step SHALL NOT be subject to this rule.
+
+#### Scenario: A fix step edits a path that the plan does not name
+- **WHEN** a fix step writes `src/sample.py`, which the plan names, and `src/other.py`, which it does not
+- **THEN** the step reports stopped with the class `outside_plan`, the reason names `src/other.py` and not `src/sample.py`, the diff holds the edit of `src/other.py`, no repair round ran, and the checkout is at its start commit
+
+#### Scenario: A fix step adds an unnamed file
+- **WHEN** a fix step writes a new file `tests/test_sample_fix.py` that the plan does not name
+- **THEN** the step reports stopped with the class `outside_plan`
+
+#### Scenario: A fix step deletes an unnamed file
+- **WHEN** a fix step deletes `src/other.py`, which the plan does not name
+- **THEN** the step reports stopped with the class `outside_plan`, and the file is back in the checkout
+
+#### Scenario: A fix step edits only named paths and the change folder
+- **WHEN** a fix step edits `src/sample.py`, which the plan names, and `design.md` of the change folder
+- **THEN** the step ends done

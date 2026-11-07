@@ -53,11 +53,11 @@ from devops_cli.roadmap.plan_read import (
 )
 from devops_cli.roadmap.plan_rewrite import PlanRewrite, rewrite_plan
 from devops_cli.roadmap.planned import PlannedChanges, planned_changes_at, read_planned_changes
-from devops_cli.roadmap.stage_change import check_gates
-from devops_cli.roadmap.stage_paths import StagedTree
-from devops_cli.roadmap.stage_validate import validate_change
+from devops_cli.roadmap.stage.stage_change import check_gates
+from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_validate import validate_change
 from devops_cli.roadmap.step_files import parse_task_groups
-from devops_cli.roadmap.store import GitHubState, Item, RoadmapStore
+from devops_cli.roadmap.stores.store import GitHubState, Item, RoadmapStore
 
 GIT_OPERATION: Final[str] = "roadmap.plan-recheck"
 # The gates of a refusal that `check_gates` does not name (#3498).
@@ -172,7 +172,7 @@ class PlanRecheck:
 
     @property
     def unverified(self) -> int:
-        """How many live folders have no `Verification:` line."""
+        """How many live folders have no marked `Verification:` command."""
         return sum(1 for record in self.live if not record.verified)
 
     @property

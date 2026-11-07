@@ -1,6 +1,6 @@
 # Release Cycle — devops-cli
 
-This page is for the person who releases `devops-cli`. [release-please](https://github.com/googleapis/release-please) makes every release from `main`, and a person merges its pull request. For an urgent fix, GitHub merges the release pull request when its checks pass ([Urgent Fixes](#urgent-fixes)). release-please writes `CHANGELOG.md`, `.release-please-manifest.json` and the version lines, so nobody edits those by hand. Agents change the release workflow and its configuration through ordinary pull requests ([`AGENTS.md`](AGENTS.md)).
+This page is for the person who releases `devops-cli`. [release-please](https://github.com/googleapis/release-please) makes every release from `main`. The workflow `release-merge.yml` merges its pull request every 6 hours when every guard holds ([Scheduled Merge](#scheduled-merge)), and a person can merge it at any time. For an urgent fix, GitHub merges the release pull request when its checks pass ([Urgent Fixes](#urgent-fixes)). release-please writes `CHANGELOG.md`, `.release-please-manifest.json` and the version lines, so nobody edits those by hand. Agents change the release workflow and its configuration through ordinary pull requests ([`AGENTS.md`](AGENTS.md)).
 
 ## How the Release Pull Request Is Made
 
@@ -9,9 +9,32 @@ This page is for the person who releases `devops-cli`. [release-please](https://
 3. release-please derives the version from the titles merged since the last release. The release pull request holds that version, the new section of `CHANGELOG.md`, `.release-please-manifest.json` and the version lines of `pyproject.toml` and `uv.lock`.
 4. The release pull request runs the same required checks as every pull request.
 
-## Merge the Release Pull Request
+## Scheduled Merge
 
-A person decides when to release, except for an urgent fix ([Urgent Fixes](#urgent-fixes)). There is no schedule.
+The workflow `release-merge.yml` runs every 6 hours (`cron: "0 */6 * * *"`, 00:00, 06:00, 12:00 and 18:00 UTC) and on **Run workflow** in the Actions tab. It merges the release pull request with the squash method, and it merges nothing else. It never edits the pull request, the tag, `CHANGELOG.md` or a version.
+
+The module `devops_cli.release.merge_candidate` reads the open pull requests that have the label `autorelease: pending`, and picks the first one, by number, that passes every guard. A run merges at most one pull request. A guard that fails gives a line in the log of the step `Pick the Release Pull Request`, and the next run tries again.
+
+| Guard | What it checks |
+| :--- | :--- |
+| State | The pull request is open and is not a draft. |
+| Origin | The release App opened it, from a `release-please--branches--main` branch of this repository into `main`. |
+| Labels | It has `autorelease: pending` and does not have `hold-release`. |
+| Title | The title is `chore(main): release <version>`. |
+| Files | It changes only `.release-please-manifest.json`, `CHANGELOG.md`, `pyproject.toml` and `uv.lock`, and it adds, removes and renames none of them. |
+| Checks | Every check that the ruleset of `main` requires passed on its head commit. No other check failed there, because the publish jobs of the release run the same scans. |
+| `main` | No required check failed on the head of `main`. |
+| Mergeable | GitHub reports it as mergeable. |
+
+A failed read of GitHub fails the run, so a failed read does not look like a refusal. When a pull request passes, the step `Merge the Release Pull Request` runs `gh pr merge --squash --match-head-commit <sha>` with the release App token. If release-please pushed to the pull request after the pick, the merge fails and the next run judges the new commit. The App token merges, because a merge that `GITHUB_TOKEN` makes starts no workflow, and then no run creates the release. The token holds only `contents: write` and `pull-requests: write`, and only the merge step gets it.
+
+To hold a release, set the label `hold-release` on the release pull request. The schedule skips it until a person removes the label. To turn the schedule off, open `release-merge.yml` under **Actions** and choose **Disable workflow**.
+
+Each merge makes a release, and each release builds the images that Argo CD Image Updater moves onto the cluster ([What the Merge Publishes](#what-the-merge-publishes)). The schedule allows up to 4 releases a day.
+
+## Merge by Hand
+
+A person can merge the release pull request at any time, and must do so when a guard keeps the schedule from merging it.
 
 1. Open the release pull request. Its title names the version.
 2. Read the version and the new changelog section. Make sure that they agree with what merged.
@@ -20,7 +43,7 @@ A person decides when to release, except for an urgent fix ([Urgent Fixes](#urge
 
 ## Urgent Fixes
 
-An urgent fix releases without a wait for a person. After `Run release-please` updates the release pull request, the step `Merge the Release Pull Request on an Urgent Fix` of `release.yml` reads the pull request of the pushed commit and the issues that it closes. The fix is urgent when one of these is true:
+An urgent fix releases without a wait for a person or for the next scheduled merge. After `Run release-please` updates the release pull request, the step `Merge the Release Pull Request on an Urgent Fix` of `release.yml` reads the pull request of the pushed commit and the issues that it closes. The fix is urgent when one of these is true:
 
 - The pull request has the label `release-now`. A person sets this label.
 - An issue that it closes has the label `priority/p0-critical`.

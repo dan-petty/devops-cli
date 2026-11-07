@@ -1,0 +1,15 @@
+name: CI
+on: [push]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v7
+      - uses: astral-sh/setup-uv@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb # v10.2.0
+      - uses: ./.github/actions/setup
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: astral-sh/setup-uv@cccccccccccccccccccccccccccccccccccccccc # v10.0.1
+      - uses: docker://ghcr.io/example-org/linter:3.4.5
+      - uses: example-org/no-comment@v2

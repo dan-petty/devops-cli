@@ -7,13 +7,13 @@ from datetime import UTC, datetime
 import pytest
 
 from devops_cli.roadmap.plan_read import PlanReadError, read_change
-from devops_cli.roadmap.stage_change import (
+from devops_cli.roadmap.stage.stage_change import (
     GroupKind,
     StageGroup,
     StageProposal,
     render_change,
 )
-from devops_cli.roadmap.stage_criteria import PENDING_PERSON
+from devops_cli.roadmap.stage.stage_criteria import PENDING_PERSON
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
 
@@ -114,6 +114,31 @@ def test_the_reader_reads_each_kind_of_criterion() -> None:
     assert read_change(_files(original)).criteria == original.criteria
 
 
+def _with_criterion_group(number: int) -> dict[str, str]:
+    original = make_stage_proposal(
+        criteria=[{"criterion": "The command prints one line for each problem", "group": 1}]
+    )
+    files = _files(original)
+    path = f"openspec/changes/{CHANGE}/tasks.md"
+    files[path] = files[path].replace("Group 1:", f"Group {number}:")
+    return files
+
+
+def test_a_criterion_of_group_zero_is_a_read_error_that_names_the_line() -> None:
+    with pytest.raises(PlanReadError) as found:
+        read_change(_with_criterion_group(0))
+
+    assert found.value.path == "tasks.md"
+    assert "Group 0: The command prints one line for each problem" in found.value.reason
+    assert "group" in found.value.reason
+
+
+def test_a_criterion_of_group_one_reads_back_with_its_group() -> None:
+    (criterion,) = read_change(_with_criterion_group(1)).criteria
+
+    assert criterion.group == 1
+
+
 def test_the_reader_infers_the_kind_of_a_group_from_its_verification() -> None:
     original = make_stage_proposal(
         groups=[
@@ -195,13 +220,13 @@ def _tasks_with(group_text: str) -> dict[str, str]:
 # The group of #3187: `Changes:` names no file in a code span.
 NO_CHANGED_FILE = (
     "## 1. Prove the move\n\n"
-    "Reads: `src/devops_cli/roadmap/store.py`. Changes: each module that names an old path.\n\n"
+    "Reads: `src/devops_cli/roadmap/stores/store.py`. Changes: each module that names an old path.\n\n"
     "- [ ] 1.1 Prove the move. Verify that `uv run devops ci test tests/test_sample.py` passes\n"
 )
 # The group of #3308: `Changes:` names a file of the change folder.
 CHANGE_FOLDER_FILE = (
     "## 1. Fix the plan\n\n"
-    f"Reads: `src/devops_cli/roadmap/store.py`. Changes: `openspec/changes/{CHANGE}/proposal.md`.\n\n"
+    f"Reads: `src/devops_cli/roadmap/stores/store.py`. Changes: `openspec/changes/{CHANGE}/proposal.md`.\n\n"
     "- [ ] 1.1 Fix the plan. Verify that `uv run devops ci test tests/test_sample.py` passes\n"
 )
 
@@ -241,11 +266,11 @@ def test_the_reader_raises_only_a_read_error_over_each_change_folder_of_the_tree
 def _two_tasks(second_verification: str) -> dict[str, str]:
     return _tasks_with(
         "## 1. Render the values\n\n"
-        "Reads: `src/devops_cli/roadmap/store.py`. Changes: `k8s/loki-values.yaml`.\n\n"
+        "Reads: `src/devops_cli/roadmap/stores/store.py`. Changes: `k8s/loki-values.yaml`.\n\n"
         "- [ ] 1.1 Change the values.\n"
-        "  - Verification: `uv run devops ci docs`\n"
+        "  - Verification: `$ uv run devops ci docs`\n"
         "- [ ] 1.2 Document the values.\n"
-        f"  - Verification: `{second_verification}`\n"
+        f"  - Verification: `$ {second_verification}`\n"
     )
 
 

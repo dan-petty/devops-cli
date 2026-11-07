@@ -5,9 +5,9 @@
 Reads: `src/devops_cli/roadmap/stage_paths.py`, `src/devops_cli/roadmap/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_content.py`, `openspec/specs/roadmap-stage/spec.md`. Changes: `src/devops_cli/roadmap/stage_paths.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_stage_content.py`.
 
 - [ ] 1.1 In `tests/roadmap/test_roadmap_stage_content.py`, write a case that stages a proposal whose group names `tests/roadmap/test_roadmap_stage_eval_cases.py` in a task code span while the group lists it in no field, and asserts that `path_problems` returns one problem that names the group and the path. Add cases for a listed path, a path under `openspec/changes/` and `openspec/specs/`, a folder of a created path, and a missing unlisted path that keeps the missing-path problem
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_content.py` fails on the base
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_stage_content.py` fails on the base
 - [ ] 1.2 In `src/devops_cli/roadmap/stage_paths.py`, add `_SPECS_DIRECTORY: Final[str] = "openspec/specs"` and a helper that says whether a path sits under the change folder or the living spec folder. In `path_problems`, build the set of paths that the group lists, with `_folders_of` over its `creates`. For a path of `_Place.TASK` that the tree holds or that an earlier group creates, report the new message when the path is in neither set and sits under neither write folder. Add the field to `RoadmapMessages` in `src/devops_cli/lang/en/messages.py`, with the group and the path as its placeholders, and report it through `_problem`
-  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_content.py` passes
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_stage_content.py` passes
 
 ## Criteria
 

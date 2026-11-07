@@ -2191,12 +2191,25 @@ class SurveyCommandHelp:
 
 
 @dataclass(frozen=True)
+class ResearchCommandHelp:
+    app: str = "Read what the project pins and watch the upstream of each pin."
+    inventory: str = (
+        "List every pin of the project as a typed component: Python packages, tools, container "
+        "images, GitHub Actions, Helm charts and Terraform providers. It reads files only."
+    )
+    inventory_root: str = (
+        "Root of the repository to read. Default: the repository of the current directory."
+    )
+
+
+@dataclass(frozen=True)
 class HelpCatalog:
     main: MainHelp = field(default_factory=MainHelp)
     options: OptionHelp = field(default_factory=OptionHelp)
     ai: AICommandHelp = field(default_factory=AICommandHelp)
     cloudflare: CloudflareCommandHelp = field(default_factory=CloudflareCommandHelp)
     survey: SurveyCommandHelp = field(default_factory=SurveyCommandHelp)
+    research: ResearchCommandHelp = field(default_factory=ResearchCommandHelp)
 
     ai_cache: AICacheCommandHelp = field(default_factory=AICacheCommandHelp)
     ai_harness: AIHarnessCommandHelp = field(default_factory=AIHarnessCommandHelp)

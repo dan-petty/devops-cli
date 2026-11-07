@@ -544,15 +544,40 @@ DEFAULT_JSON_REPAIR_MAX_LENGTH: int = 50 * 1024 * 1024  # 50 MiB
 DEFAULT_TOOL_EXTRACT_PAGE_SIZE: int = 32 * 1024  # 32 KiB
 DEFAULT_TOOL_EXTRACT_OVERLAP: int = 1024  # 1 KiB
 
-# ── AI Firecrawl Search Defaults ────────────────────────────────────────────────
+# ── AI Web Search Defaults ──────────────────────────────────────────────────────
+# The providers that `web_search` can ask (#3925). The default list is the order of the asks: a
+# provider that is not configured is skipped, and `searxng` has no provider class yet (#3927).
+SearchProviderName = Literal["searxng", "duckduckgo", "firecrawl"]
+DEFAULT_SEARCH_PROVIDERS: Final[tuple[SearchProviderName, ...]] = (
+    "searxng",
+    "duckduckgo",
+    "firecrawl",
+)
+DEFAULT_SEARCH_LANGUAGE: str = "en"
+DEFAULT_WEB_SEARCH_LIMIT: int = 5
+# The time after which a search starts no more providers.
+DEFAULT_WEB_SEARCH_DEADLINE_SECONDS: float = 60.0
+# A query holds at most this many characters and words.
+DEFAULT_WEB_SEARCH_QUERY_MAX_CHARS: int = 400
+DEFAULT_WEB_SEARCH_QUERY_MAX_WORDS: int = 50
 DEFAULT_FIRECRAWL_SEARCH_URL: str = "https://api.firecrawl.dev/v2/search"
-DEFAULT_FIRECRAWL_SEARCH_LIMIT: int = 5
 DEFAULT_FIRECRAWL_TIMEOUT_SECONDS: float = 30.0
-# The fallback search of DuckDuckGo (#3876). The region and the safe-search level are the defaults
-# of the `ddgs` package.
+# The search of DuckDuckGo (#3876). The region and the safe-search level are the defaults of the
+# `ddgs` package, and the URL is the one of its engine.
+DEFAULT_DUCKDUCKGO_SEARCH_URL: str = "https://html.duckduckgo.com/html/"
 DEFAULT_DUCKDUCKGO_TIMEOUT_SECONDS: float = 15.0
 DEFAULT_DUCKDUCKGO_REGION: str = "us-en"
 DEFAULT_DUCKDUCKGO_SAFESEARCH: str = "moderate"
+
+# ── AI Page Text Defaults (Crawl4AI service) ────────────────────────────────────
+# Seconds that the Crawl4AI service may take to load and convert one page. Its own wall-clock
+# limit is 300 s; a page that is not ready by then is a failure for the caller too.
+DEFAULT_CRAWL4AI_TIMEOUT_SECONDS: float = 120.0
+# Characters of page text that a fetch returns. The rest is cut, and `truncated` is true.
+DEFAULT_PAGE_TEXT_MAX_CHARS: int = 100_000
+# Bytes of one reply that the client reads. A larger reply is refused. Each character of text takes
+# up to 4 bytes of UTF-8, and the JSON frame adds a little.
+DEFAULT_CRAWL4AI_MAX_REPLY_BYTES: int = 2 * 1024 * 1024  # 2 MiB
 
 DEFAULT_SIGNATURE_BODY: str = "..."
 DEFAULT_TOOL_INTERFACE_FORMAT: Literal["python", "markdown"] = "python"
@@ -818,7 +843,7 @@ DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS: int = 5400
 DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS: int = 14400
 # The memory limit of every runner Job that the Service creates (#3193): twice the 4.13 GB that the
 # killed Job had reached, and below the 15 Gi that the smallest node can allocate (#2806). The
-# memory request follows the plan (`devops_cli.roadmap.implement_size`).
+# memory request follows the plan (`devops_cli.roadmap.implement.implement_size`).
 DEFAULT_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT: str = "8Gi"
 # The labels of the items the stage job takes when no setting and no option names others: every
 # Ready item, of any type, priority, value and effort (#2906).

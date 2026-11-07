@@ -17,7 +17,6 @@ import asyncio
 import json
 import logging
 import shutil
-import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -30,12 +29,10 @@ from unittest.mock import patch
 
 import pytest
 import yaml
-from typer.testing import CliRunner
 
 from devops_cli.ai.mcp.server import roadmap_run
-from devops_cli.commands.roadmap import app as roadmap_app
-from devops_cli.commands.serve import app as serve_app
 from devops_cli.config.constants import (
+    CONST_GITHUB_APP_PRIVATE_KEY_ENV,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_ROADMAP_REFINE_DUE_STAMP,
     CONST_ROADMAP_RUN_CLONE_DIRNAME,
@@ -65,9 +62,8 @@ from devops_cli.exceptions import (
 )
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
-from devops_cli.roadmap import store as roadmap_store_module
-from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.intake_model import (
+from devops_cli.github.session import reset_github_session
+from devops_cli.roadmap.intake.intake_model import (
     ModelEvidence,
     ModelProposal,
     ProposalRequest,
@@ -83,10 +79,6 @@ from devops_cli.roadmap.run import (
     JobOutcome,
     JobRow,
     WebhookDelivery,
-    _run_intake_adapter,
-    _run_metrics_adapter,
-    _run_refine_adapter,
-    _run_release_comments_adapter,
     build_stub_table,
     ensure_checkout,
     read_intake_record,
@@ -96,13 +88,15 @@ from devops_cli.roadmap.run import (
     service_jobs,
     service_state_dir,
 )
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
+from devops_cli.roadmap.stores.store import (
     CloseReason,
     Evidence,
     EvidenceKind,
     GitHubState,
     ItemField,
     RoadmapStore,
+    install_roadmap_store,
 )
 from devops_cli.server.service import ServiceManager, TriggerBatch, no_round_pause
 from devops_cli.telemetry.instruments import (
@@ -114,16 +108,17 @@ from devops_cli.telemetry.instruments import (
     ROADMAP_OLDEST_ITEM,
 )
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
-from tests.roadmap_github_fake import GitHubFake
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
+from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.oci_registry import RegistryFake
 from tests.support.fakes.otlp import FakeCollector
-from tests.support.fakes.process import ProcessAnswer, ProcessCall
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.paths import REPO_ROOT
+from tests.support.roadmap_jobs import due_job_runner
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -137,14 +132,17 @@ OPENED = CONST_ROADMAP_INTAKE_BATCH_KEYS[0]
 POLL_KEY = ("poll", "", "")
 # The Priority that makes an issue an Item, as a person sets it.
 PLACED = {ItemField.PRIORITY: "P2-Medium"}
-runner = CliRunner()
+run_intake_adapter = due_job_runner("intake")
+run_metrics_adapter = due_job_runner("metrics")
+run_refine_adapter = due_job_runner("refine")
+run_release_comments_adapter = due_job_runner("release_comments")
 
 
 @pytest.mark.parametrize(
     ("module", "adapter_name"),
     [
-        ("devops_cli.roadmap.refine", "_run_refine_adapter"),
-        ("devops_cli.roadmap.stage", "_run_stage_adapter"),
+        ("devops_cli.roadmap.refine.refine", "_run_refine_adapter"),
+        ("devops_cli.roadmap.stage.stage", "_run_stage_adapter"),
     ],
 )
 def test_the_model_job_imports_are_at_module_level_not_lazy_in_the_adapter(
@@ -509,6 +507,19 @@ def _stamp(tmp_path: Path, **last_success: datetime) -> None:
     path.write_text(json.dumps(stamps), encoding="utf-8")
 
 
+def _stamp_the_default_table(
+    tmp_path: Path, *, except_for: tuple[str, ...], **ages: timedelta
+) -> None:
+    """Stamp each row of the default due table as run a minute ago, so no row is due, except the
+    rows in `except_for`, which hold no stamp unless `ages` gives one as the time since its last
+    success."""
+    now = datetime.now(UTC)
+    stamps = {row.name: now - timedelta(minutes=1) for row in DEFAULT_DUE_TABLE}
+    for name in except_for:
+        del stamps[name]
+    _stamp(tmp_path, **stamps, **{name: now - age for name, age in ages.items()})
+
+
 def _recorded(
     ran: list[str], name: str, job: Callable[..., JobOutcome] | None = None
 ) -> Callable[..., JobOutcome]:
@@ -693,7 +704,10 @@ def test_order_and_cross_job_triggers(seeded_store: InMemoryRoadmapStore, tmp_pa
 
 
 def test_refine_is_due_at_its_interval_after_its_last_success_and_on_a_first_run(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
 ) -> None:
     """Refine is due 31 min after its last success, not at 30, and on a first run; the CLI's dry
     run lists it (#1515)."""
@@ -711,11 +725,10 @@ def test_refine_is_due_at_its_interval_after_its_last_success_and_on_a_first_run
 
     at_31, at_30, first = due(timedelta(minutes=31)), due(timedelta(minutes=30)), due(None)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
-    schedule(timedelta(minutes=61), datetime.now(UTC))
-    with patch("devops_cli.roadmap.run.DEFAULT_DUE_TABLE", table):
-        cli = runner.invoke(roadmap_app, ["run", "--dry-run", "-R", REPO])
+    _stamp_the_default_table(tmp_path, except_for=("refine",), refine=timedelta(minutes=61))
+    result = cli(["roadmap", "run", "--dry-run", "-R", REPO])
 
-    assert (at_31, at_30, first, cli.exit_code, "Due: refine\n" in cli.output) == (
+    assert (at_31, at_30, first, result.exit_code, "Due: refine\n" in result.output) == (
         ("refine",),
         (),
         ("refine",),
@@ -725,7 +738,10 @@ def test_refine_is_due_at_its_interval_after_its_last_success_and_on_a_first_run
 
 
 def test_stage_is_due_at_its_interval_after_its_last_success_on_a_first_run_and_the_dry_run_lists_it(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
 ) -> None:
     """The stage row is due 37 min after its last success, not at 36, and on a first run; the
     CLI's dry run lists it after refine (#2659)."""
@@ -743,10 +759,16 @@ def test_stage_is_due_at_its_interval_after_its_last_success_on_a_first_run_and_
 
     at_37, at_36, first = due(timedelta(minutes=37)), due(timedelta(minutes=36)), due(None)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
-    with patch("devops_cli.roadmap.run.DEFAULT_DUE_TABLE", table):
-        cli = runner.invoke(roadmap_app, ["run", "--dry-run", "-R", REPO])
+    _stamp_the_default_table(tmp_path, except_for=("intake", "refine", "stage"))
+    result = cli(["roadmap", "run", "--dry-run", "-R", REPO])
 
-    assert (at_37, at_36, first, cli.exit_code, "Due: intake, refine, stage\n" in cli.output) == (
+    assert (
+        at_37,
+        at_36,
+        first,
+        result.exit_code,
+        "Due: intake, refine, stage\n" in result.output,
+    ) == (
         ("stage",),
         (),
         ("stage",),
@@ -807,7 +829,10 @@ def test_stage_is_due_in_a_round_where_refine_set_an_item_ready_and_failed_anoth
 
 
 def test_failure_isolation_and_cli_exit(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
 ) -> None:
     """A failed stub lets the next job run, keeps its own schedule stamp unwritten, and the CLI
     exits 1 naming it."""
@@ -831,7 +856,7 @@ def test_failure_isolation_and_cli_exit(
         raise RoadmapRunError("Crash [bold red]markup[/bold red]", failed_jobs=("intake",))
 
     with patch("devops_cli.roadmap.run.run_due_jobs", side_effect=failing_adapter):
-        res = runner.invoke(roadmap_app, ["run", "--confirm", "-R", REPO])
+        res = cli(["roadmap", "run", "--confirm", "-R", REPO])
 
     assert (
         exc_info.value.failed_jobs,
@@ -860,10 +885,9 @@ def test_a_failed_read_of_the_changes_propagates_closed(
     """A failure reading the changes a poll judges propagates rather than being taken as no
     change."""
 
-    def broken_changes(*_: Any, **__: Any) -> list[Any]:
-        raise RuntimeError("GitHub API timeout during the events read")
-
-    monkeypatch.setattr(seeded_store, "changes_since", broken_changes)
+    seeded_store.fail_read(
+        "changes_since", RuntimeError("GitHub API timeout during the events read")
+    )
     with pytest.raises(RuntimeError, match="GitHub API timeout during the events read"):
         _poll_round(seeded_store, tmp_path, table=build_stub_table())
 
@@ -916,10 +940,12 @@ def test_idle_records_zero_or_one_store_calls(
 
 
 def test_no_prompt_and_cli_modes(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
 ) -> None:
     """Stub called with no confirm argument; CLI without confirm or with dry-run runs none."""
-    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     received_args: list[dict[str, Any]] = []
 
     def stub_runner(**kwargs: Any) -> JobOutcome:
@@ -930,21 +956,21 @@ def test_no_prompt_and_cli_modes(
     _poll_round(seeded_store, tmp_path, table=tbl, batch={OPENED: 1})
     had_confirm = "confirm" in received_args[0] if received_args else True
 
-    with patch("devops_cli.roadmap.run.DEFAULT_DUE_TABLE", tbl):
-        res_plain = runner.invoke(roadmap_app, ["run", "-R", REPO])
-        res_dry = runner.invoke(roadmap_app, ["run", "--dry-run", "--confirm", "-R", REPO])
-        received_args.clear()
-        res_confirm = runner.invoke(roadmap_app, ["run", "--confirm", "-R", REPO])
-        confirm_called = len(received_args) > 0
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    _stamp_the_default_table(tmp_path, except_for=("stage_ready",), stage_ready=timedelta(days=1))
+    res_plain = cli(["roadmap", "run", "-R", REPO])
+    res_dry = cli(["roadmap", "run", "--dry-run", "--confirm", "-R", REPO])
+    stamped_before = _schedule(tmp_path)["stage_ready"]
+    res_confirm = cli(["roadmap", "run", "--confirm", "-R", REPO])
 
     assert (
         had_confirm,
         res_plain.exit_code,
-        "Due:" in res_plain.output,
+        "Due: stage_ready" in res_plain.output,
         res_dry.exit_code,
-        "Due:" in res_dry.output,
+        "Due: stage_ready" in res_dry.output,
         res_confirm.exit_code,
-        confirm_called,
+        _schedule(tmp_path)["stage_ready"] != stamped_before,
     ) == (False, 0, True, 0, True, 0, True)
 
 
@@ -963,12 +989,13 @@ def service_settings(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_service_wiring(
     seeded_store: InMemoryRoadmapStore,
     roadmap_store_repos: list[str],
+    cli: Callable[..., Any],
 ) -> None:
     """`devops serve --service` passes the three lanes' jobs to create_service_app, with no
     reader of a round pause: no roadmap read has a budget refusal that names one (ADR 0016).
     Each lane's job opens the store and runs its own rows in its own clone (#1532, #1534)."""
     with patch("uvicorn.run") as mock_uvicorn:
-        res = runner.invoke(serve_app, ["--service"])
+        res = cli(["serve", "--service"])
         fastapi_app = mock_uvicorn.call_args[0][0]()
 
     batch = TriggerBatch(repo=REPO, counts={OPENED: 1}, first_at=NOW, last_at=NOW)
@@ -1009,7 +1036,9 @@ def test_service_wiring(
 
 
 @pytest.mark.usefixtures("service_settings")
-def test_the_service_that_serve_starts_reads_its_halt_and_budget_from_the_volume() -> None:
+def test_the_service_that_serve_starts_reads_its_halt_and_budget_from_the_volume(
+    cli: Callable[..., Any],
+) -> None:
     """`devops serve --service` gives the Service the state directory on its volume. A Service
     that starts there after a halt and after 60 requests in the budget window is still halted,
     and its budget still counts the 60 requests (#2474, #2523)."""
@@ -1021,7 +1050,7 @@ def test_the_service_that_serve_starts_reads_its_halt_and_budget_from_the_volume
     (volume / CONST_SERVICE_BUDGET_FILENAME).write_text(json.dumps(window), encoding="utf-8")
 
     with patch("uvicorn.run") as mock_uvicorn:
-        res = runner.invoke(serve_app, ["--service"])
+        res = cli(["serve", "--service"])
         manager = mock_uvicorn.call_args[0][0]().state.service_manager
 
     assert (res.exit_code, manager.pause.halted(), manager.budget.spent()) == (0, True, 60)
@@ -1029,17 +1058,11 @@ def test_the_service_that_serve_starts_reads_its_halt_and_budget_from_the_volume
 
 def test_mcp_mirror_roadmap_run(seeded_store: InMemoryRoadmapStore) -> None:
     """FastMCP roadmap_run returns due tuple, mutates nothing, and calls no stub."""
-    from devops_cli.ai.mcp import server as mcp_server
-
     seeded_store.seed_issue("An item", fields=PLACED)
     items_before = [it.model_dump() for it in seeded_store.items()]
     writes_before = seeded_store.job_writes()
 
-    def in_process(cmd: list[str], **_: object) -> str:
-        return runner.invoke(roadmap_app, cmd[4:]).output
-
-    with patch.object(mcp_server, "_run_mcp_cmd", side_effect=in_process):
-        due = roadmap_run(repo=REPO)
+    due = roadmap_run(repo=REPO)
 
     assert isinstance(due, str)
     assert [it.model_dump() for it in seeded_store.items()] == items_before
@@ -1319,6 +1342,7 @@ STATUS_PAGE = {
 
 
 def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
+    git_fake: GitFake,
     seeded_store: InMemoryRoadmapStore,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1336,7 +1360,7 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
     for tag in ("v0.1.0", "v0.2.0"):
         _git(remote, "tag", tag, "main")
     github = GitHubFake(REPO, milestones=[{"number": 26, "title": PLANNED, "state": "open"}])
-    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    github.install(git_fake)
     for url in (CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY):
         web.page(url, json.dumps(STATUS_PAGE))
     web.page(
@@ -1375,6 +1399,7 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
 
 
 def test_the_metrics_row_sends_the_age_of_a_blocked_item_and_logs_no_collection_failure(
+    process_fake: ProcessFake,
     seeded_store: InMemoryRoadmapStore,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1388,7 +1413,7 @@ def test_the_metrics_row_sends_the_age_of_a_blocked_item_and_logs_no_collection_
     clone = tmp_path / "clone"
     clone.mkdir()
     (clone / ".git").mkdir()
-    monkeypatch.setattr(subprocess, "run", GitHubFake(REPO).process(subprocess.run))
+    GitHubFake(REPO).install(process_fake)
     for url in (CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY):
         web.page(url, json.dumps(STATUS_PAGE))
     number = seeded_store.seed_issue("blocked item", fields=PLACED)
@@ -1396,7 +1421,7 @@ def test_the_metrics_row_sends_the_age_of_a_blocked_item_and_logs_no_collection_
     assert blocked is not None
     seeded_store.set_field(blocked, ItemField.STATUS, "Blocked")
     with caplog.at_level(logging.WARNING):
-        _run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone)
+        run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone)
     ages = {
         attrs["plan"]: (attrs["repo"], value)
         for attrs, value in otlp.points(ROADMAP_ITEM_AGE.name)
@@ -1421,6 +1446,7 @@ def test_the_metrics_row_sends_the_age_of_a_blocked_item_and_logs_no_collection_
 
 
 def test_a_failed_metrics_collection_or_status_read_is_logged_and_the_job_goes_on(
+    git_fake: GitFake,
     seeded_store: InMemoryRoadmapStore,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1434,11 +1460,9 @@ def test_a_failed_metrics_collection_or_status_read_is_logged_and_the_job_goes_o
     clone.mkdir()
     (clone / ".git").mkdir()
     milestone = {"number": 26, "title": PLANNED, "state": "open", "open_issues": None}
-    monkeypatch.setattr(
-        subprocess, "run", GitHubFake(REPO, milestones=[milestone]).process(subprocess.run)
-    )
+    GitHubFake(REPO, milestones=[milestone]).install(git_fake)
     with caplog.at_level(logging.WARNING):
-        outcome = _run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone)
+        outcome = run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone)
     job = [r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.run"]
     status_pages = {CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY}
     assert (
@@ -1457,6 +1481,8 @@ def test_a_failed_metrics_collection_or_status_read_is_logged_and_the_job_goes_o
 
 
 def test_the_metrics_job_of_the_app_asks_no_traffic_endpoint(
+    config: Callable[..., Path],
+    git_fake: GitFake,
     seeded_store: InMemoryRoadmapStore,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1475,12 +1501,16 @@ def test_the_metrics_job_of_the_app_asks_no_traffic_endpoint(
     github = GitHubFake(
         REPO, traffic_answer=(1, "gh: Resource not accessible by integration (HTTP 403)")
     )
-    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
-    monkeypatch.setattr("devops_cli.github.metrics.acts_as_github_app", lambda: True, raising=False)
+    github.install(git_fake)
+    config(
+        service={"github_app": {"app_id": 1001, "installation_id": 42, "slug": "devops-roadmap"}}
+    )
+    monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "app-key")
+    reset_github_session()
     for url in (CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY):
         web.page(url, json.dumps(STATUS_PAGE))
     with caplog.at_level(logging.WARNING):
-        _run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone)
+        run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone)
     assert (
         github.traffic_calls(),
         otlp.points(PROJECT_TRAFFIC_VIEWS.name),
@@ -1490,7 +1520,7 @@ def test_the_metrics_job_of_the_app_asks_no_traffic_endpoint(
 
 
 @pytest.mark.parametrize(
-    ("job", "runner"), [("metrics", _run_metrics_adapter), ("refine", _run_refine_adapter)]
+    ("job", "runner"), [("metrics", run_metrics_adapter), ("refine", run_refine_adapter)]
 )
 def test_a_job_that_reads_the_clone_fails_without_one_rather_than_reading_the_cwd(
     seeded_store: InMemoryRoadmapStore, job: str, runner: Callable[..., JobOutcome]
@@ -1562,7 +1592,7 @@ def _candidates(count: int) -> tuple[InMemoryRoadmapStore, _Clock, list[str]]:
 def _intake_table(model: _IntakeModel, ran: list[str]) -> tuple[JobRow, ...]:
     """The due table with the Service's own intake over `model`, each run's name added to
     `ran`."""
-    intake = partial(_run_intake_adapter, model=model)
+    intake = partial(run_intake_adapter, model=model)
     return build_stub_table({"intake": _recorded(ran, "intake", intake)})
 
 
@@ -1651,7 +1681,7 @@ def test_intake_placing_p0_item_makes_no_refine_call_and_refine_is_due_through_c
     )
     model = _IntakeModel(proposals={"P0 critical candidate": proposal})
     ran: list[str] = []
-    intake = partial(_run_intake_adapter, model=model)
+    intake = partial(run_intake_adapter, model=model)
     table = build_stub_table(
         {
             "intake": _recorded(ran, "intake", intake),
@@ -1664,11 +1694,11 @@ def test_intake_placing_p0_item_makes_no_refine_call_and_refine_is_due_through_c
         intake=NOW - timedelta(minutes=61),
         refine=NOW - timedelta(minutes=5),
     )
-    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.intake"):
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.intake.intake"):
         jobs = _poll_round(store, tmp_path, table=table)
 
     intake_warnings = [
-        r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.intake"
+        r.getMessage() for r in caplog.records if r.name == "devops_cli.roadmap.intake.intake"
     ]
     item = store.item(num)
     assert (
@@ -1708,7 +1738,7 @@ def test_intake_placing_p0_critical_issue_already_labelled_type_bug_makes_refine
     )
     model = _IntakeModel(proposals={"Pre-labelled P0 bug": proposal})
     ran: list[str] = []
-    intake = partial(_run_intake_adapter, model=model)
+    intake = partial(run_intake_adapter, model=model)
     table = build_stub_table(
         {
             "intake": _recorded(ran, "intake", intake),
@@ -1756,7 +1786,7 @@ def test_intake_placing_p2_medium_issue_labelled_type_bug_does_not_make_refine_d
     table_backlog = build_stub_table(
         {
             "intake": _recorded(
-                ran_backlog, "intake", partial(_run_intake_adapter, model=model_backlog)
+                ran_backlog, "intake", partial(run_intake_adapter, model=model_backlog)
             ),
             "refine": _recorded(ran_backlog, "refine"),
         }
@@ -1792,7 +1822,7 @@ def test_intake_placing_p2_medium_issue_labelled_type_bug_does_not_make_refine_d
     table_milestone = build_stub_table(
         {
             "intake": _recorded(
-                ran_milestone, "intake", partial(_run_intake_adapter, model=model_milestone)
+                ran_milestone, "intake", partial(run_intake_adapter, model=model_milestone)
             ),
             "refine": _recorded(ran_milestone, "refine"),
         }
@@ -1841,7 +1871,7 @@ def test_cross_lane_refine_becomes_due_at_next_model_lane_round_via_stamp(
         evidence=ModelEvidence(kind="failed_run", value="4242"),
     )
     model = _IntakeModel(proposals={"P0 critical bug": proposal})
-    intake = partial(_run_intake_adapter, model=model)
+    intake = partial(run_intake_adapter, model=model)
     _stamp(
         tmp_path,
         intake=NOW - timedelta(minutes=61),
@@ -1915,6 +1945,20 @@ def _labeled(count: int, actor: str) -> list[dict[str, Any]]:
     ]
 
 
+@pytest.fixture
+def roadmap_bot(web: WebFake) -> None:
+    """The Service is logged in as `roadmap-bot`: GitHub answers `GET /user` with that login, and
+    the quota is fresh, so pacing never runs `gh api rate_limit`."""
+    get_github_rate_limiter().update_quota(
+        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+    )
+    web.page(
+        f"{API}/user",
+        json.dumps({"login": "roadmap-bot"}),
+        headers={"content-type": "application/json"},
+    )
+
+
 def _github_round(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, events: list[dict[str, Any]]
 ) -> tuple[GitHubFake, GitHubRoadmapStore]:
@@ -1926,11 +1970,11 @@ def _github_round(
     for number in range(1, 61):
         github.seed_issue(number, labels=("priority/p2-medium", "status/ready"))
     _stamp(tmp_path, intake=NOW - timedelta(minutes=5))
-    monkeypatch.setattr("devops_cli.roadmap.run._get_session_login", lambda: "roadmap-bot")
     store = GitHubRoadmapStore(REPO, runner=github, session=RunnerSession(github))
     return github, store
 
 
+@pytest.mark.usefixtures("roadmap_bot")
 def test_a_round_judging_50_foreign_label_changes_reads_only_the_issue_events(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1944,6 +1988,7 @@ def test_a_round_judging_50_foreign_label_changes_reads_only_the_issue_events(
     )
 
 
+@pytest.mark.usefixtures("roadmap_bot")
 def test_a_poll_whose_changes_are_all_the_services_own_sends_no_graphql_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1986,16 +2031,14 @@ def _serve_over(
     if stamped:
         _stamp(tmp_path, **dict.fromkeys(DEFAULT_JOB_NAMES, minute_ago))
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr("devops_cli.roadmap.run._get_session_login", lambda: "roadmap-bot")
-    monkeypatch.setattr(
-        roadmap_store_module,
-        "get_roadmap_store",
-        lambda repo, runner=None: GitHubRoadmapStore(repo, runner=gh, session=RunnerSession(gh)),
+    install_roadmap_store(
+        lambda repo, **_: GitHubRoadmapStore(repo, runner=gh, session=RunnerSession(gh))
     )
 
 
+@pytest.mark.usefixtures("roadmap_bot")
 def test_a_service_round_that_places_a_candidate_sends_no_projects_request(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    process_fake: ProcessFake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A reopened issue makes intake due in a model-lane round. The round places the candidate
     with labels alone: it sends no request to a project board and reads no
@@ -2004,7 +2047,7 @@ def test_a_service_round_that_places_a_candidate_sends_no_projects_request(
     github = _service_github([reopened])
     github.seed_issue(4, "A candidate", body="Export the report as CSV.")
     _serve_over(tmp_path, monkeypatch, github)
-    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    github.install(process_fake)
     model, ran = _IntakeModel(), []
     lane = partial(
         service_job,
@@ -2037,6 +2080,7 @@ def _lane(
     )
 
 
+@pytest.mark.usefixtures("roadmap_bot")
 def test_a_status_lane_poll_reads_no_change_and_sends_no_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2048,6 +2092,7 @@ def test_a_status_lane_poll_reads_no_change_and_sends_no_request(
     assert [args for args in github.calls if "rate_limit" not in " ".join(args)] == []
 
 
+@pytest.mark.usefixtures("roadmap_bot")
 def test_a_model_lane_poll_when_not_due_reads_no_change_and_sends_no_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2636,13 +2681,13 @@ def test_a_service_round_needs_no_roadmap_file(
     assert (ran, roadmap_store_repos) == (["metrics"], ["example/repo"])
 
 
+@pytest.mark.usefixtures("roadmap_bot")
 def test_service_job_unreadable_github_roadmap_propagates_unchanged(
     unreadable_github_roadmap: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A triage-lane round whose read of the changes GitHub cannot answer (HTTP 503) raises
     GitHubOperationError unchanged (#1365, #1534)."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr("devops_cli.roadmap.run._get_session_login", lambda: "roadmap-bot")
     batch = TriggerBatch(repo="example/repo", counts={OPENED: 1}, first_at=NOW, last_at=NOW)
 
     with pytest.raises(GitHubOperationError) as exc_info:
@@ -2835,18 +2880,21 @@ def test_the_alternatives_row_follows_refine_and_is_due_every_719_minutes_and_by
 
 
 def test_the_dry_run_of_the_cli_lists_the_alternatives_row(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
 ) -> None:
     """On a first run every row is due, and the CLI's dry run lists the alternatives row last
     (#2652)."""
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
 
-    cli = runner.invoke(roadmap_app, ["run", "--dry-run", "-R", REPO])
+    result = cli(["roadmap", "run", "--dry-run", "-R", REPO])
 
     assert (
-        cli.exit_code,
+        result.exit_code,
         "Due: metrics, implement, stage_ready, release_comments, intake, refine, retitle, stage,"
-        " alternatives\n" in cli.output,
+        " alternatives\n" in result.output,
     ) == (0, True)
 
 
@@ -2890,6 +2938,7 @@ def test_the_release_comments_row_calls_no_model_needs_no_clone_and_is_due_every
 
 
 def test_the_release_comments_adapter_comments_a_release_and_keeps_its_ledger(
+    process_fake: ProcessFake,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     cluster: FakeCluster,
@@ -2902,7 +2951,7 @@ def test_the_release_comments_adapter_comments_a_release_and_keeps_its_ledger(
     github.seed_issue(11, "pull", state="closed", body="Closes #101", pull_request=True)
     github.seed_issue(101, "done", state="closed")
     github.seed_release("v1.0.0", "* x ([#11](https://example.com/11))\n", NOW - timedelta(hours=1))
-    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    github.install(process_fake)
     prefix = "ghcr.io/dan-petty/devops-cli"
     digests = {f"{prefix}/service:v1.0.0": "sha256:" + "1" * 64}
     digests[f"{prefix}/runner:v1.0.0"] = "sha256:" + "2" * 64
@@ -2928,7 +2977,7 @@ def test_the_release_comments_adapter_comments_a_release_and_keeps_its_ledger(
     ]
     store = GitHubRoadmapStore(REPO, runner=github, session=RunnerSession(github))
 
-    _run_release_comments_adapter(store, repo=REPO, repo_dir=tmp_path, now=NOW)
+    run_release_comments_adapter(store, repo=REPO, repo_dir=tmp_path, now=NOW)
 
     assert github.comments[101][0].startswith("<!-- devops roadmap release v1.0.0 released -->")
     assert (tmp_path / "release_comments.json").is_file()
@@ -2942,6 +2991,7 @@ def _job_count(lane: str, row: str, result: str) -> float:
     )
 
 
+@pytest.mark.usefixtures("roadmap_bot")
 def test_each_row_of_a_lane_counts_its_own_job(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2965,6 +3015,7 @@ def test_each_row_of_a_lane_counts_its_own_job(
     ) == (1, 1)
 
 
+@pytest.mark.usefixtures("roadmap_bot")
 def test_a_row_that_the_stop_of_the_service_ends_counts_as_stopped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3015,6 +3066,7 @@ def test_a_scoped_update_that_raises_counts_under_the_result_of_its_error(
 
 
 def test_three_rounds_with_a_404_on_a_new_release_suspend_no_row(
+    process_fake: ProcessFake,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     cluster: FakeCluster,
@@ -3026,7 +3078,7 @@ def test_three_rounds_with_a_404_on_a_new_release_suspend_no_row(
     (#3507)."""
     github = GitHubFake(REPO)
     github.seed_release("v1.0.0", "* x\n", NOW - timedelta(minutes=5))
-    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    github.install(process_fake)
     prefix = "ghcr.io/dan-petty/devops-cli"
     web.serve(RegistryFake({}))
     template = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
@@ -3059,7 +3111,7 @@ def test_three_rounds_with_a_404_on_a_new_release_suspend_no_row(
                 REPO,
                 store,
                 batch={POLL_KEY: 1},
-                table=_lane(STATUS_LANE_ROWS, release_comments=_run_release_comments_adapter),
+                table=_lane(STATUS_LANE_ROWS, release_comments=run_release_comments_adapter),
                 data_dir=tmp_path / str(step),
                 now=NOW + timedelta(minutes=step),
                 failures=failures,

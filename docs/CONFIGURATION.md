@@ -267,7 +267,7 @@ In-cluster webhook receiver and background job runner settings.
 | `github_app` | `GitHubAppConfig` | `app_id=None installation_id=None slug=None token_repository=None` | - | - |
 | `poll_interval_seconds` | `int` | `151` | `DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS` | Periodic polling interval for service mode in seconds |
 | `drain_timeout_seconds` | `int` | `120` | `DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS` | Shutdown drain timeout for running service jobs in seconds |
-| `github_requests_per_hour` | `int` | `500` | `DEVOPS_CLI_SERVICE_GITHUB_REQUESTS_PER_HOUR` | The most GitHub requests the Service sends in one hour; a request that the last hour has no room for waits. The alert RoadmapServiceGitHubRequestsHigh follows this limit |
+| `github_requests_per_hour` | `int` | `500` | `DEVOPS_CLI_SERVICE_GITHUB_REQUESTS_PER_HOUR` | The most GitHub requests the Service sends in one hour, not counting those that GitHub answers with 304, as GitHub does not count them against its rate limit; a request that the last hour has no room for waits. The alert RoadmapServiceGitHubRequestsHigh follows this limit |
 | `model_call_concurrency` | `int` | `1` | `DEVOPS_CLI_SERVICE_MODEL_CALL_CONCURRENCY` | The most model calls the Service keeps in flight at once; a lane that waits does so in the Service, where no stall timer runs |
 
 ## Roadmap Configuration (`roadmap`)
@@ -288,6 +288,23 @@ Firecrawl web search API authentication settings.
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `api_key` | `Union` | - | `DEVOPS_CLI_FIRECRAWL_API_KEY` | - |
+
+## Crawl4AI Configuration (`crawl4ai`)
+
+Address of the Crawl4AI service that returns the text of a web page.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `url` | `Union` | - | `DEVOPS_CLI_CRAWL4AI_URL` | Address of the Crawl4AI service that returns the text of a web page, such as `http://crawl4ai.devops.svc.cluster.local:11235` in the cluster. It has no default |
+
+## Web Search Configuration (`search`)
+
+The providers that web search asks, in order, and the language of the search.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `providers` | `list` | `['searxng', 'duckduckgo', 'firecrawl']` | `DEVOPS_CLI_SEARCH_PROVIDERS` | The providers of web search, in the order that a search asks them: `searxng`, `duckduckgo` or `firecrawl`. A provider that is not configured is skipped, and `searxng` is skipped until its provider exists (#3927). A search goes to the next provider when one fails or returns no hit, and the first provider with a hit answers |
+| `language` | `str` | `en` | `DEVOPS_CLI_SEARCH_LANGUAGE` | The language of a web search, as the `Accept-Language` of its request |
 
 ## Top-Level Settings
 

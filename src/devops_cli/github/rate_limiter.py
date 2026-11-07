@@ -32,6 +32,7 @@ from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
@@ -790,13 +791,21 @@ def _calculate_secondary_delay(
 _request_gate: Callable[[], None] | None = None
 """What every request waits on before it is paced, or None (#2547)."""
 
+_request_refund: Callable[[], None] | None = None
+"""What a request that GitHub does not count calls once it has its answer, or None (#3939)."""
 
-def set_request_gate(gate: Callable[[], None] | None) -> None:
+
+def set_request_gate(
+    gate: Callable[[], None] | None, refund: Callable[[], None] | None = None
+) -> None:
     """Make every request that `GitHubRateLimiter.acquire` paces, from any thread, call `gate`
     first, or none when `gate` is None. The gate can wait, and it can raise to refuse the
-    request: the Service's hourly request budget is one (#2547)."""
-    global _request_gate
+    request: the Service's hourly request budget is one (#2547). A request that GitHub answers
+    with 304 does not count against its primary rate limit, so `count_request` calls `refund`
+    for it, and the gate's place for that request is free again (#3939)."""
+    global _request_gate, _request_refund
     _request_gate = gate
+    _request_refund = refund
 
 
 class GitHubRateLimiter:
@@ -1701,9 +1710,14 @@ def gh_request_method(clean_args: Sequence[str], *, is_mutation: bool) -> str:
 
 def count_request(resource: str, method: str, status: int | None, labels: dict[str, str]) -> None:
     """Count one paced attempt in `devops_cli_github_requests_total` with the HTTP status of its
-    answer. An attempt with no answer, and a gh command, count with status `none` (#3497).
-    `labels` hold the repository and job row of the sender's request scope."""
+    answer. An attempt with no answer, and a gh command, count with status `none` (#3497). The
+    metric counts every attempt. The request gate takes back the place of an attempt that GitHub
+    answers 304, because GitHub does not count it against its rate limit (#3939). `labels` hold
+    the repository and job row of the sender's request scope."""
     status_label = "none" if status is None else str(status)
+    refund = _request_refund
+    if status == HTTPStatus.NOT_MODIFIED and refund is not None:
+        refund()
     emit(
         GITHUB_REQUESTS_TOTAL,
         1,

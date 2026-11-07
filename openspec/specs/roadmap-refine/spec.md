@@ -50,14 +50,14 @@ Without `--item`, `devops roadmap refine` SHALL look at an unchanged waiting ite
 - **THEN** the round's plan lists one read of the newest commit that changed each cited path of a waiting item, under the condition that no comment follows refine's last comment, and the plan with `--item` lists no such read
 
 ### Requirement: Refine investigates a question that has no verified source
-When a validated proposal has a fact or a decision with no verified source, or a body key question that no answer names, refine SHALL run one investigation for the item with read-only tools on the pinned commit, and with Firecrawl web search for a public repository with a Firecrawl key. Refine SHALL validate the proposal that the investigation returns as it validates the first. When nothing is open, refine SHALL make no investigation request.
+When a validated proposal has a fact or a decision with no verified source, or a body key question that no answer names, refine SHALL run one investigation for the item with read-only tools on the pinned commit, and with web search for a public repository with at least one configured search provider. Refine SHALL validate the proposal that the investigation returns as it validates the first. When nothing is open, refine SHALL make no investigation request.
 
 #### Scenario: A fact that a file read settles
 - **WHEN** the first proposal answers "Where is the sample function?" as a fact with no source, and the investigation reads `src/sample.py` and answers with the source `src/sample.py:1`
 - **THEN** the item has no open question, and refine sets it to Ready
 
 #### Scenario: A fact that a web search settles
-- **WHEN** the repository is public, a Firecrawl key is set, the investigation's web search returns `https://example.com/gitleaks`, and the investigation answers the fact with that URL as its source
+- **WHEN** the repository is public, a search provider is configured, the investigation's web search returns `https://example.com/gitleaks`, and the investigation answers the fact with that URL as its source
 - **THEN** the item has no open question, and refine sets it to Ready
 
 #### Scenario: A proposal with nothing open
@@ -107,13 +107,6 @@ Refine SHALL read the body's "Key questions" section as CommonMark, up to the ne
 #### Scenario: A question that wraps, and a paragraph after the list
 - **WHEN** the body's "Key questions" hold "- How should refine handle a body" with "that wraps across lines?" on the next line, then a blank line and the paragraph "Context: the Service writes it hourly."
 - **THEN** "How should refine handle a body that wraps across lines?" is the one body question
-
-### Requirement: The plan says when web search is off
-When refine had no web search in a round, the plan SHALL say so once, with the reason: the repository is private, or no Firecrawl key is set.
-
-#### Scenario: No Firecrawl key
-- **WHEN** refine plans a round on a public repository with no Firecrawl key
-- **THEN** the report says that web search is off because no Firecrawl key is set
 
 ### Requirement: A round leaves an item from an account without write access to a person
 Without `--item`, `devops roadmap refine` SHALL take only an item whose author the jobs trust (`roadmap-author-trust`). Any other item SHALL wait on a person with a detail line that names its author, its association and `--item` with its number. It SHALL take no place under `--limit`, and the round SHALL make no model call for it. With `--item`, refine SHALL refine the open New or Ready item that it names, whoever opened it.
@@ -212,17 +205,6 @@ The cap stops the comment that would answer the item's newest comment. For each 
 #### Scenario: A person refines an item at the cap
 - **WHEN** a person runs `devops roadmap refine --item <number> --confirm` on an item at the cap
 - **THEN** refine refines the item and posts its comment, and counts no stopped comment
-
-### Requirement: Each Firecrawl search counts by its result
-`firecrawl_search` SHALL add 1 to `devops_cli_firecrawl_searches_total` for each search, with the `result` `ok`, the HTTP status of a search that Firecrawl refused, or `error` for a search that got no answer or a reply with no web results. A failed search SHALL log one warning that names the status or the error class, and SHALL NOT log the key or the query.
-
-#### Scenario: Firecrawl has no credits
-- **WHEN** Firecrawl answers a search with HTTP 402
-- **THEN** the counter has one point with the result `402`, and one warning says `Firecrawl answered with HTTP 402` and holds neither the key nor the query
-
-#### Scenario: No answer
-- **WHEN** the search times out at the connect
-- **THEN** the counter has one point with the result `error`, and the warning names `ConnectTimeout`
 
 ### Requirement: Refine writes each acceptance criterion as an OpenSpec requirement
 The refine reply SHALL give each acceptance criterion as `name`, `requirement`, `scenario`, `when` and `then`, and the proposed design SHALL render it as an OpenSpec requirement block: `### Requirement: <name>`, the requirement text, `#### Scenario: <scenario>`, and the `- **WHEN**` and `- **THEN**` lines.
@@ -828,32 +810,91 @@ The refine plan report SHALL show the number of items of the round whose next st
 - **WHEN** a round refines one item to Ready, one item with a `(a person decides)` question and one item whose proposal fails a form check
 - **THEN** the report states that 2 items go on without a person and lists the Ready item and the retry item
 
-### Requirement: A failed Firecrawl search falls back to DuckDuckGo
-`web_search` SHALL search DuckDuckGo when the Firecrawl search raises an `httpx2.HTTPError` or a `ValueError`, and SHALL return the results in the form of Firecrawl results, each with `url`, `title` and `description`. It SHALL NOT search DuckDuckGo after a search that Firecrawl answered, also one with no result. When DuckDuckGo fails too, it SHALL raise an `httpx2.HTTPError` or a `ValueError`, so `cited_web_search` answers `The search failed` as text and the job goes on.
+### Requirement: The issue listing gives the count of comments
+The roadmap store SHALL give each `Item` the count of comments on its issue as `comments`, as the issue listing carries it. A write to the body or the labels of the issue SHALL NOT change the count.
 
-#### Scenario: Firecrawl has no credits
-- **WHEN** Firecrawl answers a search with HTTP 402 and DuckDuckGo answers with a page of results
-- **THEN** the caller gets the results with `url`, `title` and `description`
+#### Scenario: Comments of a person
+- **WHEN** a person writes two comments on an issue, and a job then writes a mark in its job record
+- **THEN** the Item of the issue has `comments` 2
 
-#### Scenario: Firecrawl answers
-- **WHEN** Firecrawl answers a search with results, or with no result
-- **THEN** no request reaches DuckDuckGo
+### Requirement: A read of the comments of a waiting item is recorded
+When a round reads the comments of an item that waits and finds no reply, `--confirm` SHALL record `refine.comments_seen` (the count of the listing), `refine.commented_at` (the time of refine's last comment) and `refine.wait_refs` (the issues, then the paths, that the wait text names). A round that finds the same values in the record SHALL write nothing for the item.
 
-#### Scenario: Both backends fail
-- **WHEN** Firecrawl answers HTTP 402 and DuckDuckGo answers HTTP 500, or HTTP 202 for a bot challenge
-- **THEN** `web_search` raises an `httpx2.HTTPError` or a `ValueError`
+#### Scenario: A wait on a person that names an issue and a path
+- **WHEN** an item waits on a person, the text of refine's comment names issue 3 and the path `src/sample.py`, and a round runs with `--confirm`
+- **THEN** the job record holds `refine.comments_seen` `1`, `refine.commented_at` with the time of refine's comment, and `refine.wait_refs` `#3,src/sample.py`
 
-#### Scenario: The fallback keeps the limit
-- **WHEN** Firecrawl fails, DuckDuckGo returns 3 results and the limit is 2
-- **THEN** the caller gets the first 2 results
+### Requirement: An unchanged waiting item costs no comment read
+Without `--item`, a round SHALL read no comment of an item that waits on a blocker or on a person, whose body is unchanged and whose count of comments is the recorded `refine.comments_seen`. The item SHALL keep waiting on its next step, and the round SHALL make no model call for it.
 
-### Requirement: The fallback is public, private to the query and counted
-The DuckDuckGo request SHALL go through the HTTP entry point at the public level, and SHALL hold the query and no key. The fallback SHALL log one line with the HTTP status or the error class, and SHALL NOT log the key or the query. It SHALL add 1 to `devops_cli_web_search_fallbacks_total` with the `backend` `duckduckgo` and the `result` `ok` or `error`.
+#### Scenario: A second round after the record
+- **WHEN** an item waits on an open blocker, and a round has recorded the read of its comments
+- **THEN** the next round lists the item as waiting on its blocker, reads no comment of the item and makes no model call
 
-#### Scenario: A fallback that answers
-- **WHEN** Firecrawl answers a search with HTTP 402 and DuckDuckGo answers with a page of results
-- **THEN** the DuckDuckGo request holds the query and no `Authorization` header, one line says `A web search fell back to DuckDuckGo: Firecrawl answered with HTTP 402.`, and the fallback counter has one point with the result `ok`
+### Requirement: The exits of a wait need no comment read
+A round SHALL end the wait of an item whose count of comments is the recorded one, with no read of its comments, when every recorded blocker is closed, when a commit on the default branch changed a recorded `refine.block_paths` path at or after `refine.commented_at`, or, for a wait on a person, when an issue or a path of `refine.wait_refs` closed or changed after `refine.commented_at`. The `updated_at` of the item SHALL NOT be part of the check.
 
-#### Scenario: A fallback that fails
-- **WHEN** Firecrawl and DuckDuckGo both answer with an error
-- **THEN** the fallback counter has one point with the result `error`
+#### Scenario: A blocker closes
+- **WHEN** a recorded wait holds a blocker, and a person closes the blocker
+- **THEN** the next round refines the item, and the `updated_at` of the item is the one it had before
+
+#### Scenario: A cited path changes
+- **WHEN** a recorded wait cites `src/sample.py`, and a commit changes that path five minutes after `refine.commented_at`
+- **THEN** the next round refines the item, and the `updated_at` of the item is the one it had before
+
+### Requirement: A new comment ends the saving
+A round SHALL read the comments of an item that waits when its count of comments differs from the recorded one. A reply since refine's last comment SHALL end the wait. A comment that is no reply SHALL cost one read, and the round SHALL record the new count.
+
+#### Scenario: A reply
+- **WHEN** a person replies to the comment of an item that waits on a person with a recorded wait
+- **THEN** the next round reads the comments of the item and refines it
+
+#### Scenario: A comment of another job
+- **WHEN** the alternatives job comments on an item with a recorded wait
+- **THEN** the next round reads the comments of the item once and keeps it waiting, and the round after it reads none
+
+### Requirement: The dry run lists the record of a waiting item
+The dry-run plan of a round without `--item` SHALL list the read of the issue and the write of its job record under the condition that the round read the comments of the waiting item and its job record does not hold what they gave. The plan with `--item` SHALL list none.
+
+#### Scenario: The plan of a round
+- **WHEN** `devops roadmap refine --dry-run` plans a round without `--item`, and a round with `--item 7`
+- **THEN** only the first plan lists the record of the waiting item
+
+### Requirement: A round writes each item when the item is done
+The refine round of the Service SHALL write the result of each item as soon as that item is done, before it takes the next item, so a stop of the Service loses at most the item in progress and the next round takes the items that are not written.
+
+#### Scenario: Round of three items stops in the plan of item three
+- **WHEN** A refine round of 3 items stops in the plan of item 3.
+- **THEN** Items 1 and 2 carry their refine result, item 3 stays New, and the next round takes item 3 first.
+
+### Requirement: Plan without a writer writes nothing
+`plan_refine` SHALL write nothing to any item when the caller gives it no writer.
+
+#### Scenario: Plan run with no writer
+- **WHEN** `plan_refine` runs on a round of 3 items with no writer.
+- **THEN** The store receives no write, and the 3 items stay New.
+
+### Requirement: A failed write does not stop the round
+The refine round SHALL log a write that fails for one item, count the item as failed, write the other items, and fail at its end with the number of each item that it could not write.
+
+#### Scenario: Write of item two fails
+- **WHEN** The write of the body of item 2 fails in a round of 3 items.
+- **THEN** Items 1 and 3 are written, item 2 stays New, and the round raises an error that names item 2.
+
+### Requirement: A round logs its start and its end
+The refine round SHALL log one line at its start and one line at its end, and the end line SHALL give the counts of items taken, written and failed.
+
+#### Scenario: Round with one failed write
+- **WHEN** A refine round takes 3 items, writes 2 and fails 1.
+- **THEN** The log holds one start line with 3 items taken and one end line with taken=3, written=2 and failed=1.
+
+### Requirement: The plan says when web search is off for want of a provider
+When refine had no web search in a round, the plan SHALL say so once, with the reason: the repository is private, its visibility could not be read, or no search provider is configured.
+
+#### Scenario: No search provider
+- **WHEN** refine plans a round on a public repository whose providers are all unconfigured
+- **THEN** the report says that web search is off because no search provider is configured
+
+#### Scenario: The keyless provider
+- **WHEN** refine plans a round on a public repository with the default providers and no Firecrawl key
+- **THEN** web search is on

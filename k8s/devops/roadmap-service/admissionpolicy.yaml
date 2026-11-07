@@ -10,7 +10,7 @@
 # egress to the API server. The Job runs its pod once, and it has no `command`, no
 # `imagePullSecrets`, no `priorityClassName` and no `nodeName`.
 # The CPU and the memory request of the container are a row of the size table of the Service
-# (`RUNNER_SIZES` in src/devops_cli/roadmap/implement_size.py, #3193); a gate check holds the two
+# (`RUNNER_SIZES` in src/devops_cli/roadmap/implement/implement_size.py, #3193); a gate check holds the two
 # equal. The memory limit is not pinned, because the setting `roadmap.implement.max_memory_limit`
 # raises it.
 # Not pinned: the tag or digest of the image, the args and the plain `env` values but one, the

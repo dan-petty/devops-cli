@@ -67,6 +67,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `ImplementEvalError` | `ROADMAP_EVAL_REFUSED` | `1` | Roadmap | Raised when `devops roadmap eval implement` cannot read or use a fixture, or is asked for |
 | `InvalidBranchNameError` | `INVALID_BRANCH_NAME` | `1` | Git | Raised when a proposed Git branch name violates naming conventions. |
 | `InvalidURLError` | `INVALID_URL` | `1` | Validation | Raised when an invalid URL or URI scheme is provided. |
+| `InventoryError` | `RESEARCH_INVENTORY_ERROR` | `1` | Research | Raised when `devops research inventory` cannot read or parse a file that holds pins (#3896). |
 | `KeyringUnavailableError` | `KEYRING_UNAVAILABLE` | `3` | Security | Raised when the OS Keyring service is unreachable or uninitialized. |
 | `KubernetesContextError` | `K8S_CONTEXT_ERROR` | `1` | K8s | Raised when a Kubernetes context cannot be resolved or is invalid. |
 | `KubernetesDeployError` | `K8S_DEPLOY_ERROR` | `1` | K8s | Raised when deploying manifests or Helm charts fails. |
@@ -86,6 +87,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `OtlpProtocolError` | `TELEMETRY_ERROR` | `1` | Telemetry | Raised when the OTLP protocol or endpoint asks for gRPC, which devops-cli does not send. |
 | `OutputCapReached` | `OUTPUT_CAP_REACHED` | `15` | Ai | A model reply ended with the finish reason `length`: the model did not stop, and the output |
 | `OverWindowError` | `ROADMAP_IMPLEMENT_REFUSED` | `1` | Roadmap | Raised when the inputs of an implement step measure more than the window allows (#3057). |
+| `PageTextError` | `PAGE_TEXT_ERROR` | `1` | Ai | Raised when the Crawl4AI service returns no usable text for a page. |
 | `PoolLoadError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.pool_load | Prometheus could not answer a pool load query. |
 | `QdrantClientError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.rag.qdrant | Raised when an interaction with Qdrant fails. |
 | `RagIngestError` | `RAG_INGEST_FAILED` | `1` | Ai | Raised when one or more repositories fail during RAG ingestion. |
@@ -113,6 +115,8 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `SandboxPortAllocationError` | `SANDBOX_PORT_ALLOCATION_ERROR` | `1` | Sandbox | Raised when host port allocation encounters collisions or range exhaustion. |
 | `SandboxUnavailableError` | `SANDBOX_UNAVAILABLE_ERROR` | `1` | Sandbox | Raised when this host cannot start the sandbox of a review tool, so the tool does not run. |
 | `SandboxValidationError` | `SANDBOX_VALIDATION_ERROR` | `1` | Sandbox | Raised when sandbox configuration or directory mount paths violate security boundaries. |
+| `SearchFailed` | `WEB_SEARCH_FAILED` | `1` | Ai | Raised when no provider of a web search answered: each one failed, was skipped, or the |
+| `SearchQueryRefused` | `WEB_SEARCH_QUERY_REFUSED` | `1` | Ai | Raised when the guard stops a web search query before any provider runs. The message names |
 | `SecurityError` | `SECURITY_ERROR` | `1` | Security | Base exception for all security, policy, and egress violations. |
 | `ServiceAddressError` | `K8S_ERROR` | `1` | Devops_cli.k8s.service_proxy | Raised when a cluster service address cannot be resolved. |
 | `ServiceNotReachableError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.k8s.node_port | A service cannot be reached from outside the cluster. |
@@ -147,3 +151,4 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `VolumeMoveRefusedError` | `K8S_VOLUME_MOVE_REFUSED` | `1` | K8s | Raised when a volume move cannot start safely; it changed nothing. |
 | `VolumeMoveStrandedError` | `K8S_VOLUME_MOVE_STRANDED` | `1` | K8s | Raised when a volume move fails after the old claim was deleted; Argo CD stays paused. |
 | `VolumeReclaimError` | `K8S_VOLUME_RECLAIM_ERROR` | `1` | K8s | Raised when volume reclaim fails or is refused due to active claims or mounts. |
+| `WebSearchError` | `WEB_SEARCH_ERROR` | `1` | Ai | Base of the errors of `web_search`. A caller that cannot stop on a search catches it. |

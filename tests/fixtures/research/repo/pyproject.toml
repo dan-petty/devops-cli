@@ -1,0 +1,12 @@
+[project]
+name = "example"
+version = "0.1.0"
+dependencies = [
+    "httpx2==2.13.1",
+    "PyYAML==6.0.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+]

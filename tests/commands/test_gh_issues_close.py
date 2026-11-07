@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from devops_cli.roadmap.store import GitHubState
+from devops_cli.roadmap.stores.store import GitHubState
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/repo"

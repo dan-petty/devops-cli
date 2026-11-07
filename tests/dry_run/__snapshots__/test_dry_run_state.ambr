@@ -1,0 +1,17 @@
+# serializer version: 1
+# name: test_a_dry_run_result_is_printed_as_json
+  '''
+   Command response:
+  {
+    "command": "devops repos sync",
+    "target": "example/project",
+    "dry_run": true,
+    "status": "DRY_RUN",
+    "action": "sync",
+    "details": {
+      "branch": "main"
+    }
+  }
+  
+  '''
+# ---

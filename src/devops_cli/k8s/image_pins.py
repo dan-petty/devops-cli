@@ -114,49 +114,67 @@ def is_local_registry(registry: str) -> bool:
     return True
 
 
-def _mappings(node: yaml.Node) -> Iterator[yaml.MappingNode]:
+def yaml_mappings(node: yaml.Node) -> Iterator[yaml.MappingNode]:
+    """`node`, if it is a mapping, and every mapping below it."""
     if isinstance(node, yaml.MappingNode):
         yield node
         for _, value in node.value:
-            yield from _mappings(value)
+            yield from yaml_mappings(value)
     elif isinstance(node, yaml.SequenceNode):
         for item in node.value:
-            yield from _mappings(item)
+            yield from yaml_mappings(item)
 
 
-def _scalar(node: yaml.MappingNode, key: str) -> str | None:
+def yaml_scalar(node: yaml.MappingNode, key: str) -> str | None:
+    """The text of the scalar that `key` holds in `node`, or `None` if `key` holds none."""
     for key_node, value in node.value:
         if key_node.value == key and isinstance(value, yaml.ScalarNode):
             return str(value.value)
     return None
 
 
-def image_values(rendered: str) -> list[str]:
-    """Every `image` value of the objects in `rendered`, in order.
+def key_line(node: yaml.MappingNode, key: str) -> int:
+    """The line (from 1) of the key `key` in `node`, or 0 if `node` has no such key."""
+    for key_node, _ in node.value:
+        if key_node.value == key:
+            return int(key_node.start_mark.line) + 1
+    return 0
+
+
+def image_nodes(rendered: str) -> list[tuple[str, int]]:
+    """Every `image` value of the objects in `rendered`, in order, with its line (from 1).
 
     The YAML is composed and not constructed, so a scalar keeps its text whatever tag YAML 1.1
     gives it, such as the `value` tag of a lone `=` that a CRD schema writes.
     """
-    found: list[str] = []
+    found: list[tuple[str, int]] = []
     for document in yaml.compose_all(rendered, Loader=YAML_SAFE_LOADER):
-        for mapping in _mappings(document) if document is not None else ():
-            image = _scalar(mapping, "image")
+        for mapping in yaml_mappings(document) if document is not None else ():
+            image = yaml_scalar(mapping, "image")
             if image:
-                version = _scalar(mapping, "version")
+                version = yaml_scalar(mapping, "version")
                 if version and ":" not in image.rsplit("/", 1)[-1] and "@" not in image:
                     image = f"{image}:{version}"
-                found.append(image)
+                found.append((image, key_line(mapping, "image")))
     return found
+
+
+def image_values(rendered: str) -> list[str]:
+    """Every `image` value of the objects in `rendered`, in order."""
+    return [image for image, _ in image_nodes(rendered)]
 
 
 def updater_repositories(rendered: str) -> list[str]:
     """The repositories that the `ImageUpdater` objects in `rendered` name."""
     repositories: list[str] = []
     for document in yaml.compose_all(rendered, Loader=YAML_SAFE_LOADER):
-        if not isinstance(document, yaml.MappingNode) or _scalar(document, "kind") != _UPDATER_KIND:
+        if (
+            not isinstance(document, yaml.MappingNode)
+            or yaml_scalar(document, "kind") != _UPDATER_KIND
+        ):
             continue
-        for mapping in _mappings(document):
-            name = _scalar(mapping, "imageName")
+        for mapping in yaml_mappings(document):
+            name = yaml_scalar(mapping, "imageName")
             if name:
                 repositories.append("/".join(image_reference(name)))
     return repositories

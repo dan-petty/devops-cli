@@ -3,8 +3,8 @@
 A plan that the stage job wrote before a gate existed can fail that gate today. Three edits fix
 most of these plans, and each one is mechanical:
 
-- A group with no `Verification:` line gets one under its first task. The command comes from the
-  plan: `uv run devops ci test` with the test files of the `Changes:` line, or `uv run devops ci
+- A group with no marked `Verification:` command (a code span that starts with `$ `) gets a
+  line under its first task. The command comes from the plan: `uv run devops ci test` with the test files of the `Changes:` line, or `uv run devops ci
   docs` when the group changes only documents. A command that the step refuses is not written, and
   a group that names neither gets no line.
 - A path in a task text that the tree lacks, and that no group lists or creates, is a sample path
@@ -27,9 +27,9 @@ from typing import Final
 
 from devops_cli.exceptions import RoadmapPlanRewriteError
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement_shell_policy import verification_problem
+from devops_cli.roadmap.implement.implement_shell_policy import verification_problem
 from devops_cli.roadmap.plan_read import PlanReadError, created_paths, group_files
-from devops_cli.roadmap.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.step_files import TaskGroup, file_lines, parse_task_groups
 
 _DESIGN: Final[str] = "design.md"
