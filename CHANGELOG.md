@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.83.2](https://github.com/dan-petty/devops-cli/compare/v0.83.1...v0.83.2) (2026-11-07)
+
+
+### Bug Fixes
+
+* **roadmap:** Detect obsolete spec requirements on command rename ([#3961](https://github.com/dan-petty/devops-cli/issues/3961)) ([3a172a3](https://github.com/dan-petty/devops-cli/commit/3a172a32728976bf87afd6d33b1a69fd70dd705a))
+
 ## [0.83.1](https://github.com/dan-petty/devops-cli/compare/v0.83.0...v0.83.1) (2026-11-07)
 
 
