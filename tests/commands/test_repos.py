@@ -8,7 +8,7 @@ import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -37,28 +37,46 @@ if TYPE_CHECKING:
 
 runner = CliRunner()
 
+_RELOAD = "code"
 
-def test_repos_list_empty_dir(tmp_path: Path) -> None:
+
+def _workspace(config: Callable[..., Path], tmp_path: Path, **github: str) -> tuple[Path, Path]:
+    """Point `repos.base_dir` and `workspace.file` at the test's own directory; return both."""
+    base_dir = tmp_path / "repos"
+    workspace_file = tmp_path / ".code-workspace"
+    config(
+        repos={"base_dir": str(base_dir)},
+        workspace={"file": str(workspace_file)},
+        github=github,
+    )
+    return base_dir, workspace_file
+
+
+def _started(process_fake: ProcessFake, program: str) -> list[tuple[str, ...]]:
+    """The argv of each start of `program`, in order."""
+    return [call.argv for call in process_fake.calls if call.argv[0] == program]
+
+
+def _workspace_folders(workspace_file: Path) -> list[str]:
+    """The folder paths in a VS Code workspace file."""
+    data = json.loads(workspace_file.read_text(encoding="utf-8"))
+    return [folder["path"] for folder in data["folders"]]
+
+
+def test_repos_list_empty_dir(tmp_path: Path, config: Callable[..., Path]) -> None:
     repos_dir = tmp_path / "repos"
     repos_dir.mkdir()
+    config(repos={"base_dir": str(repos_dir)})
 
-    with patch("devops_cli.commands.repos.load_settings") as mock_load:
-        settings = MagicMock()
-        settings.repos.base_dir = repos_dir
-        mock_load.return_value = settings
-
-        result = runner.invoke(app, ["repos", "list"])
+    result = runner.invoke(app, ["repos", "list"])
 
     assert result.exit_code == 0
 
 
-def test_repos_list_missing_dir(tmp_path: Path) -> None:
-    with patch("devops_cli.commands.repos.load_settings") as mock_load:
-        settings = MagicMock()
-        settings.repos.base_dir = tmp_path / "nonexistent"
-        mock_load.return_value = settings
+def test_repos_list_missing_dir(tmp_path: Path, config: Callable[..., Path]) -> None:
+    config(repos={"base_dir": str(tmp_path / "nonexistent")})
 
-        result = runner.invoke(app, ["repos", "list"])
+    result = runner.invoke(app, ["repos", "list"])
 
     assert result.exit_code == 0
     assert "not found" in result.output.lower()
@@ -79,14 +97,13 @@ def test_repo_name_extraction(url: str, expected_name: str) -> None:
     assert name == expected_name
 
 
-def test_repos_clone_requires_a_gh_login(tmp_path: Path, no_github_identity: None) -> None:
+def test_repos_clone_requires_a_gh_login(
+    tmp_path: Path, config: Callable[..., Path], no_github_identity: None
+) -> None:
     """Without a token from `gh auth token`, clone-org stops and says to run `gh auth login`."""
-    with patch("devops_cli.commands.repos.load_settings") as mock_load:
-        settings = MagicMock()
-        settings.repos.base_dir = tmp_path / "repos"
-        mock_load.return_value = settings
+    config(repos={"base_dir": str(tmp_path / "repos")})
 
-        result = runner.invoke(app, ["repos", "clone-org", "my-org"])
+    result = runner.invoke(app, ["repos", "clone-org", "my-org"])
 
     assert (result.exit_code != 0, "gh auth login" in result.output) == (True, True)
 
@@ -104,102 +121,91 @@ def _recorded_repositories() -> list[dict[str, Any]]:
 
 
 def test_repos_clone_org_uses_default_org(
-    tmp_path: Path, github_api: GitHubApiFake, pin_github_session: str
+    tmp_path: Path,
+    config: Callable[..., Path],
+    github_api: GitHubApiFake,
+    pin_github_session: str,
+    process_fake: ProcessFake,
 ) -> None:
     github_api.route("GET", _ORG_REPOS, github_json([]))
-    with (
-        patch("devops_cli.commands.repos.load_settings") as mock_load,
-        patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
-        patch("devops_cli.commands.repos.sync_from_repos") as mock_sync,
-        patch("devops_cli.commands.repos._reload_workspace") as mock_reload,
-    ):
-        settings = MagicMock()
-        settings.github.default_org = "example-org"
-        settings.repos.base_dir = tmp_path / "repos"
-        settings.workspace.file = tmp_path / ".code-workspace"
-        mock_load.return_value = settings
+    _base_dir, workspace_file = _workspace(config, tmp_path, default_org="example-org")
 
-        result = runner.invoke(app, ["repos", "clone-org"])
+    result = runner.invoke(app, ["repos", "clone-org"])
 
     assert result.exit_code == 0
     assert (github_api.requested, {r.headers["authorization"] for r in github_api.sent}) == (
         [f"GET https://api.github.com{_ORG_REPOS}"],
         {f"token {pin_github_session}"},
     )
-    mock_clone_repo.assert_not_called()
-    mock_sync.assert_called_once_with(settings.repos.base_dir.resolve(), settings.workspace.file)
-    mock_reload.assert_called_once_with(settings.workspace.file)
+    assert (
+        _started(process_fake, "git"),
+        _started(process_fake, _RELOAD),
+        workspace_file.is_file(),
+    ) == ([], [(_RELOAD, "--reuse-window", "--", str(workspace_file))], True)
 
 
-def test_repos_clone_org_skips_archived_repos(tmp_path: Path, github_api: GitHubApiFake) -> None:
+def test_repos_clone_org_skips_archived_repos(
+    tmp_path: Path,
+    config: Callable[..., Path],
+    github_api: GitHubApiFake,
+    process_fake: ProcessFake,
+    known_hosts: Path,
+) -> None:
     active_repo, _fork, archived_repo = _recorded_repositories()
     archived_repo = {**archived_repo, "archived": True}
     github_api.route("GET", _ORG_REPOS, github_json([archived_repo, active_repo]))
+    base_dir, workspace_file = _workspace(config, tmp_path, default_org="example-org")
 
-    with (
-        patch("devops_cli.commands.repos.load_settings") as mock_load,
-        patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
-        patch("devops_cli.commands.repos.sync_from_repos") as mock_sync,
-        patch("devops_cli.commands.repos._reload_workspace") as mock_reload,
-    ):
-        settings = MagicMock()
-        settings.github.default_org = "example-org"
-        settings.repos.base_dir = tmp_path / "repos"
-        settings.workspace.file = tmp_path / ".code-workspace"
-        mock_load.return_value = settings
-
-        result = runner.invoke(app, ["repos", "clone-org"])
+    result = runner.invoke(app, ["repos", "clone-org"])
 
     assert result.exit_code == 0
-    mock_clone_repo.assert_called_once_with(
-        "https://github.com/octocat/Hello-World.git",
-        settings.repos.base_dir / "example-org" / "Hello-World",
+    assert (
+        _started(process_fake, "git"),
+        _started(process_fake, _RELOAD),
+        workspace_file.is_file(),
+    ) == (
+        [
+            (
+                "git",
+                "clone",
+                "--",
+                "https://github.com/octocat/Hello-World.git",
+                str((base_dir / "example-org" / "Hello-World").resolve()),
+            )
+        ],
+        [(_RELOAD, "--reuse-window", "--", str(workspace_file))],
+        True,
     )
-    mock_sync.assert_called_once_with(settings.repos.base_dir.resolve(), settings.workspace.file)
-    mock_reload.assert_called_once_with(settings.workspace.file)
 
 
 def test_repos_clone_org_skips_path_traversal_repo(
-    tmp_path: Path, github_api: GitHubApiFake
+    tmp_path: Path,
+    config: Callable[..., Path],
+    github_api: GitHubApiFake,
+    process_fake: ProcessFake,
 ) -> None:
     """Verify clone-org skips repositories with path traversal attempts."""
     bad_repo = {**_recorded_repositories()[0], "name": "../escape"}
     github_api.route("GET", _ORG_REPOS, github_json([bad_repo]))
+    _workspace(config, tmp_path, default_org="example-org")
 
-    with (
-        patch("devops_cli.commands.repos.load_settings") as mock_load,
-        patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
-        patch("devops_cli.commands.repos.sync_from_repos"),
-        patch("devops_cli.commands.repos._reload_workspace"),
-    ):
-        settings = MagicMock()
-        settings.github.default_org = "example-org"
-        settings.repos.base_dir = tmp_path / "repos"
-        settings.workspace.file = tmp_path / ".code-workspace"
-        mock_load.return_value = settings
+    result = runner.invoke(app, ["repos", "clone-org"])
 
-        result = runner.invoke(app, ["repos", "clone-org"])
-
-    assert (result.exit_code, mock_clone_repo.called) == (0, False)
+    assert (result.exit_code, _started(process_fake, "git")) == (0, [])
 
 
 def test_repos_clone_org_rejects_path_traversal_org(
-    tmp_path: Path, github_api: GitHubApiFake
+    tmp_path: Path,
+    config: Callable[..., Path],
+    github_api: GitHubApiFake,
+    process_fake: ProcessFake,
 ) -> None:
     """Verify clone-org aborts when organization name attempts path traversal."""
-    with (
-        patch("devops_cli.commands.repos.load_settings") as mock_load,
-        patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
-    ):
-        settings = MagicMock()
-        settings.github.default_org = "example-org"
-        settings.repos.base_dir = tmp_path / "repos"
-        settings.workspace.file = tmp_path / ".code-workspace"
-        mock_load.return_value = settings
+    _workspace(config, tmp_path, default_org="example-org")
 
-        result = runner.invoke(app, ["repos", "clone-org", "../escaped-org"])
+    result = runner.invoke(app, ["repos", "clone-org", "../escaped-org"])
 
-    assert (result.exit_code, mock_clone_repo.called, github_api.requested) == (1, False, [])
+    assert (result.exit_code, process_fake.calls, github_api.requested) == (1, [], [])
 
 
 def test_repos_clone_org_names_the_missing_organization(
@@ -218,113 +224,100 @@ def test_repos_clone_org_names_the_missing_organization(
     assert not destination.exists()
 
 
-def test_repos_clone_rejects_path_traversal_destination(tmp_path: Path) -> None:
+def test_repos_clone_rejects_path_traversal_destination(
+    tmp_path: Path, config: Callable[..., Path], process_fake: ProcessFake
+) -> None:
     """Verify clone aborts when URL components attempt path traversal."""
-    with (
-        patch("devops_cli.commands.repos.load_settings") as mock_load,
-        patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
-    ):
-        settings = MagicMock()
-        settings.repos.base_dir = tmp_path / "repos"
-        settings.workspace.file = tmp_path / ".code-workspace"
-        mock_load.return_value = settings
+    _workspace(config, tmp_path)
 
-        result = runner.invoke(app, ["repos", "clone", "git@example.com:../../escaped/repo.git"])
+    result = runner.invoke(app, ["repos", "clone", "git@example.com:../../escaped/repo.git"])
 
-    assert (result.exit_code, mock_clone_repo.called) == (1, False)
+    assert (result.exit_code, process_fake.calls) == (1, [])
 
 
-def test_repos_clone_passes_github_urls_to_clone_repo(tmp_path: Path) -> None:
-    with (
-        patch("devops_cli.commands.repos.load_settings") as mock_load,
-        patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
-        patch("devops_cli.commands.repos.sync_from_repos") as mock_sync,
-        patch("devops_cli.commands.repos._reload_workspace") as mock_reload,
-    ):
-        settings = MagicMock()
-        settings.repos.base_dir = tmp_path / "repos"
-        settings.workspace.file = tmp_path / ".code-workspace"
-        mock_load.return_value = settings
+def test_repos_clone_passes_github_urls_to_clone_repo(
+    tmp_path: Path, config: Callable[..., Path], process_fake: ProcessFake, known_hosts: Path
+) -> None:
+    _base_dir, workspace_file = _workspace(config, tmp_path)
 
-        result = runner.invoke(app, ["repos", "clone", "github.com/example/repo.git"])
+    result = runner.invoke(app, ["repos", "clone", "github.com/example/repo.git"])
 
     assert result.exit_code == 0
-    mock_clone_repo.assert_called_once_with(
-        "github.com/example/repo.git",
-        tmp_path / "repos" / "example" / "repo",
+    assert (
+        _started(process_fake, "git"),
+        _started(process_fake, _RELOAD),
+        workspace_file.is_file(),
+    ) == (
+        [
+            (
+                "git",
+                "clone",
+                "--",
+                "https://github.com/example/repo.git",
+                str(tmp_path / "repos" / "example" / "repo"),
+            )
+        ],
+        [(_RELOAD, "--reuse-window", "--", str(workspace_file))],
+        True,
     )
-    mock_sync.assert_called_once_with(settings.repos.base_dir.resolve(), settings.workspace.file)
-    mock_reload.assert_called_once_with(settings.workspace.file)
 
 
-def test_repos_clone_standalone_and_full_url(tmp_path: Path) -> None:
-    with (
-        patch("devops_cli.commands.repos.load_settings") as mock_load,
-        patch("devops_cli.commands.repos.clone_repo") as mock_clone_repo,
-        patch("devops_cli.commands.repos.sync_from_repos"),
-        patch("devops_cli.commands.repos._reload_workspace"),
-    ):
-        settings = MagicMock()
-        settings.repos.base_dir = tmp_path / "repos"
-        settings.workspace.file = tmp_path / ".code-workspace"
-        mock_load.return_value = settings
+def test_repos_clone_standalone_and_full_url(
+    tmp_path: Path, config: Callable[..., Path], process_fake: ProcessFake, known_hosts: Path
+) -> None:
+    _workspace(config, tmp_path)
 
-        # Full GitHub HTTPS URL
-        res_full = runner.invoke(
-            app,
-            ["repos", "clone", "https://github.com/google-antigravity/antigravity-sdk-python.git"],
-        )
-        assert res_full.exit_code == 0
-        mock_clone_repo.assert_called_with(
-            "https://github.com/google-antigravity/antigravity-sdk-python.git",
-            tmp_path / "repos" / "google-antigravity" / "antigravity-sdk-python",
-        )
+    # Full GitHub HTTPS URL
+    res_full = runner.invoke(
+        app,
+        ["repos", "clone", "https://github.com/google-antigravity/antigravity-sdk-python.git"],
+    )
+    assert res_full.exit_code == 0
+    assert _started(process_fake, "git")[-1] == (
+        "git",
+        "clone",
+        "--",
+        "https://github.com/google-antigravity/antigravity-sdk-python.git",
+        str(tmp_path / "repos" / "google-antigravity" / "antigravity-sdk-python"),
+    )
 
-        # Standalone URL without org
-        res_standalone = runner.invoke(app, ["repos", "clone", "simple-repo.git"])
-        assert res_standalone.exit_code == 0
-        mock_clone_repo.assert_called_with(
-            "simple-repo.git",
-            tmp_path / "repos" / "_standalone" / "simple-repo",
-        )
+    # Standalone URL without org
+    res_standalone = runner.invoke(app, ["repos", "clone", "simple-repo.git"])
+    assert res_standalone.exit_code == 0
+    assert _started(process_fake, "git")[-1] == (
+        "git",
+        "clone",
+        "--",
+        "simple-repo.git",
+        str(tmp_path / "repos" / "_standalone" / "simple-repo"),
+    )
 
 
-def test_repos_update_syncs_workspace(tmp_path: Path) -> None:
+def test_repos_update_syncs_workspace(
+    tmp_path: Path, config: Callable[..., Path], process_fake: ProcessFake
+) -> None:
     repos_dir = tmp_path / "repos"
     group_dir = repos_dir / "group"
     repo_dir = group_dir / "repo"
     repo_dir.mkdir(parents=True)
     (repo_dir / ".git").mkdir()
+    _base_dir, workspace_file = _workspace(config, tmp_path)
 
-    with (
-        patch("devops_cli.commands.repos.load_settings") as mock_load,
-        patch("devops_cli.commands.repos.fetch_all"),
-        patch("devops_cli.commands.repos.pull_tracking"),
-        patch("devops_cli.commands.repos.sync_from_repos") as mock_sync,
-        patch("devops_cli.commands.repos._reload_workspace") as mock_reload,
-    ):
-        settings = MagicMock()
-        settings.repos.base_dir = repos_dir
-        settings.workspace.file = tmp_path / ".code-workspace"
-        mock_load.return_value = settings
-
-        result = runner.invoke(app, ["repos", "update"])
+    result = runner.invoke(app, ["repos", "update"])
 
     assert result.exit_code == 0
-    mock_sync.assert_called_once_with(settings.repos.base_dir.resolve(), settings.workspace.file)
-    mock_reload.assert_called_once_with(settings.workspace.file)
+    assert (
+        str(repo_dir.resolve()) in _workspace_folders(workspace_file),
+        _started(process_fake, _RELOAD),
+    ) == (True, [(_RELOAD, "--reuse-window", "--", str(workspace_file))])
 
 
-def test_repos_update_no_repos(tmp_path: Path) -> None:
+def test_repos_update_no_repos(tmp_path: Path, config: Callable[..., Path]) -> None:
     repos_dir = tmp_path / "repos"
     repos_dir.mkdir()
+    config(repos={"base_dir": str(repos_dir)})
 
-    with patch("devops_cli.commands.repos.load_settings") as mock_load:
-        settings = MagicMock()
-        settings.repos.base_dir = repos_dir
-        mock_load.return_value = settings
-
-        result = runner.invoke(app, ["repos", "update"])
+    result = runner.invoke(app, ["repos", "update"])
 
     assert result.exit_code == 0
     assert "No repositories" in result.output
@@ -863,55 +856,47 @@ def test_repos_branch_and_workspace_helpers(tmp_path: Path, git_fake: GitFake) -
     )
 
 
-def test_repos_clone_invalid_arguments(tmp_path: Path) -> None:
+def test_repos_clone_invalid_arguments(tmp_path: Path, config: Callable[..., Path]) -> None:
     """Verify repos clone rejects hyphenated URLs and existing directories."""
-    with patch("devops_cli.commands.repos.load_settings") as mock_load:
-        settings = MagicMock()
-        settings.repos.base_dir = tmp_path / "repos"
-        settings.workspace.file = tmp_path / ".code-workspace"
-        mock_load.return_value = settings
+    _workspace(config, tmp_path)
 
-        # Hyphen url
-        res_hyphen = runner.invoke(repos_app, ["clone", "--", "-invalid-url"])
-        assert res_hyphen.exit_code == 1
+    # Hyphen url
+    res_hyphen = runner.invoke(repos_app, ["clone", "--", "-invalid-url"])
+    assert res_hyphen.exit_code == 1
 
-        # Existing dir
-        existing_dir = tmp_path / "repos" / "org" / "existing-repo"
-        existing_dir.mkdir(parents=True)
-        res_exists = runner.invoke(repos_app, ["clone", "https://github.com/org/existing-repo.git"])
-        assert res_exists.exit_code == 1
+    # Existing dir
+    existing_dir = tmp_path / "repos" / "org" / "existing-repo"
+    existing_dir.mkdir(parents=True)
+    res_exists = runner.invoke(repos_app, ["clone", "https://github.com/org/existing-repo.git"])
+    assert res_exists.exit_code == 1
 
 
-def test_repos_sync_pull_and_errors(tmp_path: Path) -> None:
+def test_repos_sync_pull_and_errors(
+    tmp_path: Path, config: Callable[..., Path], process_fake: ProcessFake
+) -> None:
     """Verify repos sync pulls tracking branches and handles git errors gracefully."""
     repos_dir = tmp_path / "repos"
     repo1 = repos_dir / "org" / "repo1"
     repo1.mkdir(parents=True)
     (repo1 / ".git").mkdir()
+    _workspace(config, tmp_path)
+    process_fake.answer(["git", "-C", str(repo1), "remote"], ProcessAnswer(stdout="origin\n"))
+    process_fake.answer(["git", "-C", str(repo1), "branch"], ProcessAnswer(stdout="main\n"))
+    process_fake.answer(["git", "-C", str(repo1), "config"], ProcessAnswer(stdout="origin\n"))
 
-    with (
-        patch("devops_cli.commands.repos.load_settings") as mock_load,
-        patch("devops_cli.commands.repos.iter_workspace_repos", return_value=[repo1]),
-        patch("devops_cli.commands.repos.fetch_all") as mock_fetch,
-        patch("devops_cli.commands.repos.pull_tracking") as mock_pull,
-        patch("devops_cli.commands.repos.sync_from_repos"),
-        patch("devops_cli.commands.repos._reload_workspace"),
-    ):
-        settings = MagicMock()
-        settings.repos.base_dir = repos_dir
-        settings.workspace.file = tmp_path / ".code-workspace"
-        mock_load.return_value = settings
+    # Normal pull
+    res = runner.invoke(repos_app, ["sync", "--pull"])
+    assert res.exit_code == 0
+    changes = [call.argv[3:] for call in process_fake.calls if call.argv[3] in {"fetch", "pull"}]
+    assert changes == [("fetch", "--prune", "origin"), ("pull", "origin", "main")]
 
-        # Normal pull
-        res = runner.invoke(repos_app, ["sync", "--pull"])
-        assert res.exit_code == 0
-        mock_fetch.assert_called_once_with(repo1)
-        mock_pull.assert_called_once_with(repo1)
-
-        # Fetch error handled gracefully
-        mock_fetch.side_effect = RuntimeError("Git network timeout")
-        res_err = runner.invoke(repos_app, ["sync"])
-        assert res_err.exit_code == 1
+    # Fetch error handled gracefully
+    process_fake.answer(
+        ["git", "-C", str(repo1), "fetch"],
+        ProcessAnswer(returncode=128, stderr="fatal: Git network timeout\n"),
+    )
+    res_err = runner.invoke(repos_app, ["sync"])
+    assert (res_err.exit_code, "Git network timeout" in res_err.output) == (1, True)
 
 
 def test_repos_sync_reports_failures_and_exits_nonzero(tmp_path: Path, git_fake: GitFake) -> None:
@@ -1122,14 +1107,11 @@ def test_repos_reload_workspace_and_resolve(tmp_path: Path, process_fake: Proces
     assert _resolve_workspace_file(root, custom_rel) == custom_rel
 
 
-def test_repos_clone_org_missing_org() -> None:
+def test_repos_clone_org_missing_org(config: Callable[..., Path]) -> None:
     """Verify clone-org stops when no organization is given or configured."""
-    with patch("devops_cli.commands.repos.load_settings") as mock_load:
-        settings = MagicMock()
-        settings.github.default_org = None
-        mock_load.return_value = settings
-        res = runner.invoke(app, ["repos", "clone-org"])
-        assert res.exit_code == 1
+    config(github={"default_org": None})
+    res = runner.invoke(app, ["repos", "clone-org"])
+    assert res.exit_code == 1
 
 
 def test_a_directory_with_no_repository_has_no_origin_whatever_the_environment(

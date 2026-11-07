@@ -5,10 +5,9 @@ from __future__ import annotations
 import json
 import subprocess
 import time
-from functools import partial
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
+from typing import TYPE_CHECKING, Any
+from unittest.mock import patch
 
 import pytest
 from fastmcp.exceptions import ToolError
@@ -16,57 +15,58 @@ from typer.testing import CliRunner, Result
 
 from devops_cli.ai.mcp.server import gh_project_reconcile
 from devops_cli.commands.gh import app, milestones_app
-from devops_cli.github.projects import MutationBudget
-from devops_cli.roadmap.stores.store import GitHubState
+from devops_cli.github.projects import load_project_template
+from devops_cli.roadmap.stores.store import GitHubState, ItemField
 from tests.project_reconcile_fake import REPO, ProjectGitHub, card, issue
 from tests.support.fakes.github import GitHubApiFake, github_json
-from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.gh_process import answer_origin, gh_argv, mentions
 from tests.support.paths import REPO_ROOT
 
+if TYPE_CHECKING:
+    from tests.support.fakes.clock import ClockFake
+    from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+
 runner = CliRunner()
-_REAL_RUN = subprocess.run
 
 
-def _fake_gh_rate_limit_edge(stdout: str, calls: list[list[str]]) -> Any:
-    """Fake gh at the process edge, recording commands and returning stdout."""
+def _board_with_every_view() -> str:
+    """`gh api graphql`'s reply for a repository that links the template's board, which has
+    every view the template names."""
+    template = load_project_template()
+    board = {
+        "id": "PVT_2",
+        "number": 2,
+        "title": template.name,
+        "views": {"nodes": [{"name": view.name} for view in template.views]},
+    }
+    return json.dumps({"data": {"repository": {"projectsV2": {"nodes": [board]}}}})
 
-    def gh(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if cmd[0] != "gh":
-            return _REAL_RUN(cmd, **kwargs)
-        calls.append(list(cmd[1:]))
-        return subprocess.CompletedProcess(cmd, 0, stdout, "")
 
-    return gh
-
-
-def test_gh_labels_list() -> None:
+def test_gh_labels_list(gh_edge: ProcessFake) -> None:
     """devops gh labels list outputs label records."""
-    mock_labels = [
+    labels = [
         {"name": "type/feature", "color": "0E8A16", "description": "Feature addition"},
         {"name": "type/bug", "color": "D73A4A", "description": "Bug fix"},
     ]
-    with patch("devops_cli.commands.gh._get_repo_labels", return_value=mock_labels):
-        result = runner.invoke(app, ["labels", "list"])
-        assert result.exit_code == 0
-        assert "type/feature" in result.output
-        assert "type/bug" in result.output
+    gh_edge.answer(["gh", "label", "list"], ProcessAnswer(stdout=json.dumps(labels)))
+    result = runner.invoke(app, ["labels", "list"])
+    assert result.exit_code == 0
+    assert "type/feature" in result.output
+    assert "type/bug" in result.output
 
 
-def test_gh_labels_sync_dry_run() -> None:
+def test_gh_labels_sync_dry_run(gh_edge: ProcessFake) -> None:
     """devops gh labels sync --dry-run previews label reconciliations without mutations."""
-    with (
-        patch("devops_cli.commands.gh._get_repo_labels", return_value=[]),
-        patch("devops_cli.commands.gh.sync_repository_labels") as mock_sync,
-    ):
-        mock_sync.return_value = MagicMock(created_count=5, updated_count=0, dry_run=True)
-        result = runner.invoke(app, ["labels", "sync", "--dry-run"])
-        assert result.exit_code == 0
-        assert (
-            "DRY RUN" in result.output or "dry-run" in result.output.lower() or "5" in result.output
-        )
+    result = runner.invoke(app, ["labels", "sync", "--dry-run"])
+    assert result.exit_code == 0
+    assert "DRY RUN" in result.output or "dry-run" in result.output.lower() or "5" in result.output
+    assert gh_argv(gh_edge) == []
 
 
-def test_gh_labels_sync_exits_nonzero_when_unauthenticated(tmp_path: Path) -> None:
+def test_gh_labels_sync_exits_nonzero_when_unauthenticated(
+    tmp_path: Path, gh_edge: ProcessFake
+) -> None:
     """`devops gh labels sync` fails when gh cannot list or create labels (#961).
 
     With no token and gh logged out, the label list came back empty, every create failed
@@ -74,10 +74,9 @@ def test_gh_labels_sync_exits_nonzero_when_unauthenticated(tmp_path: Path) -> No
     """
     labels_file = tmp_path / "labels.yml"
     labels_file.write_text("- name: type/bug\n  color: D73A4A\n", encoding="utf-8")
-    failed = MagicMock(returncode=1, stdout="", stderr="gh auth login required")
+    gh_edge.answer(["gh", "label"], ProcessAnswer(returncode=1, stderr="gh auth login required"))
 
-    with patch("devops_cli.github.client.run_gh", return_value=failed):
-        result = runner.invoke(app, ["labels", "sync", "-f", str(labels_file), "-R", "o/r"])
+    result = runner.invoke(app, ["labels", "sync", "-f", str(labels_file), "-R", "o/r"])
 
     assert (
         result.exit_code,
@@ -86,14 +85,11 @@ def test_gh_labels_sync_exits_nonzero_when_unauthenticated(tmp_path: Path) -> No
     ) == (1, False, True)
 
 
-def test_gh_labels_list_asks_for_every_label() -> None:
+def test_gh_labels_list_asks_for_every_label(gh_edge: ProcessFake) -> None:
     """`devops gh labels list` asks gh for more than its default 30 labels."""
-    from devops_cli.commands.gh import _get_repo_labels
-
-    listed = MagicMock(returncode=0, stdout='[{"name": "type/bug"}]', stderr="")
-    with patch("devops_cli.commands.gh.run_gh", return_value=listed) as run_gh:
-        _get_repo_labels("o/r")
-    argv = run_gh.call_args.args[0]
+    gh_edge.answer(["gh", "label", "list"], ProcessAnswer(stdout='[{"name": "type/bug"}]'))
+    runner.invoke(app, ["labels", "list", "-R", "o/r"])
+    argv = gh_argv(gh_edge)[0]
     # Without --limit, gh lists 30.
     assert (int(argv[argv.index("--limit") + 1]) if "--limit" in argv else 30) > 30
 
@@ -129,73 +125,76 @@ def test_gh_views_spec() -> None:
     assert "layout" in result.output
 
 
-def test_gh_pages_status() -> None:
+def test_gh_pages_status(gh_edge: ProcessFake) -> None:
     """devops gh pages status outputs site deployment panel."""
-    from devops_cli.github.pages import GitHubPagesInfo
-
-    mock_info = GitHubPagesInfo(
-        status="built",
-        html_url="https://dan-petty.github.io/devops-cli/",
-        build_type="legacy",
-        branch="main",
-        path="/",
-        https_enforced=True,
+    payload = {
+        "status": "built",
+        "html_url": "https://dan-petty.github.io/devops-cli/",
+        "build_type": "legacy",
+        "source": {"branch": "main", "path": "/"},
+        "https_enforced": True,
+    }
+    gh_edge.answer(
+        ["gh", "api", "repos/dan-petty/devops-cli/pages"],
+        ProcessAnswer(stdout=json.dumps(payload)),
     )
-    with patch("devops_cli.commands.gh.get_pages_status", return_value=mock_info):
-        result = runner.invoke(app, ["pages", "status", "--repo", "dan-petty/devops-cli"])
-        assert result.exit_code == 0
-        assert "BUILT" in result.output
-        assert "https://dan-petty.github.io/devops-cli/" in result.output
+    result = runner.invoke(app, ["pages", "status", "--repo", "dan-petty/devops-cli"])
+    assert result.exit_code == 0
+    assert "BUILT" in result.output
+    assert "https://dan-petty.github.io/devops-cli/" in result.output
 
 
-def test_gh_pages_builds() -> None:
+def test_gh_pages_builds(gh_edge: ProcessFake) -> None:
     """devops gh pages builds lists build history records."""
-    from devops_cli.github.pages import GitHubPagesBuildInfo
-
-    mock_builds = [
-        GitHubPagesBuildInfo(
-            status="built",
-            commit="b861fc4",
-            duration=45802,
-            created_at="2026-09-09T14:25:58Z",
-        )
+    builds = [
+        {
+            "status": "built",
+            "commit": "b861fc4b957de816aec9b5a650f049efe0251381",
+            "duration": 45802,
+            "error": {"message": None},
+            "created_at": "2026-09-09T14:25:58Z",
+            "updated_at": "2026-09-09T14:26:43Z",
+        }
     ]
-    with patch("devops_cli.commands.gh.get_pages_builds", return_value=mock_builds):
-        result = runner.invoke(app, ["pages", "builds", "--repo", "dan-petty/devops-cli"])
-        assert result.exit_code == 0
-        assert "BUILT" in result.output
-        assert "b861fc4" in result.output
+    gh_edge.answer(mentions("pages/builds"), ProcessAnswer(stdout=json.dumps(builds)))
+    result = runner.invoke(app, ["pages", "builds", "--repo", "dan-petty/devops-cli"])
+    assert result.exit_code == 0
+    assert "BUILT" in result.output
+    assert "b861fc4" in result.output
 
 
-def test_gh_pages_verify(tmp_path: pytest.TempPathFactory) -> None:
+def test_gh_pages_verify(tmp_path: Path) -> None:
     """devops gh pages verify passes on valid configuration."""
-    with patch(
-        "devops_cli.commands.gh.verify_pages_configuration", return_value=(True, ["✓ Config OK"])
-    ):
-        result = runner.invoke(app, ["pages", "verify"])
-        assert result.exit_code == 0
-        assert "compliant" in result.output.lower()
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "_config.yml").write_text(
+        "title: My Project\ndescription: Test\nurl: https://example.github.io\n"
+        "baseurl: /test\nmarkdown: kramdown\nplugins:\n  - jekyll-seo-tag\n",
+        encoding="utf-8",
+    )
+    (docs_dir / "index.md").write_text("# Hello World\n", encoding="utf-8")
+    result = runner.invoke(app, ["pages", "verify", "--dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "compliant" in result.output.lower()
 
 
-def test_gh_issues_list() -> None:
+def test_gh_issues_list(gh_edge: ProcessFake) -> None:
     """devops gh issues list outputs open issues."""
-    from devops_cli.github.issues import GitHubIssue
-
-    mock_issues = [
-        GitHubIssue(
-            number=77,
-            title="feat(rag): dedicated library vector tier",
-            state="open",
-            milestone="2026-11",
-            labels=["type/feature", "scope/ai"],
-            assignees=["dan-petty"],
-        )
+    listed = [
+        {
+            "number": 77,
+            "title": "feat(rag): dedicated library vector tier",
+            "state": "OPEN",
+            "milestone": {"title": "2026-11"},
+            "labels": [{"name": "type/feature"}, {"name": "scope/ai"}],
+            "assignees": [{"login": "dan-petty"}],
+        }
     ]
-    with patch("devops_cli.commands.gh.get_repository_issues", return_value=mock_issues):
-        result = runner.invoke(app, ["issues", "list", "--repo", "dan-petty/devops-cli"])
-        assert result.exit_code == 0
-        assert "#77" in result.output
-        assert "feat(rag)" in result.output
+    gh_edge.answer(["gh", "issue", "list"], ProcessAnswer(stdout=json.dumps(listed)))
+    result = runner.invoke(app, ["issues", "list", "--repo", "dan-petty/devops-cli"])
+    assert result.exit_code == 0
+    assert "#77" in result.output
+    assert "feat(rag)" in result.output
 
 
 def _rest_issue(**fields: Any) -> dict[str, Any]:
@@ -284,36 +283,47 @@ def test_gh_issues_view_exits_1_naming_the_command_for_a_pull_request(
     assert (result.exit_code, "devops pr view 12" in text, "State:" in text) == (1, True, False)
 
 
-def test_gh_issues_create() -> None:
-    """devops gh issues create delegates to create_repository_issue."""
-    from devops_cli.github.issues import GitHubIssue
-
-    mock_created = GitHubIssue(
-        number=99,
-        title="fix(cli): bug fix",
-        state="open",
-        milestone="2026-11",
-        labels=["type/bug", "scope/cli"],
-        url="https://github.com/dan-petty/devops-cli/issues/99",
+def test_gh_issues_create(gh_edge: ProcessFake) -> None:
+    """devops gh issues create hands the title, body, milestone and label to gh."""
+    gh_edge.answer(
+        ["gh", "issue", "create"],
+        ProcessAnswer(stdout="https://github.com/dan-petty/devops-cli/issues/99\n"),
     )
-    with patch("devops_cli.commands.gh.create_repository_issue", return_value=mock_created):
-        result = runner.invoke(
-            app,
-            [
-                "issues",
-                "create",
-                "--title",
-                "fix(cli): bug fix",
-                "--body",
-                "details",
-                "--milestone",
-                "2026-11",
-                "--label",
-                "type/bug",
-            ],
-        )
-        assert result.exit_code == 0
-        assert "#99" in result.output
+    result = runner.invoke(
+        app,
+        [
+            "issues",
+            "create",
+            "--repo",
+            "dan-petty/devops-cli",
+            "--title",
+            "fix(cli): bug fix",
+            "--body",
+            "details",
+            "--milestone",
+            "2026-11",
+            "--label",
+            "type/bug",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "#99" in result.output
+    assert gh_argv(gh_edge) == [
+        [
+            "issue",
+            "create",
+            "--repo",
+            "dan-petty/devops-cli",
+            "--title",
+            "fix(cli): bug fix",
+            "--body",
+            "details",
+            "--milestone",
+            "2026-11",
+            "--label",
+            "type/bug",
+        ]
+    ]
 
 
 def test_gh_issues_triage_reports_the_items_and_the_candidates(
@@ -351,67 +361,62 @@ def test_gh_issues_triage_does_not_hide_a_failed_read(
     assert result.exit_code != 0
 
 
-def test_gh_issues_status() -> None:
+def test_gh_issues_status(roadmap_store: InMemoryRoadmapStore) -> None:
     """devops gh issues status outputs category counts."""
-    mock_summary = {
-        "total_open": 3,
-        "by_priority": {"P1-High": 1, "P2-Medium": 2},
-        "by_type": {"type/feature": 3},
-        "by_milestone": {"2026-11": 3},
-    }
-    with patch("devops_cli.commands.gh.get_issues_summary", return_value=mock_summary):
-        result = runner.invoke(app, ["issues", "status", "--repo", "dan-petty/devops-cli"])
-        assert result.exit_code == 0
-        assert "Total Open" in result.output
-        assert "2026-11" in result.output
+    roadmap_store.seed_milestone("2026-11")
+    roadmap_store.seed_issue(
+        "feat(rag): one",
+        labels=("type/feature",),
+        milestone="2026-11",
+        fields={ItemField.PRIORITY: "P1-High"},
+    )
+    for title in ("feat(rag): two", "feat(rag): three"):
+        roadmap_store.seed_issue(
+            title,
+            labels=("type/feature",),
+            milestone="2026-11",
+            fields={ItemField.PRIORITY: "P2-Medium"},
+        )
+    result = runner.invoke(app, ["issues", "status", "--repo", "dan-petty/devops-cli"])
+    assert result.exit_code == 0
+    assert "Total Open" in result.output
+    assert "2026-11" in result.output
 
 
-def test_gh_project_list() -> None:
+def test_gh_project_list(gh_edge: ProcessFake) -> None:
     """devops gh project list displays remote project boards."""
-    mock_projects = [
+    projects = [
         {
             "number": 2,
             "title": "Roadmap Board",
             "state": "open",
-            "id": "PVT_123",
-            "url": "https://github.com/orgs/test/projects/2",
+            "node_id": "PVT_123",
+            "html_url": "https://github.com/orgs/test/projects/2",
         }
     ]
-    with patch("devops_cli.commands.gh.list_remote_projects", return_value=mock_projects):
-        result = runner.invoke(app, ["project", "list", "--owner", "test"])
-        assert result.exit_code == 0
-        assert "Roadmap Board" in result.output
-        assert "OPEN" in result.output
+    gh_edge.answer(
+        ["gh", "api", "users/test/projectsV2"], ProcessAnswer(stdout=json.dumps(projects))
+    )
+    result = runner.invoke(app, ["project", "list", "--owner", "test"])
+    assert result.exit_code == 0
+    assert "Roadmap Board" in result.output
+    assert "OPEN" in result.output
 
 
-def test_gh_project_audit() -> None:
+def test_gh_project_audit(gh_edge: ProcessFake) -> None:
     """devops gh project audit outputs alignment results."""
-    mock_drift = {
-        "project_number": 2,
-        "project_found": True,
-        "views_compliant": True,
-        "missing_views": [],
-        "matching_views": ["Sprint Kanban"],
-    }
-    with patch("devops_cli.commands.gh.audit_project_drift", return_value=mock_drift):
-        result = runner.invoke(app, ["project", "audit", "--repo", "dan-petty/devops-cli"])
-        assert result.exit_code == 0
-        assert "COMPLIANT" in result.output
+    gh_edge.answer(["gh", "api", "graphql"], ProcessAnswer(stdout=_board_with_every_view()))
+    result = runner.invoke(app, ["project", "audit", "--repo", "dan-petty/devops-cli"])
+    assert result.exit_code == 0
+    assert "COMPLIANT" in result.output
 
 
-def test_gh_views_audit() -> None:
+def test_gh_views_audit(gh_edge: ProcessFake) -> None:
     """devops gh views audit displays view compliance table."""
-    mock_views_audit = {
-        "project_number": 2,
-        "compliant": True,
-        "missing_views": [],
-        "matching_views": ["Sprint Kanban", "Roadmap Timeline"],
-        "total_remote_views": 4,
-    }
-    with patch("devops_cli.commands.gh.audit_remote_project_views", return_value=mock_views_audit):
-        result = runner.invoke(app, ["views", "audit", "--repo", "dan-petty/devops-cli"])
-        assert result.exit_code == 0
-        assert "Project Views Compliance" in result.output
+    gh_edge.answer(["gh", "api", "graphql"], ProcessAnswer(stdout=_board_with_every_view()))
+    result = runner.invoke(app, ["views", "audit", "--repo", "dan-petty/devops-cli"])
+    assert result.exit_code == 0
+    assert "Project Views Compliance" in result.output
 
 
 def _flat(output: str) -> str:
@@ -419,27 +424,37 @@ def _flat(output: str) -> str:
     return " ".join(output.split())
 
 
-def _reconcile_cli(fake: ProjectGitHub, *args: str, limit: int = 25) -> Result:
-    """`devops gh project reconcile -n 2 --repo o/r` against `fake`, standing in for `run_gh`."""
-    with (
-        patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh),
-        patch("devops_cli.github.projects.get_github_session", return_value=fake),
-        patch("devops_cli.github.projects.MutationBudget", partial(MutationBudget, limit=limit)),
-    ):
-        return runner.invoke(app, ["project", "reconcile", "-n", "2", "--repo", REPO, *args])
+def _reconcile_cli(
+    fake: ProjectGitHub,
+    gh_and_api: tuple[GitHubApiFake, ProcessFake],
+    *args: str,
+) -> Result:
+    """`devops gh project reconcile -n 2 --repo o/r` against `fake`, served at the `gh` process
+    edge and the GitHub session's HTTP edge."""
+    api, gh = gh_and_api
+    fake.install(gh, api)
+    return runner.invoke(app, ["project", "reconcile", "-n", "2", "--repo", REPO, *args])
 
 
-def _board_with_five_changes() -> ProjectGitHub:
-    cards = [card(n) for n in range(1, 6)]
+def _board_with_changes(count: int = 5) -> ProjectGitHub:
+    """A board of `count` cards that each need one change, and one open issue off the board."""
+    cards = [card(n) for n in range(1, count + 1)]
     return ProjectGitHub(
-        cards, [issue(n, labels=["status/in-progress"]) for n in range(1, 6)] + [issue(10)]
+        cards,
+        [issue(n, labels=["status/in-progress"]) for n in range(1, count + 1)] + [issue(10_000)],
     )
 
 
-def test_gh_project_reconcile_plan_lists_every_change_with_what_decided_it() -> None:
+def _board_with_five_changes() -> ProjectGitHub:
+    return _board_with_changes(5)
+
+
+def test_gh_project_reconcile_plan_lists_every_change_with_what_decided_it(
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+) -> None:
     """`--plan` reads and lists the changes with their sources, makes none, and exits 0."""
     fake = _board_with_five_changes()
-    result = _reconcile_cli(fake, "--plan")
+    result = _reconcile_cli(fake, github_api_and_gh, "--plan")
     assert (
         result.exit_code,
         "label status/in-progress" in result.output,
@@ -449,9 +464,11 @@ def test_gh_project_reconcile_plan_lists_every_change_with_what_decided_it() -> 
     ) == (0, True, True, False, [])
 
 
-def test_a_complete_live_run_prints_changed_and_exits_0() -> None:
+def test_a_complete_live_run_prints_changed_and_exits_0(
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+) -> None:
     fake = _board_with_five_changes()
-    result = _reconcile_cli(fake)
+    result = _reconcile_cli(fake, github_api_and_gh)
     assert (
         result.exit_code,
         "Changed 5 of 5 items on project #2 (5 field changes)." in _flat(result.output),
@@ -459,29 +476,40 @@ def test_a_complete_live_run_prints_changed_and_exits_0() -> None:
     ) == (0, True, 5)
 
 
-@pytest.mark.parametrize("fail_edits", [(), (2,)])
+@pytest.mark.parametrize(
+    ("changes", "fail_edits", "expected"),
+    [
+        pytest.param(
+            27,
+            (),
+            "Stopped early (mutation budget of 25 reached): 2 planned changes remain.",
+            id="fail_edits0",
+        ),
+        pytest.param(5, (2,), "4 planned changes remain.", id="fail_edits1"),
+    ],
+)
 def test_a_run_that_stops_early_prints_the_stop_line_and_exits_1(
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    changes: int,
     fail_edits: tuple[int, ...],
+    expected: str,
 ) -> None:
     """The mutation budget or a failed write stops the run: exit 1 and the stop line."""
-    fake = _board_with_five_changes()
+    fake = _board_with_changes(changes)
     fake.fail_edits = fail_edits
-    result = _reconcile_cli(fake, limit=3)
-    expected = (
-        "Stopped early (mutation budget of 3 reached): 2 planned changes remain."
-        if not fail_edits
-        else "4 planned changes remain."
-    )
+    result = _reconcile_cli(fake, github_api_and_gh)
     assert (result.exit_code, expected in _flat(result.output), fake.adds) == (1, True, [])
 
 
-def test_a_failed_writes_error_is_printed_as_gh_wrote_it() -> None:
+def test_a_failed_writes_error_is_printed_as_gh_wrote_it(
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+) -> None:
     """gh's error is remote text: brackets in it are printed, not read as console markup that
     would raise and lose the stop line."""
     fake = _board_with_five_changes()
     fake.fail_edits = (2,)
     fake.write_error = "boom [/bold] [red]"
-    result = _reconcile_cli(fake)
+    result = _reconcile_cli(fake, github_api_and_gh)
     assert (
         result.exit_code,
         "failed: boom [/bold] [red]): 4 planned changes remain." in _flat(result.output),
@@ -489,27 +517,27 @@ def test_a_failed_writes_error_is_printed_as_gh_wrote_it() -> None:
     ) == (1, True, True)
 
 
-def test_the_mcp_tool_returns_the_stop_line_after_the_exit_status() -> None:
-    fake = _board_with_five_changes()
-    with (
-        patch("devops_cli.github.projects.run_gh", side_effect=fake.run_gh),
-        patch("devops_cli.github.projects.get_github_session", return_value=fake),
-        patch("devops_cli.github.projects.MutationBudget", partial(MutationBudget, limit=3)),
-        pytest.raises(ToolError) as stopped,
-    ):
+def test_the_mcp_tool_returns_the_stop_line_after_the_exit_status(
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+) -> None:
+    api, gh = github_api_and_gh
+    _board_with_changes(27).install(gh, api)
+    with pytest.raises(ToolError) as stopped:
         gh_project_reconcile(project_number=2, repo=REPO)
     message = _flat(str(stopped.value))
     assert (
         message.startswith("Command exited with status 1:"),
-        "Stopped early (mutation budget of 3 reached): 2 planned changes remain." in message,
+        "Stopped early (mutation budget of 25 reached): 2 planned changes remain." in message,
     ) == (True, True)
 
 
 @pytest.mark.parametrize("mode", [["--plan"], []])
-def test_reconcile_below_the_floor_does_not_start_and_exits_1(mode: list[str]) -> None:
+def test_reconcile_below_the_floor_does_not_start_and_exits_1(
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake], mode: list[str]
+) -> None:
     fake = _board_with_five_changes()
     fake.server.remaining = 101
-    result = _reconcile_cli(fake, *mode)
+    result = _reconcile_cli(fake, github_api_and_gh, *mode)
     assert (
         result.exit_code,
         "100 points left until 00:00 UTC" in _flat(result.output),
@@ -518,17 +546,13 @@ def test_reconcile_below_the_floor_does_not_start_and_exits_1(mode: list[str]) -
     ) == (1, True, False, [])
 
 
-def test_reconcile_exits_1_naming_the_quota_read_when_github_cant_report_it() -> None:
+def test_reconcile_exits_1_naming_the_quota_read_when_github_cant_report_it(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
     """No GraphQL entry in the ledger and `gh api rate_limit` failing: the real `run_gh` refuses
     before sending the budget query, and the command names the read and prints no plan."""
-    from devops_cli.github import rate_limiter
-
-    failed = subprocess.CompletedProcess(["gh", "api", "rate_limit"], 1, "", "HTTP 502")
-    with (
-        patch.object(rate_limiter, "run_subprocess", return_value=failed),
-        patch("devops_cli.github.rate_limiter.time.sleep"),
-    ):
-        result = runner.invoke(app, ["project", "reconcile", "-n", "2", "--repo", REPO, "--plan"])
+    process_fake.answer(["gh", "api", "rate_limit"], ProcessAnswer(returncode=1, stderr="HTTP 502"))
+    result = runner.invoke(app, ["project", "reconcile", "-n", "2", "--repo", REPO, "--plan"])
     assert (
         result.exit_code,
         "Failed to refresh rate limits from GitHub API: HTTP 502" in _flat(result.output),
@@ -538,25 +562,22 @@ def test_reconcile_exits_1_naming_the_quota_read_when_github_cant_report_it() ->
 
 
 @pytest.mark.parametrize("how", ["flag", "environment"])
-def test_reconcile_dry_run_makes_no_request(how: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reconcile_dry_run_makes_no_request(
+    how: str, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
     """`--dry-run`, or the dry run the environment asks for, sends nothing, reads included, and
     lists the requests a run makes: finding the board when no number is given, the budget
     query, the board's pages and Status options, the listings and the writes."""
-    from devops_cli.github import rate_limiter
-
     args = ["project", "reconcile", "--repo", REPO, "--state", "open"]
     if how == "flag":
         args.append("--dry-run")
     else:
         monkeypatch.setenv("DEVOPS_CLI_DRY_RUN", "true")
-    with (
-        patch("devops_cli.github.projects.run_gh", side_effect=AssertionError("ran gh")),
-        patch.object(rate_limiter, "run_subprocess", side_effect=AssertionError("ran gh")),
-    ):
-        result = runner.invoke(app, args)
+    result = runner.invoke(app, args)
     text = _flat(result.output)
     assert (
         result.exit_code,
+        process_fake.calls,
         "no request was made" in text,
         "to find the board named 'devops-cli-roadmap'" in text,
         "RoadmapBoardBudget" in text,
@@ -565,7 +586,7 @@ def test_reconcile_dry_run_makes_no_request(how: str, monkeypatch: pytest.Monkey
         "repos/o/r/issues?state=open&per_page=100" in text,
         "repos/o/r/pulls?state=open&per_page=100" in text,
         "gh project item-edit '<board>' --owner o --url '<item url>'" in text,
-    ) == (0, True, True, True, True, True, True, True, True)
+    ) == (0, [], True, True, True, True, True, True, True, True)
 
 
 def test_dry_run_and_plan_together_are_refused() -> None:
@@ -601,11 +622,13 @@ def test_project_commands_resolve_the_template_from_a_subdirectory(
 
 
 def test_reconcile_with_a_project_number_does_not_load_the_template(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
 ) -> None:
     monkeypatch.chdir(_checkout(tmp_path, with_template=False))
     fake = _board_with_five_changes()
-    planned = _reconcile_cli(fake, "--plan")
+    planned = _reconcile_cli(fake, github_api_and_gh, "--plan")
     dry_run = runner.invoke(app, ["project", "reconcile", "-n", "2", "--repo", REPO, "--dry-run"])
     assert (planned.exit_code, dry_run.exit_code) == (0, 0)
 
@@ -623,34 +646,37 @@ def test_a_missing_template_is_reported_in_one_line(
     ) == (1, True, False, True)
 
 
-def test_gh_project_reconcile_refuses_a_missing_board() -> None:
+def test_gh_project_reconcile_refuses_a_missing_board(gh_edge: ProcessFake) -> None:
     """Without a matching board, reconcile must not guess a board number."""
-    with (
-        patch("devops_cli.github.projects.find_remote_project", return_value=None),
-        patch("devops_cli.github.projects.reconcile_project_custom_fields") as mock_reconcile,
-    ):
-        result = runner.invoke(app, ["project", "reconcile", "--repo", "dan-petty/devops-cli"])
-    assert (result.exit_code, mock_reconcile.called, "--project-number" in result.output) == (
-        1,
-        False,
-        True,
+    gh_edge.answer(
+        ["gh", "api", "graphql"],
+        ProcessAnswer(stdout='{"data": {"repository": {"projectsV2": {"nodes": []}}}}'),
     )
-
-
-def test_gh_pr_threads_alias() -> None:
-    """devops gh pr threads list functions as an alias to devops pr threads list."""
-    with patch(
-        "devops_cli.github.pr_threads.list_pr_review_threads",
-        return_value=[],
-    ):
-        result = runner.invoke(
-            app, ["pr", "threads", "list", "83", "--repo", "dan-petty/devops-cli"]
+    for kind in ("users", "orgs"):
+        gh_edge.answer(
+            ["gh", "api", f"{kind}/dan-petty/projectsV2"],
+            ProcessAnswer(returncode=1, stderr="HTTP 404"),
         )
-        assert result.exit_code == 0
-        assert "No review threads found" in result.output
+    gh_edge.answer(
+        ["gh", "project", "list"], ProcessAnswer(stdout='{"projects": [], "totalCount": 0}')
+    )
+    result = runner.invoke(app, ["project", "reconcile", "--repo", "dan-petty/devops-cli"])
+    edits = [argv for argv in gh_argv(gh_edge) if argv[:2] == ["project", "item-edit"]]
+    assert (result.exit_code, edits, "--project-number" in result.output) == (1, [], True)
 
 
-def test_gh_rate_limit_table() -> None:
+def test_gh_pr_threads_alias(gh_edge: ProcessFake) -> None:
+    """devops gh pr threads list functions as an alias to devops pr threads list."""
+    no_threads = {
+        "data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": [], "pageInfo": {}}}}}
+    }
+    gh_edge.answer(mentions("GetReviewThreads"), ProcessAnswer(stdout=json.dumps(no_threads)))
+    result = runner.invoke(app, ["pr", "threads", "list", "83", "--repo", "dan-petty/devops-cli"])
+    assert result.exit_code == 0
+    assert "No review threads found" in result.output
+
+
+def test_gh_rate_limit_table(process_fake: ProcessFake) -> None:
     """devops gh rate-limit starts one gh child and displays formatted rate limit table."""
     reset = int(time.time()) + 10
     mock_payload = {
@@ -661,21 +687,17 @@ def test_gh_rate_limit_table() -> None:
             "code_scanning_autofix": {"limit": 10, "used": 1, "remaining": 9, "reset": reset},
         }
     }
-    calls: list[list[str]] = []
-    with patch(
-        "subprocess.run",
-        side_effect=_fake_gh_rate_limit_edge(json.dumps(mock_payload), calls),
-    ):
-        result = runner.invoke(app, ["rate-limit"])
-        assert result.exit_code == 0
-        assert calls == [["api", "rate_limit"]]
-        assert "GitHub API Rate Limits" in result.output
-        for res_name in mock_payload["resources"]:
-            assert res_name in result.output
-        assert "Rate Limiter Activity" in result.output
+    process_fake.answer(["gh", "api", "rate_limit"], ProcessAnswer(stdout=json.dumps(mock_payload)))
+    result = runner.invoke(app, ["rate-limit"])
+    assert result.exit_code == 0
+    assert [call.argv for call in process_fake.calls] == [("gh", "api", "rate_limit")]
+    assert "GitHub API Rate Limits" in result.output
+    for res_name in mock_payload["resources"]:
+        assert res_name in result.output
+    assert "Rate Limiter Activity" in result.output
 
 
-def test_gh_runs_list() -> None:
+def test_gh_runs_list(gh_edge: ProcessFake) -> None:
     """devops gh runs list renders recent workflow runs table."""
     mock_runs = json.dumps(
         [
@@ -690,161 +712,115 @@ def test_gh_runs_list() -> None:
             }
         ]
     )
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(returncode=0, stdout=mock_runs, stderr=""),
-        ),
-    ):
-        result = runner.invoke(app, ["runs", "list"])
-        assert result.exit_code == 0
-        assert "CI Quality Gate" in result.output
-        assert "12345678" in result.output
+    answer_origin(gh_edge, "owner/repo")
+    gh_edge.answer(["gh", "run", "list"], ProcessAnswer(stdout=mock_runs))
+    result = runner.invoke(app, ["runs", "list"])
+    assert result.exit_code == 0
+    assert "CI Quality Gate" in result.output
+    assert "12345678" in result.output
 
 
-def test_gh_runs_view_failed_logs() -> None:
+def test_gh_runs_view_failed_logs(gh_edge: ProcessFake) -> None:
     """devops gh runs view with --log-failed fetches failed workflow logs."""
-    mock_log = "Error: Step failed with exit code 1"
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(returncode=0, stdout=mock_log, stderr=""),
-        ) as mock_subprocess,
-    ):
-        result = runner.invoke(app, ["runs", "view", "12345678", "--log-failed"])
-        assert result.exit_code == 0
-        assert "Step failed" in result.output
-        args = mock_subprocess.call_args[0][0]
-        assert "run" in args
-        assert "view" in args
-        assert "12345678" in args
-        assert "--log-failed" in args
+    answer_origin(gh_edge, "owner/repo")
+    gh_edge.answer(
+        ["gh", "run", "view"], ProcessAnswer(stdout="Error: Step failed with exit code 1")
+    )
+    result = runner.invoke(app, ["runs", "view", "12345678", "--log-failed"])
+    assert result.exit_code == 0
+    assert "Step failed" in result.output
+    args = gh_argv(gh_edge)[0]
+    assert "run" in args
+    assert "view" in args
+    assert "12345678" in args
+    assert "--log-failed" in args
 
 
-def test_gh_issues_edit_success() -> None:
+def test_gh_issues_edit_success(gh_edge: ProcessFake) -> None:
     """devops gh issues edit patches issue title, body, and state via stdin."""
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(returncode=0, stdout="", stderr=""),
-        ) as mock_sub,
-    ):
-        result = runner.invoke(
-            app,
-            [
-                "issues",
-                "edit",
-                "185",
-                "--title",
-                "Updated Title",
-                "--body",
-                "Updated Body",
-                "--state",
-                "closed",
-            ],
-        )
-        assert result.exit_code == 0
-        assert "updated successfully" in result.output
-        cmd = mock_sub.call_args[0][0]
-        assert "PATCH" in cmd
-        assert any("issues/185" in c for c in cmd)
-        assert "--input" in cmd
-        payload = json.loads(mock_sub.call_args.kwargs["input"])
-        assert payload["title"] == "Updated Title"
-        assert payload["body"] == "Updated Body"
-        assert payload["state"] == "closed"
+    answer_origin(gh_edge, "owner/repo")
+    result = runner.invoke(
+        app,
+        [
+            "issues",
+            "edit",
+            "185",
+            "--title",
+            "Updated Title",
+            "--body",
+            "Updated Body",
+            "--state",
+            "closed",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "updated successfully" in result.output
+    patch_call = next(call for call in gh_edge.calls if "PATCH" in call.argv)
+    assert "PATCH" in patch_call.argv
+    assert any("issues/185" in c for c in patch_call.argv)
+    assert "--input" in patch_call.argv
+    payload = json.loads(patch_call.stdin)
+    assert payload["title"] == "Updated Title"
+    assert payload["body"] == "Updated Body"
+    assert payload["state"] == "closed"
 
 
-def test_gh_issues_edit_error_masked() -> None:
+def test_gh_issues_edit_error_masked(gh_edge: ProcessFake) -> None:
     """devops gh issues edit masks secret tokens in error output."""
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(
-                returncode=1,
-                stdout="",
-                stderr="HTTP 401: Bad credentials token ghp_secrettoken1234567890abcdefghijklmn",
-            ),
+    answer_origin(gh_edge, "owner/repo")
+    gh_edge.answer(
+        ["gh", "api", "--method", "PATCH"],
+        ProcessAnswer(
+            returncode=1,
+            stderr="HTTP 401: Bad credentials token ghp_secrettoken1234567890abcdefghijklmn",
         ),
-    ):
-        result = runner.invoke(app, ["issues", "edit", "185", "--title", "New Title"])
-        assert result.exit_code == 1
-        assert "ghp_secrettoken" not in result.output
+    )
+    result = runner.invoke(app, ["issues", "edit", "185", "--title", "New Title"])
+    assert result.exit_code == 1
+    assert "ghp_secrettoken" not in result.output
 
 
-def test_gh_issues_edit_no_changes() -> None:
+def test_gh_issues_edit_no_changes(gh_edge: ProcessFake) -> None:
     """devops gh issues edit warns when no changes are specified."""
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-    ):
-        result = runner.invoke(app, ["issues", "edit", "185"])
-        assert result.exit_code == 0
-        assert "No changes specified" in result.output
+    answer_origin(gh_edge, "owner/repo")
+    result = runner.invoke(app, ["issues", "edit", "185"])
+    assert result.exit_code == 0
+    assert "No changes specified" in result.output
 
 
-def test_gh_rate_limit_error_masked() -> None:
+def test_gh_rate_limit_error_masked(process_fake: ProcessFake, clock: ClockFake) -> None:
     """devops gh rate-limit masks secrets on error."""
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(
-                returncode=1,
-                stdout="",
-                stderr="Error ghp_secrettoken1234567890abcdefghijklmn",
-            ),
-        ),
-    ):
-        result = runner.invoke(app, ["rate-limit"])
-        assert result.exit_code == 1
-        assert "ghp_secrettoken" not in result.output
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(returncode=1, stderr="Error ghp_secrettoken1234567890abcdefghijklmn"),
+    )
+    result = runner.invoke(app, ["rate-limit"])
+    assert result.exit_code == 1
+    assert "ghp_secrettoken" not in result.output
 
 
-def test_gh_runs_list_error_masked() -> None:
+def test_gh_runs_list_error_masked(gh_edge: ProcessFake) -> None:
     """devops gh runs list masks secrets on error."""
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(
-                returncode=1,
-                stdout="",
-                stderr="Error ghp_secrettoken1234567890abcdefghijklmn",
-            ),
-        ),
-    ):
-        result = runner.invoke(app, ["runs", "list"])
-        assert result.exit_code == 1
-        assert "ghp_secrettoken" not in result.output
+    answer_origin(gh_edge, "owner/repo")
+    gh_edge.answer(
+        ["gh", "run", "list"],
+        ProcessAnswer(returncode=1, stderr="Error ghp_secrettoken1234567890abcdefghijklmn"),
+    )
+    result = runner.invoke(app, ["runs", "list"])
+    assert result.exit_code == 1
+    assert "ghp_secrettoken" not in result.output
 
 
-def test_gh_runs_view_error_masked() -> None:
+def test_gh_runs_view_error_masked(gh_edge: ProcessFake) -> None:
     """devops gh runs view masks secrets on error."""
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(
-                returncode=1,
-                stdout="",
-                stderr="Error ghp_secrettoken1234567890abcdefghijklmn",
-            ),
-        ),
-    ):
-        result = runner.invoke(app, ["runs", "view", "123456"])
-        assert result.exit_code == 1
-        assert "ghp_secrettoken" not in result.output
+    answer_origin(gh_edge, "owner/repo")
+    gh_edge.answer(
+        ["gh", "run", "view"],
+        ProcessAnswer(returncode=1, stderr="Error ghp_secrettoken1234567890abcdefghijklmn"),
+    )
+    result = runner.invoke(app, ["runs", "view", "123456"])
+    assert result.exit_code == 1
+    assert "ghp_secrettoken" not in result.output
 
 
 def test_a_run_log_is_masked_before_the_run_view_helper_returns_it() -> None:
@@ -872,28 +848,27 @@ def test_a_run_log_is_masked_before_the_run_view_helper_returns_it() -> None:
     ]
 
 
-def test_gh_runs_view_prints_a_run_log_masked_and_gives_gh_the_run_log_timeout() -> None:
+def test_gh_runs_view_prints_a_run_log_masked_and_gives_gh_the_run_log_timeout(
+    gh_edge: ProcessFake,
+) -> None:
     """`devops gh runs view` prints the log of a successful run with a secret masked, and gives
     gh the run-log timeout, which is longer than the timeout of one request (#1883)."""
     from devops_cli.config.defaults import DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS
-    from devops_cli.github.rate_limiter import get_github_rate_limiter
 
-    get_github_rate_limiter().update_quota(
-        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
+    gh_edge.answer(
+        ["gh", "run", "view"],
+        ProcessAnswer(stdout="Job log ghp_secrettoken1234567890abcdefghijklmn\n"),
     )
-    answer = subprocess.CompletedProcess(
-        [], 0, stdout="Job log ghp_secrettoken1234567890abcdefghijklmn\n", stderr=""
+    result = runner.invoke(app, ["runs", "view", "123456", "--log", "--repo", "owner/repo"])
+    view = next(call for call in gh_edge.calls if call.argv[1:3] == ("run", "view"))
+    assert (result.exit_code, result.output, view.timeout) == (
+        0,
+        "Job log <masked-github-token>\n",
+        DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS,
     )
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=answer) as gh,
-    ):
-        result = runner.invoke(app, ["runs", "view", "123456", "--log", "--repo", "owner/repo"])
-    assert (result.exit_code, result.output) == (0, "Job log <masked-github-token>\n")
-    assert gh.call_args.kwargs["timeout"] == DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS
 
 
-def test_gh_rate_limit_json() -> None:
+def test_gh_rate_limit_json(process_fake: ProcessFake) -> None:
     """devops gh rate-limit --format json starts one gh child and outputs valid json."""
     reset = int(time.time()) + 10
     mock_payload = {
@@ -903,225 +878,164 @@ def test_gh_rate_limit_json() -> None:
             "code_scanning_autofix": {"limit": 10, "used": 1, "remaining": 9, "reset": reset},
         }
     }
-    calls: list[list[str]] = []
-    with patch(
-        "subprocess.run",
-        side_effect=_fake_gh_rate_limit_edge(json.dumps(mock_payload), calls),
-    ):
-        result = runner.invoke(app, ["rate-limit", "--format", "json"])
-        assert result.exit_code == 0
-        assert calls == [["api", "rate_limit"]]
-        parsed = json.loads(result.output)
-        assert set(parsed["resources"].keys()) == set(mock_payload["resources"].keys())
-        assert "total_throttles" in parsed
-        assert "total_wait_seconds" in parsed
+    process_fake.answer(["gh", "api", "rate_limit"], ProcessAnswer(stdout=json.dumps(mock_payload)))
+    result = runner.invoke(app, ["rate-limit", "--format", "json"])
+    assert result.exit_code == 0
+    assert [call.argv for call in process_fake.calls] == [("gh", "api", "rate_limit")]
+    parsed = json.loads(result.output)
+    assert set(parsed["resources"].keys()) == set(mock_payload["resources"].keys())
+    assert "total_throttles" in parsed
+    assert "total_wait_seconds" in parsed
 
 
-def test_gh_rate_limit_invalid_format() -> None:
+def test_gh_rate_limit_invalid_format(gh_edge: ProcessFake) -> None:
     """devops gh rate-limit --format invalid exits with error."""
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(returncode=0, stdout="{}", stderr=""),
-        ),
-    ):
-        result = runner.invoke(app, ["rate-limit", "--format", "xml"])
-        assert result.exit_code == 1
-        assert "Unsupported format" in result.output
+    result = runner.invoke(app, ["rate-limit", "--format", "xml"])
+    assert result.exit_code == 1
+    assert "Unsupported format" in result.output
 
 
-def test_gh_runs_list_json() -> None:
+def test_gh_runs_list_json(gh_edge: ProcessFake) -> None:
     """devops gh runs list --format json outputs serialized json list."""
     mock_runs = json.dumps([{"databaseId": 1234, "name": "CI", "status": "completed"}])
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.core.repo.get_repo_origin_name", return_value="owner/repo"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(returncode=0, stdout=mock_runs, stderr=""),
-        ),
-    ):
-        result = runner.invoke(app, ["runs", "list", "--format", "json"])
-        assert result.exit_code == 0
-        parsed = json.loads(result.output)
-        assert len(parsed) == 1
-        assert parsed[0]["databaseId"] == 1234
+    answer_origin(gh_edge, "owner/repo")
+    gh_edge.answer(["gh", "run", "list"], ProcessAnswer(stdout=mock_runs))
+    result = runner.invoke(app, ["runs", "list", "--format", "json"])
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert len(parsed) == 1
+    assert parsed[0]["databaseId"] == 1234
 
 
-def test_gh_runs_list_options() -> None:
+def test_gh_runs_list_options(gh_edge: ProcessFake) -> None:
     """devops gh runs list forwards branch and repo flags."""
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(returncode=0, stdout="[]", stderr=""),
-        ) as mock_sub,
-    ):
-        result = runner.invoke(
-            app, ["runs", "list", "--branch", "feat/test", "--repo", "custom/repo"]
-        )
-        assert result.exit_code == 0
-        cmd = mock_sub.call_args[0][0]
-        assert "--branch" in cmd
-        assert "feat/test" in cmd
-        assert "--repo" in cmd
-        assert "custom/repo" in cmd
+    gh_edge.answer(["gh", "run", "list"], ProcessAnswer(stdout="[]"))
+    result = runner.invoke(app, ["runs", "list", "--branch", "feat/test", "--repo", "custom/repo"])
+    assert result.exit_code == 0
+    cmd = gh_argv(gh_edge)[0]
+    assert "--branch" in cmd
+    assert "feat/test" in cmd
+    assert "--repo" in cmd
+    assert "custom/repo" in cmd
 
 
-def test_gh_runs_view_full_log_and_job() -> None:
+def test_gh_runs_view_full_log_and_job(gh_edge: ProcessFake) -> None:
     """devops gh runs view forwards --log, --job, and --repo."""
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(returncode=0, stdout="Job log content\n", stderr=""),
-        ) as mock_sub,
-    ):
-        result = runner.invoke(
-            app, ["runs", "view", "999", "--log", "--job", "build", "--repo", "custom/repo"]
-        )
-        assert result.exit_code == 0
-        assert "Job log content" in result.output
-        cmd = mock_sub.call_args[0][0]
-        assert "--log" in cmd
-        assert "--job" in cmd
-        assert "build" in cmd
-        assert "--repo" in cmd
-        assert "custom/repo" in cmd
+    gh_edge.answer(["gh", "run", "view"], ProcessAnswer(stdout="Job log content\n"))
+    result = runner.invoke(
+        app, ["runs", "view", "999", "--log", "--job", "build", "--repo", "custom/repo"]
+    )
+    assert result.exit_code == 0
+    assert "Job log content" in result.output
+    cmd = gh_argv(gh_edge)[0]
+    assert "--log" in cmd
+    assert "--job" in cmd
+    assert "build" in cmd
+    assert "--repo" in cmd
+    assert "custom/repo" in cmd
 
 
-def test_gh_api_basic() -> None:
+def test_gh_api_basic(gh_edge: ProcessFake) -> None:
     """devops gh api executes request and outputs result."""
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(returncode=0, stdout='{"name": "test-repo"}\n', stderr=""),
-        ) as mock_gh,
-    ):
-        result = runner.invoke(app, ["api", "repos/test/repo"])
-        assert result.exit_code == 0
-        assert "test-repo" in result.output
-        mock_gh.assert_called_once()
-        args = mock_gh.call_args[0][0]
-        assert args == ["api", "repos/test/repo"]
+    gh_edge.answer(
+        ["gh", "api", "repos/test/repo"], ProcessAnswer(stdout='{"name": "test-repo"}\n')
+    )
+    result = runner.invoke(app, ["api", "repos/test/repo"])
+    assert result.exit_code == 0
+    assert "test-repo" in result.output
+    assert gh_argv(gh_edge) == [["api", "repos/test/repo"]]
 
 
-def test_gh_api_masks_a_token_of_a_json_reply_and_keeps_the_reply_valid_json() -> None:
+def test_gh_api_masks_a_token_of_a_json_reply_and_keeps_the_reply_valid_json(
+    gh_edge: ProcessFake,
+) -> None:
     """The contents reply of a private repository has a `download_url` with a `token=` query
     parameter. The printed reply hides the token, and a caller still parses it (#2569)."""
-    from devops_cli.github.rate_limiter import get_github_rate_limiter
-
-    get_github_rate_limiter().update_quota(
-        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
-    )
     url = "https://raw.example.com/octo/private/main/f.txt"
     reply = json.dumps({"name": "f.txt", "download_url": f"{url}?token=AGJ4EXAMPLE1234567890"})
-    calls: list[list[str]] = []
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("subprocess.run", side_effect=_fake_gh_rate_limit_edge(reply + "\n", calls)),
-    ):
-        result = runner.invoke(app, ["api", "repos/octo/private/contents/f.txt"])
+    gh_edge.answer(
+        ["gh", "api", "repos/octo/private/contents/f.txt"], ProcessAnswer(stdout=reply + "\n")
+    )
+    result = runner.invoke(app, ["api", "repos/octo/private/contents/f.txt"])
 
     assert result.exit_code == 0
     assert json.loads(result.output) == {
         "name": "f.txt",
         "download_url": f"{url}?token=<masked-token>",
     }
-    assert calls == [["api", "repos/octo/private/contents/f.txt"]]
+    assert gh_argv(gh_edge) == [["api", "repos/octo/private/contents/f.txt"]]
 
 
-def test_gh_api_options_and_cache() -> None:
+def test_gh_api_options_and_cache(gh_edge: ProcessFake, clock: ClockFake) -> None:
     """devops gh api forwards HTTP method, pagination, jq, templates, and caching flags."""
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(returncode=0, stdout="Filtered Output\n", stderr=""),
-        ) as mock_gh,
-    ):
-        result = runner.invoke(
-            app,
-            [
-                "api",
-                "repos/test/repo/issues",
-                "-X",
-                "POST",
-                "--paginate",
-                "-q",
-                ".title",
-                "-t",
-                "{{.title}}",
-                "--cache",
-                "--cache-ttl",
-                "25.0",
-                "-f",
-                "title=BugReport",
-            ],
-        )
-        assert result.exit_code == 0
-        assert "Filtered Output" in result.output
-        args = mock_gh.call_args[0][0]
-        assert "api" in args
-        assert "-X" in args
-        assert "POST" in args
-        assert "--paginate" in args
-        assert "-q" in args
-        assert ".title" in args
-        assert "-t" in args
-        assert "{{.title}}" in args
-        assert "-f" in args
-        assert "title=BugReport" in args
-        assert mock_gh.call_args.kwargs["use_cache"] is True
-        assert mock_gh.call_args.kwargs["cache_ttl"] == 25.0
+    gh_edge.answer(["gh", "api"], ProcessAnswer(stdout="Filtered Output\n"))
+    result = runner.invoke(
+        app,
+        [
+            "api",
+            "repos/test/repo/issues",
+            "-X",
+            "POST",
+            "--paginate",
+            "-q",
+            ".title",
+            "-t",
+            "{{.title}}",
+            "--cache",
+            "--cache-ttl",
+            "25.0",
+            "-f",
+            "title=BugReport",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "Filtered Output" in result.output
+    args = gh_argv(gh_edge)[0]
+    assert "api" in args
+    assert "-X" in args
+    assert "POST" in args
+    assert "--paginate" in args
+    assert "-q" in args
+    assert ".title" in args
+    assert "-t" in args
+    assert "{{.title}}" in args
+    assert "-f" in args
+    assert "title=BugReport" in args
+    # A cached read starts gh once while the time to live lasts, and again after it.
+    read = ["api", "repos/test/cached", "--cache", "--cache-ttl", "25.0"]
+    runner.invoke(app, read)
+    clock.shift(20)
+    runner.invoke(app, read)
+    reads_within_ttl = sum(1 for argv in gh_argv(gh_edge) if "repos/test/cached" in argv)
+    clock.shift(10)
+    runner.invoke(app, read)
+    reads_after_ttl = sum(1 for argv in gh_argv(gh_edge) if "repos/test/cached" in argv)
+    assert (reads_within_ttl, reads_after_ttl) == (1, 2)
 
 
-def test_gh_api_hands_gh_its_paginate_and_jq_flags_unchanged() -> None:
+def test_gh_api_hands_gh_its_paginate_and_jq_flags_unchanged(gh_edge: ProcessFake) -> None:
     """`devops gh api --paginate -q` reaches gh as typed: gh follows the `Link` pages and applies
     the filter itself, and what it prints is printed (#983)."""
     from devops_cli.config.constants import CONST_GH_CLI
-    from devops_cli.github.rate_limiter import get_github_rate_limiter
 
-    get_github_rate_limiter().update_quota(
-        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
-    )
-    answer = subprocess.CompletedProcess([], 0, stdout="1\n2\n3\n", stderr="")
     argv = ["api", "repos/:owner/:repo/issues", "--paginate", "-q", ".[].number"]
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=answer) as gh,
-    ):
-        result = runner.invoke(app, argv)
-    assert (result.exit_code, result.output, [call.args[0] for call in gh.call_args_list]) == (
-        0,
-        "1\n2\n3\n",
-        [[CONST_GH_CLI, *argv]],
-    )
+    gh_edge.answer(["gh", *argv], ProcessAnswer(stdout="1\n2\n3\n"))
+    result = runner.invoke(app, argv)
+    assert (result.exit_code, result.output, gh_argv(gh_edge)) == (0, "1\n2\n3\n", [argv])
+    assert gh_edge.calls[-1].argv[0] == CONST_GH_CLI
 
 
-def test_gh_api_prints_the_number_a_jq_filter_selects_from_the_rate_limit() -> None:
+def test_gh_api_prints_the_number_a_jq_filter_selects_from_the_rate_limit(
+    process_fake: ProcessFake,
+) -> None:
     """`devops gh api rate_limit --jq '.resources.graphql.remaining'` prints the number that gh
-    selects and exits 0. gh is faked at `subprocess.run`, and it runs once (#1886)."""
+    selects and exits 0. gh runs once (#1886)."""
     from devops_cli.config.constants import CONST_GH_CLI
 
-    real_run = subprocess.run
-    argvs: list[list[str]] = []
-
-    def gh(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if cmd[0] != CONST_GH_CLI:
-            return real_run(cmd, **kwargs)
-        argvs.append(list(cmd))
-        return subprocess.CompletedProcess(cmd, 0, "4321\n", "")
-
+    process_fake.answer(["gh", "api", "rate_limit"], ProcessAnswer(stdout="4321\n"))
     jq = ".resources.graphql.remaining"
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("subprocess.run", side_effect=gh),
-    ):
-        result = runner.invoke(app, ["api", "rate_limit", "--jq", jq])
-    assert (result.exit_code, result.output, argvs) == (
+    result = runner.invoke(app, ["api", "rate_limit", "--jq", jq])
+    assert (result.exit_code, result.output, [list(c.argv) for c in process_fake.calls]) == (
         0,
         "4321\n",
         [[CONST_GH_CLI, "api", "rate_limit", "-q", jq]],
@@ -1136,45 +1050,31 @@ def test_gh_api_prints_the_number_a_jq_filter_selects_from_the_rate_limit() -> N
     ],
 )
 def test_gh_api_gives_a_paginated_walk_the_listing_timeout(
-    flags: list[str], timeout_default: str
+    flags: list[str], timeout_default: str, gh_edge: ProcessFake
 ) -> None:
     """gh walks every `Link` page of a `--paginate` call in one process, so the whole walk gets
     the listing's timeout rather than one request's."""
     from devops_cli.config import defaults
-    from devops_cli.github.rate_limiter import get_github_rate_limiter
 
-    get_github_rate_limiter().update_quota(
-        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 60.0
-    )
-    answer = subprocess.CompletedProcess([], 0, stdout="[]\n", stderr="")
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.github.rate_limiter.run_subprocess", return_value=answer) as gh,
-    ):
-        result = runner.invoke(app, ["api", "repos/:owner/:repo/issues", *flags])
-    assert (result.exit_code, gh.call_args.kwargs["timeout"]) == (
-        0,
-        getattr(defaults, timeout_default),
-    )
+    gh_edge.answer(["gh", "api", "repos/:owner/:repo/issues"], ProcessAnswer(stdout="[]\n"))
+    result = runner.invoke(app, ["api", "repos/:owner/:repo/issues", *flags])
+    listing = next(call for call in gh_edge.calls if "repos/:owner/:repo/issues" in call.argv)
+    assert (result.exit_code, listing.timeout) == (0, getattr(defaults, timeout_default))
 
 
-def test_gh_api_error_masked() -> None:
+def test_gh_api_error_masked(gh_edge: ProcessFake, clock: ClockFake) -> None:
     """devops gh api masks sensitive tokens on request failure."""
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch(
-            "devops_cli.commands.gh.run_gh",
-            return_value=MagicMock(
-                returncode=1,
-                stdout="",
-                stderr="HTTP 403: API rate limit exceeded token ghp_secretkey1234567890abcdefghijkl",
-            ),
+    gh_edge.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(
+            returncode=1,
+            stderr="HTTP 403: API rate limit exceeded token ghp_secretkey1234567890abcdefghijkl",
         ),
-    ):
-        result = runner.invoke(app, ["api", "rate_limit"])
-        assert result.exit_code == 1
-        assert "GitHub API request failed" in result.output
-        assert "ghp_secretkey" not in result.output
+    )
+    result = runner.invoke(app, ["api", "rate_limit"])
+    assert result.exit_code == 1
+    assert "GitHub API request failed" in result.output
+    assert "ghp_secretkey" not in result.output
 
 
 @pytest.mark.parametrize(
@@ -1197,20 +1097,16 @@ def test_gh_commands_report_no_identity_without_a_traceback(
     )
 
 
-def test_gh_issues_list_reports_a_refused_token_as_the_unauthenticated_error() -> None:
+def test_gh_issues_list_reports_a_refused_token_as_the_unauthenticated_error(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
     """`gh api rate_limit` fails `HTTP 401: Bad credentials` before `gh issue list` is paced:
     the command prints the unauthenticated error, without a traceback, exits 1 and sends no
     listing (#983)."""
-    from devops_cli.github import rate_limiter
-
-    refused = subprocess.CompletedProcess(
-        ["gh", "api", "rate_limit"], 1, "", "HTTP 401: Bad credentials"
+    process_fake.answer(
+        ["gh", "api", "rate_limit"], ProcessAnswer(returncode=1, stderr="HTTP 401: Bad credentials")
     )
-    with (
-        patch.object(rate_limiter, "run_subprocess", return_value=refused) as gh,
-        patch("devops_cli.github.rate_limiter.time.sleep"),
-    ):
-        result = runner.invoke(app, ["issues", "list", "-R", "octo/repo"])
+    result = runner.invoke(app, ["issues", "list", "-R", "octo/repo"])
     text = _flat(result.output)
     assert (
         result.exit_code,
@@ -1219,21 +1115,20 @@ def test_gh_issues_list_reports_a_refused_token_as_the_unauthenticated_error() -
         "gh auth login" in text,
         "Failed to refresh rate limits" in text,
         "Traceback" in result.output,
-        [call.args[0] for call in gh.call_args_list],
+        [list(call.argv) for call in process_fake.calls],
     ) == (1, SystemExit, True, True, False, False, [["gh", "api", "rate_limit"]])
 
 
-def test_gh_issues_list_reports_a_refresh_that_timed_out_as_the_unread_error() -> None:
+def test_gh_issues_list_reports_a_refresh_that_timed_out_as_the_unread_error(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
     """`gh api rate_limit` runs past its timeout before `gh issue list` is paced: the command
     prints the unread error, without a traceback, exits 1 and sends no listing (#983)."""
-    from devops_cli.github import rate_limiter
-
-    timed_out = subprocess.TimeoutExpired(["gh", "api", "rate_limit"], 10.0)
-    with (
-        patch.object(rate_limiter, "run_subprocess", side_effect=timed_out),
-        patch("devops_cli.github.rate_limiter.time.sleep"),
-    ):
-        result = runner.invoke(app, ["issues", "list", "-R", "octo/repo"])
+    process_fake.answer(
+        ["gh", "api", "rate_limit"],
+        ProcessAnswer(side_effect=subprocess.TimeoutExpired(["gh", "api", "rate_limit"], 10.0)),
+    )
+    result = runner.invoke(app, ["issues", "list", "-R", "octo/repo"])
     assert (
         result.exit_code,
         type(result.exception),
@@ -1243,16 +1138,16 @@ def test_gh_issues_list_reports_a_refresh_that_timed_out_as_the_unread_error() -
     ) == (1, SystemExit, True, False)
 
 
-def test_views_sync_prints_gh_s_scope_list_as_gh_wrote_it() -> None:
+def test_views_sync_prints_gh_s_scope_list_as_gh_wrote_it(gh_edge: ProcessFake) -> None:
     """gh names the missing scope as `[read:project]`, which Rich would read as a markup tag and
     drop; the warning prints gh's text as written (#983)."""
-    refused = subprocess.CompletedProcess(
+    gh_edge.answer(
         ["gh", "project", "list"],
-        1,
-        "",
-        "error: your authentication token is missing required scopes [read:project]\n"
-        "To request it, run:  gh auth refresh -s read:project",
+        ProcessAnswer(
+            returncode=1,
+            stderr="error: your authentication token is missing required scopes [read:project]\n"
+            "To request it, run:  gh auth refresh -s read:project",
+        ),
     )
-    with patch("devops_cli.github.projects.run_gh", return_value=refused):
-        result = runner.invoke(app, ["views", "sync", "-R", "octo/repo"])
+    result = runner.invoke(app, ["views", "sync", "-R", "octo/repo"])
     assert (result.exit_code, "[read:project]" in _flat(result.output)) == (0, True)

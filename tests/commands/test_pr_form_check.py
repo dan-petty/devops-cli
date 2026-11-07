@@ -7,17 +7,19 @@ No case reaches GitHub or runs `gh`: the labels file is in the in-memory roadmap
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.pr import app
-from devops_cli.core.process import PlannedProcessResult
+from devops_cli.core.process import get_process_runner
 from devops_cli.dry_run.state import set_dry_run
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.gh_process import answer_origin, gh_argv, mentions
 
 REPO = "example/roadmap"
 LABELS = "".join(
@@ -37,44 +39,56 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+NO_CLOSING_ISSUES = json.dumps(
+    {
+        "data": {
+            "repository": {
+                "pullRequest": {"closingIssuesReferences": {"totalCount": 0, "nodes": []}}
+            }
+        }
+    }
+)
+
+
 @pytest.fixture(autouse=True)
 def labels(roadmap_store: InMemoryRoadmapStore) -> InMemoryRoadmapStore:
+    """The labels file of the repository, and the pull request that `PULL` names."""
     roadmap_store.seed_file(".github/labels.yml", LABELS)
+    roadmap_store.seed_issue("feat(pr): a pull request", pull_request=True)
     return roadmap_store
 
 
 @pytest.fixture(autouse=True)
-def no_writes() -> Any:
-    """The Status and the labels of an opened pull request are held by their own tests."""
-    with (
-        patch("devops_cli.commands.pr.set_delivered_status"),
-        patch("devops_cli.commands.pr.pull_labels.add_pull_labels"),
-    ):
-        yield
+def gh(gh_edge: ProcessFake) -> ProcessFake:
+    """gh, which opens the pull request and finds that it closes no issue. The Status and the
+    labels of an opened pull request are held by their own tests."""
+    gh_edge.answer(["gh", "pr", "create"], ProcessAnswer(stdout=PULL))
+    gh_edge.answer(mentions("closingIssuesReferences"), ProcessAnswer(stdout=NO_CLOSING_ISSUES))
+    return gh_edge
 
 
-def _create(runner: CliRunner, title: str, body: str, *args: str) -> tuple[Any, MagicMock]:
-    gh = MagicMock(return_value=MagicMock(returncode=0, stdout=PULL, stderr=""))
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.commands.pr.run_gh", gh),
-    ):
-        result = runner.invoke(
-            app, ["create", "--title", title, "--body", body, "--repo", REPO, *args]
-        )
-    return result, gh
+def _create(runner: CliRunner, title: str, body: str, *args: str) -> tuple[Any, list[list[str]]]:
+    """Run `devops pr create` and return the result and the `gh` commands it sent that are no read
+    of the closing issues."""
+    result = runner.invoke(app, ["create", "--title", title, "--body", body, "--repo", REPO, *args])
+    sent = [
+        argv
+        for argv in gh_argv(get_process_runner())  # type: ignore[arg-type]
+        if not any("closingIssuesReferences" in a for a in argv)
+    ]
+    return result, sent
 
 
 def test_a_title_and_a_body_in_the_form_open_a_draft(runner: CliRunner) -> None:
     result, gh = _create(runner, TITLE, BODY)
-    args = gh.call_args.args[0]
-    assert (result.exit_code, gh.call_count, "--draft" in args, result.stderr) == (0, 1, True, "")
+    args = gh[0]
+    assert (result.exit_code, len(gh), "--draft" in args, result.stderr) == (0, 1, True, "")
 
 
 def test_the_attribution_lines_after_the_change_line_are_accepted(runner: CliRunner) -> None:
     body = f"{BODY}\n\nCo-Authored-By: Claude <noreply@anthropic.com>"
     result, gh = _create(runner, TITLE, body)
-    assert (result.exit_code, gh.call_count) == (0, 1)
+    assert (result.exit_code, len(gh)) == (0, 1)
 
 
 @pytest.mark.parametrize(
@@ -102,7 +116,7 @@ def test_a_pull_request_that_breaks_the_form_opens_nothing(
     runner: CliRunner, title: str, body: str, fragment: str
 ) -> None:
     result, gh = _create(runner, title, body)
-    assert (result.exit_code, gh.call_count, fragment in result.stderr) == (1, 0, True)
+    assert (result.exit_code, len(gh), fragment in result.stderr) == (1, 0, True)
 
 
 def test_every_problem_is_printed_at_once(runner: CliRunner) -> None:
@@ -120,7 +134,7 @@ def test_a_labels_file_that_cannot_be_read_opens_nothing_and_names_the_file(
     runner: CliRunner,
 ) -> None:
     result, gh = _create(runner, TITLE, BODY, "--base", "feat/other")
-    assert (result.exit_code, gh.call_count, ".github/labels.yml" in result.stderr) == (1, 0, True)
+    assert (result.exit_code, len(gh), ".github/labels.yml" in result.stderr) == (1, 0, True)
 
 
 def test_the_labels_file_of_the_base_branch_decides_the_scope(
@@ -128,51 +142,41 @@ def test_the_labels_file_of_the_base_branch_decides_the_scope(
 ) -> None:
     labels.seed_file(".github/labels.yml", '- name: "type/feature"\n  color: "ededed"\n', ref="b")
     result, gh = _create(runner, TITLE, BODY, "--base", "b")
-    assert (result.exit_code, gh.call_count, "`scope/pr`" in result.stderr) == (1, 0, True)
+    assert (result.exit_code, len(gh), "`scope/pr`" in result.stderr) == (1, 0, True)
 
 
 def test_a_scope_that_only_the_checkout_declares_is_accepted(
-    runner: CliRunner, tmp_path: Path
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gh: ProcessFake
 ) -> None:
     """A pull request that adds a scope also adds its label (CONTRIBUTING.md, section 4)."""
+    (tmp_path / ".git").mkdir()
     (tmp_path / ".github").mkdir()
     (tmp_path / ".github" / "labels.yml").write_text(
         LABELS + '- name: "scope/newscope"\n  color: "ededed"\n', encoding="utf-8"
     )
-    gh = MagicMock(return_value=MagicMock(returncode=0, stdout=PULL, stderr=""))
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.commands.pr.run_gh", gh),
-        patch("devops_cli.commands.pr._checkout", return_value=tmp_path),
-        patch("devops_cli.commands.pr._target_repo", return_value=REPO),
-    ):
-        result = runner.invoke(
-            app, ["create", "--title", "feat(newscope): add the scope", "--body", BODY]
-        )
-    assert (result.exit_code, gh.call_count) == (0, 1)
+    monkeypatch.chdir(tmp_path)
+    answer_origin(gh, REPO)
+    result = runner.invoke(
+        app, ["create", "--title", "feat(newscope): add the scope", "--body", BODY]
+    )
+    assert (result.exit_code, len(gh_argv(gh))) == (0, 2)
 
 
 def test_the_fallback_is_not_reached_by_a_pull_request_that_is_refused(
-    runner: CliRunner,
+    runner: CliRunner, gh: ProcessFake
 ) -> None:
-    with patch("devops_cli.commands.pr._fallback_create_pr") as fallback:
-        result, gh = _create(runner, "A plain title", BODY)
-    assert (result.exit_code, gh.call_count, fallback.call_count) == (1, 0, 0)
+    result, sent = _create(runner, "A plain title", BODY)
+    assert (result.exit_code, len(sent), gh.calls) == (1, 0, [])
 
 
 def test_a_dry_run_checks_the_form_without_a_request(
-    runner: CliRunner, roadmap_store_repos: list[str]
+    runner: CliRunner, gh: ProcessFake, roadmap_store_repos: list[str]
 ) -> None:
     set_dry_run(True)
-    planned = PlannedProcessResult(method="gh", argv=("gh", "pr", "create"))
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.commands.pr.run_gh", return_value=planned) as gh,
-    ):
-        result = runner.invoke(
-            app, ["create", "--title", "A plain title", "--body", BODY, "--repo", REPO]
-        )
-    assert (result.exit_code, gh.call_count, roadmap_store_repos) == (1, 0, [])
+    result = runner.invoke(
+        app, ["create", "--title", "A plain title", "--body", BODY, "--repo", REPO]
+    )
+    assert (result.exit_code, gh.calls, roadmap_store_repos) == (1, [], [])
     assert "is not in the form" in result.stderr
 
 
@@ -182,22 +186,22 @@ def test_a_title_with_a_byte_that_is_no_utf8_gets_the_form_report_and_no_traceba
     """argv holds a byte that is no UTF-8 as a lone surrogate, which counts as one unit (#3249)."""
     result, gh = _create(runner, "fix(pr): " + "\udcff" * 61, BODY)
 
-    assert (result.exit_code, gh.call_count) == (1, 0)
+    assert (result.exit_code, len(gh)) == (1, 0)
     assert result.exception is None or isinstance(result.exception, SystemExit)
     assert "The summary has 61 characters" in result.stderr
 
 
 def test_a_dry_run_of_a_pull_request_in_the_form_still_lists_its_requests(
-    runner: CliRunner, roadmap_store_repos: list[str]
+    runner: CliRunner, gh: ProcessFake, roadmap_store_repos: list[str]
 ) -> None:
     set_dry_run(True)
-    planned = PlannedProcessResult(method="gh", argv=("gh", "pr", "create"))
-    with (
-        patch("shutil.which", return_value="/usr/bin/gh"),
-        patch("devops_cli.commands.pr.run_gh", return_value=planned),
-    ):
-        result = runner.invoke(app, ["create", "--title", TITLE, "--body", BODY, "--repo", REPO])
-    assert (result.exit_code, roadmap_store_repos, "labels.yml" in result.stdout) == (0, [], True)
+    result = runner.invoke(app, ["create", "--title", TITLE, "--body", BODY, "--repo", REPO])
+    assert (result.exit_code, gh.calls, roadmap_store_repos, "labels.yml" in result.stdout) == (
+        0,
+        [],
+        [],
+        True,
+    )
 
 
 PLAN_TITLE = "docs(openspec): plan #3236 revise scope to role tools"
@@ -211,7 +215,7 @@ PLAN_BODY = (
 def test_a_plan_with_a_plans_line_opens_a_draft(runner: CliRunner) -> None:
     """A plan closes no issue, so its body has `Plans #<issue>` and no `Closes` line (#3314)."""
     result, gh = _create(runner, PLAN_TITLE, PLAN_BODY)
-    assert (result.exit_code, gh.call_count) == (0, 1)
+    assert (result.exit_code, len(gh)) == (0, 1)
 
 
 @pytest.mark.parametrize(
@@ -227,9 +231,9 @@ def test_a_plan_body_that_breaks_the_plan_form_opens_nothing(
     runner: CliRunner, body: str, fragment: str
 ) -> None:
     result, gh = _create(runner, PLAN_TITLE, body)
-    assert (result.exit_code, gh.call_count, fragment in result.stderr) == (1, 0, True)
+    assert (result.exit_code, len(gh), fragment in result.stderr) == (1, 0, True)
 
 
 def test_a_delivery_title_still_needs_a_closes_line(runner: CliRunner) -> None:
     result, gh = _create(runner, TITLE, PLAN_BODY)
-    assert (result.exit_code, gh.call_count, "no line `Closes" in result.stderr) == (1, 0, True)
+    assert (result.exit_code, len(gh), "no line `Closes" in result.stderr) == (1, 0, True)

@@ -4,8 +4,8 @@
 pull requests, as REST lists them. It answers the board's budget query and pages through
 `BoardServer`, the board's Status and Priority options through `gh project field-list`, the
 issues and pull requests a listing's `state` selects as the GitHub session's `paginate` does
-(installed over `projects.get_github_session`, #983), and records each `item-edit` and
-`item-add`. For sync it also answers the scope check's and the owner's
+(served over `github_api` by `install`, #983), and records each `item-edit` and `item-add`.
+`install` hangs the fake on `process_fake` and `github_api`, so a test patches no name. For sync it also answers the scope check's and the owner's
 `gh project list`, the repository's linked boards, `gh project link` and the signed-in login.
 Any other command fails the test. It starts no `gh` and opens no socket.
 """
@@ -16,11 +16,18 @@ import itertools
 import json
 import subprocess
 from collections.abc import Callable, Iterable, Iterator, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlsplit
 
 from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.github.rate_limiter import get_github_rate_limiter
 from tests.project_board_fake import BoardServer
+from tests.support.fakes.github import github_json
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
+
+if TYPE_CHECKING:
+    from tests.support.fakes.github import GitHubApiFake
+    from tests.support.fakes.process import ProcessFake
 
 REPO = "o/r"
 BOARD_TITLE = "Roadmap"
@@ -96,6 +103,33 @@ class ProjectGitHub:
     def run_gh(self, cmd: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
         """`run_gh`'s stand-in: `cmd` starts with `gh`."""
         return self(cmd)
+
+    def install(
+        self, process_fake: ProcessFake, github_api: GitHubApiFake, *, preset_quota: bool = True
+    ) -> None:
+        """Serve the board at the two edges the code reaches: every `gh` command goes to
+        `process_fake`, and the repository's issue and pull request listings to `github_api`.
+        The GraphQL quota is the board's, so a run below the floor stops as it does against
+        GitHub."""
+        limiter = get_github_rate_limiter()
+        if preset_quota:
+            limiter.update_quota(
+                "graphql", remaining=self.server.remaining, limit=5000, reset_epoch=4_102_444_800.0
+            )
+        limiter.update_quota("core", remaining=5000, limit=5000, reset_epoch=4_102_444_800.0)
+
+        def answer(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+            return self(list(call.argv))
+
+        process_fake.answer(
+            lambda call: bool(call.argv and call.argv[0] == "gh"), ProcessAnswer(side_effect=answer)
+        )
+        for state in ("open", "closed", "all"):
+            for kind, items in (("issues", self.issues), ("pulls", self.pulls)):
+                listed = [item for item in items if state == "all" or item["state"] == state]
+                github_api.route(
+                    "GET", f"/repos/{REPO}/{kind}?state={state}&per_page=100", github_json(listed)
+                )
 
     def paginate(self, path: str, *, iterable_key: str | None = None) -> Iterator[dict[str, Any]]:
         """The GitHub session's listing read (#983): the issues or pull requests the listing's

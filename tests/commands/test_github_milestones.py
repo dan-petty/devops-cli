@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.commands.gh import app as gh_app
 from devops_cli.commands.gh import milestones_app
 from devops_cli.exceptions.git import GitHubUnreadError
 from devops_cli.github.milestones import calculate_milestone_progress
 from devops_cli.roadmap.stores.store import GitHubState, Milestone, get_roadmap_store
 from tests.support.fakes.github import API, GitHubApiFake, github_json
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 runner = CliRunner()
@@ -64,85 +67,58 @@ def test_cli_milestones_close_command(
     )
 
 
-def test_cli_labels_list() -> None:
+def test_cli_labels_list(gh_edge: ProcessFake) -> None:
     """devops gh labels list prints table of labels or info if empty."""
-    from unittest.mock import patch
+    gh_edge.answer(["gh", "label", "list"], ProcessAnswer(stdout="[]"))
+    res = runner.invoke(gh_app, ["labels", "list", "-R", "o/empty"])
+    assert res.exit_code == 0
+    assert "No remote repository labels found" in res.output
 
-    from typer.testing import CliRunner
-
-    from devops_cli.commands.gh import app
-
-    runner = CliRunner()
-    with patch("devops_cli.commands.gh._get_repo_labels", return_value=[]):
-        res = runner.invoke(app, ["labels", "list"])
-        assert res.exit_code == 0
-        assert "No remote repository labels found" in res.output
-
-    with patch(
-        "devops_cli.commands.gh._get_repo_labels",
-        return_value=[{"name": "type/bug", "color": "d73a4a", "description": "Bug"}],
-    ):
-        res = runner.invoke(app, ["labels", "list"])
-        assert res.exit_code == 0
-        assert "type/bug" in res.output
+    labels = [{"name": "type/bug", "color": "d73a4a", "description": "Bug"}]
+    gh_edge.answer(["gh", "label", "list"], ProcessAnswer(stdout=json.dumps(labels)))
+    res = runner.invoke(gh_app, ["labels", "list", "-R", "o/labelled"])
+    assert res.exit_code == 0
+    assert "type/bug" in res.output
 
 
-def test_cli_labels_sync(tmp_path: Path) -> None:
+def test_cli_labels_sync(tmp_path: Path, gh_edge: ProcessFake) -> None:
     """devops gh labels sync reconciles labels through the gh label client; a dry run creates none."""
-    from unittest.mock import MagicMock, patch
-
-    from typer.testing import CliRunner
-
-    from devops_cli.commands.gh import app
-
     labels_file = tmp_path / "labels.yml"
     labels_file.write_text(
         "- name: type/bug\n  color: d73a4a\n  description: Defect\n", encoding="utf-8"
     )
 
-    runner = CliRunner()
-    listed = MagicMock(returncode=0, stdout="[]", stderr="")
-    with patch("devops_cli.github.client.run_gh", return_value=listed) as run_gh:
-        res = runner.invoke(
-            app, ["labels", "sync", "--file", str(labels_file), "--dry-run", "-R", "o/r"]
-        )
+    res = runner.invoke(
+        gh_app, ["labels", "sync", "--file", str(labels_file), "--dry-run", "-R", "o/r"]
+    )
     assert (res.exit_code, "Plan for synchronizing labels in o/r" in res.output) == (0, True)
     # A dry run makes no external request.
-    assert run_gh.call_count == 0
+    assert gh_edge.calls == []
 
 
-def test_cli_labels_audit() -> None:
+def test_cli_labels_audit(gh_edge: ProcessFake) -> None:
     """devops gh labels audit detects PRs with missing taxonomy."""
-    from unittest.mock import patch
-
-    from typer.testing import CliRunner
-
-    from devops_cli.commands.gh import app
-
-    runner = CliRunner()
     # Compliant PRs
-    with patch(
-        "devops_cli.commands.gh._get_repo_prs",
-        return_value=[
-            {
-                "number": 1,
-                "title": "feat: test",
-                "labels": [{"name": "type/feature"}, {"name": "scope/cli"}],
-            }
-        ],
-    ):
-        res = runner.invoke(app, ["labels", "audit"])
-        assert res.exit_code == 0
-        assert "comply with taxonomy" in res.output
+    compliant = [
+        {
+            "number": 1,
+            "title": "feat: test",
+            "labels": [{"name": "type/feature"}, {"name": "scope/cli"}],
+        }
+    ]
+    gh_edge.answer(["gh", "pr", "list"], ProcessAnswer(stdout=json.dumps(compliant)))
+    res = runner.invoke(gh_app, ["labels", "audit", "-R", "o/compliant"])
+    assert res.exit_code == 0
+    assert "comply with taxonomy" in res.output
 
     # Non-compliant PRs
-    with patch(
-        "devops_cli.commands.gh._get_repo_prs",
-        return_value=[{"number": 2, "title": "fix: bug", "labels": []}],
-    ):
-        res = runner.invoke(app, ["labels", "audit"])
-        assert res.exit_code == 0
-        assert "Pull Request Taxonomy Audit Findings" in res.output
+    gh_edge.answer(
+        ["gh", "pr", "list"],
+        ProcessAnswer(stdout=json.dumps([{"number": 2, "title": "fix: bug", "labels": []}])),
+    )
+    res = runner.invoke(gh_app, ["labels", "audit", "-R", "o/broken"])
+    assert res.exit_code == 0
+    assert "Pull Request Taxonomy Audit Findings" in res.output
 
 
 def test_cli_milestones_list(roadmap_store: InMemoryRoadmapStore) -> None:
@@ -208,20 +184,18 @@ def test_cli_milestones_status(
     ) == (0, True, 1, True, [REPO, REPO])
 
 
-def test_gh_helper_subprocess_fallbacks() -> None:
-    """Test _get_repo_labels and _get_repo_prs with subprocess JSON output."""
-    import json
-    from unittest.mock import MagicMock, patch
+def test_gh_helper_subprocess_fallbacks(gh_edge: ProcessFake) -> None:
+    """The label and pull request listings read the JSON that gh prints."""
+    gh_edge.answer(["gh", "label", "list"], ProcessAnswer(stdout=json.dumps([{"name": "test"}])))
+    labels = runner.invoke(gh_app, ["labels", "list", "-R", "dan-petty/devops-cli"])
 
-    from devops_cli.commands.gh import _get_repo_labels, _get_repo_prs
+    prs = json.dumps([{"number": 10, "title": "feat: test", "labels": []}])
+    gh_edge.answer(["gh", "pr", "list"], ProcessAnswer(stdout=prs))
+    audit = runner.invoke(gh_app, ["labels", "audit", "-R", "dan-petty/devops-cli"])
 
-    with patch("devops_cli.commands.gh.run_gh") as mock_sub:
-        # labels
-        mock_sub.return_value = MagicMock(returncode=0, stdout=json.dumps([{"name": "test"}]))
-        assert len(_get_repo_labels("dan-petty/devops-cli")) == 1
-
-        # prs
-        mock_sub.return_value = MagicMock(
-            returncode=0, stdout=json.dumps([{"number": 10, "title": "feat: test"}])
-        )
-        assert len(_get_repo_prs("dan-petty/devops-cli")) == 1
+    assert (
+        labels.exit_code,
+        "test" in labels.output,
+        audit.exit_code,
+        "#10" in audit.output,
+    ) == (0, True, 0, True)
