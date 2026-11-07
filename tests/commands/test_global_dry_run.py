@@ -7,6 +7,7 @@ command started a program: a dry run starts none.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -168,11 +169,17 @@ def test_no_flag_and_no_variable_still_executes(
 def test_global_dry_run_plans_the_command_it_forwards_to(
     cli: Callable[..., Any],
     process_fake: ProcessFake,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     cli_args: list[str],
     planned: str,
     not_planned: str | None,
 ) -> None:
     """The flag reaches the command before its positionals and before `--`, so the command plans."""
+    # `sandbox deploy` takes the current directory as its workspace, and a checkout under a
+    # home directory is not a valid workspace on a runner.
+    monkeypatch.chdir(tmp_path)
+
     result = cli(*cli_args)
 
     assert result.exit_code == 0, result.output
