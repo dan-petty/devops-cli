@@ -31,6 +31,22 @@ def _cosine_similarity(vec_a: Sequence[float], vec_b: Sequence[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+def _matches_fake_filter(payload: dict[str, Any], filter_payload: dict[str, Any] | None) -> bool:
+    if not filter_payload:
+        return True
+    must_not = filter_payload.get("must_not")
+    for k, v in filter_payload.items():
+        if k == "must_not":
+            continue
+        if payload.get(k) != v:
+            return False
+    if must_not and isinstance(must_not, dict):
+        for nk, nv in must_not.items():
+            if payload.get(nk) == nv:
+                return False
+    return True
+
+
 class FakeQdrantClient(QdrantProtocol):
     """In-memory Qdrant store supporting cosine similarity and payload filters."""
 
@@ -173,9 +189,8 @@ class FakeQdrantClient(QdrantProtocol):
         scored: list[dict[str, Any]] = []
         for p in points:
             payload = p.get("payload", {})
-            if filter_payload:
-                if not all(payload.get(k) == v for k, v in filter_payload.items()):
-                    continue
+            if not _matches_fake_filter(payload, filter_payload):
+                continue
             sim = _cosine_similarity(query_vector, p.get("vector", []))
             if score_threshold is not None and sim < score_threshold:
                 continue
@@ -190,11 +205,7 @@ class FakeQdrantClient(QdrantProtocol):
         points = self.collections.get(name, [])
         if not filter_payload:
             return len(points)
-        return sum(
-            1
-            for p in points
-            if all(p.get("payload", {}).get(k) == v for k, v in filter_payload.items())
-        )
+        return sum(1 for p in points if _matches_fake_filter(p.get("payload", {}), filter_payload))
 
     def scroll_points(
         self,
@@ -217,11 +228,7 @@ class FakeQdrantClient(QdrantProtocol):
         )
         pts = self.collections.get(name, [])
         if filter_payload:
-            pts = [
-                p
-                for p in pts
-                if all(p.get("payload", {}).get(k) == v for k, v in filter_payload.items())
-            ]
+            pts = [p for p in pts if _matches_fake_filter(p.get("payload", {}), filter_payload)]
         batch = pts[:limit]
         formatted: list[dict[str, Any]] = []
         for p in batch:
@@ -232,6 +239,24 @@ class FakeQdrantClient(QdrantProtocol):
                 item["vector"] = p.get("vector", [])
             formatted.append(item)
         return formatted
+
+    def set_payload(
+        self,
+        name: str,
+        payload: dict[str, Any],
+        filter_payload: dict[str, Any] | None = None,
+        *,
+        wait: bool = True,
+    ) -> bool:
+        if self.refusing:
+            raise QdrantClientError("Server is unreachable")
+        self._record("set_payload", name, payload, filter_payload=filter_payload, wait=wait)
+        points = self.collections.get(name, [])
+        for p in points:
+            p_payload = p.setdefault("payload", {})
+            if _matches_fake_filter(p_payload, filter_payload):
+                p_payload.update(payload)
+        return True
 
     def delete_points_by_files(
         self,

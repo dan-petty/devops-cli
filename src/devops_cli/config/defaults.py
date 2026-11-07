@@ -548,6 +548,11 @@ DEFAULT_TOOL_EXTRACT_OVERLAP: int = 1024  # 1 KiB
 DEFAULT_FIRECRAWL_SEARCH_URL: str = "https://api.firecrawl.dev/v2/search"
 DEFAULT_FIRECRAWL_SEARCH_LIMIT: int = 5
 DEFAULT_FIRECRAWL_TIMEOUT_SECONDS: float = 30.0
+# The fallback search of DuckDuckGo (#3876). The region and the safe-search level are the defaults
+# of the `ddgs` package.
+DEFAULT_DUCKDUCKGO_TIMEOUT_SECONDS: float = 15.0
+DEFAULT_DUCKDUCKGO_REGION: str = "us-en"
+DEFAULT_DUCKDUCKGO_SAFESEARCH: str = "moderate"
 
 DEFAULT_SIGNATURE_BODY: str = "..."
 DEFAULT_TOOL_INTERFACE_FORMAT: Literal["python", "markdown"] = "python"

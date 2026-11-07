@@ -48,6 +48,9 @@ from devops_cli.commands.rag import (
     index_kb_cmd as rag_index_kb_cmd,
 )
 from devops_cli.commands.rag import (
+    ingest_cmd as rag_ingest_cmd,
+)
+from devops_cli.commands.rag import (
     rag_main,
 )
 from devops_cli.commands.rag import (
@@ -84,6 +87,7 @@ REQUEST_PLAN_COMMANDS = [
     ("ai rag drift", rag_drift_cmd, ["ai", "rag", "drift", "--dry-run"]),
     ("ai rag index", rag_index_cmd, ["ai", "rag", "index", "--dry-run"]),
     ("ai rag index-kb", rag_index_kb_cmd, ["ai", "rag", "index-kb", "--dry-run"]),
+    ("ai rag ingest", rag_ingest_cmd, ["ai", "rag", "ingest", "--dry-run"]),
     ("ai rag query", rag_search_cmd, ["ai", "rag", "query", "search test", "--dry-run"]),
     ("ai rag search", rag_search_cmd, ["ai", "rag", "search", "search test", "--dry-run"]),
     ("ai rag status", rag_status_cmd, ["ai", "rag", "status", "--dry-run"]),

@@ -70,7 +70,7 @@ def no_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("devops_cli.roadmap.refine.get_task_model", _fail("called LLM"))
     monkeypatch.setattr("devops_cli.roadmap.stage.get_llm_client", _fail("called LLM"))
     monkeypatch.setattr(
-        "devops_cli.roadmap.refine_investigation.firecrawl_search", _fail("called search")
+        "devops_cli.roadmap.refine_investigation.web_search", _fail("called search")
     )
     monkeypatch.setattr("devops_cli.roadmap.alternatives.get_task_model", _fail("called LLM"))
 

@@ -233,6 +233,13 @@ FIRECRAWL_SEARCHES_TOTAL = Instrument(
     "such as 402 when the account has no credits or 429 at its rate limit, or error for a search "
     "that got no answer or a reply with no web results",
 )
+WEB_SEARCH_FALLBACKS_TOTAL = Instrument(
+    "devops_cli_web_search_fallbacks_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Web searches that ran after Firecrawl failed, by the backend that answered and the result: "
+    "ok for a search that returned its results (also none), error for a search that failed too",
+)
 ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL = Instrument(
     "devops_cli_roadmap_refine_comments_capped_total",
     InstrumentKind.COUNTER,
@@ -398,6 +405,12 @@ RAG_STOPS_TOTAL = Instrument(
     "1",
     "Processes that turned RAG off for the rest of their run after an embedding failure",
 )
+RAG_INGEST_RUNS_TOTAL = Instrument(
+    "devops_cli_rag_ingest_runs_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "RAG repository ingestion runs, by repo and result: success or error",
+)
 VULNERABILITY_LOOKUPS_TOTAL = Instrument(
     "devops_cli_vulnerability_lookups_total",
     InstrumentKind.COUNTER,
@@ -545,6 +558,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     GITHUB_THROTTLE_WAIT,
     GITHUB_GRAPHQL_POINTS_TOTAL,
     FIRECRAWL_SEARCHES_TOTAL,
+    WEB_SEARCH_FALLBACKS_TOTAL,
     ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL,
     ROADMAP_ALTERNATIVES_TOTAL,
     ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
@@ -566,6 +580,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     RAG_DRIFT_DETECTED,
     RAG_INVESTIGATIONS_TOTAL,
     RAG_STOPS_TOTAL,
+    RAG_INGEST_RUNS_TOTAL,
     VULNERABILITY_LOOKUPS_TOTAL,
     THREAT_INTEL_LOOKUPS_TOTAL,
     PROJECT_RELEASES,
@@ -672,6 +687,7 @@ __all__ = [
     "RAG_DRIFT_SCORE",
     "RAG_EMBEDDING_BATCH_RESIZES_TOTAL",
     "RAG_EMBEDDING_BATCH_SIZE",
+    "RAG_INGEST_RUNS_TOTAL",
     "RAG_INVESTIGATIONS_TOTAL",
     "RAG_POINTS",
     "RAG_QUERY_DURATION",
@@ -698,6 +714,7 @@ __all__ = [
     "UPSTREAM_COMPONENT_STATUS",
     "UPSTREAM_SERVICE_STATUS",
     "VULNERABILITY_LOOKUPS_TOTAL",
+    "WEB_SEARCH_FALLBACKS_TOTAL",
     "Instrument",
     "InstrumentKind",
     "backend_name",

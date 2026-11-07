@@ -1328,6 +1328,25 @@ devops ai rag drift [OPTIONS] <path>
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
+### `devops ai rag ingest`
+
+**Index managed git repositories into the RAG vector collection.**
+
+```bash
+devops ai rag ingest [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-r` | `string` | - | Managed repository in owner/name form to ingest. Repeat to specify more than one repository. |
+| `--collection`, `-c` | `string` | - | Target collection override. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--explain`, `-e` | `boolean` | - | Explain RAG vector embeddings, Qdrant indexing, and terminology. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## `devops ai benchmark`

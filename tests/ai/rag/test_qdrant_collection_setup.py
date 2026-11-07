@@ -59,14 +59,14 @@ def _index_fields(served: ServedQdrant) -> list[str]:
     ]
 
 
-def test_a_new_collection_gets_both_payload_indexes() -> None:
+def test_a_new_collection_gets_all_payload_indexes() -> None:
     with serving_qdrant() as served:
         QdrantClient(served.url, api_key="test-key", timeout=5.0).ensure_collection("docs", 4)
 
-    assert _index_fields(served) == ["project_name", "file_path"]
+    assert _index_fields(served) == ["project_name", "file_path", "visibility"]
 
 
-def test_an_existing_collection_without_payload_indexes_gets_both_on_the_next_run() -> None:
+def test_an_existing_collection_without_payload_indexes_gets_all_on_the_next_run() -> None:
     native = NativeQdrantClient(location=":memory:")
     native.create_collection(
         "docs", vectors_config=qmodels.VectorParams(size=4, distance=qmodels.Distance.COSINE)
@@ -76,6 +76,6 @@ def test_an_existing_collection_without_payload_indexes_gets_both_on_the_next_ru
         QdrantClient(served.url, api_key="test-key", timeout=5.0).ensure_collection("docs", 4)
 
     assert (_index_fields(served), [b for b in served.bodies if "/index" not in b[1]]) == (
-        ["project_name", "file_path"],
+        ["project_name", "file_path", "visibility"],
         [],
     )
