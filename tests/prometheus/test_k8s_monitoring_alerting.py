@@ -39,7 +39,6 @@ from devops_cli.config.constants import (
 from devops_cli.prometheus.promql import selectors
 from devops_cli.telemetry.instruments import (
     AI_REQUESTS_TOTAL,
-    FIRECRAWL_SEARCHES_TOTAL,
     GITHUB_REQUESTS_TOTAL,
     GITHUB_THROTTLE_WAIT,
     ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
@@ -47,6 +46,7 @@ from devops_cli.telemetry.instruments import (
     ROADMAP_OLDEST_ITEM,
     ROADMAP_TOOL_CALLS_PER_RUN,
     ROADMAP_TOOL_CALLS_TOTAL,
+    WEB_SEARCHES_TOTAL,
 )
 from tests.support.paths import FIXTURES, REPO_ROOT
 
@@ -195,7 +195,7 @@ SERVED_SERIES = frozenset(
         CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
         CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
         AI_REQUESTS_TOTAL.name,
-        FIRECRAWL_SEARCHES_TOTAL.name,
+        WEB_SEARCHES_TOTAL.name,
         GITHUB_REQUESTS_TOTAL.name,
         GITHUB_THROTTLE_WAIT.name,
         # The age of each roadmap state and its number, sent by the metrics row (#2919).
@@ -321,7 +321,6 @@ def test_the_baseline_rule_set() -> None:
         ("PrometheusStorageNearClaim", "warning"),
         ("PyroscopeQueryErrors", "warning"),
         ("RoadmapServiceAlternativesNotSearching", "warning"),
-        ("RoadmapServiceFirecrawlRefused", "warning"),
         ("RoadmapServiceGitHubRequestsHigh", "warning"),
         ("RoadmapServiceGitHubThrottled", "critical"),
         ("RoadmapServiceGitHubWritesHigh", "warning"),
@@ -334,6 +333,7 @@ def test_the_baseline_rule_set() -> None:
         ("RoadmapServiceSelfDeliveriesHigh", "warning"),
         ("RoadmapServiceToolUnused", "warning"),
         ("RoadmapServiceUnavailable", "warning"),
+        ("RoadmapServiceWebSearchRefused", "warning"),
         ("RoadmapServiceWebhooksRejected", "warning"),
         ("TargetDown", "warning"),
         ("ValkeyCacheErrors", "warning"),
@@ -950,10 +950,10 @@ ROADMAP_SERVICE_ACTIVITY_RULES = [
         "warning",
     ),
     (
-        "RoadmapServiceFirecrawlRefused",
-        "sum by (result) ( "
+        "RoadmapServiceWebSearchRefused",
+        "sum by (backend, result) ( "
         + _window_count(
-            'devops_cli_firecrawl_searches_total{job="roadmap-service", result=~"402|429"}',
+            'devops_cli_web_searches_total{job="roadmap-service", result=~"402|429"}',
             "1h",
         )
         + " ) > 0",
@@ -965,7 +965,7 @@ ROADMAP_SERVICE_ACTIVITY_RULES = [
         "sum by (repo) (last_over_time("
         'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service"}[7d])) > 0'
         " and on () (sum( "
-        + _window_count('devops_cli_firecrawl_searches_total{job="roadmap-service"}', "3d")
+        + _window_count('devops_cli_web_searches_total{job="roadmap-service"}', "3d")
         + " ) or vector(0)) == 0",
         "1h",
         "warning",
@@ -1044,8 +1044,8 @@ def test_the_webhook_rule_warns_on_more_than_20_rejected_deliveries_in_15_minute
 
 def test_the_roadmap_service_activity_rules_watch_writes_own_deliveries_and_web_search() -> None:
     """`roadmap-service-activity` warns at more than 300 GitHub writes of the Service in an hour,
-    more than 150 deliveries of its own writes in an hour, and any Firecrawl search refused for
-    credits (402) or its rate limit (429) (#2475). Each counts a series that starts in the hour
+    more than 150 deliveries of its own writes in an hour, and any web search that a provider refused
+    for credits (402) or its rate limit (429) (#2475, #3925). Each counts a series that starts in the hour
     from zero (#2505)."""
     assert [
         (rule["alert"], rule["expr"], rule["for"], rule["labels"]["severity"])

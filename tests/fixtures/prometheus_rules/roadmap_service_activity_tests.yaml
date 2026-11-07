@@ -111,52 +111,73 @@ tests:
         alertname: RoadmapServiceSelfDeliveriesHigh
         exp_alerts: []
 
-  - name: The first Firecrawl 402 fires for an hour; other results and jobs do not count
+  - name: The first refused 402 fires for an hour; other results and jobs do not count
     interval: 1m
     input_series:
       # A new series: its first flush at 30m holds one refused search.
-      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", result="402"}'
+      - series: 'devops_cli_web_searches_total{backend="firecrawl", job="roadmap-service", result="402"}'
         values: '_x30 1x30'
-      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", result="ok"}'
+      - series: 'devops_cli_web_searches_total{backend="firecrawl", job="roadmap-service", result="ok"}'
         values: '0+5x130'
-      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", result="401"}'
+      - series: 'devops_cli_web_searches_total{backend="firecrawl", job="roadmap-service", result="401"}'
         values: '0+1x130'
-      - series: 'devops_cli_firecrawl_searches_total{job="devops-cli", result="429"}'
+      - series: 'devops_cli_web_searches_total{backend="firecrawl", job="devops-cli", result="429"}'
         values: '0+1x130'
     alert_rule_test:
       - eval_time: 40m
-        alertname: RoadmapServiceFirecrawlRefused
+        alertname: RoadmapServiceWebSearchRefused
         exp_alerts:
           - exp_labels:
               severity: warning
+              backend: firecrawl
               result: "402"
             exp_annotations:
-              summary: "Firecrawl refused web searches of the roadmap Service with HTTP 402 in the last hour"
-              description: "Firecrawl refused a web search of the roadmap Service with HTTP 402: 402 when the account has no credits, 429 at its rate limit. The search falls back to DuckDuckGo (k8s/README.md, Roadmap service)."
+              summary: "The provider firecrawl refused web searches of the roadmap Service with HTTP 402 in the last hour"
+              description: "The provider firecrawl refused a web search of the roadmap Service with HTTP 402: 402 when the account has no credits, 429 at its rate limit. The search goes on to the next provider (k8s/README.md, Roadmap service)."
       - eval_time: 125m
-        alertname: RoadmapServiceFirecrawlRefused
+        alertname: RoadmapServiceWebSearchRefused
         exp_alerts: []
 
-  - name: One more Firecrawl 429 of an older series fires; an older series with no new refusal does not
+  - name: One more refused 429 of an older series fires; an older series with no new refusal does not
     interval: 1m
     input_series:
-      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", result="429"}'
+      - series: 'devops_cli_web_searches_total{backend="firecrawl", job="roadmap-service", result="429"}'
         values: '3x70 4x40'
-      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", result="402"}'
+      - series: 'devops_cli_web_searches_total{backend="firecrawl", job="roadmap-service", result="402"}'
         values: '2x110'
     alert_rule_test:
       - eval_time: 65m
-        alertname: RoadmapServiceFirecrawlRefused
+        alertname: RoadmapServiceWebSearchRefused
         exp_alerts: []
       - eval_time: 100m
-        alertname: RoadmapServiceFirecrawlRefused
+        alertname: RoadmapServiceWebSearchRefused
         exp_alerts:
           - exp_labels:
               severity: warning
+              backend: firecrawl
               result: "429"
             exp_annotations:
-              summary: "Firecrawl refused web searches of the roadmap Service with HTTP 429 in the last hour"
-              description: "Firecrawl refused a web search of the roadmap Service with HTTP 429: 402 when the account has no credits, 429 at its rate limit. The search falls back to DuckDuckGo (k8s/README.md, Roadmap service)."
+              summary: "The provider firecrawl refused web searches of the roadmap Service with HTTP 429 in the last hour"
+              description: "The provider firecrawl refused a web search of the roadmap Service with HTTP 429: 402 when the account has no credits, 429 at its rate limit. The search goes on to the next provider (k8s/README.md, Roadmap service)."
+
+  - name: A refusal of another provider fires with the name of that provider
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_web_searches_total{backend="duckduckgo", job="roadmap-service", result="429"}'
+        values: '_x30 1x30'
+      - series: 'devops_cli_web_searches_total{backend="firecrawl", job="roadmap-service", result="ok"}'
+        values: '0+1x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: RoadmapServiceWebSearchRefused
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              backend: duckduckgo
+              result: "429"
+            exp_annotations:
+              summary: "The provider duckduckgo refused web searches of the roadmap Service with HTTP 429 in the last hour"
+              description: "The provider duckduckgo refused a web search of the roadmap Service with HTTP 429: 402 when the account has no credits, 429 at its rate limit. The search goes on to the next provider (k8s/README.md, Roadmap service)."
 
   # The alert of the alternatives check (#2950). The search counter has the label result and the
   # gauge has the label repo, so the rule sums each side to one label set before it joins them. The
@@ -164,7 +185,7 @@ tests:
   - name: No search in 3 days fires with the repository while items have no check, also when a refused search is the only series
     interval: 1h
     input_series:
-      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", instance="roadmap-service", result="402"}'
+      - series: 'devops_cli_web_searches_total{backend="firecrawl", job="roadmap-service", instance="roadmap-service", result="402"}'
         values: '2x150'
       - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", instance="roadmap-service", repo="example/app"}'
         values: '2x150'
@@ -177,12 +198,12 @@ tests:
               repo: example/app
             exp_annotations:
               summary: "The alternatives check of example/app ran no web search in 3 days, and 2 open items have no check"
-              description: "The roadmap Service made no Firecrawl web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service made no web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
 
   - name: A search one day before stays quiet
     interval: 1h
     input_series:
-      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", instance="roadmap-service", result="ok"}'
+      - series: 'devops_cli_web_searches_total{backend="firecrawl", job="roadmap-service", instance="roadmap-service", result="ok"}'
         values: '0x125 1x25'
       - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", instance="roadmap-service", repo="example/app"}'
         values: '2x150'
@@ -205,12 +226,12 @@ tests:
               repo: example/app
             exp_annotations:
               summary: "The alternatives check of example/app ran no web search in 3 days, and 2 open items have no check"
-              description: "The roadmap Service made no Firecrawl web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service made no web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
 
   - name: No unchecked item stays quiet
     interval: 1h
     input_series:
-      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", instance="roadmap-service", result="402"}'
+      - series: 'devops_cli_web_searches_total{backend="firecrawl", job="roadmap-service", instance="roadmap-service", result="402"}'
         values: '2x150'
       - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", instance="roadmap-service", repo="example/app"}'
         values: '0x150'
@@ -223,7 +244,7 @@ tests:
     interval: 1h
     input_series:
       # The first flush of the series at 140h holds 3 searches. increase() does not count it (#2505).
-      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", instance="roadmap-service", result="ok"}'
+      - series: 'devops_cli_web_searches_total{backend="firecrawl", job="roadmap-service", instance="roadmap-service", result="ok"}'
         values: '_x140 3x10'
       - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", instance="roadmap-service", repo="example/app"}'
         values: '2x150'
@@ -235,7 +256,7 @@ tests:
   - name: A search of another job does not count
     interval: 1h
     input_series:
-      - series: 'devops_cli_firecrawl_searches_total{job="devops-cli", instance="workstation", result="ok"}'
+      - series: 'devops_cli_web_searches_total{backend="firecrawl", job="devops-cli", instance="workstation", result="ok"}'
         values: '0x100 5x50'
       - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", instance="roadmap-service", repo="example/app"}'
         values: '2x150'
@@ -248,12 +269,12 @@ tests:
               repo: example/app
             exp_annotations:
               summary: "The alternatives check of example/app ran no web search in 3 days, and 2 open items have no check"
-              description: "The roadmap Service made no Firecrawl web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service made no web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
 
   - name: A gauge sample 100 hours old still fires, and one 180 hours old does not
     interval: 1h
     input_series:
-      - series: 'devops_cli_firecrawl_searches_total{job="roadmap-service", instance="roadmap-service", result="402"}'
+      - series: 'devops_cli_web_searches_total{backend="firecrawl", job="roadmap-service", instance="roadmap-service", result="402"}'
         values: '2x250'
       # The row stopped: the last sample of this gauge is at 100h.
       - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", instance="roadmap-service", repo="example/app"}'
@@ -269,4 +290,4 @@ tests:
               repo: example/app
             exp_annotations:
               summary: "The alternatives check of example/app ran no web search in 3 days, and 2 open items have no check"
-              description: "The roadmap Service made no Firecrawl web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service made no web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."

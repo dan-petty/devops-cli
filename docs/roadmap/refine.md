@@ -34,7 +34,7 @@ The review is a model, so text in the item can mislead it. The control is the lo
 
 ## What refine investigates
 
-When a fact or a decision has no verified source, or a key question of the body has no answer, refine investigates it. It uses tools that read the code. For a public repository with a Firecrawl key, it also searches the web. The plan says when web search is off.
+When a fact or a decision has no verified source, or a key question of the body has no answer, refine investigates it. It uses tools that read the code. For a public repository with at least one configured search provider, it also searches the web. The plan says when web search is off.
 
 A design question gets the best-practice option, with the options that refine compared. Only a decision that a person must make waits on a person: a question marked `(a person decides)`.
 

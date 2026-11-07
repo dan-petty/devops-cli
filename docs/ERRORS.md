@@ -115,6 +115,8 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `SandboxPortAllocationError` | `SANDBOX_PORT_ALLOCATION_ERROR` | `1` | Sandbox | Raised when host port allocation encounters collisions or range exhaustion. |
 | `SandboxUnavailableError` | `SANDBOX_UNAVAILABLE_ERROR` | `1` | Sandbox | Raised when this host cannot start the sandbox of a review tool, so the tool does not run. |
 | `SandboxValidationError` | `SANDBOX_VALIDATION_ERROR` | `1` | Sandbox | Raised when sandbox configuration or directory mount paths violate security boundaries. |
+| `SearchFailed` | `WEB_SEARCH_FAILED` | `1` | Ai | Raised when no provider of a web search answered: each one failed, was skipped, or the |
+| `SearchQueryRefused` | `WEB_SEARCH_QUERY_REFUSED` | `1` | Ai | Raised when the guard stops a web search query before any provider runs. The message names |
 | `SecurityError` | `SECURITY_ERROR` | `1` | Security | Base exception for all security, policy, and egress violations. |
 | `ServiceAddressError` | `K8S_ERROR` | `1` | Devops_cli.k8s.service_proxy | Raised when a cluster service address cannot be resolved. |
 | `ServiceNotReachableError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.k8s.node_port | A service cannot be reached from outside the cluster. |
@@ -149,3 +151,4 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `VolumeMoveRefusedError` | `K8S_VOLUME_MOVE_REFUSED` | `1` | K8s | Raised when a volume move cannot start safely; it changed nothing. |
 | `VolumeMoveStrandedError` | `K8S_VOLUME_MOVE_STRANDED` | `1` | K8s | Raised when a volume move fails after the old claim was deleted; Argo CD stays paused. |
 | `VolumeReclaimError` | `K8S_VOLUME_RECLAIM_ERROR` | `1` | K8s | Raised when volume reclaim fails or is refused due to active claims or mounts. |
+| `WebSearchError` | `WEB_SEARCH_ERROR` | `1` | Ai | Base of the errors of `web_search`. A caller that cannot stop on a search catches it. |

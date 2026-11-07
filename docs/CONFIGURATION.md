@@ -296,6 +296,14 @@ Address of the Crawl4AI service that returns the text of a web page.
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `url` | `Union` | - | `DEVOPS_CLI_CRAWL4AI_URL` | Address of the Crawl4AI service that returns the text of a web page, such as `http://crawl4ai.devops.svc.cluster.local:11235` in the cluster. It has no default |
+## Web Search Configuration (`search`)
+
+The providers that web search asks, in order, and the language of the search.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `providers` | `list` | `['searxng', 'duckduckgo', 'firecrawl']` | `DEVOPS_CLI_SEARCH_PROVIDERS` | The providers of web search, in the order that a search asks them: `searxng`, `duckduckgo` or `firecrawl`. A provider that is not configured is skipped, and `searxng` is skipped until its provider exists (#3927). A search goes to the next provider when one fails or returns no hit, and the first provider with a hit answers |
+| `language` | `str` | `en` | `DEVOPS_CLI_SEARCH_LANGUAGE` | The language of a web search, as the `Accept-Language` of its request |
 
 ## Top-Level Settings
 
