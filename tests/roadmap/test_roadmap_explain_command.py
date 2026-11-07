@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any
 
@@ -154,3 +155,71 @@ def test_a_dry_run_with_the_trace_option_lists_the_read_of_the_issue_only(
     assert f"#{job_world.number}" in result.output
     assert "branch" not in result.output.lower().replace("branches", "")
     assert job_world.api.requested == []
+
+
+# ── The option --json (#3217) ────────────────────────────────────────────────────────────
+
+
+def _totals_trace() -> ImplementTrace:
+    """The trace of a run with one model event and two attempts: a failed one that a repair
+    round follows, and a passed one that ends the step."""
+    trace = ImplementTrace(step="group 1")
+    trace.model_call("model-a", 1200, 300, 90.0)
+    trace.attempt(1, "standard", "check_failed", "ruff check . exited 1", repair=True)
+    trace.attempt(2, "standard", "", "", repair=False)
+    return trace
+
+
+def test_the_json_option_gives_the_totals_of_the_last_run(cli: Cli, job_world: JobWorld) -> None:
+    _with_trace(job_world, _totals_trace().encode())
+
+    result = _explain(cli, job_world, job_world.number, "--json")
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == {
+        "number": job_world.number,
+        "tokens_total": 1500,
+        "seconds_total": 90.0,
+        "repair_rounds": 1,
+        "outcomes": {"failed": 1, "passed": 1},
+        "dropped": 0,
+    }
+
+
+def test_the_report_without_json_names_the_same_totals(cli: Cli, job_world: JobWorld) -> None:
+    _with_trace(job_world, _totals_trace().encode())
+
+    result = _explain(cli, job_world, job_world.number)
+
+    assert result.exit_code == 0, result.output
+    assert "1500 tokens" in result.output
+    assert "90.0 s" in result.output
+    assert "1 repair round(s)" in result.output
+    assert "1 failed and 1 passed outcome(s)" in result.output
+
+
+def test_the_json_option_gives_null_for_each_total_of_an_item_with_no_run(
+    cli: Cli, job_world: JobWorld
+) -> None:
+    result = _explain(cli, job_world, job_world.number, "--json")
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["number"] == job_world.number
+    assert (
+        payload["tokens_total"],
+        payload["seconds_total"],
+        payload["repair_rounds"],
+        payload["outcomes"],
+        payload["dropped"],
+    ) == (None, None, None, None, None)
+
+
+def test_the_json_option_with_the_trace_option_exits_1_and_names_both(
+    cli: Cli, job_world: JobWorld
+) -> None:
+    result = _explain(cli, job_world, job_world.number, "--json", "--trace")
+
+    assert result.exit_code == 1
+    assert "--json" in result.output
+    assert "--trace" in result.output

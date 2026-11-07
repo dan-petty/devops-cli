@@ -102,6 +102,20 @@ class Explanation:
     implement_effort: str = ""
     totals: TraceTotals | None = None
 
+    def as_dict(self) -> dict[str, object]:
+        """The explanation as the JSON object of `explain --json` (#3217): the number, the totals
+        of the last implement run and the events that the bound dropped. Each total is None for an
+        issue whose record holds no trace of a run."""
+        totals = self.totals
+        return {
+            "number": self.number,
+            "tokens_total": totals.tokens_total if totals else None,
+            "seconds_total": totals.seconds_total if totals else None,
+            "repair_rounds": totals.repair_rounds if totals else None,
+            "outcomes": totals.outcomes if totals else None,
+            "dropped": totals.dropped if totals else None,
+        }
+
 
 def _verdict(
     number: int, left_out: Iterable[LeftOut], beyond: Collection[int], limit: int
