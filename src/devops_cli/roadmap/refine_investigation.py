@@ -41,7 +41,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import UsageLimits
 
-from devops_cli.ai.common_tools import firecrawl_search
+from devops_cli.ai.common_tools import web_search
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import (
@@ -112,11 +112,11 @@ def cut(lines: list[str], *, max_chars: int = CONST_ROADMAP_REFINE_TOOL_MAX_CHAR
 
 
 def cited_web_search(query: str, key: str, allowed_urls: set[str], *, results: int) -> str:
-    """One Firecrawl search of `results` results, as the text a tool answers: each result's
+    """One web search of `results` results, as the text a tool answers: each result's
     title, URL and description. Each http or https URL joins `allowed_urls`, the URLs a source
     may cite. A failed search is answered as text, so it cannot stop the run (#2398)."""
     try:
-        found = firecrawl_search(query, key, limit=results)
+        found = web_search(query, key, limit=results)
     except (httpx2.HTTPError, ValueError) as exc:
         return f"The search failed: {type(exc).__name__}."
     lines: list[str] = []

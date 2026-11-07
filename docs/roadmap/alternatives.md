@@ -4,7 +4,7 @@
 
 ## What a check does
 
-For each item, one agent run searches the web with Firecrawl. It reads the facts of each candidate tool from GitHub and PyPI: its license, its last activity and whether it is archived.
+For each item, one agent run searches the web with Firecrawl. When Firecrawl fails (HTTP 402, 429 or 5xx, no answer, or a reply with no results list), the same call searches DuckDuckGo and returns results in the same form. A search that Firecrawl answered is not repeated. It reads the facts of each candidate tool from GitHub and PyPI: its license, its last activity and whether it is archived.
 
 The verdict is `covers`, `partly` or `none`. For every item except those named below, the check accepts a verdict only after the run searched. A reply with no search gets one more turn to search.
 

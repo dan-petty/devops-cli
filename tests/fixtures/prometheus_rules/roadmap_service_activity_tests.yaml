@@ -132,7 +132,7 @@ tests:
               result: "402"
             exp_annotations:
               summary: "Firecrawl refused web searches of the roadmap Service with HTTP 402 in the last hour"
-              description: "Firecrawl refused a web search of the roadmap Service with HTTP 402: 402 when the account has no credits, 429 at its rate limit. Refine goes on without the results (k8s/README.md, Roadmap service)."
+              description: "Firecrawl refused a web search of the roadmap Service with HTTP 402: 402 when the account has no credits, 429 at its rate limit. The search falls back to DuckDuckGo (k8s/README.md, Roadmap service)."
       - eval_time: 125m
         alertname: RoadmapServiceFirecrawlRefused
         exp_alerts: []
@@ -156,7 +156,7 @@ tests:
               result: "429"
             exp_annotations:
               summary: "Firecrawl refused web searches of the roadmap Service with HTTP 429 in the last hour"
-              description: "Firecrawl refused a web search of the roadmap Service with HTTP 429: 402 when the account has no credits, 429 at its rate limit. Refine goes on without the results (k8s/README.md, Roadmap service)."
+              description: "Firecrawl refused a web search of the roadmap Service with HTTP 429: 402 when the account has no credits, 429 at its rate limit. The search falls back to DuckDuckGo (k8s/README.md, Roadmap service)."
 
   # The alert of the alternatives check (#2950). The search counter has the label result and the
   # gauge has the label repo, so the rule sums each side to one label set before it joins them. The

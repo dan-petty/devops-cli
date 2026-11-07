@@ -3043,6 +3043,9 @@ CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC: Final[int] = 100
 # counts under its HTTP status (#2475).
 CONST_FIRECRAWL_RESULT_OK: Final[str] = "ok"
 CONST_FIRECRAWL_RESULT_ERROR: Final[str] = "error"
+# The `backend` of `devops_cli_web_search_fallbacks_total`: the search that runs after Firecrawl
+# failed (#3876). Its `result` is `CONST_FIRECRAWL_RESULT_OK` or `CONST_FIRECRAWL_RESULT_ERROR`.
+CONST_WEB_SEARCH_BACKEND_DUCKDUCKGO: Final[str] = "duckduckgo"
 # The most comments refine posts on one item in `CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS`.
 # A round that finds that many refine comments on the item leaves it alone, so a loop of replies
 # from another bot or workflow stops after this many comments (#2475).
