@@ -3550,6 +3550,18 @@ class RoadmapMessages:
         "openspec/specs/{capability}/spec.md already has it. Change it with modified, or give "
         "the new requirement another name."
     )
+    # An added requirement removes a command or an option, and a base requirement of the capability
+    # still names it: the archive would leave both in the living spec (#3287).
+    stage_problem_stale_command: str = (
+        "The requirement {requirement} of openspec/specs/{capability}/spec.md names `{command}`, "
+        "and an added requirement says that `{command}` must not exist. Change that requirement "
+        "with modified and write its text without `{command}`, or keep the command."
+    )
+    stage_problem_stale_command_text: str = (
+        "The modified requirement {requirement} of {capability} keeps `{command}`, and an added "
+        "requirement says that `{command}` must not exist. Write the modified text without "
+        "`{command}`."
+    )
     stage_problem_criterion: str = (
         'The issue lists the acceptance criterion "{criterion}", and `criteria` has no entry with '
         "this text. Add an entry that copies the text, with the number of the group that "
