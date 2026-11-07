@@ -215,6 +215,10 @@
   color: "C2E0C6"
   description: "Output formats of commands: JSON, YAML and tables"
 
+- name: "scope/research"
+  color: "5319E7"
+  description: "The research agent: the pins of the project and the news about them"
+
 - name: "autorelease: pending"
   color: "EDEDED"
   description: "The release pull request that release-please keeps open"
