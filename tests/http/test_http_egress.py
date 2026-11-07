@@ -25,13 +25,13 @@ import pytest
 from devops_cli.ai.benchmark.embedding_runner import EmbeddingBenchmarkRunner
 from devops_cli.ai.benchmark.runner import BenchmarkRunner
 from devops_cli.ai.client import LLMClient
-from devops_cli.ai.common_tools import duckduckgo_search, firecrawl_search
 from devops_cli.ai.gateway import GatewayRouter, fetch_model_info
 from devops_cli.ai.library.docs_ingester import DocsIngester
 from devops_cli.ai.providers import create_pydantic_ai_provider
 from devops_cli.ai.pydantic_ai_bridge import resolve_pydantic_ai_model
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
 from devops_cli.ai.spend.pricing import PricingRegistry
+from devops_cli.ai.web_search import DuckDuckGoProvider, FirecrawlProvider
 from devops_cli.argo.fleet import sync_single_target
 from devops_cli.argo.gitops import trigger_argocd_sync
 from devops_cli.argo.rollouts import evaluate_rollout_gate
@@ -920,8 +920,11 @@ def _caller_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]]:
         "k8s proxy": _k8s_proxy_call,
         "ai shared client": _ai_shared_call(flag),
         "ai client base url": _ai_client_base_url_call(flag),
-        "firecrawl": lambda: firecrawl_search("devops", api_key="fc-test"),
-        "duckduckgo": lambda: duckduckgo_search("devops"),
+        "firecrawl": _with_env(
+            {"DEVOPS_CLI_FIRECRAWL_API_KEY": "fc-test"},
+            lambda: FirecrawlProvider().search("devops", limit=5),
+        ),
+        "duckduckgo": lambda: DuckDuckGoProvider().search("devops", limit=5),
         "statuspage": lambda: fetch_statuspage_summary("https://example.com/api/v2/summary.json"),
         **_ai_service_calls(flag, tmp_path),
         **_k8s_service_calls(),

@@ -59,11 +59,11 @@ from devops_cli.roadmap.stores.store import (
     RoadmapStore,
 )
 from devops_cli.telemetry.instruments import (
-    FIRECRAWL_SEARCHES_TOTAL,
     ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE,
     ROADMAP_ALTERNATIVES_SEARCHES,
     ROADMAP_ALTERNATIVES_TOTAL,
     ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
+    WEB_SEARCHES_TOTAL,
 )
 from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.github_repository import GitHubFake
@@ -109,7 +109,7 @@ def web_key(config: Callable[..., Any], monkeypatch: pytest.MonkeyPatch, web: We
     """A Firecrawl key in the settings, and a Firecrawl that answers each search with one result."""
     for name in ("DEVOPS_CLI_FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY"):
         monkeypatch.delenv(name, raising=False)
-    config(firecrawl={"api_key": "fc-test"})
+    config(search={"providers": ["firecrawl"]}, firecrawl={"api_key": "fc-test"})
     _firecrawl(web, SEARCH_URL)
 
 
@@ -480,10 +480,10 @@ def test_retry_delay_the_setting_defaults_to_three_and_is_at_least_one(
 
 
 def test_the_search_stops_at_its_limit_and_remembers_what_it_ran(
-    store: InMemoryRoadmapStore, web: WebFake
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake
 ) -> None:
     _firecrawl(web, SEARCH_URL)
-    tools = AlternativesTools(store=store, firecrawl_key="fc-test")
+    tools = AlternativesTools(store=store)
 
     answers = [
         tools.search_web(f"query {n}") for n in range(CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES + 1)
@@ -509,7 +509,7 @@ def test_the_search_stops_at_its_limit_and_remembers_what_it_ran(
 def test_a_repository_read_answers_with_its_facts_and_remembers_them(
     store: InMemoryRoadmapStore,
 ) -> None:
-    tools = AlternativesTools(store=store, firecrawl_key="fc-test")
+    tools = AlternativesTools(store=store)
 
     answer = tools.github_repository("example/scanner")
 
@@ -534,7 +534,7 @@ def test_a_repository_with_no_release_or_license_says_so(store: InMemoryRoadmapS
     store.seed_repository(
         RepositoryFacts(full_name="example/bare", url="https://github.com/example/bare")
     )
-    tools = AlternativesTools(store=store, firecrawl_key="fc-test")
+    tools = AlternativesTools(store=store)
 
     answer = tools.github_repository("example/bare")
 
@@ -553,7 +553,7 @@ def test_a_repository_with_no_release_or_license_says_so(store: InMemoryRoadmapS
 def test_a_name_that_is_no_repository_name_is_answered_as_text_and_read_nowhere(
     store: InMemoryRoadmapStore, name: str
 ) -> None:
-    tools = AlternativesTools(store=store, firecrawl_key="fc-test")
+    tools = AlternativesTools(store=store)
 
     answer = tools.github_repository(name)
 
@@ -561,7 +561,7 @@ def test_a_name_that_is_no_repository_name_is_answered_as_text_and_read_nowhere(
 
 
 def test_a_repository_that_does_not_exist_is_answered_as_text(store: InMemoryRoadmapStore) -> None:
-    tools = AlternativesTools(store=store, firecrawl_key="fc-test")
+    tools = AlternativesTools(store=store)
 
     assert tools.github_repository("example/none") == "GitHub has no repository example/none."
 
@@ -573,7 +573,7 @@ def test_a_failed_repository_read_is_answered_as_text_and_logged(
         raise GitHubOperationError("GitHub answered 502.", operation="roadmap.read")
 
     monkeypatch.setattr(store, "repository_facts", broken)
-    tools = AlternativesTools(store=store, firecrawl_key="fc-test")
+    tools = AlternativesTools(store=store)
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.alternatives"):
         answer = tools.github_repository("example/scanner")
@@ -591,7 +591,7 @@ def test_a_spent_github_quota_stops_the_run(
         raise GitHubRateLimitError("No requests are left.", operation="roadmap.read")
 
     monkeypatch.setattr(store, "repository_facts", spent)
-    tools = AlternativesTools(store=store, firecrawl_key="fc-test")
+    tools = AlternativesTools(store=store)
 
     with pytest.raises(GitHubRateLimitError) as raised:
         tools.github_repository("example/scanner")
@@ -599,7 +599,7 @@ def test_a_spent_github_quota_stops_the_run(
 
 
 def test_the_two_fact_tools_share_one_read_limit(store: InMemoryRoadmapStore, web: WebFake) -> None:
-    tools = AlternativesTools(store=store, firecrawl_key="fc-test")
+    tools = AlternativesTools(store=store)
 
     reads = CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS
     answers = [tools.github_repository("example/scanner") for _ in range(reads + 1)]
@@ -652,7 +652,7 @@ def test_a_pypi_read_answers_with_the_latest_upload_and_remembers_it(
         uploads=["2026-10-20T01:00:00.123456Z", "2026-10-20T01:00:30.000000Z"],
         license_expression="Apache-2.0",
     )
-    tools = AlternativesTools(store=store, firecrawl_key="fc-test")
+    tools = AlternativesTools(store=store)
 
     answer = tools.pypi_package("scanner")
 
@@ -701,7 +701,7 @@ def test_a_pypi_read_gives_the_license_a_package_states_in_any_of_its_fields(
     store: InMemoryRoadmapStore, web: WebFake, fields: dict[str, Any], license_name: str
 ) -> None:
     _pypi(web, "scanner", uploads=[NOW.isoformat()], **fields)
-    tools = AlternativesTools(store=store, firecrawl_key="fc-test")
+    tools = AlternativesTools(store=store)
 
     answer = tools.pypi_package("scanner")
 
@@ -715,7 +715,7 @@ def test_a_pypi_package_that_does_not_exist_or_fails_to_read_is_answered_as_text
     store: InMemoryRoadmapStore, web: WebFake, caplog: pytest.LogCaptureFixture
 ) -> None:
     web.respond("GET", DEFAULT_PYPI_PACKAGE_URL.format(name="broken"), 503)
-    tools = AlternativesTools(store=store, firecrawl_key="fc-test")
+    tools = AlternativesTools(store=store)
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.alternatives"):
         answers = [tools.pypi_package(name) for name in ("none-such", "broken", "../x", "a b")]
@@ -1451,10 +1451,10 @@ def test_a_check_after_the_window_replaces_the_block_and_adds_a_comment(
 
 
 def test_a_search_remembers_how_many_results_it_found_and_a_failed_search_found_none(
-    store: InMemoryRoadmapStore, web: WebFake
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake
 ) -> None:
     _firecrawl(web, SEARCH_URL, TOOL_URL)
-    tools = AlternativesTools(store=store, firecrawl_key="fc-test")
+    tools = AlternativesTools(store=store)
     tools.search_web("two results")
     _firecrawl(web)
     tools.search_web("no result")
@@ -1531,7 +1531,7 @@ def test_the_comment_shows_at_most_the_bound_of_sources_and_says_how_many_it_lef
         f"https://example.com/source-{n}"
         for n in range(CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES + 3)
     ]
-    tools = AlternativesTools(store=store, firecrawl_key="fc-test", allowed_urls=set(urls))
+    tools = AlternativesTools(store=store, allowed_urls=set(urls))
     tools.searches.append(alternatives.Search("scanner", len(urls)))
     number = _item(store)
     item = store.item(number)
@@ -2020,7 +2020,7 @@ def test_search_first_a_reply_with_no_search_gets_one_more_turn_and_the_search_c
         check.item.number,
         [search.query for search in check.searches],
         any("Call search_web at least once" in text for text in _retry_prompts(script)),
-        len(otlp.points(FIRECRAWL_SEARCHES_TOTAL.name)) > 0,
+        len(otlp.points(WEB_SEARCHES_TOTAL.name)) > 0,
     ) == (3, number, ["scanner"], True, True)
 
 
@@ -2340,19 +2340,19 @@ def test_a_private_repository_turns_the_check_off(
     ) == ("the repository is private", [], [], [], 0, [], True)
 
 
-def test_a_missing_firecrawl_key_turns_the_check_off(
+def test_a_chain_with_no_configured_provider_turns_the_check_off(
     store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any]
 ) -> None:
     for name in ("DEVOPS_CLI_FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY"):
         monkeypatch.delenv(name, raising=False)
-    config(firecrawl={"api_key": None})
+    config(search={"providers": ["firecrawl"]}, firecrawl={"api_key": None})
     _item(store)
     script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     plan = _plan(store, script)
 
     assert (plan.off_reason, plan.checks, script.seen, plan.has_writes) == (
-        "no Firecrawl key is set",
+        "no search provider is configured",
         [],
         [],
         False,
@@ -2673,12 +2673,12 @@ def test_total_failure_a_round_with_no_item_to_check_makes_no_model_call_and_suc
     assert (script.seen, plan.checks, plan.failures, plan.has_writes) == ([], [], [], False)
 
 
-def test_a_round_off_for_want_of_a_key_runs_the_row_and_checks_nothing(
+def test_a_round_off_for_want_of_a_provider_runs_the_row_and_checks_nothing(
     store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Any]
 ) -> None:
     for name in ("DEVOPS_CLI_FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY"):
         monkeypatch.delenv(name, raising=False)
-    config()
+    config(search={"providers": ["firecrawl"]}, firecrawl={"api_key": None})
     number = _item(store)
 
     outcome = _alternatives_row().runner(store=store, repo=REPO)

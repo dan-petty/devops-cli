@@ -150,8 +150,8 @@ def test_the_extended_toolset_is_the_default_and_adds_three_tools(tools: StageTo
     assert [tool.name for tool in tools.tools()] == _EXTENDED_TOOL_NAMES
 
 
-def test_the_toolbox_has_no_web_search_even_with_a_key(repo: Path) -> None:
-    keyed = StageTools(source=repo, sha="HEAD", firecrawl_key="fc-key")
+def test_the_toolbox_has_no_web_search_even_when_the_round_allows_it(repo: Path) -> None:
+    keyed = StageTools(source=repo, sha="HEAD", web=True)
 
     assert "search_web" not in [tool.name for tool in keyed.tools()]
 

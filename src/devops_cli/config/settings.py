@@ -124,6 +124,8 @@ from devops_cli.config.defaults import (
     DEFAULT_RUNS_DATA_DIR,
     DEFAULT_SAMPLES_DATA_DIR,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
+    DEFAULT_SEARCH_LANGUAGE,
+    DEFAULT_SEARCH_PROVIDERS,
     DEFAULT_SERVICE_DRAIN_TIMEOUT_SECONDS,
     DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR,
     DEFAULT_SERVICE_MODEL_CALL_CONCURRENCY,
@@ -137,6 +139,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_TIMEOUT_SECONDS,
     DEFAULT_VALKEY_URL,
     DEFAULT_WORKSPACE_FILE,
+    SearchProviderName,
     StageToolset,
 )
 from devops_cli.config.env import (
@@ -1314,6 +1317,20 @@ class Crawl4AIConfig(BaseModel):
     )
 
 
+class SearchConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    providers: Annotated[list[SearchProviderName], Variable()] = Field(
+        description="The providers of web search, in the order that a search asks them: `searxng`, `duckduckgo` or `firecrawl`. A provider that is not configured is skipped, and `searxng` is skipped until its provider exists (#3927). A search goes to the next provider when one fails or returns no hit, and the first provider with a hit answers",
+        default_factory=lambda: list(DEFAULT_SEARCH_PROVIDERS),
+    )
+    language: Annotated[str, Variable()] = Field(
+        description="The language of a web search, as the `Accept-Language` of its request",
+        default=DEFAULT_SEARCH_LANGUAGE,
+        min_length=2,
+    )
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         extra="ignore",
@@ -1364,6 +1381,7 @@ class Settings(BaseSettings):
     roadmap: RoadmapConfig = RoadmapConfig()
     firecrawl: FirecrawlConfig = FirecrawlConfig()
     crawl4ai: Crawl4AIConfig = Crawl4AIConfig()
+    search: SearchConfig = SearchConfig()
     # The values that `load_settings` returned, so `save_settings` writes only the keys that
     # changed after the load (#1999). Settings made in code have none, and start from the defaults.
     _loaded: dict[str, Any] | None = PrivateAttr(default=None)

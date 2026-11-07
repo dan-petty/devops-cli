@@ -124,6 +124,8 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_RUNS_INDEX_PASSWORD` | `runs.index_password` | 🔒 Yes | Run index Valkey password (stored in OS keyring) |
 | `DEVOPS_CLI_RUNS_INDEX_URL` | `runs.index_url` | No | Valkey holding the run index shared by workstations (set by `devops ai runs connect`) |
 | `DEVOPS_CLI_SANDBOX_EXCLUDE_HOME_DIR` | `sandbox.exclude_home_dir` | No | Exclude user home directory entirely from sandbox access (/home/**/* and ~/**/*) |
+| `DEVOPS_CLI_SEARCH_LANGUAGE` | `search.language` | No | The language of a web search, as the `Accept-Language` of its request |
+| `DEVOPS_CLI_SEARCH_PROVIDERS` | `search.providers` | No | The providers of web search, in the order that a search asks them: `searxng`, `duckduckgo` or `firecrawl`. A provider that is not configured is skipped, and `searxng` is skipped until its provider exists (#3927). A search goes to the next provider when one fails or returns no hit, and the first provider with a hit answers |
 | `DEVOPS_CLI_SERVICE_DRAIN_TIMEOUT_SECONDS` | `service.drain_timeout_seconds` | No | Shutdown drain timeout for running service jobs in seconds |
 | `DEVOPS_CLI_SERVICE_GITHUB_APP_APP_ID` | `service.github_app.app_id` | No | ID of the GitHub App that the roadmap Service and the cluster jobs act as |
 | `DEVOPS_CLI_SERVICE_GITHUB_APP_INSTALLATION_ID` | `service.github_app.installation_id` | No | ID of the App's installation on the account that owns the managed repositories |

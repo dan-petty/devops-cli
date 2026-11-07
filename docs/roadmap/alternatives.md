@@ -4,7 +4,7 @@
 
 ## What a check does
 
-For each item, one agent run searches the web with Firecrawl. When Firecrawl fails (HTTP 402, 429 or 5xx, no answer, or a reply with no results list), the same call searches DuckDuckGo and returns results in the same form. A search that Firecrawl answered is not repeated. It reads the facts of each candidate tool from GitHub and PyPI: its license, its last activity and whether it is archived.
+For each item, one agent run searches the web through the providers of `search.providers` (SearXNG, DuckDuckGo and Firecrawl by default). A provider that is not configured is skipped. A provider that fails or returns no hit passes the search on to the next one, and the first provider with a hit answers. It reads the facts of each candidate tool from GitHub and PyPI: its license, its last activity and whether it is archived.
 
 The verdict is `covers`, `partly` or `none`. For every item except those named below, the check accepts a verdict only after the run searched. A reply with no search gets one more turn to search.
 
@@ -68,7 +68,7 @@ A run takes first the items with no check, lowest number first. Then it takes th
 
 ## When the check is off
 
-The check is off for a private repository and when there is no Firecrawl key. The plan says why.
+The check is off for a private repository and when no search provider is configured. DuckDuckGo needs no key, so a public repository has a provider with the default settings. The plan says why.
 
 ## Failures
 

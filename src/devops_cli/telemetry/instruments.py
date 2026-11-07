@@ -227,20 +227,16 @@ GITHUB_GRAPHQL_POINTS_TOTAL = Instrument(
     "1",
     "GraphQL points that GitHub reported each answer cost in its rateLimit field",
 )
-FIRECRAWL_SEARCHES_TOTAL = Instrument(
-    "devops_cli_firecrawl_searches_total",
+WEB_SEARCHES_TOTAL = Instrument(
+    "devops_cli_web_searches_total",
     InstrumentKind.COUNTER,
     "1",
-    "Firecrawl web searches, by result: ok, the HTTP status of a search that Firecrawl refused, "
-    "such as 402 when the account has no credits or 429 at its rate limit, or error for a search "
-    "that got no answer or a reply with no web results",
-)
-WEB_SEARCH_FALLBACKS_TOTAL = Instrument(
-    "devops_cli_web_search_fallbacks_total",
-    InstrumentKind.COUNTER,
-    "1",
-    "Web searches that ran after Firecrawl failed, by the backend that answered and the result: "
-    "ok for a search that returned its results (also none), error for a search that failed too",
+    "Web search attempts, by the provider that ran (the backend, or none) and the result: ok for a "
+    "provider that returned hits, empty for one that returned none, the HTTP status of a provider "
+    "that refused the search, such as 402 when the account has no credits or 429 at its rate "
+    "limit, degraded for a reply that the provider could not read, error for a provider that "
+    "did not answer, refused for a query that the guard stopped, and exhausted for a search that "
+    "no provider answered. The backend of the last two is none",
 )
 CRAWL4AI_FETCHES_TOTAL = Instrument(
     "devops_cli_crawl4ai_fetches_total",
@@ -289,7 +285,7 @@ ROADMAP_ALTERNATIVES_SEARCHES = Instrument(
     InstrumentKind.HISTOGRAM,
     "1",
     "Web searches that the tools ran for one alternatives check, by verdict. One observation for "
-    "each check that the alternatives job writes. A search that Firecrawl refused counts. A check "
+    "each check that the alternatives job writes. A search that a provider refused counts. A check "
     "that the job skips for its item class runs no search and observes 0",
 )
 ROADMAP_STAGE_TOTAL = Instrument(
@@ -568,8 +564,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     GITHUB_REQUESTS_TOTAL,
     GITHUB_THROTTLE_WAIT,
     GITHUB_GRAPHQL_POINTS_TOTAL,
-    FIRECRAWL_SEARCHES_TOTAL,
-    WEB_SEARCH_FALLBACKS_TOTAL,
+    WEB_SEARCHES_TOTAL,
     CRAWL4AI_FETCHES_TOTAL,
     ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL,
     ROADMAP_ALTERNATIVES_TOTAL,
@@ -675,7 +670,6 @@ __all__ = [
     "EMBEDDING_CACHE_LOOKUPS_TOTAL",
     "EMBEDDING_CACHE_SIZE",
     "FINDINGS_TOTAL",
-    "FIRECRAWL_SEARCHES_TOTAL",
     "GITHUB_GRAPHQL_POINTS_TOTAL",
     "GITHUB_REQUESTS_TOTAL",
     "GITHUB_THROTTLE_WAIT",
@@ -727,7 +721,7 @@ __all__ = [
     "UPSTREAM_COMPONENT_STATUS",
     "UPSTREAM_SERVICE_STATUS",
     "VULNERABILITY_LOOKUPS_TOTAL",
-    "WEB_SEARCH_FALLBACKS_TOTAL",
+    "WEB_SEARCHES_TOTAL",
     "Instrument",
     "InstrumentKind",
     "backend_name",

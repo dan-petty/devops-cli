@@ -21,6 +21,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 
+from devops_cli.ai.web_search import first_configured_provider
 from devops_cli.config.constants import (
     CONST_ROADMAP_ADR_DIRECTORY,
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
@@ -29,7 +30,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS,
     CONST_URL_GITHUB_API_BASE,
 )
-from devops_cli.config.defaults import DEFAULT_FIRECRAWL_SEARCH_URL, DEFAULT_PYPI_PACKAGE_URL
+from devops_cli.config.defaults import DEFAULT_PYPI_PACKAGE_URL
 from devops_cli.dry_run.requests import PlannedRequest, both, render_request_plan
 from devops_cli.git.branch_authors import LOG_FORMAT
 from devops_cli.lang import MESSAGES
@@ -447,8 +448,8 @@ def alternatives_requests(
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap alternatives` reads, in order, and the writes `--confirm` makes after
     them (#2650). The run reads the repository's visibility and every issue, and stops when the
-    repository is private or no Firecrawl key is set. Once for the run, when it checks an item that
-    is no skip class, it reads the directory of the ADRs and each file of it (#3505). For each
+    repository is private or no search provider is configured. Once for the run, when it checks an
+    item that is no skip class, it reads the directory of the ADRs and each file of it (#3505). For each
     item it checks it reads the item's comments, runs the model, and makes the searches and fact
     reads the model asks for; `--item` names the item, and `limit` caps the items of a round, which
     `--limit` sets."""
@@ -459,11 +460,20 @@ def alternatives_requests(
     subject = f"#{item}" if item is not None else _p("item")
     each_item = rep["alternatives_item"]
     visibility = [store.gh(gh.is_private_args(repo), "visibility")]
-    search = PlannedRequest(
-        method=methods["search"],
-        target=texts.plan_targets["web_search"].format(subject=subject),
-        argv=("POST", DEFAULT_FIRECRAWL_SEARCH_URL),
-        repeat=rep["search"].format(limit=CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES),
+    # The first configured provider is the one that a search asks first. With none, the check is
+    # off and the run makes no search.
+    provider = first_configured_provider()
+    search = (
+        [
+            PlannedRequest(
+                method=methods["search"].format(provider=provider.name),
+                target=texts.plan_targets["web_search"].format(subject=subject),
+                argv=("POST", provider.url),
+                repeat=rep["search"].format(limit=CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES),
+            )
+        ]
+        if provider
+        else []
     )
     fact_repeat = rep["fact"].format(limit=CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS)
     repository = _p("repository")
@@ -505,7 +515,7 @@ def alternatives_requests(
         *visibility,
         *store.every_issue(),
         *adrs,
-        *within([*store.comments_on(subject), model, search, *facts], cond["check_on"], each_item),
+        *within([*store.comments_on(subject), model, *search, *facts], cond["check_on"], each_item),
     ]
     writes = within(
         [

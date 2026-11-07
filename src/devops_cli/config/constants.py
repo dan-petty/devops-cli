@@ -159,6 +159,10 @@ CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
         "Crawl4AI Configuration (`crawl4ai`)",
         "Address of the Crawl4AI service that returns the text of a web page.",
     ),
+    "search": (
+        "Web Search Configuration (`search`)",
+        "The providers that web search asks, in order, and the language of the search.",
+    ),
 }
 CONST_DOMAIN_EXCEPTION_MODULES: Final[tuple[str, ...]] = (
     "devops_cli.ai.client.models",
@@ -3045,14 +3049,17 @@ CONST_ROADMAP_REFINE_MAX_PATHS_PER_SYMBOL: Final[int] = 50
 # The context names the requirements of at most this many specs, and at most this many for each (#3012).
 CONST_ROADMAP_REFINE_MAX_SPECS: Final[int] = 10
 CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC: Final[int] = 100
-# The `result` of `devops_cli_firecrawl_searches_total` for a search that returned its web results,
-# and for one that got no answer or a reply with no web results. A search that Firecrawl refused
-# counts under its HTTP status (#2475).
-CONST_FIRECRAWL_RESULT_OK: Final[str] = "ok"
-CONST_FIRECRAWL_RESULT_ERROR: Final[str] = "error"
-# The `backend` of `devops_cli_web_search_fallbacks_total`: the search that runs after Firecrawl
-# failed (#3876). Its `result` is `CONST_FIRECRAWL_RESULT_OK` or `CONST_FIRECRAWL_RESULT_ERROR`.
-CONST_WEB_SEARCH_BACKEND_DUCKDUCKGO: Final[str] = "duckduckgo"
+# The `result` of `devops_cli_web_searches_total` (#3925), besides the HTTP status of a provider that
+# refused a search: the provider returned hits, returned none, answered with a reply it could not
+# read, or did not answer. The last three belong to a search that no provider answered or that the
+# guard refused, and their `backend` is `none`.
+CONST_WEB_SEARCH_RESULT_OK: Final[str] = "ok"
+CONST_WEB_SEARCH_RESULT_EMPTY: Final[str] = "empty"
+CONST_WEB_SEARCH_RESULT_DEGRADED: Final[str] = "degraded"
+CONST_WEB_SEARCH_RESULT_ERROR: Final[str] = "error"
+CONST_WEB_SEARCH_RESULT_REFUSED: Final[str] = "refused"
+CONST_WEB_SEARCH_RESULT_EXHAUSTED: Final[str] = "exhausted"
+CONST_WEB_SEARCH_BACKEND_NONE: Final[str] = "none"
 # The `result` of `devops_cli_crawl4ai_fetches_total` for a page whose text the Crawl4AI service
 # returned, and for a fetch that got no usable answer. A fetch that the service refused counts its
 # HTTP status.

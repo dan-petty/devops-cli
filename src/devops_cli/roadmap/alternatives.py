@@ -15,7 +15,7 @@ title of the Conventional Commit type `test`, `docs`, `refactor`, `chore`, `ci` 
 class, and the job makes no model call and no search for it.
 
 **The run.** For every other item, `investigate` of refine's investigation runs the agent with
-three tools: a Firecrawl web search, a GitHub repository read and a PyPI package read. A reply
+three tools: a web search, a GitHub repository read and a PyPI package read. A reply
 that follows no search gets one more turn to search; the job refuses a second reply that follows
 no search, and refuses `not-applicable` from the model. The tools are the only sources. They
 keep the URLs they returned, the facts they read and the searches they ran, and the job writes
@@ -49,8 +49,8 @@ changes an earlier one. A comment after the job's last one reaches the next chec
 `alternatives.failed_at` and `alternatives.failed_error` in its job record; a written check
 clears both.
 
-The check is off when the repository is private, its visibility cannot be read, or no Firecrawl
-key is set: a verdict `none` would then say that no tool exists when none was looked for.
+The check is off when the repository is private, its visibility cannot be read, or no search
+provider is configured: a verdict `none` would then say that no tool exists when none was looked for.
 """
 
 from __future__ import annotations
@@ -71,6 +71,7 @@ from devops_cli.ai.client.factory import get_task_model
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.ai.web_search import normalize_url
 from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_CLASSIFIER_SEPARATOR,
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
@@ -176,11 +177,6 @@ class AlternativesReply(BaseModel):
 
 
 # ── The facts a tool read ─────────────────────────────────────────────────────
-
-
-def _key(url: str) -> str:
-    """`url` as the job compares it: a trailing slash does not make another URL."""
-    return url.rstrip("/")
 
 
 @dataclass(frozen=True)
@@ -290,7 +286,6 @@ class AlternativesTools:
     """
 
     store: RoadmapStore
-    firecrawl_key: str
     allowed_urls: set[str] = field(default_factory=set)
     facts: dict[str, ToolFacts] = field(default_factory=dict)
     searches: list[Search] = field(default_factory=list)
@@ -312,12 +307,11 @@ class AlternativesTools:
         found: set[str] = set()
         answer = cited_web_search(
             query,
-            self.firecrawl_key,
             found,
             results=CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS,
         )
         self.searches.append(Search(query, len(found)))
-        self.allowed_urls |= {_key(url) for url in found}
+        self.allowed_urls |= {normalize_url(url) for url in found}
         return answer
 
     def github_repository(self, name: str) -> str:
@@ -346,7 +340,7 @@ class AlternativesTools:
         self._learn(
             ToolFacts(
                 name=repository.full_name,
-                url=_key(repository.url),
+                url=normalize_url(repository.url),
                 license=repository.license,
                 last_activity=repository.pushed_at,
                 archived=repository.archived,
@@ -392,7 +386,7 @@ class AlternativesTools:
         self._learn(
             ToolFacts(
                 name=package.info.name,
-                url=_key(package.info.package_url),
+                url=normalize_url(package.info.package_url),
                 license=package.info.license_name,
                 last_activity=package.last_upload,
             )
@@ -691,9 +685,11 @@ def _refusal(reply: AlternativesReply, tools: AlternativesTools) -> str | None:
     if reply.verdict in _TOOL_VERDICTS:
         if reply.tool_url is None:
             return texts.alternatives_reason_no_tool.format(verdict=reply.verdict.value)
-        if _key(reply.tool_url) not in tools.facts:
+        if normalize_url(reply.tool_url) not in tools.facts:
             return texts.alternatives_reason_no_facts.format(url=reply.tool_url)
-    unknown = next((url for url in reply.sources if _key(url) not in tools.allowed_urls), None)
+    unknown = next(
+        (url for url in reply.sources if normalize_url(url) not in tools.allowed_urls), None
+    )
     return texts.alternatives_reason_url.format(url=unknown) if unknown is not None else None
 
 
@@ -703,7 +699,7 @@ def _checked_tool(
     """The tool of a tool verdict, from the facts read; None for any other verdict."""
     if reply.verdict not in _TOOL_VERDICTS or reply.tool_url is None:
         return None
-    return _checked(tools.facts[_key(reply.tool_url)], now)
+    return _checked(tools.facts[normalize_url(reply.tool_url)], now)
 
 
 def _checked(facts: ToolFacts, now: datetime) -> CheckedTool:
@@ -984,7 +980,7 @@ def validate_reply(
             ),
             considered=tuple(_checked(facts, now) for facts in tools.facts.values()),
             reason=_clean([reply.reason], allowed)[0],
-            sources=tuple(dict.fromkeys(_key(url) for url in reply.sources)),
+            sources=tuple(dict.fromkeys(normalize_url(url) for url in reply.sources)),
             checked_at=now,
             body_hash=body_hash_of(item.body),
             new_body="",
@@ -1005,14 +1001,14 @@ def _stopped_reason(stopped: InvestigationStopped) -> str:
 
 
 def _check_one(
-    store: RoadmapStore, item: Item, *, key: str, model: Any, adrs: Sequence[Adr], now: datetime
+    store: RoadmapStore, item: Item, *, model: Any, adrs: Sequence[Adr], now: datetime
 ) -> Check | CheckFailure:
     """One item's check: the skip check of a skip class, else its agent run and its validated
     reply. Raises `AICredentialsError` when the model refuses the key."""
     skip_class = skip_class_of(item)
     if skip_class is not None:
         return _skip_check(item, skip_class, now)
-    tools = AlternativesTools(store=store, firecrawl_key=key)
+    tools = AlternativesTools(store=store)
     request = _request(item, trusted_replies(store.comments_on(item.number)), adrs)
     texts = MESSAGES.roadmap
     try:
@@ -1063,7 +1059,7 @@ def plan_alternatives(
     the `analysis` task's by default."""
     moment = now or datetime.now(UTC)
     web = web_search_of(store)
-    if web.key is None:
+    if not web.on:
         return AlternativesPlan(repo=repo, off_reason=web.off_reason)
     config = load_settings().roadmap.alternatives
     selection = select_items(
@@ -1088,7 +1084,7 @@ def plan_alternatives(
     checks: list[Check] = []
     failures: list[CheckFailure] = []
     for item in selection.selected:
-        outcome = _check_one(store, item, key=web.key, model=model, adrs=adrs, now=moment)
+        outcome = _check_one(store, item, model=model, adrs=adrs, now=moment)
         if isinstance(outcome, CheckFailure):
             failures.append(outcome)
         else:

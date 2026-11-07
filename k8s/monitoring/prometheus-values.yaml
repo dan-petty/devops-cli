@@ -805,9 +805,9 @@ serverFiles:
             annotations:
               summary: 'The roadmap Service rejected {{ printf "%.0f" $value }} webhook deliveries in the last 15 minutes'
               description: "The webhook route of the roadmap Service rejected more than 20 deliveries in 15 minutes: a hook whose secret is wrong, or forged deliveries. Check the last response of each hook (k8s/README.md, Roadmap service)."
-      # What the roadmap Service writes, the deliveries of its own writes, and its paid web search
+      # What the roadmap Service writes, the deliveries of its own writes, and its web search
       # (#2475): a burst of comments or label writes, an echo loop with another bot or workflow,
-      # and a Firecrawl account with no credits or at its rate limit. Each count of the last hour
+      # and a search provider that refuses for want of credits or at its rate limit. Each count of the last hour
       # reads a series that starts in the hour as the group roadmap-service does (#2505). One rule
       # warns when the alternatives check searches nothing for 3 days (#2950).
       - name: roadmap-service-activity
@@ -841,22 +841,23 @@ serverFiles:
             annotations:
               summary: 'The roadmap Service got {{ printf "%.0f" $value }} deliveries of its own writes in the last hour'
               description: "The roadmap Service got more than 150 webhook deliveries of its own writes in one hour (k8s/README.md, Roadmap service)."
-          # Firecrawl answers 402 when the account has no credits and 429 at its rate limit.
-          - alert: RoadmapServiceFirecrawlRefused
+          # A provider answers 402 when its account has no credits and 429 at its rate limit. The
+          # search goes on to the next provider, so the alert warns before the chain is spent.
+          - alert: RoadmapServiceWebSearchRefused
             expr: >-
-              sum by (result) (
-              (last_over_time(devops_cli_firecrawl_searches_total{job="roadmap-service", result=~"402|429"}[1h])
-              unless last_over_time(devops_cli_firecrawl_searches_total{job="roadmap-service", result=~"402|429"}[1h] offset 1h))
-              or increase(devops_cli_firecrawl_searches_total{job="roadmap-service", result=~"402|429"}[1h])
+              sum by (backend, result) (
+              (last_over_time(devops_cli_web_searches_total{job="roadmap-service", result=~"402|429"}[1h])
+              unless last_over_time(devops_cli_web_searches_total{job="roadmap-service", result=~"402|429"}[1h] offset 1h))
+              or increase(devops_cli_web_searches_total{job="roadmap-service", result=~"402|429"}[1h])
               ) > 0
             for: 0m
             labels:
               severity: warning
             annotations:
-              summary: 'Firecrawl refused web searches of the roadmap Service with HTTP {{ $labels.result }} in the last hour'
-              description: "Firecrawl refused a web search of the roadmap Service with HTTP {{ $labels.result }}: 402 when the account has no credits, 429 at its rate limit. The search falls back to DuckDuckGo (k8s/README.md, Roadmap service)."
+              summary: 'The provider {{ $labels.backend }} refused web searches of the roadmap Service with HTTP {{ $labels.result }} in the last hour'
+              description: "The provider {{ $labels.backend }} refused a web search of the roadmap Service with HTTP {{ $labels.result }}: 402 when the account has no credits, 429 at its rate limit. The search goes on to the next provider (k8s/README.md, Roadmap service)."
           # The alternatives check ran no search in 3 days while open items have no check (#2950).
-          # The counter has the label result and the gauge has the label repo, so each side is
+          # The counter has the labels backend and result and the gauge has the label repo, so each side is
           # summed to one label set before `and on ()` joins them. The counter holds the searches
           # of every job of the Service, refine too. `or vector(0)` makes a missing counter fire.
           # The search count reads a series that starts in the window as the rules above do
@@ -867,16 +868,16 @@ serverFiles:
               sum by (repo) (last_over_time(devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service"}[7d])) > 0
               and on ()
               (sum(
-              (last_over_time(devops_cli_firecrawl_searches_total{job="roadmap-service"}[3d])
-              unless last_over_time(devops_cli_firecrawl_searches_total{job="roadmap-service"}[3d] offset 3d))
-              or increase(devops_cli_firecrawl_searches_total{job="roadmap-service"}[3d])
+              (last_over_time(devops_cli_web_searches_total{job="roadmap-service"}[3d])
+              unless last_over_time(devops_cli_web_searches_total{job="roadmap-service"}[3d] offset 3d))
+              or increase(devops_cli_web_searches_total{job="roadmap-service"}[3d])
               ) or vector(0)) == 0
             for: 1h
             labels:
               severity: warning
             annotations:
               summary: 'The alternatives check of {{ $labels.repo }} ran no web search in 3 days, and {{ printf "%.0f" $value }} open items have no check'
-              description: "The roadmap Service made no Firecrawl web search for 3 days, while {{ $labels.repo }} has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service made no web search for 3 days, while {{ $labels.repo }} has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
       # The age of the oldest roadmap item in each state (#2919). The metrics row sends the age and
       # the number of the oldest item of each pair of a state and a plan flag once in each round. So
       # a series has a sample in each round, and the rule reads its last sample of the last 30

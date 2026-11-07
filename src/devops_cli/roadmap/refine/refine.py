@@ -71,7 +71,7 @@ questions, numbered, reach the model as a JSON document, and `chat_structured` a
 reply must match. Deterministic validation checks sources, key questions and owner decisions. When
 a fact or a decision has no verified source, or a body question no answer names, the investigation
 (`refine_investigation`, #2398) runs one pydantic-ai agent with read-only tools on the pinned commit,
-and with Firecrawl web search when the repository is public and a key is set; its revised proposal is
+and with web search when the repository is public and a search provider is configured; its revised proposal is
 validated the same way. A decision names the options it compared, a question only a person can
 decide waits on a person, and the Ready check sets Status New → Ready only when complete. The plan
 says when web search is off, and why.
@@ -129,6 +129,7 @@ from devops_cli.ai.client.models import (
 )
 from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.ai.web_search import first_configured_provider
 from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
@@ -164,7 +165,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_REFINE_LIMIT
-from devops_cli.config.settings import get_firecrawl_api_key, load_settings
+from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.dry_run.requests import PlannedRequest
@@ -913,17 +914,18 @@ def collect_context(
 
 @dataclass(frozen=True)
 class WebSearch:
-    """The round's web search: the Firecrawl key the investigation searches with, or, when web
-    search is off, the reason, which the plan reports once (#2398)."""
+    """The round's web search: whether the investigation searches the web, or, when web search is
+    off, the reason, which the plan reports once (#2398)."""
 
-    key: str | None = None
+    on: bool = False
     off_reason: str | None = None
 
 
 def web_search_of(store: RoadmapStore) -> WebSearch:
-    """The round's web search: on for a public repository with a Firecrawl key, else off with the
-    reason. A failed read of the repository's visibility turns it off; a spent quota stops the
-    round."""
+    """The round's web search: on for a public repository when at least one search provider is
+    configured, else off with the reason. DuckDuckGo needs no key, so a public repository has web
+    search with the default providers (#3925). A failed read of the repository's visibility turns
+    it off; a spent quota stops the round."""
     texts = MESSAGES.roadmap
     try:
         is_private = store.repository_is_private()
@@ -934,8 +936,9 @@ def web_search_of(store: RoadmapStore) -> WebSearch:
         return WebSearch(off_reason=texts.refine_web_off_unread)
     if is_private:
         return WebSearch(off_reason=texts.refine_web_off_private)
-    key = get_firecrawl_api_key()
-    return WebSearch(key=key) if key else WebSearch(off_reason=texts.refine_web_off_no_key)
+    if first_configured_provider():
+        return WebSearch(on=True)
+    return WebSearch(off_reason=texts.refine_web_off_no_provider)
 
 
 # ── Proposal Validation ───────────────────────────────────────────────────────
@@ -2323,7 +2326,7 @@ def refine_one_item(
     proposal, open_questions = validate_proposal(
         raw_proposal, current_body, allowed_urls, source, sha, store, covers
     )
-    tools = InvestigationTools(source=source, sha=sha, firecrawl_key=web.key)
+    tools = InvestigationTools(source=source, sha=sha, web=web.on)
     stopped: InvestigationStopped | None = None
     if needs_investigation(proposal, open_questions):
         revised = _investigate(
@@ -2519,7 +2522,7 @@ def _investigate(
     document = {key: value for key, value in request.items() if key != "context"} | {
         "proposal": first.model_dump(mode="json"),
         "open_questions": [*open_questions, *unsourced],
-        "web_search": tools.firecrawl_key is not None,
+        "web_search": tools.web,
     }
     revised = investigate(
         investigator or get_task_model("analysis"),

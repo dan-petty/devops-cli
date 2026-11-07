@@ -460,6 +460,25 @@ def test_the_web_search_state_of_a_round_whose_visibility_read_fails(
     ) == (WebSearch(off_reason="the repository's visibility could not be read"), True)
 
 
+def test_a_public_repository_has_web_search_with_the_keyless_provider(
+    store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
+) -> None:
+    """DuckDuckGo needs no key, so the default providers turn web search on (#3925). A chain of
+    Firecrawl alone with no key leaves it off."""
+    for name in ("DEVOPS_CLI_FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    store.seed_visibility(is_private=False)
+    config(firecrawl={"api_key": None})
+    with_defaults = web_search_of(store)
+    config(search={"providers": ["firecrawl"]})
+    firecrawl_only = web_search_of(store)
+
+    assert (with_defaults, firecrawl_only) == (
+        WebSearch(on=True),
+        WebSearch(off_reason="no search provider is configured"),
+    )
+
+
 def test_validate_proposal_sources_and_questions(
     git_repo: Path, store: InMemoryRoadmapStore
 ) -> None:
@@ -2952,8 +2971,8 @@ def test_a_question_for_a_person_waits_on_a_person_with_no_investigation(
 
 @pytest.mark.parametrize(
     ("is_private", "reason"),
-    [(False, "no Firecrawl key is set"), (True, "the repository is private")],
-    ids=["no-key", "private"],
+    [(False, "no search provider is configured"), (True, "the repository is private")],
+    ids=["no-provider", "private"],
 )
 def test_a_round_with_no_web_search_says_why(
     git_repo: Path,
@@ -2962,9 +2981,11 @@ def test_a_round_with_no_web_search_says_why(
     is_private: bool,
     reason: str,
     monkeypatch: pytest.MonkeyPatch,
+    config: Callable[..., Path],
 ) -> None:
     for name in ("DEVOPS_CLI_FIRECRAWL_API_KEY", "FIRECRAWL_API_KEY"):
         monkeypatch.delenv(name, raising=False)
+    config(search={"providers": ["firecrawl"]}, firecrawl={"api_key": None})
     _seed_with_body(store, "Body")
     store.seed_visibility(is_private=is_private)
     model_fake.answer(_READY)
