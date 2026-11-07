@@ -9,6 +9,8 @@ is the text that the "Left out" list of the plan prints. The order is the order 
 issue is an open item, then the filter, then the rules of the job, then the limit of a run.
 
 The command calls no model and writes nothing to git or to GitHub. It reads what the plans read.
+The report gives the totals of the last implement run, from the trace in the job record of the
+issue that the command reads (#3217).
 The stage job finds a task group over the budget only after the model plans the item, so the
 command reports that rule from the record of an earlier run (`stage.needs_split`), as the job
 does. The failures ledger of the Service counts failed rounds for each job, not for each item, and
@@ -17,6 +19,7 @@ the Service keeps it on its own volume: the command does not read it.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,8 +60,38 @@ class JobVerdict(NamedTuple):
 
 
 @dataclass(frozen=True)
+class TraceTotals:
+    """The totals of the last implement run, from its trace (#3217): the tokens in and out, the
+    seconds of the model calls, the repair rounds, the count of each attempt outcome, and the
+    events that the trace bound dropped. The totals leave the dropped events out."""
+
+    tokens_total: int
+    seconds_total: float
+    repair_rounds: int
+    outcomes: dict[str, int]
+    dropped: int
+
+
+def trace_totals(trace: ImplementTrace) -> TraceTotals:
+    """The totals of `trace` (#3217): the tokens and the seconds of its model events, the repair
+    rounds and the outcomes of its attempt events, and the events that the bound dropped."""
+    models = [event.fields for event in trace.events if event.kind is TraceEventKind.MODEL]
+    attempts = [event.fields for event in trace.events if event.kind is TraceEventKind.ATTEMPT]
+    return TraceTotals(
+        tokens_total=sum(
+            int(fields.get("tokens_in", 0)) + int(fields.get("tokens_out", 0)) for fields in models
+        ),
+        seconds_total=round(sum(float(fields.get("seconds", 0)) for fields in models), 1),
+        repair_rounds=sum(1 for fields in attempts if fields.get("next") == "repair"),
+        outcomes=dict(Counter(str(fields.get("outcome", "")) for fields in attempts)),
+        dropped=trace.dropped,
+    )
+
+
+@dataclass(frozen=True)
 class Explanation:
-    """The verdict of each job for one issue. `title` is empty for an issue that is no item."""
+    """The verdict of each job for one issue. `title` is empty for an issue that is no item.
+    `totals` is None for an issue whose record holds no trace of an implement run."""
 
     repo: str
     number: int
@@ -67,6 +100,21 @@ class Explanation:
     stage: JobVerdict
     implement: JobVerdict
     implement_effort: str = ""
+    totals: TraceTotals | None = None
+
+    def as_dict(self) -> dict[str, object]:
+        """The explanation as the JSON object of `explain --json` (#3217): the number, the totals
+        of the last implement run and the events that the bound dropped. Each total is None for an
+        issue whose record holds no trace of a run."""
+        totals = self.totals
+        return {
+            "number": self.number,
+            "tokens_total": totals.tokens_total if totals else None,
+            "seconds_total": totals.seconds_total if totals else None,
+            "repair_rounds": totals.repair_rounds if totals else None,
+            "outcomes": totals.outcomes if totals else None,
+            "dropped": totals.dropped if totals else None,
+        }
 
 
 def _verdict(
@@ -171,6 +219,30 @@ def _implement_verdict(
     return verdict, _implement_effort_line(plan, item, efforts, filters)
 
 
+def _trace_of(item: Item, number: int) -> ImplementTrace | None:
+    """The trace in the job record of `item`, or None when the record holds none. Raises
+    `RoadmapImplementError` for a value of `implement.trace` that is no trace."""
+    text = item.job_record.get(ImplementRecordKey.TRACE)
+    if not text:
+        return None
+    try:
+        return decode(text)
+    except TraceDecodeError as error:
+        raise RoadmapImplementError(
+            MESSAGES.roadmap.explain_trace_unreadable.format(number=number, error=error)
+        ) from error
+
+
+def _totals(item: Item | None, number: int) -> TraceTotals | None:
+    """The totals of the last implement run in the job record of `item`, or None when the issue
+    is no item or its record holds no trace. Raises `RoadmapImplementError` for a value of
+    `implement.trace` that is no trace."""
+    if item is None:
+        return None
+    trace = _trace_of(item, number)
+    return None if trace is None else trace_totals(trace)
+
+
 def explain_item(
     store: RoadmapStore,
     *,
@@ -186,14 +258,18 @@ def explain_item(
     """Why each job takes issue `number` or leaves it out, with no model call and no write.
     `source` is the clone of the repository. A limit left as None is the limit that the Service
     uses for the job: `roadmap.stage.limit` for stage, one item for implement. A `planned_limit`
-    left as None is `roadmap.stage.planned_limit`."""
+    left as None is `roadmap.stage.planned_limit`. The totals come from the trace of the last
+    implement run in the job record of the issue that the call reads."""
     item = store.item(number)
+    totals = _totals(item, number)
     if item is None or item.state is not GitHubState.OPEN:
         texts = MESSAGES.roadmap
         refusal = JobVerdict(
             False, texts.item_left_not_item if item is None else texts.item_left_closed
         )
-        return Explanation(repo, number, item.title if item else "", refusal, refusal, refusal)
+        return Explanation(
+            repo, number, item.title if item else "", refusal, refusal, refusal, totals=totals
+        )
     checkout = Path(source)
     stage_settings = load_settings().roadmap.stage
     reads = _Reads(
@@ -225,11 +301,34 @@ def explain_item(
         ),
         implement,
         implement_effort=implement_effort,
+        totals=totals,
     )
 
 
+def _totals_lines(explained: Explanation) -> list[str]:
+    """The lines of the totals of the last implement run (#3217): the totals and the events that
+    the bound dropped, or the line that says that the item has no recorded run."""
+    texts = MESSAGES.roadmap
+    totals = explained.totals
+    if totals is None:
+        return [texts.explain_totals_none.format(number=explained.number)]
+    lines = [
+        texts.explain_totals_line.format(
+            tokens_total=totals.tokens_total,
+            seconds_total=totals.seconds_total,
+            repair_rounds=totals.repair_rounds,
+            failed=totals.outcomes.get("failed", 0),
+            passed=totals.outcomes.get("passed", 0),
+        )
+    ]
+    if totals.dropped:
+        lines.append(texts.explain_totals_dropped.format(count=totals.dropped))
+    return lines
+
+
 def render_explanation(explained: Explanation) -> str:
-    """The explanation as the report of the command: the issue, then one line for each job."""
+    """The explanation as the report of the command: the issue, then one line for each job, the
+    line of the effort set, and the totals of the last implement run."""
     texts = MESSAGES.roadmap
     title = (
         texts.explain_title.format(
@@ -248,6 +347,7 @@ def render_explanation(explained: Explanation) -> str:
         lines.append(line.format(job=job, reason=verdict.reason))
     if explained.implement_effort:
         lines.append(explained.implement_effort)
+    lines.extend(_totals_lines(explained))
     return "\n".join(lines)
 
 
@@ -258,15 +358,7 @@ def read_trace(store: RoadmapStore, number: int) -> ImplementTrace | None:
     item = store.item(number)
     if item is None:
         raise RoadmapImplementError(MESSAGES.roadmap.item_left_not_item)
-    text = item.job_record.get(ImplementRecordKey.TRACE)
-    if not text:
-        return None
-    try:
-        return decode(text)
-    except TraceDecodeError as error:
-        raise RoadmapImplementError(
-            MESSAGES.roadmap.explain_trace_unreadable.format(number=number, error=error)
-        ) from error
+    return _trace_of(item, number)
 
 
 def _event_line(event: TraceEvent) -> str:
@@ -337,8 +429,10 @@ def render_trace(trace: ImplementTrace | None, *, number: int) -> str:
 __all__ = [
     "Explanation",
     "JobVerdict",
+    "TraceTotals",
     "explain_item",
     "read_trace",
     "render_explanation",
     "render_trace",
+    "trace_totals",
 ]

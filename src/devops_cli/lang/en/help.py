@@ -1556,6 +1556,12 @@ class RoadmapCommandHelp:
         "Print the trace of the last run of the implement job for the issue, oldest event first, "
         "and no verdict. The command reads the one issue, and no clone, and writes nothing."
     )
+    explain_json: str = (
+        "Print the number and the totals of the last implement run of the issue as a JSON object: "
+        "the tokens, the seconds, the repair rounds, the outcome counts and the count of dropped "
+        "events. Each total is null when the record holds no trace of a run. The option cannot be "
+        "used with --trace."
+    )
     explain_source: str = (
         "Path to a clone of the repository. Without it, the command uses the model clone."
     )
