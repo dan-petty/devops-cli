@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.76.2](https://github.com/dan-petty/devops-cli/compare/v0.76.1...v0.76.2) (2026-11-07)
+
+
+### Bug Fixes
+
+* **ci:** Plan Check finds the tiktoken cache on the runner ([#3875](https://github.com/dan-petty/devops-cli/issues/3875)) ([9783999](https://github.com/dan-petty/devops-cli/commit/9783999b7b95b8eec41911ed419a6d78e2b1283b))
+
 ## [0.76.1](https://github.com/dan-petty/devops-cli/compare/v0.76.0...v0.76.1) (2026-11-07)
 
 
