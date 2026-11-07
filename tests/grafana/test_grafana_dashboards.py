@@ -530,6 +530,139 @@ def test_sre_dashboards_contain_heatmap_and_ratio_panels() -> None:
     )
 
 
+def _assert_sre_service_dashboard_structure(sre_dash: dict[str, Any]) -> None:
+    panels = sre_dash.get("panels", [])
+    panel_map = {p["id"]: p for p in panels if "id" in p}
+    row_11 = panel_map[11]
+    top_logs = panel_map[21]
+    lower_logs = panel_map[12]
+    row_18 = panel_map[18]
+    flamegraph_19 = panel_map[19]
+    flamegraph_20 = panel_map[20]
+
+    ordered_ids = [p["id"] for p in panels if p.get("id") in (11, 21, 12, 18)]
+    assert ordered_ids == [11, 21, 12, 18]
+
+    assert (
+        (row_11["id"], row_11["type"], row_11["title"], row_11["gridPos"]),
+        (top_logs["id"], top_logs["type"], top_logs["title"], top_logs["gridPos"]),
+        (lower_logs["id"], lower_logs["type"], lower_logs["title"], lower_logs["gridPos"]),
+        (row_18["id"], row_18["type"], row_18["title"], row_18["gridPos"]),
+    ) == (
+        (11, "row", "Service Logs & Live Stream", {"h": 1, "w": 24, "x": 0, "y": 38}),
+        (21, "logs", "Warnings & Errors (Loki)", {"h": 8, "w": 24, "x": 0, "y": 39}),
+        (12, "logs", "Live Service Logs (Loki)", {"h": 12, "w": 24, "x": 0, "y": 47}),
+        (
+            18,
+            "row",
+            "Continuous Profiling & Flamegraphs (Pyroscope)",
+            {"h": 1, "w": 24, "x": 0, "y": 59},
+        ),
+    )
+
+    top_target = top_logs["targets"][0]
+    lower_target = lower_logs["targets"][0]
+    top_expr = top_target["expr"]
+    lower_expr = lower_target["expr"]
+
+    assert (
+        top_target["datasource"]["uid"],
+        lower_target["datasource"]["uid"],
+        top_expr,
+        lower_expr,
+    ) == (
+        "loki",
+        "loki",
+        '{namespace=~"$namespace"} | pod=~"$pod" | detected_level=~"(?i)(warn|warning|error|err|critical|fatal|panic)"',
+        '{namespace=~"$namespace"} | pod=~"$pod"',
+    )
+
+    level_filter = '| detected_level=~"(?i)(warn|warning|error|err|critical|fatal|panic)"'
+    assert top_expr == f"{lower_expr} {level_filter}"
+    assert "(?i)" in top_expr
+    assert 'pod=~"$pod"' not in top_expr.split("|")[0]
+    assert 'pod=~"$pod"' not in lower_expr.split("|")[0]
+
+    assert (flamegraph_19["gridPos"], flamegraph_20["gridPos"]) == (
+        {"h": 12, "w": 24, "x": 0, "y": 60},
+        {"h": 12, "w": 24, "x": 0, "y": 72},
+    )
+
+    assert top_logs["options"] == lower_logs["options"]
+
+    top_desc = top_logs.get("description", "")
+    assert "namespace" in top_desc
+    assert "pods" in top_desc
+    assert "Kubernetes Warning events" in top_desc
+
+    lower_desc = lower_logs.get("description", "")
+    assert "namespace" in lower_desc
+    assert "pods" in lower_desc
+    assert "service" not in lower_desc.lower()
+
+
+def test_sre_service_dashboard_structure() -> None:
+    """Verify sre-service.json row 11 log panels, row 18, and flamegraphs structure."""
+    sre_dash = json.loads((_REPO_DASHBOARDS / "sre-service.json").read_text(encoding="utf-8"))
+    _assert_sre_service_dashboard_structure(sre_dash)
+
+
+def test_sre_service_dashboard_structure_mutations() -> None:
+    """Verify that each required mutation causes _assert_sre_service_dashboard_structure to fail."""
+    import copy
+
+    sre_dash = json.loads((_REPO_DASHBOARDS / "sre-service.json").read_text(encoding="utf-8"))
+
+    # Mutation 1: putting pod=~"$pod" back inside the stream selector
+    m1 = copy.deepcopy(sre_dash)
+    for p in m1["panels"]:
+        if p.get("id") == 12:
+            p["targets"][0]["expr"] = '{namespace=~"$namespace", pod=~"$pod"}'
+    with pytest.raises(AssertionError, match=r'pod=~"\$pod"'):
+        _assert_sre_service_dashboard_structure(m1)
+
+    # Mutation 2: dropping (?i)
+    m2 = copy.deepcopy(sre_dash)
+    for p in m2["panels"]:
+        if p.get("id") == 21:
+            p["targets"][0]["expr"] = (
+                '{namespace=~"$namespace"} | pod=~"$pod" | detected_level=~"(warn|warning|error|err|critical|fatal|panic)"'
+            )
+    with pytest.raises(AssertionError, match=r"\(\?i\)"):
+        _assert_sre_service_dashboard_structure(m2)
+
+    # Mutation 3: swapping the two log panels' y
+    m3 = copy.deepcopy(sre_dash)
+    for p in m3["panels"]:
+        if p.get("id") == 21:
+            p["gridPos"]["y"] = 47
+        elif p.get("id") == 12:
+            p["gridPos"]["y"] = 39
+    with pytest.raises(AssertionError, match=r"'y': 47"):
+        _assert_sre_service_dashboard_structure(m3)
+
+    # Mutation 4: leaving row 18 at y=51
+    m4 = copy.deepcopy(sre_dash)
+    for p in m4["panels"]:
+        if p.get("id") == 18:
+            p["gridPos"]["y"] = 51
+    with pytest.raises(AssertionError, match=r"'y': 51"):
+        _assert_sre_service_dashboard_structure(m4)
+
+
+def test_sre_service_dashboard_readme_entry() -> None:
+    """k8s/README.md gives the dashboard its real title and lists both log panels."""
+    readme = (REPO_ROOT / "k8s" / "README.md").read_text(encoding="utf-8")
+    entry = next(
+        line
+        for line in readme.splitlines()
+        if "sre-service.json" in line and "devops-sre-service" in line
+    )
+    assert "SRE / Service Performance & Logs" in entry
+    assert "Warnings & Errors (Loki)" in entry
+    assert "Live Service Logs (Loki)" in entry
+
+
 def test_dashboards_contain_properly_labeled_sum_and_average_lines() -> None:
     """Verify service, ingress, k8s, and LLM dashboards contain properly labeled sum/avg queries."""
     in_scope_panels = [
