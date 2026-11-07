@@ -73,8 +73,16 @@ def store(implement_store: InMemoryRoadmapStore) -> InMemoryRoadmapStore:
 
 @pytest.fixture
 def checkout(implement_checkout: Path) -> Path:
-    """The sample checkout with one more commit: the test file `tests/test_old.py`."""
+    """The sample checkout with one more commit: the test file `tests/test_old.py`, which the
+    plan names, so that a fix step may change it."""
     (implement_checkout / OLD_PATH).write_text(OLD, encoding="utf-8")
+    tasks = implement_checkout / TASKS_PATH
+    tasks.write_text(
+        tasks.read_text(encoding="utf-8").replace(
+            "`docs/SAMPLE.md`", f"`docs/SAMPLE.md` and `{OLD_PATH}`"
+        ),
+        encoding="utf-8",
+    )
     git(implement_checkout, "add", "-A")
     git(implement_checkout, "commit", "-q", "-m", "add the old tests")
     return implement_checkout
