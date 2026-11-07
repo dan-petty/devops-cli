@@ -29,7 +29,7 @@ from devops_cli.ai.client.models import (
 )
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config import settings
+from devops_cli.config import constants, settings
 from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS,
     CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
@@ -320,7 +320,7 @@ def test_a_window_takes_the_tools_away_before_the_messages_pass_it(
     checkout: tuple[Path, str],
 ) -> None:
     source, sha = _big_file_checkout(checkout)
-    window = 12000
+    window = 45000
     script = Script(_read("src/big.py"), without_tools=_PLAN)
     client = ToolboxClient(script.model(), _Inner(), source, sha, window=window)
 
@@ -337,12 +337,70 @@ def test_a_window_takes_the_tools_away_before_the_messages_pass_it(
     assert count_tokens(last) < window
 
 
+def test_a_plan_run_whose_tools_the_window_ends_too_soon_fails_and_names_the_window_setting(
+    checkout: tuple[Path, str],
+) -> None:
+    """The window of 12000 tokens ends the tools after fewer calls than the minimum. The run gives
+    a valid plan, and the error is still the window and not a fault of the plan (#3880)."""
+    source, sha = _big_file_checkout(checkout)
+    script = Script(_read("src/big.py"), without_tools=_PLAN)
+    client = ToolboxClient(script.model(), _Inner(), source, sha, window=12000)
+
+    with pytest.raises(RoadmapStageError) as raised:
+        _plan(client)
+
+    (trace,) = client.traces
+    assert (trace.limit, len(trace.tool_calls) < constants.CONST_ROADMAP_STAGE_MIN_TOOL_CALLS) == (
+        RunLimit.WINDOW,
+        True,
+    )
+    assert all(
+        text in str(raised.value)
+        for text in ("12000", "ai.tasks.stage.context_window", "ai.tasks.analysis.context_window")
+    )
+
+
+def test_a_plan_run_whose_window_ends_the_tools_after_the_minimum_calls_gives_its_plan(
+    checkout: tuple[Path, str],
+) -> None:
+    source, sha = _big_file_checkout(checkout)
+    script = Script(_read("src/big.py"), without_tools=_PLAN)
+    client = ToolboxClient(script.model(), _Inner(), source, sha, window=45000)
+
+    plan = _plan(client)
+
+    (trace,) = client.traces
+    assert (
+        plan,
+        trace.limit,
+        len(trace.tool_calls) >= constants.CONST_ROADMAP_STAGE_MIN_TOOL_CALLS,
+    ) == (
+        _PLAN,
+        RunLimit.WINDOW,
+        True,
+    )
+
+
+def test_a_review_run_whose_tools_the_window_ends_early_is_not_a_window_failure(
+    checkout: tuple[Path, str],
+) -> None:
+    """Only the plan run names the planner window: the review has its own window (#3880)."""
+    source, sha = _big_file_checkout(checkout)
+    verdict = Verification(findings=[])
+    script = Script(_read("src/big.py"), without_tools=verdict)
+    client = ToolboxClient(script.model(), _Inner(), source, sha, window=12000)
+
+    result = client.chat_structured("System.", "{}", Verification, max_retries=1)
+
+    assert result == verdict
+
+
 def test_the_trace_records_the_tools_offered_for_each_request(
     checkout: tuple[Path, str],
 ) -> None:
     source, sha = _big_file_checkout(checkout)
     script = Script(_read("src/big.py"), without_tools=_PLAN)
-    client = ToolboxClient(script.model(), _Inner(), source, sha, window=12000)
+    client = ToolboxClient(script.model(), _Inner(), source, sha, window=45000)
 
     _plan(client)
 
@@ -648,7 +706,7 @@ def test_a_run_that_fills_the_window_counts_the_window_limit(
     source, sha = _big_file_checkout(checkout)
     script = Script(_read("src/big.py"), without_tools=_PLAN)
 
-    _plan(ToolboxClient(script.model(), _Inner(), source, sha, window=12000, toolset="base"))
+    _plan(ToolboxClient(script.model(), _Inner(), source, sha, window=45000, toolset="base"))
 
     assert [a["limit"] for a, _ in otlp.points(ROADMAP_TOOL_LIMIT_HITS_TOTAL.name)] == ["window"]
 

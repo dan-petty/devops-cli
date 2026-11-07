@@ -72,6 +72,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS,
     CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES,
     CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
+    CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
     CONST_ROADMAP_IMPLEMENT_STEPS_FILE,
     CONST_ROADMAP_STATUS_IN_PROGRESS,
     CONST_ROADMAP_STATUS_IN_REVIEW,
@@ -203,7 +204,8 @@ class _StopError(Exception):
     `check_log` the log of that check, `repair_rounds` the fix rounds that the job ran before it
     stopped, and `tier_changes` the tier moves of the step: they are the evidence of the failure
     class (#3065, #3060, #3476).
-    `failure_class` is the class that the site of the stop passes, when it knows its cause."""
+    `failure_class` is the class that the site of the stop passes, when it knows its cause.
+    `conflict_files` are the masked files that a rebase conflict left unmerged (#3646)."""
 
     def __init__(
         self,
@@ -222,6 +224,7 @@ class _StopError(Exception):
         tier_changes: int = 0,
         failure_class: FailureClass | None = None,
         action_left: FailureAction | None = None,
+        conflict_files: Sequence[str] = (),
     ) -> None:
         super().__init__(reason)
         self.step = step
@@ -238,6 +241,7 @@ class _StopError(Exception):
         self.tier_changes = tier_changes
         self.failure_class = failure_class
         self.action_left = action_left
+        self.conflict_files = tuple(conflict_files)
 
 
 class _ClaimedError(Exception):
@@ -299,6 +303,22 @@ def _stopped_by(step: str, outcome: StepOutcome, *, check: str = "", log: str = 
         tier_changes=max(0, len(outcome.tiers) - 1),
         failure_class=outcome.failure_class,
     )
+
+
+def _conflict_files(output: str) -> list[str]:
+    """The paths that `git diff --name-only -z` lists, masked and escaped so that a secret or a
+    control character in a path does not leave the job (#3646)."""
+    return [shown(mask_secrets(path)) for path in output.split("\0") if path]
+
+
+def _files_lines(files: Sequence[str]) -> str:
+    """The paths of `files` as a list of lines, cut to `CONST_ROADMAP_IMPLEMENT_REASON_PATHS`
+    paths, with the count of the paths that the cut leaves out."""
+    lines = [f"- {path}" for path in files[:CONST_ROADMAP_IMPLEMENT_REASON_PATHS]]
+    if len(files) > CONST_ROADMAP_IMPLEMENT_REASON_PATHS:
+        count = len(files) - CONST_ROADMAP_IMPLEMENT_REASON_PATHS
+        lines.append(MESSAGES.roadmap.implement_paths_more.format(count=count).strip())
+    return "\n".join(lines)
 
 
 def _check_section(check: str, log: str) -> str:
@@ -614,6 +634,7 @@ class _ItemRun:
             marks[ImplementRecordKey.FAILURE] = None
             marks[ImplementRecordKey.CHECK] = None
             marks[ImplementRecordKey.CHECK_LOG] = None
+            marks[ImplementRecordKey.CONFLICT] = None
         self.store.set_field(
             self._fresh(), ItemField.STATUS, CONST_ROADMAP_STATUS_IN_PROGRESS, marks=marks
         )
@@ -659,17 +680,33 @@ class _ItemRun:
         try:
             self._git("rebase", f"origin/{self.default}")
         except GitOperationError as exc:
+            timeout = load_settings().roadmap.implement.command_timeout_seconds
+            unmerged = run_subprocess(
+                [BIN_GIT, "-C", str(self.path), "diff", "--name-only", "--diff-filter=U", "-z"],
+                check=False,
+                quiet=True,
+                timeout=timeout,
+            )
+            files = _conflict_files(unmerged.stdout) if unmerged.returncode == 0 else []
             aborted = run_subprocess(
                 [BIN_GIT, "-C", str(self.path), "rebase", "--abort"],
                 check=False,
                 quiet=True,
-                timeout=load_settings().roadmap.implement.command_timeout_seconds,
+                timeout=timeout,
             )
             texts = MESSAGES.roadmap
             reason = texts.implement_stop_rebase.format(branch=self.default, output=str(exc))
+            if files:
+                reason += texts.implement_stop_rebase_files.format(files=_files_lines(files))
             if aborted.returncode != 0:
                 reason += texts.implement_stop_abort_failed.format(output=_tail(aborted.stderr))
-            raise _StopError(self.step, reason, push=push_on_conflict) from exc
+            raise _StopError(
+                self.step,
+                reason,
+                push=push_on_conflict,
+                failure_class=FailureClass.CONFLICT,
+                conflict_files=files[:CONST_ROADMAP_IMPLEMENT_REASON_PATHS],
+            ) from exc
 
     def _require_unclaimed(self, boundary: str) -> None:
         """Raise `_ClaimedError` when an agent or a person holds the item now (#2910). The
@@ -1529,6 +1566,9 @@ class _ItemRun:
             ImplementRecordKey.FAILURE: klass.value,
             ImplementRecordKey.CHECK: check or None,
             ImplementRecordKey.CHECK_LOG: check_log or None,
+            ImplementRecordKey.CONFLICT: json.dumps(list(stop.conflict_files))
+            if stop.conflict_files
+            else None,
             ImplementRecordKey.SPEND: self._spend(),
             ImplementRecordKey.TRACE: self.trace.encode(),
         }

@@ -46,9 +46,9 @@ The two GitHub tools only read. They use the client and the App token of the Ser
 
 ## The window of the plan run
 
-The plan run reads the context window of the task `stage`. The task `stage` takes the fields that it does not set from the task `analysis` (the setting `ai.tasks.stage`, variable `DEVOPS_CLI_AI_TASK_STAGE_MODEL`), so the window and the model are those of `analysis` until a person sets the task `stage`. The Service sets `context_window` 65,536 for `analysis` in the key `ai.tasks.analysis` of [k8s/devops/configmap.example.yaml](../../k8s/devops/configmap.example.yaml). The model of the task, `deepseek-v4.1-flash-1017`, has `max_input_tokens` 1,048,576 in [k8s/llm/gateway/config.yaml](../../k8s/llm/gateway/config.yaml). The job uses the setting and not the larger value of the model.
+The plan run reads the context window of the task `stage`. The task `stage` takes the fields that it does not set from the task `analysis` (the setting `ai.tasks.stage`, variable `DEVOPS_CLI_AI_TASK_STAGE_MODEL`), so the window and the model are those of `analysis` until a person sets the task `stage`. The Service sets `context_window` 256,000 for `analysis` in the key `ai.tasks.analysis` of [k8s/devops/configmap.example.yaml](../../k8s/devops/configmap.example.yaml). The model of the task, `deepseek-v4.1-flash-1017`, has `max_input_tokens` 1,048,576 in [k8s/llm/gateway/config.yaml](../../k8s/llm/gateway/config.yaml). The job uses the setting and not the larger value of the model.
 
-The run hook offers no tool when the messages and one quarter of the window reach the window. For 65,536 tokens, the limit is 49,152 tokens. A request over the limit gets no tool, and the model writes a plan about code that it did not read. So the first request has fixed caps, and the caps do not grow with the window:
+The run hook offers no tool when the messages and one quarter of the window reach the window. For 256,000 tokens, the limit is 192,000 tokens. A request over the limit gets no tool, and the model must answer with its plan. So the first request has fixed caps, and the caps do not grow with the window:
 
 | Part of the first request | Cap |
 | :--- | :--- |
@@ -56,7 +56,11 @@ The run hook offers no tool when the messages and one quarter of the window reac
 | Body of the item | 8,192 tokens, or one quarter of a window that is smaller than 32,768 tokens |
 | Capabilities | The names only. `read_spec` gives the purpose and the requirements of one capability on demand. |
 
-With the prompts, the first request counts about 34,000 tokens, and it leaves at least 8,192 tokens below the limit for the answers of the tools. The trace of the run records the tools that each request offered. When a run makes no tool call, the stage comment says why: either each request reached the limit and offered no tool, or the run offered tools and the model chose none.
+With the prompts, the first request counts about 34,000 tokens, and it leaves at least 8,192 tokens below the limit for the answers of the tools. The trace of the run records the tools that each request offered. When a run makes no tool call, the stage comment says that the run offered tools and the model chose none. A run whose tools the window ended too soon fails the item (see below).
+
+### When the window ends the tools too soon
+
+A plan run needs about 38,000 tokens for its first request, and many more for its tool calls: a run of 23 requests and 40 tool calls counted about 1.5 million input tokens. When the window ends the tools before the run made 8 tool calls (`CONST_ROADMAP_STAGE_MIN_TOOL_CALLS`), the model has read almost none of the code. It does not write a plan about code that it did not read: it writes the placeholder `x` in every text field, or a reply that breaks the schema. The job does not send that reply back. It fails the item at once with an error that names the settings `ai.tasks.stage.context_window` and `ai.tasks.analysis.context_window`. At 65,536 tokens, two runs made 6 and 4 calls and failed. At 262,144 tokens, a run made 40 calls and staged the item.
 
 ## The verification pass
 

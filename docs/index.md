@@ -12,6 +12,7 @@
 - [Routine Tasks](ROUTINE_TASKS.md) — Operational task matrix, cadences, and engineering methodology.
 - [SDLC Workflow](SDLC.md) — Software development lifecycle and branch governance policies.
 - [Testing Guide](TESTING.md) — Testing vocabulary, test doubles, and quality gate standards.
+- [AI and RAG Cheatsheet](cheatsheets/ai_and_rag.md) — Managed repository ingestion and semantic search reference.
 
 ## Architecture and Repository Governance
 

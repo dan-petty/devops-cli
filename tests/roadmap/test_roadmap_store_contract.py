@@ -88,6 +88,8 @@ class World(Protocol):
 
     def person_adds(self, number: int, label: str) -> None: ...
 
+    def person_comments(self, number: int, body: str) -> None: ...
+
     def labels(self, number: int) -> list[str]: ...
 
     def raw_body(self, number: int) -> str: ...
@@ -156,6 +158,9 @@ class MemoryWorld:
 
     def person_adds(self, number: int, label: str) -> None:
         self._roadmap.as_actor("alice").add_label(number, label)
+
+    def person_comments(self, number: int, body: str) -> None:
+        self._roadmap.as_actor("alice").comment(number, body)
 
     def labels(self, number: int) -> list[str]:
         return next(list(i.labels) for i in self._roadmap.issues() if i.number == number)
@@ -239,6 +244,9 @@ class GitHubWorld:
     def person_adds(self, number: int, label: str) -> None:
         self.github.issues[number]["labels"].append({"name": label})
 
+    def person_comments(self, number: int, body: str) -> None:
+        self.github.seed_comment(number, body)
+
     def labels(self, number: int) -> list[str]:
         return self.github.labels(number)
 
@@ -317,6 +325,17 @@ def test_items_are_the_issues_with_a_priority_label_and_candidates_the_open_issu
         world.store.item(pull),
         world.store.item(99),
     ) == ([placed, done], [(candidate, ("type/bug", "status/new"))], None, None, None)
+
+
+def test_an_item_carries_the_count_of_comments_on_its_issue(world: World) -> None:
+    """Only a comment moves the count: an edit of the body does not, so a job tells a new
+    comment from its own record write without a read of the comments (#3667)."""
+    number = world.seed("discussed", labels=("priority/p2-medium",))
+    before = read(world, number).comments
+    world.person_comments(number, "First.")
+    world.person_comments(number, "Second.")
+    world.store.set_marks(read(world, number), {RefineRecordKey.BODY_HASH: "hash"})
+    assert (before, read(world, number).comments) == (0, 2)
 
 
 def test_an_item_carries_its_authors_association_with_the_repository(world: World) -> None:

@@ -26,6 +26,7 @@ from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_MAX_REQUESTS,
+    CONST_ROADMAP_STAGE_MIN_TOOL_CALLS,
     CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
 )
 from devops_cli.config.defaults import StageToolset
@@ -33,7 +34,7 @@ from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
-from devops_cli.roadmap.agent_run import RunTrace
+from devops_cli.roadmap.agent_run import RunLimit, RunTrace
 from devops_cli.roadmap.refine_investigation import InvestigationStopped, investigate
 from devops_cli.roadmap.stage_change import StageProposal
 from devops_cli.roadmap.stage_github import StageGitHub
@@ -159,9 +160,27 @@ class ToolboxClient:
             finished = True
         finally:
             end_run(trace, row=row, toolset=self._toolset, finished=finished)
+        if schema is StageProposal and self._window_starved(trace):
+            raise RoadmapStageError(
+                MESSAGES.roadmap.stage_window_starved.format(
+                    window=self._window,
+                    calls=len(trace.tool_calls),
+                    minimum=CONST_ROADMAP_STAGE_MIN_TOOL_CALLS,
+                )
+            )
         if isinstance(result, InvestigationStopped):
             raise _stopped(result, trace, schema)
         return result
+
+    @staticmethod
+    def _window_starved(trace: RunTrace) -> bool:
+        """Whether the window ended the tools of the run before the least number of tool calls
+        (#3880). The model then writes its plan about code that it did not read, and the
+        placeholders in the plan hide the cause."""
+        return (
+            trace.limit is RunLimit.WINDOW
+            and len(trace.tool_calls) < CONST_ROADMAP_STAGE_MIN_TOOL_CALLS
+        )
 
 
 def _stopped(result: InvestigationStopped, trace: RunTrace, schema: type[BaseModel]) -> Exception:

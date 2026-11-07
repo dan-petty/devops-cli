@@ -1472,6 +1472,7 @@ class RAGMessages:
         "upserted [cyan]{chunks}[/cyan] chunk(s) into [magenta]{coll}[/magenta]."
     )
     cleared_collection: str = "Cleared collection: {coll}"
+    ingest_complete: str = "RAG ingestion complete. {succeeded} of {total} repositories indexed."
     no_matching_query: str = "No matching code/documentation found for query: {query}"
     stopped_for_run: str = (
         "RAG is off for the rest of this run: {error}. To fix it, serve {model} on a backend, "
@@ -2628,7 +2629,12 @@ class RoadmapMessages:
     )
     implement_tests_lost_file: str = "{path}: {tests}"
     implement_stop_head_moved: str = (
-        "The agent moved HEAD from {start} to {head}. A step makes the only commit."
+        "The agent moved HEAD from {start} to {head}, and the reset to {start} failed.\n"
+        "`{command}` exited with status {status}.\n{output}"
+    )
+    implement_head_reset: str = (
+        "The agent moved HEAD from {start} to {head}. The step reset HEAD to {start} and kept "
+        "the changes."
     )
     implement_stop_commit_failed: str = "The commit failed.\n{output}"
     implement_stop_hooks_install: str = (
@@ -2869,6 +2875,7 @@ class RoadmapMessages:
     draft_check_runs: str = "A check runs: {name}."
     draft_check_runs_unnamed: str = "A check runs."
     implement_stop_rebase: str = "The rebase onto origin/{branch} stopped.\n{output}"
+    implement_stop_rebase_files: str = "\nConflicted files:\n{files}"
     implement_stop_abort_failed: str = "\nThe abort of the rebase failed too.\n{output}"
     implement_stop_program_failed: str = "{command} exited with status {status}.\n{output}"
     implement_stop_program_timeout: str = "{command} ran out of time after {seconds} s."
@@ -3197,6 +3204,14 @@ class RoadmapMessages:
     stage_violations: str = "{count} schema violation(s)"
     # The plan run of the toolbox stopped with no plan; `reason` is the fixed text of its stop.
     stage_run_stopped: str = "The plan run stopped before it gave a plan: {reason}."
+    # The window ended the tools of the plan run before it made the least number of tool calls
+    # (#3880). The model has then read almost none of the code and writes a placeholder text.
+    stage_window_starved: str = (
+        "The context window of {window} tokens ended the tools of the plan run after {calls} "
+        "tool call(s). The run needs at least {minimum} calls. Raise the setting "
+        "ai.tasks.stage.context_window, or ai.tasks.analysis.context_window, which the task "
+        "stage uses when it sets none."
+    )
     # The review run of a plan that passed the gates stopped with no findings (#3039).
     stage_verify_stopped: str = (
         "The verification run stopped before it gave its findings: {reason}. The plan passed the "
@@ -3240,15 +3255,11 @@ class RoadmapMessages:
         "{input_tokens} input tokens and {output_tokens} output tokens. {calls}"
     )
     stage_comment_calls: str = "The tool calls, in order:\n\n{calls}"
-    # A run with no tool call states why (#3477): no request offered a tool, because the request
-    # reached the limit of the context window, or the run offered tools and the model chose none.
+    # A run with no tool call states that the run offered tools and the model chose none. A run
+    # whose window ends its tools before the least calls fails the item (#3880).
     stage_comment_no_calls: str = (
         "The model made no tool call. The run offered tools on {offered} of {requests} "
         "request(s), and the model called none."
-    )
-    stage_comment_no_tools_offered: str = (
-        "The model made no tool call. The run offered no tool, because each request reached the "
-        "tool-removal limit of the context window."
     )
     stage_comment_call: str = "{index}. `{name}({argument})`"
     # The line after the list of calls (#3240): the calls and the empty answers of each tool.
@@ -3731,6 +3742,9 @@ class RoadmapMessages:
     plan_read_bad_criterion: str = (
         "`tasks.md` holds a criterion that the reader cannot read: {text}"
     )
+    plan_read_bad_criterion_model: str = (
+        "`tasks.md` holds a criterion that breaks a rule of the plan: {text} ({reason})"
+    )
     plan_read_bad_requirement: str = (
         "`{path}` holds a requirement with no scenario, so the reader cannot read it."
     )
@@ -4061,6 +4075,10 @@ class RoadmapMessages:
             "capped": (
                 "the cap on refine's comments leaves the item alone, and no earlier round "
                 "recorded its newest comment"
+            ),
+            "wait_unrecorded": (
+                "the round read the comments of the waiting item, and its job record does not "
+                "hold what they gave"
             ),
             "deferred": "the proposal defers a part of the item",
             "outside_author": "an account that the jobs do not trust opened the item",

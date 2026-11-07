@@ -1019,7 +1019,7 @@ def test_a_run_that_stops_after_the_status_write_is_finished_by_the_next_run(
     writes only what it holds no label for, and leaves one reason comment."""
     number = roadmap.issue("feat: resumable")
     roadmap.store.fail_write(write="set_field", applied=True)
-    with pytest.raises(RoadmapIntakeError, match=f"#{number} \\(GitHubOperationError\\)"):
+    with pytest.raises(RoadmapIntakeError, match=f"#{number} \\(GitHubOperationError: HTTP 502\\)"):
         roadmap.run(FakeModel())
     stopped = roadmap.fields(number)
     writes = roadmap.run(FakeModel())
@@ -1050,12 +1050,16 @@ def test_a_candidate_whose_write_fails_is_named_and_the_others_are_still_placed(
     (#1443)."""
     first, refused, last = (roadmap.issue(f"feat: candidate {n}") for n in range(3))
     placed = ("New", "P2-Medium", "Medium", "Low", None)
-    roadmap.store.fail_write(write="label_issue", item=refused)
+    roadmap.store.fail_write(
+        write="label_issue",
+        item=refused,
+        error=GitHubOperationError("HTTP 502: Bad Gateway", operation="roadmap.write"),
+    )
     with pytest.raises(RoadmapIntakeError) as raised:
         roadmap.run(FakeModel())
     assert (
         raised.value.failed_items,
-        f"#{refused} (GitHubOperationError)" in str(raised.value),
+        f"#{refused} (GitHubOperationError: HTTP 502: Bad Gateway)" in str(raised.value),
         roadmap.fields(first),
         roadmap.fields(last),
         roadmap.store.item(refused),
@@ -1390,9 +1394,31 @@ def test_confirm_reports_what_it_placed_names_what_it_skipped_and_exits_one(
         "Intake placed 1 item(s)." in output,
         "Intake finished with candidates it could not write: the writes failed for 1 "
         "candidate(s)" in output,
-        f"#{refused} (GitHubOperationError)" in output,
+        f"#{refused} (GitHubOperationError: HTTP 502: Bad Gateway)" in output,
         opened.fields(placed),
     ) == (True, True, True, ("New", "P2-Medium", "Medium", "Low", None))
+
+
+def test_the_failure_line_masks_a_token_in_the_error_text(roadmap: Roadmap) -> None:
+    """The reason of a failed write reaches the console, so a token in it is masked (#3651)."""
+    token = "ghp_" + "1234567890abcdefghijklmnopqrstuvwxyz"
+    refused = roadmap.issue("feat: refused")
+
+    roadmap.store.fail_write(
+        write="label_issue",
+        item=refused,
+        error=GitHubOperationError(f"HTTP 403: bad credentials {token}", operation="roadmap.write"),
+    )
+    with pytest.raises(RoadmapIntakeError) as raised:
+        roadmap.run(FakeModel())
+    text = str(raised.value)
+    assert (
+        token in text,
+        f"#{refused} (GitHubOperationError: HTTP 403: bad credentials" in text,
+    ) == (
+        False,
+        True,
+    )
 
 
 def test_plain_intake_previews_as_plan_does_and_says_what_it_spends(
@@ -2347,7 +2373,7 @@ def test_a_priority_a_person_sets_between_the_plan_and_its_write_stays() -> None
     applied = apply()
     assert (
         applied.placed,
-        [(failure.number, failure.error) for failure in applied.failed],
+        [(failure.number, failure.error.partition(":")[0]) for failure in applied.failed],
         [label for label in github.labels(1) if label.startswith("priority/")],
         "Priority" in _record(github, 1),
     ) == (0, [(1, "RoadmapItemChangedError")], ["priority/p1-high"], False)
@@ -2370,7 +2396,7 @@ def test_a_value_a_person_sets_between_the_plan_and_its_write_stays_and_the_next
     second = apply_again()
     comments = github.comments.get(1, [])
     assert (
-        [(failure.number, failure.error) for failure in first.failed],
+        [(failure.number, failure.error.partition(":")[0]) for failure in first.failed],
         second.placed,
         github.labels(1),
         _record(github, 1),

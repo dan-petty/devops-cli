@@ -115,6 +115,7 @@ These are all the keys of the job record, by the job that writes them:
 | Refine | `refine.judge` | The verdict of the review of a Ready proposal for an Item that a bot opened, `approved` or `refused`. The stage, implement and alternatives jobs take such an Item only when it is `approved` and its body hashes as `refine.body_hash` and `refine.section_hash` record |
 | Refine | `refine.returned_body_hash` | The body hash of a round that looked again at an Item after the stage job returned it; a second return on that body waits on a person |
 | Refine | `refine.tries`, `refine.failed_check`, `refine.failure` | The count of rounds whose job failed on the same body, the names of the failed checks, and the last error. `refine.next_step` is then `retry`, and `failed` at 3 tries (`CONST_ROADMAP_REFINE_MAX_TRIES`). Only a decision marked `(a person decides)` makes refine wait on a person |
+| Refine | `refine.comments_seen`, `refine.commented_at`, `refine.wait_refs` | What the last read of the comments of a waiting item gave: the count of comments of the issue listing, the time of refine's last comment, and the issues and paths that the wait text names. A round reads the comments again only when the count moves |
 | Alternatives | `alternatives.checked_at`, `alternatives.body_hash`, `alternatives.verdict`, `alternatives.tool`, `alternatives.failed_at`, `alternatives.failed_error` | When the check ran, the text it read, its verdict and the tool it found; when the last check failed and the class of its error, until a check is written |
 | Stage | `stage.branch`, `stage.pr`, `stage.sha` | The staged branch, its draft pull request and its last commit |
 | Stage | `stage.groups`, `stage.needs_split`, `stage.file_cap` | The task groups with their size, the group over the budget, and the cap of that measure |
@@ -126,6 +127,7 @@ These are all the keys of the job record, by the job that writes them:
 | Implement | `implement.group`, `implement.sha`, `implement.branch`, `implement.pr` | The last group that passed, the last commit, the branch and the pull request |
 | Implement | `implement.stopped`, `implement.failure`, `implement.spend`, `implement.trace` | The step that stopped the Item, the class of its failure, the spend of its steps with the input tokens of the first request of each step (`steps`, kept apart from the trace, which drops its oldest events), and the trace of its last run |
 | Implement | `implement.check`, `implement.check_log` | The check that failed in the stop, and the masked end of its log (at most 2000 characters). A retry and a clear rule of the Service remove both with the stop |
+| Implement | `implement.conflict` | The files that a rebase conflict left unmerged, as a JSON list of masked paths (at most 20). A retry and a clear rule of the Service remove it with the stop |
 | Implement | `implement.wip` | The work in progress that a step kept: its group, the tasks done, the tasks of the group and the last commit as JSON. The job removes it when the group passes |
 | Implement | `implement.job`, `implement.job_state`, `implement.job_digest` | The runner Job that the Service made, its state after a round reported it, and the digest of the runner image that the Job ran |
 | Implement | `implement.continuations` | The count of the Jobs that the Service made to continue a run that ended with no result. It holds a count and no other data, and it stays after a clear |
@@ -175,7 +177,7 @@ A stop has a class (`roadmap/failure.py`, #3065). A stop site that knows its cau
 | `ci_infra` | `retry` | The infrastructure failed, and every failure that no other class matches |
 | `no_change_in_fix` | `wait` | A fix step changed no file, so the failed check is as it was. A person reads the failed check in the stop |
 | `tests_lost` | `wait` | The agent removed or renamed a test that existed at the start of the step, and the plan on the default branch does not record it in `## Weakened checks` |
-| `head_moved` | `retry` | The agent moved HEAD, and a step makes the only commit |
+| `head_moved` | `retry` | The agent moved HEAD, and `git reset --soft` could not put it back. A step makes the only commit |
 | `output_cap` | `raise_limit` | A model reply reached the output cap of the step |
 | `limit_reached` | `raise_limit` | A step spent a token budget or a time limit of `roadmap.implement`. The reason names the setting and its value. See [the budgets](#checks-of-the-implement-job) |
 | `read_only_path` | `wait` | A command wrote to a path that the Job mounts read-only. A new attempt or a new runner image writes to the same path, so a person fixes the cause |

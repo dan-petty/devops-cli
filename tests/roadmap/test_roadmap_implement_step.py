@@ -608,30 +608,78 @@ def test_the_agent_of_a_step_runs_its_shell_in_that_environment(
     assert [shell.allowed_commands for shell in shells] == [list(IMPLEMENT_SHELL_PROGRAMS)]
 
 
-def test_a_commit_that_the_agent_makes_stops_the_step_and_the_checkout_returns_to_its_start(
+def test_a_commit_that_the_agent_makes_is_reset_and_the_step_commits_the_work(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    """The shell allowlist admits git, so the agent can commit. Its effect is scripted here."""
+    """The shell allowlist admits git, so the agent can commit. Its effect is scripted here (#3575).
+    The step moves HEAD back, keeps the work in the checkout and makes the only commit."""
     head = git(checkout, "rev-parse", "HEAD")
-    moved: list[str] = []
+
+    def agent_commits() -> None:
+        (checkout / "src" / "other.py").write_text("OTHER = 3\n", encoding="utf-8")
+        git(checkout, "add", "-A")
+        git(checkout, "commit", "-q", "-m", "own commit")
+
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."), effects={2: agent_commits})
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, outcome.reason) == (StepStatus.DONE, "")
+    assert git(checkout, "rev-parse", "HEAD") == outcome.commit
+    assert git(checkout, "rev-parse", "HEAD~1") == head
+    assert "own commit" not in git(checkout, "log", "--format=%s", f"{head}..HEAD")
+    shown = git(checkout, "show", "--format=", "HEAD")
+    assert ("+def shout(text: str) -> str:" in shown, "+OTHER = 3" in shown) == (True, True)
+
+
+def test_the_step_prints_one_line_for_a_head_that_it_resets(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    moved: list[tuple[str, str]] = []
+
+    def agent_commits() -> None:
+        (checkout / "src" / "other.py").write_text("OTHER = 3\n", encoding="utf-8")
+        before = git(checkout, "rev-parse", "HEAD")
+        git(checkout, "add", "-A")
+        git(checkout, "commit", "-q", "-m", "own commit")
+        moved.append((before, git(checkout, "rev-parse", "HEAD")))
+
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."), effects={2: agent_commits})
+
+    _step(store, checkout, script)
+
+    notes = [line for line in capsys.readouterr().err.splitlines() if "moved HEAD" in line]
+    assert notes == [
+        f"The agent moved HEAD from {moved[0][0]} to {moved[0][1]}."
+        f" The step reset HEAD to {moved[0][0]} and kept the changes."
+    ]
+
+
+def test_a_reset_head_does_not_hide_a_failed_check(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """The checks judge the work after the reset, so a failed check stops the step and the
+    checkout goes back to its start."""
+    head = git(checkout, "rev-parse", "HEAD")
 
     def agent_commits() -> None:
         git(checkout, "add", "-A")
         git(checkout, "commit", "-q", "-m", "own commit")
-        moved.append(git(checkout, "rev-parse", "HEAD"))
 
-    # The first verification command fails, so the step keeps nothing and starts at `head`.
     programs.answer(lambda call: command_text(call) == CHECK, ProcessAnswer(returncode=1))
     script = ModelScript(tool_calls(*the_whole_group()), say("Done."), effects={2: agent_commits})
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.reason, outcome.commit, is_clean_at(checkout, head)) == (
+    assert (outcome.status, outcome.commit, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
-        f"The agent moved HEAD from {head} to {moved[0]}. A step makes the only commit.",
         "",
         True,
     )
+    assert f"{CHECK} exited with status 1" in outcome.reason
 
 
 def test_a_tasks_file_that_the_agent_removes_is_written_back_and_the_group_is_ticked(

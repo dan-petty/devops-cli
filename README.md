@@ -45,6 +45,7 @@
 - [**Configuration Reference (`docs/CONFIGURATION.md`)**](docs/CONFIGURATION.md) — Every setting, and the order in which sources set it.
 - [**Exit Code & Error Catalog (`docs/ERRORS.md`)**](docs/ERRORS.md) — Error codes, exit codes and their categories.
 - [**Telemetry & Tracing Reference (`docs/TELEMETRY.md`)**](docs/TELEMETRY.md) — Metrics, spans and the way they reach Prometheus.
+- [**AI and RAG Cheatsheet (`docs/cheatsheets/ai_and_rag.md`)**](docs/cheatsheets/ai_and_rag.md) — Managed repository ingestion and semantic search reference.
 - [**Knowledge Base Catalog (`docs/KNOWLEDGE_BASE.md`)**](docs/KNOWLEDGE_BASE.md) — The manuals that ground the AI commands.
 - [**OpenTofu Modules (`tf/README.md`)**](tf/README.md) — Managed Kubernetes cluster modules.
 - [**Agent Records (`docs/agent/README.md`)**](docs/agent/README.md) — Compacted records of the early development phases.

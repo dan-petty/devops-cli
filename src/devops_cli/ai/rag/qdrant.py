@@ -112,15 +112,38 @@ def _build_point_struct(p: dict[str, Any]) -> qmodels.PointStruct:
     )
 
 
+def _parse_must_not_conditions(v: Any) -> list[Any]:
+    """Parse must_not specification into Qdrant field conditions."""
+    conditions: list[Any] = []
+    if isinstance(v, dict):
+        for nk, nv in v.items():
+            conditions.append(qmodels.FieldCondition(key=nk, match=qmodels.MatchValue(value=nv)))
+    elif isinstance(v, list):
+        for item in v:
+            if isinstance(item, dict) and "key" in item:
+                conditions.append(
+                    qmodels.FieldCondition(
+                        key=item["key"], match=qmodels.MatchValue(value=item.get("value"))
+                    )
+                )
+    return conditions
+
+
 def _build_payload_filter(filter_payload: dict[str, Any] | None) -> qmodels.Filter | None:
     """Construct Qdrant Filter from payload match criteria."""
     if not filter_payload:
         return None
-    conditions: list[Any] = [
-        qmodels.FieldCondition(key=k, match=qmodels.MatchValue(value=v))
-        for k, v in filter_payload.items()
-    ]
-    return qmodels.Filter(must=conditions)
+    must_conditions: list[Any] = []
+    must_not_conditions: list[Any] = []
+    for k, v in filter_payload.items():
+        if k == "must_not":
+            must_not_conditions.extend(_parse_must_not_conditions(v))
+        else:
+            must_conditions.append(qmodels.FieldCondition(key=k, match=qmodels.MatchValue(value=v)))
+    return qmodels.Filter(
+        must=must_conditions if must_conditions else None,
+        must_not=must_not_conditions if must_not_conditions else None,
+    )
 
 
 def _format_query_hits(points: list[Any]) -> list[dict[str, Any]]:
@@ -287,6 +310,15 @@ class QdrantProtocol(Protocol):
         name: str,
         project_name: str,
         batch_size: int = 500,
+    ) -> bool: ...
+
+    def set_payload(
+        self,
+        name: str,
+        payload: dict[str, Any],
+        filter_payload: dict[str, Any] | None = None,
+        *,
+        wait: bool = True,
     ) -> bool: ...
 
 
@@ -898,3 +930,33 @@ class QdrantClient:
                 exc,
             )
             raise QdrantClientError(f"Delete by project failed in '{name}': {exc}") from exc
+
+    def set_payload(
+        self,
+        name: str,
+        payload: dict[str, Any],
+        filter_payload: dict[str, Any] | None = None,
+        *,
+        wait: bool = True,
+    ) -> bool:
+        """Set or update payload fields on points matching the filter."""
+        query_filter = _build_payload_filter(filter_payload)
+        if query_filter is None:
+            return True
+
+        def _set_op(client: NativeQdrantClient) -> Any:
+            return client.set_payload(
+                collection_name=name,
+                payload=payload,
+                points=query_filter,
+                wait=wait,
+            )
+
+        try:
+            self._execute_with_retry(_set_op, "set_payload", name)
+            return True
+        except Exception as exc:
+            err_str = str(exc).lower()
+            if "not found" in err_str or "404" in err_str:
+                return False
+            raise QdrantClientError(f"Set payload failed in '{name}': {exc}") from exc

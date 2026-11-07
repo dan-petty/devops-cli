@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.76.2"
+version = "0.77.0"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
@@ -79,6 +79,7 @@ dependencies = [
     "filelock==4.2.4",
     "psutil==7.2.2",
     "unidiff==1.0.1",
+    "ddgs==9.16.1",
 ]
 
 [project.scripts]

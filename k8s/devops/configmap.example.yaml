@@ -16,17 +16,29 @@ data:
       provider: gateway
       gateway_url: http://llm-gateway.llm.svc.cluster.local:4000/v1
       allow_private_network: true
-      model: devops-background
-      # devops-background serves one request at a time, so a model call is sent at most two
-      # times (k8s/README.md, LLM Gateway).
+      # One chat model for every slot of the Service, by the owner decision of 2026-11-07
+      # (#3874): ai.model and the tasks verification, chat and triage name the same group as
+      # analysis and implement. A failure then shows one model and not a mix. Undo this when most
+      # steps of the roadmap jobs work most of the time: then name a model for each slot again.
+      # The embedding slot stays the embedding model, because a chat model cannot embed. Each
+      # prompt of a chat slot leaves the cluster to OpenRouter (SECURITY.md rule 13).
+      model: deepseek-v4.1-flash-1017
+      # A model call is sent at most two times. The gateway already retries a failed call of
+      # the group up to 5 times (router_settings.num_retries in k8s/llm/gateway/config.yaml), so
+      # a client retry adds a layer on a call that the provider bills (k8s/README.md, LLM Gateway).
       max_retries: 1
       tasks:
         # The model lane (stage, refine, alternatives) plans with DeepSeek through the gateway
         # group deepseek-v4.1-flash-1017 (#3155). The verification slot is the model that
         # reviews a plan; no code reads it before #3153 is built.
+        # The task stage takes this window. A plan run needs about 38,000 tokens for its first
+        # request and 1.5 million input tokens in 23 requests, and the run ends its tools at
+        # three quarters of the window. At 65,536 tokens the tools ended after 2 or 3 requests,
+        # and the model answered with a placeholder (#3880). 256,000 tokens is the smallest window
+        # that an fp8 provider of the gateway group offers; the group allows 1,048,576.
         analysis:
           model: deepseek-v4.1-flash-1017
-          context_window: 65536
+          context_window: 256000
         # The implement job runs every step on the same group (#3573). Its prompts, which hold
         # the code of the repository, leave the cluster to OpenRouter (SECURITY.md rule 13). The
         # window is the smallest that an fp8 provider of the group offers (256,000 tokens); the
@@ -35,13 +47,13 @@ data:
           model: deepseek-v4.1-flash-1017
           context_window: 256000
         verification:
-          model: claude-sonnet-5-5
+          model: deepseek-v4.1-flash-1017
         chat:
-          model: devops-background
+          model: deepseek-v4.1-flash-1017
         embedding:
           model: qwen3-embedding:0.6b
         triage:
-          model: devops-triage
+          model: deepseek-v4.1-flash-1017
     # devops-cli's cache Valkey in namespace llm (llm/valkey-devops.yaml): the embedding cache
     # and the threat-intelligence cache. Its password reaches the pod from Secret devops-cli as
     # DEVOPS_CLI_VALKEY_PASSWORD, never from this ConfigMap.

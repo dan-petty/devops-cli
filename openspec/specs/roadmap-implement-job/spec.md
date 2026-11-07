@@ -1217,7 +1217,7 @@ The example ConfigMap SHALL hold `roadmap.implement.effort` with its default val
 - **THEN** the value of `roadmap.implement.effort` is `low` and then `medium`
 
 ### Requirement: A stop site passes a typed class of its cause
-Each stop of the job whose cause has a class SHALL pass that class, and the stop comment and `implement.failure` SHALL hold it. The classifier SHALL NOT decide a class that a site passes. The words of the last message of the agent and the words of a task SHALL NOT change a class. A step that changed no file SHALL pass `no_change_in_fix` in a fix step and `plan_defect` in a group step.
+Each stop of the job whose cause has a class SHALL pass that class, and the stop comment and `implement.failure` SHALL hold it. The classifier SHALL NOT decide a class that a site passes. The words of the last message of the agent and the words of a task SHALL NOT change a class. A step that changed no file SHALL pass `no_change_in_fix` in a fix step and `plan_defect` in a group step. A step whose reset of a moved `HEAD` failed SHALL pass `head_moved`.
 
 #### Scenario: A fix step that changed no file
 - **WHEN** a fix step stops with the reason "The agent changed no file." and its last message says "The item is already implemented."
@@ -1228,7 +1228,7 @@ Each stop of the job whose cause has a class SHALL pass that class, and the stop
 - **THEN** the class is `plan_defect`
 
 #### Scenario: A lost test, a moved HEAD and the output cap
-- **WHEN** a step stops because the agent removed a test, moved HEAD, or reached the output cap
+- **WHEN** a step stops because the agent removed a test, because the reset of a head that the agent moved failed, or because it reached the output cap
 - **THEN** the classes are `tests_lost`, `head_moved` and `output_cap`
 
 #### Scenario: The tier decision
@@ -1483,3 +1483,26 @@ The setting `roadmap.implement.max_memory_limit` SHALL have the default 8Gi and 
 #### Scenario: A value below the largest request or in another form
 - **WHEN** the setting is 5Gi, 8G or 8192Mi
 - **THEN** the configuration is refused
+
+### Requirement: A conflict stop names the conflicted files
+When a rebase stops the item on a conflict, the job SHALL read the unmerged files with `git diff --name-only --diff-filter=U` before it aborts the rebase. The stop comment SHALL name each file, the job record SHALL hold the files as `implement.conflict`, and a retry or a clear rule of the Service SHALL clear the record. The job SHALL mask each path, SHALL list at most `CONST_ROADMAP_IMPLEMENT_REASON_PATHS` paths, and SHALL state the number of paths that the cut left out.
+
+#### Scenario: A conflict at the start of a run
+- **WHEN** the staged branch conflicts with the default branch in a real git repository when the job rebases at the start of the run
+- **THEN** the item stops with the class `conflict`, and the comment names each conflicted file
+
+#### Scenario: A conflict before the push
+- **WHEN** the default branch gains a change that conflicts with the branch when the job rebases before the push
+- **THEN** the item stops with the class `conflict`, and the comment names each conflicted file
+
+#### Scenario: The record holds the files until a retry
+- **WHEN** a conflict stops the item, and a person then comments `implement: retry`
+- **THEN** `implement.conflict` holds each file after the stop, and holds none after the retry starts the item
+
+#### Scenario: A list above the limit
+- **WHEN** the conflict holds more files than `CONST_ROADMAP_IMPLEMENT_REASON_PATHS`
+- **THEN** the comment names the files up to the limit and states the number of files left out
+
+#### Scenario: A secret in a path
+- **WHEN** a conflicted file path holds a token that `mask_secrets` knows
+- **THEN** the comment and the record hold the masked path and not the token
