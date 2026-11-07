@@ -782,7 +782,7 @@ TRIAGE_LANE_ROWS: tuple[JobRow, ...] = (
         due_rule=_intake_due,
     ),
 )
-"""The row that runs intake on the fast devops-triage model in its own triage lane (#1534)."""
+"""The row that runs intake in its own triage lane (#1534)."""
 
 MODEL_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
