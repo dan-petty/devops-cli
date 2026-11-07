@@ -381,18 +381,40 @@ def test_a_plan_run_whose_window_ends_the_tools_after_the_minimum_calls_gives_it
     )
 
 
-def test_a_review_run_whose_tools_the_window_ends_early_is_not_a_window_failure(
+def test_a_review_run_whose_tools_the_window_ends_too_soon_fails_and_names_the_review_window(
     checkout: tuple[Path, str],
 ) -> None:
-    """Only the plan run names the planner window: the review has its own window (#3880)."""
+    """A review that read almost none of the code gives no findings that a person can trust, and a
+    plan with no finding would stage as clean. So the run fails the item, and the error names the
+    window of the review and not the window of the planner (#3911)."""
+    source, sha = _big_file_checkout(checkout)
+    script = Script(_read("src/big.py"), without_tools=Verification(findings=[]))
+    client = ToolboxClient(script.model(), _Inner(), source, sha, window=12000)
+
+    with pytest.raises(RoadmapStageError) as raised:
+        client.chat_structured("System.", "{}", Verification, max_retries=1)
+
+    message = str(raised.value)
+    assert ("12000" in message, "ai.tasks.verification.context_window" in message) == (True, True)
+    assert "ai.tasks.stage.context_window" not in message
+
+
+def test_a_review_run_whose_window_ends_the_tools_after_the_minimum_calls_gives_its_findings(
+    checkout: tuple[Path, str],
+) -> None:
     source, sha = _big_file_checkout(checkout)
     verdict = Verification(findings=[])
     script = Script(_read("src/big.py"), without_tools=verdict)
-    client = ToolboxClient(script.model(), _Inner(), source, sha, window=12000)
+    client = ToolboxClient(script.model(), _Inner(), source, sha, window=45000)
 
     result = client.chat_structured("System.", "{}", Verification, max_retries=1)
 
-    assert result == verdict
+    (trace,) = client.traces
+    assert (
+        result,
+        trace.limit,
+        len(trace.tool_calls) >= constants.CONST_ROADMAP_STAGE_MIN_TOOL_CALLS,
+    ) == (verdict, RunLimit.WINDOW, True)
 
 
 def test_the_trace_records_the_tools_offered_for_each_request(

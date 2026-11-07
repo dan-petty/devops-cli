@@ -16,6 +16,7 @@ import yaml
 from pydantic_ai.messages import ModelMessagesTypeAdapter, ModelRequest, UserPromptPart
 
 from devops_cli.ai.context_budget import count_tokens
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config import constants
 from devops_cli.config.constants import (
     CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE,
@@ -24,7 +25,10 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
     CONST_ROADMAP_STAGE_SPEC_MAX_CHARS,
     CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS,
+    CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS,
 )
+from devops_cli.config.defaults import DEFAULT_AI_CONTEXT_WINDOW
+from devops_cli.roadmap.refine.refine_investigation import tokens_of, tool_stop
 from devops_cli.roadmap.stage import stage
 from devops_cli.roadmap.stage.stage import (
     StagePlan,
@@ -35,6 +39,7 @@ from devops_cli.roadmap.stage.stage import (
 )
 from devops_cli.roadmap.stage.stage_eval_run import RecordingClient
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel
+from devops_cli.roadmap.stage.stage_verify import VerificationInput, agent_instructions
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.paths import REPO_ROOT
@@ -328,6 +333,54 @@ def test_the_planner_window_of_the_example_configmap_fits_the_first_request_and_
     window = _example_task("analysis")["context_window"]
 
     assert (_limit(window) >= needed, _limit(WINDOW) < needed) == (True, True)
+
+
+def _review_first_request_tokens() -> int:
+    """The tokens of the first request of a review run with no cited file, counted as the run hook
+    counts them: the issue body at its cap, the plan, and the instructions of the review. The
+    request keeps its files below the limit, so a window that fits this request leaves the tools
+    their room (`VerificationInput.of`)."""
+    given = VerificationInput(
+        1,
+        "A title",
+        _words(CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS),
+        _PLAN.model_dump(mode="json"),
+        {},
+    )
+    request = ModelRequest(
+        parts=[UserPromptPart(content=given.text())],
+        instructions=agent_instructions(load_task_prompt("roadmap_stage_verify.md")),
+    )
+    return tokens_of([request])
+
+
+def test_the_review_window_of_the_example_configmap_fits_the_first_request_and_the_minimum_calls() -> (
+    None
+):
+    """The task `verification` has no parent task, so it takes the window of `ai` when it sets
+    none: 32,768 tokens, which ends the tools of a review at 24,576 (#3911)."""
+    needed = (
+        _review_first_request_tokens()
+        + constants.CONST_ROADMAP_STAGE_MIN_TOOL_CALLS * TOOL_ANSWER_TOKENS
+    )
+    window = _example_task("verification").get("context_window", DEFAULT_AI_CONTEXT_WINDOW)
+
+    assert (tool_stop(window) >= needed, tool_stop(DEFAULT_AI_CONTEXT_WINDOW) < needed) == (
+        True,
+        True,
+    )
+
+
+def test_the_review_and_the_planner_share_the_model_and_the_window_of_the_example_configmap() -> (
+    None
+):
+    """One model serves every slot of the Service (#3874), so one window fits all of them."""
+    verification, analysis = _example_task("verification"), _example_task("analysis")
+
+    assert (verification["model"], verification["context_window"]) == (
+        analysis["model"],
+        analysis["context_window"],
+    )
 
 
 def test_the_documented_window_of_analysis_and_its_source_are_the_files_values() -> None:

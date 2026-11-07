@@ -160,9 +160,14 @@ class ToolboxClient:
             finished = True
         finally:
             end_run(trace, row=row, toolset=self._toolset, finished=finished)
-        if schema is StageProposal and self._window_starved(trace):
+        if self._window_starved(trace):
+            template = (
+                MESSAGES.roadmap.stage_window_starved
+                if schema is StageProposal
+                else MESSAGES.roadmap.stage_verify_window_starved
+            )
             raise RoadmapStageError(
-                MESSAGES.roadmap.stage_window_starved.format(
+                template.format(
                     window=self._window,
                     calls=len(trace.tool_calls),
                     minimum=CONST_ROADMAP_STAGE_MIN_TOOL_CALLS,
@@ -176,7 +181,8 @@ class ToolboxClient:
     def _window_starved(trace: RunTrace) -> bool:
         """Whether the window ended the tools of the run before the least number of tool calls
         (#3880). The model then writes its plan about code that it did not read, and the
-        placeholders in the plan hide the cause."""
+        placeholders in the plan hide the cause. A review run that the window starves has read
+        almost none of the code too, so it fails too (#3911)."""
         return (
             trace.limit is RunLimit.WINDOW
             and len(trace.tool_calls) < CONST_ROADMAP_STAGE_MIN_TOOL_CALLS
