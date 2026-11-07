@@ -36,3 +36,4 @@
 ## Workflow follow-up
 
 - The other items of #1333 move the tests of core, config, http, and exceptions, lang and models, remove the accommodations of `src/`, and delete dead code. `tests/invariants/test_dry_run_class_ratchet.py` still patches `main._delegate`. It belongs to the dry-run class item and to the reorganization item of #1333.
+- The call `set_dry_run(True)` in `entry.main` has no effect that a run shows, since the root callback sets the state again. It is follow-up #3910.
