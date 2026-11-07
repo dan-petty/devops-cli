@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import re
-import subprocess
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
+import httpx2
 import pytest
 import yaml
 
@@ -28,6 +27,10 @@ from devops_cli.commands.k8s.stack_lifecycle import (
 from devops_cli.config.defaults import DEFAULT_QDRANT_URL
 from devops_cli.config.settings import Settings
 from tests.support.config_writes import written_keys
+from tests.support.fakes.kubernetes import FakeCluster, service
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.k8s_commands import answer_ingresses
+from tests.support.tcp_probe import TcpProbe
 
 
 def test_should_update_url_edge_cases() -> None:
@@ -47,27 +50,28 @@ def test_should_update_url_edge_cases() -> None:
     assert test_cases == expected
 
 
-def _valkey_url_after_detection(saved: str | None, detected: str, reachable: bool) -> str | None:
+def _valkey_url_after_detection(
+    saved: str | None,
+    detected: str,
+    reachable: bool,
+    cluster: FakeCluster,
+    process_fake: ProcessFake,
+    tcp_probe: TcpProbe,
+) -> str | None:
     """The `valkey.url` that configure-urls leaves after it detects the cache Valkey at `detected`.
 
-    When the detected address does not answer, detection falls back to a loopback port-forward on
-    the node port.
+    The cluster holds one Service, `valkey`, behind the load balancer at `detected`. When that
+    address does not answer, detection falls back to a loopback port-forward on the node port.
     """
+    address = httpx2.URL(detected)
+    cluster.core.answers["list_namespaced_service"] = [
+        service("valkey", "llm", port=address.port, load_balancer=address.host)
+    ]
+    if reachable:
+        tcp_probe.listen(address.host, address.port)
     settings = Settings()
     settings.valkey.url = saved
-    with (
-        patch(
-            "devops_cli.commands.k8s.networking._detect_service_url",
-            side_effect=lambda service, namespace, context=None: (
-                detected if service == "valkey" else None
-            ),
-        ),
-        patch(
-            "devops_cli.commands.k8s.networking._verify_url_reachability",
-            side_effect=lambda url, timeout=0.0: reachable and url == detected,
-        ),
-    ):
-        _configure_llm_stack_urls(None, settings, {})
+    _configure_llm_stack_urls(None, settings, {})
     return settings.valkey.url
 
 
@@ -136,10 +140,19 @@ def _valkey_url_after_detection(saved: str | None, detected: str, reachable: boo
     ],
 )
 def test_configure_urls_saves_valkey_url_as_a_valkey_url(
-    saved: str | None, detected: str, reachable: bool, url: str
+    saved: str | None,
+    detected: str,
+    reachable: bool,
+    url: str,
+    cluster: FakeCluster,
+    process_fake: ProcessFake,
+    tcp_probe: TcpProbe,
 ) -> None:
     """configure-urls writes `valkey://`, keeps a saved non-loopback URL and a chosen local port."""
-    assert _valkey_url_after_detection(saved, detected, reachable) == url
+    assert (
+        _valkey_url_after_detection(saved, detected, reachable, cluster, process_fake, tcp_probe)
+        == url
+    )
 
 
 def test_as_valkey_url_converts_http_and_preserves_brackets_and_ports() -> None:
@@ -212,22 +225,18 @@ def test_update_ollama_urls_endpoint_preservation() -> None:
     )
 
 
-def test_resolve_accessible_url_prefers_reachable_cluster_endpoint() -> None:
+def test_resolve_accessible_url_prefers_reachable_cluster_endpoint(tcp_probe: TcpProbe) -> None:
     """_resolve_accessible_url retains reachable cluster URLs over localhost listeners."""
-    with patch("devops_cli.commands.k8s.networking._verify_url_reachability", return_value=True):
-        resolved_cluster = _resolve_accessible_url(
-            "http://example.com:30080", preferred_localhost_ports=[8080]
-        )
+    tcp_probe.listen_where(lambda host, port: True)
+    resolved_cluster = _resolve_accessible_url(
+        "http://example.com:30080", preferred_localhost_ports=[8080]
+    )
 
-    def fake_verify(url: str, timeout: float = 1.0) -> bool:
-        return "localhost" in url or "127.0.0.1" in url
-
-    with patch(
-        "devops_cli.commands.k8s.networking._verify_url_reachability", side_effect=fake_verify
-    ):
-        resolved_fallback = _resolve_accessible_url(
-            "http://example.com:30080", preferred_localhost_ports=[8080]
-        )
+    tcp_probe.refuse_all()
+    tcp_probe.listen_where(lambda host, port: host in ("localhost", "127.0.0.1"))
+    resolved_fallback = _resolve_accessible_url(
+        "http://example.com:30080", preferred_localhost_ports=[8080]
+    )
 
     assert (resolved_cluster, resolved_fallback) == (
         "http://example.com:30080",
@@ -271,51 +280,66 @@ def test_collect_port_forward_services_and_details() -> None:
     )
 
 
-def test_deploy_stack_defaults_do_not_port_forward_or_configure_urls() -> None:
+def _port_forwards(process_fake: ProcessFake) -> list[tuple[str, ...]]:
+    """The `kubectl port-forward` children that a command started."""
+    return [
+        call.argv for call in process_fake.calls if call.argv[:2] == ("kubectl", "port-forward")
+    ]
+
+
+def _service_reads(cluster: FakeCluster) -> int:
+    """How many Services configure-urls asked the cluster for."""
+    return len([name for name, _ in cluster.core.calls if name == "read_namespaced_service"])
+
+
+@pytest.mark.usefixtures("keyring_store", "tcp_probe", "clock")
+def test_deploy_stack_defaults_do_not_port_forward_or_configure_urls(
+    cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
     """deploy_stack does not invoke port-forward or configure-urls unless requested."""
-    with (
-        patch(
-            "devops_cli.commands.k8s.stack_lifecycle.runtime._cluster_reachable", return_value=True
-        ),
-        patch("devops_cli.commands.k8s.stack_lifecycle.runtime._run_cmd") as mock_run_cmd,
-        patch("devops_cli.commands.k8s.stack_lifecycle.net.port_forward") as mock_pf,
-        patch("devops_cli.commands.k8s.stack_lifecycle.net.configure_urls") as mock_conf,
-        patch("devops_cli.k8s.credentials.sync_k8s_credentials", return_value={}),
-        patch("devops_cli.commands.k8s.stack_lifecycle.push_for_stacks"),
-        patch("devops_cli.commands.k8s.stack_lifecycle.require_keyring_for_push"),
-        patch("devops_cli.commands.k8s.stack_lifecycle.namespace_exists", return_value=False),
-    ):
+    process_fake.answer("helm version", ProcessAnswer(stdout="v3.17.0\n"))
+    seen: list[tuple[int, int]] = []
 
-        def _fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-            if cmd[:2] == ["helm", "version"]:
-                return subprocess.CompletedProcess(cmd, 0, "v3.17.0\n", "")
-            return subprocess.CompletedProcess(cmd, 0, "", "")
+    deploy_stack(stack="infra", push_secrets=False)
+    seen.append((len(_port_forwards(process_fake)), _service_reads(cluster)))
 
-        mock_run_cmd.side_effect = _fake_run
-        deploy_stack(stack="infra")
-        assert (mock_pf.called, mock_conf.called) == (False, False)
+    deploy_stack(stack="infra", push_secrets=False, port_forward=True)
+    seen.append((len(_port_forwards(process_fake)), _service_reads(cluster)))
 
-        deploy_stack(stack="infra", port_forward=True)
-        assert (mock_pf.called, mock_conf.called) == (True, False)
+    forwards_before = len(_port_forwards(process_fake))
+    reads_before = _service_reads(cluster)
+    deploy_stack(stack="infra", push_secrets=False, configure_urls=True)
+    seen.append(
+        (
+            len(_port_forwards(process_fake)) - forwards_before,
+            _service_reads(cluster) - reads_before,
+        )
+    )
 
-        mock_pf.reset_mock()
-        deploy_stack(stack="infra", configure_urls=True)
-        assert (mock_pf.called, mock_conf.called) == (False, True)
+    assert (seen[0], seen[1][0] > 0, seen[1][1], seen[2][0], seen[2][1] > 0) == (
+        (0, 0),
+        True,
+        0,
+        0,
+        True,
+    )
 
 
-def test_port_forward_defaults_do_not_update_config() -> None:
+@pytest.mark.usefixtures("tcp_probe", "clock")
+def test_port_forward_defaults_do_not_update_config(
+    cluster: FakeCluster, process_fake: ProcessFake
+) -> None:
     """port_forward does not invoke configure_urls unless update_config is True."""
-    with (
-        patch("devops_cli.commands.k8s.networking.runtime._cluster_reachable", return_value=True),
-        patch("devops_cli.commands.k8s.networking._launch_port_forwards"),
-        patch("time.sleep"),
-        patch("devops_cli.commands.k8s.networking.configure_urls") as mock_conf,
-    ):
-        port_forward(stack="infra")
-        assert mock_conf.called is False
+    port_forward(stack="infra")
+    reads_without = _service_reads(cluster)
 
-        port_forward(stack="infra", update_config=True)
-        assert mock_conf.called is True
+    port_forward(stack="infra", update_config=True)
+
+    assert (reads_without, _service_reads(cluster) > 0, len(_port_forwards(process_fake)) > 0) == (
+        0,
+        True,
+        True,
+    )
 
 
 def test_is_public_dns_name() -> None:
@@ -448,15 +472,16 @@ def test_preview_fqdn_addresses() -> None:
     )
 
 
-def test_configure_fqdn_urls() -> None:
+def test_configure_fqdn_urls(process_fake: ProcessFake) -> None:
     """_configure_fqdn_urls maps discovered ingress hosts to service configurations."""
     from devops_cli.commands.k8s.networking import _configure_fqdn_urls
 
-    mock_ingress = {
-        "argocd-server": ["argocd.example.com"],
-        "open-webui": ["chat.example.com"],
-        "llm-gateway": ["ai.example.com"],
-    }
+    answer_ingresses(
+        process_fake,
+        ("argocd", "argocd-server", "argocd.example.com"),
+        ("llm", "open-webui", "chat.example.com"),
+        ("llm", "llm-gateway", "ai.example.com"),
+    )
     settings = Settings()
     settings.ai.gateway_enabled = False
     settings.ai.tasks.analysis.provider = "copilot"
@@ -465,11 +490,7 @@ def test_configure_fqdn_urls() -> None:
     settings.ai.tasks.chat.api_base_url = None
     configured: dict[str, str] = {}
 
-    with patch(
-        "devops_cli.commands.k8s.networking._discover_ingress_hosts",
-        return_value=mock_ingress,
-    ):
-        _configure_fqdn_urls(None, settings, configured, ["infra", "llm"])
+    _configure_fqdn_urls(None, settings, configured, ["infra", "llm"])
 
     assert (
         configured.get("argocd.url"),
@@ -490,21 +511,20 @@ def test_configure_fqdn_urls() -> None:
     )
 
 
-def test_configure_urls_fqdn_resolves_prometheus_server_ingress() -> None:
+def test_configure_urls_fqdn_resolves_prometheus_server_ingress(
+    process_fake: ProcessFake,
+) -> None:
     """A test with a Prometheus ingress whose backend is the Prometheus server Service sets prometheus.url (#1104, #818)."""
     from devops_cli.commands.k8s.networking import _configure_fqdn_urls
 
-    mock_ingress = {
-        "monitoring:prometheus-server": ["prometheus.example.com"],
-        "monitoring:grafana": ["grafana.example.com"],
-    }
+    answer_ingresses(
+        process_fake,
+        ("monitoring", "prometheus-server", "prometheus.example.com"),
+        ("monitoring", "grafana", "grafana.example.com"),
+    )
     settings = Settings()
     configured: dict[str, str] = {}
-    with patch(
-        "devops_cli.commands.k8s.networking._discover_ingress_hosts",
-        return_value=mock_ingress,
-    ):
-        _configure_fqdn_urls(None, settings, configured, ["infra"])
+    _configure_fqdn_urls(None, settings, configured, ["infra"])
 
     assert (
         configured.get("prometheus.url"),
@@ -559,6 +579,8 @@ def test_configure_fqdn_gateway_preserves_remote_custom_gateway_url() -> None:
 
 def test_configure_urls_saves_when_only_task_gateway_urls_change(
     cli: Any,
+    cluster: FakeCluster,
+    process_fake: ProcessFake,
     isolate_devops_cli_config: Path,
     isolate_data_dir: Path,
 ) -> None:
@@ -573,16 +595,8 @@ ai:
       provider: gateway
 """
     isolate_devops_cli_config.write_text(initial_config.strip() + "\n", encoding="utf-8")
-    mock_ingress = {
-        "llm:llm-gateway": ["ai.discovered.example.com"],
-    }
-    with (
-        patch("devops_cli.commands.k8s.networking.runtime._cluster_reachable", return_value=True),
-        patch(
-            "devops_cli.commands.k8s.networking._discover_ingress_hosts", return_value=mock_ingress
-        ),
-    ):
-        result = cli("k8s", "configure-urls", "--addressing", "fqdn", "--stack", "llm")
+    answer_ingresses(process_fake, ("llm", "llm-gateway", "ai.discovered.example.com"))
+    result = cli("k8s", "configure-urls", "--addressing", "fqdn", "--stack", "llm")
 
     assert result.exit_code == 0
     saved = yaml.safe_load(isolate_devops_cli_config.read_text(encoding="utf-8"))

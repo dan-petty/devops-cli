@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app as k8s_app
 from devops_cli.k8s.service_proxy import discover_service
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster, api_exception, service
 
 runner = CliRunner()
@@ -104,18 +107,17 @@ def test_a_failed_listing_returns_nothing(cluster: FakeCluster) -> None:
 # =============================================================================
 
 
-def test_proxy_mode_skips_components_that_are_not_installed() -> None:
+def test_proxy_mode_skips_components_that_are_not_installed(cluster: FakeCluster) -> None:
     """A partial stack configures what exists rather than failing outright."""
     from devops_cli.commands.k8s.networking import _configure_proxy_urls
 
+    _listing(cluster)
     configured: dict[str, str] = {}
-    with (
-        patch("devops_cli.k8s.service_proxy.discover_service", return_value=None),
-        patch("devops_cli.config.settings.dotted_set"),
-    ):
-        _configure_proxy_urls(None, MagicMock(), configured, ["infra", "llm"])
+    settings = MagicMock()
 
-    assert configured == {}
+    _configure_proxy_urls(None, settings, configured, ["infra", "llm"])
+
+    assert (configured, settings.mock_calls) == ({}, [])
 
 
 def test_an_unknown_addressing_mode_is_rejected() -> None:
@@ -130,7 +132,22 @@ def test_an_unknown_addressing_mode_is_rejected() -> None:
 # =============================================================================
 
 
-def test_the_telemetry_provider_accepts_a_service_address() -> None:
+def _prometheus_at(config: Callable[..., Path], cluster: FakeCluster, address: str) -> str:
+    """Configure Prometheus at `address`, and give the fake cluster's API server a name.
+
+    Returns the URL that the API server proxy answers for the metric names.
+    """
+    config(prometheus={"url": address})
+    cluster.configuration.host = "https://cluster.example.com:6443"
+    return (
+        "https://cluster.example.com:6443/api/v1/namespaces/monitoring/services/"
+        "prometheus:9090/proxy/api/v1/label/__name__/values"
+    )
+
+
+def test_the_telemetry_provider_accepts_a_service_address(
+    config: Callable[..., Path], cluster: FakeCluster, web: WebFake
+) -> None:
     """The dashboard reads Prometheus without a port-forward.
 
     The provider does not branch on the address form; get_json resolves either, which is
@@ -139,30 +156,34 @@ def test_the_telemetry_provider_accepts_a_service_address() -> None:
     from devops_cli.ui import data_providers
 
     address = "k8s://monitoring/prometheus:9090"
-    payload = {"data": ["http_requests_total", "up", "go_goroutines", "latency_bucket"]}
-    with (
-        patch.object(data_providers, "_prometheus_base_url", return_value=address),
-        patch("devops_cli.k8s.service_http.get_json", return_value=payload) as fetch,
-    ):
-        summary = data_providers.fetch_telemetry_status()
-
-    assert (fetch.call_args[0][0], summary.source, summary.counter_count) == (
-        address,
-        address,
-        1,
+    metrics_url = _prometheus_at(config, cluster, address)
+    web.respond(
+        "GET",
+        metrics_url,
+        200,
+        {"data": ["http_requests_total", "up", "go_goroutines", "latency_bucket"]},
     )
 
+    summary = data_providers.fetch_telemetry_status()
 
-def test_a_failing_service_address_falls_back_and_names_the_endpoint() -> None:
+    assert (
+        [request.url for request in web.recorded],
+        summary.source,
+        summary.counter_count,
+    ) == ([metrics_url], address, 1)
+
+
+def test_a_failing_service_address_falls_back_and_names_the_endpoint(
+    config: Callable[..., Path], cluster: FakeCluster, web: WebFake
+) -> None:
     """An unreachable cluster service must not look like an absence of metrics."""
     from devops_cli.ui import data_providers
 
     address = "k8s://monitoring/prometheus:9090"
-    with (
-        patch.object(data_providers, "_prometheus_base_url", return_value=address),
-        patch("devops_cli.k8s.service_http.get_json", side_effect=RuntimeError("403 Forbidden")),
-    ):
-        summary = data_providers.fetch_telemetry_status()
+    metrics_url = _prometheus_at(config, cluster, address)
+    web.respond("GET", metrics_url, 403, {"message": "Forbidden"})
+
+    summary = data_providers.fetch_telemetry_status()
 
     assert (address in summary.error_message, summary.source) == (True, "in-process")
 

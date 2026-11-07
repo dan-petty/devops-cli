@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import subprocess
-from typing import Any
-from unittest.mock import patch
+from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 import typer
 
 from devops_cli.commands.k8s.cluster_runtime import (
     _cluster_reachable,
-    _k8s_clients,
     _minikube_running,
     _run_cmd,
     _validate_k8s_identifier,
 )
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 
 def test_validate_k8s_identifier() -> None:
@@ -27,92 +27,66 @@ def test_validate_k8s_identifier() -> None:
     assert raised.value.exit_code == 1
 
 
-def test_k8s_clients_import_error() -> None:
-    import builtins
+def test_run_cmd(process_fake: ProcessFake) -> None:
+    process_fake.answer("kubectl get pods", ProcessAnswer(stdout="ok"))
 
-    orig_import = builtins.__import__
+    res = _run_cmd(["kubectl", "get", "pods"], check=True, capture=True)
 
-    def mock_import(name: str, *args: Any, **kwargs: Any) -> Any:
-        if "kubernetes" in name:
-            raise ImportError("No module named 'kubernetes'")
-        return orig_import(name, *args, **kwargs)
-
-    with patch("builtins.__import__", side_effect=mock_import):
-        with pytest.raises(typer.Exit) as exc_info:
-            _k8s_clients()
-        assert exc_info.value.exit_code == 1
+    assert (res.returncode, res.stdout, [call.argv for call in process_fake.calls]) == (
+        0,
+        "ok",
+        [("kubectl", "get", "pods")],
+    )
 
 
-def test_k8s_clients_success() -> None:
-    from kubernetes import client as k8s_client
-    from kubernetes import config as k8s_config
+def test_minikube_running_true(process_fake: ProcessFake) -> None:
+    process_fake.answer("minikube status", ProcessAnswer(stdout="Running\n"))
 
-    cfg, cli = _k8s_clients()
-    assert cfg is k8s_config
-    assert cli is k8s_client
+    assert _minikube_running() is True
 
 
-def test_run_cmd() -> None:
-    with patch("devops_cli.commands.k8s.run_subprocess") as mock_sub:
-        mock_sub.return_value = subprocess.CompletedProcess(
-            args=["kubectl"], returncode=0, stdout="ok"
-        )
-        res = _run_cmd(["kubectl", "get", "pods"], check=True, capture=True)
-        assert res.returncode == 0
-        assert res.stdout == "ok"
-        mock_sub.assert_called_once()
+def test_minikube_running_false(process_fake: ProcessFake) -> None:
+    process_fake.answer("minikube status", ProcessAnswer(returncode=1, stdout="Stopped\n"))
+
+    assert _minikube_running() is False
 
 
-def test_minikube_running_true() -> None:
-    with patch("devops_cli.commands.k8s._run_cmd") as mock_cmd:
-        mock_cmd.return_value = subprocess.CompletedProcess(
-            args=["minikube"], returncode=0, stdout="Running\n"
-        )
-        assert _minikube_running() is True
+def test_minikube_running_exception(process_fake: ProcessFake) -> None:
+    process_fake.answer("minikube status", ProcessAnswer(side_effect=FileNotFoundError))
+
+    assert _minikube_running() is False
 
 
-def test_minikube_running_false() -> None:
-    with patch("devops_cli.commands.k8s._run_cmd") as mock_cmd:
-        mock_cmd.return_value = subprocess.CompletedProcess(
-            args=["minikube"], returncode=1, stdout="Stopped\n"
-        )
-        assert _minikube_running() is False
+def test_cluster_reachable_kubectl_success(process_fake: ProcessFake) -> None:
+    process_fake.answer(
+        "kubectl cluster-info", ProcessAnswer(stdout="Kubernetes control plane is running")
+    )
+
+    assert _cluster_reachable("custom-context") is True
+    assert [call.argv for call in process_fake.calls] == [
+        ("kubectl", "cluster-info", "--request-timeout=5s", "--context", "custom-context")
+    ]
 
 
-def test_minikube_running_exception() -> None:
-    with patch("devops_cli.commands.k8s._run_cmd", side_effect=FileNotFoundError):
-        assert _minikube_running() is False
+def test_cluster_reachable_fallback_minikube_true(
+    process_fake: ProcessFake, config: Callable[..., Path]
+) -> None:
+    config(k8s={"context": "minikube"})
+    process_fake.answer(
+        "kubectl cluster-info", ProcessAnswer(side_effect=subprocess.SubprocessError)
+    )
+    process_fake.answer("minikube status", ProcessAnswer(stdout="Running\n"))
+
+    assert _cluster_reachable() is True
+    assert _cluster_reachable("minikube") is True
 
 
-def test_cluster_reachable_kubectl_success() -> None:
-    with patch("devops_cli.commands.k8s._run_cmd") as mock_cmd:
-        mock_cmd.return_value = subprocess.CompletedProcess(
-            args=["kubectl"], returncode=0, stdout="Kubernetes control plane is running"
-        )
-        assert _cluster_reachable("custom-context") is True
-        mock_cmd.assert_called_once_with(
-            ["kubectl", "cluster-info", "--request-timeout=5s", "--context", "custom-context"],
-            check=False,
-            capture=True,
-        )
+def test_cluster_reachable_fallback_minikube_false(
+    process_fake: ProcessFake, config: Callable[..., Path]
+) -> None:
+    config(k8s={"context": "minikube"})
+    process_fake.answer("kubectl cluster-info", ProcessAnswer(returncode=1))
+    process_fake.answer("minikube status", ProcessAnswer(returncode=1, stdout="Stopped\n"))
 
-
-def test_cluster_reachable_fallback_minikube_true() -> None:
-    with (
-        patch("devops_cli.commands.k8s._run_cmd", side_effect=subprocess.SubprocessError),
-        patch("devops_cli.commands.k8s._minikube_running", return_value=True),
-    ):
-        assert _cluster_reachable() is True
-        assert _cluster_reachable("minikube") is True
-
-
-def test_cluster_reachable_fallback_minikube_false() -> None:
-    with (
-        patch("devops_cli.commands.k8s._run_cmd") as mock_cmd,
-        patch("devops_cli.commands.k8s._minikube_running", return_value=False),
-    ):
-        mock_cmd.return_value = subprocess.CompletedProcess(
-            args=["kubectl"], returncode=1, stdout=""
-        )
-        assert _cluster_reachable(None) is False
-        assert _cluster_reachable("external-cluster") is False
+    assert _cluster_reachable(None) is False
+    assert _cluster_reachable("external-cluster") is False

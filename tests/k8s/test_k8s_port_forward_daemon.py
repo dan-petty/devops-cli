@@ -18,6 +18,7 @@ from devops_cli.k8s.port_forward_daemon import (
     process_start_ticks,
     reset_daemon_manager,
 )
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 _QUIET_SECONDS: float = 0.2
@@ -244,15 +245,17 @@ def test_an_already_dead_forward_is_not_counted_as_stopped() -> None:
         assert module._terminate_process_group(9001) is False
 
 
-def test_a_forward_is_started_in_its_own_session() -> None:
+def test_a_forward_is_started_in_its_own_session(process_fake: ProcessFake) -> None:
     """`port-forward status` calls these background daemons; that holds only if detached."""
-    import inspect
-
     from devops_cli.commands.k8s import networking
 
-    source = inspect.getsource(networking)
-    forward_call = source[source.index("kubectl") : source.index("active_forwards.append")]
-    assert "start_new_session=True" in forward_call
+    networking._launch_port_forwards(
+        [("otel", "svc/tempo", 3200, 3200)], None, "127.0.0.1", "infra"
+    )
+
+    assert [(call.argv[:3], call.detached) for call in process_fake.calls] == [
+        (("kubectl", "port-forward", "--address"), True)
+    ]
 
 
 # =============================================================================
@@ -261,7 +264,7 @@ def test_a_forward_is_started_in_its_own_session() -> None:
 
 
 def test_concurrent_launches_keep_both_records(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
     """Two `devops k8s port-forward` runs at once both keep their forwards on record (#961).
 
@@ -269,9 +272,7 @@ def test_concurrent_launches_keep_both_records(
     read before the other saved wrote its own list over the other's, so those detached
     forwards held their local ports but were never listed or stopped again.
     """
-    import subprocess
     import threading
-    from types import SimpleNamespace
 
     from devops_cli.commands.k8s import networking
     from devops_cli.k8s import port_forward_daemon as module
@@ -284,8 +285,8 @@ def test_concurrent_launches_keep_both_records(
     first_spawning, second_starting, second_spawned = (threading.Event() for _ in range(3))
     handoffs: list[bool] = []
 
-    def popen(cmd: list[str], **kwargs: object) -> MagicMock:
-        if "svc/ollama" in cmd:
+    def spawn(call: ProcessCall) -> MagicMock:
+        if "svc/ollama" in call.argv:
             second_spawned.set()
         else:
             first_spawning.set()
@@ -296,9 +297,7 @@ def test_concurrent_launches_keep_both_records(
             second_spawned.wait(timeout=_QUIET_SECONDS)
         return MagicMock(pid=os.getpid())
 
-    monkeypatch.setattr(
-        networking, "subprocess", SimpleNamespace(Popen=popen, DEVNULL=subprocess.DEVNULL)
-    )
+    process_fake.answer(lambda _call: True, ProcessAnswer(process=spawn))
     first = threading.Thread(
         target=networking._launch_port_forwards,
         args=([("otel", "svc/tempo", 3200, 3200)], None, "127.0.0.1", "infra"),

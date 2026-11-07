@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -12,6 +10,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.k8s import app
 from devops_cli.crypto.tls_certificates import generate_server_certificate
 from devops_cli.dry_run import set_dry_run
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 runner = CliRunner()
 
@@ -57,11 +56,7 @@ def test_k8s_enable_tls_dry_run(tmp_path: Path) -> None:
         set_dry_run(False)
 
 
-@patch(
-    "devops_cli.commands.k8s._run_cmd",
-    return_value=MagicMock(returncode=0),
-)
-def test_k8s_create_tls_secret_live(mock_cmd: MagicMock, tmp_path: Path) -> None:
+def test_k8s_create_tls_secret_live(tmp_path: Path, process_fake: ProcessFake) -> None:
     """devops k8s create-tls-secret executes kubectl create secret tls."""
     cert_path, key_path, _ = generate_server_certificate(
         common_name="example.com",
@@ -83,14 +78,10 @@ def test_k8s_create_tls_secret_live(mock_cmd: MagicMock, tmp_path: Path) -> None
     )
     assert result.exit_code == 0
     assert "Applied TLS secret" in result.output
-    assert mock_cmd.called
+    assert process_fake.call_count > 0
 
 
-@patch(
-    "devops_cli.commands.k8s._run_cmd",
-    return_value=MagicMock(returncode=0),
-)
-def test_k8s_enable_tls_live(mock_cmd: MagicMock, tmp_path: Path) -> None:
+def test_k8s_enable_tls_live(tmp_path: Path, process_fake: ProcessFake) -> None:
     """devops k8s enable-tls generates bundle and creates secrets across namespaces."""
     result = runner.invoke(
         app,
@@ -108,19 +99,19 @@ def test_k8s_enable_tls_live(mock_cmd: MagicMock, tmp_path: Path) -> None:
     assert (tmp_path / "tls.key").exists()
 
 
-def _kubectl_recorder(calls: list[tuple[list[str], str | None]], *, render_fails: bool) -> Any:
-    """Stand in for kubectl: a client-side render of a TLS secret fails when asked to."""
+def _kubectl_renders_tls_secrets(process_fake: ProcessFake, *, render_fails: bool) -> None:
+    """Script kubectl: a client-side render of a TLS secret fails when asked to."""
 
-    def kubectl(cmd: list[str], **kwargs: Any) -> MagicMock:
-        calls.append((cmd, kwargs.get("input")))
-        rendering = {"create", "secret", "tls"} <= set(cmd)
-        if rendering and render_fails:
-            return MagicMock(
-                returncode=1, stdout="", stderr="error: tls: private key does not match"
-            )
-        return MagicMock(returncode=0, stdout="kind: Secret\n" if rendering else "", stderr="")
+    def rendering(call: ProcessCall) -> bool:
+        return {"create", "secret", "tls"} <= set(call.argv)
 
-    return kubectl
+    if render_fails:
+        process_fake.answer(
+            rendering,
+            ProcessAnswer(returncode=1, stderr="error: tls: private key does not match"),
+        )
+    else:
+        process_fake.answer(rendering, ProcessAnswer(stdout="kind: Secret\n"))
 
 
 @pytest.mark.parametrize(
@@ -132,7 +123,7 @@ def _kubectl_recorder(calls: list[tuple[list[str], str | None]], *, render_fails
     ids=["create-tls-secret", "enable-tls-overwrite"],
 )
 def test_a_tls_secret_kubectl_rejects_leaves_the_live_one_in_place(
-    tmp_path: Path, args: list[str], exit_code: int
+    tmp_path: Path, process_fake: ProcessFake, args: list[str], exit_code: int
 ) -> None:
     """A replacement kubectl refuses to build never costs the namespace its secret (#961).
 
@@ -147,15 +138,11 @@ def test_a_tls_secret_kubectl_rejects_leaves_the_live_one_in_place(
         if args[0] == "create-tls-secret"
         else ["--tls-dir", str(tmp_path)]
     )
-    calls: list[tuple[list[str], str | None]] = []
+    _kubectl_renders_tls_secrets(process_fake, render_fails=True)
 
-    with patch(
-        "devops_cli.commands.k8s.cluster_runtime._run_cmd",
-        side_effect=_kubectl_recorder(calls, render_fails=True),
-    ):
-        result = runner.invoke(app, [*args, *files])
+    result = runner.invoke(app, [*args, *files])
 
-    changes = [cmd for cmd, _ in calls if {"delete", "apply"} & set(cmd)]
+    changes = [call.argv for call in process_fake.calls if {"delete", "apply"} & set(call.argv)]
     assert (result.exit_code, changes, "private key does not match" in result.output) == (
         exit_code,
         [],
@@ -163,32 +150,30 @@ def test_a_tls_secret_kubectl_rejects_leaves_the_live_one_in_place(
     )
 
 
-def test_a_tls_secret_is_applied_over_the_live_one_from_its_render(tmp_path: Path) -> None:
+def test_a_tls_secret_is_applied_over_the_live_one_from_its_render(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
     """The secret is rendered client-side, then applied in place of the one it replaces (#961)."""
     cert_path, key_path = tmp_path / "tls.crt", tmp_path / "tls.key"
     cert_path.write_text("certificate", encoding="utf-8")
     key_path.write_text("key", encoding="utf-8")
-    calls: list[tuple[list[str], str | None]] = []
+    _kubectl_renders_tls_secrets(process_fake, render_fails=False)
 
-    with patch(
-        "devops_cli.commands.k8s.cluster_runtime._run_cmd",
-        side_effect=_kubectl_recorder(calls, render_fails=False),
-    ):
-        result = runner.invoke(
-            app,
-            ["create-tls-secret", "my-app-tls", "-n", "web"]
-            + ["--cert", str(cert_path), "--key", str(key_path)],
-        )
+    result = runner.invoke(
+        app,
+        ["create-tls-secret", "my-app-tls", "-n", "web"]
+        + ["--cert", str(cert_path), "--key", str(key_path)],
+    )
 
-    assert (result.exit_code, calls[1:]) == (
+    assert (result.exit_code, [(call.argv, call.stdin) for call in process_fake.calls[1:]]) == (
         0,
         [
             (
-                ["kubectl", "create", "secret", "tls", "my-app-tls"]
-                + [f"--cert={cert_path}", f"--key={key_path}", "-n", "web"]
-                + ["--dry-run=client", "-o", "yaml"],
+                ("kubectl", "create", "secret", "tls", "my-app-tls")
+                + (f"--cert={cert_path}", f"--key={key_path}", "-n", "web")
+                + ("--dry-run=client", "-o", "yaml"),
                 None,
             ),
-            (["kubectl", "apply", "-f", "-", "-n", "web"], "kind: Secret\n"),
+            (("kubectl", "apply", "-f", "-", "-n", "web"), "kind: Secret\n"),
         ],
     )
