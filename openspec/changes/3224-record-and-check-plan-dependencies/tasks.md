@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/roadmap/plan_read.py`, `src/devops_cli/roadmap/stage/stage_change.py`, `tests/roadmap/test_roadmap_plan_read.py`. Changes: `src/devops_cli/roadmap/plan_read.py`, `tests/roadmap/test_roadmap_plan_read.py`.
 
-- [ ] 1.1 In `tests/roadmap/test_roadmap_plan_read.py`, add `test_the_reader_reads_the_dependencies`, which renders `make_stage_proposal(dependencies=["#3201: the check command"])` and asserts that `read_change` returns that list, and `test_a_plan_with_no_dependency_reads_as_no_entry`, which renders a plan with no dependency and asserts an empty list
+- [x] 1.1 In `tests/roadmap/test_roadmap_plan_read.py`, add `test_the_reader_reads_the_dependencies`, which renders `make_stage_proposal(dependencies=["#3201: the check command"])` and asserts that `read_change` returns that list, and `test_a_plan_with_no_dependency_reads_as_no_entry`, which renders a plan with no dependency and asserts an empty list
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_plan_read.py` fails on the base
-- [ ] 1.2 Pass `dependencies=_bullets(_section(proposal_md, "Dependencies"))` in the `StageProposal` that `read_change` builds in `src/devops_cli/roadmap/plan_read.py`. The writer puts no bullet in the section when the list is empty, so an empty plan reads as an empty list with no second rule
+- [x] 1.2 Pass `dependencies=_bullets(_section(proposal_md, "Dependencies"))` in the `StageProposal` that `read_change` builds in `src/devops_cli/roadmap/plan_read.py`. The writer puts no bullet in the section when the list is empty, so an empty plan reads as an empty list with no second rule
   - Verification: `uv run devops ci test tests/roadmap/test_roadmap_plan_read.py` passes
 
 ## 2. Read the issue numbers of the dependencies
