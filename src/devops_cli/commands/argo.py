@@ -13,9 +13,9 @@ import json
 from pathlib import Path
 from typing import Annotated, Any
 
-import httpx2
 import typer
 
+from devops_cli.argo.client import ArgoCDEndpoint, resolve_argocd_endpoint
 from devops_cli.argo.crd import get_argo_crd_service, is_not_found_error
 from devops_cli.argo.credentials import argocd_api_request
 from devops_cli.argo.helm_records import (
@@ -25,7 +25,7 @@ from devops_cli.argo.helm_records import (
     plan_helm_record_retirement,
     retire_helm_records,
 )
-from devops_cli.argo.image_pins import PinCheck, check_pins, kustomize_image_pins
+from devops_cli.argo.image_pins import PinCheck, check_application_pins
 from devops_cli.argo.sync import build_sync_request_body
 from devops_cli.argo.workflows import await_workflow
 from devops_cli.config.constants import (
@@ -47,9 +47,7 @@ from devops_cli.core.validation import validate_k8s_name
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions.argo import ArgoError, ArgoWorkflowTimeoutError
-from devops_cli.http.egress import EgressLevel, configured_level
-from devops_cli.http.entry import http_client
-from devops_cli.http.urls import service_base_url
+from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.argo import ArgoCDApp, ArgoRolloutState
 from devops_cli.output import (
@@ -154,36 +152,18 @@ def _rollout_status_table(state: ArgoRolloutState) -> TablePayload:
     )
 
 
-def _argocd(settings: Any) -> tuple[str, dict[str, str]]:
-    """Return (base_url, headers) for Argo CD API requests.
+def _argocd(settings: Any) -> ArgoCDEndpoint:
+    """Return the Argo CD endpoint, or end the command when its URL is missing or unusable.
 
     The URL check reads only the URL, and it runs before the token mint. A failed mint, also one
-    whose address the egress level refused, ends the command with its cause. The client of
-    `_argocd_client` checks the address at the connect.
+    whose address the egress level refused, ends the command with its cause. The client of the
+    endpoint checks the address at the connect.
     """
-    from devops_cli.argo.credentials import resolve_argocd_server_and_token
-
-    if not settings.argocd.url:
-        print_error(
-            MESSAGES.argo.url_not_configured,
-            prefix=False,
-        )
-        raise typer.Exit(1)
     try:
-        base = service_base_url(settings.argocd.url, "argocd.url")
-    except ValueError as exc:
+        return resolve_argocd_endpoint(settings)
+    except ConfigurationError as exc:
         print_error(str(exc), prefix=False)
         raise typer.Exit(1) from exc
-    _, token = resolve_argocd_server_and_token(settings)
-    headers: dict[str, str] = {"Content-Type": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return base, headers
-
-
-def _argocd_client(settings: Any) -> httpx2.Client:
-    """An Argo CD client that dials the configured level: loopback, or private with the flag."""
-    return http_client(configured_level(settings.ai))
 
 
 # =============================================================================
@@ -213,15 +193,15 @@ def cd_apps_list(
 
     def _build_apps_table() -> TablePayload:
         settings = load_settings()
-        base, headers = _argocd(settings)
+        endpoint = _argocd(settings)
         rows: list[list[str]] = []
         try:
-            with _argocd_client(settings) as client:
+            with endpoint.client() as client:
                 resp = argocd_api_request(
                     settings,
-                    headers,
+                    endpoint.headers,
                     lambda sent: client.get(
-                        f"{base}/api/v1/applications",
+                        f"{endpoint.base_url}/api/v1/applications",
                         headers=sent,
                         timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
                     ),
@@ -280,14 +260,14 @@ def cd_apps_sync(
         )
         return
     settings = load_settings()
-    base, headers = _argocd(settings)
+    endpoint = _argocd(settings)
 
-    with _argocd_client(settings) as c:
+    with endpoint.client() as c:
         argocd_api_request(
             settings,
-            headers,
+            endpoint.headers,
             lambda sent: c.post(
-                f"{base}/api/v1/applications/{name}/sync",
+                f"{endpoint.base_url}/api/v1/applications/{name}/sync",
                 headers=sent,
                 json=build_sync_request_body(prune=prune, force=force),
                 timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
@@ -330,14 +310,14 @@ def cd_apps_status(
 
     def _build_status_panel() -> tuple[PanelPayload, bool]:
         settings = load_settings()
-        base, headers = _argocd(settings)
+        endpoint = _argocd(settings)
         try:
-            with _argocd_client(settings) as client:
+            with endpoint.client() as client:
                 resp = argocd_api_request(
                     settings,
-                    headers,
+                    endpoint.headers,
                     lambda sent: client.get(
-                        f"{base}/api/v1/applications/{name}",
+                        f"{endpoint.base_url}/api/v1/applications/{name}",
                         headers=sent,
                         timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
                     ),
@@ -349,7 +329,7 @@ def cd_apps_status(
                 name=name, sync_status="", health_status="", revision="", error=str(exc)
             )
             return panel, False
-        checks = _check_image_pins(item)
+        checks = check_application_pins(item)
         panel = format_argo_app_status_panel(
             name=app_info.name,
             sync_status=app_info.sync_status,
@@ -372,15 +352,6 @@ def cd_apps_status(
     print(panel)
     if not ok:
         raise typer.Exit(1)
-
-
-def _check_image_pins(item: dict[str, Any]) -> list[PinCheck]:
-    """Check each image the application pins against its public registry; none, no request."""
-    pins = kustomize_image_pins(item)
-    if not pins:
-        return []
-    with http_client(EgressLevel.PUBLIC) as client:
-        return check_pins(pins, client, timeout=DEFAULT_HTTP_TIMEOUT_SECONDS)
 
 
 def _short_digest(digest: str) -> str:

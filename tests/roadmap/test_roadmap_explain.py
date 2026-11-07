@@ -27,11 +27,11 @@ from devops_cli.roadmap.explain import (
     render_explanation,
     render_trace,
 )
-from devops_cli.roadmap.implement import parse_implement_filters
-from devops_cli.roadmap.implement_trace import ImplementTrace
-from devops_cli.roadmap.stage import parse_filters
-from devops_cli.roadmap.stage_rejected import RejectedPlan
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.implement.implement import parse_implement_filters
+from devops_cli.roadmap.implement.implement_trace import ImplementTrace
+from devops_cli.roadmap.stage.stage import parse_filters
+from devops_cli.roadmap.stage.stage_rejected import RejectedPlan
+from devops_cli.roadmap.stores.store import (
     GitHubState,
     ImplementRecordKey,
     ItemField,
@@ -327,7 +327,7 @@ def test_explain_calls_no_model_and_writes_nothing(
     def refuse(*_: object, **__: object) -> None:
         raise AssertionError("explain called a model")
 
-    monkeypatch.setattr("devops_cli.roadmap.stage.get_llm_client", refuse)
+    monkeypatch.setattr("devops_cli.roadmap.stage.stage.get_llm_client", refuse)
     number = _seed(job_world)
     before = (job_world.store.job_writes, job_world.store.comments_on(number))
 

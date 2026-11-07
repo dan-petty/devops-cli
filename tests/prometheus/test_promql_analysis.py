@@ -1,0 +1,385 @@
+"""Unit tests for PromQL structural validation and client-side metric analysis."""
+
+from __future__ import annotations
+
+import pytest
+
+from devops_cli.models.prometheus import TrendDirection
+from devops_cli.prometheus.analysis import (
+    analyze_series,
+    detect_anomalies,
+    ewma,
+    extract_series_values,
+    forecast,
+)
+from devops_cli.prometheus.promql import (
+    falls_back_to_constant,
+    grouping_labels,
+    selectors,
+    validate_promql,
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Valid PromQL must never be rejected
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "up",
+        "rate(http_requests_total[5m])",
+        'sum by (job) (rate(http_requests_total{code=~"5.."}[5m]))',
+        "avg_over_time(cpu_usage[1h:5m])",
+        "histogram_quantile(0.99, sum(rate(latency_bucket[5m])) by (le))",
+        'node_memory_bytes{instance="host:9100"} / 1024 / 1024',
+        "increase(errors_total[1h30m])",
+        "rate(x[500ms])",
+        "topk(5, sum(rate(requests[5m])) by (path))",
+        # A regex containing brackets inside a string literal: the structural checker
+        # must not mistake them for grouping delimiters.
+        '{__name__=~"node_[a-z]+_total"}',
+        'label_replace(up, "host", "$1", "instance", "(.*):.*")',
+        "(1 - avg(rate(idle[5m]))) * 100",
+        "predict_linear(disk_free[6h], 4 * 3600)",
+        "up offset 1w",
+        "count(up == 0)",
+        "rate(node_cpu_seconds_total[$__rate_interval])",
+        "sum(rate(container_cpu_usage_seconds_total[${__rate_interval}]))",
+        "avg_over_time(metric[$__range:$__interval])",
+        "rate(x[$resolution])",
+    ],
+)
+def test_valid_expressions_are_never_rejected(expression: str) -> None:
+    """A false rejection blocks work the server would have served.
+
+    That is strictly worse than forwarding a malformed query the server would reject
+    anyway, so this is the property that matters most for a client-side validator.
+    """
+    result = validate_promql(expression)
+    assert result.valid is True, f"{expression!r} rejected: {result.summary}"
+    assert bool(result) is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Malformed PromQL is caught before dispatch
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_fragment"),
+    [
+        pytest.param("rate(http_requests_total[5m]", "Unclosed '('", id="unclosed-bracket"),
+        pytest.param("sum(rate(x[5m]))]", "Unmatched closing", id="unmatched-closing-bracket"),
+        pytest.param("sum(rate(x[5m)])", "Mismatched", id="mismatched-bracket-types"),
+        pytest.param('up{job="api}', "Unterminated string", id="unterminated-string"),
+        pytest.param("rate(x[5 m])", "Invalid duration", id="invalid-duration-literal"),
+    ],
+)
+def test_malformed_promql_syntax_error_is_reported(query: str, expected_fragment: str) -> None:
+    """Malformed PromQL queries are rejected with an informative summary message."""
+    result = validate_promql(query)
+    assert result.valid is False
+    assert expected_fragment in result.summary
+
+
+def test_empty_range_selector_is_reported() -> None:
+    """An empty selector cannot express a range."""
+    assert validate_promql("rate(x[])").valid is False
+
+
+def test_empty_expression_is_reported() -> None:
+    """A blank query is rejected rather than dispatched."""
+    assert (validate_promql("").valid, validate_promql("   ").valid) == (False, False)
+
+
+def test_duration_checks_are_suppressed_while_brackets_are_broken() -> None:
+    """Structural errors are reported first, without confusing derived diagnostics.
+
+    Reporting a duration error computed from a mis-parsed selector would point at the
+    wrong character and send the reader chasing the wrong problem.
+    """
+    result = validate_promql("rate(x[5m")
+    assert result.valid is False
+    assert all("duration" not in error.lower() for error in result.errors)
+
+
+def test_escaped_quote_does_not_terminate_a_literal() -> None:
+    """A backslash-escaped quote stays inside the string."""
+    assert validate_promql(r'up{msg="say \"hi\""}').valid is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Anomaly detection
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_outlier_is_detected_with_direction() -> None:
+    """A sample far from the mean is flagged, with the side it deviates toward."""
+    values = [10.0] * 20 + [500.0]
+    anomalies = detect_anomalies(values, threshold=3.0)
+
+    assert len(anomalies) == 1
+    assert (anomalies[0].index, anomalies[0].direction) == (20, "above")
+    assert anomalies[0].z_score > 3.0
+
+
+def test_stable_series_reports_no_anomalies() -> None:
+    """Ordinary variation is not an anomaly."""
+    values = [10.0, 10.5, 9.8, 10.2, 9.9, 10.1, 10.3, 9.7, 10.0, 10.4]
+    assert detect_anomalies(values) == []
+
+
+def test_flat_series_has_no_outliers() -> None:
+    """A zero-variance series divides by no standard deviation and flags nothing."""
+    assert detect_anomalies([5.0] * 20) == []
+
+
+def test_short_series_is_not_analysed() -> None:
+    """Too few samples cannot establish a baseline, so nothing is reported.
+
+    Flagging an "anomaly" against three points would be noise presented as signal.
+    """
+    assert detect_anomalies([1.0, 100.0, 1.0]) == []
+
+
+def test_anomaly_carries_its_timestamp() -> None:
+    """Detected anomalies report when they occurred, not just where in the array."""
+    values = [1.0] * 20 + [99.0]
+    stamps = [1000.0 + index for index in range(21)]
+    anomalies = detect_anomalies(values, stamps, threshold=3.0)
+    assert anomalies[0].timestamp == 1020.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. Smoothing, slope, and forecasting
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_ewma_starts_at_the_first_sample_and_tracks_upward() -> None:
+    """Smoothing anchors on the first value then follows the series."""
+    smoothed = ewma([10.0, 20.0, 30.0], alpha=0.5)
+    assert smoothed[0] == 10.0
+    assert smoothed[1] == 15.0
+    assert smoothed[2] == 22.5
+
+
+def test_ewma_of_empty_series_is_empty() -> None:
+    """No samples produce no smoothed line."""
+    assert ewma([]) == []
+
+
+def test_forecast_extends_a_rising_series_upward() -> None:
+    """A projection of a rising series continues to rise."""
+    projected = forecast([1.0, 2.0, 3.0, 4.0, 5.0], horizon=3)
+    assert len(projected) == 3
+    assert projected[0] < projected[1] < projected[2]
+
+
+def test_forecast_respects_a_zero_horizon() -> None:
+    """Asking for no projection returns none."""
+    assert forecast([1.0, 2.0], horizon=0) == []
+
+
+def test_trend_classification_scales_with_series_magnitude() -> None:
+    """A slope is judged relative to the metric's own scale.
+
+    A metric measured in bytes must not be called "rising" for a slope that would be
+    negligible at its magnitude but dramatic for a ratio.
+    """
+    rising = analyze_series([1.0, 2.0, 3.0, 4.0, 5.0])
+    falling = analyze_series([5.0, 4.0, 3.0, 2.0, 1.0])
+    flat = analyze_series([1_000_000.0, 1_000_001.0, 1_000_000.0, 1_000_001.0])
+
+    assert (rising.trend, falling.trend, flat.trend) == (
+        TrendDirection.RISING,
+        TrendDirection.FALLING,
+        TrendDirection.FLAT,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Series analysis
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_analysis_summarises_the_distribution() -> None:
+    """Analysis reports the series' shape alongside its trend."""
+    analysis = analyze_series([1.0, 2.0, 3.0, 4.0, 5.0])
+
+    assert (
+        analysis.sample_count,
+        analysis.minimum,
+        analysis.maximum,
+        analysis.mean,
+        analysis.median,
+        analysis.latest,
+    ) == (5, 1.0, 5.0, 3.0, 3.0, 5.0)
+
+
+def test_analysis_of_empty_series_is_empty_not_an_error() -> None:
+    """An empty series analyses to zero samples rather than raising."""
+    analysis = analyze_series([])
+    assert (analysis.sample_count, analysis.has_anomalies) == (0, False)
+
+
+def test_analysis_of_single_sample_has_no_deviation() -> None:
+    """One sample has no spread to report."""
+    analysis = analyze_series([42.0])
+    assert (analysis.stdev, analysis.latest, analysis.sample_count) == (0.0, 42.0, 1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. Prometheus payload extraction
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_range_samples_are_extracted_as_numbers() -> None:
+    """Prometheus encodes values as strings; they are parsed to floats."""
+    stamps, values = extract_series_values(
+        {"values": [[1000, "1.5"], [1001, "2.5"], [1002, "3.5"]]}
+    )
+    assert (stamps, values) == ([1000.0, 1001.0, 1002.0], [1.5, 2.5, 3.5])
+
+
+def test_unparseable_and_nan_samples_are_skipped() -> None:
+    """A gap is skipped rather than coerced, so it never masquerades as zero."""
+    stamps, values = extract_series_values(
+        {"values": [[1000, "1.5"], [1001, "NaN"], [1002, "bogus"], [1003], [1004, "2.5"]]}
+    )
+    assert (stamps, values) == ([1000.0, 1004.0], [1.5, 2.5])
+
+
+def test_malformed_payload_yields_no_samples() -> None:
+    """A payload without a values array extracts nothing rather than raising."""
+    assert extract_series_values({}) == ([], [])
+    assert extract_series_values({"values": "not-a-list"}) == ([], [])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. Series selectors and grouping labels
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _selected(expression: str) -> list[tuple[str | None, set[str]]]:
+    """Each selector as its metric and the label names its matchers use."""
+    return [(found.metric, set(found.labels)) for found in selectors(expression)]
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected_selectors", "expected_grouping"),
+    [
+        ("sum(rate(requests_total[5m]))", [("requests_total", set())], set()),
+        (
+            'sum by (job) (rate(requests_total{code="200"}[5m]))',
+            [("requests_total", {"code"})],
+            {"job"},
+        ),
+        (
+            "sum(rate(requests_total[5m])) by (job, instance)",
+            [("requests_total", set())],
+            {"job", "instance"},
+        ),
+        ("count without (instance) (up)", [("up", set())], {"instance"}),
+        (
+            "rate(latency_sum[2m]) * on (model_id) group_left (api_base)"
+            " group by (model_id, api_base) (deployment_requests_total)",
+            [("latency_sum", set()), ("deployment_requests_total", set())],
+            {"model_id", "api_base"},
+        ),
+        (
+            'a / ignoring (code) group_right b{code=~"5.."}',
+            [("a", set()), ("b", {"code"})],
+            {"code"},
+        ),
+        (
+            "histogram_quantile(0.95, sum by (le, api_base) (rate(ttft_bucket[5m])))",
+            [("ttft_bucket", set())],
+            {"le", "api_base"},
+        ),
+        ('rate(requests_total{job="api"}[5m] offset 1h)', [("requests_total", {"job"})], set()),
+        ("requests_total offset -5m", [("requests_total", set())], set()),
+        (
+            'http_requests_total{path=~"/v1/{a,b}/(x|y)", method!="GET"}',
+            [("http_requests_total", {"path", "method"})],
+            set(),
+        ),
+        (
+            '{__name__="node_load1", instance="host:9100"}',
+            [("node_load1", {"instance"})],
+            set(),
+        ),
+        ('{__name__=~"node_.+"}', [(None, set())], set()),
+        ("vector(0)", [], set()),
+        ("requests_total or vector(0)", [("requests_total", set())], set()),
+        (
+            "errors_total > bool 0 and on (job) up unless absent(up)",
+            [("errors_total", set()), ("up", set()), ("up", set())],
+            {"job"},
+        ),
+        ("rate(x_total[$__rate_interval]) * $scale", [("x_total", set())], set()),
+        ("max_over_time(rate(x_total[5m])[1h:5m] @ end())", [("x_total", set())], set()),
+        ('label_replace(up, "host", "$1", "instance", "(.*):.*")', [("up", set())], set()),
+        ("1e3 * Inf - NaN + 0x1F", [], set()),
+        ('{"utf8.metric", job="api"}', [("utf8.metric", {"job"})], set()),
+        ('{job="api", "utf8.metric"}', [("utf8.metric", {"job"})], set()),
+        (
+            'x{"utf8.label"="v"} * on ("utf8.label") y',
+            [("x", {"utf8.label"}), ("y", set())],
+            {"utf8.label"},
+        ),
+        ('x{path="/a#b"}', [("x", {"path"})], set()),
+        ('x{$label="a", job="api"}', [("x", {"job"})], set()),
+        ("sum by (job) (x) # by (instance) of y\n + z", [("x", set()), ("z", set())], {"job"}),
+    ],
+)
+def test_selectors_and_grouping_labels_are_read_from_the_expression(
+    expression: str,
+    expected_selectors: list[tuple[str | None, set[str]]],
+    expected_grouping: set[str],
+) -> None:
+    """Every series selector is found with its matcher labels, and every grouping list is read."""
+    assert (_selected(expression), set(grouping_labels(expression))) == (
+        expected_selectors,
+        expected_grouping,
+    )
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("x or vector(0)", True),
+        ("x OR vector(0)", True),
+        ("x or on () vector(0)", True),
+        ("x or ignoring (job) (vector(1))", True),
+        ("x or 0 * up", True),
+        ("x or y", False),
+        ("x or on (job) y * 0", False),
+        ("vector(0)", False),
+        ("x and vector(1)", False),
+        ('label_replace(x, "a", "or vector(0)", "b", "")', False),
+        ("x # or vector(0)", False),
+    ],
+)
+def test_an_or_falls_back_to_a_constant_when_its_right_operand_opens_with_one(
+    expression: str, expected: bool
+) -> None:
+    """`or vector(...)` and `or <number> ...` are found in any case and after `on`/`ignoring`."""
+    assert falls_back_to_constant(expression) is expected
+
+
+def test_function_names_keywords_labels_and_durations_are_never_metrics() -> None:
+    """Only the selected series come back as metrics, however much syntax surrounds them."""
+    expression = (
+        'histogram_quantile(0.95, sum by (le, job) (rate(a_bucket{handler=~"/x{1}"}[5m] offset 1w)))'
+        " > bool on (job) group_left (instance) max without (pod) (avg_over_time(b[1h30m]))"
+        " or sum(increase(c_total[6h])) unless count(d) and topk(5, e) or vector(0)"
+    )
+
+    assert {found.metric for found in selectors(expression)} == {
+        "a_bucket",
+        "b",
+        "c_total",
+        "d",
+        "e",
+    }

@@ -24,8 +24,8 @@ from devops_cli.roadmap.failure import (
     failure_lines,
     left_action,
 )
-from devops_cli.roadmap.implement_step import commands_failure
-from devops_cli.roadmap.stage import (
+from devops_cli.roadmap.implement.implement_step import commands_failure
+from devops_cli.roadmap.stage.stage import (
     StageApplied,
     StagedChange,
     StagePlan,
@@ -33,9 +33,9 @@ from devops_cli.roadmap.stage import (
     StageTarget,
     stage_results,
 )
-from devops_cli.roadmap.stage_eval_cases import DefectType
-from devops_cli.roadmap.stage_verify import Finding
-from devops_cli.roadmap.store import Item
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage.stage_verify import Finding
+from devops_cli.roadmap.stores.store import Item
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.process import ProcessFake
 from tests.support.implement_step import make_checkout

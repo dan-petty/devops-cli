@@ -29,8 +29,8 @@ from pydantic import ValidationError
 from devops_cli.config.constants import CONST_OPENSPEC_CHANGES_DIR, CONST_OPENSPEC_SPECS_DIR
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import git
-from devops_cli.roadmap.implement_shell_policy import shown, verification_problem
-from devops_cli.roadmap.stage_change import (
+from devops_cli.roadmap.implement.implement_shell_policy import shown, verification_problem
+from devops_cli.roadmap.stage.stage_change import (
     REGENERATE_DOCUMENTS,
     GroupKind,
     StageDecision,
@@ -42,8 +42,8 @@ from devops_cli.roadmap.stage_change import (
     StageSpec,
     WeakenedCheck,
 )
-from devops_cli.roadmap.stage_criteria import StageCriterion
-from devops_cli.roadmap.stage_specs import BaseSpec, read_spec
+from devops_cli.roadmap.stage.stage_criteria import StageCriterion
+from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_spec
 from devops_cli.roadmap.step_files import FAILS_ON_BASE, KIND_LINE, TaskGroup, parse_task_groups
 
 _CHANGE_FILE: Final[str] = "/.openspec.yaml"

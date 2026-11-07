@@ -14,9 +14,9 @@
   "accuracy": 3
  },
  "state": "open",
- "summary": "The plan changes `src/devops_cli/roadmap/stage_change.py`, a check of the stage job, and no group task runs `uv run devops roadmap eval stage --replay` or states the score before and after the change. The plan does not measure the change of the stage gate.",
+ "summary": "The plan changes `src/devops_cli/roadmap/stage/stage_change.py`, a check of the stage job, and no group task runs `uv run devops roadmap eval stage --replay` or states the score before and after the change. The plan does not measure the change of the stage gate.",
  "notes": [
-  "The plan is one of this change before the check of #3331 exists: its one group changes `src/devops_cli/roadmap/stage_change.py` and holds no eval replay task.",
+  "The plan is one of this change before the check of #3331 exists: its one group changes `src/devops_cli/roadmap/stage/stage_change.py` and holds no eval replay task.",
   "The change was never merged as this plan, so `pull`, `merge_commit` and `base_commit` hold the issue number and two placeholders: the case reads no commit, and the facts hold the files of its tree."
  ],
  "defects": [
@@ -24,8 +24,8 @@
    "type": "other",
    "severity": "major",
    "where": "tasks.md, group 1",
-   "problem": "The one group changes `src/devops_cli/roadmap/stage_change.py`, a check of the stage job, and no group task runs the replay with the score before and after the change. The change of a gate has no measure.",
-   "evidence": "The group lists `src/devops_cli/roadmap/stage_change.py` in `changes`, and its test, implementation and verify texts hold no `uv run devops roadmap eval stage --replay`.",
+   "problem": "The one group changes `src/devops_cli/roadmap/stage/stage_change.py`, a check of the stage job, and no group task runs the replay with the score before and after the change. The change of a gate has no measure.",
+   "evidence": "The group lists `src/devops_cli/roadmap/stage/stage_change.py` in `changes`, and its test, implementation and verify texts hold no `uv run devops roadmap eval stage --replay`.",
    "gate": "paths",
    "message": "must run `uv run devops roadmap eval stage --replay` in one group task"
   }

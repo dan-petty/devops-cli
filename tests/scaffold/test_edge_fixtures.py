@@ -42,7 +42,7 @@ def test_a_module_reaches_the_edges_whose_seams_it_imports() -> None:
     module that imports no seam reaches none."""
     source = (
         "import devops_cli.http.entry\n"
-        "from devops_cli.roadmap import store\n"
+        "from devops_cli.roadmap.stores import store\n"
         "from devops_cli.github.session import get_github_session\n"
         "import json\n"
     )

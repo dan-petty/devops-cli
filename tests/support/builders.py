@@ -19,8 +19,8 @@ from devops_cli.ai.review.adjudication import Verdict
 from devops_cli.ai.review_schema import Finding, SavedFinding
 from devops_cli.config.constants import CONST_STATUS_VERIFIED
 from devops_cli.review.report import ReportInput
-from devops_cli.roadmap.stage_change import StageProposal
-from devops_cli.roadmap.store import Candidate, Item, Milestone
+from devops_cli.roadmap.stage.stage_change import StageProposal
+from devops_cli.roadmap.stores.store import Candidate, Item, Milestone
 from devops_cli.security.normalization import NormalizedFinding
 
 _ISSUES_URL = "https://example.com/octo/repo/issues"

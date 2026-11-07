@@ -36,8 +36,8 @@ from devops_cli.core.repo import find_worktree_root, get_repo_origin_name
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.client import GhCliClient, parse_paginated_json
 from devops_cli.github.error_classifier import is_gh_refused_by_token
-from devops_cli.roadmap import store as roadmap_store
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.stores import store as roadmap_store
+from devops_cli.roadmap.stores.store import (
     Change,
     ChangeKind,
     GitHubState,

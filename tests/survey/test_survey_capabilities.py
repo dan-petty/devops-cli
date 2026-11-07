@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from devops_cli.roadmap.intake_model import ModelProposal, ProposalRequest
+from devops_cli.roadmap.intake.intake_model import ModelProposal, ProposalRequest
 from devops_cli.survey.capabilities import (
     compare_capabilities,
     find_capability_gaps,

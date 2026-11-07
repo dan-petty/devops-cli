@@ -105,18 +105,18 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.adr import Adr, fit_to_budget, names, read_adrs
 from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.commit_title import commit_type
-from devops_cli.roadmap.refine import (
+from devops_cli.roadmap.refine.refine import (
     replies_after_marker,
     sanitize_text,
     web_search_of,
 )
-from devops_cli.roadmap.refine_investigation import (
+from devops_cli.roadmap.refine.refine_investigation import (
     InvestigationStopped,
     analysis_window,
     cited_web_search,
     investigate,
 )
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
     GitHubState,
     IssueComment,

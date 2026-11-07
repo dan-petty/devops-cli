@@ -25,7 +25,7 @@ from devops_cli.roadmap.digest_clears import (
 from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureAction, FailureClass
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stop_clear import ClearLimits, StopsCleared, clear_stops
-from devops_cli.roadmap.store import ImplementRecordKey, IssueComment, Item, ItemField
+from devops_cli.roadmap.stores.store import ImplementRecordKey, IssueComment, Item, ItemField
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import STAGE_REPO
 

@@ -40,7 +40,7 @@ from devops_cli.ai.schema_reflection import SchemaReflectionReport
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
-from devops_cli.roadmap.refine import RefinementProposal
+from devops_cli.roadmap.refine.refine import RefinementProposal
 from devops_cli.telemetry.tracer import get_tracer
 from tests.llm_stream_fakes import make_anthropic_model_info_payload, serve_llm
 from tests.support.fakes.http import WebFake
@@ -670,7 +670,7 @@ def test_model_proposal_schema_forbids_extra_and_requires_fields() -> None:
     """Verify ModelProposal forbids extra fields and requires priority, value, and effort."""
     from pydantic import ValidationError
 
-    from devops_cli.roadmap.intake_model import ModelProposal
+    from devops_cli.roadmap.intake.intake_model import ModelProposal
 
     assert ModelProposal.model_config.get("extra") == "forbid"
 

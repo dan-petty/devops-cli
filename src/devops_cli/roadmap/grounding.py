@@ -77,7 +77,7 @@ class ClosingIssue(_GraphModel):
 
     def is_item(self) -> bool:
         """Whether the issue is a roadmap Item: it holds a `priority/*` label (ADR 0016)."""
-        from devops_cli.roadmap.store import FIELD_VALUES, ItemField, field_label
+        from devops_cli.roadmap.stores.store import FIELD_VALUES, ItemField, field_label
 
         priorities = {
             field_label(ItemField.PRIORITY, value) for value in FIELD_VALUES[ItemField.PRIORITY]
@@ -318,7 +318,7 @@ def plan_blockers(pr_num: int, issue: int, body: str, files: list[PullRequestFil
     the active change folder of the issue and changes nothing under the living specs.
     """
     # Imported here: `stage_change` loads the model client, and `pr --help` must not (startup budget).
-    from devops_cli.roadmap.stage_change import closing_keyword_in
+    from devops_cli.roadmap.stage.stage_change import closing_keyword_in
 
     texts = MESSAGES.pr
     found: list[str] = []

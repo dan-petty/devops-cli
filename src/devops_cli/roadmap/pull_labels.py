@@ -17,7 +17,7 @@ from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
 from devops_cli.github.labels import LabelSpec
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap import store as roadmap_store
+from devops_cli.roadmap.stores import store as roadmap_store
 from devops_cli.roadmap.title_labels import TitleLabels, declared_label_specs, title_labels
 
 

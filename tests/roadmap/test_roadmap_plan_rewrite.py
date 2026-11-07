@@ -7,11 +7,11 @@ from __future__ import annotations
 import difflib
 from datetime import date
 
-from devops_cli.roadmap.implement_shell_policy import Verification, read_verification
+from devops_cli.roadmap.implement.implement_shell_policy import Verification, read_verification
 from devops_cli.roadmap.plan_read import read_change
 from devops_cli.roadmap.plan_rewrite import rewrite_plan
-from devops_cli.roadmap.stage_change import render_change
-from devops_cli.roadmap.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_change import render_change
+from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.builders import make_stage_proposal
 

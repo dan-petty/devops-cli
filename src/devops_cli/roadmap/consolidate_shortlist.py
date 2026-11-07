@@ -42,8 +42,8 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.roadmap.body_hash import hash_text, text_of_a_person
 from devops_cli.roadmap.nearest import embedding_text, nearest
-from devops_cli.roadmap.refine import body_dependencies, cited_identifiers, cited_paths
-from devops_cli.roadmap.store import GitHubState, IssueRecord, RoadmapStore
+from devops_cli.roadmap.refine.refine import body_dependencies, cited_identifiers, cited_paths
+from devops_cli.roadmap.stores.store import GitHubState, IssueRecord, RoadmapStore
 
 logger = logging.getLogger(__name__)
 

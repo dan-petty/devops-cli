@@ -25,7 +25,7 @@ def roadmap_store(roadmap_store_repos: list[str]) -> InMemoryRoadmapStore:
     test. Each store a command opens adds its repository to `roadmap_store_repos`, so a test can
     pin which repository a command reads and writes.
     """
-    from devops_cli.roadmap.store import install_roadmap_store
+    from devops_cli.roadmap.stores.store import install_roadmap_store
     from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
     roadmap = InMemoryRoadmapStore()
@@ -45,8 +45,8 @@ def unreadable_github_roadmap() -> list[list[str]]:
 
     Returns the argv of every `gh` command the store ran and every listing it read.
     """
-    from devops_cli.roadmap.github_store import GitHubRoadmapStore
-    from devops_cli.roadmap.store import install_roadmap_store
+    from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
+    from devops_cli.roadmap.stores.store import install_roadmap_store
     from tests.support.fakes.github import RunnerSession
 
     calls: list[list[str]] = []

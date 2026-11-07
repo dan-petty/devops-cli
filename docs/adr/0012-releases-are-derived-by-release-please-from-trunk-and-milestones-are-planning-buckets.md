@@ -118,7 +118,7 @@ Counts of lines, files and tests come from the tip of `release/v0.2.39` (commit 
   - Code that orders archives at a cut merged in #1868, under ADR 0010. It holds `archive_sequence` in `src/devops_cli/openspec/archive.py` and the rehearsal of the cut in `src/devops_cli/openspec/gate.py`. This code goes.
   - The overlap check in `src/devops_cli/openspec/overlap.py` merged in #1868 too. It is not cut-time code. It reads `openspec show --json --deltas-only` for each active change, archives nothing and reads no git history. It stays until OpenSpec ships its own check.
 - **Couplings of the roadmap code to a version.**
-  - `roadmap/store.py` treats a milestone as a Release only when its title parses as a version (`is_release_title`). A title such as `2026-11-05` or `Q4 hardening` is no Release. `parse_release_version` raises `InvalidVersionError` for it.
+  - `roadmap/stores/store.py` treats a milestone as a Release only when its title parses as a version (`is_release_title`). A title such as `2026-11-05` or `Q4 hardening` is no Release. `parse_release_version` raises `InvalidVersionError` for it.
   - `reprioritize.py` names the next patch (`_patch_bump`, `_next_release`, `_planned_titles`, `nearest_planned_release`). `roadmap/document.py:37` carries a `vX.Y.Z` regular expression.
   - 127 open issues have an acceptance criterion that names a `changelog.d` fragment. 161 open issues name `changelog.d` in their body.
 - **Copilot and the closing-keyword parser.**

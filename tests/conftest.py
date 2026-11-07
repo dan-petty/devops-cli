@@ -130,7 +130,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.output.console": ("reset_console",),
     "devops_cli.review.canary": ("clear_canary_cache",),
     "devops_cli.review.rules_pack": ("reset_rules_pack_cache",),
-    "devops_cli.roadmap.store": ("reset_roadmap_store",),
+    "devops_cli.roadmap.stores.store": ("reset_roadmap_store",),
     "devops_cli.security.reference_extractor": ("reset_reference_extractor_caches",),
     "devops_cli.security.secrets": ("reset_resolver",),
     "devops_cli.telemetry.logfire": ("reset_logfire_bridge",),
@@ -835,7 +835,7 @@ def isolate_end_leftover_processes(
     if "live" in request.keywords:
         return
     import devops_cli.core.process_hardening as ph
-    import devops_cli.roadmap.implement_step as implement_step
+    import devops_cli.roadmap.implement.implement_step as implement_step
 
     monkeypatch.setattr(ph, "end_leftover_processes", lambda timeout=0.0: None)
     monkeypatch.setattr(implement_step, "end_leftover_processes", lambda timeout=0.0: None)

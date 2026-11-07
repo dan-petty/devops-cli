@@ -2,9 +2,9 @@ name: Release
 
 # release-please makes every release (ADR 0013). On each push to main it opens or updates one
 # release pull request, which holds the version, CHANGELOG.md and the manifest. A person merges
-# that pull request, or, for an urgent fix, GitHub merges it when its checks pass (#1966); the
-# next run then creates the GitHub release and its tag, and the publish jobs below run only for
-# that run.
+# that pull request, or the workflow release-merge.yml merges it every 6 hours (#3921), or, for an
+# urgent fix, GitHub merges it when its checks pass (#1966); the next run then creates the GitHub
+# release and its tag, and the publish jobs below run only for that run.
 on:
   push:
     branches:

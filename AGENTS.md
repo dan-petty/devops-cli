@@ -2,7 +2,7 @@
 
 devops-cli is a Python command-line tool, `devops`, that automates workstation, GitHub, Kubernetes and code-review work. It is alpha software before `1.0.0`: it keeps no backward compatibility, so a change removes the old path and adds no shim.
 
-> **Canonical Source**: This file is the single source of truth for AI agent instructions. [CLAUDE.md](./CLAUDE.md), [GEMINI.md](./GEMINI.md) and [.github/copilot-instructions.md](./.github/copilot-instructions.md) are pointers to this file. It holds the rules for every task and routes each kind of task to its owner. Each rule lives in one document only.
+> **Canonical Source**: This file is the single source of truth for AI agent instructions. [CLAUDE.md](./CLAUDE.md), [GEMINI.md](./GEMINI.md) and [.github/copilot-instructions.md](./.github/copilot-instructions.md) are pointers to this file. Each rule lives in one document only.
 
 ## Rules for every task
 
@@ -20,7 +20,7 @@ devops-cli is a Python command-line tool, `devops`, that automates workstation, 
 12. **Keep your own files out of git.** Put agent files under `.data/agent/` and scratch scripts under `.data/agent/scratch/`. Back up a file outside the workspace to `<path>.bak-<YYYYMMDD-HHMMSS>` before you edit it. Never change `config.yaml`.
 13. **Run one `devops ai` call at a time,** and only when a file or a deterministic check cannot give the answer.
 
-**Only a person** merges pull requests, records review verdicts, plans milestones, and changes secrets, repository settings and hosts. Intake sets the priority label of a new issue, so set no milestone or priority. release-please makes every release from `main` and writes `CHANGELOG.md`, manifests and version lines, so nobody edits those by hand. Agents change the release workflow and its configuration through ordinary pull requests ([RELEASE_CYCLE.md](RELEASE_CYCLE.md)).
+**Only a person** merges pull requests, records review verdicts, plans milestones, and changes secrets, repository settings and hosts. The one exception: `release-merge.yml` merges the release pull request ([RELEASE_CYCLE.md](RELEASE_CYCLE.md)). Intake sets the priority label of a new issue, so set no milestone or priority. release-please makes every release from `main` and writes `CHANGELOG.md`, manifests and version lines, so nobody edits those by hand. Agents change the release workflow and its configuration through ordinary pull requests.
 
 ## Where to look
 

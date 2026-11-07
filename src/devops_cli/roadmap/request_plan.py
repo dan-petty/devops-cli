@@ -33,8 +33,8 @@ from devops_cli.config.defaults import DEFAULT_FIRECRAWL_SEARCH_URL, DEFAULT_PYP
 from devops_cli.dry_run.requests import PlannedRequest, both, render_request_plan
 from devops_cli.git.branch_authors import LOG_FORMAT
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap import github_store as gh
-from devops_cli.roadmap.store import CloseReason
+from devops_cli.roadmap.stores import github_store as gh
+from devops_cli.roadmap.stores.store import CloseReason
 
 _GH = "gh"
 Requests = list[PlannedRequest]
@@ -304,7 +304,7 @@ def milestones_status_requests(repo: str) -> list[PlannedRequest]:
 
 def milestones_close_requests(repo: str, name: str) -> list[PlannedRequest]:
     """Planned requests for closing a milestone."""
-    from devops_cli.roadmap.github_store import milestone_edit_args
+    from devops_cli.roadmap.stores.github_store import milestone_edit_args
 
     target = int(_number(name)) if _number(name).isdigit() else 0
     store = StoreRequests(repo)
@@ -322,7 +322,7 @@ def milestones_edit_requests(
     fields: Sequence[tuple[str, str]],
 ) -> list[PlannedRequest]:
     """Planned requests for editing a milestone."""
-    from devops_cli.roadmap.github_store import milestone_edit_args
+    from devops_cli.roadmap.stores.github_store import milestone_edit_args
 
     target = int(_number(name)) if _number(name).isdigit() else 0
     store = StoreRequests(repo)
@@ -370,7 +370,7 @@ def refine_requests(
     comment on it when none holds the marker of the notice (#3502). When a proposal defers a
     part, the plan holds the intake requests of one new candidate and the record of its number
     (#2423). Refine reads no repository file, so `ref` changes no request."""
-    from devops_cli.roadmap.intake_requests import planned_requests
+    from devops_cli.roadmap.intake.intake_requests import planned_requests
 
     del ref
     store = StoreRequests(repo)

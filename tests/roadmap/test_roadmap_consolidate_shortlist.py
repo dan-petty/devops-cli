@@ -32,7 +32,7 @@ from devops_cli.roadmap.consolidate_shortlist import (
     read_blockers,
     shortlists,
 )
-from devops_cli.roadmap.store import GitHubState, IssueRecord
+from devops_cli.roadmap.stores.store import GitHubState, IssueRecord
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 PRIORITY = ("priority/p2-medium",)
@@ -82,8 +82,8 @@ class Embedder:
 
 def test_a_shared_path_puts_each_issue_on_the_shortlist_of_the_other() -> None:
     issues = [
-        issue(1, "See src/devops_cli/roadmap/store.py:100 for the read."),
-        issue(2, "The write is in `src/devops_cli/roadmap/store.py`."),
+        issue(1, "See src/devops_cli/roadmap/stores/store.py:100 for the read."),
+        issue(2, "The write is in `src/devops_cli/roadmap/stores/store.py`."),
         issue(3, "Nothing is cited."),
     ]
     lists = shortlists(issues, apart([1, 2, 3]), {})
@@ -91,7 +91,7 @@ def test_a_shared_path_puts_each_issue_on_the_shortlist_of_the_other() -> None:
     assert Signal.PATH in signals(lists, 2, 1)
     assert Signal.PATH not in signals(lists, 1, 3)
     shown = [e.detail for e in members(lists, 1)[2] if e.signal is Signal.PATH]
-    assert shown == ["src/devops_cli/roadmap/store.py"]
+    assert shown == ["src/devops_cli/roadmap/stores/store.py"]
 
 
 def test_a_shared_path_and_identifier_is_the_strongest_citation() -> None:

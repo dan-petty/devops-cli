@@ -18,15 +18,15 @@ import pytest
 
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.github_store import (
+from devops_cli.roadmap.request_plan import StoreRequests
+from devops_cli.roadmap.stores.github_store import (
     comments_endpoint,
     issue_args,
     issues_endpoint,
     listing_path,
     milestones_endpoint,
 )
-from devops_cli.roadmap.request_plan import StoreRequests
-from devops_cli.roadmap.store import install_roadmap_store
+from devops_cli.roadmap.stores.store import install_roadmap_store
 from tests.support.fakes.github import API
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.model import ModelFake
@@ -131,8 +131,8 @@ def test_more_than_one_mode_flag_is_refused(
 
 
 def test_each_dry_run_returns_its_jobs_result_type_marked_as_a_dry_run() -> None:
-    from devops_cli.roadmap.intake import IntakePlan, dry_run_intake
-    from devops_cli.roadmap.refine import RefinePlan, dry_run_refine
+    from devops_cli.roadmap.intake.intake import IntakePlan, dry_run_intake
+    from devops_cli.roadmap.refine.refine import RefinePlan, dry_run_refine
 
     refined = dry_run_refine(REPO, ref=None)
     taken = dry_run_intake(REPO, ref=None)
@@ -152,7 +152,7 @@ def test_a_plan_is_built_by_the_stores_own_argument_builders() -> None:
     """The reads a refine plan lists are the argv the store's builders give, with placeholders
     where a read gives the value: the milestones once, then each open milestone's issues, the
     backlog, and every issue for the dependencies a proposal names."""
-    from devops_cli.roadmap.refine import dry_run_refine
+    from devops_cli.roadmap.refine.refine import dry_run_refine
 
     planned = [request.argv[1:] for request in dry_run_refine(REPO, ref=None).requests]
     expected = [
@@ -252,7 +252,7 @@ def test_a_refine_round_plans_the_read_and_the_notice_for_an_item_of_an_untruste
 def test_a_refine_plan_lists_the_intake_requests_of_a_deferred_part() -> None:
     """A round and a refine of one item each list the requests of one new intake candidate, and
     the record of its number, when the proposal defers a part (#2423)."""
-    from devops_cli.roadmap.intake_requests import planned_requests
+    from devops_cli.roadmap.intake.intake_requests import planned_requests
     from devops_cli.roadmap.request_plan import refine_requests
 
     deferred = MESSAGES.roadmap.plan_conditions["deferred"]
@@ -314,7 +314,7 @@ def test_a_field_write_plans_one_read_of_its_issue_and_one_patch() -> None:
 def test_no_roadmap_plan_lists_a_request_to_a_project_board() -> None:
     """Every job's plan: intake, a refine round, a refine of one item and a return. No request
     is a `gh project` command, names `projectV2` or reads `.github/roadmap.toml` (ADR 0016)."""
-    from devops_cli.roadmap.intake import dry_run_intake
+    from devops_cli.roadmap.intake.intake import dry_run_intake
     from devops_cli.roadmap.request_plan import refine_requests
     from devops_cli.roadmap.return_item import dry_run_return
 
@@ -344,7 +344,7 @@ def test_no_roadmap_plan_lists_a_request_to_a_project_board() -> None:
 def test_each_field_write_of_a_placement_reads_its_issue_first() -> None:
     """A placement writes Status, Value, Effort and Priority, each a read of the issue and then
     one `PATCH`, and reads no listing between them."""
-    from devops_cli.roadmap.intake import dry_run_intake
+    from devops_cli.roadmap.intake.intake import dry_run_intake
 
     writes = [r for r in dry_run_intake(REPO, ref="main", issues=(7,)).writes if r.argv]
     patches = [i for i, r in enumerate(writes) if _shape(r) == "issue patch"]
@@ -401,7 +401,7 @@ def test_a_dry_run_through_the_entry_point_starts_no_process_and_opens_no_connec
 
 def test_intakes_dry_run_shows_the_exact_gh_command_of_every_store_request() -> None:
     """Only the embedding and model calls, which run no `gh`, have no argv (#742, #1125)."""
-    from devops_cli.roadmap.intake import dry_run_intake
+    from devops_cli.roadmap.intake.intake import dry_run_intake
 
     plan = dry_run_intake(REPO, ref="main")
     bare = {request.method for request in plan.requests + plan.writes if not request.argv}

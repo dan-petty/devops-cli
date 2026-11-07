@@ -30,7 +30,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
 )
-from devops_cli.roadmap.implement_step import output_cap
+from devops_cli.roadmap.implement.implement_step import output_cap
 from tests.support.paths import REPO_ROOT
 
 CLASSES: Final = frozenset({"raised", "guard", "window", "setting", "kept", "other"})

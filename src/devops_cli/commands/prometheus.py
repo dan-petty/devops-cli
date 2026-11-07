@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Annotated, Any
 
-import httpx2
 import typer
 
 from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
     DEFAULT_ANOMALY_Z_THRESHOLD,
-    DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_PROMETHEUS_QUERY_RANGE_START,
     DEFAULT_PROMETHEUS_QUERY_RANGE_STEP,
     DEFAULT_TABLE_FORMAT,
@@ -21,9 +21,8 @@ from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.http.egress import configured_level
-from devops_cli.http.entry import http_client
 from devops_cli.http.urls import service_base_url
-from devops_cli.lang import ERRORS, HELP, MESSAGES
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.prometheus import PrometheusQueryResult
 from devops_cli.output import (
     print_error,
@@ -32,6 +31,13 @@ from devops_cli.output import (
     print_warning,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
+from devops_cli.prometheus.client import (
+    DurationTooLongError,
+    PrometheusClient,
+    PrometheusContentTypeError,
+    expression_problem,
+    parse_duration,
+)
 from devops_cli.prometheus.prometheus_plans import (
     plan_prometheus_analyze,
     plan_prometheus_query,
@@ -42,8 +48,6 @@ from devops_cli.prometheus.prometheus_plans import (
 
 # A refusal at the connect ends each command with its message and no traceback.
 app = new_typer(help=HELP.prometheus.app, no_args_is_help=True)
-
-_MAX_PROMQL_LEN = 4096
 
 
 # =============================================================================
@@ -68,9 +72,19 @@ def _base_url(settings: Settings) -> str:
         raise typer.Exit(1) from exc
 
 
-def _client(settings: Settings) -> httpx2.Client:
-    """A Prometheus client that dials the configured level: loopback, or private with the flag."""
-    return http_client(configured_level(settings.ai))
+@contextmanager
+def _prometheus(settings: Settings, base: str) -> Iterator[PrometheusClient]:
+    """Open a client of the server at `base`, at the configured egress level.
+
+    A server that answers with something other than JSON ends the command with the content type it
+    sent.
+    """
+    with PrometheusClient(base, configured_level(settings.ai)) as client:
+        try:
+            yield client
+        except PrometheusContentTypeError as exc:
+            print_error(str(exc), prefix=False)
+            raise typer.Exit(1) from exc
 
 
 def _dry_run_base_url() -> str:
@@ -85,60 +99,18 @@ def _dry_run_base_url() -> str:
 
 
 def _validate_expr(expr: str) -> None:
-    """Reject over-long or structurally malformed PromQL before dispatching it.
-
-    Catching a typo here saves a network round trip and reports the offending character
-    rather than relaying the server's phrasing of the failure.
-    """
-    if len(expr) > _MAX_PROMQL_LEN:
-        print_error(
-            ERRORS.prometheus.expr_too_long.format(max_len=_MAX_PROMQL_LEN),
-            prefix=False,
-        )
-        raise typer.Exit(1)
-
-    from devops_cli.prometheus.promql import validate_promql
-
-    validation = validate_promql(expr)
-    if not validation:
-        print_error(
-            ERRORS.prometheus.invalid_promql.format(errors=validation.summary),
-            prefix=False,
-        )
+    """End the command when the expression must not be sent."""
+    if (problem := expression_problem(expr)) is not None:
+        print_error(problem, prefix=False)
         raise typer.Exit(1)
 
 
-def _parse_duration(s: str) -> float:
-    """Parse simple relative durations like '1h', '30m', '7d' to seconds."""
-    if not s:
-        return 0.0
-    units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-    unit = s[-1].lower()
-    res = 0.0
-    if unit in units and s[:-1].isdigit():
-        res = float(int(s[:-1]) * units[unit])
-    else:
-        try:
-            res = float(s)
-        except ValueError:
-            return 0.0
-
-    max_seconds = 31_536_000.0  # 365 days
-    if res > max_seconds:
-        raise typer.BadParameter("Duration exceeds maximum allowed value (365 days).")
-    return res
-
-
-def _read_json(response: httpx2.Response) -> dict[str, Any]:
-    content_type = response.headers.get("content-type", "")
-    if "application/json" not in content_type:
-        print_error(
-            ERRORS.prometheus.unexpected_content_type.format(content_type=content_type),
-            prefix=False,
-        )
-        raise typer.Exit(1)
-    data = response.json()
-    return data if isinstance(data, dict) else {}
+def _seconds(duration: str) -> float:
+    """Read a relative duration; one over 365 days is a bad parameter."""
+    try:
+        return parse_duration(duration)
+    except DurationTooLongError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 # =============================================================================
@@ -167,19 +139,11 @@ def query(
     _validate_expr(expr)
     settings = load_settings()
     base = _base_url(settings)
-    params: dict[str, Any] = {"query": expr}
-    if at:
-        params["time"] = at
 
-    with _client(settings) as http_client:
-        response = http_client.get(
-            f"{base}/api/v1/query",
-            params=params,
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
+    with _prometheus(settings, base) as prometheus:
+        payload = prometheus.query(expr, at=at)
 
-    result = PrometheusQueryResult.from_instant_response(_read_json(response))
+    result = PrometheusQueryResult.from_instant_response(payload)
     if result.status != "success":
         print_error(f"Query failed: {result.error or 'unknown'}", prefix=False)
         raise typer.Exit(1)
@@ -230,22 +194,13 @@ def query_range(
     base = _base_url(settings)
 
     now = time.time()
-    try:
-        start_ts = str(now - _parse_duration(start))
-    except ValueError:
-        start_ts = start
+    start_ts = str(now - _seconds(start))
     end_ts = end or str(now)
 
-    params = {"query": expr, "start": start_ts, "end": end_ts, "step": step}
-    with _client(settings) as http_client:
-        response = http_client.get(
-            f"{base}/api/v1/query_range",
-            params=params,
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
+    with _prometheus(settings, base) as prometheus:
+        payload = prometheus.query_range(expr, start=start_ts, end=end_ts, step=step)
 
-    result = PrometheusQueryResult.from_range_response(_read_json(response))
+    result = PrometheusQueryResult.from_range_response(payload)
     if result.status != "success":
         print_error(f"Query failed: {result.error or 'unknown'}", prefix=False)
         raise typer.Exit(1)
@@ -320,22 +275,11 @@ def analyze(
     settings = load_settings()
     base = _base_url(settings)
     now = time.time()
-    params = {
-        "query": expr,
-        "start": str(now - _parse_duration(start)),
-        "end": str(now),
-        "step": step,
-    }
+    start_ts = str(now - _seconds(start))
 
-    with _client(settings) as http_client:
-        response = http_client.get(
-            f"{base}/api/v1/query_range",
-            params=params,
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
+    with _prometheus(settings, base) as prometheus:
+        payload = prometheus.query_range(expr, start=start_ts, end=str(now), step=step)
 
-    payload = _read_json(response)
     results = (payload.get("data") or {}).get("result") or []
     if not results:
         print_info(MESSAGES.prometheus.no_series_to_analyze.format(expr=expr[:80]), prefix=False)
@@ -395,15 +339,10 @@ def rules(
     settings = load_settings()
     base = _base_url(settings)
 
-    with _client(settings) as http_client:
-        response = http_client.get(
-            f"{base}/api/v1/rules",
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
+    with _prometheus(settings, base) as prometheus:
+        data = prometheus.rules()
 
     rows: list[list[str]] = []
-    data = _read_json(response) if response.content else {}
     groups = data.get("data", {}).get("groups", []) if isinstance(data, dict) else []
     for group in groups:
         for rule in group.get("rules", []):
@@ -450,15 +389,10 @@ def targets(
     settings = load_settings()
     base = _base_url(settings)
 
-    with _client(settings) as http_client:
-        response = http_client.get(
-            f"{base}/api/v1/targets",
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
+    with _prometheus(settings, base) as prometheus:
+        data = prometheus.targets()
 
     rows: list[list[str]] = []
-    data = _read_json(response)
     for target in data.get("data", {}).get("activeTargets", []):
         up = target.get("health", "unknown") == "up"
         labels = target.get("labels") or {}

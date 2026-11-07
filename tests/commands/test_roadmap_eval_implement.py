@@ -1,6 +1,6 @@
 """`devops roadmap eval implement` (#3030): what the command layer owns, the options, the output,
 the exit code, the dry run and the report file. The run itself is tested in
-`tests/roadmap/test_roadmap_implement_eval_run.py`."""
+`tests/roadmap/implement/test_roadmap_implement_eval_run.py`."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import pytest
 from devops_cli.ai.client import factory
 from devops_cli.config.settings import load_settings
 from devops_cli.core.repo import resolve_data_path
-from devops_cli.roadmap.implement_eval_run import eval_model
+from devops_cli.roadmap.implement.implement_eval_run import eval_model
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.implement_step import command_text, the_whole_group
 from tests.support.model_script import ModelScript, say, tool_calls

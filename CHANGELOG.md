@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.77.1](https://github.com/dan-petty/devops-cli/compare/v0.77.0...v0.77.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* **roadmap:** a rebase stop names the conflicted files ([#3922](https://github.com/dan-petty/devops-cli/issues/3922)) ([dd0cca7](https://github.com/dan-petty/devops-cli/commit/dd0cca79f71af4371a6d958db8ea3634773fb836))
+* **roadmap:** an unchanged refine item reads no comments ([#3918](https://github.com/dan-petty/devops-cli/issues/3918)) ([38420cb](https://github.com/dan-petty/devops-cli/commit/38420cb7c759aed2f5ac706e545baa62bdb318a6))
+* **roadmap:** fail the plan run when the window ends the tools too soon ([#3923](https://github.com/dan-petty/devops-cli/issues/3923)) ([e71144a](https://github.com/dan-petty/devops-cli/commit/e71144a0a4e6cc8814083749f5edba4083d52418))
+* **roadmap:** the plan reader reports a criterion of group 0 ([#3933](https://github.com/dan-petty/devops-cli/issues/3933)) ([8a5ca70](https://github.com/dan-petty/devops-cli/commit/8a5ca70d232f88247fff0d416164dcd5e7ac8b8a))
+
 ## [0.77.0](https://github.com/dan-petty/devops-cli/compare/v0.76.2...v0.77.0) (2026-11-07)
 
 

@@ -1,66 +1,101 @@
-"""Unit tests for Prometheus CLI commands (devops_cli.commands.prometheus)."""
+"""Unit tests for Prometheus CLI commands (devops_cli.commands.prometheus).
+
+The commands run through the `cli` fixture. The `web` fixture answers the Prometheus API below the
+HTTP entry point, so the tests read the requests that the fake received and patch no name.
+"""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any
-from unittest.mock import MagicMock, patch
 
+import httpx2
 import pytest
-import typer
-from typer.testing import CliRunner
 
-from devops_cli.commands.prometheus import app as prometheus_app
-from devops_cli.config.settings import Settings
-from devops_cli.main import app as main_app
 from tests.support.fakes.dial import record_connects
 from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
+from tests.support.fakes.http import WebFake
 
-runner = CliRunner()
+PROMETHEUS_ENV = {"DEVOPS_CLI_PROMETHEUS_URL": "http://prometheus.example.com:9090"}
+
+VECTOR = {
+    "status": "success",
+    "data": {
+        "resultType": "vector",
+        "result": [
+            {
+                "metric": {"__name__": "node_cpu_seconds_total", "instance": "localhost:9100"},
+                "value": [1700000000, "100.5"],
+            }
+        ],
+    },
+}
+MATRIX = {
+    "status": "success",
+    "data": {
+        "resultType": "matrix",
+        "result": [
+            {
+                "metric": {"instance": "localhost:9100"},
+                "values": [[1700000000, "100.5"], [1700000060, "101.0"]],
+            }
+        ],
+    },
+}
 
 
-def test_prometheus_commands() -> None:
-    """Verify prometheus query, query-range, targets, and rules subcommands."""
-    mock_vector = {
-        "status": "success",
-        "data": {
-            "resultType": "vector",
-            "result": [
-                {
-                    "metric": {
-                        "__name__": "node_cpu_seconds_total",
-                        "instance": "localhost:9100",
-                    },
-                    "value": [1700000000, "100.5"],
-                }
-            ],
-        },
-    }
-    mock_matrix = {
-        "status": "success",
-        "data": {
-            "resultType": "matrix",
-            "result": [
-                {
-                    "metric": {"instance": "localhost:9100"},
-                    "values": [[1700000000, "100.5"], [1700000060, "101.0"]],
-                }
-            ],
-        },
-    }
-    mock_rules = {
-        "status": "success",
-        "data": {
-            "groups": [
-                {
-                    "name": "node-alerts",
-                    "rules": [{"name": "HighCPU", "type": "alerting", "health": "ok"}],
-                }
-            ]
-        },
-    }
-    mock_targets = {
-        "status": "success",
+def _serve(web: WebFake, path: str, response: httpx2.Response) -> None:
+    """Answer each request to `path` with `response`."""
+    web.serve(lambda request: response if request.url.path == path else None)
+
+
+def test_query_prints_each_series_with_its_value(cli: Callable[..., Any], web: WebFake) -> None:
+    """The instant query sends the expression and prints the series as a table."""
+    _serve(web, "/api/v1/query", httpx2.Response(200, json=VECTOR))
+
+    result = cli("prometheus", "query", "up", env=PROMETHEUS_ENV)
+
+    assert (
+        result.exit_code,
+        "localhost:9100" in result.output,
+        "100.5" in result.output,
+        [dict(request.url.params) for request in web.sent],
+    ) == (0, True, True, [{"query": "up"}])
+
+
+def test_query_at_a_time_sends_that_time(cli: Callable[..., Any], web: WebFake) -> None:
+    """The `--time` option is the evaluation time of the instant query."""
+    _serve(web, "/api/v1/query", httpx2.Response(200, json=VECTOR))
+
+    result = cli("prometheus", "query", "up", "--time", "2026-11-01T00:00:00Z", env=PROMETHEUS_ENV)
+
+    assert (result.exit_code, [dict(request.url.params) for request in web.sent]) == (
+        0,
+        [{"query": "up", "time": "2026-11-01T00:00:00Z"}],
+    )
+
+
+def test_query_range_sums_the_series_and_the_points(cli: Callable[..., Any], web: WebFake) -> None:
+    """The range query asks for the window and the step, and prints the series and point counts."""
+    _serve(web, "/api/v1/query_range", httpx2.Response(200, json=MATRIX))
+
+    result = cli(
+        "prometheus", "query-range", "up", "--start", "30m", "--step", "30s", env=PROMETHEUS_ENV
+    )
+
+    [params] = [dict(request.url.params) for request in web.sent]
+    assert (result.exit_code, "1 series, 2 total data points" in result.output, params["step"]) == (
+        0,
+        True,
+        "30s",
+    )
+    assert float(params["end"]) - float(params["start"]) == pytest.approx(1800, abs=5)
+
+
+def test_targets_prints_the_scrape_targets(cli: Callable[..., Any], web: WebFake) -> None:
+    """The targets command prints each active target with its job and state."""
+    targets = {
         "data": {
             "activeTargets": [
                 {
@@ -69,120 +104,183 @@ def test_prometheus_commands() -> None:
                     "lastScrape": "2026-08-26T00:00:00Z",
                 }
             ]
+        }
+    }
+    _serve(web, "/api/v1/targets", httpx2.Response(200, json=targets))
+
+    result = cli("prometheus", "targets", env=PROMETHEUS_ENV)
+
+    assert (result.exit_code, "node-exporter" in result.output) == (0, True)
+
+
+def test_rules_prints_each_rule_with_its_health(cli: Callable[..., Any], web: WebFake) -> None:
+    """The rules command prints the group, the name and the health of each rule."""
+    rules = {
+        "data": {
+            "groups": [
+                {
+                    "name": "node-alerts",
+                    "rules": [{"name": "HighCPU", "type": "alerting", "health": "ok"}],
+                }
+            ]
+        }
+    }
+    _serve(web, "/api/v1/rules", httpx2.Response(200, json=rules))
+
+    result = cli("prometheus", "rules", env=PROMETHEUS_ENV)
+
+    assert (result.exit_code, "HighCPU" in result.output, "node-alerts" in result.output) == (
+        0,
+        True,
+        True,
+    )
+
+
+def test_a_query_with_no_series_says_there_are_no_results(
+    cli: Callable[..., Any], web: WebFake
+) -> None:
+    """An empty vector is not a failure."""
+    empty = {"status": "success", "data": {"resultType": "vector", "result": []}}
+    _serve(web, "/api/v1/query", httpx2.Response(200, json=empty))
+
+    result = cli("prometheus", "query", "empty_metric", env=PROMETHEUS_ENV)
+
+    assert (result.exit_code, "No results." in result.output) == (0, True)
+
+
+def test_a_server_error_status_in_the_answer_ends_the_query_with_its_message(
+    cli: Callable[..., Any], web: WebFake
+) -> None:
+    """A `status: error` body ends the query with exit 1 and names the error."""
+    failed = {"status": "error", "error": "parse error at char 5"}
+    _serve(web, "/api/v1/query", httpx2.Response(200, json=failed))
+
+    result = cli("prometheus", "query", "up", env=PROMETHEUS_ENV)
+
+    assert (result.exit_code, "parse error at char 5" in result.output) == (1, True)
+
+
+def test_a_missing_url_ends_the_query_before_a_request(
+    cli: Callable[..., Any], web: WebFake
+) -> None:
+    """With no `prometheus.url` the command names the setting, exits 1, and sends nothing."""
+    result = cli("prometheus", "query", "up", env={"DEVOPS_CLI_PROMETHEUS_URL": ""})
+
+    assert (result.exit_code, "Prometheus URL not configured" in result.output, web.recorded) == (
+        1,
+        True,
+        [],
+    )
+
+
+def test_an_expression_over_the_limit_is_refused_before_a_request(
+    cli: Callable[..., Any], web: WebFake
+) -> None:
+    """An expression of 5000 characters exits 1 with the limit, and sends nothing."""
+    result = cli("prometheus", "query", "a" * 5000, env=PROMETHEUS_ENV)
+
+    assert (result.exit_code, "maximum length" in result.output, web.recorded) == (1, True, [])
+
+
+def test_an_answer_that_is_not_json_ends_the_query_with_its_content_type(
+    cli: Callable[..., Any], web: WebFake
+) -> None:
+    """A server that sends a web page ends the query with exit 1 and the content type it sent."""
+    _serve(web, "/api/v1/query", httpx2.Response(200, html="<html></html>"))
+
+    result = cli("prometheus", "query", "up", env=PROMETHEUS_ENV)
+
+    assert (result.exit_code, "text/html" in result.output) == (1, True)
+
+
+def test_a_duration_over_a_year_is_a_usage_error(cli: Callable[..., Any], web: WebFake) -> None:
+    """`--start 400d` is refused as a bad parameter before any request."""
+    result = cli("prometheus", "query-range", "up", "--start", "400d", env=PROMETHEUS_ENV)
+
+    assert (result.exit_code, "365 days" in result.output, web.recorded) == (2, True, [])
+
+
+def test_a_global_dry_run_plans_the_query_and_sends_nothing(
+    cli: Callable[..., Any], web: WebFake
+) -> None:
+    """With `--dry-run` the command prints the plan of the request and makes none."""
+    result = cli("--dry-run", "prometheus", "query", "node_cpu_seconds_total", env=PROMETHEUS_ENV)
+
+    assert (result.exit_code, web.recorded) == (0, [])
+
+
+def test_cli_rejects_malformed_promql_before_any_request(
+    cli: Callable[..., Any], web: WebFake
+) -> None:
+    """An invalid query fails locally, with no request issued to the Prometheus API.
+
+    Catching the typo here is the whole point: the round trip is avoided and the error
+    names the offending character rather than relaying the server's phrasing.
+    """
+    result = cli("prometheus", "query", "rate(x[5m", env=PROMETHEUS_ENV)
+
+    assert (result.exit_code, "Invalid PromQL" in result.output, web.recorded) == (1, True, [])
+
+
+def test_cli_analyze_reports_anomalies(cli: Callable[..., Any], web: WebFake) -> None:
+    """The analyze command summarises a series and surfaces its outliers."""
+    payload = {
+        "status": "success",
+        "data": {
+            "result": [
+                {
+                    "metric": {"job": "api"},
+                    "values": [[1000 + i, "10"] for i in range(20)] + [[1020, "500"]],
+                }
+            ]
         },
     }
+    _serve(web, "/api/v1/query_range", httpx2.Response(200, json=payload))
 
-    def mock_get(*args: object, **kwargs: object) -> MagicMock:
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.headers = {"content-type": "application/json"}
-        url_str = ""
-        for a in args:
-            if isinstance(a, str) and ("http" in a or "/api/" in a):
-                url_str = a
-                break
-        if not url_str and "url" in kwargs:
-            url_str = str(kwargs["url"])
+    result = cli(
+        "prometheus",
+        "analyze",
+        "up",
+        "--json",
+        "--start",
+        "2h",
+        "--step",
+        "5m",
+        env=PROMETHEUS_ENV,
+    )
 
-        if "query_range" in url_str:
-            resp.json.return_value = mock_matrix
-        elif "query" in url_str:
-            resp.json.return_value = mock_vector
-        elif "rules" in url_str:
-            resp.json.return_value = mock_rules
-        elif "targets" in url_str:
-            resp.json.return_value = mock_targets
-        else:
-            resp.json.return_value = {}
-        return resp
-
-    settings = Settings()
-    settings.prometheus.url = "http://localhost:9090"
-    settings.ai.allow_private_network = True
-
-    with (
-        patch("devops_cli.commands.prometheus.httpx2.Client.get", side_effect=mock_get),
-        patch("devops_cli.commands.prometheus.load_settings", return_value=settings),
-    ):
-        res_q = runner.invoke(
-            main_app, ["--dry-run", "prometheus", "query", "node_cpu_seconds_total"]
-        )
-        assert res_q.exit_code == 0
-
-        res_direct_q = runner.invoke(prometheus_app, ["query", "up"])
-        assert res_direct_q.exit_code == 0
-
-        res_qr = runner.invoke(
-            prometheus_app, ["query-range", "up", "--start", "30m", "--step", "30s"]
-        )
-        assert res_qr.exit_code == 0
-
-        res_targets = runner.invoke(prometheus_app, ["targets"])
-        assert res_targets.exit_code == 0
-
-        res_rules = runner.invoke(prometheus_app, ["rules"])
-        assert res_rules.exit_code == 0
+    assert result.exit_code == 0
+    analysis = json.loads(result.output)
+    [params] = [dict(request.url.params) for request in web.sent]
+    assert (
+        analysis["sample_count"],
+        len(analysis["anomalies"]),
+        params["query"],
+        params["step"],
+    ) == (
+        21,
+        1,
+        "up",
+        "5m",
+    )
+    assert float(params["end"]) - float(params["start"]) == pytest.approx(7200, abs=5)
 
 
-def test_prometheus_errors_and_edge_cases() -> None:
-    """Verify prometheus error branches: missing URL, long expr, invalid content-type, duration parsing."""
-    # 1. Missing URL
-    settings_no_url = Settings()
-    settings_no_url.prometheus.url = None
-    with patch("devops_cli.commands.prometheus.load_settings", return_value=settings_no_url):
-        res_no_url = runner.invoke(prometheus_app, ["query", "up"])
-        assert res_no_url.exit_code == 1
+def test_cli_analyze_handles_an_empty_result(cli: Callable[..., Any], web: WebFake) -> None:
+    """A query matching no series reports so rather than failing."""
+    empty = {"status": "success", "data": {"result": []}}
+    _serve(web, "/api/v1/query_range", httpx2.Response(200, json=empty))
 
-    # 2. Expr too long
-    settings_ok = Settings()
-    settings_ok.prometheus.url = "http://localhost:9090"
-    settings_ok.ai.allow_private_network = True
-    with patch("devops_cli.commands.prometheus.load_settings", return_value=settings_ok):
-        res_long = runner.invoke(prometheus_app, ["query", "a" * 5000])
-        assert res_long.exit_code == 1
+    result = cli("prometheus", "analyze", "up", env=PROMETHEUS_ENV)
 
-    # 3. Invalid content type
-    mock_bad_resp = MagicMock()
-    mock_bad_resp.status_code = 200
-    mock_bad_resp.headers = {"content-type": "text/html"}
-    mock_client_bad = MagicMock()
-    mock_client_bad.__enter__.return_value.get.return_value = mock_bad_resp
-    with (
-        patch("devops_cli.commands.prometheus.load_settings", return_value=settings_ok),
-        patch("devops_cli.commands.prometheus.httpx2.Client", return_value=mock_client_bad),
-    ):
-        res_bad_ct = runner.invoke(prometheus_app, ["query", "up"])
-        assert res_bad_ct.exit_code == 1
+    assert (result.exit_code, "no series to analyze" in result.output) == (0, True)
 
-    # 4. Query returning empty / failed
-    mock_empty_resp = MagicMock()
-    mock_empty_resp.status_code = 200
-    mock_empty_resp.headers = {"content-type": "application/json"}
-    mock_empty_resp.json.return_value = {
-        "status": "success",
-        "data": {"resultType": "vector", "result": []},
-    }
-    mock_client_empty = MagicMock()
-    mock_client_empty.__enter__.return_value.get.return_value = mock_empty_resp
-    with (
-        patch("devops_cli.commands.prometheus.load_settings", return_value=settings_ok),
-        patch("devops_cli.commands.prometheus.httpx2.Client", return_value=mock_client_empty),
-    ):
-        res_empty = runner.invoke(prometheus_app, ["query", "empty_metric"])
-        assert res_empty.exit_code == 0
 
-    # 5. Parse duration helpers
-    from devops_cli.commands.prometheus import _parse_duration
+def test_cli_analyze_supports_dry_run(cli: Callable[..., Any], web: WebFake) -> None:
+    """Analysis can be previewed without contacting the server."""
+    result = cli("prometheus", "analyze", "up", env={"DEVOPS_CLI_DRY_RUN": "true"})
 
-    assert _parse_duration("10s") == 10.0
-    assert _parse_duration("5m") == 300.0
-    assert _parse_duration("2h") == 7200.0
-    assert _parse_duration("1d") == 86400.0
-    assert _parse_duration("") == 0.0
-    assert _parse_duration("invalid") == 0.0
-    with pytest.raises(typer.BadParameter) as raised:
-        _parse_duration("400d")
-    assert raised.value is not None
+    assert (result.exit_code, "query_range" in result.output, web.recorded) == (0, True, [])
 
 
 def test_a_k8s_address_in_the_prometheus_url_stops_the_query_before_a_lookup(

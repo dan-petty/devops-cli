@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from devops_cli.github.client import PullRequest
     from devops_cli.review.handoff import HandOff
     from devops_cli.review.score import Agreement, ScoreReport
-    from devops_cli.roadmap.intake_requests import SpendMeter
+    from devops_cli.roadmap.intake.intake_requests import SpendMeter
 
 import typer
 
@@ -1322,8 +1322,8 @@ def _run_hand_off(hand_off: HandOff, repo: str, meter: SpendMeter, *, confirm: b
     candidate exits 1."""
     from devops_cli.output import write_stdout
     from devops_cli.review.handoff import run_hand_off
-    from devops_cli.roadmap import store as roadmap_store
-    from devops_cli.roadmap.intake_model import build_intake_model
+    from devops_cli.roadmap.intake.intake_model import build_intake_model
+    from devops_cli.roadmap.stores import store as roadmap_store
 
     store = roadmap_store.get_roadmap_store(repo)
     model = build_intake_model()
@@ -1358,7 +1358,7 @@ def intake(
         raise typer.Exit(1)
     from devops_cli.core.repo import nearest_checkout
     from devops_cli.review.handoff import prepare_hand_off
-    from devops_cli.roadmap.intake_requests import SpendMeter
+    from devops_cli.roadmap.intake.intake_requests import SpendMeter
 
     session_dir = _require_session_dir(session)
     checkout = nearest_checkout(Path.cwd().resolve())

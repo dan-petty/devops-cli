@@ -17,9 +17,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from devops_cli.roadmap.stage_change import StageGroup
-from devops_cli.roadmap.stage_verify import Verification
-from devops_cli.roadmap.store import ItemField
+from devops_cli.roadmap.stage.stage_change import StageGroup
+from devops_cli.roadmap.stage.stage_verify import Verification
+from devops_cli.roadmap.stores.store import ItemField
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 

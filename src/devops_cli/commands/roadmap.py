@@ -44,7 +44,6 @@ from devops_cli.exceptions import DevOpsCLIError, RoadmapRunError
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_success, write_stdout
-from devops_cli.roadmap import store as roadmap_store
 from devops_cli.roadmap.claim import (
     Claimant,
     apply_claim,
@@ -53,7 +52,7 @@ from devops_cli.roadmap.claim import (
     render_claim_plan,
 )
 from devops_cli.roadmap.inbox_kind import InboxKind
-from devops_cli.roadmap.intake import (
+from devops_cli.roadmap.intake.intake import (
     Filer,
     NewCandidate,
     Outcome,
@@ -64,10 +63,11 @@ from devops_cli.roadmap.intake import (
     render_intake,
     render_intake_dry_run,
 )
-from devops_cli.roadmap.intake_model import build_intake_model
-from devops_cli.roadmap.intake_requests import SpendMeter
+from devops_cli.roadmap.intake.intake_model import build_intake_model
+from devops_cli.roadmap.intake.intake_requests import SpendMeter
 from devops_cli.roadmap.request_plan import render_dry_run
-from devops_cli.roadmap.store import RoadmapStore
+from devops_cli.roadmap.stores import store as roadmap_store
+from devops_cli.roadmap.stores.store import RoadmapStore
 
 app = new_typer(help=HELP.roadmap.app, no_args_is_help=True)
 app.add_typer(eval_app, name="eval", help=HELP.roadmap.eval_app)
@@ -246,14 +246,14 @@ def refine_cmd(
         raise typer.Exit(1)
 
     if dry_run or is_dry_run():
-        from devops_cli.roadmap.refine import dry_run_refine
+        from devops_cli.roadmap.refine.refine import dry_run_refine
         from devops_cli.roadmap.request_plan import render_dry_run
 
         plan = dry_run_refine(target_repo, item=item, limit=limit)
         render_dry_run("refine", target_repo, plan.requests, plan.write_requests)
         return
 
-    from devops_cli.roadmap.refine import (
+    from devops_cli.roadmap.refine.refine import (
         apply_refine,
         plan_refine,
         raise_for_failed_items,
@@ -377,7 +377,7 @@ def stage_cmd(
 ) -> None:
     """Make Ready items Staged: a branch, an OpenSpec change in budgeted task groups, and a draft."""
     _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
-    from devops_cli.roadmap.stage import (
+    from devops_cli.roadmap.stage.stage import (
         apply_stage,
         dry_run_stage,
         emit_stage_results,
@@ -398,7 +398,7 @@ def stage_cmd(
         print_info(MESSAGES.roadmap.stage_plain_note)
     from devops_cli.ai.client.factory import get_task_model
     from devops_cli.roadmap.run import model_clone
-    from devops_cli.roadmap.stage_toolbox import ToolboxModel
+    from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 
     with _exit_on_failure("Could not plan staging"):
         _, store = _open_store(target)
@@ -481,7 +481,7 @@ def run_cmd(
     if dry_run or is_dry_run():
         target = _target(repo)
         store = _try_open_store(repo)
-        from devops_cli.roadmap.github_store import GitHubRoadmapStore
+        from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 
         if store is not None and not isinstance(store, GitHubRoadmapStore):
             _show_due_jobs(target, store)
@@ -526,7 +526,7 @@ def _implement_step(
         _refuse(MESSAGES.roadmap.implement_step_needs_item)
 
     from devops_cli.config.settings import load_settings
-    from devops_cli.roadmap import implement_step
+    from devops_cli.roadmap.implement import implement_step
 
     task = load_settings().ai.for_task("implement")
     if dry_run or is_dry_run():
@@ -573,7 +573,7 @@ def _start_implement_job(
         start_job,
     )
     from devops_cli.k8s.cluster_job import TemplateName
-    from devops_cli.roadmap import implement_outside as outside
+    from devops_cli.roadmap.implement import implement_outside as outside
 
     check_repo(target)
     options = outside.runner_only_options(source=source, filters=filters, limit=limit)
@@ -616,13 +616,17 @@ def _implement_job(
     runner, `--confirm` and `--dry-run` with `--item` start the runner Job instead (#2913)."""
     _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
     from devops_cli.config.settings import load_settings
-    from devops_cli.roadmap.implement import (
+    from devops_cli.roadmap.implement.implement import (
         dry_run_implement,
         parse_implement_filters,
         plan_implement,
         render_implement_plan,
     )
-    from devops_cli.roadmap.implement_run import apply_implement, raise_for_failed, require_runner
+    from devops_cli.roadmap.implement.implement_run import (
+        apply_implement,
+        raise_for_failed,
+        require_runner,
+    )
 
     with _exit_on_failure("Could not read the options"):
         parsed = parse_implement_filters(filters or ())
@@ -646,7 +650,7 @@ def _implement_job(
         render_dry_run("implement", target, planned.requests, planned.write_requests)
         return
     if confirm and outside:
-        from devops_cli.roadmap.implement_outside import refusal, runner_only_options
+        from devops_cli.roadmap.implement.implement_outside import refusal, runner_only_options
 
         options = runner_only_options(source=source, filters=filters, limit=limit)
         _refuse(refusal(target, options=options))
@@ -876,10 +880,10 @@ def explain_cmd(
         render_explanation,
         render_trace,
     )
-    from devops_cli.roadmap.implement import parse_implement_filters
+    from devops_cli.roadmap.implement.implement import parse_implement_filters
     from devops_cli.roadmap.request_plan import explain_requests
     from devops_cli.roadmap.run import model_clone
-    from devops_cli.roadmap.stage import parse_filters
+    from devops_cli.roadmap.stage.stage import parse_filters
 
     target = _target(repo)
     if dry_run or is_dry_run():
@@ -981,7 +985,7 @@ def repair_cmd(
         plan_repair,
         render_repair_plan,
     )
-    from devops_cli.roadmap.stage import raise_for_failed
+    from devops_cli.roadmap.stage.stage import raise_for_failed
 
     texts = MESSAGES.roadmap
     if dry_run or is_dry_run():

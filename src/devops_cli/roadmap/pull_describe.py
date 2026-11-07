@@ -27,7 +27,7 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import pull_labels
 from devops_cli.roadmap.pull_form import build_body, build_title
 from devops_cli.roadmap.step_files import section_text
-from devops_cli.roadmap.store import RoadmapStore
+from devops_cli.roadmap.stores.store import RoadmapStore
 from devops_cli.roadmap.title_labels import declared_label_names
 
 _WHY_HEADINGS: Final[frozenset[str]] = frozenset({"why"})
@@ -87,7 +87,7 @@ def find_change(root: Path, issue: int, *, today: date) -> ChangeFolder:
 def proposal_why(change: ChangeFolder) -> str:
     """The "why" of the proposal of `change` on one line, with a handle or a link in a code span
     so it pings no one. A proposal with no section `Why` raises `ValidationError`."""
-    from devops_cli.roadmap.stage_change import closing_keyword_in, safe_text
+    from devops_cli.roadmap.stage.stage_change import closing_keyword_in, safe_text
 
     proposal = change.folder / _PROPOSAL
     section = (

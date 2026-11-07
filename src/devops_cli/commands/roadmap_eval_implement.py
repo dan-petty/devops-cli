@@ -19,8 +19,8 @@ from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_muted, write_stdout
 
 if TYPE_CHECKING:
-    from devops_cli.roadmap.implement_eval import LoadedCase
-    from devops_cli.roadmap.implement_eval_run import ResultReport, RunReport
+    from devops_cli.roadmap.implement.implement_eval import LoadedCase
+    from devops_cli.roadmap.implement.implement_eval_run import ResultReport, RunReport
 
 
 def _refuse(message: str) -> NoReturn:
@@ -43,14 +43,14 @@ def _refuse_options(
 
 def _emit(report: RunReport, *, json_output: bool) -> None:
     """Print the report as JSON or as text."""
-    from devops_cli.roadmap.implement_eval_run import render_report
+    from devops_cli.roadmap.implement.implement_eval_run import render_report
 
     write_stdout(report.model_dump_json(indent=2) + "\n" if json_output else render_report(report))
 
 
 def _check(cases: list[LoadedCase], source: Path, *, run_commands: bool, json_output: bool) -> None:
     """Evaluate the recorded results of the cases, and exit 1 when one differs from its record."""
-    from devops_cli.roadmap.implement_eval_run import RunReport, check_recorded
+    from devops_cli.roadmap.implement.implement_eval_run import RunReport, check_recorded
 
     results = [
         r for case in cases for r in check_recorded(case, repo=source, commands=run_commands)
@@ -63,7 +63,11 @@ def _check(cases: list[LoadedCase], source: Path, *, run_commands: bool, json_ou
 
 def _report_run(model: str, results: list[ResultReport], *, json_output: bool) -> None:
     """Print the report of the results so far, and write its JSON file."""
-    from devops_cli.roadmap.implement_eval_run import RunReport, report_directory, write_report
+    from devops_cli.roadmap.implement.implement_eval_run import (
+        RunReport,
+        report_directory,
+        write_report,
+    )
 
     report = RunReport(model=model, results=tuple(results))
     _emit(report, json_output=json_output)
@@ -77,7 +81,7 @@ def _run(
     """Run the step of each case with the model, report, and write the JSON report. A fixture that
     raises ends the run, and the results of the fixtures before it are reported and written first,
     as the model calls of those fixtures cost money."""
-    from devops_cli.roadmap.implement_eval_run import eval_model, run_case
+    from devops_cli.roadmap.implement.implement_eval_run import eval_model, run_case
 
     model, window, name = eval_model(model_name)
     results: list[ResultReport] = []
@@ -123,7 +127,7 @@ def implement_cmd(
     ] = False,
 ) -> None:
     """Score the implement job on its fixtures, or check the recorded results of the fixtures."""
-    from devops_cli.roadmap.implement_eval import choose_cases, load_cases
+    from devops_cli.roadmap.implement.implement_eval import choose_cases, load_cases
 
     dry = dry_run or is_dry_run()
     _refuse_options(check_only=check_only, dry_run=dry, run_commands=run_commands, model=model)
@@ -134,7 +138,7 @@ def implement_cmd(
     clone_from = source or root
     if dry:
         from devops_cli.config.settings import load_settings
-        from devops_cli.roadmap.implement_eval_run import render_dry_run
+        from devops_cli.roadmap.implement.implement_eval_run import render_dry_run
 
         name = model or load_settings().ai.for_task("implement").model
         write_stdout(render_dry_run(cases, model=name))

@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
+from devops_cli.roadmap.stores.store import (
     get_roadmap_store,
     install_roadmap_store,
     reset_roadmap_store,
