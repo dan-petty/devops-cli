@@ -968,6 +968,21 @@ serverFiles:
             annotations:
               summary: "Crawl4AI has no available replica"
               description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} wants a replica and has had none available for 15 minutes, so the roadmap Service cannot read page text. Read the events with kubectl -n devops describe deployment/crawl4ai, and the log with kubectl -n devops logs deployment/crawl4ai (k8s/README.md, Crawl4AI)."
+      # The open findings of `devops research sweep` (#3899). The command sets one value for each
+      # severity each time it runs, and runs when a person starts it, so the rule reads the last
+      # value of the last 7 days. A sweep that finds no critical finding sets zero, and the rule
+      # goes quiet. The sweep sets no value when a lookup got no answer.
+      - name: research
+        rules:
+          - alert: ResearchCriticalFindings
+            expr: >-
+              max(last_over_time(devops_cli_research_open_findings{severity="critical"}[7d])) > 0
+            for: 0m
+            labels:
+              severity: critical
+            annotations:
+              summary: 'The last research sweep found {{ printf "%.0f" $value }} critical advisories that affect a pin'
+              description: "The last `devops research sweep` found critical advisories that affect a pin of the project. Intake has a candidate for each. Run `devops research advisories` to read them, and update the pins (k8s/README.md, Alerting)."
       - name: mattermost
         rules:
           - alert: MattermostUnavailable

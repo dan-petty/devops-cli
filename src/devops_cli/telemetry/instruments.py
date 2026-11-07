@@ -545,6 +545,12 @@ UPSTREAM_COMPONENT_STATUS = Instrument(
     "1",
     "Upstream cloud service component status code (0=operational, 1=degraded, 2=partial_outage, 3=major_outage) by service and component",
 )
+RESEARCH_OPEN_FINDINGS = Instrument(
+    "devops_cli_research_open_findings",
+    InstrumentKind.GAUGE,
+    "1",
+    "Open research findings, by severity: the advisories that affect a pin of the project. `devops research sweep` sets one value for each severity of the scale, with zero for a severity that has no finding. It sets none when a lookup got no answer",
+)
 
 INSTRUMENTS: tuple[Instrument, ...] = (
     COMMAND_TOTAL,
@@ -618,6 +624,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     PROJECT_FORKS,
     UPSTREAM_SERVICE_STATUS,
     UPSTREAM_COMPONENT_STATUS,
+    RESEARCH_OPEN_FINDINGS,
 )
 
 
@@ -711,6 +718,7 @@ __all__ = [
     "RAG_POINTS",
     "RAG_QUERY_DURATION",
     "RAG_STOPS_TOTAL",
+    "RESEARCH_OPEN_FINDINGS",
     "REVIEW_DURATION",
     "ROADMAP_AGE_LABELS",
     "ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE",

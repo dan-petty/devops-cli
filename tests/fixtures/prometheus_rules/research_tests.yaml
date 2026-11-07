@@ -1,0 +1,69 @@
+# promtool rule unit tests of the alert group research in k8s/monitoring/prometheus-values.yaml
+# (#3899). The alert fires when the last value of the gauge of critical open findings, in the last
+# 7 days, is above zero. It stays quiet when a later sweep set zero, when only findings of a lower
+# severity exist, and when the last value is older than 7 days.
+#
+# tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files`
+# names, beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each
+# series at time 0, with one sample each `interval`. The label sets are those of the sweep: `job`
+# and `instance` from the resource, and the attribute `severity`.
+rule_files:
+  - research.rules.yaml
+
+evaluation_interval: 1h
+
+tests:
+  - name: A critical finding fires
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_research_open_findings{job="devops-cli", instance="workstation", severity="critical"}'
+        values: '2x10'
+    alert_rule_test:
+      - eval_time: 5h
+        alertname: ResearchCriticalFindings
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "The last research sweep found 2 critical advisories that affect a pin"
+              description: "The last `devops research sweep` found critical advisories that affect a pin of the project. Intake has a candidate for each. Run `devops research advisories` to read them, and update the pins (k8s/README.md, Alerting)."
+
+  - name: A later sweep that sets zero ends the alert
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_research_open_findings{job="devops-cli", instance="workstation", severity="critical"}'
+        values: '2 2 2 0 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: ResearchCriticalFindings
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "The last research sweep found 2 critical advisories that affect a pin"
+              description: "The last `devops research sweep` found critical advisories that affect a pin of the project. Intake has a candidate for each. Run `devops research advisories` to read them, and update the pins (k8s/README.md, Alerting)."
+      - eval_time: 8h
+        alertname: ResearchCriticalFindings
+        exp_alerts: []
+
+  - name: A finding of a lower severity stays quiet
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_research_open_findings{job="devops-cli", instance="workstation", severity="high"}'
+        values: '3x10'
+      - series: 'devops_cli_research_open_findings{job="devops-cli", instance="workstation", severity="critical"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 5h
+        alertname: ResearchCriticalFindings
+        exp_alerts: []
+
+  - name: A value older than 7 days stays quiet
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_research_open_findings{job="devops-cli", instance="workstation", severity="critical"}'
+        values: '2 _x400'
+    alert_rule_test:
+      - eval_time: 200h
+        alertname: ResearchCriticalFindings
+        exp_alerts: []

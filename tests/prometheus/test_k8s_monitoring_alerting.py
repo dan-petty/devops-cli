@@ -42,6 +42,7 @@ from devops_cli.telemetry.instruments import (
     CRAWL4AI_FETCHES_TOTAL,
     GITHUB_REQUESTS_TOTAL,
     GITHUB_THROTTLE_WAIT,
+    RESEARCH_OPEN_FINDINGS,
     ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
     ROADMAP_ITEM_AGE,
     ROADMAP_OLDEST_ITEM,
@@ -79,6 +80,7 @@ CRAWL4AI_RULE_TESTS = FIXTURES / "prometheus_rules" / "crawl4ai_tests.yaml"
 OTEL_COLLECTOR_CAPTURE = FIXTURES / "metrics" / "otel-collector.yaml"
 OTEL_COLLECTOR_RULE_TESTS = FIXTURES / "prometheus_rules" / "otel_collector_tests.yaml"
 VALKEY_MEMORY_RULE_TESTS = FIXTURES / "prometheus_rules" / "valkey_memory_tests.yaml"
+RESEARCH_RULE_TESTS = FIXTURES / "prometheus_rules" / "research_tests.yaml"
 
 # The job of every series the roadmap Service sends, by the scrape and by OTLP alike (#2472).
 ROADMAP_SERVICE_JOB = "roadmap-service"
@@ -106,12 +108,15 @@ CRAWL4AI_GROUP = "crawl4ai"
 OTEL_COLLECTOR_GROUP = "otel-collector"
 # The rule of a Valkey that refuses writes at its memory bound (#2094).
 VALKEY_MEMORY_GROUP = "valkey-memory"
+# The rule over the open findings of `devops research sweep` (#3899).
+RESEARCH_GROUP = "research"
 # Each group whose rules have promtool unit tests, with the file of its tests.
 RULE_GROUP_TESTS = (
     *ROADMAP_SERVICE_GROUP_TESTS,
     (CRAWL4AI_GROUP, CRAWL4AI_RULE_TESTS),
     (OTEL_COLLECTOR_GROUP, OTEL_COLLECTOR_RULE_TESTS),
     (VALKEY_MEMORY_GROUP, VALKEY_MEMORY_RULE_TESTS),
+    (RESEARCH_GROUP, RESEARCH_RULE_TESTS),
 )
 
 # Every series an alert rule may select, by what serves it.
@@ -209,6 +214,8 @@ SERVED_SERIES = frozenset(
         # The age of each roadmap state and its number, sent by the metrics row (#2919).
         ROADMAP_ITEM_AGE.name,
         ROADMAP_OLDEST_ITEM.name,
+        # The open findings of the research sweep, by severity (#3899).
+        RESEARCH_OPEN_FINDINGS.name,
         # The items that the alternatives check has not checked, sent by its row (#2950).
         ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS.name,
         # The calls of the stage planner's tools, and its plan runs (#3240).
@@ -330,6 +337,7 @@ def test_the_baseline_rule_set() -> None:
         ("PrometheusSizeLimitCutHistory", "warning"),
         ("PrometheusStorageNearClaim", "warning"),
         ("PyroscopeQueryErrors", "warning"),
+        ("ResearchCriticalFindings", "critical"),
         ("RoadmapServiceAlternativesNotSearching", "warning"),
         ("RoadmapServiceGitHubRequestsHigh", "warning"),
         ("RoadmapServiceGitHubThrottled", "critical"),
@@ -1385,8 +1393,8 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
 ) -> None:
     """`promtool test rules` passes the unit tests of each rule of `roadmap-service` (#2472), of
     `roadmap-service-webhooks` (#2476), of `roadmap-service-activity` (#2475), of
-    `roadmap-service-items` (#2919), of `roadmap-service-tools` (#3240), of `crawl4ai` (#3893), of `otel-collector`
-    (#1642) and of `valkey-memory` (#2094).
+    `roadmap-service-items` (#2919), of `roadmap-service-tools` (#3240), of `crawl4ai` (#3893), of
+    `otel-collector` (#1642), of `valkey-memory` (#2094) and of `research` (#3899).
 
     Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
     on a normal series, before its wait ends, and on the series it must not count.

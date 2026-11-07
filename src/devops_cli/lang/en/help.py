@@ -2233,6 +2233,14 @@ class ResearchCommandHelp:
         ".devops/research-watch.toml maps to a repository. It flags a CVE of the CISA KEV list "
         "as exploited, and counts the components that no source matches."
     )
+    sweep: str = (
+        "Run inventory and advisories, leave out the findings that an issue carries, and hand "
+        "each actionable finding (severity critical or high) to roadmap intake as one candidate. "
+        "Without --confirm, intake decides each candidate and writes nothing. It prints a digest "
+        "and sets the gauge devops_cli_research_open_findings."
+    )
+    sweep_repo: str = "Repository that holds the issues, as owner/name. Default: the origin."
+    sweep_confirm: str = "File and place the candidates. Without it, the sweep writes nothing."
 
 
 @dataclass(frozen=True)

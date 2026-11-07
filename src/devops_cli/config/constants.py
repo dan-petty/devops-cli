@@ -1284,6 +1284,9 @@ CONST_REVIEW_PROFILE_FILENAME = "profile.json"
 # The phrase of the marker that an issue filed from a review finding carries in its body, with
 # the finding's fingerprint_v2; the issue search for it finds the findings already filed (#2419).
 CONST_REVIEW_FILED_FINDING_MARKER: Final[str] = "devops-review-finding"
+# The phrase of the marker that an issue filed by `devops research sweep` carries in its body, with
+# the finding's source id; the issue search for it finds the findings already filed (#3899).
+CONST_RESEARCH_FINDING_MARKER: Final[str] = "research-finding"
 # GitHub's `state_reason` of a closed issue that still settles the review finding it carries, so
 # the review does not file the finding again: a person rejected it, or another issue tracks it. A
 # finding whose issue was closed as completed is filed again, because the defect came back.

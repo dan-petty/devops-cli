@@ -17,7 +17,7 @@ from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.lang import HELP, MESSAGES
-from devops_cli.output import print_error, print_info, print_table
+from devops_cli.output import print_error, print_info, print_table, write_stdout
 from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.research.advisories import advisory_requests, find_advisories
 from devops_cli.research.github_advisories import GitHubAdvisoryClient
@@ -175,6 +175,11 @@ def _print_advisories(report: AdvisoryReport) -> None:
             not_covered=sum(summary.not_covered.values()),
         )
     )
+    _print_failures(report)
+
+
+def _print_failures(report: AdvisoryReport) -> None:
+    messages = MESSAGES.research
     for failure in report.failures:
         print_error(
             messages.advisories_failure.format(
@@ -186,3 +191,82 @@ def _print_advisories(report: AdvisoryReport) -> None:
         )
     if report.kev_failure:
         print_error(messages.advisories_kev_failure.format(reason=report.kev_failure))
+
+
+@app.command("sweep", help=HELP.research.sweep)
+@dry_run_class("request-plan")
+@trace_span("research.sweep")
+def sweep(
+    root: Annotated[
+        Path | None,
+        typer.Option("--root", help=HELP.research.inventory_root),
+    ] = None,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-R", help=HELP.research.sweep_repo),
+    ] = None,
+    confirm: Annotated[
+        bool,
+        typer.Option("--confirm", help=HELP.research.sweep_confirm),
+    ] = False,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", "-f", help=HELP.options.format_type),
+    ] = DEFAULT_TABLE_FORMAT,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", "-j", help=HELP.options.json_output),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """File one intake candidate for each actionable finding that no issue carries."""
+    from devops_cli.core.repo import get_repo_origin_name
+    from devops_cli.research.sweep import (
+        digest_lines,
+        record_open_findings,
+        run_sweep,
+        sweep_dry_run,
+    )
+    from devops_cli.roadmap.intake.intake_model import build_intake_model
+    from devops_cli.roadmap.stores import store as roadmap_store
+
+    checkout = find_repo_root(root)
+    target = repo or get_repo_origin_name(checkout)
+    if not target or "/" not in target:
+        print_error(MESSAGES.review.hand_off_no_repo, prefix=False)
+        raise typer.Exit(1)
+    inventory = read_inventory(checkout)
+    resolved = resolve_format(output_format, json_output=json_output)
+    if dry_run or is_dry_run():
+        planned = sweep_dry_run(inventory, target)
+        if resolved != CONST_OUTPUT_FORMAT_TABLE:
+            emit_serialized(planned.model_dump(mode="json"), resolved)
+        else:
+            numbered = [f"{n:>3}. {line}" for n, line in enumerate(planned.requests, start=1)]
+            write_stdout("\n".join([MESSAGES.research.sweep_dry_run_title, *numbered]) + "\n")
+        return
+
+    found = find_advisories(inventory)
+    swept = run_sweep(
+        found,
+        repo=target,
+        store=roadmap_store.get_roadmap_store(target),
+        model=build_intake_model(),
+        confirm=confirm,
+    )
+    # A lookup with no answer makes the count incomplete: a gauge of zero would hide a finding.
+    if not found.failures:
+        record_open_findings(swept)
+    if resolved != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(swept.model_dump(mode="json"), resolved)
+    else:
+        for line in digest_lines(swept):
+            print_info(line, prefix=False)
+        if found.failures:
+            print_info(MESSAGES.research.sweep_incomplete.format(count=len(found.failures)))
+    _print_failures(found)
+    if found.failures:
+        raise typer.Exit(code=1)
