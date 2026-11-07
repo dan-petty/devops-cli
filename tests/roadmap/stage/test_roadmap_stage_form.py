@@ -59,6 +59,16 @@ def _plan(*changes: str, creates: tuple[str, ...] = (), verify: str | None = Non
     elif PLAN_CHECK_FILE in changes:
         # A plan that changes the plan check gives the test that accepts its own plan (#3404).
         update["test"] = f"{base['test']}, and the plan's own {SELF_ACCEPTANCE}"
+    prompt_file = any(
+        path.startswith("src/devops_cli/ai/tasks/roadmap_stage_") and path.endswith(".md")
+        for path in changes
+    )
+    if prompt_file:
+        update["reads"] = ["tests/roadmap/stage/test_roadmap_stage_prompt_rules.py"]
+        if verify is None:
+            update["verify"] = (
+                "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_prompt_rules.py"
+            )
     if verify is not None:
         update["verify"] = verify
     group = StageGroup.model_validate({**base, **update})
@@ -72,7 +82,9 @@ def _plan(*changes: str, creates: tuple[str, ...] = (), verify: str | None = Non
 def _problems(proposal: StageProposal) -> list[str]:
     """What `check_proposal` finds in a plan whose files all exist or are created by it."""
     group = proposal.groups[0]
-    tree = StagedTree([*group.changes, "src/devops_cli/sample.py", "tests/test_sample.py"])
+    tree = StagedTree(
+        [*group.changes, *group.reads, "src/devops_cli/sample.py", "tests/test_sample.py"]
+    )
     return check_proposal(proposal, ["comment-thread"], tree)
 
 
