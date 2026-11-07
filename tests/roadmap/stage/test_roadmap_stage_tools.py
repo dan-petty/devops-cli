@@ -27,6 +27,7 @@ from devops_cli.roadmap.agent_run import ToolOutcome, empty_answer, error_answer
 from devops_cli.roadmap.refine import refine_investigation
 from devops_cli.roadmap.stage.stage_github import StageGitHub
 from devops_cli.roadmap.stage.stage_tools import StageTools
+from devops_cli.roadmap.tools import tool_names
 from tests.support.fakes.process import ProcessAnswer
 
 _TOOL_NAMES = [
@@ -148,6 +149,25 @@ def test_the_base_toolset_has_the_nine_tools_and_no_web_search(tools: StageTools
 
 def test_the_extended_toolset_is_the_default_and_adds_three_tools(tools: StageTools) -> None:
     assert [tool.name for tool in tools.tools()] == _EXTENDED_TOOL_NAMES
+
+
+def test_each_toolset_names_the_methods_of_its_registry_holders(tools: StageTools) -> None:
+    """The plan run takes its names from the registry (#3244): `base` the methods of the holder
+    `stage`, and `extended` also the three of `stage-extended`, in table order."""
+    base = StageTools(source=tools.source, sha=tools.sha, openspec=tools.openspec, toolset="base")
+    extended_names = (*tool_names("stage"), *tool_names("stage-extended"))
+
+    assert (
+        [tool.name for tool in base.tools()],
+        [tool.function for tool in base.tools()],
+        [tool.name for tool in tools.tools()],
+        [tool.function for tool in tools.tools()],
+    ) == (
+        list(tool_names("stage")),
+        [getattr(base, name) for name in tool_names("stage")],
+        list(extended_names),
+        [getattr(tools, name) for name in extended_names],
+    )
 
 
 def test_the_toolbox_has_no_web_search_even_with_a_key(repo: Path) -> None:

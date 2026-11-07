@@ -51,6 +51,7 @@ from devops_cli.roadmap.refine.refine_investigation import (
 )
 from devops_cli.roadmap.stage.stage_github import StageGitHub
 from devops_cli.roadmap.stage.stage_references import reference_answer
+from devops_cli.roadmap.tools import HOLDER_STAGE, HOLDER_STAGE_EXTENDED, tool_names
 
 _COMMIT: Final[re.Pattern[str]] = re.compile(r"[0-9a-fA-F]{7,40}")
 _SYMBOL: Final[re.Pattern[str]] = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -340,20 +341,11 @@ class StageTools(InvestigationTools):
 
     def tools(self) -> list[Tool[None]]:
         """The tools of the toolset, and no other: the nine of `base`, and with `extended` the
-        three tools after them."""
-        methods: list[Callable[..., ToolReturn]] = [
-            self.list_files,
-            self.read_file,
-            self.search_code,
-            self.git_log,
-            self.git_show,
-            self.file_symbols,
-            self.callers,
-            self.repo_map,
-            self.read_spec,
-        ]
+        three tools after them. The names come from the registry (#3244), in its table order."""
+        names = tool_names(HOLDER_STAGE)
         if self.toolset == "extended":
-            methods += [self.references, self.read_issue, self.find_issues]
+            names += tool_names(HOLDER_STAGE_EXTENDED)
+        methods: list[Callable[..., ToolReturn]] = [getattr(self, name) for name in names]
         return [Tool(method, takes_ctx=False) for method in methods]
 
 
