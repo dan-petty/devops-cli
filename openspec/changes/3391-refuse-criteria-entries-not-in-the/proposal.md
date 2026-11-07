@@ -41,10 +41,10 @@ None.
 - The first review said group 1 needs group 2. The groups are now in the other order: group 1 gives `_path_gate` the issue body, group 2 adds the refusal. `tests/roadmap/stage/test_roadmap_stage_eval_gates.py:311: assert not replay_case(_with_criteria(good, both)).refused` passes after group 1 alone, because the old rule reads a body whose two criteria the entries copy, and it still passes after group 2 for the same reason.
 - The second review is right about case 3174, and the earlier line of this plan was wrong. Its one defect is pinned to no gate at `tests/fixtures/roadmap_eval/stage/3174-a-plan-with-a-placeholder-group/case.json:29: "gate": "none"`, and `_status` returns `UNJUDGED` for that gate, so the pinned counts hold through the `UNJUDGED` path and not through the `content` gate. The plan of 3174 holds `tests/fixtures/roadmap_eval/stage/3174-a-plan-with-a-placeholder-group/plan.json:64: "criteria": []` and its issue body holds three criteria, so the `criteria` gate already refuses it and the `paths` gate names the same three criteria after group 1. Its verdict is `reject`, so the replay fails nothing and no pinned count in `tests/roadmap/stage/test_roadmap_stage_eval_gates.py` changes.
 - Case 3411 keeps its verdict. Its entry copies a person-written criterion: `tests/fixtures/roadmap_eval/stage/3411-a-what-changes-item-that-names/issue.txt:13: The stage check refuses a What Changes item that names a repository path` and `tests/fixtures/roadmap_eval/stage/3411-a-what-changes-item-that-names/plan.json:70: "criteria": [`. So the `paths` gate finds no unknown-entry problem for that entry and still names the missing What Changes path.
-- `docs/ROADMAP_WORKFLOW.md:314: A pull request that changes the stage prompt` holds the rule that such a plan states the replay score before and after, so the task of each of groups 1, 2 and 3 holds `uv run devops roadmap eval stage --replay` with the words score, before and after.
+- `docs/ROADMAP_WORKFLOW.md:314: A pull request that changes the stage prompt` holds the rule that such a plan states the replay score before and after, so the task of group 3 holds `uv run devops roadmap eval stage --replay` with the words score, before and after.
 - No call of the plan needs a checkout of the repository, a client of a service or a network: `criterion_problems` and `acceptance_criteria` take strings, and `_path_gate` takes a `PlanUnderTest` whose body and tree the replay reads from the recorded case files.
 - The first checks against the real system: `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_gates.py`, then `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_criteria.py`, then `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`, then `uv run devops roadmap eval stage --replay` with the score before and after the change.
-- Pull request #3989 changes `src/devops_cli/ai/tasks/roadmap_stage_change.md` too, so the sentence of group 3 joins that file after it lands.
+- Pull request #3989 changed `src/devops_cli/ai/tasks/roadmap_stage_change.md` too and merged, so this plan adds the refusal sentence beside the merged changes.
 
 ## Existing Tool Considered
 
@@ -52,4 +52,4 @@ No open, maintained tool covers the need, because the rule compares a reply with
 
 ## Dependencies
 
-- Pull request #3989 changes `src/devops_cli/ai/tasks/roadmap_stage_change.md`, the prompt that group 3 edits; its rule and its sentences touch other lines, so this plan's one sentence joins that file after it lands.
+- None. Pull request #3989 merged into main, so no pull request blocks this change.
