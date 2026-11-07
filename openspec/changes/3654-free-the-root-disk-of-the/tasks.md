@@ -13,9 +13,9 @@ Reads: `k8s/llm/gateway/config.yaml`. Changes: `k8s/README.md`, `tests/k8s/test_
 
 Reads: `k8s/llm/gateway/config.yaml`, `k8s/llm/profiles/services.yaml`, `src/devops_cli/k8s/gpu_thresholds.py`, `src/devops_cli/config/defaults.py`, `tests/k8s/test_gpu_thresholds.py`. Changes: `src/devops_cli/k8s/ollama_prune.py` (new), `tests/k8s/test_k8s_ollama_prune.py` (new).
 
-- [ ] 2.1 Write `tests/k8s/test_k8s_ollama_prune.py` first: `test_a_node_keeps_the_models_of_its_tiers` fails on the base commit because `plan_ollama_prune` does not exist
+- [x] 2.1 Write `tests/k8s/test_k8s_ollama_prune.py` first: `test_a_node_keeps_the_models_of_its_tiers` fails on the base commit because `plan_ollama_prune` does not exist
   - Verification: `uv run devops ci test tests/k8s/test_k8s_ollama_prune.py` fails on the base
-- [ ] 2.2 Add `src/devops_cli/k8s/ollama_prune.py`. `gateway_targets(text)` returns the models of each `api_base` host. `service_selectors(text)` returns the selector of each Service. `parse_ollama_list(text)` returns the model names of an `ollama list`. `plan_ollama_prune(gateway, services, pods, listed)` returns one entry for each node with its keep set, the models to remove, and the nodes whose list failed. A pod matches a Service when its labels hold the selector, so a node with two tiers keeps one copy of a shared model, and a failed list removes nothing and names the node
+- [x] 2.2 Add `src/devops_cli/k8s/ollama_prune.py`. `gateway_targets(text)` returns the models of each `api_base` host. `service_selectors(text)` returns the selector of each Service. `parse_ollama_list(text)` returns the model names of an `ollama list`. `plan_ollama_prune(gateway, services, pods, listed)` returns one entry for each node with its keep set, the models to remove, and the nodes whose list failed. A pod matches a Service when its labels hold the selector, so a node with two tiers keeps one copy of a shared model, and a failed list removes nothing and names the node
   - Verification: `uv run devops ci test tests/k8s/test_k8s_ollama_prune.py` passes
 
 ## 3. Add the ollama prune command
