@@ -19,7 +19,7 @@ from devops_cli.commands.pr import app
 from devops_cli.core.process import PlannedProcessResult
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.exceptions.git import GitHubOperationError
-from devops_cli.roadmap.store import ChangeKind
+from devops_cli.roadmap.stores.store import ChangeKind
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"

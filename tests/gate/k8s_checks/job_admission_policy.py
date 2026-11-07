@@ -12,7 +12,7 @@ from cel_expr_python import cel
 
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, build_job
-from devops_cli.roadmap.implement_size import RUNNER_SIZES, WORKERS_VARIABLE, RunnerSize
+from devops_cli.roadmap.implement.implement_size import RUNNER_SIZES, WORKERS_VARIABLE, RunnerSize
 from tests.gate.k8s_render import applied_documents
 from tests.support.paths import REPO_ROOT
 

@@ -164,7 +164,7 @@ The stage eval replay MUST read the negative-search evidence from the `search_ev
 - **THEN** The replay reads the evidence from the case and runs no git grep.
 
 ### Requirement: The golden set holds the case of a refused and a kept negative search
-The stage eval case MUST hold the move plan of the stage modules with its recorded search evidence and MUST assert the no-hit refusal, the refusal of the bare prefix `devops_cli.roadmap.stage`, and the acceptance of the dotted prefix `devops_cli.roadmap.stage_`.
+The stage eval case MUST hold the move plan of the stage modules with its recorded search evidence and MUST assert the no-hit refusal, the refusal of the bare prefix `devops_cli.roadmap.stage.stage`, and the acceptance of the dotted prefix `devops_cli.roadmap.stage_`.
 
 #### Scenario: The replay runs the case of the moved modules
 - **WHEN** The stage eval replay runs the case of the move of the stage modules.
@@ -223,7 +223,7 @@ The golden set SHALL hold the merged plan of #3410 as a `good` case, and a revie
 
 #### Scenario: The two plans differ by one group
 - **WHEN** The groups of the two plans are compared.
-- **THEN** The reviewed plan holds the groups of the good plan except the group that changes `src/devops_cli/roadmap/stage_eval_cases.py`.
+- **THEN** The reviewed plan holds the groups of the good plan except the group that changes `src/devops_cli/roadmap/stage/stage_eval_cases.py`.
 
 ### Requirement: A case that holds no commit is left out and named
 A case with the commit `NO_COMMIT`, forty zeros, as its `base_commit` holds no commit, as the change of its plan was never merged as that plan. `devops roadmap eval verify` and `devops roadmap eval stage` SHALL leave such a case out of a live run and of a dry run, by one shared rule that reads no git. The text report and the JSON report (`left_out`) SHALL name each left-out case. A left-out case SHALL NOT count in the cases, in the labeled defects, in the score or in the exit code.

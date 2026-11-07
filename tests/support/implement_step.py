@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from devops_cli.roadmap.store import ItemField
+from devops_cli.roadmap.stores.store import ItemField
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 

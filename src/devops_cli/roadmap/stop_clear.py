@@ -79,11 +79,11 @@ from devops_cli.roadmap.digest_clears import (
     recorded_clears,
 )
 from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureAction, FailureClass
-from devops_cli.roadmap.implement import retry_asked
+from devops_cli.roadmap.implement.implement import retry_asked
 from devops_cli.roadmap.planned import PlannedChanges
-from devops_cli.roadmap.stage import StageFailure, write_each
+from devops_cli.roadmap.stage.stage import StageFailure, write_each
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status, job_holds, plan_merged
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.stores.store import (
     GitHubState,
     ImplementRecordKey,
     IssueComment,

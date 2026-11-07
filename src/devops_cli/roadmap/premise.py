@@ -18,7 +18,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.refine import SYMBOL_PATHSPEC, git_result
+from devops_cli.roadmap.refine.refine import SYMBOL_PATHSPEC, git_result
 from devops_cli.roadmap.step_files import TaskGroup
 
 if TYPE_CHECKING:

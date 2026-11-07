@@ -834,7 +834,7 @@ def isolate_end_leftover_processes(
     if "live" in request.keywords:
         return
     import devops_cli.core.process_hardening as ph
-    import devops_cli.roadmap.implement_step as implement_step
+    import devops_cli.roadmap.implement.implement_step as implement_step
 
     monkeypatch.setattr(ph, "end_leftover_processes", lambda timeout=0.0: None)
     monkeypatch.setattr(implement_step, "end_leftover_processes", lambda timeout=0.0: None)

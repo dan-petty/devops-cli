@@ -19,7 +19,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from devops_cli.roadmap.failure import FailureClass
-from devops_cli.roadmap.store import ImplementRecordKey, Item
+from devops_cli.roadmap.stores.store import ImplementRecordKey, Item
 
 
 class DigestClear(BaseModel):

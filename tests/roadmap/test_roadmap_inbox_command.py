@@ -8,8 +8,8 @@ from typing import Any
 import pytest
 
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
-from devops_cli.roadmap.github_store import listing_path, pulls_endpoint
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.stores.github_store import listing_path, pulls_endpoint
+from devops_cli.roadmap.stores.store import (
     ItemField,
     RefineRecordKey,
     StageRecordKey,

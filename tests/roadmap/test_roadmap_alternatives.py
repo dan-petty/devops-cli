@@ -48,10 +48,10 @@ from devops_cli.roadmap.alternatives import (
     render_alternatives_plan,
     select_items,
 )
-from devops_cli.roadmap.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.refine import covers_question, recorded_check
+from devops_cli.roadmap.refine.refine import covers_question, recorded_check
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, run_due_jobs
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
+from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
     CloseReason,
     ItemField,
@@ -2254,7 +2254,7 @@ def test_failure_record_the_reason_of_a_stopped_run_holds_its_message(
     message: str,
     reason: str,
 ) -> None:
-    from devops_cli.roadmap.refine_investigation import InvestigationStopped
+    from devops_cli.roadmap.refine.refine_investigation import InvestigationStopped
 
     number = _item(store)
     monkeypatch.setattr(

@@ -27,13 +27,13 @@ from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git.worktree_add import read_remote_heads
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement import (
+from devops_cli.roadmap.implement.implement import (
     ImplementPlan,
     effort_filter,
     implement_efforts,
     plan_implement,
 )
-from devops_cli.roadmap.implement_trace import (
+from devops_cli.roadmap.implement.implement_trace import (
     ImplementTrace,
     TraceDecodeError,
     TraceEvent,
@@ -41,9 +41,9 @@ from devops_cli.roadmap.implement_trace import (
     decode,
 )
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
-from devops_cli.roadmap.refine import refine_left_out
-from devops_cli.roadmap.stage import LeftOut, StageFilter, read_stage_selection
-from devops_cli.roadmap.store import GitHubState, ImplementRecordKey, Item, RoadmapStore
+from devops_cli.roadmap.refine.refine import refine_left_out
+from devops_cli.roadmap.stage.stage import LeftOut, StageFilter, read_stage_selection
+from devops_cli.roadmap.stores.store import GitHubState, ImplementRecordKey, Item, RoadmapStore
 
 _GIT_OPERATION: Final[str] = "roadmap.explain"
 

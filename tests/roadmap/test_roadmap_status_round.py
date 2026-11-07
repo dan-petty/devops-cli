@@ -17,7 +17,7 @@ import pytest
 import yaml
 
 from devops_cli.roadmap.run import STATUS_LANE_ROWS
-from devops_cli.roadmap.store import CloseReason, ImplementRecordKey, Item, ItemField
+from devops_cli.roadmap.stores.store import CloseReason, ImplementRecordKey, Item, ItemField
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.process import ProcessAnswer, ProcessFake

@@ -18,14 +18,14 @@ from devops_cli.github.client import CommitRef, IssueView, PullRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.plan_check import PlanCheckResult, plan_check
-from devops_cli.roadmap.stage_change import (
+from devops_cli.roadmap.stage.stage_change import (
     StageGroup,
     StageProposal,
     measure_groups,
     render_change,
     shared_texts,
 )
-from devops_cli.roadmap.store import encode_job_record, with_record
+from devops_cli.roadmap.stores.store import encode_job_record, with_record
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import VALID_REPORT, StageRepo, heavy_group
 

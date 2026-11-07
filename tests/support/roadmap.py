@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 if TYPE_CHECKING:
-    from devops_cli.roadmap.store import RoadmapStore
+    from devops_cli.roadmap.stores.store import RoadmapStore
     from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 
@@ -22,7 +22,7 @@ def github_roadmap_factory() -> Iterator[Callable[..., RoadmapStore]]:
     its child no `GH_CONFIG_DIR`, so `isolate_gh_config` does not reach it. For the whole run the
     factory refuses instead, and a test that drives a roadmap command requests `roadmap_store`.
     """
-    from devops_cli.roadmap import store as roadmap_module
+    from devops_cli.roadmap.stores import store as roadmap_module
 
     factory = roadmap_module.get_roadmap_store
 
@@ -51,7 +51,7 @@ def roadmap_store(
     Each store a command opens adds its repository to `roadmap_store_repos`, so a test can pin
     which repository a command reads and writes.
     """
-    from devops_cli.roadmap import store as roadmap_module
+    from devops_cli.roadmap.stores import store as roadmap_module
     from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
     roadmap = InMemoryRoadmapStore()
@@ -71,8 +71,8 @@ def unreadable_github_roadmap(monkeypatch: pytest.MonkeyPatch) -> list[list[str]
 
     Returns the argv of every `gh` command the store ran and every listing it read.
     """
-    from devops_cli.roadmap import store as roadmap_module
-    from devops_cli.roadmap.github_store import GitHubRoadmapStore
+    from devops_cli.roadmap.stores import store as roadmap_module
+    from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
     from tests.support.fakes.github import RunnerSession
 
     calls: list[list[str]] = []

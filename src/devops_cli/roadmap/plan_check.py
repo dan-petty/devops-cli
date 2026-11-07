@@ -42,7 +42,7 @@ from devops_cli.roadmap.plan_read import (
 )
 from devops_cli.roadmap.pull_form import BODY_MAX_CHARS, SUMMARY_MAX_CHARS, summary_length
 from devops_cli.roadmap.request_plan import planned_session_read
-from devops_cli.roadmap.stage_change import (
+from devops_cli.roadmap.stage.stage_change import (
     STAGING_TYPE,
     StageProposal,
     check_proposal,
@@ -50,9 +50,9 @@ from devops_cli.roadmap.stage_change import (
     measure_groups,
     shared_texts,
 )
-from devops_cli.roadmap.stage_paths import StagedTree
-from devops_cli.roadmap.stage_validate import validate_change
-from devops_cli.roadmap.store import split_record
+from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_validate import validate_change
+from devops_cli.roadmap.stores.store import split_record
 
 GIT_OPERATION: Final[str] = "roadmap.plan-check"
 SEMANTIC_TITLE_CHECK: Final[str] = "Semantic PR title"

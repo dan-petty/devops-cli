@@ -11,14 +11,14 @@ from typing import Any
 
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.github_store import (
+from devops_cli.roadmap.request_plan import StoreRequests, inbox_requests
+from devops_cli.roadmap.stores.github_store import (
     issues_endpoint,
     labels_endpoint,
     listing_path,
     path_commits_args,
     pulls_endpoint,
 )
-from devops_cli.roadmap.request_plan import StoreRequests, inbox_requests
 from tests.support.fakes.github import API
 
 REPO = "example/roadmap"

@@ -9,7 +9,7 @@ creates the labels the file declares.
 from __future__ import annotations
 
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
-from devops_cli.roadmap.store import FIELD_VALUES, field_label
+from devops_cli.roadmap.stores.store import FIELD_VALUES, field_label
 from devops_cli.roadmap.title_labels import declared_label_names
 from tests.support.paths import REPO_ROOT
 

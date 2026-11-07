@@ -137,7 +137,7 @@ def test_a_group_that_changes_security_code_gets_the_security_policy() -> None:
 
 
 def test_a_group_that_changes_roadmap_code_gets_the_roadmap_workflow() -> None:
-    assert _documents(_group("src/devops_cli/roadmap/stage.py")) == [
+    assert _documents(_group("src/devops_cli/roadmap/stage/stage.py")) == [
         "ARCHITECTURE.md",
         "CONTRIBUTING.md",
         "docs/ROADMAP_WORKFLOW.md",

@@ -54,9 +54,9 @@ from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_summary, commit_type
-from devops_cli.roadmap.intake_model import gateway_address
+from devops_cli.roadmap.intake.intake_model import gateway_address
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, build_title, summary_length
-from devops_cli.roadmap.store import IssueComment, Item, RoadmapStore, StageRecordKey
+from devops_cli.roadmap.stores.store import IssueComment, Item, RoadmapStore, StageRecordKey
 
 logger = logging.getLogger(__name__)
 

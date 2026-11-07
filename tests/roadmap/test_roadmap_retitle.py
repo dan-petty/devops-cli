@@ -19,7 +19,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.roadmap.inbox import InboxKind, read_inbox
-from devops_cli.roadmap.intake import NewCandidate
+from devops_cli.roadmap.intake.intake import NewCandidate
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
 from devops_cli.roadmap.retitle import (
     RetitleReply,
@@ -35,7 +35,7 @@ from devops_cli.roadmap.run import (
     build_stub_table,
     run_due_jobs,
 )
-from devops_cli.roadmap.store import ItemField, StageRecordKey
+from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"

@@ -14,7 +14,7 @@ def test_the_definition_lines_of_an_identifier_come_from_the_commit() -> None:
     lines = definition_lines(REPO_ROOT, "HEAD", "_delivery_title")
 
     assert any(
-        line.startswith("HEAD:src/devops_cli/roadmap/implement_run.py:")
+        line.startswith("HEAD:src/devops_cli/roadmap/implement/implement_run.py:")
         and "_delivery_title" in line
         for line in lines
     )

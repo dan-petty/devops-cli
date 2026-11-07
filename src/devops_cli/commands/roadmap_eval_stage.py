@@ -27,9 +27,9 @@ _STORE = "roadmap_eval/stage"
 def _replay(
     cases_dir: Path | None, names: tuple[str, ...], limit: int | None, *, as_json: bool
 ) -> None:
-    from devops_cli.roadmap.stage_eval_cases import load_cases, select_cases
-    from devops_cli.roadmap.stage_eval_gates import replay_all
-    from devops_cli.roadmap.stage_eval_render import render_replay, replay_json
+    from devops_cli.roadmap.stage.stage_eval_cases import load_cases, select_cases
+    from devops_cli.roadmap.stage.stage_eval_gates import replay_all
+    from devops_cli.roadmap.stage.stage_eval_render import render_replay, replay_json
 
     report = replay_all(select_cases(load_cases(cases_dir), names, limit))
     write_stdout(replay_json(report) if as_json else render_replay(report))
@@ -51,22 +51,22 @@ def _run(
     from devops_cli.ai.client import get_llm_client
     from devops_cli.ai.spend.ledger import observe_llm_calls
     from devops_cli.config.settings import load_settings
-    from devops_cli.roadmap.implement_eval_run import eval_model
-    from devops_cli.roadmap.intake_model import gateway_address
-    from devops_cli.roadmap.stage_eval_cases import (
+    from devops_cli.roadmap.implement.implement_eval_run import eval_model
+    from devops_cli.roadmap.intake.intake_model import gateway_address
+    from devops_cli.roadmap.stage.stage_eval_cases import (
         cases_with_commit,
         left_out_note,
         load_cases,
         select_cases,
     )
-    from devops_cli.roadmap.stage_eval_render import (
+    from devops_cli.roadmap.stage.stage_eval_render import (
         planned_calls,
         render_score,
         score_json,
     )
-    from devops_cli.roadmap.stage_eval_run import Outcome, run_cases
-    from devops_cli.roadmap.stage_eval_score import score_runs
-    from devops_cli.roadmap.stage_eval_usage import RunUsage
+    from devops_cli.roadmap.stage.stage_eval_run import Outcome, run_cases
+    from devops_cli.roadmap.stage.stage_eval_score import score_runs
+    from devops_cli.roadmap.stage.stage_eval_usage import RunUsage
 
     cases, left_out = cases_with_commit(select_cases(load_cases(cases_dir), names, limit))
     settings = load_settings()

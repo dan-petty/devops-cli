@@ -14,7 +14,7 @@ import pytest
 
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.github.client import PullRequestFile, PullStatus
-from devops_cli.roadmap.implement_pull import (
+from devops_cli.roadmap.implement.implement_pull import (
     Answer,
     ChangeFacts,
     Draft,
@@ -25,7 +25,7 @@ from devops_cli.roadmap.implement_pull import (
     kind_of,
     read_draft,
 )
-from devops_cli.roadmap.store import ImplementRecordKey, Item, ItemField, StageRecordKey
+from devops_cli.roadmap.stores.store import ImplementRecordKey, Item, ItemField, StageRecordKey
 from tests.support.fakes.roadmap_store import (
     InMemoryRoadmapStore,
     encode_job_record,

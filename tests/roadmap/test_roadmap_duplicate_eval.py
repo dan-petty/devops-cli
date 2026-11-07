@@ -14,7 +14,7 @@ from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
 from devops_cli.exceptions.git import GitHubFileNotFoundError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.duplicate_eval import SeededRoadmap, Verdict, load_cases
-from devops_cli.roadmap.store import ItemField, field_label
+from devops_cli.roadmap.stores.store import ItemField, field_label
 from tests.support.fakes.model import ModelFake
 
 CASES = load_cases()

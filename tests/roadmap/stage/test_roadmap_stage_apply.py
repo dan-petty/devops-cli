@@ -1,0 +1,835 @@
+"""`devops roadmap stage`: the writes of one item, in git and on GitHub (#2654)."""
+
+from __future__ import annotations
+
+import json
+import stat
+import time
+from dataclasses import replace
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+import pytest
+
+from devops_cli import exceptions
+from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
+from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_STEP_TOKENS
+from devops_cli.exceptions import GitHubOperationError, ended_by_stop
+from devops_cli.github.rate_limiter import get_github_rate_limiter
+from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.stage.stage import (
+    StageApplied,
+    StageFailure,
+    StagePlan,
+    StageResult,
+    apply_stage,
+    parse_filters,
+    plan_stage,
+    render_stage_plan,
+    stage_results,
+)
+from devops_cli.roadmap.stage.stage_change import StageSplit
+from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
+from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
+from tests.support.builders import make_stage_proposal
+from tests.support.fakes.github import API, github_json
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.roadmap_stage import (
+    STAGE_EMAIL,
+    STAGE_REPO,
+    VALID_REPORT,
+    StageRepo,
+    advance_origin,
+    heavy_group,
+    seed_stageable,
+    validate_args,
+)
+from tests.support.scripted_model import Script, call
+from tests.support.service_stop import stop_error
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from tests.support.fakes.github import GitHubApiFake
+    from tests.support.fakes.model import ModelFake
+    from tests.support.fakes.openspec import OpenSpecFake
+
+pytestmark = pytest.mark.usefixtures("keyring_store")
+
+NOW = datetime(2026, 11, 4, 12, 0, tzinfo=UTC)
+CHANGE = "1-the-job-drops-a-comment"
+BRANCH = "fix/1-the-job-drops-a-comment"
+PULLS = f"/repos/{STAGE_REPO}/pulls"
+OPENED = github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201)
+
+
+@pytest.fixture
+def store() -> InMemoryRoadmapStore:
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    seed_stageable(store)
+    store.seed_file(
+        ".github/labels.yml",
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+    )
+    for i in range(2, 5):
+        store.seed_issue(f"placeholder {i}")
+    store.seed_pull("staging PR", head_ref=BRANCH, draft=True)
+    return store
+
+
+@pytest.fixture
+def opened(github_api: GitHubApiFake) -> GitHubApiFake:
+    """GitHub, answering the request that opens a pull request."""
+    github_api.route("POST", PULLS, OPENED)
+    return github_api
+
+
+@pytest.fixture(autouse=True)
+def valid_openspec(openspec_fake: OpenSpecFake) -> OpenSpecFake:
+    for name in ("1-the-job-drops-a-comment", "2-the-job-drops-a-label"):
+        openspec_fake.script_sequence(validate_args(name), (0, VALID_REPORT))
+    return openspec_fake
+
+
+def _stage(
+    store: InMemoryRoadmapStore,
+    repo: StageRepo,
+    *,
+    step_tokens: int | None = None,
+    toolbox: Script | None = None,
+) -> StageApplied:
+    plan = plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=repo.clone,
+        filters=parse_filters(()),
+        step_tokens=step_tokens,
+        model=ToolboxModel(toolbox.model()) if toolbox else None,
+    )
+    return apply_stage(store, plan, source=repo.clone)
+
+
+def _comments(store: InMemoryRoadmapStore, number: int = 1) -> list[str]:
+    return [c.body for c in store.comments_on(number)]
+
+
+def _pushed(repo: StageRepo) -> list[str]:
+    return repo.origin_git("branch", "--format=%(refname:short)").split()
+
+
+def test_a_ready_bug_is_staged_with_one_commit_by_the_app(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    model_fake.answer(make_stage_proposal())
+
+    applied = _stage(store, stage_repo)
+
+    assert (applied.staged, applied.stopped, applied.failed) == ((1,), (), ())
+    assert stage_repo.origin_git("log", "--format=%ae|%s", f"main..{BRANCH}") == (
+        f"{STAGE_EMAIL}|docs(openspec): plan #1 Stop the job dropping a comment"
+    )
+    files = stage_repo.origin_git("ls-tree", "-r", "--name-only", BRANCH, "--", "openspec").split()
+    assert files == [
+        f"openspec/changes/{CHANGE}/.openspec.yaml",
+        f"openspec/changes/{CHANGE}/design.md",
+        f"openspec/changes/{CHANGE}/proposal.md",
+        f"openspec/changes/{CHANGE}/specs/comment-thread/spec.md",
+        f"openspec/changes/{CHANGE}/tasks.md",
+        "openspec/config.yaml",
+        "openspec/specs/roadmap-refine/spec.md",
+    ]
+    assert opened.requested == [f"POST {API}{PULLS}"]
+    request = json.loads(opened.sent[0].content)
+    assert request["draft"] is True
+    assert request["title"] == "docs(openspec): plan #1 Stop the job dropping a comment"
+    assert (request["head"], request["base"]) == (BRANCH, "main")
+    assert request["body"].startswith("Plans #1\n")
+
+
+def test_the_draft_pull_request_holds_the_labels_of_its_title(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    model_fake.answer(make_stage_proposal())
+    _stage(store, stage_repo)
+    assert store._roadmap.issues[5].labels == ("type/docs", "scope/openspec")
+
+
+def test_a_refused_label_keeps_the_staged_item_and_notes_in_the_comment(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    model_fake.answer(make_stage_proposal())
+    store.fail_write(write="label_issue")
+    applied = apply_stage(
+        store,
+        plan_stage(store, repo=STAGE_REPO, source=stage_repo.clone, filters=parse_filters(())),
+        source=stage_repo.clone,
+    )
+    assert (applied.staged, applied.stopped, applied.failed) == ((1,), (), ())
+    assert stage_repo.origin_git("branch", "--list", BRANCH).strip() != ""
+    item = store.item(1)
+    assert item is not None
+    assert all(
+        k in item.job_record for k in ("stage.branch", "stage.pr", "stage.sha", "stage.groups")
+    )
+    comment = _comments(store, 1)[0]
+    assert "#5" in comment
+    assert "type/docs" in comment
+
+
+def test_an_unauthenticated_error_from_label_issue_ends_the_run(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    from unittest.mock import patch
+
+    from devops_cli.exceptions.git import GitHubUnauthenticatedError
+
+    model_fake.answer(make_stage_proposal())
+    with patch.object(store, "label_issue", side_effect=GitHubUnauthenticatedError("bad token")):
+        with pytest.raises(GitHubUnauthenticatedError, match="bad token"):
+            _stage(store, stage_repo)
+
+
+def test_the_clone_keeps_its_head_and_no_worktree_after_a_stage(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    model_fake.answer(make_stage_proposal())
+
+    _stage(store, stage_repo)
+
+    assert stage_repo.git("branch", "--show-current") == "main"
+    assert stage_repo.git("branch", "--format=%(refname:short)") == "main"
+    assert len(stage_repo.git("worktree", "list").splitlines()) == 1
+
+
+def test_a_staged_item_gets_one_comment_and_a_record_and_keeps_its_status(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    model_fake.answer(make_stage_proposal())
+
+    _stage(store, stage_repo)
+
+    (comment,) = _comments(store)
+    assert comment.startswith("<!-- devops roadmap stage -->\n")
+    assert f"branch `{BRANCH}`" in comment
+    assert "draft pull request #5" in comment
+    assert "1. Keep the last comment:" in comment
+    assert f"budget of {DEFAULT_ROADMAP_STAGE_STEP_TOKENS} tokens" in comment
+    assert "did not run" not in comment
+    item = store.item(1)
+    assert item is not None
+    assert item.status == "Ready"
+    sha = stage_repo.origin_git("rev-parse", BRANCH)
+    groups = json.loads(item.job_record[StageRecordKey.GROUPS] or "")
+    assert (
+        item.job_record[StageRecordKey.BRANCH],
+        item.job_record[StageRecordKey.PR],
+        item.job_record[StageRecordKey.SHA],
+        [g[0] for g in groups],
+        item.job_record.get(StageRecordKey.NEEDS_SPLIT),
+        item.job_record.get(StageRecordKey.FILE_CAP),
+    ) == (BRANCH, "5", sha, ["Keep the last comment"], None, None)
+
+
+def test_the_comment_states_the_graphql_requests_of_the_overlap_read(
+    stage_repo: StageRepo, model_fake: ModelFake, github_api: GitHubApiFake
+) -> None:
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    seed_stageable(store, body="Fix `src/devops_cli/sample.py`.")
+    get_github_rate_limiter().update_quota(
+        "graphql", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+    )
+    github_api.route(
+        "POST",
+        "/graphql",
+        github_json(
+            {
+                "data": {
+                    "repository": {
+                        "pullRequests": {
+                            "nodes": [],
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        }
+                    }
+                }
+            }
+        ),
+    )
+    github_api.route("POST", PULLS, OPENED)
+    model_fake.answer(
+        make_stage_proposal(
+            feasibility=[
+                "The probe shows: The path `src/devops_cli/sample.py` is a file of the staging "
+                "commit."
+            ]
+        )
+    )
+
+    _stage(store, stage_repo)
+
+    (comment,) = _comments(store)
+    assert "1 GraphQL request(s)" in comment
+
+
+def test_an_item_whose_plan_names_a_missing_path_twice_gets_no_branch_and_no_draft(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    group = make_stage_proposal().groups[0]
+    lost = group.model_copy(
+        update={"changes": ["src/devops_cli/missing.py"], "creates": [], "creates_lines": {}}
+    )
+    model_fake.answer(make_stage_proposal(groups=[lost]))
+
+    applied = _stage(store, stage_repo)
+
+    assert (applied.staged, applied.stopped) == ((), ())
+    assert opened.requested == []
+    assert _pushed(stage_repo) == ["main"]
+    assert _comments(store) == []
+    assert model_fake.call_count == 2
+
+
+def test_the_comment_says_when_openspec_did_not_validate_the_change(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    opened: GitHubApiFake,
+    openspec_fake: OpenSpecFake,
+) -> None:
+    openspec_fake.installed = False
+    model_fake.answer(make_stage_proposal())
+
+    _stage(store, stage_repo)
+
+    assert "`openspec validate` did not run" in _comments(store)[0]
+
+
+def test_a_group_over_the_budget_gets_a_comment_and_a_record_and_no_branch(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    heavy = heavy_group(stage_repo)
+    model_fake.answer(make_stage_proposal(groups=[heavy]), StageSplit(groups=[heavy]))
+
+    applied = _stage(store, stage_repo, step_tokens=6000)
+
+    assert (applied.staged, applied.stopped) == ((), (1,))
+    (comment,) = _comments(store)
+    assert comment.startswith("<!-- devops roadmap stage -->\n")
+    assert '"Keep the last comment"' in comment
+    assert "over the budget of 6000 tokens" in comment
+    item = store.item(1)
+    assert item is not None
+    assert (item.job_record[StageRecordKey.NEEDS_SPLIT] or "").startswith("Keep the last comment (")
+    assert item.job_record[StageRecordKey.FILE_CAP] == str(CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS)
+    assert StageRecordKey.BRANCH not in item.job_record
+    assert _pushed(stage_repo) == ["main"]
+    assert github_api.requested == []
+
+
+class _CommentRefused(InMemoryRoadmapStore):
+    """A store whose comment on issue `refused` fails, as GitHub fails a write, and whose comment
+    on issue `stopped` fails as the request budget fails it when the Service is stopping
+    (#2753)."""
+
+    refused = 0
+    stopped = 0
+
+    def comment(self, number: int, body: str) -> None:
+        if number == self.stopped:
+            raise stop_error()
+        if number == self.refused:
+            raise GitHubOperationError("comment refused", operation="roadmap.issue.comment")
+        super().comment(number, body)
+
+
+def test_a_comment_that_fails_for_a_stopped_item_leaves_the_others_stopped(
+    stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    store = _CommentRefused(repo=STAGE_REPO)
+    store.refused = seed_stageable(store)
+    other = seed_stageable(store, "fix(roadmap): the job drops a label")
+    heavy = heavy_group(stage_repo)
+    stuck = make_stage_proposal(groups=[heavy])
+    model_fake.answer(stuck, StageSplit(groups=[heavy]), stuck, StageSplit(groups=[heavy]))
+
+    applied = _stage(store, stage_repo, step_tokens=6000)
+
+    (failure,) = applied.failed
+    assert (failure.number, failure.error) == (1, "GitHubOperationError")
+    assert applied.stopped == (other,)
+    assert len(_comments(store, other)) == 1
+    refused = store.item(1)
+    assert refused is not None
+    assert StageRecordKey.NEEDS_SPLIT not in refused.job_record
+
+
+def _stuck_stage(stage_repo: StageRepo, model_fake: ModelFake, store: _CommentRefused) -> StagePlan:
+    """The plan for two items whose group is over the budget, so each gets a comment."""
+    heavy = heavy_group(stage_repo)
+    stuck = make_stage_proposal(groups=[heavy])
+    model_fake.answer(stuck, StageSplit(groups=[heavy]), stuck, StageSplit(groups=[heavy]))
+    return plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(()),
+        step_tokens=6000,
+    )
+
+
+def test_a_stop_of_the_service_ends_the_run_and_is_no_failed_item(
+    stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    store = _CommentRefused(repo=STAGE_REPO)
+    store.stopped = seed_stageable(store)
+    seed_stageable(store, "fix(roadmap): the job drops a label")
+    plan = _stuck_stage(stage_repo, model_fake, store)
+
+    with pytest.raises(exceptions.ServiceStoppingError) as raised:
+        apply_stage(store, plan, source=stage_repo.clone)
+    assert "stop" in str(raised.value).lower() or str(raised.value) != ""
+
+
+def test_a_stop_of_the_service_after_a_write_that_failed_records_that_failure_and_ends_with_the_stop(
+    stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    store = _CommentRefused(repo=STAGE_REPO)
+    store.refused = seed_stageable(store)
+    store.stopped = seed_stageable(store, "fix(roadmap): the job drops a label")
+    plan = _stuck_stage(stage_repo, model_fake, store)
+
+    with pytest.raises(exceptions.ServiceStoppingError) as raised:
+        apply_stage(store, plan, source=stage_repo.clone, now=NOW)
+
+    refused = store.item(store.refused)
+    stopped = store.item(store.stopped)
+    assert refused is not None
+    assert stopped is not None
+    assert ended_by_stop(raised.value)
+    assert (
+        refused.job_record[StageRecordKey.FAILED_ERROR],
+        refused.job_record[StageRecordKey.FAILED_AT],
+        stopped.job_record.get(StageRecordKey.FAILED_AT),
+    ) == ("GitHubOperationError", NOW.isoformat(), None)
+
+
+def test_a_stop_of_the_service_records_the_failures_that_the_plan_found(
+    stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    store = _CommentRefused(repo=STAGE_REPO)
+    store.stopped = seed_stageable(store)
+    failed = seed_stageable(store, "fix(roadmap): the job drops a label")
+    item = store.item(failed)
+    assert item is not None
+    plan = _stuck_stage(stage_repo, model_fake, store)
+    planned = replace(plan, failed=(StageFailure(failed, item.title, "AIClientError", "", item),))
+
+    with pytest.raises(exceptions.ServiceStoppingError) as raised:
+        apply_stage(store, planned, source=stage_repo.clone, now=NOW)
+    assert ended_by_stop(raised.value)
+
+    held = store.item(failed)
+    assert held is not None
+    assert held.job_record[StageRecordKey.FAILED_ERROR] == "AIClientError"
+
+
+def test_staging_or_stopping_an_item_clears_its_failure_record(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    item = store.item(1)
+    assert item is not None
+    store.set_marks(
+        item,
+        {StageRecordKey.FAILED_AT: NOW.isoformat(), StageRecordKey.FAILED_ERROR: "AIClientError"},
+    )
+    model_fake.answer(make_stage_proposal())
+
+    applied = _stage(store, stage_repo)
+
+    staged = store.item(1)
+    assert staged is not None
+    assert applied.staged == (1,)
+    assert (
+        staged.job_record.get(StageRecordKey.FAILED_AT),
+        staged.job_record.get(StageRecordKey.FAILED_ERROR),
+    ) == (None, None)
+
+
+def _refuse_pushes_of(repo: StageRepo, fragment: str) -> None:
+    hook = repo.origin / "hooks" / "pre-receive"
+    hook.write_text(
+        "#!/bin/sh\n"
+        "while read old new ref; do\n"
+        f'  case "$ref" in *"{fragment}"*) echo "refused by the hook" >&2; exit 1;; esac\n'
+        "done\n",
+        encoding="utf-8",
+    )
+    hook.chmod(hook.stat().st_mode | stat.S_IXUSR)
+
+
+def test_a_refused_push_stops_its_item_and_the_others_are_staged(
+    stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    seed_stageable(store)
+    seed_stageable(store, "fix(roadmap): the job drops a label")
+    store.seed_file(
+        ".github/labels.yml",
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+    )
+    for i in range(3, 5):
+        store.seed_issue(f"placeholder {i}")
+    store.seed_pull("staging PR", head_ref="fix/2-the-job-drops-a-label", draft=True)
+    _refuse_pushes_of(stage_repo, "/1-")
+    model_fake.answer(make_stage_proposal())
+
+    applied = _stage(store, stage_repo)
+
+    assert applied.staged == (2,)
+    (failure,) = applied.failed
+    assert (failure.number, failure.error) == (1, "GitOperationError")
+    assert "refused by the hook" in failure.reason
+    assert _pushed(stage_repo) == ["fix/2-the-job-drops-a-label", "main"]
+    assert [json.loads(r.content)["head"] for r in opened.sent] == ["fix/2-the-job-drops-a-label"]
+    item = store.item(1)
+    assert item is not None
+    assert StageRecordKey.BRANCH not in item.job_record
+    assert _comments(store, 1) == []
+    assert stage_repo.git("branch", "--format=%(refname:short)") == "main"
+
+
+def test_a_pull_request_that_cannot_open_leaves_no_remote_branch(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    github_api.route("POST", PULLS, github_json({"message": "Validation Failed"}, status=422))
+    model_fake.answer(make_stage_proposal())
+
+    applied = _stage(store, stage_repo)
+
+    assert applied.staged == ()
+    assert [f.number for f in applied.failed] == [1]
+    assert _pushed(stage_repo) == ["main"]
+    item = store.item(1)
+    assert item is not None
+    assert StageRecordKey.BRANCH not in item.job_record
+    assert _comments(store) == []
+
+
+def test_a_run_with_nothing_to_stage_writes_nothing(
+    stage_repo: StageRepo, model_fake: ModelFake, github_api: GitHubApiFake
+) -> None:
+    empty = InMemoryRoadmapStore(repo=STAGE_REPO)
+    empty.seed_issue("fix(roadmap): not ready", fields={ItemField.PRIORITY: "P1-High"})
+
+    applied = _stage(empty, stage_repo)
+
+    assert (applied.staged, applied.stopped, applied.failed) == ((), (), ())
+    assert github_api.requested == []
+    assert model_fake.call_count == 0
+
+
+# ── The report of the plan run (#3037) ────────────────────────────────────────
+
+_SECRET = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_lists_the_tool_calls_and_the_counts_of_the_plan_run(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    script = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
+
+    applied = _stage(store, stage_repo, toolbox=script)
+
+    (comment,) = _comments(store)
+    assert applied.staged == (1,)
+    assert "The runs of the planner and the review made 2 model request(s)" in comment
+    assert '1. `read_file({"path":"src/devops_cli/sample.py"})`' in comment
+    assert "input tokens" in comment
+    assert "output tokens" in comment
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_counts_the_calls_of_each_tool_in_one_line_in_alphabetical_order(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    script = Script(
+        call("read_file", path="src/devops_cli/sample.py"),
+        call("list_files", directory="src"),
+        call("read_file", path="src/devops_cli/sample.py"),
+        make_stage_proposal(),
+    )
+
+    _stage(store, stage_repo, toolbox=script)
+
+    (comment,) = _comments(store)
+    lines = [line for line in comment.splitlines() if line.startswith("Tool calls:")]
+    assert lines == ["Tool calls: list_files=1 (empty=0), read_file=2 (empty=0)"]
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_counts_the_empty_answers_of_a_tool(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    script = Script(
+        call("search_code", text="a text that no file holds"),
+        call("search_code", text="another text that no file holds"),
+        call("read_file", path="src/devops_cli/sample.py"),
+        make_stage_proposal(),
+    )
+
+    _stage(store, stage_repo, toolbox=script)
+
+    (comment,) = _comments(store)
+    assert "Tool calls: read_file=1 (empty=0), search_code=2 (empty=2)" in comment
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_of_an_item_with_two_plan_runs_sums_the_calls_of_each_tool(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    stage_repo.track({"tests/security/test_scanner_tool_executor.py": ""})
+    group = make_stage_proposal().groups[0]
+    refused = make_stage_proposal(
+        groups=[
+            group.model_copy(
+                update={"changes": [*group.changes, "tests/test_scanner_tool_executor.py"]}
+            )
+        ]
+    )
+    script = Script(
+        call("read_file", path="src/devops_cli/sample.py"),
+        refused,
+        call("read_file", path="src/devops_cli/sample.py"),
+        make_stage_proposal(),
+    )
+
+    _stage(store, stage_repo, toolbox=script)
+
+    (comment,) = _comments(store)
+    assert "Tool calls: read_file=2 (empty=0)" in comment
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_of_an_item_that_made_no_tool_call_has_no_line_of_tool_counts(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    _stage(store, stage_repo, toolbox=Script(make_stage_proposal()))
+
+    (comment,) = _comments(store)
+    assert "Tool calls:" not in comment
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_of_an_item_that_made_no_tool_call_says_so(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    _stage(store, stage_repo, toolbox=Script(make_stage_proposal()))
+
+    (comment,) = _comments(store)
+    assert "The runs of the planner and the review made 1 model request(s)" in comment
+    assert "The model made no tool call." in comment
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_of_a_run_that_offered_tools_says_the_model_chose_none(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    _stage(store, stage_repo, toolbox=Script(make_stage_proposal()))
+
+    (comment,) = _comments(store)
+    assert (
+        "The model made no tool call. The run offered tools on 1 of 1 request(s), and the model "
+        "called none." in comment
+    )
+
+
+def test_the_comment_of_an_item_planned_with_one_call_has_no_report(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    model_fake.answer(make_stage_proposal())
+
+    _stage(store, stage_repo)
+
+    (comment,) = _comments(store)
+    assert "plan run" not in comment
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_of_an_item_with_two_plan_runs_lists_the_calls_of_both_and_sums_the_counts(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    stage_repo.track({"tests/security/test_scanner_tool_executor.py": ""})
+    group = make_stage_proposal().groups[0]
+    refused = make_stage_proposal(
+        groups=[
+            group.model_copy(
+                update={"changes": [*group.changes, "tests/test_scanner_tool_executor.py"]}
+            )
+        ]
+    )
+    script = Script(
+        call("list_files", directory="src"),
+        refused,
+        call("read_file", path="src/devops_cli/sample.py"),
+        make_stage_proposal(),
+    )
+
+    _stage(store, stage_repo, toolbox=script)
+
+    (comment,) = _comments(store)
+    assert "The runs of the planner and the review made 4 model request(s)" in comment
+    first = comment.index("1. `list_files(")
+    second = comment.index("2. `read_file(")
+    assert first < second
+
+
+@pytest.mark.usefixtures("model_fake")
+def test_the_comment_holds_the_masked_argument_and_not_the_secret(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, opened: GitHubApiFake
+) -> None:
+    script = Script(call("search_code", text=_SECRET), make_stage_proposal())
+
+    _stage(store, stage_repo, toolbox=script)
+
+    (comment,) = _comments(store)
+    assert (_SECRET in comment, "<masked-github-token>" in comment) == (False, True)
+
+
+def test_the_replay_of_2971_fails_the_item_that_answers_with_premise_failed_and_returns_nothing(
+    stage_repo: StageRepo, model_fake: ModelFake, github_api: GitHubApiFake
+) -> None:
+    """The issue cites `validate_url`, which a commit removed (#3011). The reply has no key to say
+    that the premise is false (#3478), so the answer fails the schema and the item stays."""
+    stage_repo.track({"src/devops_cli/urls.py": "def validate_url(url):\n    return url\n"})
+    stage_repo.git("rm", "-q", "src/devops_cli/urls.py")
+    stage_repo.git("commit", "-q", "-m", "remove validate_url")
+    stage_repo.git("push", "-q", "origin", "main")
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    number = seed_stageable(
+        store, "fix(http): validate_url lets a private address pass", body="Fix `validate_url`."
+    )
+    evidence = "`validate_url` has no definition at the staging commit. Commit removed it."
+    model_fake.answer(json.dumps({"premise_failed": evidence}))
+    plan = plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(()),
+        model=model_fake.checking_replies(),
+    )
+
+    applied = apply_stage(store, plan, source=stage_repo.clone)
+
+    request = json.loads(model_fake.calls[0].prompt)
+    assert "remove validate_url" in request["probes"]
+    assert (applied.staged, applied.stopped, applied.failed) == ((), (), ())
+    (failure,) = plan.failed
+    assert (failure.number, failure.error) == (number, "StructuredOutputValidationError")
+    assert _comments(store, number) == []
+    item = store.item(number)
+    assert item is not None
+    assert item.status == "Ready"
+    assert StageRecordKey.BRANCH not in item.job_record
+    assert _pushed(stage_repo) == ["main"]
+    assert github_api.requested == []
+    assert model_fake.call_count == 2
+
+
+def test_a_failed_item_counts_under_the_result_failed_and_the_report_has_no_returned_section(
+    stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    seed_stageable(store)
+    model_fake.answer(json.dumps({"premise_failed": "The premise is false."}))
+    plan = plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(()),
+        model=model_fake.checking_replies(),
+    )
+
+    applied = apply_stage(store, plan, source=stage_repo.clone)
+
+    assert stage_results(plan, applied) == {1: StageResult.FAILED}
+    assert "Returned" not in render_stage_plan(plan)
+    assert not hasattr(StageResult, "RETURNED")
+
+
+def test_a_staged_branch_starts_at_the_staged_commit_when_origin_moves_on(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    opened: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    model_fake.answer(make_stage_proposal())
+    plan = plan_stage(store, repo=STAGE_REPO, source=stage_repo.clone, filters=parse_filters(()))
+    advance_origin(stage_repo, tmp_path, {"later.txt": "later\n"})
+
+    apply_stage(store, plan, source=stage_repo.clone)
+
+    assert stage_repo.origin_git("rev-parse", f"{BRANCH}^") == plan.sha
+
+
+def test_the_report_names_the_staged_commit_that_the_probe_read(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    opened: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    model_fake.answer(make_stage_proposal())
+    advance_origin(stage_repo, tmp_path, {"later.txt": "later\n"})
+
+    plan = plan_stage(store, repo=STAGE_REPO, source=stage_repo.clone, filters=parse_filters(()))
+
+    assert plan.sha == stage_repo.origin_git("rev-parse", "main")
+    assert plan.sha in render_stage_plan(plan)
+
+
+def test_the_comment_lists_a_named_path_that_the_default_branch_changed(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    opened: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    model_fake.answer(make_stage_proposal())
+    plan = plan_stage(store, repo=STAGE_REPO, source=stage_repo.clone, filters=parse_filters(()))
+    advance_origin(
+        stage_repo,
+        tmp_path,
+        {"src/devops_cli/sample.py": "def keep(comments):\n    return comments\n"},
+    )
+    commit = stage_repo.origin_git("log", "--format=%h", "-1", "main")
+
+    apply_stage(store, plan, source=stage_repo.clone)
+
+    (comment,) = _comments(store)
+    assert MESSAGES.roadmap.stage_comment_moved in comment
+    assert f"`src/devops_cli/sample.py`: {commit} advance main" in comment
+
+
+def test_the_comment_of_a_plan_that_names_no_moved_path_has_no_moved_section(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    opened: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    model_fake.answer(make_stage_proposal())
+    plan = plan_stage(store, repo=STAGE_REPO, source=stage_repo.clone, filters=parse_filters(()))
+    advance_origin(stage_repo, tmp_path, {"later.txt": "later\n"})
+
+    apply_stage(store, plan, source=stage_repo.clone)
+
+    (comment,) = _comments(store)
+    assert MESSAGES.roadmap.stage_comment_moved not in comment
+    assert "later.txt" not in comment

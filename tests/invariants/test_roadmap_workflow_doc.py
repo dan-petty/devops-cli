@@ -20,7 +20,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_OWNER_VALUES,
     CONST_ROADMAP_STATUS_VALUES,
 )
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
     ImplementRecordKey,
     ItemField,

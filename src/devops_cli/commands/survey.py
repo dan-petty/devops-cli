@@ -118,7 +118,7 @@ def survey_requests(
 ) -> list[PlannedRequest]:
     """Planned requests for outward capability and upstream dependency survey."""
     from devops_cli.dry_run.requests import PlannedRequest
-    from devops_cli.roadmap.intake import Filer, NewCandidate, dry_run_intake
+    from devops_cli.roadmap.intake.intake import Filer, NewCandidate, dry_run_intake
 
     requests: list[PlannedRequest] = []
     if not capabilities_only:

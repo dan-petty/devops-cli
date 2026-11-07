@@ -152,8 +152,8 @@ from devops_cli.core.dns_names import OptionalConfiguredDomain
 from devops_cli.core.untrusted_trees import reads_untrusted_trees
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.lang import ERRORS
-from devops_cli.roadmap.implement_size import MIN_MEMORY_LIMIT_GI
-from devops_cli.roadmap.stage_filter import split_filter_entry
+from devops_cli.roadmap.implement.implement_size import MIN_MEMORY_LIMIT_GI
+from devops_cli.roadmap.stage.stage_filter import split_filter_entry
 from devops_cli.valkey.endpoint import ValkeyEndpoint, parse_valkey_url
 
 if typing.TYPE_CHECKING:

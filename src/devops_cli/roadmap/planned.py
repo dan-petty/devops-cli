@@ -28,10 +28,10 @@ from devops_cli.config.constants import (
 )
 from devops_cli.roadmap.clone_git import default_branch, git
 from devops_cli.roadmap.plan_read import created_paths
-from devops_cli.roadmap.store import GitHubState, Item
+from devops_cli.roadmap.stores.store import GitHubState, Item
 
 if TYPE_CHECKING:
-    from devops_cli.roadmap.store import RoadmapStore
+    from devops_cli.roadmap.stores.store import RoadmapStore
 
 _ACTIVE = re.compile(CONST_OPENSPEC_CHANGE_DIR_RE)
 _ARCHIVED = re.compile(CONST_OPENSPEC_ARCHIVED_DIR_RE)

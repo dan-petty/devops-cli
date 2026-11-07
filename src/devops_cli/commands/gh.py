@@ -114,9 +114,9 @@ from devops_cli.output import (
     write_stream,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
-from devops_cli.roadmap import store as roadmap_store
 from devops_cli.roadmap.request_plan import StoreRequests
-from devops_cli.roadmap.store import CloseReason, GitHubState
+from devops_cli.roadmap.stores import store as roadmap_store
+from devops_cli.roadmap.stores.store import CloseReason, GitHubState
 
 logger = logging.getLogger(__name__)
 

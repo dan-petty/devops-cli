@@ -1852,7 +1852,7 @@ def test_the_plan_check_job_selects_the_title_that_the_stage_job_gives_a_plan() 
     """The stage job opens a plan pull request with `staging_title`, and the plan check reads
     that form. So the title prefix of the condition is the start of every title that the stage job
     gives: the type, then `plan #` (#3103)."""
-    from devops_cli.roadmap.stage_change import staging_title
+    from devops_cli.roadmap.stage.stage_change import staging_title
 
     job = _plan_check_job()
     event = {

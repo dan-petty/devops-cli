@@ -25,7 +25,7 @@ from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.constants import CONST_ROADMAP_ADR_DIRECTORY
 from devops_cli.exceptions.git import GitHubFileNotFoundError
 from devops_cli.roadmap.step_files import MARKDOWN, section_text
-from devops_cli.roadmap.store import RoadmapStore
+from devops_cli.roadmap.stores.store import RoadmapStore
 
 logger = logging.getLogger(__name__)
 

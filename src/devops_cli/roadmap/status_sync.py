@@ -37,8 +37,8 @@ from devops_cli.config.constants import (
 )
 from devops_cli.exceptions import GitHubRateLimitError
 from devops_cli.roadmap.planned import PlannedChanges
-from devops_cli.roadmap.stage import StageFailure, write_each
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.stage.stage import StageFailure, write_each
+from devops_cli.roadmap.stores.store import (
     GitHubState,
     ImplementRecordKey,
     Item,

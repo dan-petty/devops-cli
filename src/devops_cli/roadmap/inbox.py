@@ -50,9 +50,9 @@ from devops_cli.output import format_duration
 from devops_cli.roadmap.inbox_kind import InboxKind
 from devops_cli.roadmap.planned import planned_count, planned_limit_priorities
 from devops_cli.roadmap.pull_labels import declared_specs
-from devops_cli.roadmap.refine import NextStep
+from devops_cli.roadmap.refine.refine import NextStep
 from devops_cli.roadmap.status_sync import job_holds
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.stores.store import (
     GitHubState,
     ImplementRecordKey,
     Item,

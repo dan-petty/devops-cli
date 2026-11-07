@@ -13,7 +13,7 @@ import pytest
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
 from devops_cli.exceptions.git import GitHubFileNotFoundError
 from devops_cli.roadmap.inbox import Inbox, InboxKind, InboxLine, read_inbox, render_inbox
-from devops_cli.roadmap.store import (
+from devops_cli.roadmap.stores.store import (
     GitHubState,
     ImplementRecordKey,
     ItemField,

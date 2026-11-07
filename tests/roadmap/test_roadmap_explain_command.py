@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from devops_cli.roadmap.implement_trace import ImplementTrace
-from devops_cli.roadmap.store import ImplementRecordKey, ItemField
+from devops_cli.roadmap.implement.implement_trace import ImplementTrace
+from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField
 from tests.support.roadmap_implement import JobWorld
 from tests.support.roadmap_stage import STAGE_REPO
 
