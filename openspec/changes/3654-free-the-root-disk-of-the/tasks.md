@@ -4,9 +4,9 @@
 
 Reads: `k8s/llm/gateway/config.yaml`. Changes: `k8s/README.md`, `tests/k8s/test_k8s_ollama_models.py` (new).
 
-- [ ] 1.1 Add a table under the GPU Placement section of `k8s/README.md` with one row for each gateway target that serves a model and the models it keeps: `ollama-24gib-embed-gpu0` and `ollama-24gib-embed-gpu1` keep `qwen3-embedding:0.6b`, and `ollama-48gib-fast` and `ollama-64gib-standard` keep `qwen3.8:27b`. Add `tests/k8s/test_k8s_ollama_models.py`: it reads the table and the gateway config with `yaml.safe_load`, builds the set of models of each `api_base` host, and fails with the model and the target when the two differ
+- [x] 1.1 Add a table under the GPU Placement section of `k8s/README.md` with one row for each gateway target that serves a model and the models it keeps: `ollama-24gib-embed-gpu0` and `ollama-24gib-embed-gpu1` keep `qwen3-embedding:0.6b`, and `ollama-48gib-fast` and `ollama-64gib-standard` keep `qwen3.8:27b`. Add `tests/k8s/test_k8s_ollama_models.py`: it reads the table and the gateway config with `yaml.safe_load`, builds the set of models of each `api_base` host, and fails with the model and the target when the two differ
   - Verification: `uv run devops ci test tests/k8s/test_k8s_ollama_models.py` passes
-- [ ] 1.2 Edit `k8s/README.md` to add the keep-set table of each gateway target under GPU Placement
+- [x] 1.2 Edit `k8s/README.md` to add the keep-set table of each gateway target under GPU Placement
   - Verification: `uv run devops ci docs` passes
 
 ## 2. Plan the prune of the models that no tier serves
