@@ -79,6 +79,7 @@ class PlanUnderTest:
     # records no search, as the cases recorded before #3410 do.
     search_evidence: Mapping[str, Sequence[str]] = field(default_factory=dict)
     registry: Sequence[RegistryCount] | None = None
+    constants: Mapping[str, int] = field(default_factory=dict)
 
     @classmethod
     def of_case(
@@ -111,6 +112,7 @@ class PlanUnderTest:
             mapped="criteria" in case.plan,
             search_evidence=case.facts.search_evidence,
             registry=registry,
+            constants=dict(case.facts.constants),
         )
 
     @classmethod
@@ -173,6 +175,7 @@ def _path_gate(plan: PlanUnderTest) -> list[str]:
         requirements=plan.requirements,
         search_evidence=plan.search_evidence or None,
         registry=plan.registry,
+        constants=plan.constants,
     )
 
 

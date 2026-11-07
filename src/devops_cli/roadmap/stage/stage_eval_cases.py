@@ -162,6 +162,7 @@ class CaseFacts(_Record):
     tracked: tuple[str, ...]
     capabilities: tuple[str, ...]
     search_evidence: Mapping[str, tuple[str, ...]] = Field(default_factory=dict)
+    constants: tuple[tuple[str, int], ...] = ()
 
 
 class StageCase(_Record):

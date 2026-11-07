@@ -3737,6 +3737,9 @@ class RoadmapMessages:
     stage_problem_missing_caller: str = (
         "The plan changes `{function}` and leaves out `{path}`, which calls it."
     )
+    stage_problem_constant_mismatch: str = (
+        "{constant} is {staged} in the staged tree, but the plan says {plan}."
+    )
     stage_path_same_name: str = "These files have the same name: {names}."
     stage_path_no_same_name: str = "No file has this name."
     stage_path_places: dict[str, str] = field(
