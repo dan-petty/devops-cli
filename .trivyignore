@@ -1,2 +1,9 @@
 # Trivy vulnerability ignore file.
 # Pinned findings that cannot be remediated immediately must record a reason and expiration date (exp: YYYY-MM-DD).
+
+# CVE-2026-78661 (HIGH) in golang.org/x/net v0.60.0, which the pinned gh v2.102.1 (usr/local/bin/gh)
+# vendors; fixed in x/net 0.62.0. No cli/cli release has the fix: v2.103.3 has x/net 0.60.0 and
+# trunk has 0.61.0. The owner allowed this entry for 14 days on 2026-11-07. The fix is a bump of the
+# gh pin, tracked in #3920 (see #3881). Trivy has no path field in this file format, so the entry
+# matches the id in every binary of the image.
+CVE-2026-78661 exp:2026-11-21
