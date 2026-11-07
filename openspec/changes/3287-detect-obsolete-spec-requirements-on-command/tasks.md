@@ -22,9 +22,9 @@ Reads: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/lang/en/m
 
 Reads: `src/devops_cli/roadmap/stage/stage.py`, `tests/roadmap/stage/test_roadmap_stage_plan.py`, `tests/support/builders.py`. Changes: `src/devops_cli/roadmap/stage/stage.py`, `tests/roadmap/stage/test_roadmap_stage_plan.py`.
 
-- [ ] 3.1 Add to `tests/roadmap/stage/test_roadmap_stage_plan.py` a plan run whose base spec names `devops roadmap intake-eval` and whose first reply adds a requirement that removes it while leaving that base requirement unchanged, and assert that the job sends the problem back to the model, then a run whose second reply lists the base requirement in `modified` and assert that the plan is written
+- [x] 3.1 Add to `tests/roadmap/stage/test_roadmap_stage_plan.py` a plan run whose base spec names `devops roadmap intake-eval` and whose first reply adds a requirement that removes it while leaving that base requirement unchanged, and assert that the job sends the problem back to the model, then a run whose second reply lists the base requirement in `modified` and assert that the plan is written
   - Verification: `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_plan.py` fails on the base
-- [ ] 3.2 Build `self._requirement_texts = {name: dict(spec.statements) for name, spec in specs.items()}` beside `self._requirements` in the planner of `src/devops_cli/roadmap/stage/stage.py`, and pass `requirement_texts=self._requirement_texts` in the `check_proposal` call of `_settle`
+- [x] 3.2 Build `self._requirement_texts = {name: dict(spec.statements) for name, spec in specs.items()}` beside `self._requirements` in the planner of `src/devops_cli/roadmap/stage/stage.py`, and pass `requirement_texts=self._requirement_texts` in the `check_proposal` call of `_settle`
   - Verification: `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_plan.py` passes
 
 ## 4. State the rename rule in the stage prompt
