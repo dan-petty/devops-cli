@@ -122,6 +122,12 @@ CREDENTIALS: tuple[Credential, ...] = (
         in_file=True,
     ),
     Credential(
+        "crawl4ai.api_token",
+        "Bearer token of the Crawl4AI service, which `devops k8s push-secrets` writes to Secret "
+        "devops/crawl4ai and to Secret devops/devops-cli (stored in OS keyring)",
+        aliases=("CRAWL4AI_API_TOKEN",),
+    ),
+    Credential(
         "gemini.api_key",
         "Google Gemini API key that `devops k8s push-secrets` writes to the LLM gateway Secret "
         "(stored in OS keyring)",

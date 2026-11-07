@@ -257,6 +257,15 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             ("deployment/cloudflared",),
         ),
         (
+            "devops/crawl4ai",
+            "CRAWL4AI_API_TOKEN",
+            "devops",
+            True,
+            SecretGenerator("urlsafe", 32),
+            None,
+            (),
+        ),
+        (
             "devops/devops-cli",
             APP_KEY_ENTRY,
             "devops",
@@ -308,6 +317,15 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             False,
             None,
             None,
+            ("deployment/roadmap-service",),
+        ),
+        (
+            "devops/devops-cli",
+            "DEVOPS_CLI_CRAWL4AI_API_TOKEN",
+            "devops",
+            False,
+            None,
+            "devops/crawl4ai CRAWL4AI_API_TOKEN",
             ("deployment/roadmap-service",),
         ),
         (
@@ -416,6 +434,32 @@ def test_the_gitea_admin_password_is_a_typed_managed_credential_and_its_user_a_l
         "DEVOPS_CLI_GITEA_ADMIN_PASSWORD",
         True,
         ("DEVOPS_CLI_GITEA_ADMIN_PASSWORD",),
+    )
+
+
+def test_the_crawl4ai_token_is_one_managed_credential_for_two_secrets() -> None:
+    from devops_cli.config.env import credential, get_all_env_var_specs
+    from devops_cli.security.secrets import build_secret_registry
+
+    service = next(s for s in CLUSTER_SECRETS if s.ref == "devops/crawl4ai")
+    devops = next(s for s in CLUSTER_SECRETS if s.ref == "devops/devops-cli")
+    (token,) = service.entries
+    (mirror,) = (e for e in devops.entries if e.key == "DEVOPS_CLI_CRAWL4AI_API_TOKEN")
+    specs = {spec.option_key for spec in get_all_env_var_specs() if spec.is_secret}
+    assert (
+        token.source,
+        mirror.source,
+        credential("crawl4ai.api_token").env_vars,
+        "crawl4ai.api_token" in specs,
+        build_secret_registry()["crawl4ai.api_token"].env_vars,
+        option_env_vars()["crawl4ai.api_token"],
+    ) == (
+        KeyringSource("crawl4ai_api_token", "crawl4ai.api_token"),
+        KeyringSource("crawl4ai_api_token", "crawl4ai.api_token"),
+        ("DEVOPS_CLI_CRAWL4AI_API_TOKEN", "CRAWL4AI_API_TOKEN"),
+        True,
+        ("DEVOPS_CLI_CRAWL4AI_API_TOKEN", "CRAWL4AI_API_TOKEN"),
+        "DEVOPS_CLI_CRAWL4AI_API_TOKEN",
     )
 
 
@@ -595,6 +639,7 @@ def test_the_dry_run_lists_exactly_the_requests_a_push_then_makes(
     stub_keyring.values["service_webhook_secrets"] = "service-secrets-value-0001"
     stub_keyring.values["firecrawl_api_key"] = "firecrawl-secrets-value-0001"
     stub_keyring.values["mattermost_command_token"] = "mattermost-secrets-value-0001"
+    stub_keyring.values["crawl4ai_api_token"] = "crawl4ai-secrets-value-0001"
     result = _push("--only", "llm/qdrant-api-key", "--only", "devops/devops-cli")
     planned_apply = json.loads(next(r.stdin for r in planned if r.stdin) or "{}")
     applied = cluster.applied_items()
@@ -608,7 +653,7 @@ def test_the_dry_run_lists_exactly_the_requests_a_push_then_makes(
         [call.argv for call in cluster.calls],
         [f"devops-cli/{key}" for key in stub_keyring.reads],
         [{**i, "data": sorted(i["data"])} for i in applied],
-        ["<>", "<>", "<>", "<>", "<>", "<>", "<>"],
+        ["<>", "<>", "<>", "<>", "<>", "<>", "<>", "<>"],
     )
 
 

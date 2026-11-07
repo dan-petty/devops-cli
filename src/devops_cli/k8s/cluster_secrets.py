@@ -198,6 +198,8 @@ class ClusterSecret:
         return {**self.labels, MANAGED_BY_LABEL: MANAGED_BY_VALUE}
 
 
+CRAWL4AI_TOKEN_KEY = "CRAWL4AI_API_TOKEN"
+_CRAWL4AI_TOKEN = KeyringSource.for_credential("crawl4ai.api_token")
 _LLM_GATEWAY_KEY = KeyringSource(LLM_GATEWAY_MASTER_KEY)
 _DEVOPS_CACHE_VALKEY_AUTH = KeyringSource(DEVOPS_CACHE_VALKEY_AUTH_KEY)
 _DEVOPS_CACHE_VALKEY_GENERATOR = SecretGenerator("hex", 32)
@@ -313,6 +315,22 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         restarts=(Workload("deployment", "cloudflared"),),
         labels={"app.kubernetes.io/name": "cloudflared"},
     ),
+    # The bearer token of Crawl4AI, which refuses to listen beyond loopback without it (#3882).
+    # The manifests of the service add `deployment/crawl4ai` to `restarts` (#3884): the gate
+    # test of restart targets accepts a workload only when a manifest holds it.
+    ClusterSecret(
+        namespace="devops",
+        name="crawl4ai",
+        stack="devops",
+        entries=(
+            SecretEntry(
+                CRAWL4AI_TOKEN_KEY,
+                _CRAWL4AI_TOKEN,
+                generator=SecretGenerator("urlsafe", 32),
+            ),
+        ),
+        labels={"app.kubernetes.io/name": "crawl4ai"},
+    ),
     ClusterSecret(
         namespace="devops",
         name="devops-cli",
@@ -352,6 +370,13 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 "DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN",
                 KeyringSource.for_credential("mattermost.command_token"),
                 required=False,
+            ),
+            # The client of the roadmap Service sends the token of Secret devops/crawl4ai.
+            SecretEntry(
+                "DEVOPS_CLI_CRAWL4AI_API_TOKEN",
+                _CRAWL4AI_TOKEN,
+                required=False,
+                adopt_from=SecretKeyRef("devops", "crawl4ai", CRAWL4AI_TOKEN_KEY),
             ),
         ),
         restarts=(Workload("deployment", "roadmap-service"),),
