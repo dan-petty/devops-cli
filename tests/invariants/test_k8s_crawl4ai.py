@@ -17,13 +17,14 @@ CRAWL4AI_DIR = K8S / "devops" / "crawl4ai"
 IMAGE_PATTERN = re.compile(r"^unclecode/crawl4ai:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$")
 # The upstream tmpfs paths of its compose file, which a read-only root needs as volumes.
 WRITABLE_PATHS = (
-    "/tmp",
+    "/tmp",  # nosec B108  # a mount path of the pod under test, not a file of this process
     "/var/lib/redis",
     "/var/lib/crawl4ai/outputs",
     "/home/appuser/.crawl4ai",
     "/home/appuser/.cache/url_seeder",
     "/home/appuser/.gunicorn",
 )
+SHM_PATH = "/dev/shm"  # nosec B108  # the shared-memory mount path of the pod under test
 # A switch that lets the service reach an internal address, run a hook or run script from a caller.
 FORBIDDEN_ENV = (
     "CRAWL4AI_ALLOW_INTERNAL_URLS",
@@ -109,9 +110,9 @@ def test_the_writable_paths_are_empty_directories_and_dev_shm_is_memory() -> Non
     assert (
         sorted(mounts),
         {volumes[mounts[path]].get("medium") for path in WRITABLE_PATHS},
-        volumes[mounts["/dev/shm"]],
+        volumes[mounts[SHM_PATH]],
     ) == (
-        sorted([*WRITABLE_PATHS, "/dev/shm"]),
+        sorted([*WRITABLE_PATHS, SHM_PATH]),
         {None},
         {"medium": "Memory", "sizeLimit": "1Gi"},
     )

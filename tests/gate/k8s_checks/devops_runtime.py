@@ -54,6 +54,11 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
         )["template"]["spec"]["containers"]
     }
     # The runner has no entry here: Image Updater writes its own entry (#2667).
+    # Deployment `crawl4ai` pins a third-party image by tag and digest (#3884).
+    crawl4ai = next(c for c in containers if c[1] == "crawl4ai")
+    assert crawl4ai[0] == "Deployment"
+    assert crawl4ai[2].startswith("unclecode/crawl4ai:")
+    containers.discard(crawl4ai)
     assert containers == {
         ("CronJob", "devops-cli", f"{service}:latest@{digest}", "IfNotPresent"),
         ("CronJob", "runner", "ghcr.io/dan-petty/devops-cli/runner", "IfNotPresent"),

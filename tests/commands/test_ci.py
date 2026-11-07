@@ -2726,6 +2726,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "image-pins",
             "Resolve the Image Pins",
         ): "Path-filtered resolve of each image an Argo CD Application pins when k8s/ changes (#1994)",
+        (
+            "third-party-image-scan",
+            "Read the Pinned Image",
+        ): "Path-filtered read of the image that Deployment crawl4ai pins, for the report-only scan (#3884)",
     }
 
     all_specs = get_check_specs()
