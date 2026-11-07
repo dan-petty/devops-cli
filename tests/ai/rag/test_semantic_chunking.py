@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from devops_cli.ai.rag.chunker import SemanticChunker
+from devops_cli.ai.rag.chunker import MAX_CHUNK_FILE_SIZE_BYTES, SemanticChunker
 
 
 def test_chunk_python_file(tmp_path: Path) -> None:
@@ -82,8 +82,6 @@ Deployment instructions.
 
 def test_chunk_file_defensive_boundaries(tmp_path: Path) -> None:
     """Verify that chunk_file defensively returns empty list for symlinks, oversized files, and traversal attempts."""
-    from unittest.mock import MagicMock
-
     chunker = SemanticChunker()
 
     # 1. Path outside relative_to (containment check)
@@ -102,16 +100,11 @@ def test_chunk_file_defensive_boundaries(tmp_path: Path) -> None:
     symlink_file.symlink_to(target_file)
     chunks_symlink = chunker.chunk_file(symlink_file, relative_to=inside_dir)
 
-    # 3. Oversized file (> 5MB)
-    mock_large = MagicMock(spec=Path)
-    mock_large.resolve.return_value = mock_large
-    mock_large.is_symlink.return_value = False
-    mock_large.is_file.return_value = True
-    mock_large.is_relative_to.return_value = True
-    mock_large.stat.return_value.st_size = 6 * 1024 * 1024
-    mock_large.relative_to.return_value = Path("huge.py")
-    mock_large.suffix = ".py"
-    chunks_oversized = chunker.chunk_file(mock_large, relative_to=inside_dir)
+    # 3. Oversized file (a sparse file, so no byte of it is written or read)
+    huge = inside_dir / "huge.py"
+    with huge.open("wb") as handle:
+        handle.truncate(MAX_CHUNK_FILE_SIZE_BYTES + 1)
+    chunks_oversized = chunker.chunk_file(huge, relative_to=inside_dir)
 
     assert (chunks_traversal, chunks_symlink, chunks_oversized) == ([], [], [])
 
