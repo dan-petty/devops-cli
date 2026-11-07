@@ -19,7 +19,6 @@ from devops_cli.roadmap.implement_step import (
     StepStatus,
     run_fix_step,
 )
-from devops_cli.roadmap.implement_strays import unplanned_paths
 from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -74,6 +73,8 @@ def _fix(store: InMemoryRoadmapStore, checkout: Path, script: ModelScript) -> St
 
 
 def test_the_paths_of_the_reads_and_changes_lines_and_the_change_folder_are_planned() -> None:
+    from devops_cli.roadmap.implement_strays import unplanned_paths
+
     changed = [
         "src/reads.py",
         "src/sample.py",
@@ -86,6 +87,8 @@ def test_the_paths_of_the_reads_and_changes_lines_and_the_change_folder_are_plan
 
 
 def test_a_path_that_no_line_of_the_plan_names_is_unplanned_whatever_its_directory() -> None:
+    from devops_cli.roadmap.implement_strays import unplanned_paths
+
     changed = [
         "src/devops_cli/roadmap/plan_check.py",
         "docs/roadmap/plan-check.md",
