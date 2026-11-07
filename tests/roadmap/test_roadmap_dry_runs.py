@@ -198,6 +198,21 @@ def test_a_refine_round_plans_a_read_of_each_cited_path_and_an_item_plan_none() 
     ) == ([(texts.plan_conditions["still_waiting"], texts.plan_repeat["block_path"])], [])
 
 
+def test_a_refine_round_plans_the_record_of_the_comments_it_read_of_a_waiting_item() -> None:
+    """A round records, on a waiting item whose comments it read, what they gave: a read of the
+    issue, then one `PATCH` of its job record. `--item` refines its item, so its plan records no
+    wait (#3667)."""
+    from devops_cli.roadmap.request_plan import refine_requests
+
+    _, writes = refine_requests(REPO, None)
+    _, single = refine_requests(REPO, None, item=7)
+    unrecorded = MESSAGES.roadmap.plan_conditions["wait_unrecorded"]
+    assert (
+        [_shape(r) for r in writes if r.condition == unrecorded],
+        [r for r in single if r.condition == unrecorded],
+    ) == ([f"api repos/{REPO}/issues/<item>", "issue patch"], [])
+
+
 def test_a_refine_round_plans_the_record_of_a_comment_the_cap_stops_and_an_item_plan_none() -> None:
     """A round records, on an item that the cap on refine's comments leaves alone, when its
     newest comment was made: a read of the issue, then one `PATCH` of its job record. `--item`

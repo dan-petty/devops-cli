@@ -4068,6 +4068,10 @@ class RoadmapMessages:
                 "the cap on refine's comments leaves the item alone, and no earlier round "
                 "recorded its newest comment"
             ),
+            "wait_unrecorded": (
+                "the round read the comments of the waiting item, and its job record does not "
+                "hold what they gave"
+            ),
             "deferred": "the proposal defers a part of the item",
             "outside_author": "an account that the jobs do not trust opened the item",
             "outside_notice": (

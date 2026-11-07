@@ -84,6 +84,11 @@ class GitHubFake:
 
     # ── Seeding ──
 
+    def seed_comment(self, number: int, body: str) -> None:
+        """A comment on issue `number`, which GitHub counts in the `comments` of its listing."""
+        self.comments.setdefault(number, []).append(body)
+        self.issues[number]["comments"] = len(self.comments[number])
+
     def seed_issue(
         self,
         number: int,
@@ -126,6 +131,7 @@ class GitHubFake:
             "user": None if author_login is None else {"login": author_login},
             "created_at": "2026-10-01T00:00:00Z",
             "updated_at": _wire(updated_at or datetime(2026, 10, 2, tzinfo=UTC)),
+            "comments": 0,
             "sub_issues_summary": {"total": sub_issues, "completed": 0, "percent_completed": 0},
             "issue_dependencies_summary": {
                 "blocked_by": 0,
@@ -487,7 +493,7 @@ class GitHubFake:
                 issue["labels"].append({"name": fields["labels[]"]})
             return issue["labels"]
         if rest == ["comments"] and method == "POST":
-            self.comments.setdefault(number, []).append(fields["body"])
+            self.seed_comment(number, fields["body"])
             return {}
         if rest == ["sub_issues"] and method == "POST":
             sub_id = int(fields["sub_issue_id"])

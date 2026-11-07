@@ -144,7 +144,11 @@ class RefineRecordKey(StrEnum):
     hash of a round that looked again at an item after the stage job returned it: a second
     return on the same body waits on a person (#3483), and the verdict of the review of an item
     that a bot opened (`JudgeVerdict`, #3502). A round whose job failed records the count of its
-    tries on the body, the names of the failed checks and the last error (#3632)."""
+    tries on the body, the names of the failed checks and the last error (#3632). A round that
+    reads the comments of an item that waits records what they gave: the count of comments the
+    issue listing carried, the time of refine's last comment, and the issues and paths that the
+    text of the wait names, comma separated. A later round reads the comments again only when the
+    count moved (#3667)."""
 
     BODY_HASH = "refine.body_hash"
     SECTION_HASH = "refine.section_hash"
@@ -161,6 +165,9 @@ class RefineRecordKey(StrEnum):
     TRIES = "refine.tries"
     FAILED_CHECK = "refine.failed_check"
     FAILURE = "refine.failure"
+    COMMENTS_SEEN = "refine.comments_seen"
+    COMMENTED_AT = "refine.commented_at"
+    WAIT_REFS = "refine.wait_refs"
 
 
 class JudgeVerdict(StrEnum):
@@ -312,7 +319,7 @@ class Item(BaseModel):
     `IssueRecord`: the jobs take only an Item that the owner, a member or a collaborator opened,
     or that the bot of the Service App or of the workflows opened (#2478, #3502). `sub_issues` is how many
     sub-issues the issue has, as on `IssueRecord`: an Item with some is a tracker. `updated_at` is
-    when the issue last changed, as on `IssueRecord`.
+    when the issue last changed, and `comments` how many comments it holds, as on `IssueRecord`.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -329,6 +336,7 @@ class Item(BaseModel):
     author_login: str | None = None
     sub_issues: int = 0
     updated_at: datetime | None = None
+    comments: int = 0
     status: str | None = None
     priority: str | None = None
     value: str | None = None
@@ -370,7 +378,9 @@ class IssueRecord(BaseModel):
     of the issue's milestone. `author_association` is GitHub's word for the author's relation
     to the repository, such as `OWNER`, `COLLABORATOR` or `NONE`, and `author_login` is the
     author's login, such as `devops-cli-service[bot]`. `updated_at` is when the issue
-    last changed: any write to it, a comment included, moves it. `sub_issues` is how many
+    last changed: any write to it, a comment included, moves it. `comments` is how many comments
+    the issue holds, which only a comment moves: a write to the body or the labels does not.
+    `sub_issues` is how many
     sub-issues GitHub records for the issue, open or closed. `parent` is the number of the issue
     of the same repository that has the issue as a sub-issue. `blocked_by` is how many issues
     GitHub records as blocking the issue, open or closed (#1127).
@@ -393,6 +403,7 @@ class IssueRecord(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     closed_at: datetime | None = None
+    comments: int = 0
     sub_issues: int = 0
     parent: int | None = None
     blocked_by: int = 0

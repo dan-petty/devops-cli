@@ -788,7 +788,11 @@ class InMemoryRoadmapStore(RoadmapStore):
         name = f"#{issue.number}"
         body, held = split_record(issue.body, issue=name)
         return issue.model_copy(
-            update={"body": body, "job_record": decode_job_record(held, issue=name)}
+            update={
+                "body": body,
+                "job_record": decode_job_record(held, issue=name),
+                "comments": len(self._roadmap.comments.get(issue.number, [])),
+            }
         )
 
     def _block(
