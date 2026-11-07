@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.81.0](https://github.com/dan-petty/devops-cli/compare/v0.80.0...v0.81.0) (2026-11-07)
+
+
+### Features
+
+* **ai:** add the fetch-page command and MCP tool ([#3982](https://github.com/dan-petty/devops-cli/issues/3982)) ([93c8008](https://github.com/dan-petty/devops-cli/commit/93c8008ea99537fa415aa8c7a78de6275f1e71da)), closes [#3892](https://github.com/dan-petty/devops-cli/issues/3892)
+* **ai:** search the web through SearXNG ([#3980](https://github.com/dan-petty/devops-cli/issues/3980)) ([dc276b0](https://github.com/dan-petty/devops-cli/commit/dc276b00a5d2a81c0948ceb1063f9a476a06deab))
+* **k8s:** run Crawl4AI in the devops namespace ([#3977](https://github.com/dan-petty/devops-cli/issues/3977)) ([2be237b](https://github.com/dan-petty/devops-cli/commit/2be237be1cd32c5db90bc94b23dbbd3e2cbdb8a0)), closes [#3884](https://github.com/dan-petty/devops-cli/issues/3884)
+* **research:** find advisories for the pins of the project ([#3994](https://github.com/dan-petty/devops-cli/issues/3994)) ([1d62738](https://github.com/dan-petty/devops-cli/commit/1d627383063129e9dca8210b3c1037bf805ac03a)), closes [#3898](https://github.com/dan-petty/devops-cli/issues/3898)
+* **roadmap:** add a fetch_page tool to refine and alternatives ([#3974](https://github.com/dan-petty/devops-cli/issues/3974)) ([7f2817c](https://github.com/dan-petty/devops-cli/commit/7f2817cfd51993fa4306329b4e069ddc997a424e)), closes [#3890](https://github.com/dan-petty/devops-cli/issues/3890)
+
+
+### Bug Fixes
+
+* **ai:** remove weight recs from gateway tune ([#3992](https://github.com/dan-petty/devops-cli/issues/3992)) ([766fb99](https://github.com/dan-petty/devops-cli/commit/766fb99b23b3c0aea7f310ed826c6c0b2dbb4a92))
+* **k8s:** set the verification window in the example ConfigMap ([#3986](https://github.com/dan-petty/devops-cli/issues/3986)) ([8436734](https://github.com/dan-petty/devops-cli/commit/84367345a24d31c680c1d93dfa8305aad4bafbba))
+
+
+### Code Refactoring
+
+* **ui:** audit five dashboard tabs against open tools ([#3984](https://github.com/dan-petty/devops-cli/issues/3984)) ([3ea416b](https://github.com/dan-petty/devops-cli/commit/3ea416b97605414adc641171ab426b6492654ee4))
+
 ## [0.80.0](https://github.com/dan-petty/devops-cli/compare/v0.79.0...v0.80.0) (2026-11-07)
 
 
