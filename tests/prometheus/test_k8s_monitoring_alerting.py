@@ -39,6 +39,7 @@ from devops_cli.config.constants import (
 from devops_cli.prometheus.promql import selectors
 from devops_cli.telemetry.instruments import (
     AI_REQUESTS_TOTAL,
+    CRAWL4AI_FETCHES_TOTAL,
     GITHUB_REQUESTS_TOTAL,
     GITHUB_THROTTLE_WAIT,
     ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
@@ -74,6 +75,7 @@ ROADMAP_SERVICE_ITEMS_RULE_TESTS = (
 ROADMAP_SERVICE_TOOLS_RULE_TESTS = (
     FIXTURES / "prometheus_rules" / "roadmap_service_tools_tests.yaml"
 )
+CRAWL4AI_RULE_TESTS = FIXTURES / "prometheus_rules" / "crawl4ai_tests.yaml"
 OTEL_COLLECTOR_CAPTURE = FIXTURES / "metrics" / "otel-collector.yaml"
 OTEL_COLLECTOR_RULE_TESTS = FIXTURES / "prometheus_rules" / "otel_collector_tests.yaml"
 VALKEY_MEMORY_RULE_TESTS = FIXTURES / "prometheus_rules" / "valkey_memory_tests.yaml"
@@ -98,6 +100,8 @@ ROADMAP_SERVICE_GROUP_TESTS = (
     (ROADMAP_SERVICE_TOOLS_GROUP, ROADMAP_SERVICE_TOOLS_RULE_TESTS),
 )
 ROADMAP_SERVICE_GROUPS = tuple(group for group, _ in ROADMAP_SERVICE_GROUP_TESTS)
+# The page fetches of the Crawl4AI service and its Deployment (#3893).
+CRAWL4AI_GROUP = "crawl4ai"
 # The rules over the OpenTelemetry collector's own telemetry (#1642).
 OTEL_COLLECTOR_GROUP = "otel-collector"
 # The rule of a Valkey that refuses writes at its memory bound (#2094).
@@ -105,6 +109,7 @@ VALKEY_MEMORY_GROUP = "valkey-memory"
 # Each group whose rules have promtool unit tests, with the file of its tests.
 RULE_GROUP_TESTS = (
     *ROADMAP_SERVICE_GROUP_TESTS,
+    (CRAWL4AI_GROUP, CRAWL4AI_RULE_TESTS),
     (OTEL_COLLECTOR_GROUP, OTEL_COLLECTOR_RULE_TESTS),
     (VALKEY_MEMORY_GROUP, VALKEY_MEMORY_RULE_TESTS),
 )
@@ -122,6 +127,7 @@ SERVED_SERIES = frozenset(
         "kube_pod_spec_volumes_persistentvolumeclaims_info",
         "kube_secret_info",
         # The roadmap Service's restarts and replicas (#2472).
+        "kube_deployment_spec_replicas",
         "kube_deployment_status_replicas_available",
         "kube_deployment_status_replicas_unavailable",
         "kube_pod_container_status_restarts_total",
@@ -195,6 +201,8 @@ SERVED_SERIES = frozenset(
         CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
         CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
         AI_REQUESTS_TOTAL.name,
+        # The page fetches of the Service through Crawl4AI (#3893).
+        CRAWL4AI_FETCHES_TOTAL.name,
         WEB_SEARCHES_TOTAL.name,
         GITHUB_REQUESTS_TOTAL.name,
         GITHUB_THROTTLE_WAIT.name,
@@ -274,7 +282,7 @@ def test_the_baseline_rule_set() -> None:
     """The rules #549 names (nodes, k3s and power-cap units, GPUs, storage, and self-health),
     #550's two volume rules (`LogOrMetricVolumeDiskLow`, `PrometheusNearRetentionSizeCap`), and
     the roadmap Service's rules (#2472, #2475) with the rule of its webhook route (#2476), the
-    OpenTelemetry collector's export rules (#1642), and the Valkey memory rule (#2094).
+    Crawl4AI rules (#3893), the OpenTelemetry collector's export rules (#1642), and the Valkey memory rule (#2094).
 
     A rule with a warning and a critical threshold is one alert name at two severities, so
     Alertmanager's critical-over-warning inhibition hides the warning while both fire.
@@ -291,6 +299,8 @@ def test_the_baseline_rule_set() -> None:
         ("CloudflareTunnelDegraded", "warning"),
         ("ClusterMetricsMissing", "critical"),
         ("CoreDnsServfailResponses", "warning"),
+        ("Crawl4AIFetchesFailing", "warning"),
+        ("Crawl4AIUnavailable", "warning"),
         ("GpuPowerLimitServiceNotActive", "critical"),
         ("GpuPowerOverSiteBudget", "critical"),
         ("GpuTemperatureHigh", "critical"),
@@ -1246,6 +1256,104 @@ def test_each_roadmap_service_alert_points_to_its_step_in_the_readme(group: str)
     ) == ([], [], True)
 
 
+# The most failed Crawl4AI fetches of an hour that one alert tolerates, and the share of the
+# fetches of the hour that must have failed (#3893).
+CRAWL4AI_MIN_FAILED_FETCHES = 5
+CRAWL4AI_FAILED_SHARE = "0.5"
+_CRAWL4AI_SERIES = 'devops_cli_crawl4ai_fetches_total{job="roadmap-service"'
+_CRAWL4AI_RULES = [
+    (
+        "Crawl4AIFetchesFailing",
+        "sum( "
+        + _window_count(_CRAWL4AI_SERIES + ', result!="ok"}', "1h")
+        + " ) / sum( "
+        + _window_count(_CRAWL4AI_SERIES + "}", "1h")
+        + f" ) > {CRAWL4AI_FAILED_SHARE} and on () sum( "
+        + _window_count(_CRAWL4AI_SERIES + ', result!="ok"}', "1h")
+        + f" ) >= {CRAWL4AI_MIN_FAILED_FETCHES}",
+        "0m",
+        "warning",
+    ),
+    (
+        "Crawl4AIUnavailable",
+        "max by (namespace, deployment) ("
+        'kube_deployment_status_replicas_available{namespace="devops", deployment="crawl4ai"}'
+        ") < 1 and on (namespace, deployment) max by (namespace, deployment) ("
+        'kube_deployment_spec_replicas{namespace="devops", deployment="crawl4ai"}) > 0',
+        "15m",
+        "warning",
+    ),
+]
+
+
+def test_the_crawl4ai_rules_watch_failed_fetches_and_a_deployment_with_no_replica() -> None:
+    """`crawl4ai` warns when more than half of the page fetches of the Service in an hour failed
+    and at least 5 did, and when the Deployment wants a replica and has none available for 15
+    minutes (#3893). The fetch count reads a series that starts in the hour from zero (#2505)."""
+    assert [
+        (rule["alert"], rule["expr"], rule["for"], rule["labels"]["severity"])
+        for rule in _group(CRAWL4AI_GROUP)
+    ] == _CRAWL4AI_RULES
+
+
+def test_the_crawl4ai_rules_select_only_the_service_counter_and_the_crawl4ai_deployment() -> None:
+    """Each `devops_cli_` selector filters the job of the Service, so a fetch from a workstation
+    (`devops ai fetch-page`, job `devops-cli`) never counts. Each kube-state-metrics selector
+    names the namespace and the Deployment, and the allow list of the chart keeps its series."""
+    found = [
+        (metric, frozenset(part.strip() for part in matchers.split(",")))
+        for rule in _group(CRAWL4AI_GROUP)
+        for metric, matchers in _SELECTOR_MATCHERS.findall(rule["expr"])
+    ]
+    allow_list = yaml.safe_load(KUBE_STATE_METRICS_ALLOW_LIST.read_text(encoding="utf-8"))
+    kept = re.compile("|".join(allow_list["metrics"]))
+    assert [
+        metric
+        for metric, matchers in found
+        if not (
+            f'job="{ROADMAP_SERVICE_JOB}"' in matchers
+            if metric.startswith("devops_cli_")
+            else {'namespace="devops"', 'deployment="crawl4ai"'} <= matchers
+            and kept.fullmatch(metric)
+        )
+    ] == []
+    assert {metric for metric, _ in found} == {
+        CRAWL4AI_FETCHES_TOTAL.name,
+        "kube_deployment_spec_replicas",
+        "kube_deployment_status_replicas_available",
+    }
+
+
+def test_the_crawl4ai_fetch_alert_names_the_label_and_the_log_commands() -> None:
+    """The text names the label `result` of the counter and the commands that read the logs of
+    the Service and of the pod (#3893). A template reads no label but those of the series, so no
+    secret reaches it."""
+    (rule,) = [r for r in _group(CRAWL4AI_GROUP) if r["alert"] == "Crawl4AIFetchesFailing"]
+    text = rule["annotations"]["summary"] + rule["annotations"]["description"]
+    assert [
+        needle
+        for needle in (
+            "devops_cli_crawl4ai_fetches_total",
+            "`result`",
+            "kubectl -n devops logs deployment/roadmap-service",
+            "kubectl -n devops logs deployment/crawl4ai",
+            "(k8s/README.md, Crawl4AI)",
+        )
+        if needle not in text
+    ] == []
+
+
+def test_each_crawl4ai_alert_points_to_its_row_in_the_readme() -> None:
+    """Each description names `k8s/README.md, Crawl4AI`, and that section lists each alert."""
+    section = _readme_section("Crawl4AI")
+    rules = _group(CRAWL4AI_GROUP)
+    pointer = "(k8s/README.md, Crawl4AI)"
+    assert (
+        [r["alert"] for r in rules if pointer not in r["annotations"]["description"]],
+        [r["alert"] for r in rules if f"`{r['alert']}`" not in section],
+    ) == ([], [])
+
+
 def _promtool(*args: str | Path) -> subprocess.CompletedProcess[str]:
     """Run the promtool on PATH and keep its output for the failure message."""
     return subprocess.run(
@@ -1277,7 +1385,7 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
 ) -> None:
     """`promtool test rules` passes the unit tests of each rule of `roadmap-service` (#2472), of
     `roadmap-service-webhooks` (#2476), of `roadmap-service-activity` (#2475), of
-    `roadmap-service-items` (#2919), of `roadmap-service-tools` (#3240), of `otel-collector`
+    `roadmap-service-items` (#2919), of `roadmap-service-tools` (#3240), of `crawl4ai` (#3893), of `otel-collector`
     (#1642) and of `valkey-memory` (#2094).
 
     Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
