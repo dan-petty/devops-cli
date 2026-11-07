@@ -63,6 +63,8 @@ from devops_cli.k8s.credentials import (
 )
 from devops_cli.k8s.logql import execute_loki_query, parse_logql_query
 from devops_cli.k8s.service_proxy import ProxyTarget
+from devops_cli.research.github_advisories import GitHubAdvisoryClient
+from devops_cli.research.kev import KevClient
 from devops_cli.sandbox.metrics import scrape_prometheus_metrics
 from devops_cli.sandbox.probe import probe_http, probe_tcp
 from devops_cli.security.vault_broker import VaultSecretBroker
@@ -995,7 +997,14 @@ def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
     }
 
 
-_PUBLIC_API_HOSTS = ("api.osv.dev", "internetdb.shodan.io", "api.cloudflare.com", "pypi.org")
+_PUBLIC_API_HOSTS = (
+    "api.osv.dev",
+    "api.github.com",
+    "www.cisa.gov",
+    "internetdb.shodan.io",
+    "api.cloudflare.com",
+    "pypi.org",
+)
 
 
 def _public_api_calls() -> dict[str, Callable[[], Any]]:
@@ -1007,6 +1016,8 @@ def _public_api_calls() -> dict[str, Callable[[], Any]]:
     """
     return {
         "osv": lambda: OSVClient().query_package("requests", version="2.0.0", ecosystem="PyPI"),
+        "github advisories": lambda: GitHubAdvisoryClient().for_repository("qdrant/qdrant"),
+        "cisa kev": lambda: KevClient().load(),
         "shodan internetdb": lambda: ShodanInternetDBClient().check_ip(PUBLIC_ADDRESS),
         "cloudflare radar": lambda: CloudflareRadarClient(
             token="cf-test", valkey_client=None

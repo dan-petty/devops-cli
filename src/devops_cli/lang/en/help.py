@@ -2229,7 +2229,9 @@ class ResearchCommandHelp:
     )
     advisories: str = (
         "List the advisories that affect the pins of the project. It asks OSV about the Python "
-        "and Node packages, and counts the components that OSV cannot match."
+        "and Node packages, and GitHub about the Actions and about the components that "
+        ".devops/research-watch.toml maps to a repository. It flags a CVE of the CISA KEV list "
+        "as exploited, and counts the components that no source matches."
     )
 
 

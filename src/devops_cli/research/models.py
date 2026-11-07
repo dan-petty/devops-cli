@@ -76,12 +76,14 @@ class Inventory(BaseModel):
 
 
 class AdvisoryFinding(BaseModel):
-    """One advisory that affects the pinned version of one component (#3898).
+    """One advisory that affects the pinned version of one component (#3898, #3987).
 
-    OSV matched the pinned version to the affected ranges of the advisory, so a finding is an
-    advisory that affects the pin. `locations` lists each `file:line` that pins the component at
-    this version; `component` is the first of them. `affected_range` and `fixed_version` are those
-    of the record, as `>=0 <5.4` and `5.4`; a package with more than one fix lists them all.
+    A finding is an advisory that affects the pin: OSV matched the version to the affected ranges
+    (`source` is `OSV`), or the version of a GitHub Action, image, chart or release matched a range
+    of a GitHub advisory (`source` is `GitHub`). `locations` lists each `file:line` that pins the
+    component at this version; `component` is the first of them. `affected_range` and
+    `fixed_version` are those of the record, as `>=0 <5.4` and `5.4`; a package with more than one
+    fix lists them all. `exploited` is true when a CVE of the advisory is in the CISA KEV list.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -94,6 +96,8 @@ class AdvisoryFinding(BaseModel):
     summary: str
     affected_range: str
     fixed_version: str
+    source: str
+    exploited: bool = False
 
 
 class LookupFailure(BaseModel):
@@ -115,10 +119,12 @@ class LookupFailure(BaseModel):
 class AdvisorySummary(BaseModel):
     """What a run checked and what it left out.
 
-    `queried` counts the distinct package versions that OSV was asked about. `unpinned` counts the
-    components of a checked kind that pin no exact version. `not_covered` counts the components
-    of each ecosystem that OSV cannot match, and the `tool-lock-entry` components, whose packages
-    the Python and Node lists hold under their own name.
+    `queried` counts the distinct component versions that OSV or GitHub was asked about.
+    `unpinned` counts the components of a checked kind that pin no exact release: a range, a
+    branch, a commit or a tag such as `v7`. `exploited` counts the findings that the CISA KEV list
+    flags. `not_covered` counts the components of each ecosystem that no source matches (an image,
+    chart or release binary that the watch list does not map), and the `tool-lock-entry`
+    components, whose packages the Python and Node lists hold under their own name.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -129,14 +135,20 @@ class AdvisorySummary(BaseModel):
     findings: int
     unpinned: int
     failed: int
+    exploited: int
     not_covered: dict[str, int]
 
 
 class AdvisoryReport(BaseModel):
-    """The advisories of the pins of a repository, most severe first."""
+    """The advisories of the pins of a repository, most severe first.
+
+    `kev_failure` holds the reason that the CISA KEV list could not be read; it is empty
+    otherwise. When it is set, no finding has a verdict for `exploited`.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     findings: list[AdvisoryFinding]
     failures: list[LookupFailure]
+    kev_failure: str = ""
     summary: AdvisorySummary

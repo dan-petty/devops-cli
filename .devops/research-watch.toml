@@ -1,0 +1,158 @@
+# The GitHub repository that publishes the advisories of a pinned component (#3987).
+#
+# `devops research advisories` reads the advisories that a repository published
+# (`GET /repos/{owner}/{repo}/security-advisories`) for each component named here, and matches the
+# pinned version to the range of each advisory. An image, a chart or a release binary has no
+# advisory database of its own, and OSV has no ecosystem for it. A Python package, a Node package
+# and a GitHub Action are covered by other sources and are not named here.
+#
+# `ecosystem` and `name` are those of `devops research inventory`. Map a component only when its
+# version is a version of the repository: a chart with its own numbering is not, and an image tag
+# with a variant such as `-alpine` names no one release.
+#
+# A repository names the packages of its advisories as it wishes. Set `package` to the name that
+# the advisories of the repository give to the package whose versions the component pins (the Go
+# module of the major version of a binary, or the PyPI package of an image); the command then
+# ignores the ranges of other packages. Without `package`, every vulnerability of an advisory
+# counts. The names below are those that the repositories used on 2026-11-07.
+#
+# Not mapped, because the advisories of their repositories name no package that matches the pin:
+# the binaries `helm` (the advisories name the Go module of Helm 3), `promtool` and `cloudflared`
+# (free text), and the image `portkeyai/gateway` (no package name).
+
+# Images and charts.
+
+[[watch]]
+ecosystem = "helm"
+name = "qdrant"
+repo = "qdrant/qdrant"
+package = "qdrant"
+
+[[watch]]
+ecosystem = "docker"
+name = "ghcr.io/berriai/litellm"
+repo = "BerriAI/litellm"
+package = "litellm"
+
+[[watch]]
+ecosystem = "docker"
+name = "ghcr.io/open-webui/open-webui"
+repo = "open-webui/open-webui"
+package = "open-webui"
+
+[[watch]]
+ecosystem = "docker"
+name = "unclecode/crawl4ai"
+repo = "unclecode/crawl4ai"
+package = "crawl4ai"
+
+[[watch]]
+ecosystem = "docker"
+name = "ghcr.io/astral-sh/uv"
+repo = "astral-sh/uv"
+package = "uv"
+
+[[watch]]
+ecosystem = "docker"
+name = "ollama/ollama"
+repo = "ollama/ollama"
+
+[[watch]]
+ecosystem = "docker"
+name = "mattermost/mattermost-team-edition"
+repo = "mattermost/mattermost"
+
+[[watch]]
+ecosystem = "docker"
+name = "ghcr.io/oliver006/redis_exporter"
+repo = "oliver006/redis_exporter"
+
+# Release binaries of the tools lock.
+
+[[watch]]
+ecosystem = "github-release"
+name = "kubectl"
+repo = "kubernetes/kubernetes"
+
+[[watch]]
+ecosystem = "github-release"
+name = "kustomize"
+repo = "kubernetes-sigs/kustomize"
+
+[[watch]]
+ecosystem = "github-release"
+name = "argo"
+repo = "argoproj/argo-workflows"
+package = "github.com/argoproj/argo-workflows/v4"
+
+[[watch]]
+ecosystem = "github-release"
+name = "argocd"
+repo = "argoproj/argo-cd"
+package = "github.com/argoproj/argo-cd/v3"
+
+[[watch]]
+ecosystem = "github-release"
+name = "kubectl-argo-rollouts"
+repo = "argoproj/argo-rollouts"
+
+[[watch]]
+ecosystem = "github-release"
+name = "trivy"
+repo = "aquasecurity/trivy"
+package = "github.com/aquasecurity/trivy"
+
+[[watch]]
+ecosystem = "github-release"
+name = "kube-linter"
+repo = "stackrox/kube-linter"
+
+[[watch]]
+ecosystem = "github-release"
+name = "popeye"
+repo = "derailed/popeye"
+
+[[watch]]
+ecosystem = "github-release"
+name = "pluto"
+repo = "FairwindsOps/pluto"
+
+[[watch]]
+ecosystem = "github-release"
+name = "kubeconform"
+repo = "yannh/kubeconform"
+
+[[watch]]
+ecosystem = "github-release"
+name = "tflint"
+repo = "terraform-linters/tflint"
+
+[[watch]]
+ecosystem = "github-release"
+name = "k9s"
+repo = "derailed/k9s"
+
+[[watch]]
+ecosystem = "github-release"
+name = "gh-dash"
+repo = "dlvhdr/gh-dash"
+
+[[watch]]
+ecosystem = "github-release"
+name = "tuicr"
+repo = "agavra/tuicr"
+
+[[watch]]
+ecosystem = "github-release"
+name = "gitleaks"
+repo = "gitleaks/gitleaks"
+
+[[watch]]
+ecosystem = "github-release"
+name = "osv-scanner"
+repo = "google/osv-scanner"
+
+[[watch]]
+ecosystem = "github-release"
+name = "golangci-lint"
+repo = "golangci/golangci-lint"

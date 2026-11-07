@@ -1,0 +1,67 @@
+{
+  "recorded": "2026-11-07",
+  "request": "GET https://api.github.com/repos/qdrant/qdrant/security-advisories",
+  "note": "Trimmed to the fields that name the advisory and the fields that the client reads.",
+  "response": [
+    {
+      "ghsa_id": "GHSA-frc7-44gm-99qq",
+      "cve_id": null,
+      "html_url": "https://github.com/qdrant/qdrant/security/advisories/GHSA-frc7-44gm-99qq",
+      "summary": "Internal gRPC API does not require authentication by default in distributed mode",
+      "severity": "critical",
+      "state": "published",
+      "published_at": "2026-10-22T14:29:45Z",
+      "vulnerabilities": [
+        {
+          "package": {
+            "ecosystem": "docker image / binary release",
+            "name": "qdrant"
+          },
+          "vulnerable_version_range": "< 1.20.0",
+          "patched_versions": "1.20.0",
+          "vulnerable_functions": []
+        }
+      ]
+    },
+    {
+      "ghsa_id": "GHSA-3gph-6c29-p29v",
+      "cve_id": null,
+      "html_url": "https://github.com/qdrant/qdrant/security/advisories/GHSA-3gph-6c29-p29v",
+      "summary": "Read-only API key and JWTs accepted on internal gRPC API when enforce_internal_auth is enabled",
+      "severity": "high",
+      "state": "published",
+      "published_at": "2026-10-05T14:56:05Z",
+      "vulnerabilities": [
+        {
+          "package": {
+            "ecosystem": "docker image / binary release",
+            "name": "qdrant"
+          },
+          "vulnerable_version_range": ">= 1.18.0, < 1.19.2",
+          "patched_versions": "1.19.2",
+          "vulnerable_functions": []
+        }
+      ]
+    },
+    {
+      "ghsa_id": "GHSA-f632-vm87-2m2f",
+      "cve_id": "CVE-2026-25628",
+      "html_url": "https://github.com/qdrant/qdrant/security/advisories/GHSA-f632-vm87-2m2f",
+      "summary": "Arbitrary file write via `/logger` endpoint",
+      "severity": "high",
+      "state": "published",
+      "published_at": "2026-02-05T18:10:58Z",
+      "vulnerabilities": [
+        {
+          "package": {
+            "ecosystem": "rust",
+            "name": "qdrant"
+          },
+          "vulnerable_version_range": ">= 1.9.3, < 1.15.6",
+          "patched_versions": "1.15.6",
+          "vulnerable_functions": []
+        }
+      ]
+    }
+  ]
+}

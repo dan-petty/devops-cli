@@ -1,0 +1,5 @@
+[[watch]]
+ecosystem = "helm"
+name = "qdrant"
+repo = "qdrant/qdrant"
+package = "qdrant"
