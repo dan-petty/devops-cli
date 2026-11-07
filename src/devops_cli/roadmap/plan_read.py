@@ -498,6 +498,7 @@ def read_change(files: Mapping[str, str]) -> StageProposal:
             specs=specs,
             groups=groups,
             criteria=criteria,
+            dependencies=_bullets(_section(proposal_md, "Dependencies")),
             weakened_checks=weakened_checks(proposal_md),
         )
     except ValidationError as exc:
