@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.80.0](https://github.com/dan-petty/devops-cli/compare/v0.79.0...v0.80.0) (2026-11-07)
+
+
+### Features
+
+* **ai:** search the web through a chain of providers ([#3948](https://github.com/dan-petty/devops-cli/issues/3948)) ([517c58b](https://github.com/dan-petty/devops-cli/commit/517c58b44055f851950bb31e270ae933a59a3e3e))
+
 ## [0.79.0](https://github.com/dan-petty/devops-cli/compare/v0.78.0...v0.79.0) (2026-11-07)
 
 
