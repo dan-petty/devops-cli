@@ -23,7 +23,7 @@ Issue #3921: a person merges the release pull request that release-please opens,
 ## Impact
 
 - `.github/workflows/release-merge.yml`, `.github/workflows/release.yml` (one comment), `.github/labels.yml`.
-- `src/devops_cli/release/`, `src/devops_cli/lang/en/messages.py`, `tests/release/`, `tests/invariants/test_workflow_contracts.py`.
+- `src/devops_cli/release/`, `src/devops_cli/lang/en/messages.py`, `tests/release/`, `tests/invariants/test_workflow_contracts.py`, `tests/commands/test_ci.py`.
 - `RELEASE_CYCLE.md`, `AGENTS.md`, `ARCHITECTURE.md`, `CONTEXT.md`, `docs/ROADMAP_WORKFLOW.md`, `docs/ROUTINE_TASKS.md`, `docs/SDLC.md`, `docs/adr/0013-releases-use-release-please-as-it-ships-and-agents-stay-out.md`, `k8s/README.md`, `src/devops_cli/ai/knowledge_base/it_domains/tools/github_cli.md`.
 - Consequence for the cluster: each merge makes a release, each release builds the service, runner and DevContainer images, and Argo CD Image Updater moves the cluster onto them. The schedule allows up to 4 releases a day.
 

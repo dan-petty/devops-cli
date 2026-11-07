@@ -9,8 +9,8 @@
 
 ## 2. The workflow merges the picked pull request every 6 hours (workflow)
 
-- [x] 2.1 Add the contract tests of the trigger, the permissions, the token and the scripts to `tests/invariants/test_workflow_contracts.py`
-  - Verification: `uv run devops ci test tests/invariants/test_workflow_contracts.py`
+- [x] 2.1 Add the contract tests of the trigger, the permissions, the token and the scripts to `tests/invariants/test_workflow_contracts.py`, and let the cache test of `tests/commands/test_ci.py` treat `release-merge.yml` like `release.yml`: it holds a write token, so it restores no cache
+  - Verification: `uv run devops ci test tests/invariants/test_workflow_contracts.py tests/commands/test_ci.py`
 - [x] 2.2 Add `.github/workflows/release-merge.yml` and the label `hold-release` to `.github/labels.yml`
   - Verification: `uv run devops scan workflows`
 
