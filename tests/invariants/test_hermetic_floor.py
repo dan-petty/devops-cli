@@ -546,7 +546,7 @@ def test_test_modules_repeat_no_floor_resets() -> None:
         ("tests/commands/test_config_field_validation.py", "_reset_cache"),
         ("tests/ai/rag/test_investigation_context.py", "_reset_investigation_cache"),
         ("tests/commands/test_ci_dry_run.py", "reset_dry_run_state"),
-        ("tests/dry_run/test_consolidation_dry_run_decorator.py", "reset_dry_run_state"),
+        ("tests/dry_run/test_dry_run_command_decorator.py", "reset_dry_run_state"),
         ("tests/commands/test_review_rules_pack.py", "_reset_dry_run"),
     }
 
