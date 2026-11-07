@@ -324,7 +324,7 @@ def test_deploy_stack_pushes_devops_only_where_its_namespace_exists(
     with_devops = (_deploy("--stack", "infra").exit_code, _pushed(cluster))
     assert (without, with_devops, cluster.live_data("devops", "devops-cli")[APP_KEY_ENTRY]) == (
         (0, ["cloudflared/cloudflared-token"], []),
-        (0, ["cloudflared/cloudflared-token", "devops/devops-cli"]),
+        (0, ["cloudflared/cloudflared-token", "devops/crawl4ai", "devops/devops-cli"]),
         APP_KEY,
     )
 

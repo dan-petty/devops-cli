@@ -937,6 +937,7 @@ def test_env_name_keys_of_devops_cli_feed_their_options() -> None:
         "DEVOPS_CLI_FIRECRAWL_API_KEY": "firecrawl.api_key",
         "DEVOPS_CLI_VALKEY_PASSWORD": "valkey.password",
         "DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN": "mattermost.command_token",
+        "DEVOPS_CLI_CRAWL4AI_API_TOKEN": "crawl4ai.api_token",
     }
 
 
