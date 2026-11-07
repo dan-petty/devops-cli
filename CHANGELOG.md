@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.77.0](https://github.com/dan-petty/devops-cli/compare/v0.76.2...v0.77.0) (2026-11-07)
+
+
+### Features
+
+* **ai:** web search falls back to DuckDuckGo ([#3900](https://github.com/dan-petty/devops-cli/issues/3900)) ([61b5c43](https://github.com/dan-petty/devops-cli/commit/61b5c43991533942a44562d575ced2686321f0ae))
+* **k8s:** add warnings and errors above logs, narrow both by pod ([#3886](https://github.com/dan-petty/devops-cli/issues/3886)) ([6d105c2](https://github.com/dan-petty/devops-cli/commit/6d105c204a1c0fb8eb4b1964d71e3bbe3594be45))
+* **k8s:** Name one chat model for every slot of the Service ([#3891](https://github.com/dan-petty/devops-cli/issues/3891)) ([4189c93](https://github.com/dan-petty/devops-cli/commit/4189c93906b225c4a61d26d01193f9b5012a8fb0))
+* **rag:** index managed repos and exclude private from search ([#3895](https://github.com/dan-petty/devops-cli/issues/3895)) ([3cd4eba](https://github.com/dan-petty/devops-cli/commit/3cd4eba504911fcb905a3c822a0fd738977d677a)), closes [#1389](https://github.com/dan-petty/devops-cli/issues/1389)
+
+
+### Bug Fixes
+
+* **roadmap:** name the reason of a failed intake write ([#3879](https://github.com/dan-petty/devops-cli/issues/3879)) ([a341524](https://github.com/dan-petty/devops-cli/commit/a341524d7b6559ee7e4460301b43a56a8df55685))
+* **roadmap:** reset a head that the agent moved ([#3883](https://github.com/dan-petty/devops-cli/issues/3883)) ([0ff477f](https://github.com/dan-petty/devops-cli/commit/0ff477fab5b2e31e924ed73c5d0d0e13cb6c6df1)), closes [#3575](https://github.com/dan-petty/devops-cli/issues/3575)
+
 ## [0.76.2](https://github.com/dan-petty/devops-cli/compare/v0.76.1...v0.76.2) (2026-11-07)
 
 
