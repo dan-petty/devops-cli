@@ -157,6 +157,11 @@ def test_an_expression_over_the_limit_is_named_with_the_limit() -> None:
     assert str(MAX_PROMQL_LENGTH) in problem
 
 
+def test_an_expression_of_exactly_the_limit_is_sent() -> None:
+    """The limit is the longest expression that may be sent, not the first that is refused."""
+    assert expression_problem("a" * MAX_PROMQL_LENGTH) is None
+
+
 def test_a_malformed_expression_is_refused_with_the_error_found() -> None:
     """An unclosed range bracket is found before any request."""
     problem = expression_problem("rate(x[5m")
@@ -172,6 +177,7 @@ def test_a_malformed_expression_is_refused_with_the_error_found() -> None:
         ("5m", 300.0),
         ("2h", 7200.0),
         ("1d", 86400.0),
+        ("365d", 31_536_000.0),
         ("90", 90.0),
         ("", 0.0),
         ("invalid", 0.0),

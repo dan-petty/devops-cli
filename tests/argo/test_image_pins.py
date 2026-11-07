@@ -110,3 +110,23 @@ def test_the_pins_of_an_application_are_checked_against_the_public_registry(
         [PinCheck(ImagePin(f"{IMAGE}:latest", PINNED), current=MOVED)],
         [False],
     )
+
+
+def test_a_pin_on_a_loopback_registry_is_refused_before_a_request(web: WebFake) -> None:
+    """The check dials the public level only: a registry that resolves to a loopback address is a
+    refused pin with its cause, and nothing reaches the fake."""
+    pin = ImagePin("localhost:5000/app:v1", PINNED)
+
+    [check] = check_application_pins(_application(["localhost:5000/app:v1@" + PINNED]))
+
+    assert (
+        check.pin,
+        check.current,
+        "egress level refuses" in (check.error or ""),
+        web.recorded,
+    ) == (
+        pin,
+        None,
+        True,
+        [],
+    )

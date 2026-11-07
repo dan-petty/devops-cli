@@ -64,6 +64,18 @@ def test_query_prints_each_series_with_its_value(cli: Callable[..., Any], web: W
     ) == (0, True, True, [{"query": "up"}])
 
 
+def test_query_at_a_time_sends_that_time(cli: Callable[..., Any], web: WebFake) -> None:
+    """The `--time` option is the evaluation time of the instant query."""
+    _serve(web, "/api/v1/query", httpx2.Response(200, json=VECTOR))
+
+    result = cli("prometheus", "query", "up", "--time", "2026-11-01T00:00:00Z", env=PROMETHEUS_ENV)
+
+    assert (result.exit_code, [dict(request.url.params) for request in web.sent]) == (
+        0,
+        [{"query": "up", "time": "2026-11-01T00:00:00Z"}],
+    )
+
+
 def test_query_range_sums_the_series_and_the_points(cli: Callable[..., Any], web: WebFake) -> None:
     """The range query asks for the window and the step, and prints the series and point counts."""
     _serve(web, "/api/v1/query_range", httpx2.Response(200, json=MATRIX))
@@ -225,11 +237,33 @@ def test_cli_analyze_reports_anomalies(cli: Callable[..., Any], web: WebFake) ->
     }
     _serve(web, "/api/v1/query_range", httpx2.Response(200, json=payload))
 
-    result = cli("prometheus", "analyze", "up", "--json", env=PROMETHEUS_ENV)
+    result = cli(
+        "prometheus",
+        "analyze",
+        "up",
+        "--json",
+        "--start",
+        "2h",
+        "--step",
+        "5m",
+        env=PROMETHEUS_ENV,
+    )
 
     assert result.exit_code == 0
     analysis = json.loads(result.output)
-    assert (analysis["sample_count"], len(analysis["anomalies"])) == (21, 1)
+    [params] = [dict(request.url.params) for request in web.sent]
+    assert (
+        analysis["sample_count"],
+        len(analysis["anomalies"]),
+        params["query"],
+        params["step"],
+    ) == (
+        21,
+        1,
+        "up",
+        "5m",
+    )
+    assert float(params["end"]) - float(params["start"]) == pytest.approx(7200, abs=5)
 
 
 def test_cli_analyze_handles_an_empty_result(cli: Callable[..., Any], web: WebFake) -> None:

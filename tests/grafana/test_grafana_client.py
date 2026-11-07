@@ -37,6 +37,7 @@ class StubGrafana:
         self.post_status = post_status
         self.provisioned = provisioned
         self.requests: list[tuple[str, str]] = []
+        self.saved: list[dict[str, object]] = []
 
     def __call__(self, request: httpx2.Request) -> httpx2.Response:
         if request.method == "GET":
@@ -47,7 +48,9 @@ class StubGrafana:
             return httpx2.Response(
                 200, json={"dashboard": {"uid": uid}, "meta": {"provisioned": self.provisioned}}
             )
-        uid = json.loads(request.content)["dashboard"]["uid"]
+        body = json.loads(request.content)
+        self.saved.append(body)
+        uid = body["dashboard"]["uid"]
         self.requests.append(("POST", uid))
         status = self.post_status.get(uid, 200)
         return httpx2.Response(status, json={"status": "success" if status == 200 else "error"})
@@ -163,12 +166,69 @@ def test_a_saved_dashboard_is_synced(web: WebFake, tmp_path: Path) -> None:
     with _client() as grafana:
         result = grafana.sync_dashboard(_dashboard_file(tmp_path, "a", "Alpha"))
 
-    assert (result.outcome, result.title, result.file, result.error, stub.requests) == (
+    assert (result.outcome, result.title, result.file, result.error, stub.saved) == (
         DashboardSyncOutcome.SYNCED,
         "Alpha",
         "a.json",
         None,
-        [("POST", "a")],
+        [{"dashboard": {"uid": "a", "title": "Alpha", "panels": []}, "overwrite": True}],
+    )
+
+
+def test_an_exported_dashboard_file_is_synced_from_its_dashboard_object(
+    web: WebFake, tmp_path: Path
+) -> None:
+    """`dashboards export` writes `{"dashboard": ..., "meta": ...}`: the sync saves the inner
+    object and reads the title from it."""
+    exported = tmp_path / "exported.json"
+    exported.write_text(
+        json.dumps({"dashboard": {"uid": "e", "title": "Exported"}, "meta": {"slug": "exported"}}),
+        encoding="utf-8",
+    )
+    stub = StubGrafana({})
+    web.serve(stub)
+
+    with _client() as grafana:
+        result = grafana.sync_dashboard(exported)
+
+    assert (result.outcome, result.title, stub.saved) == (
+        DashboardSyncOutcome.SYNCED,
+        "Exported",
+        [{"dashboard": {"uid": "e", "title": "Exported"}, "overwrite": True}],
+    )
+
+
+def test_a_file_that_holds_a_list_is_a_failure_that_sends_nothing(
+    web: WebFake, tmp_path: Path
+) -> None:
+    """The top level of a dashboard file is an object; a list is reported, and no request leaves."""
+    listed = tmp_path / "list.json"
+    listed.write_text(json.dumps([{"uid": "a"}]), encoding="utf-8")
+
+    with _client() as grafana:
+        result = grafana.sync_dashboard(listed)
+
+    assert (result.outcome, result.error, web.recorded) == (
+        DashboardSyncOutcome.FAILED,
+        "The file does not hold a dashboard object",
+        [],
+    )
+
+
+def test_a_path_that_cannot_be_read_is_a_failure_that_sends_nothing(
+    web: WebFake, tmp_path: Path
+) -> None:
+    """A directory in place of a file fails the read, and no request leaves."""
+    directory = tmp_path / "folder.json"
+    directory.mkdir()
+
+    with _client() as grafana:
+        result = grafana.sync_dashboard(directory)
+
+    assert (result.outcome, result.error is not None, web.recorded) == (
+        DashboardSyncOutcome.FAILED,
+        True,
+        [],
     )
 
 

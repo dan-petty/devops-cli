@@ -489,6 +489,26 @@ def test_the_rollout_gate_reads_the_value_of_a_prometheus_answer(
     assert [request.url.params["query"] for request in web.sent] == ["rate(http_requests[1m])"]
 
 
+def test_the_rollout_gate_reads_a_private_prometheus_when_the_settings_allow_it(
+    web: WebFake, config: Callable[..., Path]
+) -> None:
+    """With `ai.allow_private_network` on, the gate dials a cluster-internal address and takes the
+    first of two series, with a timeout of 5 seconds."""
+    config(prometheus={"url": "http://10.0.0.1:9090"}, ai={"allow_private_network": True})
+    web.serve(
+        lambda request: httpx2.Response(
+            200,
+            json={"data": {"result": [{"value": [1, "1.5"]}, {"value": [1, "9.5"]}]}},
+        )
+    )
+
+    assert (_gate_value(), [request.extensions["timeout"]["read"] for request in web.sent]) == (
+        1.5,
+        [5.0],
+    )
+    assert [request.url.host for request in web.sent] == ["10.0.0.1"]
+
+
 def test_the_rollout_gate_reads_no_metric_from_an_address_the_level_refuses(
     web: WebFake, config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:

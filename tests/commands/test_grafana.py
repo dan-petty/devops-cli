@@ -6,15 +6,14 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import httpx2
 import pytest
 
-from devops_cli.config.settings import Settings
 from tests.support.fakes.dial import record_connects
 from tests.support.fakes.dns import DnsFake
 from tests.support.fakes.http import WebFake
+from tests.support.fakes.keyring import FakeKeyring
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -39,6 +38,7 @@ GRAFANA_ENV = {
     "DEVOPS_CLI_GRAFANA_URL": "http://example.com:3000",
     "DEVOPS_CLI_GRAFANA_TOKEN": "glsa-test",
 }
+BEARER = "Bearer glsa-test"
 
 
 def test_grafana_dashboards_sync_dry_run(cli: Callable[..., Any], web: WebFake) -> None:
@@ -60,12 +60,13 @@ def test_grafana_dashboards_sync_success(cli: Callable[..., Any], web: WebFake) 
 
     result = cli("grafana", "dashboards", "sync", env=GRAFANA_ENV)
 
-    saves = [request for request in web.sent if request.method == "POST"]
-    assert (result.exit_code, "Dashboard sync completed" in result.output, len(saves) >= 3) == (
-        0,
-        True,
-        True,
-    )
+    saves = [request for request in web.recorded if request.method == "POST"]
+    assert (
+        result.exit_code,
+        "Dashboard sync completed" in result.output,
+        len(saves) >= 3,
+        {request.headers["authorization"] for request in saves},
+    ) == (0, True, True, {BEARER})
 
 
 def _sync_against(
@@ -127,7 +128,7 @@ def test_sync_skips_a_dashboard_grafana_holds_as_provisioned(
 def test_each_read_command_prints_what_grafana_holds_and_import_saves_a_dashboard(
     cli: Callable[..., Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, web: WebFake
 ) -> None:
-    """The list, export, import, search, datasources and alerts commands each end with exit 0."""
+    """Each command sends the token of the settings and prints the rows that Grafana holds."""
     monkeypatch.chdir(tmp_path)
     holds = {
         "/api/dashboards/uid/cluster-overview": {"dashboard": {"title": "Exported"}, "meta": {}},
@@ -168,32 +169,70 @@ def test_each_read_command_prints_what_grafana_holds_and_import_saves_a_dashboar
         cli("grafana", "alerts", env=GRAFANA_ENV),
     ]
 
-    assert ([result.exit_code for result in results], json.loads(export_out.read_text())) == (
+    listed, _, imported, searched, datasources, alerts = results
+    assert (
+        [result.exit_code for result in results],
+        json.loads(export_out.read_text()),
+        ("cluster-overview" in listed.output, "Cluster Overview" in listed.output),
+        ("cluster-overview" in searched.output, "General" in searched.output),
+        ("Prometheus" in datasources.output, "http://prometheus:9090" in datasources.output),
+        ("alert-1" in alerts.output, "High CPU" in alerts.output),
+        "imported-dash" in imported.output,
+    ) == (
         [0] * 6,
         holds["/api/dashboards/uid/cluster-overview"],
+        (True, True),
+        (True, True),
+        (True, True),
+        (True, True),
+        True,
     )
-    assert "Cluster Overview" in results[0].output
+    assert {request.headers["authorization"] for request in web.recorded} == {BEARER}
+    assert [(request.method, request.url) for request in web.recorded] == [
+        ("GET", "http://example.com:3000/api/search?type=dash-db"),
+        ("GET", "http://example.com:3000/api/dashboards/uid/cluster-overview"),
+        ("POST", "http://example.com:3000/api/dashboards/db"),
+        ("GET", "http://example.com:3000/api/search?query=cluster"),
+        ("GET", "http://example.com:3000/api/datasources"),
+        ("GET", "http://example.com:3000/api/v1/provisioning/alert-rules"),
+    ]
 
 
-def test_grafana_client_args_masked_token_fallback(dns: DnsFake) -> None:
-    dns.answer_every_name()
-    from devops_cli.commands.grafana import _client_args
+def test_a_masked_stored_token_is_replaced_by_a_minted_token(
+    cli: Callable[..., Any], web: WebFake, keyring_store: FakeKeyring
+) -> None:
+    """A token that holds only stars is no credential: the command mints one with the admin
+    password, keeps it in the keyring and sends it as the bearer token."""
+    accounts = "http://example.com:3000/api/serviceaccounts"
 
-    settings_masked = Settings()
-    settings_masked.grafana.url = "http://example.com:3000"
-    with (
-        patch("devops_cli.commands.grafana.get_grafana_token", return_value="******"),
-        patch(
-            "devops_cli.k8s.credentials.get_or_mint_grafana_auth",
-            return_value=("minted-token", None),
-        ) as mock_mint,
-    ):
-        base_url, headers = _client_args(settings_masked)
-        assert (
-            base_url,
-            headers.get("Authorization"),
-            mock_mint.called,
-        ) == ("http://example.com:3000", "Bearer minted-token", True)
+    def grafana(request: httpx2.Request) -> httpx2.Response | None:
+        route = (request.method, str(request.url))
+        answers = {
+            ("POST", accounts): httpx2.Response(201, json={"id": 7}),
+            ("GET", f"{accounts}/7/tokens"): httpx2.Response(200, json=[]),
+            ("POST", f"{accounts}/7/tokens"): httpx2.Response(200, json={"key": "minted-token"}),
+            ("GET", "http://example.com:3000/api/datasources"): httpx2.Response(200, json=[]),
+        }
+        return answers.get(route)
+
+    web.serve(grafana)
+
+    result = cli(
+        "grafana",
+        "datasources",
+        env={
+            "DEVOPS_CLI_GRAFANA_URL": "http://example.com:3000",
+            "DEVOPS_CLI_GRAFANA_TOKEN": "******",
+            "DEVOPS_CLI_GRAFANA_PASSWORD": "admin-pw",
+        },
+    )
+
+    assert (
+        result.exit_code,
+        web.recorded[-1].url,
+        web.recorded[-1].headers["authorization"],
+        keyring_store.writes.get("grafana_token"),
+    ) == (0, "http://example.com:3000/api/datasources", "Bearer minted-token", "minted-token")
 
 
 def test_a_refused_grafana_address_ends_the_dashboard_sync_with_the_refusal(

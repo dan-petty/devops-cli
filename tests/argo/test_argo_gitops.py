@@ -294,8 +294,7 @@ def test_cli_gitops_watch_once_execution(tmp_path: Path, cli: Callable[..., Any]
     result = cli(
         "argo", "gitops", "watch", "--path", str(tmp_path), "--app-name", "root-app", "--once"
     )
-    assert result.exit_code == 0
-    assert "No manifest drift detected" in result.output or "GitOps" in result.output
+    assert (result.exit_code, "No manifest drift detected" in result.output) == (0, True)
 
 
 def test_cli_gitops_watch_json_output(tmp_path: Path, cli: Callable[..., Any]) -> None:
@@ -326,14 +325,13 @@ def test_cli_gitops_drift_command(tmp_path: Path, cli: Callable[..., Any]) -> No
     manifest.write_text("apiVersion: v1", encoding="utf-8")
 
     result = cli("argo", "gitops", "drift", "--path", str(tmp_path))
-    assert result.exit_code == 0
+    assert (result.exit_code, "No manifest drift detected" in result.output) == (0, True)
 
 
 def test_cli_gitops_sync_command(cli: Callable[..., Any]) -> None:
     """Test CLI command devops argo gitops sync with --dry-run."""
     result = cli("argo", "gitops", "sync", "--app-name", "root-app", "--dry-run")
-    assert result.exit_code == 0
-    assert "DryRun" in result.output or "root-app" in result.output
+    assert (result.exit_code, "Plan for GitOps sync on 'root-app'" in result.output) == (0, True)
 
 
 def test_cli_gitops_subcommand_under_cd(tmp_path: Path, cli: Callable[..., Any]) -> None:
@@ -350,7 +348,7 @@ def test_cli_gitops_subcommand_under_cd(tmp_path: Path, cli: Callable[..., Any])
         "--once",
         "--dry-run",
     )
-    assert result.exit_code == 0
+    assert (result.exit_code, "Plan for GitOps watch on 'root-app'" in result.output) == (0, True)
 
 
 def test_cli_gitops_invalid_app_name(cli: Callable[..., Any]) -> None:
@@ -456,33 +454,35 @@ def test_inspect_git_manifest_drift_error_handling(
     assert inspect_git_manifest_drift([tmp_path]) == []
 
 
-def test_inspect_git_manifest_drift_handles_spaces_non_ascii_and_renames(tmp_path: Path) -> None:
-    """Real git repository drift inspection handles leading spaces, spaces in path, non-ASCII paths, and renames."""
-    import subprocess
+def test_inspect_git_manifest_drift_handles_spaces_non_ascii_and_renames(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """The NUL-separated status of git names a path with a space, a non-ASCII path and a rename.
 
+    The transcript is the output of `git status --porcelain=v1 -z` in a repository where one file
+    changed, two files are new and one file moved: a rename lists the new path, then the old one.
+    """
     from devops_cli.argo.gitops import inspect_git_manifest_drift
 
     repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
-    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
-    subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
-
     k8s = repo / "k8s"
-    k8s.mkdir()
-    (k8s / "first.yaml").write_text("kind: ConfigMap\n", encoding="utf-8")
-    (k8s / "old.yaml").write_text("kind: Service\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
-    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "init"], check=True)
-
-    (k8s / "first.yaml").write_text("kind: ConfigMap\nmetadata:\n  name: first\n", encoding="utf-8")
-    (k8s / "space manifest.yaml").write_text("kind: Deployment\n", encoding="utf-8")
-    (k8s / "café.yaml").write_text("kind: Ingress\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(repo), "mv", "k8s/old.yaml", "k8s/renamed.yaml"], check=True)
+    k8s.mkdir(parents=True)
+    (repo / ".git").mkdir()
+    status = "\0".join(
+        [
+            " M k8s/first.yaml",
+            "?? k8s/space manifest.yaml",
+            "?? k8s/café.yaml",
+            "R  k8s/renamed.yaml",
+            "k8s/old.yaml",
+            "",
+        ]
+    )
+    process_fake.answer(["git", "status"], ProcessAnswer(stdout=status))
 
     events = inspect_git_manifest_drift([k8s])
-    event_paths = {Path(e.path).relative_to(repo).as_posix() for e in events}
-    assert event_paths == {
+
+    assert {Path(event.path).relative_to(repo).as_posix() for event in events} == {
         "k8s/first.yaml",
         "k8s/space manifest.yaml",
         "k8s/café.yaml",
