@@ -3575,6 +3575,11 @@ class RoadmapMessages:
         "that builds the plan's own `StageProposal` and asserts that `content_problems` returns "
         "no problem for it, because the rule that the plan adds judges the plan itself."
     )
+    # A plan that changes a planner prompt lists and verifies the prompt-rule test (#3347).
+    stage_problem_prompt_rule: str = (
+        "A group changes `{path}`, and does not list `{test}` in `reads` or `changes` or verify it. "
+        "List `{test}` in `reads` or `changes`, and give a `verify` command that names `{test}`."
+    )
     # A plan states the work of each task once: a duplicate task spends the budget of the group on
     # no change (#3456).
     stage_group_one: str = "group {first}"

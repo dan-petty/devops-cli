@@ -571,3 +571,100 @@ def test_the_plan_that_adds_the_stale_command_rule_accepts_its_own_plan() -> Non
         _check(plan, requirement_texts={"comment-thread": {STALE_REQUIREMENT: STALE_STATEMENT}})
         == []
     )
+
+
+# ── Prompt-rule verification tests (#3347) ───────────────────────────────────
+
+PROMPT_CHANGE = "src/devops_cli/ai/tasks/roadmap_stage_change.md"
+PROMPT_SPLIT = "src/devops_cli/ai/tasks/roadmap_stage_split.md"
+PROMPT_RULE_TEST = "tests/roadmap/stage/test_roadmap_stage_prompt_rules.py"
+
+
+def _prompt_group(
+    *,
+    kind: GroupKind = GroupKind.OTHER,
+    reads: list[str] | None = None,
+    changes: list[str] | None = None,
+    verify: str | None = f"uv run devops ci test {PROMPT_RULE_TEST}",
+    process: str | None = None,
+    test: str | None = None,
+) -> StageGroup:
+    group = make_stage_proposal().groups[0]
+    effective_kind = GroupKind.BEHAVIOR if test is not None else kind
+    return group.model_copy(
+        update={
+            "kind": effective_kind,
+            "reads": reads if reads is not None else [PROMPT_CHANGE],
+            "changes": changes if changes is not None else [PROMPT_CHANGE],
+            "creates": [],
+            "creates_lines": {},
+            "verify": verify,
+            "process": process,
+            "test": test,
+        }
+    )
+
+
+def test_a_prompt_change_with_no_prompt_rule_test_is_refused() -> None:
+    problems = content_problems(make_stage_proposal(groups=[_prompt_group()]))
+
+    assert len(problems) == 1
+    assert PROMPT_CHANGE in problems[0]
+    assert PROMPT_RULE_TEST in problems[0]
+
+
+def test_a_prompt_change_that_verifies_another_command_is_refused() -> None:
+    group = _prompt_group(
+        reads=[PROMPT_RULE_TEST],
+        changes=[PROMPT_SPLIT],
+        verify="uv run devops ci docs",
+    )
+
+    problems = content_problems(make_stage_proposal(groups=[group]))
+
+    assert len(problems) == 1
+    assert PROMPT_SPLIT in problems[0]
+    assert PROMPT_RULE_TEST in problems[0]
+
+
+def test_a_prompt_change_that_gives_a_process_is_refused_once() -> None:
+    group = _prompt_group(
+        changes=[PROMPT_CHANGE, PROMPT_RULE_TEST],
+        verify=None,
+        process="Open both prompts and compare the sentence with the rule of the check.",
+    )
+
+    problems = content_problems(make_stage_proposal(groups=[group]))
+
+    assert len(problems) == 1
+    assert PROMPT_CHANGE in problems[0]
+    assert PROMPT_RULE_TEST in problems[0]
+
+
+def test_the_plan_check_accepts_the_plan_of_this_change() -> None:
+    group = _prompt_group(
+        reads=[PROMPT_RULE_TEST],
+        changes=[PROMPT_CHANGE, PROMPT_RULE_TEST],
+        verify=f"uv run devops ci test {PROMPT_RULE_TEST}",
+        test=SELF_ACCEPTANCE_TEST,
+    )
+    plan = make_stage_proposal(
+        summary="Refuse a prompt change with no prompt-rule test",
+        why=(
+            "Issue #3347: the stage job accepts a plan that changes a planner prompt and reads no "
+            "prompt-rule test."
+        ),
+        what_changes=[
+            f"`{PLAN_CHECK_FILE}` gains the prompt-rule check.",
+            f"`{MESSAGES_FILE}` gains the message of the check.",
+            f"`{PROMPT_CHANGE}` and `{PROMPT_SPLIT}` state the rule.",
+            f"`{PROMPT_RULE_TEST}` pins the sentence of each prompt.",
+        ],
+        existing_tool=(
+            "No open tool covers the check: about 60k tokens to build, 6k tokens to keep and "
+            "about 3 hours of elapsed time."
+        ),
+        groups=[group],
+    )
+
+    assert content_problems(plan) == []

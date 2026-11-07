@@ -527,3 +527,17 @@ def test_the_stage_prompt_requires_a_modified_requirement_for_a_removed_command(
     assert "each base requirement that names the old name" in rule
     assert "text that omits it" in rule
     assert "refuses an unmodified base requirement that names it" in rule
+
+
+# ── A plan that changes a planner prompt (#3347) ──────────────────────────────
+
+
+@pytest.mark.parametrize("task", [_CHANGE_PROMPT, _SPLIT_PROMPT])
+def test_the_prompts_state_the_prompt_rule_test_rule(task: str) -> None:
+    prompt = load_task_prompt(task)
+
+    assert (
+        "A group that changes a `roadmap_stage_*.md` prompt lists "
+        "`tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` in `reads` or `changes` and "
+        "gives it as `verify`."
+    ) in prompt

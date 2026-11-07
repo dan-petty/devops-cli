@@ -46,7 +46,9 @@ from devops_cli.git.branch_form import is_valid_slug
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_scope
 from devops_cli.roadmap.pull_form import (
-    SUMMARY_MAX_CHARS,
+    SUMMARY_MAX_CHARS as SUMMARY_MAX_CHARS,
+)
+from devops_cli.roadmap.pull_form import (
     build_plan_body,
     is_placeholder,
     summary_length,
@@ -160,6 +162,11 @@ _SELF_ACCEPTANCE_MARKS: Final[tuple[str, ...]] = (
     "content_problems",
     "no problem",
 )
+# A task group that changes a planner prompt must list and verify the prompt-rule test (#3347).
+PROMPT_PREFIX: Final[str] = "src/devops_cli/ai/tasks/roadmap_stage_"
+PROMPT_SUFFIX: Final[str] = ".md"
+PROMPT_RULE_TEST: Final[str] = "tests/roadmap/stage/test_roadmap_stage_prompt_rules.py"
+_LEGACY_PROMPT_RULE_TEST: Final[str] = "tests/roadmap/test_roadmap_stage_prompt_rules.py"
 # An entry of `dependencies` that names an issue which must be delivered first: `#<number>: <reason>`
 # (#3224). An overlap or a metric sender keeps its own form, so the reader skips it.
 _ISSUE_DEPENDENCY: Final[re.Pattern[str]] = re.compile(r"^#(?P<number>[0-9]+):")
@@ -713,6 +720,39 @@ def _self_acceptance_problems(proposal: StageProposal) -> list[str]:
     return [MESSAGES.roadmap.stage_problem_self_acceptance.format(path=_PLAN_CHECK_FILE)]
 
 
+def _prompt_rule_test_cited(paths: Sequence[str]) -> bool:
+    """Whether `paths` cites the prompt-rule test or its historical path."""
+    return any(
+        p in (PROMPT_RULE_TEST, _LEGACY_PROMPT_RULE_TEST)
+        or p.endswith("test_roadmap_stage_prompt_rules.py")
+        for p in paths
+    )
+
+
+def _prompt_rule_problems(proposal: StageProposal) -> list[str]:
+    """What is wrong with a plan that changes a planner prompt and cites no prompt-rule test
+    (#3347). A task group that changes a `roadmap_stage_*.md` prompt must list the prompt-rule
+    test in `reads` or `changes`, and its `verify` command must name that test."""
+    texts = MESSAGES.roadmap
+    problems: list[str] = []
+    for group in proposal.groups:
+        prompts = [
+            p for p in group.changes if p.startswith(PROMPT_PREFIX) and p.endswith(PROMPT_SUFFIX)
+        ]
+        for prompt in prompts:
+            has_test = _prompt_rule_test_cited(group.reads) or _prompt_rule_test_cited(
+                group.changes
+            )
+            verifies_test = bool(
+                group.verify and ("test_roadmap_stage_prompt_rules.py" in group.verify)
+            )
+            if not (has_test and verifies_test):
+                problems.append(
+                    texts.stage_problem_prompt_rule.format(path=prompt, test=PROMPT_RULE_TEST)
+                )
+    return problems
+
+
 def _plan_tasks(proposal: StageProposal) -> list[tuple[int, int, str]]:
     """The number of the group, the number of the task in it and the normalized work text of the
     task, for each task of `proposal`, in the order of `tasks.md`."""
@@ -914,14 +954,16 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
     quotes no line of `probes` when there are some, a task text that names a `MESSAGES.roadmap`
     entry while no group changes the message file (#3405), two tasks that state the same work
     (#3456), a plan that builds its own code and gives no cost of tokens and time in
-    `existing_tool`, and a plan that adds a rule of the plan check and gives no test that accepts
-    its own plan (#3404). The replay (`stage_eval_gates`) and the job both call this through
-    `check_proposal`, so one rule set judges both."""
+    `existing_tool`, a plan that adds a rule of the plan check and gives no test that accepts
+    its own plan (#3404), and a plan that changes a planner prompt and cites no prompt-rule test
+    (#3347). The replay (`stage_eval_gates`) and the job both call this through `check_proposal`,
+    so one rule set judges both."""
     texts = MESSAGES.roadmap
     problems = [p for field, text in _plan_texts(proposal) for p in _text_problems(field, text)]
     problems.extend(_message_file_problems(proposal))
     problems.extend(_duplicate_task_problems(proposal))
     problems.extend(_self_acceptance_problems(proposal))
+    problems.extend(_prompt_rule_problems(proposal))
     lines = [_squash(line) for line in probes if line.strip()]
     if lines:
         feasibility = _squash(" ".join(proposal.feasibility))
