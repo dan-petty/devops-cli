@@ -3197,6 +3197,14 @@ class RoadmapMessages:
     stage_violations: str = "{count} schema violation(s)"
     # The plan run of the toolbox stopped with no plan; `reason` is the fixed text of its stop.
     stage_run_stopped: str = "The plan run stopped before it gave a plan: {reason}."
+    # The window ended the tools of the plan run before it made the least number of tool calls
+    # (#3880). The model has then read almost none of the code and writes a placeholder text.
+    stage_window_starved: str = (
+        "The context window of {window} tokens ended the tools of the plan run after {calls} "
+        "tool call(s). The run needs at least {minimum} calls. Raise the setting "
+        "ai.tasks.stage.context_window, or ai.tasks.analysis.context_window, which the task "
+        "stage uses when it sets none."
+    )
     # The review run of a plan that passed the gates stopped with no findings (#3039).
     stage_verify_stopped: str = (
         "The verification run stopped before it gave its findings: {reason}. The plan passed the "
@@ -3240,15 +3248,11 @@ class RoadmapMessages:
         "{input_tokens} input tokens and {output_tokens} output tokens. {calls}"
     )
     stage_comment_calls: str = "The tool calls, in order:\n\n{calls}"
-    # A run with no tool call states why (#3477): no request offered a tool, because the request
-    # reached the limit of the context window, or the run offered tools and the model chose none.
+    # A run with no tool call states that the run offered tools and the model chose none. A run
+    # whose window ends its tools before the least calls fails the item (#3880).
     stage_comment_no_calls: str = (
         "The model made no tool call. The run offered tools on {offered} of {requests} "
         "request(s), and the model called none."
-    )
-    stage_comment_no_tools_offered: str = (
-        "The model made no tool call. The run offered no tool, because each request reached the "
-        "tool-removal limit of the context window."
     )
     stage_comment_call: str = "{index}. `{name}({argument})`"
     # The line after the list of calls (#3240): the calls and the empty answers of each tool.

@@ -18,13 +18,21 @@ from pydantic_ai.messages import ModelMessagesTypeAdapter, ModelRequest, UserPro
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.constants import (
     CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE,
+    CONST_ROADMAP_REFINE_TOOL_MAX_CHARS,
     CONST_ROADMAP_STAGE_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
+    CONST_ROADMAP_STAGE_MIN_TOOL_CALLS,
     CONST_ROADMAP_STAGE_SPEC_MAX_CHARS,
     CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS,
 )
 from devops_cli.roadmap import stage
-from devops_cli.roadmap.stage import openspec_tool, parse_filters, plan_item, plan_stage
+from devops_cli.roadmap.stage import (
+    StagePlan,
+    openspec_tool,
+    parse_filters,
+    plan_item,
+    plan_stage,
+)
 from devops_cli.roadmap.stage_eval_run import RecordingClient
 from devops_cli.roadmap.stage_toolbox import ToolboxClient, ToolboxModel
 from tests.support.builders import make_stage_proposal
@@ -45,9 +53,15 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.usefixtures("keyring_store", "model_fake")
 
-# The window of the `analysis` task in the example ConfigMap, and of its model in the gateway.
+# A small planner window, for the scripted runs that test the caps of the first request.
 WINDOW = 65536
+# The window of the `analysis` task in the example ConfigMap, and of its model in the gateway.
+CONFIGURED_WINDOW = 256_000
 GATEWAY_WINDOW = 1_048_576
+# The first plan request at its caps, measured on 2026-11-07 (#3880), and the tokens of the longest
+# tool answer, at about 4 characters for a token. The tools end when the messages reach the limit.
+FIRST_REQUEST_TOKENS = 38_000
+TOOL_ANSWER_TOKENS = CONST_ROADMAP_REFINE_TOOL_MAX_CHARS // 4
 _PLAN = make_stage_proposal()
 
 
@@ -67,8 +81,8 @@ def _words(tokens: int) -> str:
     return " ".join(f"word{n}" for n in range(tokens))
 
 
-def _plan(store: InMemoryRoadmapStore, repo: StageRepo, script: Script) -> None:
-    result = plan_stage(
+def _run(store: InMemoryRoadmapStore, repo: StageRepo, script: Script) -> StagePlan:
+    return plan_stage(
         store,
         repo=STAGE_REPO,
         source=repo.clone,
@@ -76,7 +90,10 @@ def _plan(store: InMemoryRoadmapStore, repo: StageRepo, script: Script) -> None:
         model=ToolboxModel(script.model()),
         step_tokens=10**6,
     )
-    assert len(result.ready) == 1
+
+
+def _plan(store: InMemoryRoadmapStore, repo: StageRepo, script: Script) -> None:
+    assert len(_run(store, repo, script).ready) == 1
 
 
 def _first_request(script: Script) -> dict[str, Any]:
@@ -255,10 +272,29 @@ def test_a_small_window_cuts_the_caps_to_a_share_of_itself(
     seed_stageable(store, body=_words(3 * CONST_ROADMAP_STAGE_BODY_MAX_TOKENS))
     script = _script()
 
-    _plan(store, stage_repo, script)
+    # A window of 8192 tokens ends the tools at once, so the run fails (#3880).
+    _run(store, stage_repo, script)
 
     request = _first_request(script)
     assert (count_tokens(request["context"]), count_tokens(request["body"])) == (4096, 2048)
+
+
+def test_a_window_that_ends_the_tools_too_soon_fails_the_item_and_names_the_setting(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The window of 8192 tokens ends the tools after one call, and the model then answers a plan.
+    The job records the window and not the faults of the plan (#3880)."""
+    monkeypatch.setattr(stage, "task_window", lambda task: 8192)
+    seed_stageable(store, body=_words(3 * CONST_ROADMAP_STAGE_BODY_MAX_TOKENS))
+    script = _script()
+
+    plan = _run(store, stage_repo, script)
+
+    (failure,) = plan.failed
+    assert (plan.ready, failure.error) == ((), "RoadmapStageError")
+    assert "ai.tasks.stage.context_window" in failure.reason
 
 
 def test_the_context_and_the_largest_spec_answer_stay_under_half_of_the_window() -> None:
@@ -275,10 +311,25 @@ def _data_of(path: str) -> Any:
     return yaml.safe_load((REPO_ROOT / path).read_text(encoding="utf-8"))
 
 
+def _example_task(name: str) -> dict[str, Any]:
+    return yaml.safe_load(_data_of("k8s/devops/configmap.example.yaml")["data"]["devops-cli.yaml"])[
+        "ai"
+    ]["tasks"][name]
+
+
+def test_the_planner_window_of_the_example_configmap_fits_the_first_request_and_the_minimum_calls() -> (
+    None
+):
+    """The task `stage` takes the window of `analysis`. At 65,536 tokens the tools end after 4 to 6
+    calls, and the model writes `x` in every text field of its plan (#3880)."""
+    needed = FIRST_REQUEST_TOKENS + CONST_ROADMAP_STAGE_MIN_TOOL_CALLS * TOOL_ANSWER_TOKENS
+    window = _example_task("analysis")["context_window"]
+
+    assert (_limit(window) >= needed, _limit(WINDOW) < needed) == (True, True)
+
+
 def test_the_documented_window_of_analysis_and_its_source_are_the_files_values() -> None:
-    configured = yaml.safe_load(
-        _data_of("k8s/devops/configmap.example.yaml")["data"]["devops-cli.yaml"]
-    )["ai"]["tasks"]["analysis"]
+    configured = _example_task("analysis")
     gateway = {
         entry["model_name"]: entry
         for entry in _data_of("k8s/llm/gateway/config.yaml")["model_list"]
@@ -286,11 +337,11 @@ def test_the_documented_window_of_analysis_and_its_source_are_the_files_values()
     model_window = gateway[configured["model"]]["model_info"]["max_input_tokens"]
     page = (REPO_ROOT / "docs/roadmap/stage.md").read_text(encoding="utf-8")
 
-    assert (configured["context_window"], model_window) == (WINDOW, GATEWAY_WINDOW)
+    assert (configured["context_window"], model_window) == (CONFIGURED_WINDOW, GATEWAY_WINDOW)
     assert all(
         text in page
         for text in (
-            f"`context_window` {WINDOW:,}",
+            f"`context_window` {CONFIGURED_WINDOW:,}",
             "k8s/devops/configmap.example.yaml",
             f"`max_input_tokens` {GATEWAY_WINDOW:,}",
             "k8s/llm/gateway/config.yaml",

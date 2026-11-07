@@ -24,9 +24,14 @@ data:
         # The model lane (stage, refine, alternatives) plans with DeepSeek through the gateway
         # group deepseek-v4.1-flash-1017 (#3155). The verification slot is the model that
         # reviews a plan; no code reads it before #3153 is built.
+        # The task stage takes this window. A plan run needs about 38,000 tokens for its first
+        # request and 1.5 million input tokens in 23 requests, and the run ends its tools at
+        # three quarters of the window. At 65,536 tokens the tools ended after 2 or 3 requests,
+        # and the model answered with a placeholder (#3880). 256,000 tokens is the smallest window
+        # that an fp8 provider of the gateway group offers; the group allows 1,048,576.
         analysis:
           model: deepseek-v4.1-flash-1017
-          context_window: 65536
+          context_window: 256000
         # The implement job runs every step on the same group (#3573). Its prompts, which hold
         # the code of the repository, leave the cluster to OpenRouter (SECURITY.md rule 13). The
         # window is the smallest that an fp8 provider of the group offers (256,000 tokens); the
