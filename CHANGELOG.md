@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.84.1](https://github.com/dan-petty/devops-cli/compare/v0.84.0...v0.84.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* **roadmap:** retitle records a skip mark for an item it leaves ([#4077](https://github.com/dan-petty/devops-cli/issues/4077)) ([ede93e1](https://github.com/dan-petty/devops-cli/commit/ede93e11af13e68c9b1cdf426138ae8283fb6161))
+* **roadmap:** write each stage and alternatives item when done ([#4080](https://github.com/dan-petty/devops-cli/issues/4080)) ([a224adb](https://github.com/dan-petty/devops-cli/commit/a224adbbdd38bca3ab3e5420aa8711674f5ed974))
+
 ## [0.84.0](https://github.com/dan-petty/devops-cli/compare/v0.83.2...v0.84.0) (2026-11-07)
 
 
