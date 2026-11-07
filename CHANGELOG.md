@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.85.0](https://github.com/dan-petty/devops-cli/compare/v0.84.1...v0.85.0) (2026-11-07)
+
+
+### Features
+
+* **roadmap:** require a security section for sensitive plans ([#4082](https://github.com/dan-petty/devops-cli/issues/4082)) ([257cb46](https://github.com/dan-petty/devops-cli/commit/257cb46e87603f314403a1b56067ac0c3dbcd105))
+
 ## [0.84.1](https://github.com/dan-petty/devops-cli/compare/v0.84.0...v0.84.1) (2026-11-07)
 
 
