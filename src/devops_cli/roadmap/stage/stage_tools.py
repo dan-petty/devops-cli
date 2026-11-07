@@ -19,7 +19,6 @@ must be the staged commit with no change: `checkout_problem` says when it is not
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
@@ -51,6 +50,7 @@ from devops_cli.roadmap.refine.refine_investigation import (
 )
 from devops_cli.roadmap.stage.stage_github import StageGitHub
 from devops_cli.roadmap.stage.stage_references import reference_answer
+from devops_cli.roadmap.tools import HOLDER_STAGE, HOLDER_STAGE_EXTENDED, tool_names
 
 _COMMIT: Final[re.Pattern[str]] = re.compile(r"[0-9a-fA-F]{7,40}")
 _SYMBOL: Final[re.Pattern[str]] = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -340,21 +340,9 @@ class StageTools(InvestigationTools):
 
     def tools(self) -> list[Tool[None]]:
         """The tools of the toolset, and no other: the nine of `base`, and with `extended` the
-        three tools after them."""
-        methods: list[Callable[..., ToolReturn]] = [
-            self.list_files,
-            self.read_file,
-            self.search_code,
-            self.git_log,
-            self.git_show,
-            self.file_symbols,
-            self.callers,
-            self.repo_map,
-            self.read_spec,
-        ]
-        if self.toolset == "extended":
-            methods += [self.references, self.read_issue, self.find_issues]
-        return [Tool(method, takes_ctx=False) for method in methods]
+        three tools after them. The registry holds the names of each toolset (#3244)."""
+        names = tool_names(HOLDER_STAGE if self.toolset == "base" else HOLDER_STAGE_EXTENDED)
+        return [Tool(getattr(self, name), takes_ctx=False) for name in names]
 
 
 def _requirement_lines(entry: dict[str, Any]) -> list[str]:

@@ -13,9 +13,9 @@ Reads: `src/devops_cli/ai/mcp/roles.py`, `src/devops_cli/roadmap/stage/stage_too
 
 Reads: `src/devops_cli/roadmap/tools.py`, `src/devops_cli/config/defaults.py`. Changes: `src/devops_cli/roadmap/stage/stage_tools.py`, `tests/roadmap/stage/test_roadmap_stage_tools.py`.
 
-- [ ] 2.1 Add a failing test in `tests/roadmap/stage/test_roadmap_stage_tools.py` that `StageTools.tools()` names the methods of the `stage` holder, and with `extended` also the three of `stage-extended`, in table order
+- [x] 2.1 Add a failing test in `tests/roadmap/stage/test_roadmap_stage_tools.py` that `StageTools.tools()` names the methods of the `stage` holder, and with `extended` also the three of `stage-extended`, in table order
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_tools.py` fails on the base
-- [ ] 2.2 Replace the method list of `StageTools.tools()` with the names that `tool_names` gives for `stage`, plus `tool_names` of `stage-extended` when the toolset is `extended`, and wrap each named method with `Tool(method, takes_ctx=False)`
+- [x] 2.2 Replace the method list of `StageTools.tools()` with the names that `tool_names` gives for `stage`, plus `tool_names` of `stage-extended` when the toolset is `extended`, and wrap each named method with `Tool(method, takes_ctx=False)`
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_tools.py` passes
 
 ## 3. Choose the role tables from the registry
