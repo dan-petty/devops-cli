@@ -398,6 +398,12 @@ RAG_STOPS_TOTAL = Instrument(
     "1",
     "Processes that turned RAG off for the rest of their run after an embedding failure",
 )
+RAG_INGEST_RUNS_TOTAL = Instrument(
+    "devops_cli_rag_ingest_runs_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "RAG repository ingestion runs, by repo and result: success or error",
+)
 VULNERABILITY_LOOKUPS_TOTAL = Instrument(
     "devops_cli_vulnerability_lookups_total",
     InstrumentKind.COUNTER,
@@ -566,6 +572,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     RAG_DRIFT_DETECTED,
     RAG_INVESTIGATIONS_TOTAL,
     RAG_STOPS_TOTAL,
+    RAG_INGEST_RUNS_TOTAL,
     VULNERABILITY_LOOKUPS_TOTAL,
     THREAT_INTEL_LOOKUPS_TOTAL,
     PROJECT_RELEASES,
@@ -672,6 +679,7 @@ __all__ = [
     "RAG_DRIFT_SCORE",
     "RAG_EMBEDDING_BATCH_RESIZES_TOTAL",
     "RAG_EMBEDDING_BATCH_SIZE",
+    "RAG_INGEST_RUNS_TOTAL",
     "RAG_INVESTIGATIONS_TOTAL",
     "RAG_POINTS",
     "RAG_QUERY_DURATION",
