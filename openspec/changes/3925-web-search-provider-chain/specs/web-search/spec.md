@@ -53,7 +53,7 @@ A provider that fails (a timeout, a connect error, HTTP 401, 402, 403, 429, 5xx 
 `web_search` SHALL raise `SearchQueryRefused` and send no request for an empty query, a query over 400 characters or 50 words, a query that starts with `!` or `:`, and a query that holds a secret, an e-mail address, a private IP address or an internal host name. The message SHALL name the rule and SHALL NOT hold the query.
 
 #### Scenario: Each refused query
-- **WHEN** the query holds a token of a GitHub account, `dev@corp.test`, `192.168.1.20`, `storage.lan`, or starts with `!`
+- **WHEN** the query holds a token of a GitHub account, `dev@corp.test`, `192.168.49.2`, `storage.internal`, or starts with `!`
 - **THEN** `SearchQueryRefused` is raised, no request is sent, and the counter has one point with the backend `none` and the result `refused`
 
 #### Scenario: A version is no address

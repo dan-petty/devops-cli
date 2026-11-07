@@ -57,7 +57,7 @@ from devops_cli.telemetry.instruments import WEB_SEARCHES_TOTAL, emit
 
 logger = logging.getLogger(__name__)
 
-_PROSE_EDGES: Final[str] = ".,;:!?\"'`()[]{}<>"
+_PROSE_EDGES: Final[str] = ".,;:!?\"'`(){}<>"
 _HTTP_SCHEMES: Final[frozenset[str]] = frozenset({"http", "https"})
 
 
@@ -316,13 +316,22 @@ def _private_part(text: str) -> str | None:
     host name. None when no token is."""
     for token in text.split():
         word = token.strip(_PROSE_EDGES)
+        host = _host_of(word)
         if _is_email(word):
             return "the query holds an e-mail address"
-        if _is_private_address(word):
+        if _is_private_address(host):
             return "the query holds a private address"
-        if is_local_or_reserved_domain(word):
+        if is_local_or_reserved_domain(host):
             return "the query holds an internal host name"
     return None
+
+
+def _host_of(word: str) -> str:
+    """The host of `word`, which may carry a port or brackets, or `word` when it names no host."""
+    try:
+        return urlsplit(f"//{word}").hostname or word
+    except ValueError:
+        return word
 
 
 def _is_email(word: str) -> bool:
@@ -334,10 +343,9 @@ def _is_email(word: str) -> bool:
         return False
 
 
-def _is_private_address(word: str) -> bool:
-    """Whether `word` is an IP address, with or without a port, in private or local space. A
-    version such as `10.15` is no address: only a full address counts."""
-    host = urlsplit(f"//{word}").hostname or word
+def _is_private_address(host: str) -> bool:
+    """Whether `host` is an IP address in private or local space. A version such as `10.15` is no
+    address: only a full address counts."""
     try:
         address = ipaddress.ip_address(host)
     except ValueError:

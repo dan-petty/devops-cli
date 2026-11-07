@@ -472,9 +472,12 @@ _REFUSED = [
     pytest.param(":help pydantic", id="leading-colon"),
     pytest.param(_secret_query(), id="secret"),
     pytest.param("who is dev@corp.test", id="email-address"),
-    pytest.param("why does 192.168.1.20 refuse", id="private-address"),
-    pytest.param("login to 10.0.0.5:8080", id="private-address-with-port"),
-    pytest.param("open storage.lan share", id="internal-host-name"),
+    pytest.param("why does 192.168.49.2 refuse", id="private-address"),
+    pytest.param("login to 100.64.0.5:8080", id="shared-address-with-port"),
+    pytest.param("ping 169.254.10.5 now", id="link-local-address"),
+    pytest.param("connect to [::1]:8080", id="loopback-v6-address"),
+    pytest.param("open storage.internal share", id="internal-host-name"),
+    pytest.param("open storage.home.arpa share", id="home-network-host-name"),
     pytest.param("ping localhost", id="localhost"),
 ]
 

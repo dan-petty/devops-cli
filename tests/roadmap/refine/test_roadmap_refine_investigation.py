@@ -996,7 +996,7 @@ def test_a_refused_query_answers_as_text_and_sends_no_request(
 ) -> None:
     cited: set[str] = set()
 
-    answer = cited_web_search("why does 192.168.1.20 refuse", cited, results=5)
+    answer = cited_web_search("why does 192.168.49.2 refuse", cited, results=5)
 
     assert (answer, cited, web.sent) == (
         "The search was refused: the query holds a private address.",
