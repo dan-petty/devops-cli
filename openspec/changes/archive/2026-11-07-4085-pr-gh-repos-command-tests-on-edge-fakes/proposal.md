@@ -31,6 +31,7 @@ The patches replace `run_gh`, `check_binary`, `load_settings`, `get_repo_origin_
 - A test of the cache options of `gh api` read the keyword arguments of a mocked `run_gh`. It now reads when `gh` starts again, with the clock.
 - Each test keeps its node id (346 ids before and after). The behavior that each test checks does not change.
 - No file under `src/` changes. The change has no spec delta, and `skip_specs: true` is set.
+- Left for a later item of #3769: four tests of `tests/commands/test_repos.py` still import private helpers of `devops_cli.commands.repos` (`_current_branch`, `_resolve_workspace_file`, `_list_git_tracked_files`, `_reload_workspace`). Issue #4085 asks for no string patch, and these imports were there before. The follow-up item for private imports owns them. No ceiling is raised.
 - Result: 266 string patches of a `devops_cli` name before, 0 after. No ratchet on these patches exists yet (`docs/TESTING.md`, "Floor and ratchets"), so no ceiling changes.
 
 ## Impact
