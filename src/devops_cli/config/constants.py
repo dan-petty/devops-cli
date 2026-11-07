@@ -3226,9 +3226,9 @@ CONST_ROADMAP_IMPLEMENT_MAX_REQUESTS: Final[int] = 500
 CONST_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS: Final[int] = 1500
 CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS: Final[int] = 40000
 # The step classes of the model ladder of `roadmap.implement.ladder` (#3060). Each class has one
-# ordered list of tiers, one tier per attempt. A step of a group is `edit`, a fix step is `repair`,
-# and `plan` and `review` are the classes of the steps that plan and review an item.
-CONST_ROADMAP_IMPLEMENT_STEP_CLASSES: Final[tuple[str, ...]] = ("plan", "edit", "repair", "review")
+# ordered list of tiers, one tier per attempt. A step of a group is `edit`, and a fix step is
+# `repair`.
+CONST_ROADMAP_IMPLEMENT_STEP_CLASSES: Final[tuple[str, ...]] = ("edit", "repair")
 # The consecutive failures that a tool may answer before the run ends, such as an `edit_file` whose
 # text is not found. A successful call of a tool resets its count (`pydantic_ai/tool_manager.py`),
 # so the count is of failures in a row. A refusal of the shell by policy is a tool result, not a

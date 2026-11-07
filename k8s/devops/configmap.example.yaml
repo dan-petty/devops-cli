@@ -117,7 +117,5 @@ data:
           - low
           - medium
         ladder:
-          plan: [deepseek-v4.1-flash-1017]
           edit: [deepseek-v4.1-flash-1017]
           repair: [deepseek-v4.1-flash-1017]
-          review: [deepseek-v4.1-flash-1017]
