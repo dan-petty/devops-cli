@@ -299,11 +299,35 @@ def main_worktree_root(start_path: Path | str | None = None) -> Path:
 
 
 @functools.cache
-def _own_source_dir() -> Path:
+def _imported_source_dir() -> Path:
     """The directory the running devops-cli's package is imported from."""
     import devops_cli
 
     return Path(devops_cli.__file__).resolve().parent
+
+
+_installed_source_dir: Path | None = None
+
+
+def install_own_source_dir(package_dir: Path) -> None:
+    """Take `package_dir` as the directory that devops-cli's package runs from, in place of the one
+    it is imported from. It decides which repository is devops-cli's own (`is_own_source_repository`)
+    and whether devops-cli runs as an installed copy. `reset_own_source_dir` removes it."""
+    global _installed_source_dir
+    _installed_source_dir = package_dir
+
+
+def reset_own_source_dir() -> None:
+    """Remove the directory that `install_own_source_dir` named: the package runs from the one it
+    is imported from again."""
+    global _installed_source_dir
+    _installed_source_dir = None
+
+
+def _own_source_dir() -> Path:
+    """The directory the running devops-cli's package is imported from, or the one that
+    `install_own_source_dir` names."""
+    return _installed_source_dir or _imported_source_dir()
 
 
 def _is_installed_copy(package_dir: Path) -> bool:
@@ -636,14 +660,10 @@ def get_repo_origin_name(repo_root: Path) -> str | None:
     return _cached_repo_origin(repo_root.resolve())
 
 
-get_repo_origin_name.cache_clear = _cached_repo_origin.cache_clear  # type: ignore[attr-defined]
-
-
 def reset_repo_caches() -> None:
     """Clear all cached repository root, origin, and pathspec lookups."""
     _get_pathspec_for_repo.cache_clear()
-    if hasattr(_own_source_dir, "cache_clear"):
-        _own_source_dir.cache_clear()
+    _imported_source_dir.cache_clear()
     _source_repository.cache_clear()
     _repository_at.cache_clear()
     _cached_repo_origin.cache_clear()

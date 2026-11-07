@@ -1,5 +1,4 @@
 import platform
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -7,6 +6,7 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.ci import app, get_check_specs
 from devops_cli.dry_run import is_dry_run
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 # Pre-warm standard library system cache so uname is not invoked by platform internals
 platform.processor()
@@ -15,17 +15,15 @@ runner = CliRunner()
 
 
 @pytest.fixture
-def recorder(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
-    """Capture subprocess.run invocations without launching real processes."""
+def recorder(process_fake: ProcessFake) -> list[list[str]]:
+    """Capture the programs the runner is asked to start, answering each with success."""
     calls: list[list[str]] = []
 
-    def mock_run(
-        cmd: list[str] | tuple[str, ...], *args: object, **kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
-        calls.append(list(cmd))
-        return subprocess.CompletedProcess(args=list(cmd), returncode=0, stdout="", stderr="")
+    def record(call: ProcessCall) -> ProcessAnswer:
+        calls.append(list(call.argv))
+        return ProcessAnswer()
 
-    monkeypatch.setattr("subprocess.run", mock_run)
+    process_fake.answer(lambda _call: True, record)
     return calls
 
 

@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from devops_cli.core.repo import own_source_state
+from devops_cli.core.repo import (
+    _own_source_dir,
+    install_own_source_dir,
+    own_source_state,
+    reset_own_source_dir,
+    reset_repo_caches,
+)
 from tests.support.fakes.git import GitFake
 
 
@@ -34,3 +40,15 @@ def test_own_source_state_changes_with_each_edit_and_commit(
 def test_an_installed_copy_has_no_source_state() -> None:
     """devops-cli installed in site-packages, as every test runs it, reads no checkout."""
     assert own_source_state() is None
+
+
+def test_a_reset_of_the_caches_keeps_the_installed_source_directory(tmp_path: Path) -> None:
+    """A test that clears the repository caches in its middle stays where the floor put it; only
+    `reset_own_source_dir` removes the directory."""
+    install_own_source_dir(tmp_path)
+
+    reset_repo_caches()
+    kept = _own_source_dir()
+    reset_own_source_dir()
+
+    assert (kept, _own_source_dir() == tmp_path) == (tmp_path, False)

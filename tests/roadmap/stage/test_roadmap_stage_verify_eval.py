@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-import yaml
 
 from devops_cli.ai.client import factory
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
@@ -422,26 +421,17 @@ def test_read_spec_of_the_run_answers_from_the_spec(
 
 
 def test_the_run_takes_its_window_from_the_task_verification(
-    cases: list[StageCase], stage_repo: StageRepo, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    cases: list[StageCase], stage_repo: StageRepo, config: Callable[..., Path]
 ) -> None:
     window = 12_000
-    config = tmp_path / "config.yaml"
-    config.write_text(
-        yaml.safe_dump(
-            {
-                "ai": {
-                    "tasks": {
-                        "stage": {"context_window": 262_144},
-                        "verification": {"context_window": window},
-                    }
-                }
+    config(
+        ai={
+            "tasks": {
+                "stage": {"context_window": 262_144},
+                "verification": {"context_window": window},
             }
-        ),
-        encoding="utf-8",
+        }
     )
-    monkeypatch.setattr(settings, "CONFIG_PATH", config)
-    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(tmp_path / "no-project-config.yaml"))
-    settings.reset_settings_cache()
     case = _case(cases, stage_repo, "bad", (_defect(DefectType.OTHER),))
     filler = " ".join(f"word{number}" for number in range(window))
     script = Script(call("search_code", text=filler), Verification())

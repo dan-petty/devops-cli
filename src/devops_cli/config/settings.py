@@ -1478,12 +1478,12 @@ _FileStamp = tuple[str, int, int]
 _ConfigCacheEntry = tuple[tuple[_FileStamp, _FileStamp], "ConfigLayers"]
 
 _CONFIG_CACHE_LOCK = threading.Lock()
-# Keyed on everything that selects which files are read -- the global path (tests rebind
-# it), DEVOPS_CLI_CONFIG, the working directory the project lookup walks up from, and whether the
-# rule for a command that reads a tree it does not own holds, which skips that lookup (#972). The
-# rule's check of the working directory's repository is cached in `core.repo`, so the key costs no
-# walk of the tree.
-_CONFIG_CACHE: dict[tuple[str, str, str, bool], _ConfigCacheEntry] = {}
+# Keyed on what selects the project file that is read -- DEVOPS_CLI_CONFIG, the working directory
+# the project lookup walks up from, and whether the rule for a command that reads a tree it does
+# not own holds, which skips that lookup (#972). The global path is one for the whole process, so
+# it is no part of the key. The rule's check of the working directory's repository is cached in
+# `core.repo`, so the key costs no walk of the tree.
+_CONFIG_CACHE: dict[tuple[str, str, bool], _ConfigCacheEntry] = {}
 
 
 def _file_stamp(path: Path | None) -> _FileStamp:
@@ -1578,7 +1578,6 @@ def _config_layers() -> ConfigLayers:
     a caller editing one before saving must not rewrite what every later load sees.
     """
     cache_key = (
-        str(CONFIG_PATH),
         os.environ.get(PROJECT_CONFIG_ENV, ""),
         os.getcwd(),
         reads_untrusted_trees(),

@@ -81,9 +81,8 @@ def test_ensure_known_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     """Verify _ensure_known_host writes GitHub's pinned lines and sets permissions."""
     from devops_cli.config.constants import CONST_GITHUB_KNOWN_HOSTS_LINES
 
-    _ensure_known_host.cache_clear()
     fake_home = tmp_path / "home"
-    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+    monkeypatch.setenv("HOME", str(fake_home))
 
     known_hosts = fake_home / ".ssh" / "known_hosts"
     _ensure_known_host()
@@ -97,7 +96,7 @@ def test_ensure_known_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     ) == ("0o600", "0o700")
 
     # A second run adds nothing
-    _ensure_known_host.cache_clear()
+    reset_known_host_cache()
     _ensure_known_host()
     assert known_hosts.read_text(encoding="utf-8") == content
 

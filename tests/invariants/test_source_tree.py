@@ -217,6 +217,56 @@ def test_no_mock_imports_in_src(parsed_source_trees: ParsedTreeMap) -> None:
     assert _mock_imports_in_src(parsed_source_trees) == []
 
 
+# Product code that changes its behavior when a test runs is an accommodation (#1333). The two
+# reads of `PYTEST_CURRENT_TEST` in `commands/ci.py` are the last; the ceiling goes to zero with
+# them, and a read added anywhere fails.
+_PYTEST_CURRENT_TEST = "PYTEST_CURRENT_TEST"
+_PYTEST_CURRENT_TEST_CEILING = 2
+
+
+def _pytest_current_test_reads(trees: ParsedTreeMap) -> list[str]:
+    src = (REPO_ROOT / "src").resolve()
+    return sorted(
+        f"{Path(path).resolve().relative_to(src).as_posix()}:{node.lineno}"
+        for path, tree in trees.items()
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and node.value == _PYTEST_CURRENT_TEST
+    )
+
+
+def test_product_code_reads_pytest_current_test_no_more_than_its_ceiling(
+    parsed_source_trees: ParsedTreeMap,
+) -> None:
+    """The count of reads of `PYTEST_CURRENT_TEST` in `src/` only goes down (#1333)."""
+    assert len(_pytest_current_test_reads(parsed_source_trees)) <= _PYTEST_CURRENT_TEST_CEILING
+
+
+def _function_identity_checks(trees: ParsedTreeMap) -> list[str]:
+    """The reads of an attribute of `subprocess.run`, through `getattr` or directly, which tell a
+    stdlib function from the one a test put in its place."""
+    src = (REPO_ROOT / "src").resolve()
+    return sorted(
+        f"{Path(path).resolve().relative_to(src).as_posix()}:{node.lineno}"
+        for path, tree in trees.items()
+        for node in ast.walk(tree)
+        if (
+            isinstance(node, ast.Call)
+            and _called_name(node) == "getattr"
+            and node.args
+            and ast.unparse(node.args[0]) == "subprocess.run"
+        )
+        or (isinstance(node, ast.Attribute) and ast.unparse(node.value) == "subprocess.run")
+    )
+
+
+def test_product_code_does_not_tell_a_replaced_subprocess_run_from_the_stdlib_one(
+    parsed_source_trees: ParsedTreeMap,
+) -> None:
+    """The async runner started a program through the sync path when a test had replaced
+    `subprocess.run` (#1333). It goes through the active process runner and looks at no test."""
+    assert _function_identity_checks(parsed_source_trees) == []
+
+
 CONST_ROOT_TESTS_CEILING = 0
 CONST_NON_MIRROR_TEST_CEILING = 0
 

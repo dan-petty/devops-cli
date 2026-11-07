@@ -39,17 +39,11 @@ Cli = Callable[..., Any]
 DEFAULT_FILTER = ["status=ready"]
 
 
-@pytest.fixture
-def config_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """An empty user config file, with the project layer absent and the variables unset."""
-    path = tmp_path / "config.yaml"
-    path.write_text("", encoding="utf-8")
-    monkeypatch.setattr(settings, "CONFIG_PATH", path)
-    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(tmp_path / "no-project-config.yaml"))
+@pytest.fixture(autouse=True)
+def unset_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Leave the stage variables unset, so the config file and the defaults decide."""
     for name in ("FILTER", "LIMIT", "PLANNED_LIMIT", "STEP_TOKENS", "TOOLSET"):
         monkeypatch.delenv(f"DEVOPS_CLI_ROADMAP_STAGE_{name}", raising=False)
-    settings.reset_settings_cache()
-    return path
 
 
 def _stage_settings() -> tuple[list[str], int, int]:
@@ -57,16 +51,14 @@ def _stage_settings() -> tuple[list[str], int, int]:
     return loaded.filter, loaded.limit, loaded.step_tokens
 
 
-def test_the_defaults_are_every_ready_item_three_items_and_half_the_implement_window(
-    config_file: Path,
-) -> None:
+def test_the_defaults_are_every_ready_item_three_items_and_half_the_implement_window() -> None:
     assert _stage_settings() == (DEFAULT_FILTER, 3, 64000)
 
 
 def test_a_config_file_and_a_variable_set_the_limit_and_the_filter(
-    config_file: Path, monkeypatch: pytest.MonkeyPatch
+    config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config_file.write_text("roadmap:\n  stage:\n    limit: 1\n", encoding="utf-8")
+    config(roadmap={"stage": {"limit": 1}})
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_FILTER", "status=ready,type=feature")
 
     assert _stage_settings() == (
@@ -76,11 +68,8 @@ def test_a_config_file_and_a_variable_set_the_limit_and_the_filter(
     )
 
 
-def test_a_config_file_sets_the_filter_as_a_list(config_file: Path) -> None:
-    config_file.write_text(
-        "roadmap:\n  stage:\n    filter:\n      - status=ready\n      - effort=small\n",
-        encoding="utf-8",
-    )
+def test_a_config_file_sets_the_filter_as_a_list(config: Callable[..., Path]) -> None:
+    config(roadmap={"stage": {"filter": ["status=ready", "effort=small"]}})
 
     assert _stage_settings() == (
         ["status=ready", "effort=small"],
@@ -91,7 +80,7 @@ def test_a_config_file_sets_the_filter_as_a_list(config_file: Path) -> None:
 
 @pytest.mark.parametrize("entry", ["color=red", "ready", "type=", "=bug"])
 def test_an_invalid_filter_entry_is_refused_naming_it(
-    config_file: Path, monkeypatch: pytest.MonkeyPatch, entry: str
+    monkeypatch: pytest.MonkeyPatch, entry: str
 ) -> None:
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_FILTER", f"status=ready,{entry}")
 
@@ -101,21 +90,21 @@ def test_an_invalid_filter_entry_is_refused_naming_it(
     assert f"'{entry}'" in str(refused.value)
 
 
-def test_a_filter_with_no_entry_is_refused(config_file: Path) -> None:
-    config_file.write_text("roadmap:\n  stage:\n    filter: []\n", encoding="utf-8")
+def test_a_filter_with_no_entry_is_refused(config: Callable[..., Path]) -> None:
+    config(roadmap={"stage": {"filter": []}})
 
     with pytest.raises(ValidationError, match="too_short"):
         settings.load_settings()
 
 
-def test_the_toolset_is_extended_by_default(config_file: Path) -> None:
+def test_the_toolset_is_extended_by_default() -> None:
     assert settings.load_settings().roadmap.stage.toolset == "extended"
 
 
 def test_a_config_file_and_a_variable_set_the_toolset(
-    config_file: Path, monkeypatch: pytest.MonkeyPatch
+    config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config_file.write_text("roadmap:\n  stage:\n    toolset: base\n", encoding="utf-8")
+    config(roadmap={"stage": {"toolset": "base"}})
     from_file = settings.load_settings().roadmap.stage.toolset
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_TOOLSET", "extended")
     settings.reset_settings_cache()
@@ -124,7 +113,7 @@ def test_a_config_file_and_a_variable_set_the_toolset(
 
 
 def test_a_toolset_that_is_none_of_the_two_is_refused_naming_it(
-    config_file: Path, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_TOOLSET", "wide")
 
@@ -134,16 +123,16 @@ def test_a_toolset_that_is_none_of_the_two_is_refused_naming_it(
     assert "'base' or 'extended'" in str(refused.value)
 
 
-def test_the_planned_limit_has_a_default(config_file: Path) -> None:
+def test_the_planned_limit_has_a_default() -> None:
     assert (
         settings.load_settings().roadmap.stage.planned_limit == DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT
     )
 
 
 def test_a_config_file_and_a_variable_set_the_planned_limit(
-    config_file: Path, monkeypatch: pytest.MonkeyPatch
+    config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    config_file.write_text("roadmap:\n  stage:\n    planned_limit: 7\n", encoding="utf-8")
+    config(roadmap={"stage": {"planned_limit": 7}})
     from_file = settings.load_settings().roadmap.stage.planned_limit
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_STAGE_PLANNED_LIMIT", "9")
     settings.reset_settings_cache()
@@ -151,26 +140,22 @@ def test_a_config_file_and_a_variable_set_the_planned_limit(
     assert (from_file, settings.load_settings().roadmap.stage.planned_limit) == (7, 9)
 
 
-def test_a_planned_limit_under_one_is_refused(config_file: Path) -> None:
-    config_file.write_text("roadmap:\n  stage:\n    planned_limit: 0\n", encoding="utf-8")
+def test_a_planned_limit_under_one_is_refused(config: Callable[..., Path]) -> None:
+    config(roadmap={"stage": {"planned_limit": 0}})
 
     with pytest.raises(ValidationError, match="greater_than_equal"):
         settings.load_settings()
 
 
-def test_the_implement_effort_defaults_to_low_then_medium(config_file: Path) -> None:
+def test_the_implement_effort_defaults_to_low_then_medium() -> None:
     assert settings.load_settings().roadmap.implement.effort == ["low", "medium"]
 
 
 @pytest.mark.parametrize("values", [("low", "huge"), ("low", "low")])
 def test_an_implement_effort_value_that_is_no_effort_or_held_twice_is_refused_naming_it(
-    config_file: Path, values: tuple[str, str]
+    config: Callable[..., Path], values: tuple[str, str]
 ) -> None:
-    entries = "".join(f"      - {value}\n" for value in values)
-    config_file.write_text(
-        f"roadmap:\n  implement:\n    effort:\n{entries}",
-        encoding="utf-8",
-    )
+    config(roadmap={"implement": {"effort": list(values)}})
 
     with pytest.raises(ValidationError, match=values[1]):
         settings.load_settings()
@@ -201,7 +186,7 @@ def _plan(cli: Cli, repo: StageRepo, *args: str) -> str:
     return str(result.output)
 
 
-@pytest.mark.usefixtures("keyring_store", "two_kinds", "config_file")
+@pytest.mark.usefixtures("keyring_store", "two_kinds")
 def test_the_command_takes_the_filter_and_the_limit_of_the_settings(
     cli: Cli,
     stage_repo: StageRepo,
@@ -218,7 +203,7 @@ def test_the_command_takes_the_filter_and_the_limit_of_the_settings(
     assert "#1 " not in output
 
 
-@pytest.mark.usefixtures("keyring_store", "two_kinds", "config_file")
+@pytest.mark.usefixtures("keyring_store", "two_kinds")
 def test_the_options_replace_the_filter_of_the_settings_for_one_run(
     cli: Cli,
     stage_repo: StageRepo,
@@ -235,7 +220,7 @@ def test_the_options_replace_the_filter_of_the_settings_for_one_run(
     assert "#2 " not in output
 
 
-@pytest.mark.usefixtures("keyring_store", "two_kinds", "config_file")
+@pytest.mark.usefixtures("keyring_store", "two_kinds")
 def test_the_limit_of_the_settings_caps_the_command_and_the_option_replaces_it(
     cli: Cli,
     stage_repo: StageRepo,
@@ -256,7 +241,7 @@ def test_the_limit_of_the_settings_caps_the_command_and_the_option_replaces_it(
     assert ("#1 " in both, "#2 " in both) == (True, True)
 
 
-@pytest.mark.usefixtures("keyring_store", "config_file")
+@pytest.mark.usefixtures("keyring_store")
 def test_the_command_plans_no_item_at_the_planned_limit_and_gives_the_limit_as_the_reason(
     cli: Cli,
     roadmap_store: InMemoryRoadmapStore,

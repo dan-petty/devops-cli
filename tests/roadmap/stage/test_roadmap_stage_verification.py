@@ -6,10 +6,8 @@ import json
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-import yaml
 
 from devops_cli.ai.client.models import StructuredOutputValidationError
-from devops_cli.config import settings
 from devops_cli.github.client import CreatedPull
 from devops_cli.roadmap.stage.stage import (
     StagePlan,
@@ -36,6 +34,7 @@ from tests.support.roadmap_stage import (
 from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from devops_cli.roadmap.stage.stage import StageClient
@@ -313,27 +312,17 @@ def test_the_review_takes_its_window_from_the_task_verification_and_not_from_sta
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+    config: Callable[..., Path],
 ) -> None:
     window = 12_000
-    config = tmp_path / "config.yaml"
-    config.write_text(
-        yaml.safe_dump(
-            {
-                "ai": {
-                    "tasks": {
-                        "stage": {"context_window": 262_144},
-                        "verification": {"context_window": window},
-                    }
-                }
+    config(
+        ai={
+            "tasks": {
+                "stage": {"context_window": 262_144},
+                "verification": {"context_window": window},
             }
-        ),
-        encoding="utf-8",
+        }
     )
-    monkeypatch.setattr(settings, "CONFIG_PATH", config)
-    monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(tmp_path / "no-project-config.yaml"))
-    settings.reset_settings_cache()
     model_fake.answer(make_stage_proposal())
     filler = " ".join(f"word{number}" for number in range(window))
     reads = Script(call("search_code", text=filler), Verification())
