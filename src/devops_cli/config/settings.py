@@ -992,7 +992,7 @@ class RoadmapImplementConfig(BaseModel):
         ge=0,
     )
     ladder: Annotated[dict[str, list[str]], Variable()] = Field(
-        description="The model tiers of each step class (`plan`, `edit`, `repair`, `review`), one tier per attempt, weakest first. A step moves to the next tier when a failure class selects `change_tier`, or when its run ends on a provider error, and the move spends no repair round. The gateway's health is read before a tier is chosen, and an unhealthy tier is skipped. A tier is a local gateway group, a hosted group that this setting names, or an `ollama:<tag>` model. The default names the local `devops-coder` group only",
+        description="The model tiers of each step class (`edit`, `repair`), one tier per attempt, weakest first. A step moves to the next tier when a failure class selects `change_tier`, or when its run ends on a provider error, and the move spends no repair round. The gateway's health is read before a tier is chosen, and an unhealthy tier is skipped. A tier is a local gateway group, a hosted group that this setting names, or an `ollama:<tag>` model. The default names the local `devops-coder` group only",
         default_factory=lambda: {
             step_class: list(DEFAULT_ROADMAP_IMPLEMENT_LADDER_TIERS)
             for step_class in CONST_ROADMAP_IMPLEMENT_STEP_CLASSES

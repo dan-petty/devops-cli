@@ -163,13 +163,10 @@ _PROMPT = "roadmap_implement_step.md"
 
 class StepClass(StrEnum):
     """The class of a step, which selects its ladder of model tiers (#3060): a group of a change
-    is `edit`, the fix of a failed check is `repair`, and `plan` and `review` are the classes of
-    the steps that plan and review an item."""
+    is `edit`, and the fix of a failed check is `repair`."""
 
-    PLAN = "plan"
     EDIT = "edit"
     REPAIR = "repair"
-    REVIEW = "review"
 
 
 class ItemReader(Protocol):
