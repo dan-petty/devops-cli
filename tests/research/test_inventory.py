@@ -185,7 +185,7 @@ def test_the_reader_starts_no_program_and_opens_no_connection(
     monkeypatch.setattr(socket.socket, "connect", refuse)
     monkeypatch.setattr(socket, "getaddrinfo", refuse)
 
-    assert read_inventory(FIXTURE_REPO).components
+    assert len(read_inventory(FIXTURE_REPO).components) == len(EXPECTED)
 
 
 def test_a_file_that_does_not_parse_is_an_error_that_names_the_file(tmp_path: Path) -> None:

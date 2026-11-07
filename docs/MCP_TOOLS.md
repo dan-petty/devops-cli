@@ -72,7 +72,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`gh_views_spec`](#gh-views-spec) | `true` | Output JSON schema specification for all configured project views. |
 | [`gh_views_sync`](#gh-views-sync) | `false` | Synchronize standardized views with the remote GitHub Projects v2 board. |
 | [`grafana_dashboards_list`](#grafana-dashboards-list) | `true` | List all dashboards. |
-| [`hydrate_tool_domain`](#hydrate-tool-domain) | `true` | Advertise the tools for one domain, which are withheld from the listing by default.  Call this before browsing a domain's tools. Available lazy domains include `argo`, `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`, `prometheus`, `rag`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`, `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`. Pass the domain name alone, for example `k8s`. |
+| [`hydrate_tool_domain`](#hydrate-tool-domain) | `true` | Advertise the tools for one domain, which are withheld from the listing by default.  Call this before browsing a domain's tools. Available lazy domains include `argo`, `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`, `prometheus`, `rag`, `repos`, `research`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`, `telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`. Pass the domain name alone, for example `k8s`. |
 | [`k8s_audit`](#k8s-audit) | `true` | Sanitize active K8s/Minikube cluster resource health using Derailed Popeye. |
 | [`k8s_bootstrap`](#k8s-bootstrap) | `false` | Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress. |
 | [`k8s_chaos`](#k8s-chaos) | `false` | Run resilience and chaos experiments against Kubernetes workloads. |
@@ -1167,8 +1167,8 @@ Advertise the tools for one domain, which are withheld from the listing by defau
 
 Call this before browsing a domain's tools. Available lazy domains include `argo`,
 `benchmark`, `branches`, `ci`, `docker`, `docs`, `gh`, `grafana`, `k8s`, `pr`,
-`prometheus`, `rag`, `repos`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`, `telemetry`,
-`tf`, `tls`, `valkey`, `vault` and `verify`.
+`prometheus`, `rag`, `repos`, `research`, `roadmap`, `sandbox`, `scan`, `security`, `ssh`,
+`telemetry`, `tf`, `tls`, `valkey`, `vault` and `verify`.
 Pass the domain name alone, for example `k8s`.
 
 **Annotations:** `readOnlyHint: true`

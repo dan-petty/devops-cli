@@ -251,6 +251,7 @@ CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
         "prometheus",
         "rag",
         "repos",
+        "research",
         "roadmap",
         "sandbox",
         "scan",
