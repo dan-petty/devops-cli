@@ -2608,43 +2608,32 @@ The planner prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` SHALL state
 - **WHEN** the prompt-rules test reads the dependencies rule of `src/devops_cli/ai/tasks/roadmap_stage_change.md`
 - **THEN** the test finds the form `#<number>:` and the rule of the overlaps, and it passes
 
-### Requirement: A base requirement that names a removed command is updated
-`check_proposal` SHALL return a problem when an ADDED requirement states that a command or an option must not exist and an unmodified base requirement of the same capability names that command or option.
-
-#### Scenario: An added removal leaves a base requirement unchanged
-- **WHEN** A proposal adds a requirement that `devops roadmap intake-eval` must not exist, and the base texts hold an unmodified requirement that names it
-- **THEN** `check_proposal` returns a problem that names `devops roadmap intake-eval` and that base requirement
-
-#### Scenario: A modified text keeps the old command
-- **WHEN** A proposal adds a removal requirement for `devops roadmap intake-eval`, lists the base requirement that names it in `modified`, and the new text still names it
-- **THEN** `check_proposal` returns a problem that names `devops roadmap intake-eval` and that requirement
-
-#### Scenario: An added requirement removes an option
-- **WHEN** A proposal adds a requirement that `--old` must not exist, and an unmodified base requirement names `--old`
-- **THEN** `check_proposal` returns a problem that names `--old`
-
-#### Scenario: The planner updates every stale requirement
-- **WHEN** A proposal adds a removal requirement for `devops roadmap intake-eval` and lists each base requirement that names it in `modified` with text that omits the name
-- **THEN** `check_proposal` returns no problem about `devops roadmap intake-eval`
-
-### Requirement: The stale-command check reads the base requirement texts of its caller
-`check_proposal` MUST run the stale-command check only when the caller passes the base requirement texts, and MUST skip it when the caller passes none.
-
-#### Scenario: A caller passes no base texts
-- **WHEN** A proposal adds a requirement that `devops roadmap intake-eval` must not exist, and the caller passes no `requirement_texts`
-- **THEN** `check_proposal` returns no problem about `devops roadmap intake-eval`
-
-#### Scenario: The stage job passes the base texts
-- **WHEN** The stage job reads a base spec that names `devops roadmap intake-eval` and checks a proposal that removes that command
-- **THEN** the job passes the base requirement texts to `check_proposal`, which returns a problem for the unmodified requirement
-
-#### Scenario: A base spec gives the statement of each requirement
-- **WHEN** `read_spec` reads a spec with two requirements and a scenario under the first
-- **THEN** the base spec holds each requirement name with its statement, and the statement holds no scenario line
-
 ### Requirement: The stage prompt requires a modified requirement for a removed command
 The stage prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` SHALL require a `modified` requirement for each base requirement that names a command or an option that the issue removes or renames.
 
 #### Scenario: The prompt states the rename rule
 - **WHEN** A test reads `src/devops_cli/ai/tasks/roadmap_stage_change.md`
 - **THEN** the text holds a rule that names `modified`, a command or option that the issue removes or renames, and each base requirement that names the old name
+
+### Requirement: The path gate names every caller of a function that a task changes
+The path gate SHALL refuse a plan that adds a parameter to a function and leaves out a file under `src/` that calls the function.
+
+#### Scenario: A task adds a parameter to a function
+- **WHEN** A task text of a group holds the words Add a probes parameter to `check_proposal`
+- **THEN** The caller check reads the function name `check_proposal`
+
+#### Scenario: Two files call the function
+- **WHEN** The checkout holds `src/a.py` and `src/b.py`, and each holds `check_proposal(`
+- **THEN** The caller search returns `src/a.py` and `src/b.py`
+
+#### Scenario: The plan omits a caller file
+- **WHEN** A plan changes `check_proposal` and its `changes` lists hold `src/devops_cli/roadmap/stage_eval_gates.py` and no `src/devops_cli/roadmap/stage.py`
+- **THEN** `path_problems` returns a problem that names `check_proposal` and `src/devops_cli/roadmap/stage.py`
+
+#### Scenario: The plan lists every caller file
+- **WHEN** A plan changes `check_proposal` and its `changes` lists hold every file that the caller search returns
+- **THEN** `path_problems` returns no problem about a caller of `check_proposal`
+
+#### Scenario: The tree holds no checkout
+- **WHEN** The path gate runs on a tree of a replay case, which holds no checkout
+- **THEN** `path_problems` returns no problem about a caller

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -536,3 +538,66 @@ def test_a_group_that_reads_a_living_spec_passes() -> None:
     group = _group(reads=["openspec/specs/config-commands/spec.md"])
 
     assert _problems(group) == []
+
+
+# ── A plan that changes a function must name every caller (#3307) ───────────
+
+
+def _git_checkout(root: Path) -> StagedTree:
+    from tests.support.roadmap_stage import run_git
+
+    run_git(root, "init", "-q", "-b", "main")
+    run_git(root, "config", "user.name", "Test")
+    run_git(root, "config", "user.email", "test@example.com")
+    run_git(root, "add", "-A")
+    run_git(root, "commit", "-q", "-m", "init")
+    return StagedTree.read(root, operation="test")
+
+
+def test_a_plan_that_leaves_out_a_caller_is_refused(tmp_path: Path) -> None:
+    src_dir = tmp_path / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    (src_dir / "a.py").write_text("def check_proposal():\n    pass\n", encoding="utf-8")
+    (src_dir / "b.py").write_text(
+        "from a import check_proposal\n\ndef caller():\n    check_proposal()\n",
+        encoding="utf-8",
+    )
+    tree = _git_checkout(tmp_path)
+
+    group = _group(
+        changes=["src/a.py"],
+        test="Add `probes` to `check_proposal`",
+    )
+    problems = path_problems([group], tree)
+
+    assert any("check_proposal" in p and "src/b.py" in p for p in problems)
+
+
+def test_a_plan_listing_every_caller_passes(tmp_path: Path) -> None:
+    src_dir = tmp_path / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    (src_dir / "a.py").write_text("def check_proposal():\n    pass\n", encoding="utf-8")
+    (src_dir / "b.py").write_text(
+        "from a import check_proposal\n\ndef caller():\n    check_proposal()\n",
+        encoding="utf-8",
+    )
+    tree = _git_checkout(tmp_path)
+
+    group = _group(
+        changes=["src/a.py", "src/b.py"],
+        test="Add a probes parameter to `check_proposal`",
+    )
+    problems = path_problems([group], tree)
+
+    assert not any("check_proposal" in p for p in problems)
+
+
+def test_caller_check_skipped_when_tree_has_no_checkout() -> None:
+    tree = StagedTree(["src/a.py", "src/b.py"])
+    group = _group(
+        changes=["src/a.py"],
+        test="Add `probes` to `check_proposal`",
+    )
+    problems = path_problems([group], tree)
+
+    assert not any("check_proposal" in p for p in problems)

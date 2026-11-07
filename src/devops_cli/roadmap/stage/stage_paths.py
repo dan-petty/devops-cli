@@ -31,6 +31,8 @@ from glob import has_magic
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Final, Self
 
+from devops_cli.config.constants import CONST_GIT_CLI
+from devops_cli.core.process import run_subprocess
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import git
 from devops_cli.roadmap.implement.implement_shell_policy import (
@@ -81,7 +83,8 @@ class StagedTree:
     """The tracked files of a checkout, with what the check needs to know about them: the folders
     above them, their suffixes, their top-level names and the files of each name."""
 
-    def __init__(self, files: Iterable[str]) -> None:
+    def __init__(self, files: Iterable[str], *, source: Path | None = None) -> None:
+        self._source = source
         self._files = frozenset(files)
         self._folders = frozenset(folder for path in self._files for folder in _folders_of(path))
         self._suffixes = frozenset(PurePosixPath(path).suffix for path in self._files) - {""}
@@ -96,7 +99,12 @@ class StagedTree:
         """The tracked files of the checkout at `source`: one `git ls-files`. A failed command
         raises `GitOperationError`, so the job never judges a plan on a tree it could not read."""
         listing = git(source, "ls-files", "-z", operation=operation)
-        return cls(path for path in listing.split("\0") if path)
+        return cls((path for path in listing.split("\0") if path), source=source)
+
+    @property
+    def source(self) -> Path | None:
+        """The source directory of the checkout, or None."""
+        return self._source
 
     @property
     def files(self) -> frozenset[str]:
@@ -105,7 +113,32 @@ class StagedTree:
 
     def with_files(self, paths: Iterable[str]) -> StagedTree:
         """A tree that also holds `paths`: the files that the job itself writes."""
-        return StagedTree([*self._files, *paths])
+        return StagedTree([*self._files, *paths], source=self._source)
+
+    def callers(self, name: str) -> list[str]:
+        """The files under `src/` that call the function `name`, except definition lines."""
+        if self._source is None:
+            return []
+        proc = run_subprocess(
+            [CONST_GIT_CLI, "-C", str(self._source), "grep", "-n", "-F", "--", f"{name}(", "src"],
+            check=False,
+            quiet=True,
+        )
+        if proc.returncode != 0:
+            return []
+        calling_files: set[str] = set()
+        def_prefix = f"def {name}("
+        async_def_prefix = f"async def {name}("
+        for line in proc.stdout.splitlines():
+            parts = line.split(":", 2)
+            if len(parts) < 3:
+                continue
+            path, _lineno, content = parts
+            stripped = content.strip()
+            if stripped.startswith(def_prefix) or stripped.startswith(async_def_prefix):
+                continue
+            calling_files.add(path)
+        return sorted(calling_files)
 
     def has(self, path: str) -> bool:
         """Whether the tree holds the file or the folder `path`, or a file that a glob matches."""
@@ -203,6 +236,47 @@ def _first_creators(groups: Sequence[StageGroup]) -> dict[str, int]:
     return first
 
 
+_ADD_PARAMETER: Final[re.Pattern[str]] = re.compile(
+    r"\bAdd\s+.+?\s+to\s+`([A-Za-z_][A-Za-z0-9_]*)`"
+)
+
+
+def changed_functions(groups: Sequence[StageGroup]) -> list[str]:
+    """The function names that task texts of `groups` add a parameter to."""
+    functions: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for text in (group.test, group.implementation, group.documentation, group.process):
+            if not text:
+                continue
+            for match in _ADD_PARAMETER.finditer(text):
+                fn = match.group(1)
+                if fn not in seen:
+                    seen.add(fn)
+                    functions.append(fn)
+    return functions
+
+
+def caller_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]:
+    """One sentence for each file calling a changed function that `groups` omit from `changes`."""
+    if tree.source is None:
+        return []
+    functions = changed_functions(groups)
+    if not functions:
+        return []
+    all_changes = {path for group in groups for path in group.changes}
+    problems: list[str] = []
+    for function in functions:
+        for caller in tree.callers(function):
+            if caller not in all_changes:
+                problems.append(
+                    MESSAGES.roadmap.stage_problem_missing_caller.format(
+                        function=function, path=caller
+                    )
+                )
+    return problems
+
+
 def path_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]:
     """One sentence for each path, named in `groups`, that `tree` lacks and that no group up to
     the one that names it creates. A path is named once, at its first place. When a later group
@@ -228,4 +302,5 @@ def path_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]:
                 continue
             reported.add(path)
             problems.append(_problem(number, place, path, tree, creators.get(path)))
+    problems.extend(caller_problems(groups, tree))
     return problems
