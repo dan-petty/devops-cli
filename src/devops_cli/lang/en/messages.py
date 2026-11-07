@@ -2333,6 +2333,15 @@ class RoadmapMessages:
         "the model call failed for {count} item(s), and refine skipped them: {items}"
     )
     refine_failed_item: str = "#{number} ({error}, {violations} schema violation(s))"
+    # The log of a round: its start and its end, and an item whose write failed (#3631).
+    refine_round_started: str = "Refine round for {repo} started: {taken} item(s) taken."
+    refine_round_ended: str = (
+        "Refine round for {repo} ended: taken={taken}, written={written}, failed={failed}."
+    )
+    refine_write_failed_warning: str = (
+        "Refine wrote nothing more for #{number} in {repo}: the write failed ({error})."
+    )
+    refine_write_failed: str = "refine could not write {count} item(s), and went on: {items}"
     # `devops roadmap alternatives` (#2650).
     alternatives_title: str = "# Alternatives check for {repo}"
     alternatives_off: str = "The check is off: {reason}."
