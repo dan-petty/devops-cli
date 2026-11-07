@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.82.0](https://github.com/dan-petty/devops-cli/compare/v0.81.0...v0.82.0) (2026-11-07)
+
+
+### Features
+
+* **roadmap:** list registry and ratchet entries a plan needs ([#3999](https://github.com/dan-petty/devops-cli/issues/3999)) ([eb7a1a4](https://github.com/dan-petty/devops-cli/commit/eb7a1a42631e86b94808ad2b3fd5fca83c89ed45))
+* **roadmap:** report pipeline outcomes in roadmap explain ([#3955](https://github.com/dan-petty/devops-cli/issues/3955)) ([4ea2242](https://github.com/dan-petty/devops-cli/commit/4ea2242b7ce5bfeae8cb64154f1fcb8c5229ef98))
+
+
+### Bug Fixes
+
+* **k8s:** free the root disk of the control-plane node ([#3954](https://github.com/dan-petty/devops-cli/issues/3954)) ([a2711a1](https://github.com/dan-petty/devops-cli/commit/a2711a1738ecb940fe1796500c5920a6a70b064a))
+
 ## [0.81.0](https://github.com/dan-petty/devops-cli/compare/v0.80.0...v0.81.0) (2026-11-07)
 
 
