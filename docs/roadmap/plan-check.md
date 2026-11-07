@@ -48,10 +48,13 @@ commit, whatever the working tree of the checkout holds.
 
 The job `Plan Check` of the workflow `.github/workflows/pr-title.yml` runs the command for each plan
 pull request of the Service. Its condition selects a pull request that the bot of the Service App
-opened (`service.github_app.bot_login`) and whose title starts with `docs(openspec): plan #`. The
-condition reads the author of the pull request, not the actor of the event. A job that its
-condition skips reports Success, so the pull requests of a person, of another bot and of the
-release pass.
+opened (`service.github_app.bot_login`), whose title starts with `docs(openspec): plan #`, and whose
+body starts with the line `Plans #<issue>`. The condition reads the author of the pull request, not
+the actor of the event. It reads the body too, because the implement job changes the body of the
+plan pull request to the delivery form, `Closes #<issue>`, when it marks the pull request ready, and
+a delivery pull request can keep a title of the plan form (#3958). A job that its condition skips
+reports Success, so the pull requests of a person, of another bot, of the release and of a delivery
+pass.
 
 The job needs `Semantic PR title` and runs after it, also when it failed, because the command then
 reports that check as a problem. The job holds the permissions `checks`, `contents` and

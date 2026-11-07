@@ -1731,9 +1731,18 @@ PREPARE_CACHE_STEP = "Prepare the tiktoken cache"
 # The paths of the expressions that the condition of the job reads, and a path it must not read.
 EVENT_AUTHOR = "github.event.pull_request.user.login"
 EVENT_TITLE = "github.event.pull_request.title"
+EVENT_BODY = "github.event.pull_request.body"
 EVENT_ACTOR = "github.actor"
 # A real plan pull request of the Service: the title of #3261, which its App's bot opened.
 SERVICE_PLAN_TITLE = "docs(openspec): plan #3201 add a plan-check command for a plan pull request"
+# The body that `build_plan_body` gives that plan pull request: the `Plans` line first.
+SERVICE_PLAN_BODY = (
+    "Plans #3201\n\nThe plan adds a plan-check command for a plan pull request.\n\n"
+    "Change: `openspec/changes/3201-add-a-plan-check-command/`"
+)
+# The body of a pull request that delivers the item: the implement job changes the body of the
+# plan pull request to this form when it marks the pull request ready.
+DELIVERY_BODY = "Closes #3201\n\nThe change adds the plan-check command."
 _EQUALS_TERM = re.compile(r"(?P<path>[\w.]+) == '(?P<value>[^']*)'")
 _STARTS_WITH_TERM = re.compile(r"startsWith\((?P<path>[\w.]+), '(?P<prefix>[^']*)'\)")
 
@@ -1800,30 +1809,49 @@ def test_the_plan_check_job_reads_checks_contents_and_pull_requests_only() -> No
 
 
 @pytest.mark.parametrize(
-    ("author", "title", "runs"),
+    ("author", "title", "body", "runs"),
     [
-        ("devops-cli-service[bot]", SERVICE_PLAN_TITLE, True),
-        ("devops-cli-service[bot]", SERVICE_PLAN_TITLE.upper(), True),
+        ("devops-cli-service[bot]", SERVICE_PLAN_TITLE, SERVICE_PLAN_BODY, True),
+        (
+            "devops-cli-service[bot]",
+            SERVICE_PLAN_TITLE.upper(),
+            SERVICE_PLAN_BODY.upper(),
+            True,
+        ),
         (
             "devops-cli-service[bot]",
             "fix(roadmap): the plan check fails a citation of a line that moved",
+            SERVICE_PLAN_BODY,
             False,
         ),
-        ("devops-cli-service[bot]", "docs(openspec): archive the change 3103", False),
-        ("dan-petty", SERVICE_PLAN_TITLE, False),
-        ("github-actions[bot]", SERVICE_PLAN_TITLE, False),
-        ("dan-petty-release[bot]", "chore(main): release 0.64.1", False),
+        (
+            "devops-cli-service[bot]",
+            "docs(openspec): archive the change 3103",
+            SERVICE_PLAN_BODY,
+            False,
+        ),
+        ("dan-petty", SERVICE_PLAN_TITLE, SERVICE_PLAN_BODY, False),
+        ("github-actions[bot]", SERVICE_PLAN_TITLE, SERVICE_PLAN_BODY, False),
+        ("dan-petty-release[bot]", "chore(main): release 0.64.1", SERVICE_PLAN_BODY, False),
+        ("devops-cli-service[bot]", SERVICE_PLAN_TITLE, DELIVERY_BODY, False),
+        ("devops-cli-service[bot]", SERVICE_PLAN_TITLE, "", False),
     ],
 )
 def test_the_plan_check_job_runs_for_a_plan_of_the_service_and_for_no_other_pull_request(
-    author: str, title: str, runs: bool
+    author: str, title: str, body: str, runs: bool
 ) -> None:
     """The job runs for the plan pull request of the Service's bot, and is skipped for its
     implement pull request, for a plan of a person or of another bot, and for the release pull
     request. A skipped job reports Success, so these pull requests pass (#3103). The event holds
     a person as the actor and the author as the bot, as the run of #3261 did: the condition reads
-    the author, not the actor."""
-    event = {EVENT_ACTOR: "dan-petty", EVENT_AUTHOR: author, EVENT_TITLE: title}
+    the author, not the actor. A pull request whose body closes an issue delivers the item, so the
+    job skips it too, whatever its title says (#3958)."""
+    event = {
+        EVENT_ACTOR: "dan-petty",
+        EVENT_AUTHOR: author,
+        EVENT_TITLE: title,
+        EVENT_BODY: body,
+    }
 
     assert _runs(_plan_check_job(), event) is runs
 
@@ -1849,9 +1877,11 @@ def test_the_plan_check_job_names_the_login_of_the_bot_of_the_service_app() -> N
 
 
 def test_the_plan_check_job_selects_the_title_that_the_stage_job_gives_a_plan() -> None:
-    """The stage job opens a plan pull request with `staging_title`, and the plan check reads
-    that form. So the title prefix of the condition is the start of every title that the stage job
-    gives: the type, then `plan #` (#3103)."""
+    """The stage job opens a plan pull request with `staging_title` and `build_plan_body`, and the
+    plan check reads that form. So the title prefix of the condition is the start of every title
+    that the stage job gives (the type, then `plan #`), and its body prefix is the start of every
+    body that the stage job gives (the `Plans` line) (#3103, #3958)."""
+    from devops_cli.roadmap.pull_form import build_plan_body
     from devops_cli.roadmap.stage.stage_change import staging_title
 
     job = _plan_check_job()
@@ -1859,9 +1889,29 @@ def test_the_plan_check_job_selects_the_title_that_the_stage_job_gives_a_plan() 
         EVENT_ACTOR: "dan-petty",
         EVENT_AUTHOR: "devops-cli-service[bot]",
         EVENT_TITLE: staging_title(3103, "run the plan check on a plan pull request"),
+        EVENT_BODY: build_plan_body(
+            why="The plan runs the plan check on a plan pull request.",
+            issue=3103,
+            change="openspec/changes/3103-run-the-plan-check-on-a-plan",
+        ),
     }
 
     assert _runs(job, event) is True
+
+
+def test_the_plan_check_job_skips_a_pull_request_whose_body_closes_an_issue() -> None:
+    """The implement job changes the title and the body of the plan pull request when it marks it
+    ready: the body then closes the issue. A title that still starts with the form of a plan title
+    must not run the check, which judges a plan and reports a body that closes an issue as a
+    problem (#3958)."""
+    event = {
+        EVENT_ACTOR: "dan-petty",
+        EVENT_AUTHOR: "devops-cli-service[bot]",
+        EVENT_TITLE: "docs(openspec): plan #3242 Record the sandboxed run tool decision",
+        EVENT_BODY: DELIVERY_BODY,
+    }
+
+    assert _runs(_plan_check_job(), event) is False
 
 
 def test_the_plan_check_job_checks_out_the_history_and_runs_the_command_for_the_pull_request() -> (
