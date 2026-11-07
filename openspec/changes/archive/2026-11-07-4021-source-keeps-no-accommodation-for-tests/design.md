@@ -18,7 +18,7 @@ See proposal.md for the motivation and the scope (#4021, item 6 of the Fit note 
 - **Rejected**: a function that returns the global config path at each call. No test needs a second path now, and `CONFIG_PATH` has more than ten readers in `config/`.
 
 ### 3. `install_own_source_dir` is a public seam
-- **Decision**: `core/repo.py` keeps the installed directory in a module variable. `_own_source_dir()` returns it, else the directory that the package is imported from. `reset_repo_caches` clears it.
+- **Decision**: `core/repo.py` keeps the installed directory in a module variable. `_own_source_dir()` returns it, else the directory that the package is imported from. `reset_own_source_dir` clears it, and the floor calls it after each test. `reset_repo_caches` keeps it, so a test that clears the caches in its middle stays in the floor's isolation.
 - **Why**: "which repository is my own" depends on where the code runs from. A test cannot move the package, so it needs a way to say where it runs. A public install function with a reset in the floor is the pattern of the other seams.
 - **Rejected**: an environment variable. It would be a setting of the product that only tests use.
 - **Rejected**: change the working directory of every test, so that the checkout is never the start of a review. It changes every relative path in the suite.
