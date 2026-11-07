@@ -12,7 +12,7 @@
 - Rewrite every import of a moved module in `src/` and in `tests/` to its new module path. Rewrite the string targets of the tests that name a moved module, such as a `monkeypatch.setattr` path and a logger name, because a string does not follow an import. Keep the sample paths of the stage plan-check tests and of the frozen golden cases.
 - Add invariant tests that hold the subpackages, the store folder, the import paths and the docstring-only package module.
 - Move each test module of `tests/roadmap/` whose name starts with a job prefix into `tests/roadmap/<job>/`, and the two store tests into `tests/roadmap/stores/`, with the snapshot files of a moved test module. A test of a top-level module stays at `tests/roadmap/`.
-- Document the new layout in `docs/roadmap/README.md`.
+- Document the new layout in `docs/roadmap/package-layout.md`.
 - The change fits one pull request.
 
 ## Capabilities
@@ -28,7 +28,7 @@ None.
 ## Impact
 
 - Code: the 60 moved modules under `src/devops_cli/roadmap/`, the subpackage `__init__.py` files, and every module of `src/` that imports a moved module. The main callers are `src/devops_cli/commands/roadmap.py`, `src/devops_cli/github/issues.py`, `src/devops_cli/survey/intake.py` and `src/devops_cli/ai/research/mental_model.py`.
-- Documents: `docs/roadmap/README.md`.
+- Documents: `docs/roadmap/package-layout.md`.
 - Tests: `tests/invariants/test_source_tree.py`, the roadmap test modules under `tests/roadmap/`, `tests/support/roadmap.py` and the other modules of `tests/support/` that import a moved module.
 
 ## Feasibility

@@ -44,7 +44,7 @@ Reads: `src/devops_cli/roadmap/__init__.py`, `tests/invariants/test_source_tree.
 
 ## 7. Document the roadmap package layout
 
-Reads: `src/devops_cli/roadmap/__init__.py`, `docs/TESTING.md`. Changes: `docs/roadmap/README.md` (new) and `docs/index.md`.
+Reads: `src/devops_cli/roadmap/__init__.py`, `docs/TESTING.md`. Changes: `docs/roadmap/package-layout.md` (new) and `docs/index.md`.
 
-- [x] 7.1 Write `docs/roadmap/README.md` with one table row for each subpackage of `src/devops_cli/roadmap/` (`intake`, `refine`, `stage`, `implement`, `stores`), the modules it holds and its test folder, and one line that says the package `__init__` holds a docstring and re-exports no name. Link the page from `docs/index.md`
+- [x] 7.1 Write `docs/roadmap/package-layout.md` with one table row for each subpackage of `src/devops_cli/roadmap/` (`intake`, `refine`, `stage`, `implement`, `stores`), the modules it holds and its test folder, and one line that says the package `__init__` holds a docstring and re-exports no name. Link the page from `docs/index.md`
   - Verification: `uv run devops ci docs`
