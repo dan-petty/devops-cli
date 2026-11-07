@@ -4721,13 +4721,19 @@ class ResearchMessages:
     advisories_title: str = "Advisories that affect the pins of the project"
     advisories_plan: str = "Plan for research advisories"
     advisories_summary: str = (
-        "{findings} advisories on {packages} of {queried} packages that OSV was asked about. "
-        "{unpinned} pins have no exact version, and {not_covered} components are not covered."
+        "{findings} advisories on {packages} of {queried} component versions that OSV or GitHub "
+        "was asked about. {exploited} are in the CISA KEV list. {unpinned} pins name no one "
+        "release, and {not_covered} components are not covered."
     )
     advisories_failure: str = "No answer for {name} {version} ({advisory}): {reason}"
+    advisories_kev_failure: str = (
+        "The CISA KEV list could not be read, so no finding has an exploited flag: {reason}"
+    )
     advisories_query: str = "query"
     advisory_column: str = "Advisory"
     severity_column: str = "Severity"
+    exploited_column: str = "Exploited"
+    exploited_yes: str = "yes"
     affected_column: str = "Affected"
     fixed_column: str = "Fixed in"
 

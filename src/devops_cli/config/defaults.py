@@ -265,6 +265,17 @@ DEFAULT_VULNERABILITY_LOOKUP_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_OSV_MAX_RESPONSE_BYTES: int = 4 * 1024 * 1024  # 4 MiB
 # The most queries that `POST /v1/querybatch` takes (https://google.github.io/osv.dev/post-v1-querybatch/).
 DEFAULT_OSV_BATCH_MAX_QUERIES: int = 1000
+# Bytes of one reply of api.github.com/advisories that the client reads. A page of 100 advisories
+# held about 0.2 MiB on 2026-11-07. A larger reply is refused.
+DEFAULT_GITHUB_ADVISORIES_MAX_RESPONSE_BYTES: int = 4 * 1024 * 1024  # 4 MiB
+# The most package names in the `affects` parameter of one request. The API takes 1000; fewer keep
+# the URL short.
+DEFAULT_GITHUB_ADVISORIES_AFFECTS_MAX: int = 50
+# The most pages that the client reads for one request. A list over this is a failed lookup.
+DEFAULT_GITHUB_ADVISORIES_MAX_PAGES: int = 10
+# Bytes of the CISA KEV list that the client reads. The list held 1.8 MiB (1769 entries) on
+# 2026-11-07, so this leaves room for years of growth.
+DEFAULT_KEV_MAX_RESPONSE_BYTES: int = 8 * 1024 * 1024  # 8 MiB
 DEFAULT_SECURITY_SCANNER_TIMEOUT_SECONDS: float = 300.0
 # A database of osv-scanner or Trivy is 2.6 MB to 220 MB, so a fetch gets longer than a scan (#2131).
 DEFAULT_TOOL_DATABASE_FETCH_TIMEOUT_SECONDS: float = 900.0

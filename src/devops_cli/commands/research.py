@@ -10,16 +10,20 @@ import typer
 from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import DEFAULT_TABLE_FORMAT
 from devops_cli.core.cli import new_typer
+from devops_cli.core.process import github_token
 from devops_cli.core.repo import find_repo_root
 from devops_cli.dry_run.decorator import dry_run_class
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.dry_run.state import is_dry_run
+from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_table
 from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.research.advisories import advisory_requests, find_advisories
+from devops_cli.research.github_advisories import GitHubAdvisoryClient
 from devops_cli.research.inventory import read_inventory
 from devops_cli.research.models import AdvisoryReport
+from devops_cli.research.watch import read_watch_list
 from devops_cli.telemetry import trace_span
 
 app = new_typer(
@@ -101,23 +105,36 @@ def advisories(
     ] = False,
 ) -> None:
     """List the advisories that affect the pins of the project."""
-    inventory = read_inventory(find_repo_root(root))
+    repo_root = find_repo_root(root)
+    inventory = read_inventory(repo_root)
+    watch = read_watch_list(repo_root)
     resolved = resolve_format(output_format, json_output=json_output)
     if dry_run or is_dry_run():
-        planned = advisory_requests(inventory)
+        planned = advisory_requests(inventory, watch)
         if resolved != CONST_OUTPUT_FORMAT_TABLE:
             emit_serialized({"dry_run": True, "requests": [r.__dict__ for r in planned]}, resolved)
         else:
             render_request_plan(MESSAGES.research.advisories_plan, planned)
         return
 
-    report = find_advisories(inventory)
+    report = find_advisories(
+        inventory, watch=watch, github=GitHubAdvisoryClient(token=_optional_github_token())
+    )
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized(report.model_dump(mode="json"), resolved)
     else:
         _print_advisories(report)
-    if report.failures:
+    if report.failures or report.kev_failure:
         raise typer.Exit(code=1)
+
+
+def _optional_github_token() -> str | None:
+    """The GitHub token of the session, or None. The advisories are public, so a run with no token
+    works within the lower rate limit of GitHub."""
+    try:
+        return github_token()
+    except GitHubUnauthenticatedError:
+        return None
 
 
 def _print_advisories(report: AdvisoryReport) -> None:
@@ -130,6 +147,7 @@ def _print_advisories(report: AdvisoryReport) -> None:
                 messages.version_column,
                 messages.advisory_column,
                 messages.severity_column,
+                messages.exploited_column,
                 messages.affected_column,
                 messages.fixed_column,
             ],
@@ -139,6 +157,7 @@ def _print_advisories(report: AdvisoryReport) -> None:
                     f.component.version,
                     f.advisory_id,
                     f.severity,
+                    messages.exploited_yes if f.exploited else "",
                     f.affected_range,
                     f.fixed_version,
                 ]
@@ -151,6 +170,7 @@ def _print_advisories(report: AdvisoryReport) -> None:
             findings=summary.findings,
             packages=summary.with_findings,
             queried=summary.queried,
+            exploited=summary.exploited,
             unpinned=summary.unpinned,
             not_covered=sum(summary.not_covered.values()),
         )
@@ -164,3 +184,5 @@ def _print_advisories(report: AdvisoryReport) -> None:
                 reason=failure.reason,
             )
         )
+    if report.kev_failure:
+        print_error(messages.advisories_kev_failure.format(reason=report.kev_failure))
