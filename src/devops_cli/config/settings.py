@@ -707,7 +707,6 @@ class AIConfig(BaseModel):
         default=None, description="AI gateway URL"
     )
     gateway_enabled: bool = DEFAULT_AI_GATEWAY_ENABLED
-    gateway_weights: dict[str, int] = Field(default_factory=dict)
     gateway_concurrency: dict[str, int] = Field(default_factory=dict)
     portkey_url: HttpUrlStr | None = None
     api_base_url: Annotated[HttpUrlStr | None, Variable()] = Field(

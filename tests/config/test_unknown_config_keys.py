@@ -81,6 +81,20 @@ def test_a_key_that_a_release_removed_names_its_file_line_release_and_the_unset_
     )
 
 
+def test_ai_gateway_weights_is_an_unknown_key(isolate_devops_cli_config: Path) -> None:
+    """`ai.gateway_weights` is an unknown configuration key that stops loading."""
+    _use(isolate_devops_cli_config, "ai:\n  gateway_weights:\n    qwen: 1\n")
+
+    error = _load_error()
+
+    assert (error.message, error.exit_code, error.error_code) == (
+        f"Unknown configuration key 'ai.gateway_weights' at {isolate_devops_cli_config}:2. "
+        "Remove it with: devops config unset ai.gateway_weights",
+        1,
+        "CONFIGURATION_ERROR",
+    )
+
+
 def test_the_sections_that_refuse_an_unknown_key_are_ai_its_tasks_and_each_task() -> None:
     """The next test writes an unknown key into each of these sections."""
     assert _refusing_sections() == [

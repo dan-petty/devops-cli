@@ -1,4 +1,4 @@
-"""`devops ai gateway tune`: measure each gateway deployment and recommend routing weights."""
+"""`devops ai gateway tune`: measure each gateway deployment and report capacity and cost."""
 
 from __future__ import annotations
 
@@ -21,13 +21,10 @@ from devops_cli.ai.gateway_tune import (
     TuneReport,
     backend_pods,
     bench_script,
-    calculate_hardware_concurrency,
-    calculate_hardware_weights,
     discover_pool,
     gpu_bandwidth_gbps,
     gpu_inventory,
     measure_in_gateway_pod,
-    recommend_weights,
     tune_pool,
 )
 from devops_cli.ai.run_store import Mechanism, load_runs, new_run
@@ -330,70 +327,6 @@ class TestTune:
             },
         ]
 
-    def test_weights_are_throughput_relative_to_the_slowest_deployment(self) -> None:
-        """Verify weights scale from the slowest measured deployment; unreachable ones get 0."""
-        assert recommend_weights({"a": 1.2, "b": 0.8, "c": 0.21, "d": 0.2, "e": 0.0}) == {
-            "a": 6,
-            "b": 4,
-            "c": 1,
-            "d": 1,
-            "e": 0,
-        }
-
-    def test_recommend_weights_with_overrides(self) -> None:
-        """Verify user configuration overrides supersede measured throughput weights."""
-        rates = {"vllm": 1.2, "ollama": 0.2}
-        overrides = {"vllm": 8, "ollama": 2}
-        assert (
-            recommend_weights(rates),
-            recommend_weights(rates, overrides=overrides),
-        ) == (
-            {"vllm": 6, "ollama": 1},
-            {"vllm": 8, "ollama": 2},
-        )
-
-    def test_calculate_hardware_weights_and_concurrency(self) -> None:
-        """Verify dynamic hardware properties compute appropriate weights and concurrency."""
-        deployments = [
-            {
-                "deployment_id": "vllm-dual-3090",
-                "backend": "vllm",
-                "engine": "vllm",
-                "gpus": [
-                    {"name": "RTX 3090", "bandwidth_gbps": 936.0},
-                    {"name": "RTX 3090", "bandwidth_gbps": 936.0},
-                ],
-            },
-            {
-                "deployment_id": "ollama-v100",
-                "backend": "ollama",
-                "engine": "ollama",
-                "gpus": [
-                    {"name": "Tesla V100", "bandwidth_gbps": 900.0},
-                ],
-            },
-        ]
-        weights = calculate_hardware_weights(deployments)
-        concurrency = calculate_hardware_concurrency(deployments)
-        overrides_weights = calculate_hardware_weights(
-            deployments, overrides={"vllm-dual-3090": 10}
-        )
-        overrides_concurrency = calculate_hardware_concurrency(
-            deployments, overrides={"ollama-v100": 4}
-        )
-
-        assert (
-            weights,
-            concurrency,
-            overrides_weights["vllm-dual-3090"],
-            overrides_concurrency["ollama-v100"],
-        ) == (
-            {"vllm-dual-3090": 6, "ollama-v100": 1},
-            {"vllm-dual-3090": 64, "ollama-v100": 1},
-            10,
-            4,
-        )
-
     def test_gpu_bandwidth_is_looked_up_by_the_most_specific_model_name(self) -> None:
         """Verify nvidia-smi names map to memory bandwidth, preferring the longest match."""
         assert (
@@ -543,74 +476,6 @@ class TestTune:
             True,
             ["--", "python", "-"],
         )
-
-    def test_calculate_weights_with_backend_label_overrides(self) -> None:
-        """Verify recommend_weights matches overrides by backend label when deployment IDs are distinct."""
-        deployments = [
-            {"deployment_id": "dep-1", "backend": "vllm"},
-            {"deployment_id": "dep-2", "backend": "ollama"},
-        ]
-        rates = {"dep-1": 10.0, "dep-2": 2.0}
-        weights_default = recommend_weights(rates, deployments=deployments)
-        weights_backend = recommend_weights(
-            rates, overrides={"vllm": 8, "ollama": 3}, deployments=deployments
-        )
-        weights_precedence = recommend_weights(
-            rates, overrides={"vllm": 8, "dep-1": 12}, deployments=deployments
-        )
-        assert (
-            weights_default,
-            weights_backend,
-            weights_precedence,
-        ) == (
-            {"dep-1": 5, "dep-2": 1},
-            {"dep-1": 8, "dep-2": 3},
-            {"dep-1": 12, "dep-2": 1},
-        )
-
-    def test_tune_pool_applies_concurrency_overrides(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Verify tune_pool calculates recommended_concurrency with config overrides."""
-        monkeypatch.setattr(
-            "devops_cli.ai.gateway_tune.fetch_model_info",
-            lambda url, allow, key: MODEL_INFO,
-        )
-        monkeypatch.setattr(
-            "devops_cli.ai.gateway_tune.deployment_gpus",
-            lambda api_base, context: [GpuInfo(name="RTX 3090", memory_mib=24576)],
-        )
-
-        def fake_measure(spec: dict[str, Any], **kwargs: Any) -> list[dict[str, Any]]:
-            dep_id = spec["deployments"][0]["deployment_id"]
-            return [
-                {
-                    "deployment_id": dep_id,
-                    "engine": {"engine": "vllm" if dep_id == "a" else "ollama"},
-                    "capacity": [_level(1, 100)],
-                    "cost": _level(1, 100),
-                }
-            ]
-
-        monkeypatch.setattr("devops_cli.ai.gateway_tune.measure_in_gateway_pod", fake_measure)
-
-        report = tune_pool(
-            gateway_url=REMOTE_OPENAI,
-            allow_private=True,
-            api_key=None,
-            model_group="devops-review",
-            levels=[1],
-            rounds=1,
-            prompt_tokens=100,
-            max_tokens=50,
-            request_timeout=10.0,
-            namespace="llm",
-            deployment="llm-gateway",
-            overrides={"remote": 10},
-            concurrency_overrides={"remote": 32, "b": 4},
-        )
-
-        concurrencies = {d.deployment_id: d.recommended_concurrency for d in report.deployments}
-        weights = {d.deployment_id: d.recommended_weight for d in report.deployments}
-        assert (concurrencies, weights) == ({"a": 32, "b": 4}, {"a": 10, "b": 1})
 
     def test_unreachable_api_server_is_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verify kubectl calls that never reached the API server are retried, others are not."""
@@ -1063,8 +928,8 @@ def test_tune_pool_estimate_fails_when_no_prior_measured_deployment_matches(
         )
 
 
-def test_tune_command_weighs_capacity_against_cost(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify weights follow capacity (tokens/s) divided by cost (tokens per request)."""
+def test_tune_command_reports_capacity_and_cost(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify tune command reports capacity (tokens/s) and cost (tokens per request)."""
     settings = MagicMock()
     settings.ai = AIConfig(gateway_url="http://gateway.example.com:4000/v1")
     monkeypatch.setattr("devops_cli.commands.ai_gateway.load_settings", lambda: settings)
@@ -1120,7 +985,6 @@ def test_tune_command_weighs_capacity_against_cost(monkeypatch: pytest.MonkeyPat
                 d["capacity_tokens_per_second"],
                 d["cost_tokens_per_request"],
                 d["requests_per_second"],
-                d["recommended_weight"],
                 d["gpus"][0]["bandwidth_gbps"],
             )
             for d in report["deployments"]
@@ -1129,8 +993,8 @@ def test_tune_command_weighs_capacity_against_cost(monkeypatch: pytest.MonkeyPat
         0,
         "devops-review",
         [
-            ("remote", "vllm", 4, 800.0, 100.0, 8.0, 16, 936.0),
-            ("ollama-0", "ollama", 1, 100.0, 200.0, 0.5, 1, 936.0),
+            ("remote", "vllm", 4, 800.0, 100.0, 8.0, 936.0),
+            ("ollama-0", "ollama", 1, 100.0, 200.0, 0.5, 936.0),
         ],
     )
 
@@ -1342,6 +1206,54 @@ def test_tune_command_renders_capabilities_and_records_probes(
     assert dep_rec["capabilities"]["probes"]["json_adherence"]["passed"] == 1
 
 
+def test_tune_command_output_has_no_weight_recs_and_help_reflects_measurement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify tune output has no weight or concurrency recs and help describes measurement."""
+    settings = MagicMock()
+    settings.ai = AIConfig(gateway_url=REMOTE_OPENAI)
+    monkeypatch.setattr("devops_cli.commands.ai_gateway.load_settings", lambda: settings)
+    monkeypatch.setattr("devops_cli.commands.ai_gateway.get_ai_api_key", lambda _s: "sk-gw")
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.fetch_model_info",
+        lambda url, allow, key: MODEL_INFO[:1],
+    )
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.deployment_gpus",
+        lambda api_base, context: [
+            GpuInfo(name="RTX 4090", memory_mib=24576, bandwidth_gbps=1008.0)
+        ],
+    )
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.measure_in_gateway_pod",
+        lambda spec, **kwargs: [
+            {
+                "deployment_id": spec["deployments"][0]["deployment_id"],
+                "engine": {"engine": "vllm"},
+                "capacity": [_level(1, 100)],
+                "cost": _level(1, 100),
+                "probes": {},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "devops_cli.commands.ai_gateway.record_run",
+        lambda *args, **kwargs: MagicMock(run_id="run-456", path=Path("p")),
+    )
+    monkeypatch.setattr("devops_cli.commands.ai_gateway.announce_run", lambda *args, **kwargs: None)
+
+    result = runner.invoke(gateway_cli_app, ["tune", "--rounds", "1"])
+    assert result.exit_code == 0
+    assert "Recommended" not in result.stdout
+    assert "Max Parallel" not in result.stdout
+    assert "litellm_params.weight" not in result.stdout
+    assert "least-busy" in result.stdout
+
+    help_res = runner.invoke(gateway_cli_app, ["tune", "--help"])
+    assert help_res.exit_code == 0
+    assert "recommend routing weights" not in help_res.stdout
+
+
 def test_tune_command_renders_capabilities_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1400,6 +1312,50 @@ def test_tune_command_renders_capabilities_json(
     assert caps["probed"] is True
     assert caps["all_passed"] is True
     assert caps["passed_probes_count"] == 4
+
+
+def test_tune_command_json_omits_recommended_weight_and_concurrency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify tune command JSON output omits recommended_weight and recommended_concurrency."""
+    settings = MagicMock()
+    settings.ai = AIConfig(gateway_url=REMOTE_OPENAI)
+    monkeypatch.setattr("devops_cli.commands.ai_gateway.load_settings", lambda: settings)
+    monkeypatch.setattr("devops_cli.commands.ai_gateway.get_ai_api_key", lambda _s: "sk-gw")
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.fetch_model_info",
+        lambda url, allow, key: MODEL_INFO[:1],
+    )
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.deployment_gpus",
+        lambda api_base, context: [
+            GpuInfo(name="RTX 4090", memory_mib=24576, bandwidth_gbps=1008.0)
+        ],
+    )
+    monkeypatch.setattr(
+        "devops_cli.ai.gateway_tune.measure_in_gateway_pod",
+        lambda spec, **kwargs: [
+            {
+                "deployment_id": spec["deployments"][0]["deployment_id"],
+                "engine": {"engine": "vllm"},
+                "capacity": [_level(1, 100)],
+                "cost": _level(1, 100),
+                "probes": {},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "devops_cli.commands.ai_gateway.record_run",
+        lambda *args, **kwargs: MagicMock(run_id="run-456", path=Path("p")),
+    )
+    monkeypatch.setattr("devops_cli.commands.ai_gateway.announce_run", lambda *args, **kwargs: None)
+
+    result = runner.invoke(gateway_cli_app, ["tune", "--rounds", "1", "--format", "json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    dep = data["deployments"][0]
+    assert "recommended_weight" not in dep
+    assert "recommended_concurrency" not in dep
 
 
 def test_a_gateway_tune_is_kept_with_its_pool(

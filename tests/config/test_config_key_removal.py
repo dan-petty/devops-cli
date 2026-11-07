@@ -101,18 +101,18 @@ def test_a_removal_of_a_section_deletes_each_line_of_it(isolate_devops_cli_confi
 
 
 def test_a_removal_finds_a_key_whose_name_holds_a_dot(isolate_devops_cli_config: Path) -> None:
-    """A model name such as `qwen3.8:27b` is one key of `ai.gateway_weights`."""
+    """A model name such as `qwen3.8:27b` is one key of `ai.gateway_concurrency`."""
     _use(
         isolate_devops_cli_config,
-        "ai:\n  gateway_weights:\n    qwen3.8:27b: 2\n    gemma4:26b: 1\n",
+        "ai:\n  gateway_concurrency:\n    qwen3.8:27b: 2\n    gemma4:26b: 1\n",
     )
 
-    removal = remove_config_key("ai.gateway_weights.qwen3.8:27b")
+    removal = remove_config_key("ai.gateway_concurrency.qwen3.8:27b")
 
     assert (removal.key, removal.line, isolate_devops_cli_config.read_text(encoding="utf-8")) == (
-        "ai.gateway_weights.qwen3.8:27b",
+        "ai.gateway_concurrency.qwen3.8:27b",
         3,
-        "ai:\n  gateway_weights:\n    gemma4:26b: 1\n",
+        "ai:\n  gateway_concurrency:\n    gemma4:26b: 1\n",
     )
 
 

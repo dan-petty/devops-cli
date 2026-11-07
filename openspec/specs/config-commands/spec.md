@@ -106,8 +106,8 @@ When settings values load from environment variables or configuration files, or 
 - **THEN** the command exits 0 and names the file, the line of the key and the copy, the file holds every line as before except the line of `ai.vllm_url`, the copy holds the file as before, and `devops config get ai.provider` exits 0
 
 #### Scenario: A key whose name holds a dot
-- **WHEN** the config file holds `ai.gateway_weights` with the keys `qwen3.8:27b` and `gemma4:26b`, and `devops config unset ai.gateway_weights.qwen3.8:27b` runs
-- **THEN** the file holds `ai.gateway_weights` with `gemma4:26b` alone
+- **WHEN** the config file holds `ai.gateway_concurrency` with the keys `qwen3.8:27b` and `gemma4:26b`, and `devops config unset ai.gateway_concurrency.qwen3.8:27b` runs
+- **THEN** the file holds `ai.gateway_concurrency` with `gemma4:26b` alone
 
 ### Requirement: The copies of devops config unset hold no credential value
 The copies of the file that `devops config unset` keeps SHALL hold no value of a credential that the removal takes out of the file. A copy shows such a value as `***REDACTED***`, with the key in place. This holds for the new copy, for each older retained copy, and for a credential below a removed section.
@@ -218,7 +218,7 @@ For a key that a release removed, the line of the error SHALL name the release. 
 
 #### Scenario: The keys that devops config set takes
 - **WHEN** the key is `github.default_org`, `domain`, `ai.tasks.chat.model`, `service.github_app.app_id`, `otel.enabled`, `firecrawl.api_key`, `grafana.token` or `service.github_app.private_key`
-- **THEN** the key is a config key, and the keys `ai`, `ai.tasks.chat`, `github.no_such_key`, `ai.gateway_weights.example-model` and `ai.model_dump` are not
+- **THEN** the key is a config key, and the keys `ai`, `ai.tasks.chat`, `github.no_such_key`, `ai.gateway_concurrency.example-model` and `ai.model_dump` are not
 
 ### Requirement: The message of an unknown key names the known keys with a similar name
 When known keys have a name similar to the unknown key, a second line after `Unknown config key: '<key>'` SHALL name them, the nearest first. `devops config get` SHALL print the same lines for a key that it cannot find.

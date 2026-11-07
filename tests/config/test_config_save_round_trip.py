@@ -121,10 +121,10 @@ def test_a_removed_entry_leaves_the_file_and_a_key_with_a_dot_is_one_key(
 ) -> None:
     _use(
         isolate_devops_cli_config,
-        "ai:\n  gateway_weights:\n    qwen3.8:27b: 2   # the larger model\n    llama: 1\n",
+        "ai:\n  gateway_concurrency:\n    qwen3.8:27b: 2   # the larger model\n    llama: 1\n",
     )
     settings = load_settings()
-    del settings.ai.gateway_weights["llama"]
+    del settings.ai.gateway_concurrency["llama"]
 
     save_settings(settings)
 
@@ -132,8 +132,8 @@ def test_a_removed_entry_leaves_the_file_and_a_key_with_a_dot_is_one_key(
         isolate_devops_cli_config.read_text(encoding="utf-8"),
         written_keys(isolate_data_dir),
     ) == (
-        "ai:\n  gateway_weights:\n    qwen3.8:27b: 2   # the larger model\n",
-        [["ai.gateway_weights.llama"]],
+        "ai:\n  gateway_concurrency:\n    qwen3.8:27b: 2   # the larger model\n",
+        [["ai.gateway_concurrency.llama"]],
     )
 
 

@@ -1,16 +1,15 @@
-"""Measure each deployment of a gateway model group and recommend routing weights.
+"""Measure each deployment of a gateway model group and report capacity and cost.
 
-The gateway spreads a model group over its deployments by weight (`simple-shuffle`), and those
-weights only help if they track what each backend can actually serve. This measures every
-deployment on its own and recommends weights in proportion to its best request rate.
+The gateway routes a model group over its deployments with `least-busy`. This measures every
+deployment on its own and reports capacity, cost and capabilities.
 
 The inference backends admit traffic only from the gateway, so the sweep
 (`devops_cli.ai.gateway_bench`) runs in an ephemeral container attached to the gateway pod
 (`kubectl debug`). It shares the pod's network identity, so it takes the same path as the gateway's
 own requests, and it runs this project's Python rather than whatever the gateway image ships.
 A run attaches one such container for all its deployments, and its sleep covers the run's whole
-exec budget. Nothing is reconfigured; the result is a recommendation. An exited ephemeral
-container stays listed on the pod until the pod is replaced.
+exec budget. Nothing is reconfigured. An exited ephemeral container stays listed on the pod
+until the pod is replaced.
 """
 
 from __future__ import annotations
@@ -37,11 +36,6 @@ from devops_cli.ai.gateway_probes import (
 from devops_cli.ai.run_store import Mechanism, RunRecord, load_runs
 from devops_cli.ai.spend.ledger import SpendLedger, get_spend_ledger
 from devops_cli.config.constants import (
-    CONST_CONTINUOUS_BATCHING_ENGINES,
-    CONST_DEFAULT_CONTINUOUS_CONCURRENCY,
-    CONST_DEFAULT_SERIAL_CONCURRENCY,
-    CONST_ENGINE_MULTIPLIER_CONTINUOUS_BATCHING,
-    CONST_ENGINE_MULTIPLIER_SERIAL,
     CONST_GPU_MEMORY_BANDWIDTH_GBPS,
     CONST_REVIEW_CHARS_PER_TOKEN,
 )
@@ -109,13 +103,11 @@ class DeploymentTune(BaseModel):
     capacity_tokens_per_second: float = 0.0
     cost_tokens_per_request: float | None = None
     requests_per_second: float = 0.0
-    recommended_weight: int = 0
-    recommended_concurrency: int | None = None
     capabilities: DeploymentCapabilities = Field(default_factory=DeploymentCapabilities)
 
 
 class TuneReport(BaseModel):
-    """Measurements and recommended weights for one model group."""
+    """Measurements and capacity for one model group."""
 
     model_group: str
     prompt_tokens: int
@@ -151,63 +143,6 @@ def _dep_field(dep: Any, field: str, default: Any = "") -> Any:
     return getattr(dep, field, default)
 
 
-def _resolve_override(
-    dep_id: str,
-    backend: str,
-    overrides: dict[str, int] | None,
-) -> int | None:
-    """Resolve an override by deployment_id first, then by backend label."""
-    if not overrides:
-        return None
-    val = overrides.get(dep_id)
-    if val is not None:
-        return val
-    return overrides.get(backend) if backend else None
-
-
-def _deployment_backend_map(deployments: list[Any] | None) -> dict[str, str]:
-    """Map deployment_id to backend label for all deployments."""
-    if not deployments:
-        return {}
-    return {
-        str(_dep_field(d, "deployment_id", "")): str(_dep_field(d, "backend", ""))
-        for d in deployments
-        if _dep_field(d, "deployment_id", "")
-    }
-
-
-def recommend_weights(
-    best_rates: dict[str, float],
-    overrides: dict[str, int] | None = None,
-    deployments: list[Any] | None = None,
-) -> dict[str, int]:
-    """Weight each deployment by its best request rate relative to the slowest one.
-
-    The slowest measured deployment gets 1. A deployment that served nothing gets 0, which
-    keeps the gateway from routing to it. Custom overrides take precedence when configured,
-    matched by deployment ID or backend label.
-    """
-    measured = [rate for rate in best_rates.values() if rate > 0]
-    floor = min(measured) if measured else 1.0
-    weights = {
-        dep: max(1, round(rate / floor)) if rate > 0 else 0 for dep, rate in best_rates.items()
-    }
-    if not overrides:
-        return weights
-    backend_map = _deployment_backend_map(deployments)
-    for dep in weights:
-        override = _resolve_override(dep, backend_map.get(dep, ""), overrides)
-        if override is not None:
-            weights[dep] = override
-    return weights
-
-
-def _is_continuous_engine(engine: str, backend: str) -> bool:
-    """Check if engine or backend supports continuous batching."""
-    target = f"{engine} {backend}".lower()
-    return any(e in target for e in CONST_CONTINUOUS_BATCHING_ENGINES)
-
-
 def _deployment_bandwidth_sum(dep: Any) -> float:
     """Sum GPU memory bandwidths across GPUs assigned to a deployment."""
     gpus = _dep_field(dep, "gpus", [])
@@ -218,78 +153,6 @@ def _deployment_bandwidth_sum(dep: Any) -> float:
         )
         total += float(bw) if bw else 500.0
     return total
-
-
-def _deployment_hardware_score(dep: Any) -> float:
-    """Compute relative throughput capacity score from GPUs and engine type."""
-    backend = str(_dep_field(dep, "backend", ""))
-    engine = str(_dep_field(dep, "engine", ""))
-    is_continuous = _is_continuous_engine(engine, backend)
-
-    bw_sum = _deployment_bandwidth_sum(dep)
-    if not bw_sum:
-        bw_sum = 1000.0 if is_continuous else 500.0
-
-    multiplier = (
-        CONST_ENGINE_MULTIPLIER_CONTINUOUS_BATCHING
-        if is_continuous
-        else CONST_ENGINE_MULTIPLIER_SERIAL
-    )
-    return bw_sum * multiplier
-
-
-def calculate_hardware_weights(
-    deployments: list[Any],
-    overrides: dict[str, int] | None = None,
-) -> dict[str, int]:
-    """Dynamically calculate recommended routing weights from discovered hardware properties.
-
-    Evaluates total GPU memory bandwidth and engine execution model (continuous batching vs
-    serial execution). Custom overrides take precedence when configured.
-    """
-    scores = {
-        str(_dep_field(dep, "deployment_id")): _deployment_hardware_score(dep)
-        for dep in deployments
-        if _dep_field(dep, "deployment_id")
-    }
-    valid_scores = [s for s in scores.values() if s > 0]
-    min_score = min(valid_scores) if valid_scores else 1.0
-    weights = {
-        dep_id: max(1, round(score / min_score)) if score > 0 else 0
-        for dep_id, score in scores.items()
-    }
-    if not overrides:
-        return weights
-    for dep in deployments:
-        dep_id = str(_dep_field(dep, "deployment_id", ""))
-        backend = str(_dep_field(dep, "backend", ""))
-        override = _resolve_override(dep_id, backend, overrides)
-        if override is not None and dep_id:
-            weights[dep_id] = override
-    return weights
-
-
-def calculate_hardware_concurrency(
-    deployments: list[Any],
-    overrides: dict[str, int] | None = None,
-) -> dict[str, int]:
-    """Compute concurrency limits from engine capabilities with config overrides."""
-    limits: dict[str, int] = {}
-    for dep in deployments:
-        dep_id = str(_dep_field(dep, "deployment_id", ""))
-        if not dep_id:
-            continue
-        backend = str(_dep_field(dep, "backend", ""))
-        engine = str(_dep_field(dep, "engine", ""))
-        is_continuous = _is_continuous_engine(engine, backend)
-        default_limit = (
-            CONST_DEFAULT_CONTINUOUS_CONCURRENCY
-            if is_continuous
-            else CONST_DEFAULT_SERIAL_CONCURRENCY
-        )
-        override = _resolve_override(dep_id, backend, overrides)
-        limits[dep_id] = override if override is not None else default_limit
-    return limits
 
 
 def gpu_bandwidth_gbps(name: str) -> float | None:
@@ -851,12 +714,10 @@ def tune_pool(
     context: str | None = None,
     image: str = DEFAULT_GATEWAY_TUNE_IMAGE,
     on_deployment: Callable[[dict[str, Any]], None] | None = None,
-    overrides: dict[str, int] | None = None,
-    concurrency_overrides: dict[str, int] | None = None,
     spend_ledger: SpendLedger | None = None,
     estimate: bool = False,
 ) -> TuneReport:
-    """Measure each deployment of ``model_group``, one at a time, and recommend weights."""
+    """Measure each deployment of ``model_group``, one at a time, and report capacity and cost."""
     model_info = fetch_model_info(gateway_url, allow_private, api_key)
     if not model_info:
         raise GatewayTuneError(f"The gateway at {gateway_url} listed no deployments.")
@@ -913,25 +774,11 @@ def tune_pool(
                 )
             )
 
-    measured_rates = {t.deployment_id: t.requests_per_second for t in tuned}
-    if any(rate > 0 for rate in measured_rates.values()):
-        weights = recommend_weights(measured_rates, overrides=overrides, deployments=tuned)
-    else:
-        weights = calculate_hardware_weights(tuned, overrides=overrides)
-    concurrencies = calculate_hardware_concurrency(tuned, overrides=concurrency_overrides)
     return TuneReport(
         model_group=model_group,
         prompt_tokens=prompt_tokens,
         max_tokens=max_tokens,
-        deployments=[
-            t.model_copy(
-                update={
-                    "recommended_weight": weights[t.deployment_id],
-                    "recommended_concurrency": concurrencies.get(t.deployment_id),
-                }
-            )
-            for t in tuned
-        ],
+        deployments=tuned,
     )
 
 
@@ -946,8 +793,6 @@ __all__ = [
     "backend_pods",
     "bench_script",
     "build_capability_probes",
-    "calculate_hardware_concurrency",
-    "calculate_hardware_weights",
     "deployment_gpus",
     "deployment_prompt_tokens",
     "discover_pool",
@@ -959,7 +804,6 @@ __all__ = [
     "infer_engine",
     "load_runs",
     "measure_in_gateway_pod",
-    "recommend_weights",
     "review_prompt",
     "score_deployment_probes",
     "tune_pool",

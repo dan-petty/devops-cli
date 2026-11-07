@@ -326,14 +326,14 @@ def test_cloudflare_public_ip_bypass_stays_string_in_config_set(
     assert isinstance(settings.cloudflare.public_ip_bypass, str)
 
 
-def test_ai_gateway_weights_refuses_scalar_string_in_config_set(
+def test_ai_gateway_concurrency_refuses_scalar_string_in_config_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """ai.gateway_weights is a dict and refuses string assignment."""
+    """ai.gateway_concurrency is a dict and refuses string assignment."""
     _set_project_config(tmp_path, monkeypatch, "")
-    res = runner.invoke(config_app, ["set", "ai.gateway_weights", "a=1"])
+    res = runner.invoke(config_app, ["set", "ai.gateway_concurrency", "a=1"])
     assert res.exit_code == 1
-    assert "ai.gateway_weights" in res.output
+    assert "ai.gateway_concurrency" in res.output
 
 
 def test_telemetry_stays_fail_closed_on_invalid_variables(monkeypatch: pytest.MonkeyPatch) -> None:

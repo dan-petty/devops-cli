@@ -70,7 +70,7 @@ def leaves(mapping: Mapping[str, Any], prefix: KeyPath = ()) -> dict[KeyPath, An
     """Each value of a nested mapping that is not itself a mapping with keys, by its key path.
 
     A key path is a tuple, not a dotted name, because a key can hold a dot, as a model name such as
-    `qwen3.8:27b` in `ai.gateway_weights` does.
+    `qwen3.8:27b` in `ai.gateway_concurrency` does.
     """
     found: dict[KeyPath, Any] = {}
     for key, value in mapping.items():

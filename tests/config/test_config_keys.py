@@ -32,7 +32,7 @@ def test_a_setting_or_a_credential_is_a_config_key(key: str) -> None:
         pytest.param("github.no_such_key", id="no-field"),
         pytest.param("ai", id="section"),
         pytest.param("ai.tasks.chat", id="nested-section"),
-        pytest.param("ai.gateway_weights.example-model", id="entry-of-a-mapping"),
+        pytest.param("ai.gateway_concurrency.example-model", id="entry-of-a-mapping"),
         pytest.param("ai.model_dump", id="method-of-a-section"),
     ],
 )
