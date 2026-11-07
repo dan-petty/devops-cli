@@ -2142,7 +2142,7 @@ def test_search_first_two_replies_with_no_search_end_as_a_failed_check(
     ) == (
         2,
         [],
-        [(number, "the reply gives a verdict with no search", "RefusedReply")],
+        [(number, "the reply gives a verdict with no answered search", "RefusedReply")],
         True,
         [],
     )
