@@ -4,9 +4,9 @@
 
 Reads: `src/devops_cli/roadmap/stage/stage_specs.py`, `openspec/specs/roadmap-intake-duplicates/spec.md`, `tests/roadmap/stage/test_roadmap_stage_specs.py`. Changes: `src/devops_cli/roadmap/stage/stage_specs.py`, `tests/roadmap/stage/test_roadmap_stage_specs.py`.
 
-- [ ] 1.1 Add to `tests/roadmap/stage/test_roadmap_stage_specs.py` a test that `read_spec` gives each requirement name with its statement, that the statement of the first requirement holds its text and no line of its scenario, and that a spec with no requirement gives an empty tuple of statements
+- [x] 1.1 Add to `tests/roadmap/stage/test_roadmap_stage_specs.py` a test that `read_spec` gives each requirement name with its statement, that the statement of the first requirement holds its text and no line of its scenario, and that a spec with no requirement gives an empty tuple of statements
   - Verification: `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_specs.py` fails on the base
-- [ ] 1.2 Add a field `statements: tuple[tuple[str, str], ...] = ()` to `BaseSpec` in `src/devops_cli/roadmap/stage/stage_specs.py`, and fill it in `read_spec` from a helper that takes the text of each requirement from its heading to its first scenario or the next heading, on one line as `_spec_requirements` of `src/devops_cli/roadmap/plan_check.py` does. Update the docstrings of the module and of `BaseSpec`
+- [x] 1.2 Add a field `statements: tuple[tuple[str, str], ...] = ()` to `BaseSpec` in `src/devops_cli/roadmap/stage/stage_specs.py`, and fill it in `read_spec` from a helper that takes the text of each requirement from its heading to its first scenario or the next heading, on one line as `_spec_requirements` of `src/devops_cli/roadmap/plan_check.py` does. Update the docstrings of the module and of `BaseSpec`
   - Verification: `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_specs.py` passes
 
 ## 2. Refuse a stale base requirement
