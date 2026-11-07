@@ -31,9 +31,9 @@ Reads: `src/devops_cli/roadmap/stage/stage.py`, `tests/roadmap/stage/test_roadma
 
 Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`. Changes: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`.
 
-- [ ] 4.1 Add to `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` a test that the stage prompt holds a rule which names `modified`, a command or an option that the issue removes or renames, and each base requirement that names the old name
+- [x] 4.1 Add to `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` a test that the stage prompt holds a rule which names `modified`, a command or an option that the issue removes or renames, and each base requirement that names the old name
   - Verification: `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` fails on the base
-- [ ] 4.2 Add a bullet after the spec-delta rule of `src/devops_cli/ai/tasks/roadmap_stage_change.md`: when the issue removes or renames a `devops` command or an option, each base requirement that names the old name goes into `modified` with text that omits it, and an unmodified base requirement that names it is refused. State in one task of this group that the change runs `uv run devops roadmap eval stage --replay` and gives the replay score before and after the change, with the same model for both runs
+- [x] 4.2 Add a bullet after the spec-delta rule of `src/devops_cli/ai/tasks/roadmap_stage_change.md`: when the issue removes or renames a `devops` command or an option, each base requirement that names the old name goes into `modified` with text that omits it, and an unmodified base requirement that names it is refused. State in one task of this group that the change runs `uv run devops roadmap eval stage --replay` and gives the replay score before and after the change, with the same model for both runs
   - Verification: `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` passes
 
 ## 5. List a living spec first in a references answer
