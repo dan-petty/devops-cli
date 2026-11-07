@@ -1549,7 +1549,7 @@ def test_a_check_after_the_window_replaces_the_block_and_adds_a_comment(
     ) == (1, 1, True, False, 2)
 
 
-def test_a_search_remembers_how_many_results_it_found_and_a_failed_search_found_none(
+def test_a_search_remembers_how_many_results_it_found_and_an_empty_answer_found_none(
     store: InMemoryRoadmapStore, web_key: None, web: WebFake
 ) -> None:
     _firecrawl(web, SEARCH_URL, TOOL_URL)
