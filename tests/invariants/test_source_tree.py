@@ -242,17 +242,20 @@ def test_product_code_reads_pytest_current_test_no_more_than_its_ceiling(
 
 
 def _function_identity_checks(trees: ParsedTreeMap) -> list[str]:
-    """The reads of an attribute of `subprocess.run` through `getattr`, which tell a stdlib
-    function from the one a test put in its place."""
+    """The reads of an attribute of `subprocess.run`, through `getattr` or directly, which tell a
+    stdlib function from the one a test put in its place."""
     src = (REPO_ROOT / "src").resolve()
     return sorted(
         f"{Path(path).resolve().relative_to(src).as_posix()}:{node.lineno}"
         for path, tree in trees.items()
         for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and _called_name(node) == "getattr"
-        and node.args
-        and ast.unparse(node.args[0]) == "subprocess.run"
+        if (
+            isinstance(node, ast.Call)
+            and _called_name(node) == "getattr"
+            and node.args
+            and ast.unparse(node.args[0]) == "subprocess.run"
+        )
+        or (isinstance(node, ast.Attribute) and ast.unparse(node.value) == "subprocess.run")
     )
 
 

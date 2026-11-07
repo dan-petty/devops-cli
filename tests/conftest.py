@@ -101,7 +101,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.core.dns_names": ("reset_dns_names_cache",),
     "devops_cli.core.gitignore": ("reset_indexes",),
     "devops_cli.core.process": ("reset_github_token", "reset_process_runner"),
-    "devops_cli.core.repo": ("reset_repo_caches",),
+    "devops_cli.core.repo": ("reset_repo_caches", "reset_own_source_dir"),
     "devops_cli.core.templating": ("reset_template_environment_cache",),
     "devops_cli.core.untrusted_trees": ("reset_untrusted_trees",),
     "devops_cli.core.validation": ("reset_network_caches",),
@@ -847,7 +847,7 @@ def isolate_own_source_repository() -> None:
     its own (#972). The suite imports devops-cli from the checkout it runs in, which would make
     that checkout trusted: a review started there would read its `config.yaml` and `.data`. A test
     of the trusted repository installs a source directory of its own with `install_own_source_dir`.
-    The floor removes it after the test, as it does every cache of `core.repo`."""
+    The floor removes it after the test with `reset_own_source_dir`."""
     import sysconfig
 
     from devops_cli.core.repo import install_own_source_dir

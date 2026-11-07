@@ -2,22 +2,14 @@
 
 from __future__ import annotations
 
-import subprocess
-
-import pytest
-
 from devops_cli.core.process import run_subprocess_async
 from devops_cli.dry_run import set_dry_run
 from devops_cli.dry_run.requests import PlannedRequest
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 
-async def test_an_async_start_is_answered_by_the_active_runner(
-    process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A test replaces `subprocess.run`, the way the old reroute looked for: the start is still
-    the runner's, not a start of its own."""
-    monkeypatch.setattr(subprocess, "run", lambda *_a, **_k: pytest.fail("started a process"))
+async def test_an_async_start_is_answered_by_the_active_runner(process_fake: ProcessFake) -> None:
+    """The start is the runner's: the process fake answers it, and no program starts."""
     process_fake.answer("npm audit", ProcessAnswer(returncode=1, stdout="report"))
 
     result = await run_subprocess_async(["npm", "audit"])
