@@ -417,7 +417,7 @@ def test_an_extra_turn_that_changes_the_verification_command_leaves_the_tasks_fi
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     _lint_fails_on_an_unused_import(programs)
-    changed = TICKED.replace("`uv run devops ci test tests/test_sample.py`", "`true`")
+    changed = TICKED.replace("`$ uv run devops ci test tests/test_sample.py`", "`$ true`")
     assert changed != TICKED
     script = ModelScript(
         tool_calls(*NOT_TICKED, TICK),
