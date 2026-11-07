@@ -34,6 +34,9 @@ loki:
     delete_request_store: filesystem
 
   limits_config:
+    # The Warnings & Errors (Loki) panel of sre-service.json depends on detected_level,
+    # which discover_log_levels enables (#1357).
+    discover_log_levels: true
     retention_period: 720h # 30 days
     # The delete-request store opens the log delete API, which needs no credentials while
     # auth_enabled is false. Retention does not use it, so it stays closed.

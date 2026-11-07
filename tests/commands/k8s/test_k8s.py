@@ -1544,6 +1544,14 @@ def test_loki_deletes_logs_once_they_are_thirty_days_old() -> None:
     ) == (True, "filesystem", "720h", "disabled")
 
 
+def test_loki_discovers_log_levels_for_the_warnings_and_errors_panel() -> None:
+    """The Warnings & Errors (Loki) panel of sre-service.json depends on discover_log_levels."""
+    loki = _repo_yaml("k8s", "logging", "loki-values.yaml")["loki"]
+    assert loki["limits_config"]["discover_log_levels"] is True
+    raw = REPO_ROOT.joinpath("k8s", "logging", "loki-values.yaml").read_text(encoding="utf-8")
+    assert "Warnings & Errors (Loki)" in raw
+
+
 def test_both_volumes_hold_thirty_days_and_no_size_cap_cuts_them_short() -> None:
     """Loki's volume holds 30 days of logs; Prometheus keeps 30 days under a looser size cap."""
     loki = _repo_yaml("k8s", "logging", "loki-values.yaml")["singleBinary"]["persistence"]
