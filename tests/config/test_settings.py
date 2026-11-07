@@ -85,18 +85,16 @@ def test_the_implement_ladder_defaults_to_the_local_coder_group_of_each_step_cla
     """No step class starts on a hosted group, and every class has one tier (#3060)."""
     ladder = RoadmapImplementConfig().ladder
 
-    assert ladder == {
-        step_class: ["devops-coder"] for step_class in ("plan", "edit", "repair", "review")
-    }
+    assert ladder == {step_class: ["devops-coder"] for step_class in ("edit", "repair")}
     assert not {tier for tiers in ladder.values() for tier in tiers} & set(
         CONST_AI_GATEWAY_HOSTED_MODELS
     )
 
 
 def test_the_implement_ladder_accepts_a_hosted_group_that_it_names() -> None:
-    ladder = RoadmapImplementConfig(ladder={"review": ["devops-coder", "claude-haiku-5-5"]}).ladder
+    ladder = RoadmapImplementConfig(ladder={"repair": ["devops-coder", "claude-haiku-5-5"]}).ladder
 
-    assert ladder["review"] == ["devops-coder", "claude-haiku-5-5"]
+    assert ladder["repair"] == ["devops-coder", "claude-haiku-5-5"]
 
 
 def test_the_implement_ladder_refuses_a_step_class_that_does_not_exist() -> None:
