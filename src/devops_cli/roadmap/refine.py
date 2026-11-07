@@ -40,8 +40,16 @@ Every item refine does not set Ready gets a next step (`NextStep`, #1758), recor
 record and posted as one comment that carries `CONST_ROADMAP_REFINE_COMMENT_MARKER`: the open
 questions go to a person, a split goes to a person with the proposed items, and open dependencies
 block it. A later round looks at an unchanged item again when a comment follows refine's last one,
-which costs one comment read for each item that waits, or when every item that blocks it is
-closed. The comments since refine's last one reach the model as `replies`. An item refine cannot
+or when every item that blocks it is closed. The comments since refine's last one reach the model
+as `replies`. A round that reads the comments of a waiting item records what they gave
+(`RefineRecordKey.COMMENTS_SEEN`, `COMMENTED_AT` and `WAIT_REFS`: the count of comments the issue
+listing carried, the time of refine's last comment, and the issues and paths the text of the wait
+names). So an item that waits and holds that count costs no comment read and no body read: a new
+comment moves the count, and the other exits use the record alone (#3667). A comment that is no
+reply costs one read, and the round records the new count. Two waits still cost one comment read
+each round: an item that refine set Ready and a person or the stage job set back to New, and an
+item that an account the jobs do not trust opened. An item the model refines reads its comments
+once. The store reads each blocker, path and named issue once a round. An item refine cannot
 write a design for (too big, or two replies that never validated) waits on a body edit alone. An
 unchanged item whose record holds no step is refined again so it gets one. The report groups
 every item by its next step.
@@ -406,6 +414,10 @@ class WaitingItem:
     `notice` is set when an account that the jobs do not trust opened the item and no comment
     of a round told its author why the round leaves it alone: apply writes that comment once
     (#3502).
+
+    `marks` is set when the round read the comments of the item and the job record does not hold
+    what they gave: apply records it, so a later round reads no comment of the item while the
+    count of its comments stays the same (#3667).
     """
 
     item: Item
@@ -413,6 +425,7 @@ class WaitingItem:
     details: tuple[str, ...] = ()
     cap_stop: str | None = None
     notice: bool = False
+    marks: JobRecord | None = None
 
 
 @dataclass(frozen=True)
@@ -1769,13 +1782,52 @@ def _wait_text(comments: Sequence[IssueComment]) -> str:
     return "\n".join(comment.body for comment in read)
 
 
-def _named_cause_ended(store: RoadmapStore, item: Item, text: str, since: datetime) -> bool:
-    """Whether an issue that `text`, the wait text of `item`, names closed, or a file that it
-    names changed, at or after `since`, the time of refine's last comment (#3483). The paths need
-    not be the ones the round recorded as the cause of a block."""
-    if changed_since(store, text_paths(text), since):
+def _wait_refs(text: str, own: int) -> str:
+    """The issues and then the paths that `text`, the wait text of issue `own`, names, comma
+    separated as the job record holds them: `#12,src/a.py`."""
+    return ",".join([*(f"#{number}" for number in _text_issues(text, own)), *text_paths(text)])
+
+
+def _named_cause_ended(store: RoadmapStore, refs: str, since: datetime) -> bool:
+    """Whether an issue that `refs`, the references of a wait text (`_wait_refs`), names closed,
+    or a file that it names changed, at or after `since`, the time of refine's last comment
+    (#3483). The paths need not be the ones the round recorded as the cause of a block."""
+    names = [name for name in refs.split(",") if name]
+    issues = [int(name[1:]) for name in names if name.startswith("#")]
+    paths = [name for name in names if not name.startswith("#")]
+    if changed_since(store, paths, since):
         return True
-    return any(_closed_since(store, number, since) for number in _text_issues(text, item.number))
+    return any(_closed_since(store, number, since) for number in issues)
+
+
+def _recorded_reads(item: Item) -> tuple[datetime, str] | None:
+    """The time of refine's last comment and the references of the wait text that the job record
+    of `item` holds, when the record was made for the comments the issue holds now: its count
+    is the listing's. None when the record holds none, a count that moved, or a value that is
+    not a time (#3667)."""
+    record = item.job_record
+    recorded = record.get(RefineRecordKey.COMMENTED_AT)
+    if not recorded or record.get(RefineRecordKey.COMMENTS_SEEN) != str(item.comments):
+        return None
+    try:
+        return datetime.fromisoformat(recorded), record.get(RefineRecordKey.WAIT_REFS) or ""
+    except ValueError:
+        logger.warning(
+            "The comment time recorded on #%d is not a time; its comments are read.", item.number
+        )
+        return None
+
+
+def _read_marks(item: Item, commented_at: datetime, refs: str) -> JobRecord | None:
+    """The marks that record what a read of the comments of `item` gave, or None when its job
+    record holds them already (#3667)."""
+    marks: JobRecord = {
+        RefineRecordKey.COMMENTS_SEEN: str(item.comments),
+        RefineRecordKey.COMMENTED_AT: commented_at.isoformat(),
+        RefineRecordKey.WAIT_REFS: refs or None,
+    }
+    held = item.job_record
+    return None if all(held.get(key) == value for key, value in marks.items()) else marks
 
 
 def _stage_return(item: Item, comments: Sequence[IssueComment]) -> IssueComment | None:
@@ -1824,6 +1876,29 @@ def _settled_wait(item: Item, step: NextStep) -> WaitingItem:
     return WaitingItem(item, step, (_recorded_failure(item),) if step is NextStep.FAILED else ())
 
 
+def _wait_state(
+    item: Item,
+    comments: list[IssueComment] | None,
+    comments_on: Callable[[int], list[IssueComment]],
+) -> tuple[datetime, str, JobRecord | None] | None:
+    """What the exits of a wait need: the time of refine's last comment, the references of the
+    wait text, and the marks that record them when the record does not hold them, or None when a
+    reply follows refine's last comment. The job record gives them while the count of comments is
+    the recorded one; otherwise the round reads the comments, which `comments` holds when it read
+    them already (#3667)."""
+    recorded = _recorded_reads(item) if comments is None else None
+    if recorded is not None:
+        return recorded[0], recorded[1], None
+    comments = comments_on(item.number) if comments is None else comments
+    replies = replies_since_refine(comments)
+    if replies is None or replies:
+        return None
+    # No reply: the last comment that is not another job's is refine's own.
+    commented_at = _without_other_jobs_comments(comments)[-1].created_at
+    refs = _wait_refs(_wait_text(comments), item.number)
+    return commented_at, refs, _read_marks(item, commented_at, refs)
+
+
 def _still_waiting(
     store: RoadmapStore, item: Item, comments_on: Callable[[int], list[IssueComment]]
 ) -> WaitingItem | None:
@@ -1834,10 +1909,13 @@ def _still_waiting(
     file that the text of the wait names closed or changed after it (#3483). An item the stage
     job returned gets one new look, and the second return on the same body waits on a person.
     Only a body edit ends an `EDIT` or a `FAILED` wait, and a `RETRY` is never a wait: the job
-    failed and the next round tries again (#3632). `comments_on` reads the item's comments."""
+    failed and the next round tries again (#3632). `comments_on` reads the item's comments, which
+    the round does only when the count of comments moved since the job record was made, or the
+    record holds none, or the item was set back to New after refine set it Ready (#3667)."""
     step = _recorded_step(item)
     details: tuple[str, ...] = ()
     names_cause = step is NextStep.PERSON
+    comments: list[IssueComment] | None = None
     match step:
         case None | NextStep.RETRY:
             return None
@@ -1850,21 +1928,20 @@ def _still_waiting(
             details = tuple(f"#{number}" for number in blockers)
         case NextStep.READY:
             # A New item refine set Ready: the stage job or a person returned it.
-            returned = _returned_wait(item, comments_on(item.number))
+            comments = comments_on(item.number)
+            returned = _returned_wait(item, comments)
             if returned is None:
                 return None
             step, details = NextStep.PERSON, (returned,)
-    comments = comments_on(item.number)
-    replies = replies_since_refine(comments)
-    if replies is None or replies:
+    state = _wait_state(item, comments, comments_on)
+    if state is None:
         return None
-    # No reply: the last comment that is not another job's is refine's own.
-    last = _without_other_jobs_comments(comments)[-1]
-    if _cited_code_changed(store, item, last.created_at):
+    commented_at, refs, marks = state
+    if _cited_code_changed(store, item, commented_at):
         return None
-    if names_cause and _named_cause_ended(store, item, _wait_text(comments), last.created_at):
+    if names_cause and _named_cause_ended(store, refs, commented_at):
         return None
-    return WaitingItem(item, step, details)
+    return WaitingItem(item, step, details, marks=marks)
 
 
 def _outside_author(item: Item) -> WaitingItem | None:
@@ -2727,6 +2804,14 @@ def _record_cap_stops(store: RoadmapStore, plan: RefinePlan) -> None:
         emit(ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL, 1)
 
 
+def _record_waits(store: RoadmapStore, plan: RefinePlan) -> None:
+    """Record, for each waiting item whose comments the selection read, what the read gave, so a
+    later round reads no comment of it while its count of comments stays (#3667)."""
+    for waiting in plan.waiting_items:
+        if waiting.marks is not None:
+            store.set_marks(waiting.item, waiting.marks)
+
+
 def _tell_outside_authors(store: RoadmapStore, plan: RefinePlan) -> int:
     """Comment once on each item that an account that the jobs do not trust opened, to say why a
     round leaves it alone. The selection found no such comment, and the marker in this one stops
@@ -2851,6 +2936,7 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
 
     _record_unwritten(store, plan)
     _record_cap_stops(store, plan)
+    _record_waits(store, plan)
     comments_posted += _tell_outside_authors(store, plan)
     return RefineApplied(
         refined_count=refined_count,

@@ -165,6 +165,7 @@ class _IssuePayload(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     closed_at: datetime | None = None
+    comments: int = 0
     sub_issues: int = Field(default=0, validation_alias=AliasPath("sub_issues_summary", "total"))
     blocked_by: int = Field(
         default=0, validation_alias=AliasPath("issue_dependencies_summary", "total_blocked_by")
@@ -208,6 +209,7 @@ class _IssuePayload(BaseModel):
             created_at=self.created_at,
             updated_at=self.updated_at,
             closed_at=self.closed_at,
+            comments=self.comments,
             sub_issues=self.sub_issues,
             parent=self.parent,
             blocked_by=self.blocked_by,
