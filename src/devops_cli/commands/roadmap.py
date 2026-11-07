@@ -870,10 +870,12 @@ def explain_cmd(
         int | None, typer.Option("--limit", min=1, help=HELP.roadmap.explain_limit)
     ] = None,
     trace: Annotated[bool, typer.Option("--trace", help=HELP.roadmap.explain_trace)] = False,
+    json_output: Annotated[bool, typer.Option("--json", help=HELP.roadmap.explain_json)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.explain_dry_run)] = False,
 ) -> None:
     """Say whether the stage job and the implement job take an issue, and why not. With --trace,
-    print the trace of the last run of the implement job instead."""
+    print the trace of the last run of the implement job instead. With --json, print the totals of
+    that run as a JSON object."""
     from devops_cli.roadmap.explain import (
         explain_item,
         read_trace,
@@ -885,6 +887,8 @@ def explain_cmd(
     from devops_cli.roadmap.run import model_clone
     from devops_cli.roadmap.stage.stage import parse_filters
 
+    if json_output and trace:
+        _refuse(MESSAGES.roadmap.explain_json_with_trace)
     target = _target(repo)
     if dry_run or is_dry_run():
         reads, writes = explain_requests(target, item=item, trace=trace)
@@ -911,7 +915,10 @@ def explain_cmd(
             stage_limit=limit,
             implement_limit=limit,
         )
-    write_stdout(render_explanation(explained) + "\n")
+    if json_output:
+        write_stdout(json.dumps(explained.as_dict()) + "\n")
+    else:
+        write_stdout(render_explanation(explained) + "\n")
 
 
 @app.command("inbox", help=HELP.roadmap.inbox)
