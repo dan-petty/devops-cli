@@ -1,11 +1,11 @@
 ## MODIFIED Requirements
 
 ### Requirement: A plan run whose window ends the tools too soon fails the item
-When the context window ends the tools of a plan run or of a review run before the run made `CONST_ROADMAP_STAGE_MIN_TOOL_CALLS` tool calls, the run SHALL raise `RoadmapStageError`, whatever its reply is. The message of a plan run SHALL name the window in tokens, the count of calls, the setting `ai.tasks.stage.context_window` and the parent setting `ai.tasks.analysis.context_window`. The message of a review run SHALL name the window in tokens, the count of calls and the setting `ai.tasks.verification.context_window`. The job SHALL record that error for the item.
+When the context window ends the tools of a plan run or of a review run before the run made `CONST_ROADMAP_STAGE_MIN_TOOL_CALLS` tool calls, the run SHALL raise `RoadmapStageError`, whatever its reply is. The message SHALL name the window, the count of calls and the setting to raise. The job SHALL record that error for the item.
 
 #### Scenario: The window ends the tools after one call
 - **WHEN** a plan run has a window of 12000 tokens, reads a big file, and the window takes the tools after fewer calls than the least number
-- **THEN** the run raises `RoadmapStageError` that names the window, `ai.tasks.stage.context_window` and `ai.tasks.analysis.context_window`, though the model gave a valid plan
+- **THEN** the run raises `RoadmapStageError` that names the window, `ai.tasks.stage.context_window` and the parent `ai.tasks.analysis.context_window`, though the model gave a valid plan
 
 #### Scenario: The window ends the tools after the least number of calls
 - **WHEN** a plan run has a window that ends the tools after `CONST_ROADMAP_STAGE_MIN_TOOL_CALLS` calls or more, and the model gives its plan
