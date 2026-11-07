@@ -641,3 +641,127 @@ def test_roadmap_service_ingress_admits_mattermost_port_8000() -> None:
         == "mattermost"
     ]
     assert len(matches) == 1
+
+
+def _devops_policies() -> dict[str, dict[str, Any]]:
+    """Each NetworkPolicy under `k8s/devops/`, by name."""
+    policies: dict[str, dict[str, Any]] = {}
+    for path in sorted((K8S_DIR / "devops").rglob("*.yaml")):
+        for doc in yaml.safe_load_all(path.read_text(encoding="utf-8")):
+            if isinstance(doc, dict) and doc.get("kind") == "NetworkPolicy":
+                policies[doc["metadata"]["name"]] = doc["spec"]
+    return policies
+
+
+def _public_egress_rule(spec: dict[str, Any]) -> dict[str, Any]:
+    """The egress rule of a policy whose peer is the address range 0.0.0.0/0."""
+    (rule,) = (
+        rule
+        for rule in spec["egress"]
+        if any(peer.get("ipBlock", {}).get("cidr") == "0.0.0.0/0" for peer in rule["to"])
+    )
+    return rule
+
+
+def test_the_default_perimeter_of_devops_skips_the_crawl4ai_pod() -> None:
+    """A browser that renders hostile pages must reach neither the gateway nor the cache Valkey,
+    so `devops-default-perimeter` selects every pod of the namespace but `crawl4ai`, the shape that
+    `portkey-perimeter` uses (#3884). The pod has its own policy."""
+    selector = _devops_policies()["devops-default-perimeter"]["podSelector"]
+
+    assert selector == {
+        "matchExpressions": [
+            {"key": "app.kubernetes.io/name", "operator": "NotIn", "values": ["crawl4ai"]}
+        ]
+    }
+
+
+def test_the_crawl4ai_perimeter_admits_only_the_roadmap_service_on_11235() -> None:
+    """The service answers on TCP 11235 to the pods of `roadmap-service` and to no other peer. The
+    peer is a pod selector alone: kube-router refused a namespace and pod selector peer paired with
+    `ports` (#3884)."""
+    spec = _devops_policies()["crawl4ai-perimeter"]
+
+    assert (spec["podSelector"], spec["policyTypes"], spec["ingress"]) == (
+        {"matchLabels": {"app.kubernetes.io/name": "crawl4ai"}},
+        ["Ingress", "Egress"],
+        [
+            {
+                "from": [
+                    {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "roadmap-service"}}}
+                ],
+                "ports": [{"protocol": "TCP", "port": 11235}],
+            }
+        ],
+    )
+
+
+def test_the_crawl4ai_perimeter_reaches_only_dns_and_the_public_web() -> None:
+    """The pod resolves names through CoreDNS and reaches TCP 80 and 443 at public addresses. The
+    address range of the public rule is the one of the default perimeter, with every private,
+    shared, link-local, metadata and special-purpose range removed. This policy is the main control
+    against a request to an internal address, and the filter of the application is the second
+    (#3884)."""
+    policies = _devops_policies()
+    spec = policies["crawl4ai-perimeter"]
+    public = _public_egress_rule(spec)
+    default_public = _public_egress_rule(policies["devops-default-perimeter"])
+    other_rules = [rule for rule in spec["egress"] if rule is not public]
+
+    assert (public["to"], public["ports"], other_rules) == (
+        default_public["to"],
+        [{"protocol": "TCP", "port": 80}, {"protocol": "TCP", "port": 443}],
+        [
+            {
+                "to": [
+                    {
+                        "namespaceSelector": {
+                            "matchLabels": {"kubernetes.io/metadata.name": "kube-system"}
+                        }
+                    }
+                ],
+                "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}],
+            }
+        ],
+    )
+
+
+def test_the_crawl4ai_excepted_ranges_hold_every_private_range() -> None:
+    """The ranges that the public rule removes cover RFC 1918, shared address space, link-local,
+    the cloud metadata address and the IETF protocol and benchmarking ranges."""
+    removed = _public_egress_rule(_devops_policies()["crawl4ai-perimeter"])["to"][0]["ipBlock"][
+        "except"
+    ]
+
+    assert sorted(removed) == sorted(
+        [
+            "10.0.0.0/8",
+            "172.16.0.0/12",
+            "192.168.0.0/16",
+            "100.64.0.0/10",
+            "169.254.0.0/16",
+            METADATA_SSRF_IP,
+            "192.0.0.0/24",
+            "198.18.0.0/15",
+        ]
+    )
+
+
+def test_only_the_roadmap_service_may_send_to_port_11235() -> None:
+    """Of the pods in namespace devops, the `roadmap-service` pod alone has an egress rule to the
+    pods of `crawl4ai` on 11235. A Job pod (`devops-cli-job`) keeps no such rule, so it cannot call
+    the fetch service (#3884)."""
+    senders = {
+        name: (spec["podSelector"], [peer["podSelector"] for peer in rule["to"]])
+        for name, spec in _devops_policies().items()
+        for rule in spec.get("egress", [])
+        if 11235 in [port.get("port") for port in rule.get("ports", [])]
+        and "crawl4ai-perimeter" != name
+    }
+
+    assert senders == {
+        "roadmap-service-to-crawl4ai": (
+            {"matchLabels": {"app.kubernetes.io/name": "roadmap-service"}},
+            [{"matchLabels": {"app.kubernetes.io/name": "crawl4ai"}}],
+        )
+    }
