@@ -2551,3 +2551,10 @@ The stage job SHALL write the code span of each `Verification:` line it writes a
 #### Scenario: A staged group
 - **WHEN** the stage job writes the tasks of a `behavior` group with the `verify` command `uv run devops ci test tests/test_sample.py`
 - **THEN** the `Verification:` line of each of its first two tasks holds the code span `$ uv run devops ci test tests/test_sample.py`, and `parse_task_groups` reads the command without the mark
+
+### Requirement: The planner prompt names the issue form of a dependency
+The planner prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` SHALL state that a `dependencies` entry which starts with `#<number>:` names an issue that must be delivered first, and MUST keep the rule that names each overlap and each metric sender.
+
+#### Scenario: The prompt-rules test reads the form
+- **WHEN** the prompt-rules test reads the dependencies rule of `src/devops_cli/ai/tasks/roadmap_stage_change.md`
+- **THEN** the test finds the form `#<number>:` and the rule of the overlaps, and it passes
