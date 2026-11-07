@@ -27,6 +27,7 @@ from devops_cli.roadmap.agent_run import ToolOutcome, empty_answer, error_answer
 from devops_cli.roadmap.refine import refine_investigation
 from devops_cli.roadmap.stage.stage_github import StageGitHub
 from devops_cli.roadmap.stage.stage_tools import StageTools
+from devops_cli.roadmap.tools import HOLDER_STAGE, HOLDER_STAGE_EXTENDED, tool_names
 from tests.support.fakes.process import ProcessAnswer
 
 _TOOL_NAMES = [
@@ -148,6 +149,15 @@ def test_the_base_toolset_has_the_nine_tools_and_no_web_search(tools: StageTools
 
 def test_the_extended_toolset_is_the_default_and_adds_three_tools(tools: StageTools) -> None:
     assert [tool.name for tool in tools.tools()] == _EXTENDED_TOOL_NAMES
+
+
+def test_the_toolset_names_the_methods_of_the_registry_holder(tools: StageTools) -> None:
+    """The registry gives the names of the toolset, in table order: `stage` names the nine of
+    `base`, and `stage-extended` names the twelve of `extended`."""
+    base = StageTools(source=tools.source, sha=tools.sha, openspec=tools.openspec, toolset="base")
+
+    assert [tool.name for tool in base.tools()] == list(tool_names(HOLDER_STAGE))
+    assert [tool.name for tool in tools.tools()] == list(tool_names(HOLDER_STAGE_EXTENDED))
 
 
 def test_the_toolbox_has_no_web_search_even_when_the_round_allows_it(repo: Path) -> None:
