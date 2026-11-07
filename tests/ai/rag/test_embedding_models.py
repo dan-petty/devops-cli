@@ -55,7 +55,8 @@ def test_an_engine_gives_an_operational_pydantic_ai_embedder(web: WebFake) -> No
 
     res = embedder.embed_query_sync("Engine test")
 
-    assert (isinstance(embedder, Embedder), len(res), res["Engine test"]) == (True, 1, [0.5] * 4)
+    assert isinstance(embedder, Embedder)
+    assert (len(res), res["Engine test"]) == (1, [0.5] * 4)
 
 
 def test_a_provider_that_returns_too_few_vectors_raises(web: WebFake) -> None:

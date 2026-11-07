@@ -58,8 +58,10 @@ def test_clearing_the_cache_lifts_the_stop(qdrant: Any, embedder: Any) -> None:
     seed_chunk(qdrant, embedder, QUERY)
 
     clear_investigation_cache()
+    context = investigate_rag_context(QUERY, settings=_settings())
 
-    assert investigate_rag_context(QUERY, settings=_settings()) is not None
+    assert context is not None
+    assert [result.chunk.content for result in context.results] == [QUERY]
 
 
 def test_a_transient_failure_does_not_stop_rag(qdrant: Any, embedder: Any) -> None:
