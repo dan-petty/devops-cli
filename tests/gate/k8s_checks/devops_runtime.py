@@ -59,6 +59,11 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
     assert crawl4ai[0] == "Deployment"
     assert crawl4ai[2].startswith("unclecode/crawl4ai:")
     containers.discard(crawl4ai)
+    # Deployment `searxng` pins a third-party image by tag and digest (#3924).
+    searxng = next(c for c in containers if c[1] == "searxng")
+    assert searxng[0] == "Deployment"
+    assert searxng[2].startswith("docker.io/searxng/searxng:")
+    containers.discard(searxng)
     assert containers == {
         ("CronJob", "devops-cli", f"{service}:latest@{digest}", "IfNotPresent"),
         ("CronJob", "runner", "ghcr.io/dan-petty/devops-cli/runner", "IfNotPresent"),

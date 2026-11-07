@@ -58,6 +58,7 @@ CACHE_PASSWORD = "cache-keyring-value-0001"
 DEVOPS_CACHE_PASSWORD = "devops-cache-keyring-value-0001"
 TUNNEL_TOKEN = "tunnel-keyring-value-0001"
 CRAWL4AI_TOKEN = "crawl4ai-keyring-value-0001"
+SEARXNG_SECRET = "searxng-keyring-value-0001"
 FULL_KEYRING = {
     LLM_GATEWAY_MASTER_KEY: GATEWAY_KEY,
     "qdrant_api_key": QDRANT_KEY,
@@ -67,6 +68,7 @@ FULL_KEYRING = {
     "cloudflare_tunnel_token": TUNNEL_TOKEN,
     "service_github_app_private_key": APP_KEY,
     "crawl4ai_api_token": CRAWL4AI_TOKEN,
+    "searxng_secret_key": SEARXNG_SECRET,
 }
 TABLE_REFS = {secret.ref for secret in CLUSTER_SECRETS}
 
@@ -240,6 +242,7 @@ def test_apply_is_one_server_side_apply_of_a_list_on_stdin(
             "llm/valkey-devops-auth": ["password"],
             "cloudflared/cloudflared-token": ["token"],
             "devops/crawl4ai": ["CRAWL4AI_API_TOKEN"],
+            "devops/searxng": ["SEARXNG_SECRET"],
             "devops/devops-cli": [
                 "DEVOPS_CLI_AI_API_KEY",
                 "DEVOPS_CLI_CRAWL4AI_API_TOKEN",
@@ -360,7 +363,11 @@ def test_the_devops_api_key_is_adopted_from_the_gateway_secret_never_generated(
         monkeypatch,
         cluster,
         keyring_store,
-        values={"service_github_app_private_key": APP_KEY, "crawl4ai_api_token": CRAWL4AI_TOKEN},
+        values={
+            "service_github_app_private_key": APP_KEY,
+            "crawl4ai_api_token": CRAWL4AI_TOKEN,
+            "searxng_secret_key": SEARXNG_SECRET,
+        },
     )
     cluster.add_secret("llm", "llm-gateway-secrets", {"master-key": "sk-live-gateway-0001"})
     cluster.add_secret("llm", "valkey-devops-auth", {"password": "live-devops-cache-0001"})
@@ -552,6 +559,7 @@ def test_stack_devops_reads_the_app_key_gateway_key_and_webhook_secrets_and_runs
             DEVOPS_CACHE_VALKEY_AUTH_KEY,
             "mattermost_command_token",
             "crawl4ai_api_token",
+            "searxng_secret_key",
         },
         [],
         APP_KEY,

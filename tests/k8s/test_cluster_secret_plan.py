@@ -266,6 +266,15 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             ("deployment/crawl4ai",),
         ),
         (
+            "devops/searxng",
+            "SEARXNG_SECRET",
+            "devops",
+            True,
+            SecretGenerator("hex", 32),
+            None,
+            ("deployment/searxng",),
+        ),
+        (
             "devops/devops-cli",
             APP_KEY_ENTRY,
             "devops",

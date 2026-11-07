@@ -1,0 +1,112 @@
+# SearXNG searches the web for the roadmap Service and returns JSON (#3924). Upstream ships no
+# Helm chart and no Kubernetes manifest, only a compose file, so this file follows that file:
+# the image runs as user 977, reads /etc/searxng/settings.yml, and writes under /var/cache/searxng.
+# The image is a pin: Renovate bumps the tag and the digest together. Follow the bump steps in
+# k8s/README.md ("SearXNG") before you merge a bump. The image is used as it is, with no patch.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: searxng
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: searxng
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: searxng
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: searxng
+        app.kubernetes.io/part-of: devops-cli-stack
+    spec:
+      # The pod calls no Kubernetes API, so it mounts no token.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # The ID of user `searxng` in the image. A name cannot be checked against runAsNonRoot.
+        runAsUser: 977
+        runAsGroup: 977
+        fsGroup: 977
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: searxng
+          image: docker.io/searxng/searxng:2026.10.23-629368e40@sha256:aecad882e86eeb022b76351c8dce4eb48d0cbb16a5f1691f77ea32c96d317502
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            # SearXNG reads this variable before the secret_key of settings.yml, so the file holds
+            # no secret. It refuses to start with the key `ultrasecretkey`.
+            - name: SEARXNG_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: searxng
+                  key: SEARXNG_SECRET
+            # An IPv4 bind. The default `::` takes IPv4 only when the node allows it.
+            - name: GRANIAN_HOST
+              value: 0.0.0.0
+          volumeMounts:
+            # One file, so that /etc/searxng stays the directory of the image, which user 977 owns.
+            # A mount of the whole directory is owned by root, and the entrypoint warns of it.
+            - name: settings
+              mountPath: /etc/searxng/settings.yml
+              subPath: settings.yml
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /var/cache/searxng
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          # A search takes the 4 worker threads for up to the engine timeout, so the probe waits
+          # long and fails three times before it restarts the pod.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          # Measured with the pinned image under these controls: 20 queries one after another
+          # peaked at 117 MiB, and 10 at once at 122 MiB and 0.8 CPU (k8s/README.md, "SearXNG").
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+              ephemeral-storage: 64Mi
+            limits:
+              cpu: "1"
+              memory: 384Mi
+              ephemeral-storage: 256Mi
+      volumes:
+        - name: settings
+          configMap:
+            name: searxng-settings
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: cache
+          emptyDir:
+            sizeLimit: 128Mi

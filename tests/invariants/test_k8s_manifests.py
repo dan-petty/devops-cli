@@ -23,6 +23,7 @@ from devops_cli.k8s.cluster_secrets import (
     DEVOPS_CACHE_VALKEY_AUTH_KEY,
     LLM_GATEWAY_MASTER_KEY,
     MATTERMOST_DB_AUTH_KEY,
+    SEARXNG_SERVER_KEY,
     KeyringSource,
     keyring_only_keys,
     keyring_sources,
@@ -922,7 +923,14 @@ def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
         True,
         True,
         frozenset(),
-        frozenset({LLM_GATEWAY_MASTER_KEY, DEVOPS_CACHE_VALKEY_AUTH_KEY, MATTERMOST_DB_AUTH_KEY}),
+        frozenset(
+            {
+                LLM_GATEWAY_MASTER_KEY,
+                DEVOPS_CACHE_VALKEY_AUTH_KEY,
+                MATTERMOST_DB_AUTH_KEY,
+                SEARXNG_SERVER_KEY,
+            }
+        ),
     )
 
 

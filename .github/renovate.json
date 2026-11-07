@@ -67,6 +67,13 @@
       ]
     },
     {
+      "description": "This file sets no minimum release age, and SearXNG publishes many tags a day. A person checks the age of the tag, and the tests hold the engine names of the pinned image.",
+      "matchPackageNames": ["searxng/searxng", "docker.io/searxng/searxng"],
+      "prBodyNotes": [
+        "Before the merge, check that the new tag is at least 14 days old (the tag list of https://hub.docker.com/r/searxng/searxng/tags shows the push date). Then follow the bump steps in `k8s/README.md`, section SearXNG: refresh `tests/fixtures/searxng/default_engine_names.txt` from the new image and read its notes on the engines that the settings keep."
+      ]
+    },
+    {
       "matchManagers": ["github-actions"],
       "labels": ["type/chore", "scope/ci"]
     },

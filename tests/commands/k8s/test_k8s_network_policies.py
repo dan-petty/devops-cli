@@ -663,15 +663,20 @@ def _public_egress_rule(spec: dict[str, Any]) -> dict[str, Any]:
     return rule
 
 
-def test_the_default_perimeter_of_devops_skips_the_crawl4ai_pod() -> None:
+def test_the_default_perimeter_of_devops_skips_the_crawl4ai_and_searxng_pods() -> None:
     """A browser that renders hostile pages must reach neither the gateway nor the cache Valkey,
-    so `devops-default-perimeter` selects every pod of the namespace but `crawl4ai`, the shape that
-    `portkey-perimeter` uses (#3884). The pod has its own policy."""
+    and the search service needs neither. So `devops-default-perimeter` selects every pod of the
+    namespace but `crawl4ai` and `searxng`, the shape that `portkey-perimeter` uses (#3884, #3924).
+    Each pod has its own policy."""
     selector = _devops_policies()["devops-default-perimeter"]["podSelector"]
 
     assert selector == {
         "matchExpressions": [
-            {"key": "app.kubernetes.io/name", "operator": "NotIn", "values": ["crawl4ai"]}
+            {
+                "key": "app.kubernetes.io/name",
+                "operator": "NotIn",
+                "values": ["crawl4ai", "searxng"],
+            }
         ]
     }
 
@@ -763,5 +768,73 @@ def test_only_the_roadmap_service_may_send_to_port_11235() -> None:
         "roadmap-service-to-crawl4ai": (
             {"matchLabels": {"app.kubernetes.io/name": "roadmap-service"}},
             [{"matchLabels": {"app.kubernetes.io/name": "crawl4ai"}}],
+        )
+    }
+
+
+def test_the_searxng_perimeter_admits_only_the_roadmap_service_on_8080() -> None:
+    """The service has no limiter and no login, so the policy is its access control: the pods of
+    `roadmap-service` reach TCP 8080 and no other peer does. The peer is a pod selector alone
+    (kube-router refused a namespace and pod selector peer paired with `ports`) (#3924)."""
+    spec = _devops_policies()["searxng-perimeter"]
+
+    assert (spec["podSelector"], spec["policyTypes"], spec["ingress"]) == (
+        {"matchLabels": {"app.kubernetes.io/name": "searxng"}},
+        ["Ingress", "Egress"],
+        [
+            {
+                "from": [
+                    {"podSelector": {"matchLabels": {"app.kubernetes.io/name": "roadmap-service"}}}
+                ],
+                "ports": [{"protocol": "TCP", "port": 8080}],
+            }
+        ],
+    )
+
+
+def test_the_searxng_perimeter_reaches_only_dns_and_public_https() -> None:
+    """The engines answer on HTTPS, so the pod reaches CoreDNS and TCP 443 at public addresses. The
+    address range of the public rule is the one of the default perimeter, with every private,
+    shared, link-local, metadata and special-purpose range removed (#3924)."""
+    policies = _devops_policies()
+    spec = policies["searxng-perimeter"]
+    public = _public_egress_rule(spec)
+    default_public = _public_egress_rule(policies["devops-default-perimeter"])
+    other_rules = [rule for rule in spec["egress"] if rule is not public]
+
+    assert (public["to"], public["ports"], other_rules) == (
+        default_public["to"],
+        [{"protocol": "TCP", "port": 443}],
+        [
+            {
+                "to": [
+                    {
+                        "namespaceSelector": {
+                            "matchLabels": {"kubernetes.io/metadata.name": "kube-system"}
+                        }
+                    }
+                ],
+                "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}],
+            }
+        ],
+    )
+
+
+def test_only_the_roadmap_service_may_send_to_port_8080_of_searxng() -> None:
+    """Of the pods in namespace devops, the `roadmap-service` pod alone has an egress rule to the
+    pods of `searxng` on 8080. A Job pod (`devops-cli-job`) keeps no such rule, so it cannot call
+    the search service (#3924)."""
+    senders = {
+        name: (spec["podSelector"], [peer["podSelector"] for peer in rule["to"]])
+        for name, spec in _devops_policies().items()
+        for rule in spec.get("egress", [])
+        if 8080 in [port.get("port") for port in rule.get("ports", [])]
+        and "searxng-perimeter" != name
+    }
+
+    assert senders == {
+        "searxng-clients": (
+            {"matchLabels": {"app.kubernetes.io/name": "roadmap-service"}},
+            [{"matchLabels": {"app.kubernetes.io/name": "searxng"}}],
         )
     }

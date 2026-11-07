@@ -62,6 +62,25 @@ def test_kubernetes_updates_carry_the_infra_label_and_the_chore_prefix() -> None
     )
 
 
+def test_a_searxng_bump_tells_the_person_to_check_the_tag_age_and_refresh_the_engine_names() -> (
+    None
+):
+    """The file sets no minimum release age, and SearXNG publishes many tags a day, so the text of
+    the pull request carries the check (#3924)."""
+    (rule,) = [
+        r
+        for r in _renovate()["packageRules"]
+        if "searxng/searxng" in r.get("matchPackageNames", [])
+    ]
+    (note,) = rule["prBodyNotes"]
+
+    assert (
+        "docker.io/searxng/searxng" in rule["matchPackageNames"],
+        "at least 14 days old" in note,
+        "tests/fixtures/searxng/default_engine_names.txt" in note,
+    ) == (True, True, True)
+
+
 def _applications_that_pin_a_chart() -> list[str]:
     """Each tracked file under `k8s/` that holds an Argo CD Application with a Helm chart source."""
     found = []
