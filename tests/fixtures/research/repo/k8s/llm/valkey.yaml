@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valkey
+spec:
+  template:
+    spec:
+      containers:
+      - name: valkey
+        image: valkey/valkey:9.1.2-alpine
+      - name: untagged
+        image: example/untagged

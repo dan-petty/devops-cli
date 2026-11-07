@@ -4632,6 +4632,17 @@ class ReleaseMessages:
 
 
 @dataclass(frozen=True)
+class ResearchMessages:
+    inventory_title: str = "Pins of the project"
+    inventory_summary: str = "{total} components, {unknown} with an unknown ecosystem."
+    kind_column: str = "Kind"
+    ecosystem_column: str = "Ecosystem"
+    name_column: str = "Name"
+    version_column: str = "Version"
+    location_column: str = "File"
+
+
+@dataclass(frozen=True)
 class LanguageCatalog:
     persona_titles: PersonaTitles = field(default_factory=PersonaTitles)
     messages: GeneralMessages = field(default_factory=GeneralMessages)
@@ -4641,6 +4652,7 @@ class LanguageCatalog:
     ai: AIMessages = field(default_factory=AIMessages)
     survey: SurveyMessages = field(default_factory=SurveyMessages)
     release: ReleaseMessages = field(default_factory=ReleaseMessages)
+    research: ResearchMessages = field(default_factory=ResearchMessages)
     benchmark: BenchmarkMessages = field(default_factory=BenchmarkMessages)
     config: ConfigMessages = field(default_factory=ConfigMessages)
     install: InstallMessages = field(default_factory=InstallMessages)
