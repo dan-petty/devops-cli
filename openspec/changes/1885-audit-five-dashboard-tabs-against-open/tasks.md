@@ -22,7 +22,7 @@ Reads: `docs/DASHBOARD_TABS_AUDIT.md`, `README.md`, `docs/index.md`, `tests/inva
 
 Reads: `src/devops_cli/ui/widgets.py`, `src/devops_cli/ui/data_providers.py`, `tests/ui/test_ui_docker_provider.py`, `tests/ui/test_ui_docker_inventory.py`, `docs/DASHBOARD_TABS_AUDIT.md`. Changes: `docs/DASHBOARD_TABS_AUDIT.md`.
 
-- [ ] 3.1 Add the Docker section. Name lazydocker as the open terminal tool that the audit tests, and state that no file of the repository pins it. State each function of `DockerPanel` and of `fetch_docker_status` that lazydocker does not cover. State the lines a replacement deletes as file and line ranges. State the pin and the config that the follow-up issue ships, the Docker request cost that `fetch_docker_status` makes at the refresh interval, and the person-run steps that read the lazydocker release page and compare the views
+- [ ] 3.1 Add the Docker section. Name lazydocker as the open terminal tool that the audit tests, and state that no file of the repository pins it. State each function of `DockerPanel` in `src/devops_cli/ui/widgets.py` and of `fetch_docker_status` in `src/devops_cli/ui/data_providers.py` that lazydocker does not cover. State the lines a replacement deletes as file and line ranges in `src/devops_cli/ui/widgets.py` and `src/devops_cli/ui/data_providers.py`. State the pin and the config that the follow-up issue ships, the Docker request cost that `fetch_docker_status` makes at the refresh interval, and the person-run steps that read the lazydocker release page and compare the views
   - Verification: `uv run devops ci docs` passes
 - [ ] 3.2 Edit `docs/DASHBOARD_TABS_AUDIT.md` with the Docker section
   - Verification: `uv run devops ci docs` passes
@@ -56,9 +56,9 @@ Reads: `src/devops_cli/ui/widgets.py`, `src/devops_cli/ui/log_buffer.py`, `src/d
 
 ## 7. Add the summary table and the follow-up issues
 
-Reads: `docs/DASHBOARD_TABS_AUDIT.md`. Changes: `docs/DASHBOARD_TABS_AUDIT.md`.
+Reads: `src/devops_cli/ui/dashboard.py`, `docs/DASHBOARD_TABS_AUDIT.md`. Changes: `docs/DASHBOARD_TABS_AUDIT.md`.
 
-- [ ] 7.1 Add a summary table to `docs/DASHBOARD_TABS_AUDIT.md`: one row for each tab, with the open tool, the verdict and the title of its follow-up issue. Add the follow-up section. Give each tab that an open tool can replace its issue title, its body that links #1885, and the `devops gh issues create` command that a person runs. State the reason for each tab that stays. Name only a command that `devops` holds, because `devops ci docs` resolves each one
+- [ ] 7.1 Add a summary table to `docs/DASHBOARD_TABS_AUDIT.md` for each tab of `src/devops_cli/ui/dashboard.py`: one row for each tab, with the open tool, the verdict and the title of its follow-up issue. Add the follow-up section. Give each tab that an open tool can replace its issue title, its body that links #1885, and the `devops gh issues create` command that a person runs. State the reason for each tab that stays. Name only a command that `devops` holds, because `devops ci docs` resolves each one
   - Verification: `uv run devops ci docs` passes
 - [ ] 7.2 Edit `docs/DASHBOARD_TABS_AUDIT.md` with the summary table and the follow-up section
   - Verification: `uv run devops ci docs` passes
