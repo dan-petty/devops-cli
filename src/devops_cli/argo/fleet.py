@@ -6,6 +6,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
+from devops_cli.argo.client import resolve_argocd_endpoint
 from devops_cli.argo.sync import build_sync_request_body
 from devops_cli.config.defaults import (
     DEFAULT_ARGO_FLEET_CONCURRENCY,
@@ -13,9 +14,6 @@ from devops_cli.config.defaults import (
     DEFAULT_HTTP_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.exceptions.config import ConfigurationError
-from devops_cli.http.egress import configured_level
-from devops_cli.http.entry import http_client
 from devops_cli.models.argo import ArgoFleetAppTarget, ArgoFleetSyncResult
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import trace_span
@@ -41,27 +39,16 @@ def _execute_cluster_sync(
 
     The client dials the configured level: loopback, or private with `ai.allow_private_network`.
     """
-    settings = load_settings()
-    from devops_cli.config.settings import get_argocd_token
-    from devops_cli.k8s.credentials import get_or_mint_argocd_token
-
-    if not settings.argocd.url:
-        raise ConfigurationError("ArgoCD URL is not configured in settings", key="argocd.url")
-
-    headers: dict[str, str] = {"Content-Type": "application/json"}
-    token = get_argocd_token(settings) or get_or_mint_argocd_token(settings)
-    if token and not token.startswith("*"):
-        headers["Authorization"] = f"Bearer {token}"
+    endpoint = resolve_argocd_endpoint(load_settings())
 
     target_app = resolve_cluster_app_name(app_name, cluster)
-    base = settings.argocd.url.rstrip("/")
-    url = f"{base}/api/v1/applications/{target_app}/sync"
+    url = f"{endpoint.base_url}/api/v1/applications/{target_app}/sync"
     payload = build_sync_request_body(prune=prune, force=force, app_namespace="argocd")
 
-    with http_client(configured_level(settings.ai)) as client:
+    with endpoint.client() as client:
         resp = client.post(
             url,
-            headers=headers,
+            headers=endpoint.headers,
             json=payload,
             params={"appNamespace": "argocd"},
             timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,

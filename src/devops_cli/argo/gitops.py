@@ -22,17 +22,15 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from devops_cli.argo.client import resolve_argocd_endpoint
 from devops_cli.argo.sync import build_sync_request_body
 from devops_cli.config.constants import CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
-from devops_cli.config.settings import get_argocd_token, load_settings
+from devops_cli.config.settings import load_settings
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.git.operations import git_show_toplevel
-from devops_cli.http.egress import configured_level
-from devops_cli.http.entry import http_client
-from devops_cli.k8s.credentials import get_or_mint_argocd_token
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
@@ -387,15 +385,13 @@ def trigger_argocd_sync(
             )
 
         try:
-            base = settings.argocd.url.rstrip("/")
+            endpoint = resolve_argocd_endpoint(settings)
             url, headers, payload = _build_sync_request_params(
-                app_name, base, sync_mode, prune, force
+                app_name, endpoint.base_url, sync_mode, prune, force
             )
-            token = get_argocd_token(settings) or get_or_mint_argocd_token(settings)
-            if token and not token.startswith("*"):
-                headers["Authorization"] = f"Bearer {token}"
+            headers.update(endpoint.headers)
 
-            with http_client(configured_level(settings.ai)) as client:
+            with endpoint.client() as client:
                 resp = client.post(
                     url,
                     headers=headers,

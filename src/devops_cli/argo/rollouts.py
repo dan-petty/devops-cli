@@ -6,20 +6,28 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+import httpx2
+
 from devops_cli.argo.crd import ArgoCRDService, get_argo_crd_service
 from devops_cli.config.defaults import DEFAULT_K8S_NAMESPACE
+from devops_cli.config.settings import load_settings
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.exceptions.argo import ArgoError
+from devops_cli.http.egress import configured_level
 from devops_cli.models.argo import (
     ArgoRolloutState,
     RolloutAnalysisResult,
     RolloutMetricThreshold,
 )
+from devops_cli.models.prometheus import PrometheusQueryResult
+from devops_cli.prometheus.client import PrometheusClient
 
 if TYPE_CHECKING:
     from devops_cli.output.models import TablePayload
 
 logger = logging.getLogger(__name__)
+
+_METRIC_TIMEOUT_SECONDS = 5.0
 
 
 def promote_rollout(
@@ -81,34 +89,19 @@ def _fetch_metric_value(query: str) -> float | None:
     The client dials the configured level: loopback, or private with `ai.allow_private_network`.
     A refused address (SSRFBlockedError, a ValueError) leaves the metric unavailable.
     """
-    from devops_cli.config.settings import load_settings
-    from devops_cli.http.egress import configured_level
-    from devops_cli.http.entry import http_client
-
     settings = load_settings()
-    prom_url = getattr(settings, "prometheus", None) and getattr(settings.prometheus, "url", None)
-    if not prom_url:
+    if not settings.prometheus.url:
         return None
 
-    import httpx2
-
     try:
-        with http_client(configured_level(settings.ai)) as client:
-            resp = client.get(
-                f"{prom_url.rstrip('/')}/api/v1/query",
-                params={"query": query},
-                timeout=5.0,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                results = data.get("data", {}).get("result", [])
-                if results and "value" in results[0]:
-                    return float(results[0]["value"][1])
+        with PrometheusClient(
+            settings.prometheus.url, configured_level(settings.ai), timeout=_METRIC_TIMEOUT_SECONDS
+        ) as prometheus:
+            result = PrometheusQueryResult.from_instant_response(prometheus.query(query))
+        return float(result.series[0].value) if result.series else None
     except (httpx2.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
         logger.debug("Failed to query Prometheus metric: %s", exc)
         return None
-
-    return None
 
 
 def _compare_metric(val: float | None, threshold: float, operator: str) -> bool:

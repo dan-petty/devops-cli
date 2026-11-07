@@ -96,3 +96,4 @@ providers:
 - **Public Git Repository**: [github.com/grafana/grafana](https://github.com/grafana/grafana)
 - **Published Container Image**: [hub.docker.com/r/grafana/grafana](https://hub.docker.com/r/grafana/grafana)
 - **DevOps CLI Grafana Integration**: [src/devops_cli/commands/grafana.py](../../../../commands/grafana.py)
+- **DevOps CLI Grafana Client**: [src/devops_cli/grafana/client.py](../../../../grafana/client.py)

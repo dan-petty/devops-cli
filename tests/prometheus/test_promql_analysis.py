@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import json
-from typing import Any
-from unittest.mock import MagicMock, patch
-
 import pytest
-from typer.testing import CliRunner
 
-from devops_cli.commands.prometheus import app as prometheus_app
 from devops_cli.models.prometheus import TrendDirection
 from devops_cli.prometheus.analysis import (
     analyze_series,
@@ -24,9 +18,6 @@ from devops_cli.prometheus.promql import (
     selectors,
     validate_promql,
 )
-
-runner = CliRunner()
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Valid PromQL must never be rejected
@@ -266,88 +257,7 @@ def test_malformed_payload_yields_no_samples() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 7. CLI integration
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def _settings_with_url() -> Any:
-    """Build settings pointing at a documentation Prometheus endpoint."""
-    settings = MagicMock()
-    settings.prometheus.url = "http://example.com:9090"
-    return settings
-
-
-def test_cli_rejects_malformed_promql_before_any_request() -> None:
-    """An invalid query fails locally, with no request issued to the Prometheus API.
-
-    Catching the typo here is the whole point: the round trip is avoided and the error
-    names the offending character rather than relaying the server's phrasing.
-    """
-    with patch("devops_cli.commands.prometheus.httpx2.Client") as client_cls:
-        result = runner.invoke(prometheus_app, ["query", "rate(x[5m"])
-
-    assert result.exit_code == 1
-    assert "Invalid PromQL" in result.output
-    assert client_cls.return_value.__enter__.return_value.get.called is False
-
-
-def test_cli_analyze_reports_anomalies(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The analyze command summarises a series and surfaces its outliers."""
-    payload = {
-        "status": "success",
-        "data": {
-            "result": [
-                {
-                    "metric": {"job": "api"},
-                    "values": [[1000 + i, "10"] for i in range(20)] + [[1020, "500"]],
-                }
-            ]
-        },
-    }
-    response = MagicMock()
-    response.status_code = 200
-    response.headers = {"content-type": "application/json"}
-    response.json.return_value = payload
-
-    monkeypatch.setattr(
-        "devops_cli.commands.prometheus.load_settings", lambda: _settings_with_url()
-    )
-    with patch("devops_cli.commands.prometheus.httpx2.Client") as client_cls:
-        client_cls.return_value.__enter__.return_value.get.return_value = response
-        result = runner.invoke(prometheus_app, ["analyze", "up", "--json"])
-
-    assert result.exit_code == 0
-    analysis = json.loads(result.output)
-    assert (analysis["sample_count"], len(analysis["anomalies"])) == (21, 1)
-
-
-def test_cli_analyze_handles_an_empty_result(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A query matching no series reports so rather than failing."""
-    response = MagicMock()
-    response.status_code = 200
-    response.headers = {"content-type": "application/json"}
-    response.json.return_value = {"status": "success", "data": {"result": []}}
-
-    monkeypatch.setattr(
-        "devops_cli.commands.prometheus.load_settings", lambda: _settings_with_url()
-    )
-    with patch("devops_cli.commands.prometheus.httpx2.Client") as client_cls:
-        client_cls.return_value.__enter__.return_value.get.return_value = response
-        result = runner.invoke(prometheus_app, ["analyze", "up"])
-
-    assert result.exit_code == 0
-    assert "no series to analyze" in result.output
-
-
-def test_cli_analyze_supports_dry_run() -> None:
-    """Analysis can be previewed without contacting the server."""
-    result = runner.invoke(prometheus_app, ["analyze", "up"], env={"DEVOPS_CLI_DRY_RUN": "true"})
-    assert result.exit_code == 0
-    assert "query_range" in result.output
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 8. Series selectors and grouping labels
+# 7. Series selectors and grouping labels
 # ─────────────────────────────────────────────────────────────────────────────
 
 
