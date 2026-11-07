@@ -856,3 +856,32 @@ def plan_ai_runs_check(
             target=f"GET devops-cli:runs:record:<mechanism>:{run_id}",
         ),
     ]
+
+
+def plan_ai_fetch_page(url: str) -> list[PlannedRequest]:
+    """Plan the one request that reads a page through the Crawl4AI service.
+
+    The page URL and the setting are checked as the real run checks them. The token is not read:
+    the request shows a placeholder.
+    """
+    from devops_cli.ai.page_text import checked_page_url, crawl4ai_service
+
+    page_url = checked_page_url(url)
+    service = crawl4ai_service(load_settings())
+    target = f"{service}/md"
+    return [
+        PlannedRequest(
+            method="POST",
+            target=target,
+            argv=(
+                "curl",
+                "--request",
+                "POST",
+                "--header",
+                "Authorization: Bearer <crawl4ai.api_token>",
+                "--json",
+                json.dumps({"url": page_url, "f": "fit"}),
+                target,
+            ),
+        )
+    ]

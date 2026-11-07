@@ -1840,6 +1840,41 @@ def read_cmd(
 
 
 # =============================================================================
+# Command: devops ai fetch-page
+# =============================================================================
+
+
+@dry_run_class("request-plan")
+@app.command("fetch-page", help=HELP.ai.fetch_page_cmd)
+def fetch_page_cmd(
+    url: Annotated[str, typer.Argument(help=HELP.ai.fetch_page_url)],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Read the text of one page through the Crawl4AI service."""
+    if dry_run or is_dry_run():
+        from devops_cli.ai.ai_plans import plan_ai_fetch_page
+
+        render_request_plan("Plan for fetching a page", plan_ai_fetch_page(url), described=True)
+        return
+
+    from devops_cli.ai.page_text import fetch_page_text
+    from devops_cli.config.defaults import DEFAULT_PAGE_TEXT_MAX_CHARS
+
+    page = fetch_page_text(url)
+    header = [
+        MESSAGES.ai.fetch_page_source.format(url=page.source_url),
+        MESSAGES.ai.fetch_page_fetched.format(time=page.fetched_at.isoformat()),
+    ]
+    if page.truncated:
+        header.append(MESSAGES.ai.fetch_page_truncated.format(limit=DEFAULT_PAGE_TEXT_MAX_CHARS))
+    header.append(MESSAGES.ai.fetch_page_untrusted)
+    write_stdout("\n".join(header) + "\n\n" + page.text + "\n")
+
+
+# =============================================================================
 # Command: devops ai diagram
 # =============================================================================
 

@@ -81,11 +81,9 @@ def fetch_page_text(
     host that is not a public web host, `ConfigurationError` when `crawl4ai.url` or the token is
     not set, and `PageTextError` for a failed fetch.
     """
-    page_url = _checked_page_url(url)
+    page_url = checked_page_url(url)
     active = settings or load_settings()
-    if not active.crawl4ai.url:
-        raise ConfigurationError(f"The setting {_URL_SETTING} is not set", key=_URL_SETTING)
-    service = service_base_url(active.crawl4ai.url, _URL_SETTING)
+    service = crawl4ai_service(active)
     token = get_crawl4ai_api_token(active)
     if not token:
         raise ConfigurationError(f"The credential {_CREDENTIAL} is not set", key=_CREDENTIAL)
@@ -98,7 +96,14 @@ def fetch_page_text(
     )
 
 
-def _checked_page_url(url: str) -> str:
+def crawl4ai_service(settings: Settings) -> str:
+    """The base URL of the Crawl4AI service, or the `ConfigurationError` that names the setting."""
+    if not settings.crawl4ai.url:
+        raise ConfigurationError(f"The setting {_URL_SETTING} is not set", key=_URL_SETTING)
+    return service_base_url(settings.crawl4ai.url, _URL_SETTING)
+
+
+def checked_page_url(url: str) -> str:
     """`url` when it is an http or https URL with a host that may be fetched, else the refusal."""
     try:
         parts = urlsplit(url)
