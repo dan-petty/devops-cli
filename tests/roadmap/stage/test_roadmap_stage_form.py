@@ -424,6 +424,25 @@ def test_a_dependency_that_names_the_overlap_is_accepted() -> None:
     assert _overlap_problems(plan) == []
 
 
+# ── The issue that a plan needs first (#3224) ────────────────────────────────
+
+ISSUE_ENTRY = "#3201: the check command"
+OVERLAP_ENTRY = "an open pull request changes src/devops_cli/roadmap/plan_check.py"
+OTHER_ENTRY = "a metric name and its other files"
+
+
+def test_the_issue_form_gives_its_number() -> None:
+    from devops_cli.roadmap.stage.stage_change import issue_dependencies
+
+    assert issue_dependencies([ISSUE_ENTRY, OVERLAP_ENTRY]) == [3201]
+
+
+def test_an_entry_with_no_issue_form_is_skipped() -> None:
+    from devops_cli.roadmap.stage.stage_change import issue_dependencies
+
+    assert issue_dependencies([OTHER_ENTRY]) == []
+
+
 # ── A plan that changes a stage trigger path runs the eval replay (#3331) ─────
 
 _REPLAY_SCORE = "the score before and after the change"

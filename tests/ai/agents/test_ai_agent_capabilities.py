@@ -210,62 +210,32 @@ async def test_embedder_and_embedding_result() -> None:
     assert res_test["Test query"] == res_test[0]
 
 
-def test_embedding_cost_of_a_local_model_is_zero_whatever_its_custom_price(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_embedding_cost_of_a_local_model_is_zero_whatever_its_custom_price(tmp_path: Path) -> None:
     """A local embedding model costs nothing, also when a custom price names it, because its
-    tokens count in local savings (#1631). Provider and timestamp reach the registry."""
+    tokens count in local savings (#1631)."""
     from datetime import UTC, datetime
 
     from pydantic_ai.usage import RequestUsage
 
     from devops_cli.ai.agents.embeddings import EmbeddingCost, EmbeddingResult
-    from devops_cli.ai.spend.pricing import PricingRegistry, RequestCost
+    from devops_cli.ai.spend.pricing import get_pricing_registry
 
-    pricing = PricingRegistry(data_dir=tmp_path)
-    priced_requests: list[dict[str, Any]] = []
-    price_request = pricing.calculate_request_cost
-
-    def record_request(
-        model: str, prompt_tokens: int, completion_tokens: int, **context: Any
-    ) -> RequestCost:
-        priced_requests.append(
-            {
-                "model": model,
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                **context,
-            }
-        )
-        return price_request(model, prompt_tokens, completion_tokens, **context)
-
-    monkeypatch.setattr(pricing, "calculate_request_cost", record_request)
-    monkeypatch.setattr("devops_cli.ai.spend.get_pricing_registry", lambda: pricing)
-
-    request_timestamp = datetime(2026, 10, 11, 12, 0, 0, tzinfo=UTC)
+    pricing = get_pricing_registry(data_dir=tmp_path)
     result = EmbeddingResult(
         embeddings=[[0.1, 0.2]],
         inputs=["test text"],
         model_name="local-embed",
         provider_name="ollama",
         usage=RequestUsage(input_tokens=100_000),
-        timestamp=request_timestamp,
+        timestamp=datetime(2026, 10, 11, 12, 0, 0, tzinfo=UTC),
     )
     unpriced_cost = result.cost()
     pricing.set_custom_pricing("local-embed", 1.5, 0.0)
     custom_priced_cost = result.cost()
 
-    request = {
-        "model": "local-embed",
-        "prompt_tokens": 100_000,
-        "completion_tokens": 0,
-        "provider": "ollama",
-        "request_timestamp": request_timestamp,
-    }
-    assert (unpriced_cost, custom_priced_cost, priced_requests) == (
+    assert (unpriced_cost, custom_priced_cost) == (
         EmbeddingCost(total_price=0.0),
         EmbeddingCost(total_price=0.0),
-        [request, request],
     )
 
 

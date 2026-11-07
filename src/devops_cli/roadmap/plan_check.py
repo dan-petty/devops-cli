@@ -2,12 +2,18 @@
 
 `devops roadmap plan-check <pull-request>` reads the change folder at the head of the pull
 request, runs the stage gates with no model, and checks the pull request itself: the title, the
-body, the check `Semantic PR title`, and a base spec that moved since the plan.
+body, the check `Semantic PR title`, and a base spec that moved since the plan. A pull request that
+the implement job has taken over holds the title and body of a delivery, so it is no plan and the
+command reports no problem for it (#3224).
 
 The gates take a `StageProposal` and a `StagedTree`, so the command reads a checkout: it fetches
 `refs/pull/<number>/head` and reads the head files with `git show` and `git ls-tree`. The GitHub
 client gives the title, the body, the base and the check runs. Each problem has a path, a rule and
 a message; a person reads one line for each and an agent reads the JSON array.
+
+The implement job takes the plan pull request of the item over and writes the title and the body
+of a delivery, which closes the issue and plans none (PR #3961). Such a pull request is no plan,
+so the command reports no problem for it.
 """
 
 from __future__ import annotations
@@ -47,6 +53,7 @@ from devops_cli.roadmap.stage.stage_change import (
     StageProposal,
     check_proposal,
     closing_keyword_in,
+    issue_dependencies,
     measure_groups,
     shared_texts,
 )
@@ -58,12 +65,18 @@ GIT_OPERATION: Final[str] = "roadmap.plan-check"
 SEMANTIC_TITLE_CHECK: Final[str] = "Semantic PR title"
 _CHANGES: Final[str] = CONST_OPENSPEC_CHANGES_DIR
 _SPECS: Final[str] = CONST_OPENSPEC_SPECS_DIR
+_PROPOSAL: Final[str] = "proposal.md"
 _REQUIREMENT: Final[re.Pattern[str]] = re.compile(r"^### Requirement: (?P<name>.+?)[ \t]*$", re.M)
 _SCENARIO: Final[str] = "#### Scenario:"
 _PLANS: Final[re.Pattern[str]] = re.compile(r"^Plans #(?P<issue>[0-9]+)$")
 _TITLE: Final[re.Pattern[str]] = re.compile(
     rf"^{re.escape(STAGING_TYPE)}: plan #(?P<issue>[0-9]+) (?P<summary>\S.*)$"
 )
+# A plan pull request holds the plan title, or the `Plans #<issue>` line of its body. The implement
+# job takes the plan pull request over and rewrites both to the form of a delivery (#2665), and the
+# run of that edit may read the delivery form: that pull request is no plan, and the plan form no
+# longer applies to it (#3224).
+_PLAN_TITLE: Final[str] = f"{STAGING_TYPE}: plan #"
 
 
 class PlanReads(Protocol):
@@ -131,6 +144,18 @@ def issue_number(body: str) -> int | None:
     return None
 
 
+def _is_a_delivery(body: str) -> bool:
+    """Whether `body` is the body of the delivery of the item, and not the body of a plan.
+
+    The implement job takes the plan pull request of the item over and writes the title and the
+    body of a delivery, which closes the issue and plans none (PR #3961). A pull request that has
+    become the delivery is no plan, so the command judges it no more. A body that plans an issue
+    keeps the rules of a plan, also when it holds a closing keyword: that plan closes an issue
+    when it merges.
+    """
+    return issue_number(body) is None and closing_keyword_in(body) is not None
+
+
 def read_pull(client: PlanReads, repo: str, number: int) -> PullFacts:
     """The title, body and commits of pull request `number`."""
     pull = client.get_pull(repo, number)
@@ -143,6 +168,15 @@ def read_pull(client: PlanReads, repo: str, number: int) -> PullFacts:
         base_sha=pull.base.sha,
         base_ref=pull.base.ref,
     )
+
+
+def is_plan(facts: PullFacts) -> bool:
+    """Whether the pull request is a plan: its title holds the plan title, or its body holds the
+    `Plans #<issue>` line. A pull request that the implement job has taken over holds neither, so
+    it is a delivery and the plan form no longer applies to it (#3224, PR #3961)."""
+    if _is_a_delivery(facts.body):
+        return False
+    return facts.title.strip().startswith(_PLAN_TITLE) or issue_number(facts.body) is not None
 
 
 def _pull_problems(facts: PullFacts, checks: CheckVerdictSummary) -> list[PlanProblem]:
@@ -353,6 +387,25 @@ def _gate_problems(
     ]
 
 
+def _dependency_problems(
+    proposal: StageProposal, root: str, reads: PlanReads, repo: str
+) -> list[PlanProblem]:
+    """One problem for each issue that the plan names in `## Dependencies` and that is still open
+    (#3224). A plan merges after the issue that it must deliver first, so an open one holds it
+    back. The read is the one of `PlanReads`, so the check reaches no network of its own."""
+    texts = MESSAGES.roadmap
+    path = f"{root}/{_PROPOSAL}"
+    return [
+        PlanProblem(
+            path,
+            "issue-dependency",
+            texts.plan_check_issue_dependency.format(number=number),
+        )
+        for number in issue_dependencies(proposal.dependencies)
+        if reads.get_issue(repo, number).state == "open"
+    ]
+
+
 def _size_problems(
     proposal: StageProposal,
     root: str,
@@ -413,9 +466,15 @@ def plan_check(
     client: PlanReads | None = None,
     check_reader: CheckReader = read_check_runs,
 ) -> PlanCheckResult:
-    """The problems of plan pull request `number` of `repo`, read in the checkout `source`."""
+    """The problems of plan pull request `number` of `repo`, read in the checkout `source`.
+
+    A pull request that has become the delivery of the item is no plan: the command reports no
+    problem for it.
+    """
     reads = client or _session_client()
     facts = read_pull(reads, repo, number)
+    if not is_plan(facts):
+        return PlanCheckResult(())
     owner, name = repo.split("/", 1)
     checks = check_reader(owner, name, facts.head_sha)
     problems = _pull_problems(facts, checks)
@@ -466,6 +525,7 @@ def plan_check(
     planned = reads.get_issue(repo, issue)
     body, _ = split_record(planned.body or "", issue=f"#{issue}")
     problems.extend(_gate_problems(proposal, root, head, source, base_rev, body))
+    problems.extend(_dependency_problems(proposal, root, reads, repo))
     problems.extend(_size_problems(proposal, root, head, source, planned.title, body, changed))
     problems.extend(_validate_problems(tool, source, root.rsplit("/", 1)[-1], change_files))
     problems.extend(_moved_problems(proposal, source, plan_rev, base_rev))
@@ -486,6 +546,10 @@ def plan_check_requests(repo: str, number: int) -> tuple[PlannedRequest, ...]:
             f"/repos/{repo}/issues/<issue>",
             texts.plan_check_request_issue,
             condition=texts.plan_check_request_issue_condition,
+        ),
+        planned_session_read(
+            f"/repos/{repo}/issues/<dependency>",
+            texts.plan_check_request_dependency_issue,
         ),
         planned_session_read(
             f"/repos/{repo}/commits/<head>/check-runs?per_page={DEFAULT_GH_REST_PER_PAGE}",

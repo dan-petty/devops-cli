@@ -262,6 +262,36 @@ def test_uncaught_and_caught_keyring_reaches_fail_and_fake_restores_deny(
     ) == (True, True)
 
 
+def test_a_model_call_without_a_fake_fails_at_teardown_and_with_one_passes(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A test that reaches the model edge through `get_llm_client` without `model_fake` errors at
+    teardown naming the network edge, and the same call on `model_fake` passes and is recorded.
+    The floor fails the test at teardown, so the call itself cannot be asserted in one test."""
+    result = _run_with_floor(
+        pytester,
+        monkeypatch,
+        """
+        from devops_cli.ai.client import get_llm_client
+
+        def test_model_call_without_a_fake(clock):
+            try:
+                get_llm_client().chat("be brief", "x")
+            except Exception:
+                pass
+
+        def test_model_call_on_the_fake(model_fake):
+            model_fake.answer("fake reply")
+            assert get_llm_client().chat("be brief", "x").content == "fake reply"
+            assert model_fake.call_count == 1
+        """,
+    )
+    result.assert_outcomes(passed=2, errors=1)
+    output = result.stdout.str()
+    assert "network edge reached without a fake" in output
+    assert "ERROR test_inner.py::test_model_call_without_a_fake" in output
+
+
 def test_keyring_store_installs_an_isolated_fake(keyring_store: FakeKeyring) -> None:
     """`keyring_store` installs an empty in-memory `FakeKeyring` through the keyring seam."""
     os_keyring.keyring_write("user", "value")

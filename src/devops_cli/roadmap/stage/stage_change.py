@@ -3,9 +3,10 @@ change it renders, and the measure of each task group against the step budget.
 
 The reply is one `StageProposal`. `check_proposal` finds what the rules of `openspec/config.yaml`
 ask and a schema cannot say: a Purpose on a new capability, a MODIFIED requirement only on a
-capability that exists, a spec delta only when the change is observable, a path that is a file
-of the staged commit or that a group creates (`stage_paths`), and a citation of a line or a symbol
-that the staged file does not hold (#3422). `render_change` turns the reply into the files of
+capability that exists, a spec delta only when the change is observable, a base requirement that
+still names a command that an added requirement removes (#3287), a path that is a file of the
+staged commit or that a group creates (`stage_paths`), and a citation of a line or a symbol that
+the staged file does not hold (#3422). `render_change` turns the reply into the files of
 `openspec/changes/<issue>-<slug>/`. `measure_groups` counts the
 inputs of one implementation step for each group with tiktoken. It counts the files that the tasks
 of the group name, each packed as the step packs it (`step_files`), so a group costs what its step
@@ -159,6 +160,9 @@ _SELF_ACCEPTANCE_MARKS: Final[tuple[str, ...]] = (
     "content_problems",
     "no problem",
 )
+# An entry of `dependencies` that names an issue which must be delivered first: `#<number>: <reason>`
+# (#3224). An overlap or a metric sender keeps its own form, so the reader skips it.
+_ISSUE_DEPENDENCY: Final[re.Pattern[str]] = re.compile(r"^#(?P<number>[0-9]+):")
 _SENTENCE_END: Final[str] = f"{string.whitespace}."
 REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate --sync-readme"
 # The stage prompt and each module that holds a check of `check_proposal` or of the gates it
@@ -559,10 +563,71 @@ def _duplicate_problems(spec: StageSpec, requirements: Mapping[str, Collection[s
     ]
 
 
+# An added requirement that removes a command or an option says MUST NOT or SHALL NOT, and it names
+# the command in a code span that starts with `devops ` or with `--` (#3287).
+_REMOVAL_WORDS: Final[tuple[str, ...]] = ("MUST NOT", "SHALL NOT")
+_CODE_SPAN: Final[re.Pattern[str]] = re.compile(r"`([^`]+)`")
+_REMOVED_NAME_PREFIXES: Final[tuple[str, ...]] = ("devops ", "--")
+
+
+def _removed_names(text: str) -> tuple[str, ...]:
+    """The command and the option that a requirement whose text says MUST NOT or SHALL NOT removes:
+    each code span that starts with `devops ` or with `--` (#3287)."""
+    if not any(words in text for words in _REMOVAL_WORDS):
+        return ()
+    return tuple(
+        span
+        for span in (found.strip() for found in _CODE_SPAN.findall(text))
+        if span.startswith(_REMOVED_NAME_PREFIXES)
+    )
+
+
+def _names(text: str, name: str) -> bool:
+    """Whether `text` names `name`. No word character and no hyphen follows the name, so that
+    `--old` is no `--older` (#3287)."""
+    return re.search(rf"{re.escape(name)}(?![\w-])", text) is not None
+
+
+def _stale_command_problems(spec: StageSpec, texts: Mapping[str, str]) -> list[str]:
+    """One problem for each base requirement of `spec.capability` that names a command or an option
+    that an ADDED requirement removes and that no `modified` requirement rewrites, and one for each
+    `modified` requirement whose text keeps the name (#3287). `texts` maps the name of each base
+    requirement to its statement, and a caller that gives none skips the check."""
+    removed = {name for requirement in spec.added for name in _removed_names(requirement.text)}
+    if not removed:
+        return []
+    messages = MESSAGES.roadmap
+    rewritten = {requirement.name.strip() for requirement in spec.modified}
+    problems = [
+        messages.stage_problem_stale_command.format(
+            requirement=requirement, capability=spec.capability, command=name
+        )
+        for requirement, statement in texts.items()
+        if requirement not in rewritten
+        for name in removed
+        if _names(statement, name)
+    ]
+    problems.extend(
+        messages.stage_problem_stale_command_text.format(
+            requirement=requirement.name.strip(), capability=spec.capability, command=name
+        )
+        for requirement in spec.modified
+        for name in removed
+        if _names(requirement.text, name)
+    )
+    return problems
+
+
 def _delta_problems(
-    proposal: StageProposal, known: Collection[str], requirements: Mapping[str, Collection[str]]
+    proposal: StageProposal,
+    known: Collection[str],
+    requirements: Mapping[str, Collection[str]],
+    requirement_texts: Mapping[str, Mapping[str, str]] | None = None,
 ) -> list[str]:
-    """What is wrong with the spec delta of `proposal` as a whole and in each capability."""
+    """What is wrong with the spec delta of `proposal` as a whole and in each capability.
+    `requirement_texts` maps the name of each base requirement to its statement, by capability: a
+    caller that gives none skips the check of a base requirement that names a removed command
+    (#3287)."""
     texts = MESSAGES.roadmap
     problems: list[str] = []
     if proposal.skip_specs and proposal.specs:
@@ -576,6 +641,9 @@ def _delta_problems(
     for spec in proposal.specs:
         problems.extend(_spec_problems(spec, known))
         problems.extend(_duplicate_problems(spec, requirements))
+        problems.extend(
+            _stale_command_problems(spec, (requirement_texts or {}).get(spec.capability, {}))
+        )
     return problems
 
 
@@ -895,6 +963,7 @@ def check_gates(
     tree: StagedTree,
     *,
     requirements: Mapping[str, Collection[str]] | None = None,
+    requirement_texts: Mapping[str, Mapping[str, str]] | None = None,
     issue_body: str = "",
     probes: Sequence[str] = (),
     overlaps: Sequence[Overlap] = (),
@@ -907,7 +976,9 @@ def check_gates(
     name of the gate. Every gate has a key, and a gate that finds nothing has an empty list. The
     keys follow the order of `ProposalGate`. The arguments are those of `check_proposal`."""
     return {
-        ProposalGate.SPEC_DELTA: _delta_problems(proposal, known, requirements or {}),
+        ProposalGate.SPEC_DELTA: _delta_problems(
+            proposal, known, requirements or {}, requirement_texts
+        ),
         ProposalGate.CONTENT: content_problems(proposal, probes),
         ProposalGate.CITATION: _plan_citation_problems(proposal, read_text),
         ProposalGate.FORM: form_problems(proposal.groups),
@@ -938,6 +1009,7 @@ def check_proposal(
     tree: StagedTree,
     *,
     requirements: Mapping[str, Collection[str]] | None = None,
+    requirement_texts: Mapping[str, Mapping[str, str]] | None = None,
     issue_body: str = "",
     probes: Sequence[str] = (),
     overlaps: Sequence[Overlap] = (),
@@ -949,7 +1021,10 @@ def check_proposal(
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
     `openspec/specs/`, `requirements` the requirement names of each base spec by capability, and
-    `tree` the files that exist when the change is written. The tree also tells a repository path
+    `tree` the files that exist when the change is written. `requirement_texts` holds the statement
+    of each base requirement by capability and requirement name: an added requirement that removes a
+    command or an option needs a `modified` requirement for each base requirement that names it, and
+    a caller that gives no texts skips that check (#3287). The tree also tells a repository path
     from a word, for the code spans of `what_changes` (#3411). `issue_body` is the whole body of the
     issue: each acceptance criterion in it needs an entry in `criteria` (#3019), and a body with
     none needs no entry. `probes` holds the lines of the premise probe that the model read: when it
@@ -967,6 +1042,7 @@ def check_proposal(
         known,
         tree,
         requirements=requirements,
+        requirement_texts=requirement_texts,
         issue_body=issue_body,
         probes=probes,
         overlaps=overlaps,
@@ -1060,6 +1136,16 @@ def _overlap_problems(dependencies: Sequence[str], overlaps: Sequence[Overlap]) 
             continue
         problems.append(texts.stage_problem_dependencies.format(pull=overlap.number, path=path))
     return problems
+
+
+def issue_dependencies(dependencies: Sequence[str]) -> list[int]:
+    """The number of each `dependencies` entry that names an issue, in the order of the entries
+    (#3224). An entry of another form, such as an overlap or a metric sender, gives no number."""
+    return [
+        int(found.group("number"))
+        for entry in dependencies
+        if (found := _ISSUE_DEPENDENCY.match(entry.strip())) is not None
+    ]
 
 
 def closing_keyword_in(text: str) -> str | None:

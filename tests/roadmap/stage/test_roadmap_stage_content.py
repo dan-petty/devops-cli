@@ -1,7 +1,8 @@
 """`devops roadmap stage`: a plan holds no placeholder text, quotes its probe, gives the cost of
 its own code, keeps its summary whole (#3200), names no What Changes path that no group lists
-(#3411), states the work of each task once (#3456) and gives the test that accepts its own plan
-when it adds a rule of the plan check (#3404)."""
+(#3411), states the work of each task once (#3456), gives the test that accepts its own plan when
+it adds a rule of the plan check (#3404) and refuses a base requirement that names a command or an
+option that an added requirement removes (#3287)."""
 
 from __future__ import annotations
 
@@ -32,6 +33,7 @@ SELF_ACCEPTANCE_TEST = (
     "Write a test that builds the plan's own `StageProposal` and asserts that `content_problems` "
     "returns no problem for it"
 )
+DEPENDENCY_ENTRY = "#3201: the check command"
 LIVING_SPEC = "openspec/specs/roadmap-stage/spec.md"
 LIVING_SPEC_TREE = TREE.with_files([LIVING_SPEC])
 
@@ -389,6 +391,16 @@ def test_a_plan_check_change_of_another_kind_needs_no_self_acceptance_test() -> 
     assert content_problems(make_stage_proposal(groups=[group])) == []
 
 
+def test_the_plan_of_this_change_passes_the_content_rule() -> None:
+    """The plan of this change adds the issue form and changes the plan check, so it gives the test
+    that accepts its own plan, and `content_problems` finds no problem in it (#3404)."""
+    plan = _plan_that_adds_a_rule(SELF_ACCEPTANCE_TEST).model_copy(
+        update={"dependencies": [DEPENDENCY_ENTRY]}
+    )
+
+    assert content_problems(plan) == []
+
+
 def test_two_tasks_of_one_group_that_state_the_same_work_are_refused() -> None:
     group = _group(documentation="Keep the last comment in `src/devops_cli/sample.py`")
 
@@ -455,3 +467,107 @@ def test_work_text_that_differs_only_in_case_and_spacing_is_refused() -> None:
     problems = _check(make_stage_proposal(groups=[group]))
 
     assert any("state the same work" in p and "1.2" in p and "1.3" in p for p in problems)
+
+
+# ── A base requirement that names a removed command (#3287) ───────────────────
+
+OLD_COMMAND = "devops roadmap intake-eval"
+OLD_OPTION = "--old"
+STALE_REQUIREMENT = "The intake-eval command runs each case"
+STALE_STATEMENT = f"`{OLD_COMMAND}` SHALL run each case of the folder."
+REMOVED_COMMAND_TEXT = f"The `{OLD_COMMAND}` command MUST NOT exist."
+NEW_COMMAND_STATEMENT = "The `devops roadmap eval intake` command SHALL run each case."
+
+
+def _requirement(name: str, text: str) -> dict[str, Any]:
+    """A requirement of a spec delta with one scenario."""
+    return {
+        "name": name,
+        "text": text,
+        "scenarios": [{"name": "The case", "when": "the command runs", "then": "the case runs"}],
+    }
+
+
+def _spec(*, added: str, modified: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """The delta of the known capability `comment-thread`: one ADDED requirement with the text
+    `added`, and the `modified` requirements."""
+    return {
+        "capability": "comment-thread",
+        "added": [_requirement("The old command is gone", added)],
+        "modified": modified or [],
+    }
+
+
+def _stale_problems(
+    added: str, *, texts: dict[str, str], modified: list[dict[str, Any]] | None = None
+) -> list[str]:
+    plan = make_stage_proposal(specs=[_spec(added=added, modified=modified)])
+
+    return _check(plan, requirement_texts={"comment-thread": texts})
+
+
+def test_a_base_requirement_that_names_a_removed_command_is_refused() -> None:
+    problems = _stale_problems(REMOVED_COMMAND_TEXT, texts={STALE_REQUIREMENT: STALE_STATEMENT})
+
+    assert len(problems) == 1
+    assert OLD_COMMAND in problems[0]
+    assert STALE_REQUIREMENT in problems[0]
+
+
+def test_a_base_requirement_modified_without_the_command_is_accepted() -> None:
+    problems = _stale_problems(
+        REMOVED_COMMAND_TEXT,
+        texts={STALE_REQUIREMENT: STALE_STATEMENT},
+        modified=[_requirement(STALE_REQUIREMENT, NEW_COMMAND_STATEMENT)],
+    )
+
+    assert problems == []
+
+
+def test_a_modified_requirement_that_keeps_the_command_is_refused() -> None:
+    problems = _stale_problems(
+        REMOVED_COMMAND_TEXT,
+        texts={STALE_REQUIREMENT: STALE_STATEMENT},
+        modified=[_requirement(STALE_REQUIREMENT, STALE_STATEMENT)],
+    )
+
+    assert len(problems) == 1
+    assert OLD_COMMAND in problems[0]
+    assert STALE_REQUIREMENT in problems[0]
+
+
+def test_an_added_requirement_that_removes_an_option_is_refused() -> None:
+    problems = _stale_problems(
+        f"The `{OLD_OPTION}` option MUST NOT exist.",
+        texts={
+            "The old option writes the plan": f"`devops roadmap stage {OLD_OPTION}` SHALL write it."
+        },
+    )
+
+    assert len(problems) == 1
+    assert OLD_OPTION in problems[0]
+
+
+def test_a_call_with_no_base_requirement_text_gives_no_problem() -> None:
+    plan = make_stage_proposal(specs=[_spec(added=REMOVED_COMMAND_TEXT)])
+
+    assert _check(plan) == []
+
+
+def test_the_plan_that_adds_the_stale_command_rule_accepts_its_own_plan() -> None:
+    """The plan's own acceptance test (#3404): the plan builds its own `StageProposal` and asserts
+    that `content_problems` returns no problem for it."""
+    plan = make_stage_proposal(
+        specs=[
+            _spec(
+                added=REMOVED_COMMAND_TEXT,
+                modified=[_requirement(STALE_REQUIREMENT, NEW_COMMAND_STATEMENT)],
+            )
+        ]
+    )
+
+    assert content_problems(plan) == []
+    assert (
+        _check(plan, requirement_texts={"comment-thread": {STALE_REQUIREMENT: STALE_STATEMENT}})
+        == []
+    )

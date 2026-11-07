@@ -178,6 +178,32 @@ def test_a_custom_price_leaves_a_local_call_at_no_cost(tmp_path: Path) -> None:
     )
 
 
+def test_the_provider_and_the_request_time_decide_the_cost_of_a_request(tmp_path: Path) -> None:
+    """Verify the provider of a request decides whether a custom price applies to it, and the
+    request time decides the rate that genai-prices gives: the same tokens cost half at the
+    off-peak hour of a DeepSeek model (#1631)."""
+    registry = PricingRegistry(data_dir=tmp_path)
+    registry.set_custom_pricing("local-embed", prompt_rate=1.5, completion_rate=0.0)
+    peak = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    off_peak = datetime(2026, 1, 1, 20, 0, tzinfo=UTC)
+
+    by_provider = [
+        registry.calculate_request_cost("local-embed", 100_000, 0, provider=provider)
+        for provider in ("ollama", "openai")
+    ]
+    by_time = [
+        registry.calculate_request_cost(
+            "deepseek-chat", 1_000_000, 0, provider="deepseek", request_timestamp=moment
+        )
+        for moment in (peak, off_peak)
+    ]
+
+    assert (by_provider, by_time) == (
+        [RequestCost(0.0, "local"), RequestCost(0.15, "custom_override")],
+        [RequestCost(0.27, "genai_prices:deepseek"), RequestCost(0.135, "genai_prices:deepseek")],
+    )
+
+
 def test_a_gateway_call_is_priced_by_the_backend_that_served_it(tmp_path: Path) -> None:
     """Verify a call a hosted API served through a loopback gateway is priced at the model's
     hosted rate, and one a cluster Ollama served through a gateway host nothing configures

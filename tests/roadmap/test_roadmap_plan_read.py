@@ -44,6 +44,16 @@ def test_a_rendered_change_reads_back() -> None:
     assert read.groups == [_same_group(group) for group in original.groups]
 
 
+def test_the_reader_reads_the_dependencies() -> None:
+    original = make_stage_proposal(dependencies=["#3201: the check command"])
+
+    assert read_change(_files(original)).dependencies == ["#3201: the check command"]
+
+
+def test_a_plan_with_no_dependency_reads_as_no_entry() -> None:
+    assert read_change(_files(make_stage_proposal())).dependencies == []
+
+
 def test_a_change_folder_with_no_criteria_section_reads_back_with_no_criterion() -> None:
     files = _files(make_stage_proposal())
     tasks = files[f"openspec/changes/{CHANGE}/tasks.md"]

@@ -164,8 +164,8 @@ def resolve_pydantic_ai_model(
 ) -> Any:
     """Resolve and configure native PydanticAI Model instance.
 
-    Supports OllamaProvider with dynamic cluster URLs, TestModel for offline testing,
-    fallback cascade models, and automatic model inference across providers.
+    Supports OllamaProvider with dynamic cluster URLs, fallback cascade models, and
+    automatic model inference across providers.
     """
     if model is None:
         return None
@@ -175,11 +175,6 @@ def resolve_pydantic_ai_model(
         return build_fallback_cascade_model(
             seq, settings=settings, model_concurrency=model_concurrency
         )
-
-    if model == "test":
-        from pydantic_ai.models.test import TestModel
-
-        return _wrap_model_concurrency(TestModel(), model_concurrency)
 
     if not isinstance(model, str):
         return _wrap_model_concurrency(model, model_concurrency)

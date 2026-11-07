@@ -26,7 +26,9 @@ from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
 from devops_cli.roadmap.agent_run import ToolOutcome, empty_answer, error_answer, ok_answer
 from devops_cli.roadmap.refine import refine_investigation
 from devops_cli.roadmap.stage.stage_github import StageGitHub
+from devops_cli.roadmap.stage.stage_references import reference_answer
 from devops_cli.roadmap.stage.stage_tools import StageTools
+from devops_cli.roadmap.tools import HOLDER_STAGE, HOLDER_STAGE_EXTENDED, tool_names
 from tests.support.fakes.process import ProcessAnswer
 
 _TOOL_NAMES = [
@@ -148,6 +150,15 @@ def test_the_base_toolset_has_the_nine_tools_and_no_web_search(tools: StageTools
 
 def test_the_extended_toolset_is_the_default_and_adds_three_tools(tools: StageTools) -> None:
     assert [tool.name for tool in tools.tools()] == _EXTENDED_TOOL_NAMES
+
+
+def test_the_toolset_names_the_methods_of_the_registry_holder(tools: StageTools) -> None:
+    """The registry gives the names of the toolset, in table order: `stage` names the nine of
+    `base`, and `stage-extended` names the twelve of `extended`."""
+    base = StageTools(source=tools.source, sha=tools.sha, openspec=tools.openspec, toolset="base")
+
+    assert [tool.name for tool in base.tools()] == list(tool_names(HOLDER_STAGE))
+    assert [tool.name for tool in tools.tools()] == list(tool_names(HOLDER_STAGE_EXTENDED))
 
 
 def test_the_toolbox_has_no_web_search_even_when_the_round_allows_it(repo: Path) -> None:
@@ -692,14 +703,27 @@ def test_references_lists_every_file_that_holds_a_name_with_its_count(
 ) -> None:
     assert referenced.references("eval-intake").return_value.splitlines() == [
         "References to 'eval-intake': files 8, lines 419.",
+        "openspec/specs/roadmap-intake-duplicates/spec.md: 5 (lines 1, 2, 3, 4, 5)",
         "src/devops_cli/intake.py: 3 (lines 1, 2, 3)",
         "src/many.py: 400 (lines 1, 2, 3, 4, 5, ...)",
         "tests/fixtures/cases.json: 1 (line 1)",
         "tests/roadmap/test_duplicate_eval.py: 6 (lines 1, 2, 3, 4, 5, ...)",
-        "openspec/specs/roadmap-intake-duplicates/spec.md: 5 (lines 1, 2, 3, 4, 5)",
         "docs/CLI_REFERENCE.md: 2 (lines 1, 2)",
         "docs/roadmap/intake.md: 1 (line 1)",
         "k8s/job.yaml: 1 (line 1)",
+    ]
+
+
+def test_reference_answer_lists_a_spec_path_before_a_source_path() -> None:
+    output = (
+        "abc1234:src/devops_cli/intake.py:1:use eval-intake\n"
+        "abc1234:openspec/specs/roadmap-intake-duplicates/spec.md:2:use eval-intake\n"
+    )
+
+    assert reference_answer("eval-intake", output, "abc1234").return_value.splitlines() == [
+        "References to 'eval-intake': files 2, lines 2.",
+        "openspec/specs/roadmap-intake-duplicates/spec.md: 1 (line 2)",
+        "src/devops_cli/intake.py: 1 (line 1)",
     ]
 
 

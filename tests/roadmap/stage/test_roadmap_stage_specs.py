@@ -30,14 +30,29 @@ The job SHALL do more.
 
 
 def test_a_spec_gives_its_purpose_and_the_names_of_its_requirements() -> None:
-    assert read_spec(SPEC) == BaseSpec(
-        purpose="Keeps the alpha state. It has two lines.",
-        requirements=("First name", "Second name"),
+    spec = read_spec(SPEC)
+
+    assert (spec.purpose, spec.requirements) == (
+        "Keeps the alpha state. It has two lines.",
+        ("First name", "Second name"),
     )
 
 
+def test_a_spec_gives_the_statement_of_each_requirement_with_its_name() -> None:
+    spec = read_spec(SPEC)
+
+    assert spec.statements == (
+        ("First name", "The job SHALL do it."),
+        ("Second name", "The job SHALL do more."),
+    )
+    assert "Scenario" not in spec.statements[0][1]
+    assert "WHEN" not in spec.statements[0][1]
+
+
 def test_a_spec_with_no_purpose_or_requirement_gives_empty_values() -> None:
-    assert read_spec("# beta Specification\n") == BaseSpec(purpose="", requirements=())
+    spec = read_spec("# beta Specification\n")
+
+    assert (spec.purpose, spec.requirements, spec.statements) == ("", (), ())
 
 
 def test_the_base_specs_are_the_folders_under_openspec_specs(tmp_path: Path) -> None:
