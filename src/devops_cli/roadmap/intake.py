@@ -104,6 +104,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as InvalidLabelsError
 
 from devops_cli.config.constants import (
+    CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_ROADMAP_CRITICAL_PRIORITY,
     CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_EVIDENCE_PATTERNS,
@@ -391,7 +392,8 @@ class IntakePlan:
 @dataclass(frozen=True)
 class PlacementFailure:
     """A candidate intake skipped because one of its writes failed: its issue number, None for
-    a new candidate never filed, its title and the error's class (#1443)."""
+    a new candidate never filed, its title and the error: its class and its masked text
+    (#1443, #3651)."""
 
     number: int | None
     title: str
@@ -1302,9 +1304,11 @@ def _apply_decision(store: RoadmapStore, decision: IntakeDecision) -> IntakeAppl
 
 
 def _failed_placement(subject: Subject, exc: GitHubOperationError) -> PlacementFailure:
-    """Record `subject` as skipped for its failed write, with the error's class."""
-    failure = PlacementFailure(subject.number, subject.title, type(exc).__name__)
-    logger.warning(MESSAGES.roadmap.intake_skipped.format(name=failure.name, error=exc))
+    """Record `subject` as skipped for its failed write, with the error's class and its masked,
+    bounded text: the status code and the message of GitHub (#3651)."""
+    reason = redact_text(str(exc))[:CONST_MAX_ERROR_DETAIL_LENGTH]
+    failure = PlacementFailure(subject.number, subject.title, f"{type(exc).__name__}: {reason}")
+    logger.warning(MESSAGES.roadmap.intake_skipped.format(name=failure.name, error=failure.error))
     return failure
 
 
@@ -1334,7 +1338,7 @@ def apply_intake(
 
 def raise_for_failed_placements(applied: IntakeApplied) -> None:
     """Fail a round in which any candidate's write failed, once the others are written: the
-    error names each skipped candidate with its error's class (#1443)."""
+    error names each skipped candidate with its error's class and masked text (#1443, #3651)."""
     if not applied.failed:
         return
     texts = MESSAGES.roadmap
