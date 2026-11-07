@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.77.2](https://github.com/dan-petty/devops-cli/compare/v0.77.1...v0.77.2) (2026-11-07)
+
+
+### Bug Fixes
+
+* **roadmap:** refine writes each item when it is done ([#3935](https://github.com/dan-petty/devops-cli/issues/3935)) ([c9c0979](https://github.com/dan-petty/devops-cli/commit/c9c09798bf971b0816829e9fcffea5d1fd74e344))
+
+
+### Code Refactoring
+
+* **roadmap:** group the job modules in subpackages ([#3897](https://github.com/dan-petty/devops-cli/issues/3897)) ([bff2f14](https://github.com/dan-petty/devops-cli/commit/bff2f14fd6908f45048601cca252b964ba542f28))
+
 ## [0.77.1](https://github.com/dan-petty/devops-cli/compare/v0.77.0...v0.77.1) (2026-11-07)
 
 
