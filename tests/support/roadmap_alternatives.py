@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from devops_cli.roadmap.alternatives import AlternativesPlan, AlternativesWriter
+from devops_cli.roadmap.alternatives import AlternativesPlan
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stores.store import RoadmapStore
@@ -15,6 +15,10 @@ def apply_alternatives(store: RoadmapStore, plan: AlternativesPlan) -> int:
     return how many checks were written. A plan that `plan_alternatives` made without a writer is
     written the way a round writes it, so a test can look at the plan before it looks at the
     writes."""
+    # Imported here, so that the fail-to-pass replay loads this module against a base tree that
+    # has no `AlternativesWriter` yet.
+    from devops_cli.roadmap.alternatives import AlternativesWriter
+
     writer = AlternativesWriter(store)
     for check in plan.checks:
         writer.settle(check)

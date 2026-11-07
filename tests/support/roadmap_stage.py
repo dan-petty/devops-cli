@@ -18,11 +18,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from devops_cli.roadmap.stage.stage import (
-    StageApplied,
-    StagePlan,
-    StageWriter,
-)
+from devops_cli.roadmap.stage.stage import StageApplied, StagePlan
 from devops_cli.roadmap.stage.stage_change import StageGroup
 from devops_cli.roadmap.stage.stage_verify import Verification
 from devops_cli.roadmap.stores.store import ItemField
@@ -274,6 +270,10 @@ def apply_stage(
     items that the plan does not stage first, then the result of each item. A plan that
     `plan_stage` made without a writer is written the way a round writes it, so a test can look at
     the plan before it looks at the writes."""
+    # Imported here: this module loads as a pytest plugin, and the fail-to-pass replay loads it
+    # against a base tree that has no `StageWriter` yet.
+    from devops_cli.roadmap.stage.stage import StageWriter
+
     writer = StageWriter(store, source, now=now)
     selected = {
         *(b.target.item.number for b in plan.blocked),
