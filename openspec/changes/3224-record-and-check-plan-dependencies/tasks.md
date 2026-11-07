@@ -31,9 +31,9 @@ Reads: `src/devops_cli/roadmap/plan_check.py`, `src/devops_cli/roadmap/stage/sta
 
 Reads: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`. Changes: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`.
 
-- [ ] 4.1 Add a sentence to the dependencies rule of the prompt: an entry that starts with `#<number>:` names an issue that must be delivered first, and the reason says why the issue comes first. Extend `test_the_prompt_states_the_dependencies_rule` in `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` to assert that the prompt holds `#<number>:`
+- [x] 4.1 Add a sentence to the dependencies rule of the prompt: an entry that starts with `#<number>:` names an issue that must be delivered first, and the reason says why the issue comes first. Extend `test_the_prompt_states_the_dependencies_rule` in `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` to assert that the prompt holds `#<number>:`
   - Verification: `uv run devops ci test tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` passes
-- [ ] 4.2 Edit `src/devops_cli/ai/tasks/roadmap_stage_change.md` so the dependencies rule names the issue form
+- [x] 4.2 Edit `src/devops_cli/ai/tasks/roadmap_stage_change.md` so the dependencies rule names the issue form
   - Verification: `uv run devops ci docs` passes
 
 ## Workflow follow-up
