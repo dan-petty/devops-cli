@@ -105,7 +105,7 @@ def test_dual_compatibility_with_devops_cli_pydantic_agent() -> None:
         name="SecurityReviewer",
         system_prompt="Base reviewer prompt",
         capabilities=[cap],
-        model="test",
+        model=TestModel(),
     )
 
     assert len(agent.capabilities) == 1

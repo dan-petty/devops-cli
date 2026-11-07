@@ -875,25 +875,22 @@ def test_deferred_tools_stop_the_world_and_resume() -> None:
 
 
 def test_resolve_pydantic_ai_model() -> None:
-    """Verify resolve_pydantic_ai_model correctly handles Ollama, TestModel, and models."""
+    """Verify resolve_pydantic_ai_model returns a model instance as given, None for no model, and an
+    Ollama model for an `ollama:` name."""
     from pydantic_ai.models.ollama import OllamaModel
     from pydantic_ai.models.test import TestModel
 
     from devops_cli.ai.pydantic_ai_bridge import resolve_pydantic_ai_model
     from devops_cli.config.settings import Settings
 
-    # 1. Test model string
-    m_test = resolve_pydantic_ai_model("test")
-    assert isinstance(m_test, TestModel)
-
-    # 2. Existing Model instance passed directly
+    # 1. Existing Model instance passed directly
     existing = TestModel()
     assert resolve_pydantic_ai_model(existing) is existing
 
-    # 3. None model returns None
+    # 2. None model returns None
     assert resolve_pydantic_ai_model(None) is None
 
-    # 4. Ollama model resolution with settings
+    # 3. Ollama model resolution with settings
     custom_settings = Settings()
     custom_settings.ai.ollama_urls = ["http://example.com:11434"]
     m_ollama = resolve_pydantic_ai_model("ollama:qwen2.5-coder:latest", settings=custom_settings)
