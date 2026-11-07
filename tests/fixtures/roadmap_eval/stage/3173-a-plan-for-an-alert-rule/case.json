@@ -1,0 +1,36 @@
+{
+ "issue": 2950,
+ "pull": 3173,
+ "title": "feat(telemetry): Add alternatives coverage metrics and alert",
+ "change": "2950-alternatives-coverage-gauge-searches-per-check",
+ "merge_commit": "e5a2f36521ba9df2277ccdf5bf95ff069ebf5e20",
+ "base_commit": "4571d5f3a6f2dad18173406ed98fb74a5822b2c7",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 5,
+  "fidelity": 4,
+  "task_quality": 3,
+  "rule_compliance": 3,
+  "accuracy": 3
+ },
+ "state": "merged",
+ "summary": "The hand-written plan of #3173 has group 5 with kind other that changes `tests/fixtures/prometheus_rules/roadmap_service_activity_tests.yaml`. A group that creates or changes a case path must use the manifest kind.",
+ "notes": [
+  "The plan is the hand-written change folder from openspec/changes/archive/2026-11-06-2950-alternatives-coverage-gauge-searches-per-check/.",
+  "Group 5 changes a promtool case file with kind other instead of manifest."
+ ],
+ "defects": [
+  {
+   "type": "task_order",
+   "severity": "major",
+   "where": "tasks.md, group 5",
+   "problem": "Group 5 has the kind other and changes `tests/fixtures/prometheus_rules/roadmap_service_activity_tests.yaml`. A group that creates or changes a case path must use the manifest kind.",
+   "evidence": "Group 5 changes `tests/fixtures/prometheus_rules/roadmap_service_activity_tests.yaml` with the kind other.",
+   "gate": "paths",
+   "paths": [
+    "tests/fixtures/prometheus_rules/roadmap_service_activity_tests.yaml"
+   ],
+   "message": "manifest"
+  }
+ ]
+}

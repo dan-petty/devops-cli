@@ -1,0 +1,120 @@
+### What happened
+
+Nothing showed that the check ran and searched almost never. The owner saw it in the Firecrawl usage.
+
+### What should happen
+
+- Gauges: open items with no check (by repository), the age of the oldest check, and a counter of searches per check (a histogram by verdict).
+- One alert: no Firecrawl search for 3 days while items with no check exist, with the repository in the message.
+- A panel in the Roadmap dashboard.
+- The instruments are declared and sent through the existing metrics path.
+
+### Evidence (2026-10-31)
+
+- `devops_cli_firecrawl_searches_total`: about 4 searches in 7 days. `devops_cli_roadmap_alternatives_total` over 14 days: only the verdict `not-applicable` (about 34 checks), never `covers`, `partly` or `none`.
+- The comments on #886, #1082 and #1329 read "Alternatives check: not-applicable. Tool: none found" with no reason and no queries. #1082 (argo cd points to gitea for git and container registries) is a plausible case for open tools.
+- The row checks at most 5 items a day (`roadmap.alternatives.limit`); `dan-petty/devops-cli` has 141 open issues.
+- The row for `devops-cli` failed 3 rounds on 2026-10-30 at 00:10 UTC (a `UnexpectedModelBehavior` stop, a reply that gave `not-applicable` after a tool ran, and the then-500 GitHub requests an hour budget), so it was suspended. A plan run on 2026-10-31 stopped again on #1359 (`UnexpectedModelBehavior`).
+- AGENTS.md rule 3 says to use an open tool before building. This check is the part of the project that asks the question for every item.
+
+Tracker: #2908 (one issue workflow). Owner request of 2026-10-31: confirm that all issues are vetted for open alternatives.
+
+### Acceptance criteria
+
+- [ ] The instruments are declared and covered by the invariant that every metric is a declared instrument.
+- [ ] The alert rule has a promtool unit test.
+- [ ] `uv run devops ci` passes.
+
+<!-- devops-roadmap-refine:start -->
+<!-- checked-at: sha=e093ac8d609b8bc972bbbe3658706c24087d45c5 -->
+## Proposed design
+
+### Problem statement
+The alternatives check ran 34 times over 14 days but performed only about 4 web searches, returning not-applicable every time. No metric, alert, or dashboard panel showed this to the owner. The owner found the problem only by checking Firecrawl usage directly. This issue adds the missing telemetry so the owner sees the check's coverage and search activity at a glance.
+
+### Acceptance criteria
+
+### Requirement: Instruments declared and invariant-covered
+Every new metric instrument SHALL be declared in the metrics module and covered by the invariant that every metric is a declared instrument.
+
+#### Scenario: Invariant test passes with new instruments
+- **WHEN** The new gauge and histogram instruments are added to the metrics module
+- **THEN** The invariant test that checks every metric is a declared instrument passes without modification
+
+### Requirement: Alert rule validated by promtool
+The new alert rule SHALL have a promtool unit test that validates its expression.
+
+#### Scenario: promtool check rules passes
+- **WHEN** The alert rule for no Firecrawl search in 3 days is added to prometheus-values.yaml
+- **THEN** A promtool unit test runs `promtool check rules` on the file and exits with code 0
+
+### Requirement: CI passes
+The full CI suite SHALL pass after the change.
+
+#### Scenario: uv run devops ci exits zero
+- **WHEN** The pull request with the new instruments, alert rule, and dashboard panel is pushed
+- **THEN** `uv run devops ci` completes with exit code 0
+
+### Requirement: Gauge for unchecked items
+A gauge SHALL report the count of open items with no alternatives check, labelled by repository.
+
+#### Scenario: Gauge reflects unchecked items
+- **WHEN** A repository has 10 open items and 4 have a check
+- **THEN** The gauge value for that repository is 6
+
+### Requirement: Gauge for oldest check age
+A gauge SHALL report the age in seconds of the oldest alternatives check, labelled by repository.
+
+#### Scenario: Gauge reflects oldest check age
+- **WHEN** The oldest check for a repository was written 72 hours ago
+- **THEN** The gauge value for that repository is 259200
+
+### Requirement: Histogram for searches per check
+A histogram SHALL record the number of Firecrawl searches performed per check, labelled by verdict.
+
+#### Scenario: Histogram records search count
+- **WHEN** A check for an item performs 3 Firecrawl searches and returns verdict none
+- **THEN** The histogram bucket for verdict none records a value of 3
+
+### Requirement: Alert for no searches with unchecked items
+An alert SHALL fire when no Firecrawl search occurs for 3 days while at least one open item has no check, and the alert message SHALL include the repository name.
+
+#### Scenario: Alert fires on 3-day silence with unchecked items
+- **WHEN** No Firecrawl search occurs for 72 hours and a repository has 2 unchecked items
+- **THEN** The alert is in the firing state and its annotation names the repository
+
+### Requirement: Dashboard panel
+A panel SHALL appear in the Roadmap dashboard that shows the unchecked-items gauge, the oldest-check-age gauge, and the searches-per-check histogram.
+
+#### Scenario: Panel renders in Roadmap dashboard
+- **WHEN** The Grafana dashboard JSON is loaded with the new panel definition
+- **THEN** The panel queries the three new instruments and renders their values
+
+### Existing Tool Considered
+No check has run. The existing Prometheus and Grafana stack covers the need. Prometheus collects the metrics and evaluates alert rules. Grafana renders the dashboard panel. promtool validates the alert rule. The project already sends metrics through this path (docs/TELEMETRY.md, k8s/monitoring/prometheus-values.yaml). The new work is standard instrument declarations and one alert rule, not a new metrics system.
+
+### Key questions
+- **What is the existing metrics path that new instruments must use?**: The project declares instruments in a Python metrics module and sends them through the existing Prometheus client. docs/TELEMETRY.md lists the current instruments. k8s/monitoring/prometheus-values.yaml holds the alert rules. The new instruments join this same path. [sources: docs/TELEMETRY.md, k8s/monitoring/prometheus-values.yaml, k8s/README.md:609]
+- **Which metric types cover the three gauges and the histogram?**: Two Prometheus gauges (unchecked items by repository, oldest check age by repository) and one Prometheus histogram (searches per check by verdict). These are standard Prometheus instrument types. The project already uses counters and gauges in the same module. (best practice) [sources: docs/TELEMETRY.md:81, docs/TELEMETRY.md:83]
+  - Chosen: Gauge + Histogram (standard Prometheus types). The project already uses counters and gauges. A gauge fits a point-in-time count or age. A histogram fits a distribution of search counts per check. Both are native Prometheus types.
+  - Rejected: Counter for all three. A counter only increases. It cannot express the current count of unchecked items or the age of the oldest check. Rejected.
+  - Rejected: Summary instead of histogram. A summary computes quantiles client-side and is not aggregatable across replicas. A histogram is aggregatable and is the standard choice for per-check distributions. Rejected.
+- **What is the alert expression for no Firecrawl search in 3 days while unchecked items exist?**: The expression is: `increase(devops_cli_firecrawl_searches_total[3d]) == 0 AND devops_cli_roadmap_alternatives_unchecked_items > 0`. The alert annotation includes the repository label from the unchecked-items gauge. This follows the pattern of existing alert rules in prometheus-values.yaml. (best practice) [sources: k8s/monitoring/prometheus-values.yaml:846]
+  - Chosen: increase() == 0 AND gauge > 0. Directly expresses the condition: no searches in 3 days AND unchecked items exist. The repository label comes from the gauge. Matches the existing alert style in prometheus-values.yaml.
+  - Rejected: absent() on the search counter. absent() fires when a series is missing, not when its increase is zero. A counter that exists but does not increase is the real condition. Rejected.
+- **Where is the Roadmap dashboard that receives the new panel?**: The Roadmap dashboard is a Grafana dashboard in the k8s/monitoring/ directory. The new panel is added to its JSON definition alongside existing panels. [sources: k8s/monitoring/prometheus-values.yaml]
+- **Does this change depend on issue #2946 (the alternatives check must search before returning not-applicable)?**: No. The telemetry in this issue monitors the check's behavior. It works whether or not the check searches. #2946 changes the check's logic. This issue adds observability. They are independent. (best practice) [sources: openspec/changes/2946-the-alternatives-check-must-search-before/proposal.md]
+  - Chosen: No dependency on #2946. The telemetry instruments and alert work regardless of the check's search behavior. The gauge counts unchecked items. The histogram records searches that do or do not happen. The alert fires on silence. None of this requires #2946 to be delivered first.
+  - Rejected: Depend on #2946. Would delay the telemetry until the check logic changes. Unnecessary because the telemetry is independent of the check's internal behavior.
+
+### Fit
+Fits in one pull request.
+
+### Suspected block
+None.
+
+### Dependencies
+None.
+<!-- devops-roadmap-refine:end -->
+
+<!-- devops-roadmap-record {"Effort": "Medium", "Owner": "Agent", "Priority": "P2-Medium", "Status": "In Review", "Value": "Medium", "refine.alternatives_asked": null, "refine.block_paths": null, "refine.blocked_by": null, "refine.body_hash": "b208b38428b94416fa1c16233b1650997d28020c337b1dbb561f989e77357d40", "refine.failed_body_hash": null, "refine.needs_split": "false", "refine.next_step": "ready", "refine.section_hash": "598c93b61d45be5c780e3d801b56d092d850d68eb969c9b24705e5d9ea30d293", "stage.branch": null, "stage.failed_at": null, "stage.failed_error": null, "stage.file_cap": null, "stage.groups": null, "stage.needs_fix": null, "stage.needs_split": null, "stage.pr": null, "stage.ready": null, "stage.rejected": null, "stage.sha": null, "stage.text_hash": null} -->

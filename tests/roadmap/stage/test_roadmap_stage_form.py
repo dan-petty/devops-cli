@@ -562,3 +562,61 @@ def test_a_changed_docstring_naming_an_existing_test_file_passes() -> None:
     tree = StagedTree(["src/devops_cli/sample.py", "tests/roadmap/test_roadmap_limit_classes.py"])
     problems = check_proposal(plan, ["comment-thread"], tree, read_text=read_text)
     assert not any("tests/roadmap/test_roadmap_limit_classes.py" in p for p in problems)
+
+
+def test_an_other_group_that_changes_a_case_path_is_refused_with_the_manifest_kind() -> None:
+    case = "tests/fixtures/prometheus_rules/roadmap_service_activity_tests.yaml"
+    group = StageGroup.model_validate(
+        {
+            **make_stage_proposal().groups[0].model_dump(),
+            "kind": "other",
+            "changes": [case],
+            "creates": [],
+            "creates_lines": {},
+            "test": None,
+            "verify": "uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py",
+        }
+    )
+
+    (problem,) = form_problems([group])
+    assert "manifest" in problem
+    assert f"`{case}`" in problem
+    assert "other" in problem
+
+
+def test_a_manifest_verify_that_is_not_a_case_of_the_group_is_refused() -> None:
+    case = "tests/fixtures/prometheus_rules/roadmap_service_activity_tests.yaml"
+    group = StageGroup.model_validate(
+        {
+            **make_stage_proposal().groups[0].model_dump(),
+            "kind": "manifest",
+            "changes": [case],
+            "creates": [],
+            "creates_lines": {},
+            "test": f"Add the promtool cases to `{case}`",
+            "verify": "uv run devops ci mutate tests/prometheus",
+        }
+    )
+
+    (problem,) = form_problems([group])
+    assert "manifest" in problem
+    assert "`uv run devops ci mutate tests/prometheus`" in problem
+    assert "uv run devops ci test" in problem
+
+
+def test_a_manifest_verify_that_runs_a_path_of_the_group_is_accepted() -> None:
+    case = "tests/fixtures/prometheus_rules/roadmap_service_activity_tests.yaml"
+    test_file = "tests/prometheus/test_k8s_monitoring_alerting.py"
+    group = StageGroup.model_validate(
+        {
+            **make_stage_proposal().groups[0].model_dump(),
+            "kind": "manifest",
+            "changes": [case, test_file],
+            "creates": [],
+            "creates_lines": {},
+            "test": f"Add the promtool cases to `{case}`",
+            "verify": f"uv run devops ci test {test_file}",
+        }
+    )
+
+    assert form_problems([group]) == []

@@ -69,7 +69,7 @@ def test_an_other_group_with_a_process_and_no_command_is_valid() -> None:
             {"changes": ["docs/TESTING.md"], "creates": [], "creates_lines": {}},
             "changes no path under src/",
         ),
-        ({"kind": "mixed"}, "Input should be 'behavior' or 'other'"),
+        ({"kind": "mixed"}, "Input should be 'behavior', 'manifest' or 'other'"),
     ],
 )
 def test_a_behavior_group_that_breaks_a_rule_is_refused_with_the_problem(
