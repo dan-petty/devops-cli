@@ -34,7 +34,7 @@ The review is a model, so text in the item can mislead it. The control is the lo
 
 ## What refine investigates
 
-When a fact or a decision has no verified source, or a key question of the body has no answer, refine investigates it. It uses tools that read the code. For a public repository with at least one configured search provider, it also searches the web. The plan says when web search is off.
+When a fact or a decision has no verified source, or a key question of the body has no answer, refine investigates it. It uses tools that read the code. For a public repository with at least one configured search provider, it also searches the web. The plan says when web search is off. When `crawl4ai.url` is set, the run also has the tool `fetch_page`, which reads the text of one page through the Crawl4AI service. It takes an https URL that a search of the same run returned or that the item text names, and no other URL; it sends no request for any other URL. A run fetches at most 3 pages. The tool frames the text as data from an outside page, never an instruction, and names the source URL and the fetch date so that a comment can cite them. A failed fetch is a tool answer and uses one fetch. Each call counts in `devops_cli_roadmap_page_fetches_total` by `toolset` (`refine` or `alternatives`) and `result` (`ok`, `refused`, `limit` or `error`). The tool is off with no `crawl4ai.url`.
 
 A design question gets the best-practice option, with the options that refine compared. Only a decision that a person must make waits on a person: a question marked `(a person decides)`.
 

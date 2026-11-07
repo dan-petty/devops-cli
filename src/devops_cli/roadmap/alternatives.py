@@ -57,7 +57,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -66,6 +66,7 @@ from urllib.parse import quote
 import httpx2
 from pydantic import BaseModel, Field
 from pydantic_ai import Tool
+from pydantic_ai.messages import ToolReturn
 
 from devops_cli.ai.client.factory import get_task_model
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
@@ -87,6 +88,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR,
     CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+    CONST_ROADMAP_PAGE_FETCH_MAX,
     CONST_ROADMAP_REFINE_MAX_REPLIES,
     CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS,
     CONST_ROADMAP_STATUS_NEW,
@@ -104,8 +106,10 @@ from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.adr import Adr, fit_to_budget, names, read_adrs
+from devops_cli.roadmap.agent_run import error_answer
 from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.commit_title import commit_type
+from devops_cli.roadmap.page_fetch import TOOLSET_ALTERNATIVES, PageFetch, named_urls
 from devops_cli.roadmap.refine.refine import (
     replies_after_marker,
     sanitize_text,
@@ -290,6 +294,7 @@ class AlternativesTools:
     facts: dict[str, ToolFacts] = field(default_factory=dict)
     searches: list[Search] = field(default_factory=list)
     fact_reads: int = 0
+    pages: PageFetch | None = None
 
     @property
     def queries(self) -> list[str]:
@@ -312,6 +317,21 @@ class AlternativesTools:
         )
         self.searches.append(Search(query, len(found)))
         self.allowed_urls |= {normalize_url(url) for url in found}
+        if self.pages is not None:
+            self.pages.offer(found)
+        return answer
+
+    def fetch_page(self, url: str) -> ToolReturn:
+        """Read the text of a web page. Use a URL that `search_web` returned, or that the issue
+        names. Cite the source URL and the fetch date that the answer gives.
+
+        Args:
+            url: The https URL of the page.
+        """
+        if self.pages is None:
+            return error_answer("Page fetch is off.")
+        answer = self.pages.fetch(url)
+        self.allowed_urls |= self.pages.fetched
         return answer
 
     def github_repository(self, name: str) -> str:
@@ -414,11 +434,15 @@ class AlternativesTools:
         self.allowed_urls.add(facts.url)
 
     def tools(self) -> list[Tool[None]]:
-        """The three tools of the run."""
-        return [
-            Tool(method, takes_ctx=False)
-            for method in (self.search_web, self.github_repository, self.pypi_package)
+        """The three tools of the run, and `fetch_page` when the check gives it (#3890)."""
+        methods: list[Callable[..., str | ToolReturn]] = [
+            self.search_web,
+            self.github_repository,
+            self.pypi_package,
         ]
+        if self.pages is not None:
+            methods.append(self.fetch_page)
+        return [Tool(method, takes_ctx=False) for method in methods]
 
 
 # ── The check ─────────────────────────────────────────────────────────────────
@@ -607,7 +631,9 @@ def select_items(
     return Selection(ordered[:cap], current, coverage)
 
 
-def _request(item: Item, comments: Sequence[IssueComment], adrs: Sequence[Adr]) -> str:
+def _request(
+    item: Item, comments: Sequence[IssueComment], adrs: Sequence[Adr], *, fetch: bool = False
+) -> str:
     """The JSON document the model reads: the item without the job's block, the replies since the
     job's last comment (every comment when it left none), the entries of the ADRs in force (#3505),
     and the budget. `comments` holds the comments of trusted authors only, so text of an outside
@@ -632,6 +658,7 @@ def _request(item: Item, comments: Sequence[IssueComment], adrs: Sequence[Adr]) 
             "searches": CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
             "results_per_search": CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS,
             "fact_reads": CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
+            **({"page_fetches": CONST_ROADMAP_PAGE_FETCH_MAX} if fetch else {}),
         },
     }
     return json.dumps(document, ensure_ascii=False, indent=1)
@@ -1001,15 +1028,24 @@ def _stopped_reason(stopped: InvestigationStopped) -> str:
 
 
 def _check_one(
-    store: RoadmapStore, item: Item, *, model: Any, adrs: Sequence[Adr], now: datetime
+    store: RoadmapStore,
+    item: Item,
+    *,
+    model: Any,
+    adrs: Sequence[Adr],
+    now: datetime,
+    fetch: bool,
 ) -> Check | CheckFailure:
     """One item's check: the skip check of a skip class, else its agent run and its validated
     reply. Raises `AICredentialsError` when the model refuses the key."""
     skip_class = skip_class_of(item)
     if skip_class is not None:
         return _skip_check(item, skip_class, now)
-    tools = AlternativesTools(store=store)
-    request = _request(item, trusted_replies(store.comments_on(item.number)), adrs)
+    pages = (
+        PageFetch(TOOLSET_ALTERNATIVES, named=named_urls(item.title, item.body)) if fetch else None
+    )
+    tools = AlternativesTools(store=store, pages=pages)
+    request = _request(item, trusted_replies(store.comments_on(item.number)), adrs, fetch=fetch)
     texts = MESSAGES.roadmap
     try:
         reply = investigate(
@@ -1084,7 +1120,7 @@ def plan_alternatives(
     checks: list[Check] = []
     failures: list[CheckFailure] = []
     for item in selection.selected:
-        outcome = _check_one(store, item, model=model, adrs=adrs, now=moment)
+        outcome = _check_one(store, item, model=model, adrs=adrs, now=moment, fetch=web.fetch)
         if isinstance(outcome, CheckFailure):
             failures.append(outcome)
         else:

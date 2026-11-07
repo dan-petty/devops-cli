@@ -3110,6 +3110,15 @@ CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS: Final[int] = 4
 CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES: Final[int] = 2
 CONST_ROADMAP_REFINE_TOOL_MAX_LINES: Final[int] = 240
 CONST_ROADMAP_REFINE_TOOL_MAX_CHARS: Final[int] = 8000
+# The tool `fetch_page` of refine's investigation and of the alternatives check (#3890): the most
+# fetches in the run for one item, and the characters of page text that one answer holds. The
+# results of the counter `devops_cli_roadmap_page_fetches_total`.
+CONST_ROADMAP_PAGE_FETCH_MAX: Final[int] = 3
+CONST_ROADMAP_PAGE_FETCH_MAX_CHARS: Final[int] = 8000
+CONST_ROADMAP_PAGE_FETCH_RESULT_OK: Final[str] = "ok"
+CONST_ROADMAP_PAGE_FETCH_RESULT_REFUSED: Final[str] = "refused"
+CONST_ROADMAP_PAGE_FETCH_RESULT_LIMIT: Final[str] = "limit"
+CONST_ROADMAP_PAGE_FETCH_RESULT_ERROR: Final[str] = "error"
 # The largest blob a file tool reads, and the share of the context window that an investigation
 # keeps for its reply: with tools, a request goes on only while the messages and this share fit the
 # window (#3037). The bytes bound the memory of one tool answer; the lines bound its text.

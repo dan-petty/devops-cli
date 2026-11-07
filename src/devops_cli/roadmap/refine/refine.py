@@ -192,6 +192,12 @@ from devops_cli.roadmap.intake.intake import (
     plan_intake,
 )
 from devops_cli.roadmap.intake.intake_model import IntakeModel, build_intake_model
+from devops_cli.roadmap.page_fetch import (
+    TOOLSET_REFINE,
+    PageFetch,
+    named_urls,
+    page_fetch_configured,
+)
 from devops_cli.roadmap.pull_form import PLACEHOLDER_ERROR_TYPE, ReplyText
 from devops_cli.roadmap.refine.refine_investigation import (
     InvestigationStopped,
@@ -915,10 +921,12 @@ def collect_context(
 @dataclass(frozen=True)
 class WebSearch:
     """The round's web search: whether the investigation searches the web, or, when web search is
-    off, the reason, which the plan reports once (#2398)."""
+    off, the reason, which the plan reports once (#2398). `fetch` is true when the investigation may
+    also fetch the text of a page: web search is on and `crawl4ai.url` is set (#3890)."""
 
     on: bool = False
     off_reason: str | None = None
+    fetch: bool = False
 
 
 def web_search_of(store: RoadmapStore) -> WebSearch:
@@ -937,7 +945,7 @@ def web_search_of(store: RoadmapStore) -> WebSearch:
     if is_private:
         return WebSearch(off_reason=texts.refine_web_off_private)
     if first_configured_provider():
-        return WebSearch(on=True)
+        return WebSearch(on=True, fetch=page_fetch_configured())
     return WebSearch(off_reason=texts.refine_web_off_no_provider)
 
 
@@ -2326,7 +2334,10 @@ def refine_one_item(
     proposal, open_questions = validate_proposal(
         raw_proposal, current_body, allowed_urls, source, sha, store, covers
     )
-    tools = InvestigationTools(source=source, sha=sha, web=web.on)
+    pages = (
+        PageFetch(TOOLSET_REFINE, named=named_urls(item.title, current_body)) if web.fetch else None
+    )
+    tools = InvestigationTools(source=source, sha=sha, web=web.on, pages=pages)
     stopped: InvestigationStopped | None = None
     if needs_investigation(proposal, open_questions):
         revised = _investigate(
@@ -2523,6 +2534,7 @@ def _investigate(
         "proposal": first.model_dump(mode="json"),
         "open_questions": [*open_questions, *unsourced],
         "web_search": tools.web,
+        "page_fetch": tools.pages is not None,
     }
     revised = investigate(
         investigator or get_task_model("analysis"),
