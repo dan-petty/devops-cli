@@ -4518,13 +4518,6 @@ CONST_MAX_SCHEMA_REFLECTION_ERRORS: Final[int] = 5
 # Maximum character length for representing the erroneous input value in error reflection.
 CONST_MAX_INPUT_VALUE_REPR_LENGTH: Final[int] = 60
 
-# ── LLM Gateway Dynamic Hardware Routing Constants ────────────────────────────
-CONST_CONTINUOUS_BATCHING_ENGINES: Final[frozenset[str]] = frozenset({"vllm", "sglang", "tgi"})
-CONST_ENGINE_MULTIPLIER_CONTINUOUS_BATCHING: Final[float] = 3.0
-CONST_ENGINE_MULTIPLIER_SERIAL: Final[float] = 1.0
-CONST_DEFAULT_CONTINUOUS_CONCURRENCY: Final[int] = 64
-CONST_DEFAULT_SERIAL_CONCURRENCY: Final[int] = 1
-
 # ── Bubblewrap Host Sandbox Confinement Constants ──────────────────────────────
 CONST_HOST_SANDBOX_DEFAULT_ENV: tuple[tuple[str, str], ...] = (
     ("HOME", "/tmp"),  # nosec B108 # the HOME of a sandboxed child on its own tmpfs

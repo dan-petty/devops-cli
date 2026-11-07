@@ -471,7 +471,7 @@ def _describe_gpus(gpus: list[GpuInfo]) -> str:
 
 
 def _render_tune_report(report: TuneReport) -> None:
-    """Render hardware, capacity, cost and recommended weight per deployment."""
+    """Render hardware, capacity, cost and capabilities per deployment."""
     headers = [
         "Deployment",
         "Engine",
@@ -480,9 +480,6 @@ def _render_tune_report(report: TuneReport) -> None:
         "Capacity tok/s",
         "Tokens/request",
         "Est. req/s",
-        "Weight",
-        "Recommended",
-        "Max Parallel",
         "Capabilities",
     ]
     rows = [
@@ -498,9 +495,6 @@ def _render_tune_report(report: TuneReport) -> None:
             ),
             "-" if dep.cost_tokens_per_request is None else f"{dep.cost_tokens_per_request:.0f}",
             f"{dep.requests_per_second:.2f}",
-            "-" if dep.current_weight is None else f"{dep.current_weight:g}",
-            str(dep.recommended_weight),
-            "-" if dep.recommended_concurrency is None else str(dep.recommended_concurrency),
             dep.capabilities.summary_label,
         ]
         for dep in report.deployments
@@ -517,7 +511,7 @@ def _render_tune_report(report: TuneReport) -> None:
     print_info(
         "Capacity is fixed-length tokens/s at the best concurrency; tokens/request is the "
         "model's natural reply length on a review-style prompt. Read-only: nothing was changed. "
-        "To apply, set litellm_params.weight on each deployment in the gateway configuration.",
+        "The gateway routes with least-busy and reads none of these numbers.",
         prefix=False,
     )
 
@@ -581,7 +575,7 @@ def tune_cmd(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Measure each deployment of a gateway model group and recommend routing weights.
+    """Measure each deployment of a gateway model group and report its capacity and cost.
 
     Each deployment is measured on its own from an ephemeral container attached to the gateway
     pod, since the backends admit only the gateway. Read-only: the gateway configuration is not
@@ -637,8 +631,6 @@ def tune_cmd(
             context=resolve_context(context),
             image=image,
             on_deployment=announce,
-            overrides=settings.ai.gateway_weights,
-            concurrency_overrides=settings.ai.gateway_concurrency,
             estimate=estimate,
         )
     except (AICredentialsError, GatewayTuneError) as exc:

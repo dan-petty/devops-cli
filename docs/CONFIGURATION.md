@@ -217,7 +217,6 @@ AI code review, multi-agent pipelines, RAG semantic search, and embeddings.
 | `gateway_provider` | `str` | `litellm` | - | - |
 | `gateway_url` | `Union` | - | `DEVOPS_CLI_AI_GATEWAY_URL` | AI gateway URL |
 | `gateway_enabled` | `bool` | `False` | - | - |
-| `gateway_weights` | `dict` | `{}` | - | - |
 | `gateway_concurrency` | `dict` | `{}` | - | - |
 | `portkey_url` | `Union` | - | - | - |
 | `api_base_url` | `Union` | - | `DEVOPS_CLI_AI_API_BASE_URL` | AI API base URL |

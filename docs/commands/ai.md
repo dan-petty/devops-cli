@@ -1747,9 +1747,9 @@ devops ai gateway probe-backend [OPTIONS] <backend>
 
 ### `devops ai gateway tune`
 
-**Measure each deployment of a gateway model group and recommend routing weights.**
+**Measure each deployment of a gateway model group and report its capacity and cost.**
 
-Measure each deployment of a gateway model group and recommend routing weights.
+Measure each deployment of a gateway model group and report its capacity and cost.
 
 Each deployment is measured on its own from an ephemeral container attached to the gateway
 pod, since the backends admit only the gateway. Read-only: the gateway configuration is not
