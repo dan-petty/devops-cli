@@ -2424,3 +2424,41 @@ def test_check_proposal_refuses_a_new_roadmap_limit_without_ratchet_task() -> No
     plan_with_task = make_stage_proposal(groups=[group_with_task])
     problems_with_task = check_proposal(plan_with_task, ["comment-thread"], tree)
     assert not any("tests/roadmap/test_roadmap_limit_classes.py" in p for p in problems_with_task)
+
+
+def test_check_proposal_refuses_a_plan_number_differing_from_a_constant() -> None:
+    constants = {"SUMMARY_MAX_CHARS": 60}
+    spec = make_stage_proposal().specs[0]
+    req = spec.added[0]
+
+    scenario_40 = req.scenarios[0].model_copy(
+        update={"when": "A spec scenario says `SUMMARY_MAX_CHARS` is 40."}
+    )
+    spec_40 = spec.model_copy(
+        update={"added": [req.model_copy(update={"scenarios": [scenario_40]})]}
+    )
+    proposal_40 = make_stage_proposal(specs=[spec_40])
+    problems = check_proposal(proposal_40, ["comment-thread"], SAMPLE_TREE, constants=constants)
+    assert problems == ["SUMMARY_MAX_CHARS is 60 in the staged tree, but the plan says 40."]
+
+    scenario_60 = req.scenarios[0].model_copy(
+        update={"when": "A spec scenario says `SUMMARY_MAX_CHARS` is 60."}
+    )
+    spec_60 = spec.model_copy(
+        update={"added": [req.model_copy(update={"scenarios": [scenario_60]})]}
+    )
+    proposal_60 = make_stage_proposal(specs=[spec_60])
+    assert check_proposal(proposal_60, ["comment-thread"], SAMPLE_TREE, constants=constants) == []
+
+    # Returns none for a proposal with no constants
+    assert check_proposal(proposal_40, ["comment-thread"], SAMPLE_TREE, constants={}) == []
+    assert check_proposal(proposal_40, ["comment-thread"], SAMPLE_TREE) == []
+
+    # Returns none for the text of a task group that holds 40
+    group_40 = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(update={"implementation": "Set `SUMMARY_MAX_CHARS` to 40 in code."})
+    )
+    proposal_task = make_stage_proposal(groups=[group_40])
+    assert check_proposal(proposal_task, ["comment-thread"], SAMPLE_TREE, constants=constants) == []

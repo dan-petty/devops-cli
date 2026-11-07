@@ -25,7 +25,7 @@ from datetime import date
 from enum import StrEnum
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Annotated, Final, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, Any, Final, Self, assert_never
 
 from pydantic import (
     AfterValidator,
@@ -54,6 +54,7 @@ from devops_cli.roadmap.pull_form import (
     summary_length,
 )
 from devops_cli.roadmap.refine.refine import sanitize_text
+from devops_cli.roadmap.stage.stage_constants import constant_problems
 from devops_cli.roadmap.stage.stage_criteria import (
     PENDING_PERSON,
     StageCriterion,
@@ -695,6 +696,64 @@ def _text_problems(field: str, text: str) -> list[str]:
     return problems
 
 
+def _scenario_texts(scenario: Any) -> list[str]:
+    if isinstance(scenario, dict):
+        return [scenario.get("name", ""), scenario.get("when", ""), scenario.get("then", "")]
+    return [
+        getattr(scenario, "name", ""),
+        getattr(scenario, "when", ""),
+        getattr(scenario, "then", ""),
+    ]
+
+
+def _req_texts(req: Any) -> list[str]:
+    if isinstance(req, dict):
+        texts = [req.get("name", ""), req.get("text", "")]
+        for sc in req.get("scenarios", []):
+            texts.extend(_scenario_texts(sc))
+        return texts
+    texts = [getattr(req, "name", ""), getattr(req, "text", "")]
+    for sc in getattr(req, "scenarios", []):
+        texts.extend(_scenario_texts(sc))
+    return texts
+
+
+def _spec_texts(spec: Any) -> list[str]:
+    if isinstance(spec, dict):
+        texts = [spec.get("purpose", "")]
+        reqs = (*spec.get("added", []), *spec.get("modified", []))
+    else:
+        texts = [getattr(spec, "purpose", "")]
+        reqs = (*getattr(spec, "added", ()), *getattr(spec, "modified", ()))
+    for req in reqs:
+        texts.extend(_req_texts(req))
+    return texts
+
+
+def _decision_texts(item: Any, first_key: str, second_key: str) -> list[str]:
+    if isinstance(item, dict):
+        return [item.get(first_key, ""), item.get(second_key, "")]
+    return [getattr(item, first_key, ""), getattr(item, second_key, "")]
+
+
+def plan_texts(proposal: StageProposal) -> list[str]:
+    """The plan fields that render to `proposal.md`, `design.md` and the spec deltas (#3308)."""
+    texts: list[str] = [
+        proposal.why,
+        *proposal.what_changes,
+        *proposal.feasibility,
+        proposal.existing_tool,
+        *proposal.dependencies,
+    ]
+    for d in proposal.decisions:
+        texts.extend(_decision_texts(d, "decision", "reason"))
+    for r in proposal.rejected:
+        texts.extend(_decision_texts(r, "alternative", "evidence"))
+    for s in proposal.specs:
+        texts.extend(_spec_texts(s))
+    return [t for t in texts if t]
+
+
 def _plan_texts(proposal: StageProposal) -> list[tuple[str, str]]:
     """The texts of the plan that must read as a sentence, each with the name of its field: `why`,
     `existing_tool`, the lines of `feasibility`, the decisions and the tasks of each group."""
@@ -1022,6 +1081,7 @@ class ProposalGate(StrEnum):
     DEPENDENCIES = "dependencies"
     CREATES = "creates"
     REGISTRY = "registry"
+    CONSTANTS = "constants"
 
 
 def check_gates(
@@ -1038,6 +1098,7 @@ def check_gates(
     plan_creates: Mapping[str, int] | None = None,
     read_text: Callable[[str], str | None] | None = None,
     registry: Sequence[RegistryCount] | None = None,
+    constants: Mapping[str, int] | None = None,
 ) -> dict[ProposalGate, list[str]]:
     """What each gate of `check_proposal` finds wrong in `proposal`, one sentence each, under the
     name of the gate. Every gate has a key, and a gate that finds nothing has an empty list. The
@@ -1067,6 +1128,7 @@ def check_gates(
             proposal,
             registry if registry is not None else registry_table(Path.cwd()),
         ),
+        ProposalGate.CONSTANTS: constant_problems(plan_texts(proposal), constants or {}),
     }
 
 
@@ -1084,6 +1146,7 @@ def check_proposal(
     plan_creates: Mapping[str, int] | None = None,
     read_text: Callable[[str], str | None] | None = None,
     registry: Sequence[RegistryCount] | None = None,
+    constants: Mapping[str, int] | None = None,
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
@@ -1117,6 +1180,7 @@ def check_proposal(
         plan_creates=plan_creates,
         read_text=read_text,
         registry=registry,
+        constants=constants,
     )
     return [problem for problems in found.values() for problem in problems]
 

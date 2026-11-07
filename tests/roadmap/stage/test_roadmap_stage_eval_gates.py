@@ -485,3 +485,42 @@ def test_a_content_gate_that_stops_refusing_a_plan_fails_the_replay(
         DefectStatus.MISSED
     ]
     assert any("no longer refuses" in failure for failure in replay.failures)
+
+
+def test_the_replay_passes_recorded_constants(cases: list[StageCase]) -> None:
+    good_case = next(case for case in cases if case.verdict is Verdict.GOOD)
+    replay = replay_case(good_case)
+    assert not replay.refused
+
+    specs = list(good_case.plan["specs"])
+    spec = specs[0]
+    bad_spec = {
+        **spec,
+        "added": [
+            {
+                "name": "Summary bound",
+                "text": "The summary SHALL be bounded.",
+                "scenarios": [
+                    {
+                        "name": "Mismatch",
+                        "when": "A spec scenario says `SUMMARY_MAX_CHARS` is 40.",
+                        "then": "Refuse.",
+                    }
+                ],
+            }
+        ],
+    }
+    facts_with_constants = good_case.facts.model_copy(
+        update={"constants": (("SUMMARY_MAX_CHARS", 60),)}
+    )
+    case_with_constants = good_case.model_copy(
+        update={
+            "facts": facts_with_constants,
+            "plan": {**good_case.plan, "specs": [bad_spec]},
+        }
+    )
+    replay_constants = replay_case(case_with_constants)
+    assert any(
+        "SUMMARY_MAX_CHARS is 60 in the staged tree, but the plan says 40." in p
+        for p in replay_constants.problems[GateName.PATHS]
+    )

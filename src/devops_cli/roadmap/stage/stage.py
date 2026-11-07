@@ -162,6 +162,7 @@ from devops_cli.roadmap.stage.stage_change import (
     closing_keyword_in,
     creates_problems,
     measure_groups,
+    plan_texts,
     pull_request_body,
     render_change,
     safe_text,
@@ -169,6 +170,7 @@ from devops_cli.roadmap.stage.stage_change import (
     staging_title,
     write_change_files,
 )
+from devops_cli.roadmap.stage.stage_constants import candidate_names, staged_constants
 from devops_cli.roadmap.stage.stage_criteria import criterion_problems
 from devops_cli.roadmap.stage.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage.stage_form import (
@@ -1123,6 +1125,7 @@ class _Planner:
         evidence = (
             record_search_evidence(proposal.groups, self._grep) if self._grep is not None else None
         )
+        constants = staged_constants(self._source, self._sha, candidate_names(plan_texts(proposal)))
         problems = check_proposal(
             proposal,
             self._known,
@@ -1138,6 +1141,7 @@ class _Planner:
             # (#3422), and never the working tree.
             read_text=partial(_read_staged_file, self._source, self._sha),
             registry=registry_table(self._source),
+            constants=constants,
         )
         if problems:
             return _Refused(" ".join(problems), proposal)

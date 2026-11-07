@@ -12,14 +12,14 @@
 - **Carry the constants in `CaseFacts` with an empty default, and pass them through `PlanUnderTest` to `check_proposal`.**: The recorded cases keep no text of a file, so an empty mapping leaves them as they are and a later case can record the values it needs.
 - **Name the constant, the plan's number and the staged value in one problem line.**: The model corrects the number in one turn, as `SUMMARY_MAX_CHARS is 60 in the staged tree, but the plan says 40` shows.
 - **Add the citation rule to the plan stage prompt beside the rule that asks for the quoted probe lines.**: The model has the read tools, and it writes the plan before the check runs, so the rule makes the first reply pass.
-- **Keep the check in a new module `src/devops_cli/roadmap/stage_constants.py` and call it from `check_proposal`.**: `check_proposal` is the one seam that the stage job and the replay both call, so the rule runs in both paths.
+- **Keep the check in a new module `src/devops_cli/roadmap/stage/stage_constants.py` and call it from `check_proposal`.**: `check_proposal` is the one seam that the stage job and the replay both call, so the rule runs in both paths.
 
 ## Rejected alternatives
 
-- **Import the staged modules to read the constant values.**: `src/devops_cli/roadmap/stage_probe.py` reads the commit with `git cat-file`, `git grep` and `git log` only, so the check runs no staged code.
+- **Import the staged modules to read the constant values.**: `src/devops_cli/roadmap/stage/stage_probe.py` reads the commit with `git cat-file`, `git grep` and `git log` only, so the check runs no staged code.
 - **Find the pairs with a regular expression over the source text.**: `src/devops_cli/roadmap/pull_form.py` holds the docstring `Its pattern `^.{1,60}$` runs in JavaScript` and the assignment `BODY_MAX_CHARS: Final[int] = CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS`, so a regex over text reads 60 from a docstring and finds no literal for an aliased constant.
 - **Read every Python file of the staged tree, with no `git grep` first.**: The tree holds hundreds of files, and a plan cites a few names. `git grep` gives the files to parse and keeps the read inside the command budget.
-- **Scan every file of the change folder, `tasks.md` included.**: `src/devops_cli/roadmap/stage_change.py` renders `tasks.md` from `group_text`, where a verify command holds a test path and a number that is no claim about a constant.
+- **Scan every file of the change folder, `tasks.md` included.**: `src/devops_cli/roadmap/stage/stage_change.py` renders `tasks.md` from `group_text`, where a verify command holds a test path and a number that is no claim about a constant.
 - **Pair every number in a sentence with every constant in it.**: A sentence that says `SUMMARY_MAX_CHARS` is 60, while the tree says 47, and the issue says 40 is a counterexample and not a claim. The strict rule skips it.
 - **Refuse a plan that names a constant which the staged tree does not define.**: The plan folder `openspec/changes/3200-refuse-a-plan-with-placeholder-or/design.md` names `PLAN_SUMMARY_MAX_CHARS = 47`, which `src/` does not define, so a refusal would stop a valid plan.
 - **Read the constants through `StagedTree`.**: The class holds file names only, and every test that builds a tree would need the source and the commit. The explicit mapping leaves the tree and those tests alone.

@@ -543,3 +543,16 @@ def test_the_prompts_state_the_prompt_rule_test_rule(task: str) -> None:
         "`tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` in `reads` or `changes` and "
         "gives it as `verify`."
     ) in prompt
+
+
+# ── Cite staged constant values (#3308) ───────────────────────────────────────
+
+
+def test_the_stage_prompt_requires_citation_of_staged_constant_values() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert (
+        "Cite the staged value of each constant that the plan relies on, with the constant name "
+        "and its value, as `feasibility` quotes the probe lines, and give no new name to the "
+        "bound of a constant that the staged tree defines."
+    ) in prompt
