@@ -3825,6 +3825,7 @@ CONST_K8S_ORPHAN_VOLUME_PHASES: Final[frozenset[str]] = frozenset(
     {CONST_K8S_PV_PHASE_RELEASED, CONST_K8S_PV_PHASE_FAILED}
 )
 CONST_K8S_VOLUME_RECLAIM_HEADING: Final[str] = "Planned Kubernetes Volume Reclaim API Requests:"
+CONST_K8S_OLLAMA_PRUNE_HEADING: Final[str] = "Planned Ollama Prune Requests:"
 CONST_K8S_PV_API_PATH_TEMPLATE: Final[str] = "/api/v1/persistentvolumes/{name}"
 
 # ── Local-Path Volume Move (#2186) ─────────────────────────────────────────

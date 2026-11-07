@@ -796,6 +796,32 @@ devops k8s doctor [OPTIONS]
 
 ---
 
+## `devops k8s ollama`
+
+**Prune Ollama models that no tier serves from the cluster nodes.**
+
+```bash
+devops k8s ollama COMMAND [ARGS]...
+```
+
+### `devops k8s ollama prune`
+
+**Remove the Ollama models that no tier of a node serves.**
+
+```bash
+devops k8s ollama prune [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--plan` | `boolean` | - | Print the models that each node would lose, and remove none. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--context`, `-c` | `string` | - | Kubernetes context to target. |
+
+---
+
 ## `devops k8s tunnel`
 
 **Keep the local end of the Kubernetes API route at k8s.\<domain\> running: one 'cloudflared access tcp' forward, for the tunnel kubeconfig context off the home network.**
