@@ -85,7 +85,7 @@ When the premise probe finds a cited path that the staging commit lacks, the sta
 
 A person who closes a plan pull request with no merge rejects the plan. The stage job reads the plan pull request of each staged Item and copies the reason to the issue. It returns the Item to New and records the rejection in `stage.rejected`. It deletes the staged branch when only the Service wrote to it. A run that stages the Item again keeps its Status. [The stage page](roadmap/stage.md#a-plan-that-a-person-rejected) tells how.
 
-The stage selection leaves out the item while a recorded blocker is open. Refine waits in the same way, until each recorded blocker closes. A closed item and an archived change create no dependency. The stage check refuses a plan that creates a path that another open plan also creates. The problem names that item and that path.
+The stage selection leaves out the item while a recorded blocker is open. Refine waits in the same way, until each recorded blocker closes. A closed item and an archived change create no dependency. The stage check refuses a plan that creates a path that another open plan also creates. The problem names that item and that path. The plan context lists matching registry and ratchet places that the item cites, with their `path:line`. The stage check refuses a plan that adds a counted item and names no task for the declared path.
 
 The labels on the issue hold the state. The job record holds the facts behind it. The job record is a hidden block at the end of the issue body, a JSON object ([ADR 0016](adr/0016-labels-hold-the-roadmap-items-fields.md)). It also holds the last value that a job set for each field (`Status`, `Owner`), so a job can tell its own label from a person's.
 

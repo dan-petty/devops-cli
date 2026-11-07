@@ -16,7 +16,7 @@ import sqlite3
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import pytest
 import yaml
@@ -65,6 +65,10 @@ from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
 SERIES_NAME = re.compile(r"devops_cli_[a-z0-9_]+")
+REGISTRY_COUNTS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("table", "INSTRUMENTS", "src/devops_cli/telemetry/instruments.py"),
+    ("prefix", "devops_cli_", "src/devops_cli/telemetry/instruments.py"),
+)
 # The series of the Service, which Prometheus scrapes from its /metrics route (#2479). The label set
 # of the identity counter starts with the first refusal, so increase() loses that count. Its panel
 # reads the value, as its alert does, so the test takes it as a gauge.

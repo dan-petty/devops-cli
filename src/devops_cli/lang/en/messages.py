@@ -3685,6 +3685,14 @@ class RoadmapMessages:
         "Quote at least {least} characters of the line, or cite a symbol as `path:def name` or "
         "`path:class name`."
     )
+    stage_problem_registry: str = (
+        "The plan adds the item {token} but names no task for `{path}` ({location}). Add a task "
+        "that names the declared path."
+    )
+    stage_problem_missing_test_file: str = (
+        "The test path `{path}` names no file of the staged commit. Correct the path or add the "
+        "test file."
+    )
     stage_path_same_name: str = "These files have the same name: {names}."
     stage_path_no_same_name: str = "No file has this name."
     stage_path_places: dict[str, str] = field(

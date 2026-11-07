@@ -35,6 +35,11 @@ from tests.support.paths import REPO_ROOT
 
 CLASSES: Final = frozenset({"raised", "guard", "window", "setting", "kept", "other"})
 
+REGISTRY_COUNTS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("prefix", "CONST_ROADMAP_", "tests/roadmap/test_roadmap_limit_classes.py"),
+    ("prefix", "DEFAULT_ROADMAP_", "tests/roadmap/test_roadmap_limit_classes.py"),
+)
+
 # Constants that the change took out. A test holds that none comes back.
 REMOVED: Final[tuple[str, ...]] = (
     # The output tokens of a stage run are in its messages, which the window holds.

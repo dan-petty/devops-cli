@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import socket
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import Any, Final
 
 import pytest
 
@@ -34,6 +34,11 @@ from tests.support.fakes.process import ProcessFake
 
 REPO = "dan-petty/devops-cli"
 JOBS = ("intake", "refine", "alternatives", "stage", "implement")
+
+REGISTRY_COUNTS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("name", "stage_requests", "src/devops_cli/roadmap/request_plan.py"),
+    ("name", "implement_requests", "src/devops_cli/roadmap/request_plan.py"),
+)
 
 
 # ── No request ────────────────────────────────────────────────────────────────

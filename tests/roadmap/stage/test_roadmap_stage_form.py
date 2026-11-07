@@ -14,6 +14,9 @@ from devops_cli.roadmap.stage.stage_change import (
     STAGE_EVAL_TRIGGER_PATHS,
     StageGroup,
     StageProposal,
+    StageRequirement,
+    StageScenario,
+    StageSpec,
     check_proposal,
 )
 from devops_cli.roadmap.stage.stage_form import (
@@ -475,3 +478,56 @@ def test_a_plan_that_changes_no_trigger_path_has_no_replay_problem() -> None:
     plan = _plan(CODE)
 
     assert _problems(plan) == []
+
+
+def test_a_spec_naming_a_missing_test_file_is_refused() -> None:
+    spec = StageSpec(
+        capability="comment-thread",
+        added=[
+            StageRequirement(
+                name="A requirement",
+                text="The system SHALL test `tests/test_missing_example.py`.",
+                scenarios=[
+                    StageScenario(
+                        name="A scenario",
+                        when="A condition holds.",
+                        then="The system SHALL pass.",
+                    )
+                ],
+            )
+        ],
+    )
+    plan = make_stage_proposal(specs=[spec])
+    tree = StagedTree(["src/devops_cli/sample.py", "tests/test_sample.py"])
+    problems = check_proposal(plan, ["comment-thread"], tree)
+    assert any("tests/test_missing_example.py" in p for p in problems)
+
+
+def test_a_changed_docstring_naming_a_missing_test_file_is_refused() -> None:
+    group = make_stage_proposal().groups[0]
+    plan = make_stage_proposal(groups=[group])
+    source = 'def helper():\n    """See `tests/test_missing_example.py`."""\n    pass\n'
+    read_text = {"src/devops_cli/sample.py": source}.get
+    tree = StagedTree(["src/devops_cli/sample.py", "tests/test_sample.py"])
+    problems = check_proposal(plan, ["comment-thread"], tree, read_text=read_text)
+    assert any("tests/test_missing_example.py" in p for p in problems)
+
+
+def test_a_changed_source_with_syntax_error_is_ignored() -> None:
+    group = make_stage_proposal().groups[0]
+    plan = make_stage_proposal(groups=[group])
+    read_text = {"src/devops_cli/sample.py": "def broken_syntax(:\n"}.get
+    tree = StagedTree(["src/devops_cli/sample.py", "tests/test_sample.py"])
+    problems = check_proposal(plan, ["comment-thread"], tree, read_text=read_text)
+    assert not any("stage_problem_missing_test_file" in p for p in problems)
+
+
+def test_a_changed_docstring_naming_an_existing_test_file_passes() -> None:
+    group = make_stage_proposal().groups[0]
+    plan = make_stage_proposal(groups=[group])
+    read_text = {
+        "src/devops_cli/sample.py": '"""See `tests/roadmap/test_roadmap_limit_classes.py`."""\n'
+    }.get
+    tree = StagedTree(["src/devops_cli/sample.py", "tests/roadmap/test_roadmap_limit_classes.py"])
+    problems = check_proposal(plan, ["comment-thread"], tree, read_text=read_text)
+    assert not any("tests/roadmap/test_roadmap_limit_classes.py" in p for p in problems)

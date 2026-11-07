@@ -56,6 +56,7 @@ from devops_cli.roadmap.stage.stage_change import (
 )
 from devops_cli.roadmap.stage.stage_criteria import StageCriterion
 from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_registry import RegistryCount
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage.stage_validate import validate_change
 from devops_cli.roadmap.stores.store import ItemField
@@ -526,6 +527,27 @@ def test_the_model_reads_the_item_the_capabilities_and_the_repository(
     }
     assert "The job reads comments." in request["context"]
     assert "You plan the OpenSpec change" in model_fake.calls[0].system_prompt
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_plan_adding_a_roadmap_limit_gets_limit_classes_in_context(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    stage_repo.track(
+        {
+            "tests/roadmap/test_roadmap_limit_classes.py": (
+                "REGISTRY_COUNTS = (('prefix', 'DEFAULT_ROADMAP_', 'tests/roadmap/test_roadmap_limit_classes.py'),)\n"
+            )
+        }
+    )
+    number = seed_stageable(store, body="Add `DEFAULT_ROADMAP_EXAMPLE_LIMIT` to config.")
+    model_fake.answer(make_stage_proposal())
+
+    _plan(store, stage_repo, item=number)
+
+    request = _requests(model_fake)[0]
+    assert "### Registry places" in request["context"]
+    assert "tests/roadmap/test_roadmap_limit_classes.py" in request["context"]
 
 
 def test_a_plan_with_no_item_to_stage_calls_no_model(
@@ -2245,3 +2267,98 @@ def test_check_proposal_refuses_path_an_open_plan_creates() -> None:
         )
         == []
     )
+
+
+def test_check_proposal_refuses_a_plan_adding_a_write_method_missing_fault_test_task() -> None:
+    registry = (
+        RegistryCount(
+            "name",
+            "custom_write",
+            "tests/roadmap/test_roadmap_dry_runs.py",
+            line=10,
+            declaring_path="tests/roadmap/test_roadmap_dry_runs.py",
+        ),
+        RegistryCount(
+            "table",
+            "custom_write",
+            "tests/support/fakes/roadmap_store.py",
+            line=20,
+            declaring_path="tests/support/fakes/roadmap_store.py",
+        ),
+        RegistryCount(
+            "table",
+            "custom_write",
+            "tests/roadmap/stores/test_roadmap_store_contract.py",
+            line=30,
+            declaring_path="tests/roadmap/stores/test_roadmap_store_contract.py",
+        ),
+        RegistryCount(
+            "name",
+            "custom_write",
+            "src/devops_cli/roadmap/request_plan.py",
+            line=40,
+            declaring_path="tests/roadmap/test_roadmap_dry_runs.py",
+        ),
+    )
+    tree = _tree(
+        "tests/roadmap/test_roadmap_dry_runs.py",
+        "tests/support/fakes/roadmap_store.py",
+        "tests/roadmap/stores/test_roadmap_store_contract.py",
+        "src/devops_cli/roadmap/request_plan.py",
+    )
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(
+            update={
+                "test": "Test `custom_write` in `tests/roadmap/test_roadmap_dry_runs.py`.",
+                "implementation": (
+                    "Implement in `tests/roadmap/stores/test_roadmap_store_contract.py` and "
+                    "`src/devops_cli/roadmap/request_plan.py`."
+                ),
+            }
+        )
+    )
+    plan = make_stage_proposal(groups=[group])
+    problems = check_proposal(plan, ["comment-thread"], tree, registry=registry)
+
+    assert any(
+        "tests/support/fakes/roadmap_store.py" in p
+        and "tests/support/fakes/roadmap_store.py:20" in p
+        for p in problems
+    )
+
+    group_full = group.model_copy(
+        update={
+            "documentation": "Document `tests/support/fakes/roadmap_store.py` in the fake.",
+        }
+    )
+    plan_full = make_stage_proposal(groups=[group_full])
+    problems_full = check_proposal(plan_full, ["comment-thread"], tree, registry=registry)
+    assert not any("tests/support/fakes/roadmap_store.py" in p for p in problems_full)
+
+
+def test_check_proposal_refuses_a_new_roadmap_limit_without_ratchet_task() -> None:
+    tree = _tree("tests/roadmap/test_roadmap_limit_classes.py")
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(
+            update={
+                "implementation": "Add `DEFAULT_ROADMAP_EXAMPLE_LIMIT` to constants.",
+            }
+        )
+    )
+    plan = make_stage_proposal(groups=[group])
+    problems = check_proposal(plan, ["comment-thread"], tree)
+    assert any("tests/roadmap/test_roadmap_limit_classes.py" in p for p in problems)
+
+    group_with_task = group.model_copy(
+        update={
+            "test": "Add limit in `tests/roadmap/test_roadmap_limit_classes.py`.",
+            "implementation": "Add `DEFAULT_ROADMAP_EXAMPLE_LIMIT` to constants.",
+        }
+    )
+    plan_with_task = make_stage_proposal(groups=[group_with_task])
+    problems_with_task = check_proposal(plan_with_task, ["comment-thread"], tree)
+    assert not any("tests/roadmap/test_roadmap_limit_classes.py" in p for p in problems_with_task)
