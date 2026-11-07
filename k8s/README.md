@@ -501,6 +501,7 @@ Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prome
 | `CoreDnsServfailResponses` | Over 5% of CoreDNS responses return `SERVFAIL` | 5m | warning |
 | `ValkeyCacheErrors` | A Valkey exporter reports `redis_up == 0` or rejected client connections | 5m | warning |
 | `ValkeyMemoryNearBound` | A Valkey with the policy `noeviction` and a bound keeps its data above 80% of its `maxmemory`; at the bound it refuses each write | 10m | warning |
+| `ResearchCriticalFindings` | The last `devops research sweep` of the last 7 days found a critical advisory that affects a pin of the project (#3899). The sweep sets zero for a severity with no finding, so a clean sweep ends the alert. A sweep with a lookup that got no answer sets no value | — | critical | Read the candidates that the sweep filed, or run `devops research advisories`, and update the pin. Run the sweep again. |
 | `RoadmapServiceIdentityRefused`, `RoadmapServiceGitHubThrottled` | GitHub refused the identity of the roadmap Service, or throttled its requests; see Roadmap service, Alerts | — | critical |
 | `RoadmapServiceJobsFailing` | All jobs of one row of a repository failed in 1 hour | 30m | warning |
 | `RoadmapServiceLaneStalled`, `RoadmapServiceRestarted`, `RoadmapServiceUnavailable`, `RoadmapServiceGitHubRequestsHigh`, `RoadmapServiceModelRequestsHigh` | The roadmap Service stalls, its pod restarts or is unavailable, or its GitHub or model requests in an hour are high; see Roadmap service, Alerts | 0–10m | warning |

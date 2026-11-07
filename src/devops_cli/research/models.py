@@ -152,3 +152,52 @@ class AdvisoryReport(BaseModel):
     failures: list[LookupFailure]
     kev_failure: str = ""
     summary: AdvisorySummary
+
+
+class SweepResult(StrEnum):
+    """What the sweep did with one finding."""
+
+    FILED = "filed"
+    PLANNED = "planned"
+    FILED_BEFORE = "filed-before"
+    NOT_ACTIONABLE = "not-actionable"
+    SKIPPED = "skipped"
+
+
+class SweepEntry(BaseModel):
+    """One finding of a sweep and its result (#3899).
+
+    `issue` is the issue that intake filed, or the issue that holds the marker of a finding filed
+    before. `possible_duplicate` is the issue that intake flags as the original of the candidate.
+    `reason` is why intake skipped the candidate.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source_id: str
+    advisory_id: str
+    name: str
+    version: str
+    severity: str
+    result: SweepResult
+    issue: int | None = None
+    possible_duplicate: int | None = None
+    reason: str = ""
+
+
+class SweepReport(BaseModel):
+    """What a sweep did: one entry for each finding, most severe first, and the open findings by
+    severity (#3899).
+
+    `open_findings` holds each severity of the scale, with zero for a severity with no finding. A
+    dry run makes no request, so it holds no entry: `requests` lists the requests that a real run
+    makes.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    dry_run: bool = False
+    entries: list[SweepEntry] = []
+    open_findings: dict[str, int] = {}
+    failed: int = 0
+    requests: list[str] = []

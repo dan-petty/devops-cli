@@ -495,6 +495,7 @@ and draft readiness. |
 | [**survey**](docs/commands/survey.md) | `devops survey [OPTIONS]` | Outward-facing capability and upstream maturity survey. |
 | [**research**](docs/commands/research.md) | `devops research inventory [OPTIONS]` | List every pin of the project as a typed component: Python packages, tools, container images, GitHub Actions, Helm charts and Terraform providers. It reads files only. |
 |  | `devops research advisories [OPTIONS]` | List the advisories that affect the pins of the project. It asks OSV about the Python and Node packages, and GitHub about the Actions and about the components that .devops/research-watch.toml maps to a repository. It flags a CVE of the CISA KEV list as exploited, and counts the components that no source matches. |
+|  | `devops research sweep [OPTIONS]` | Run inventory and advisories, leave out the findings that an issue carries, and hand each actionable finding (severity critical or high) to roadmap intake as one candidate. Without --confirm, intake decides each candidate and writes nothing. It prints a digest and sets the gauge devops_cli_research_open_findings. |
 | [**format**](docs/commands/format.md) | `devops format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
 | [**lint**](docs/commands/lint.md) | `devops lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
 

@@ -4744,6 +4744,45 @@ class ResearchMessages:
     exploited_yes: str = "yes"
     affected_column: str = "Affected"
     fixed_column: str = "Fixed in"
+    sweep_placeholder_title: str = "<title of the candidate of an actionable finding>"
+    sweep_search_target: str = "issues that carry a research finding marker"
+    sweep_search_repeat: str = "per page of 100 issues, while the search has more results"
+    sweep_secret: str = (
+        "The candidate of the advisory {advisory} looks like it holds a secret. The sweep stops "
+        "before any request."
+    )
+    sweep_no_fix: str = "no fixed version is known"
+    sweep_body_problem: str = "## Problem"
+    sweep_body_affected: str = (
+        "The pin {name} {version} ({ecosystem}) is affected by the advisory {advisory}. "
+        "Its severity is {severity}."
+    )
+    sweep_body_expected: str = (
+        "## Expected\n\nThe pin moves to a version that the advisory does not affect: {fixed}."
+    )
+    sweep_body_advisories: str = "## Advisories"
+    sweep_body_range: str = "Affected range"
+    sweep_dry_run_title: str = "Plan for research sweep"
+    sweep_digest_title: str = "Digest of the research sweep"
+    sweep_filed: str = "{severity} {name} {version} {advisory}: intake filed #{number}."
+    sweep_planned: str = (
+        "{severity} {name} {version} {advisory}: actionable. Intake would file it with --confirm."
+    )
+    sweep_filed_before: str = "{severity} {name} {version} {advisory}: filed before in #{number}."
+    sweep_not_actionable: str = (
+        "{severity} {name} {version} {advisory}: not actionable. It stays in this digest."
+    )
+    sweep_skipped: str = "{severity} {name} {version} {advisory}: intake skipped it. {reason}"
+    sweep_possible_duplicate: str = "Intake flags #{number} as a possible duplicate."
+    sweep_summary: str = (
+        "{filed} filed, {planned} planned, {before} filed before, {other} not actionable or "
+        "skipped. Open findings by severity: {severities}."
+    )
+    sweep_none: str = "No advisory affects a pin."
+    sweep_incomplete: str = (
+        "{count} lookups got no answer. The gauge of open findings is not set, because the "
+        "count is not complete."
+    )
 
 
 @dataclass(frozen=True)

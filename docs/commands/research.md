@@ -40,3 +40,24 @@ devops research advisories [OPTIONS]
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
+
+## `devops research sweep`
+
+**Run inventory and advisories, leave out the findings that an issue carries, and hand each actionable finding (severity critical or high) to roadmap intake as one candidate. Without --confirm, intake decides each candidate and writes nothing. It prints a digest and sets the gauge devops_cli_research_open_findings.**
+
+```bash
+devops research sweep [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--root` | `path` | - | Root of the repository to read. Default: the repository of the current directory. |
+| `--repo`, `-R` | `string` | - | Repository that holds the issues, as owner/name. Default: the origin. |
+| `--confirm` | `boolean` | - | File and place the candidates. Without it, the sweep writes nothing. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
