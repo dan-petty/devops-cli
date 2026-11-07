@@ -25,7 +25,7 @@ from datetime import date
 from enum import StrEnum
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Annotated, Final, Self
+from typing import TYPE_CHECKING, Annotated, Final, Self, assert_never
 
 from pydantic import (
     AfterValidator,
@@ -346,12 +346,19 @@ class StageRejection(_Reply):
 
 class GroupKind(StrEnum):
     """What a task group does. `behavior` adds or changes what the code does: its work starts with
-    a failing test. `other` is a document, a manifest, a workflow, a deletion or a refactor that
-    keeps behavior, a test-only edit or data: it has no test, and a command or a process proves
-    it (#3005)."""
+    a failing test. `manifest` creates or changes a rule file, a dashboard file or a case file: its
+    work starts with a failing case, and a command that runs the case proves it. `other` is a
+    document, a workflow, a deletion or a refactor that keeps behavior, a test-only edit or data:
+    it has no test, and a command or a process proves it (#3005, #3251)."""
 
     BEHAVIOR = "behavior"
+    MANIFEST = "manifest"
     OTHER = "other"
+
+
+# The kinds whose work starts with a failing case, which the implement step writes first: a test for
+# a behavior and a case for a manifest (#3251).
+_CASE_FIRST_KINDS: Final[frozenset[GroupKind]] = frozenset({GroupKind.BEHAVIOR, GroupKind.MANIFEST})
 
 
 class StageGroup(_Reply):
@@ -360,9 +367,10 @@ class StageGroup(_Reply):
     gives the estimated number of lines of each of those paths.
 
     The `kind` sets the tasks. A `behavior` group has a `test` and a `verify` that runs it, and
-    changes a path under `src/`. An `other` group has no `test`, and one of `verify` (a command
-    that gives the same answer on each run) and `process` (the steps of a manual check).
-    `documentation` is None when the group changes no document."""
+    changes a path under `src/`. A `manifest` group has a `test` that names its failing case and a
+    `verify` that runs the case, and no `process`. An `other` group has no `test`, and one of
+    `verify` (a command that gives the same answer on each run) and `process` (the steps of a
+    manual check). `documentation` is None when the group changes no document."""
 
     title: Text
     kind: GroupKind
@@ -402,9 +410,15 @@ class StageGroup(_Reply):
 
     @model_validator(mode="after")
     def _kind_rules(self) -> Self:
-        problems = (
-            _behavior_problems(self) if self.kind is GroupKind.BEHAVIOR else _other_problems(self)
-        )
+        match self.kind:
+            case GroupKind.BEHAVIOR:
+                problems = _behavior_problems(self)
+            case GroupKind.MANIFEST:
+                problems = _manifest_problems(self)
+            case GroupKind.OTHER:
+                problems = _other_problems(self)
+            case _:
+                assert_never(self.kind)
         if problems:
             raise ValueError(" ".join(problems))
         return self
@@ -429,6 +443,17 @@ def _behavior_problems(group: StageGroup) -> list[str]:
             not any(path.startswith(_SOURCE_DIRECTORY) for path in group.changes),
             texts.stage_kind_no_source,
         ),
+    )
+    return [text.format(title=group.title) for broken, text in found if broken]
+
+
+def _manifest_problems(group: StageGroup) -> list[str]:
+    """What breaks the rules of a `manifest` group: no case, no command for it, or a process."""
+    texts = MESSAGES.roadmap
+    found = (
+        (group.test is None, texts.stage_kind_manifest_no_test),
+        (group.verify is None, texts.stage_kind_manifest_no_verify),
+        (group.process is not None, texts.stage_kind_manifest_process),
     )
     return [text.format(title=group.title) for broken, text in found if broken]
 
@@ -1305,10 +1330,11 @@ def _paths(paths: Sequence[str], created: Collection[str] = ()) -> str:
 
 def _task_texts(group: StageGroup) -> list[str]:
     """The tasks of `group` in order, with no number. A `behavior` group starts with its failing
-    test. An `other` group has no test: its work comes first, with the check that proves it. A
-    group that changes a document ends with its documents task."""
+    test, and a `manifest` group with its failing case. An `other` group has no test: its work
+    comes first, with the check that proves it. A group that changes a document ends with its
+    documents task."""
     texts = MESSAGES.roadmap
-    if group.kind is GroupKind.BEHAVIOR:
+    if group.kind in _CASE_FIRST_KINDS:
         tasks = [
             texts.stage_task_test.format(test=group.test, verify=group.verify),
             texts.stage_task_pass.format(work=group.implementation, verify=group.verify),
@@ -1324,10 +1350,10 @@ def _task_texts(group: StageGroup) -> list[str]:
 
 def _task_work_texts(group: StageGroup) -> list[str]:
     """The work text of each task of `group`, in the order of `_task_texts`: the test task of a
-    `behavior` group, its implementation task, and its documents task. The `Verification:` line,
-    the `process` check and the fixed documents command are no work of a task, so two tasks may
-    share one and stay two tasks (#3456)."""
-    works = [group.test] if group.kind is GroupKind.BEHAVIOR else []
+    `behavior` group or the case task of a `manifest` group, its implementation task, and its
+    documents task. The `Verification:` line, the `process` check and the fixed documents command
+    are no work of a task, so two tasks may share one and stay two tasks (#3456)."""
+    works = [group.test] if group.kind in _CASE_FIRST_KINDS else []
     works.extend((group.implementation, group.documentation))
     return [work for work in works if work is not None]
 

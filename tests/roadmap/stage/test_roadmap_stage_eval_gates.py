@@ -87,7 +87,7 @@ def test_a_defect_of_a_type_that_waited_for_a_gate_is_judged_or_says_why_not(
     judged = [d for d in defects if d.gate is not GateName.NONE]
     unjudged = [d for d in defects if d.gate is GateName.NONE]
 
-    assert len(defects) == 74
+    assert len(defects) == 75
     assert all(d.gate is GateName.PATHS and d.message for d in judged)
     assert all(d.reason for d in unjudged)
     assert not any(d.reason for d in judged)
@@ -105,9 +105,9 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
     assert counts[DefectType.MISSING_PATH] == (32, 0, 0)
     assert counts[DefectType.SPEC_DELTA_WRONG] == (5, 0, 20)
     assert counts[DefectType.VERIFY_FORM] == (6, 0, 12)
-    assert counts[DefectType.TASK_ORDER] == (0, 0, 8)
+    assert counts[DefectType.TASK_ORDER] == (1, 0, 8)
     assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)
-    assert report.judged() == (69, 306)
+    assert report.judged() == (70, 307)
 
 
 def test_the_judged_share_counts_the_caught_and_the_missed_and_not_the_rest(

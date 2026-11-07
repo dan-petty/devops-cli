@@ -138,10 +138,12 @@ def test_the_prompts_state_the_budget_and_the_line_estimate_rule(task: str) -> N
 @pytest.mark.parametrize("task", [_CHANGE_PROMPT, _SPLIT_PROMPT])
 def test_the_prompts_name_the_kinds_of_a_group_as_the_enum_does(task: str) -> None:
     prompt = load_task_prompt(task)
-    clause = re.search(r"`kind`, `(\w+)` or `(\w+)`", prompt)
+    clause = re.search(r"`kind`, ((?:`\w+`, )*`\w+` or `\w+`)", prompt)
     assert clause is not None
 
-    assert set(clause.groups()) == {kind.value for kind in GroupKind}
+    assert _keys(clause.group(1)) == {kind.value for kind in GroupKind}
+    assert "A `manifest` group" in prompt
+    assert "uv run devops ci test" in prompt
 
 
 def test_the_prompt_names_the_value_of_a_criterion_that_only_a_person_delivers() -> None:

@@ -33,6 +33,7 @@ from __future__ import annotations
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Final
 
 from pydantic import ValidationError
@@ -55,6 +56,7 @@ from devops_cli.roadmap.stage.stage_eval_cases import (
     Verdict,
 )
 from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_registry import RegistryCount, registry_table
 
 
 @dataclass(frozen=True)
@@ -76,9 +78,14 @@ class PlanUnderTest:
     # The paths that each negative-search literal matched before the change. An empty mapping
     # records no search, as the cases recorded before #3410 do.
     search_evidence: Mapping[str, Sequence[str]] = field(default_factory=dict)
+    registry: Sequence[RegistryCount] | None = None
 
     @classmethod
-    def of_case(cls, case: StageCase) -> PlanUnderTest:
+    def of_case(
+        cls,
+        case: StageCase,
+        registry: Sequence[RegistryCount] | None = None,
+    ) -> PlanUnderTest:
         """The plan of a case. A raw group or spec that fails the schema is kept as it is when it
         can be, with the message of the schema as a problem, so the other gates still judge it."""
         problems: list[str] = []
@@ -103,6 +110,7 @@ class PlanUnderTest:
             issue_body=case.issue_body,
             mapped="criteria" in case.plan,
             search_evidence=case.facts.search_evidence,
+            registry=registry,
         )
 
     @classmethod
@@ -164,6 +172,7 @@ def _path_gate(plan: PlanUnderTest) -> list[str]:
         plan.tree,
         requirements=plan.requirements,
         search_evidence=plan.search_evidence or None,
+        registry=plan.registry,
     )
 
 
@@ -288,9 +297,12 @@ def _status(defect: Defect, problems: Mapping[GateName, list[str]]) -> DefectSta
     return DefectStatus.CAUGHT if caught else DefectStatus.MISSED
 
 
-def replay_case(case: StageCase) -> CaseReplay:
+def replay_case(
+    case: StageCase,
+    registry: Sequence[RegistryCount] | None = None,
+) -> CaseReplay:
     """Run the gates on the recorded plan of `case` and judge each known defect."""
-    problems = run_gates(PlanUnderTest.of_case(case))
+    problems = run_gates(PlanUnderTest.of_case(case, registry=registry))
     outcomes = tuple(DefectOutcome(defect, _status(defect, problems)) for defect in case.defects)
     return CaseReplay(case, problems, outcomes)
 
@@ -396,6 +408,10 @@ class ReplayReport:
         return sum(not r.refused for r in good), len(good)
 
 
-def replay_all(cases: Sequence[StageCase]) -> ReplayReport:
+def replay_all(
+    cases: Sequence[StageCase],
+    registry: Sequence[RegistryCount] | None = None,
+) -> ReplayReport:
     """Replay every case."""
-    return ReplayReport(tuple(replay_case(case) for case in cases))
+    table = registry if registry is not None else registry_table(Path.cwd())
+    return ReplayReport(tuple(replay_case(case, registry=table) for case in cases))

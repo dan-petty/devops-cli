@@ -48,6 +48,18 @@ _PACKAGE: Final[PurePosixPath] = PurePosixPath("src/devops_cli")
 _TEST_MODULE_PREFIX: Final[str] = "test_"
 _PYTHON_SUFFIX: Final[str] = ".py"
 _CODE_SPAN: Final[re.Pattern[str]] = re.compile(r"`[^`]*`")
+_CASE_SUFFIXES: Final[tuple[str, ...]] = (
+    "_test.yaml",
+    "_tests.yaml",
+    "_test.yml",
+    "_tests.yml",
+)
+_MANIFEST_VERIFY_PREFIX: Final[str] = "uv run devops ci test"
+
+
+def _is_case_path(path: str | PurePosixPath) -> bool:
+    """Whether `path` names a test case file by its suffix."""
+    return PurePosixPath(path).name.endswith(_CASE_SUFFIXES)
 
 
 def is_valid_verify(command: str) -> bool:
@@ -75,6 +87,29 @@ def _verify_problems(number: int, command: str) -> list[str]:
             texts.stage_problem_verify_run.format(group=number, command=named, reason=reason)
         )
     return problems
+
+
+def _manifest_verify_problems(number: int, group: StageGroup) -> list[str]:
+    """The problem of the `verify` command of a `manifest` group: it must be `uv run devops ci test`
+    followed by one path of the group or its folder."""
+    if group.kind != "manifest" or group.verify is None:
+        return []
+    command = group.verify.strip()
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        words = command.split()
+    prefix_words = _MANIFEST_VERIFY_PREFIX.split()
+    named = shown(command, CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS)
+    texts = MESSAGES.roadmap
+    if len(words) != len(prefix_words) + 1 or words[: len(prefix_words)] != prefix_words:
+        return [texts.stage_problem_manifest_verify.format(group=number, command=named)]
+    target = PurePosixPath(words[-1])
+    group_paths = {PurePosixPath(p) for p in (*group.changes, *group.creates, *group.reads)}
+    allowed = group_paths | {p.parent for p in group_paths if p.parent != PurePosixPath(".")}
+    if target not in allowed:
+        return [texts.stage_problem_manifest_verify.format(group=number, command=named)]
+    return []
 
 
 def _task_problems(number: int, group: StageGroup) -> list[str]:
@@ -220,6 +255,14 @@ def form_problems(groups: Sequence[StageGroup]) -> list[str]:
         problems.extend(_task_problems(number, group))
         if group.verify is not None:
             problems.extend(_verify_problems(number, group.verify))
+        problems.extend(_manifest_verify_problems(number, group))
+        if group.kind == "other":
+            for case_path in (*group.changes, *group.creates):
+                if _is_case_path(case_path):
+                    problems.append(
+                        texts.stage_problem_manifest_kind.format(group=number, path=case_path)
+                    )
+                    break
         for created in group.creates:
             path = PurePosixPath(created)
             folder = path.parent

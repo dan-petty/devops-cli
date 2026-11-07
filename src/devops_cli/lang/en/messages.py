@@ -3656,6 +3656,14 @@ class RoadmapMessages:
         "Group {group} gives the `verify` command `{command}`, and the step cannot run it: "
         "{reason}. Give `uv run devops <command>` or `! git grep -n <name> src/ tests/`."
     )
+    stage_problem_manifest_kind: str = (
+        "Group {group} has the kind other and changes `{path}`. "
+        "Use the kind manifest for a group that creates or changes a case path."
+    )
+    stage_problem_manifest_verify: str = (
+        "Group {group} gives the `verify` command `{command}`. The `verify` command of a manifest "
+        "group must be `uv run devops ci test` followed by a path of the group or its folder."
+    )
     stage_problem_task: str = (
         "Group {group} ({title}) has the {part} task `{text}`, and it holds one word. A task "
         "holds a verb and an object, such as `Add a test in tests/roadmap/test_feature.py for "
@@ -3801,6 +3809,18 @@ class RoadmapMessages:
     stage_kind_two_checks: str = (
         "The group '{title}' has the kind other, and it has both verify and process. "
         "Keep one of them."
+    )
+    stage_kind_manifest_no_test: str = (
+        "The group '{title}' has the kind manifest, and it has no test. "
+        "Give it the failing case to write first."
+    )
+    stage_kind_manifest_no_verify: str = (
+        "The group '{title}' has the kind manifest, and it has no verify. "
+        "Give it the command that runs its case."
+    )
+    stage_kind_manifest_process: str = (
+        "The group '{title}' has the kind manifest, and it has a process. "
+        "Its case is its check, so set process to null."
     )
     stage_title_lead: str = "plan #{number} "
     stage_title_long: str = (
