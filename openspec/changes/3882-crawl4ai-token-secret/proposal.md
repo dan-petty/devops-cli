@@ -29,7 +29,7 @@ None.
 - Source: `src/devops_cli/config/env.py`, `src/devops_cli/k8s/cluster_secrets.py`.
 - Manifests: `k8s/argocd/apps/projects.yaml`.
 - Documentation: `k8s/README.md`, `docs/ENV_VARS.md`.
-- Tests: `tests/k8s/test_cluster_secret_plan.py`, `tests/k8s/test_cluster_secret_push.py`, `tests/invariants/test_k8s_manifests.py`, `tests/commands/test_config_audit_keys.py`.
+- Tests: `tests/k8s/test_cluster_secret_plan.py`, `tests/k8s/test_cluster_secret_push.py`, `tests/invariants/test_k8s_manifests.py`, `tests/commands/test_config_audit_keys.py`, `tests/security/test_config_declarations.py`, `tests/config/test_config_keys.py`, `tests/commands/test_config.py`, `tests/commands/k8s/test_k8s.py`, `tests/commands/k8s/test_k8s_qdrant_security.py`.
 
 ## Feasibility
 

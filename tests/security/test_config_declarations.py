@@ -135,6 +135,8 @@ _VARIABLES_ADDED = frozenset(
 _VARIABLES_OF_LATER_SETTINGS = frozenset(
     {
         "DEVOPS_CLI_K8S_TUNNEL_HOST",  # #1641
+        "DEVOPS_CLI_CRAWL4AI_API_TOKEN",  # #3882
+        "CRAWL4AI_API_TOKEN",  # #3882
         "DEVOPS_CLI_LOKI_URL",  # #2651
         "DEVOPS_CLI_ARGOCD_GITHUB_APP_ID",  # #2000
         "DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID",  # #2000
@@ -208,6 +210,7 @@ _KEYRING_OF_LATER_CREDENTIALS = {
     "gemini.api_key": "gemini_api_key",  # #3113
     "anthropic.api_key": "anthropic_api_key",  # #3113
     "openrouter.api_key": "openrouter_api_key",  # #3144
+    "crawl4ai.api_token": "crawl4ai_api_token",  # #3882
 }
 
 

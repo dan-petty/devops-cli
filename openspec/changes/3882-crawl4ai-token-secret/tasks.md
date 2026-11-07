@@ -2,7 +2,7 @@
 
 ## 1. Declare the token and its two Secret entries
 
-Reads: `src/devops_cli/k8s/cluster_secrets.py`, `src/devops_cli/k8s/secret_push.py`. Changes: `src/devops_cli/config/env.py`, `src/devops_cli/k8s/cluster_secrets.py`, `k8s/argocd/apps/projects.yaml`, `tests/k8s/test_cluster_secret_plan.py`, `tests/k8s/test_cluster_secret_push.py`, `tests/invariants/test_k8s_manifests.py`, `tests/commands/test_config_audit_keys.py`.
+Reads: `src/devops_cli/k8s/cluster_secrets.py`, `src/devops_cli/k8s/secret_push.py`. Changes: `src/devops_cli/config/env.py`, `src/devops_cli/k8s/cluster_secrets.py`, `k8s/argocd/apps/projects.yaml`, `tests/k8s/test_cluster_secret_plan.py`, `tests/k8s/test_cluster_secret_push.py`, `tests/invariants/test_k8s_manifests.py`, `tests/commands/test_config_audit_keys.py`, `tests/security/test_config_declarations.py`, `tests/config/test_config_keys.py`, `tests/commands/test_config.py`, `tests/commands/k8s/test_k8s.py`, `tests/commands/k8s/test_k8s_qdrant_security.py`.
 
 - [x] 1.1 Add the tests: the table rows, the shared keyring entry, the env variables, one generated token for both Secrets with no value in output, and the audit of the key
   - Verification: `uv run devops ci test tests/k8s/test_cluster_secret_plan.py` fails on the base

@@ -45,7 +45,7 @@ def test_a_section_or_a_name_that_no_setting_has_is_no_config_key(key: str) -> N
     [
         pytest.param(
             "firecrawl.apikey",
-            ["firecrawl.api_key", "ai.api_key", "qdrant.api_key"],
+            ["firecrawl.api_key", "crawl4ai.api_token", "ai.api_key"],
             id="credential-typo",
         ),
         pytest.param("github.default-org", ["github.default_org"], id="hyphen-for-underscore"),

@@ -198,7 +198,7 @@ class ClusterSecret:
         return {**self.labels, MANAGED_BY_LABEL: MANAGED_BY_VALUE}
 
 
-CRAWL4AI_TOKEN_KEY = "CRAWL4AI_API_TOKEN"
+CRAWL4AI_ENV_NAME = "CRAWL4AI_API_TOKEN"
 _CRAWL4AI_TOKEN = KeyringSource.for_credential("crawl4ai.api_token")
 _LLM_GATEWAY_KEY = KeyringSource(LLM_GATEWAY_MASTER_KEY)
 _DEVOPS_CACHE_VALKEY_AUTH = KeyringSource(DEVOPS_CACHE_VALKEY_AUTH_KEY)
@@ -324,7 +324,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         stack="devops",
         entries=(
             SecretEntry(
-                CRAWL4AI_TOKEN_KEY,
+                CRAWL4AI_ENV_NAME,
                 _CRAWL4AI_TOKEN,
                 generator=SecretGenerator("urlsafe", 32),
             ),
@@ -376,7 +376,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 "DEVOPS_CLI_CRAWL4AI_API_TOKEN",
                 _CRAWL4AI_TOKEN,
                 required=False,
-                adopt_from=SecretKeyRef("devops", "crawl4ai", CRAWL4AI_TOKEN_KEY),
+                adopt_from=SecretKeyRef("devops", "crawl4ai", CRAWL4AI_ENV_NAME),
             ),
         ),
         restarts=(Workload("deployment", "roadmap-service"),),
