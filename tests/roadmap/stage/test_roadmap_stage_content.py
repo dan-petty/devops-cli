@@ -32,6 +32,7 @@ SELF_ACCEPTANCE_TEST = (
     "Write a test that builds the plan's own `StageProposal` and asserts that `content_problems` "
     "returns no problem for it"
 )
+DEPENDENCY_ENTRY = "#3201: the check command"
 LIVING_SPEC = "openspec/specs/roadmap-stage/spec.md"
 LIVING_SPEC_TREE = TREE.with_files([LIVING_SPEC])
 
@@ -387,6 +388,16 @@ def test_a_plan_check_change_of_another_kind_needs_no_self_acceptance_test() -> 
     )
 
     assert content_problems(make_stage_proposal(groups=[group])) == []
+
+
+def test_the_plan_of_this_change_passes_the_content_rule() -> None:
+    """The plan of this change adds the issue form and changes the plan check, so it gives the test
+    that accepts its own plan, and `content_problems` finds no problem in it (#3404)."""
+    plan = _plan_that_adds_a_rule(SELF_ACCEPTANCE_TEST).model_copy(
+        update={"dependencies": [DEPENDENCY_ENTRY]}
+    )
+
+    assert content_problems(plan) == []
 
 
 def test_two_tasks_of_one_group_that_state_the_same_work_are_refused() -> None:
