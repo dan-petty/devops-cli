@@ -922,6 +922,52 @@ serverFiles:
             annotations:
               summary: "Tool {{ $labels.tool }} of the toolset {{ $labels.toolset }} had no call in 7 days"
               description: "No run of the row {{ $labels.row }} called the tool {{ $labels.tool }} of the toolset {{ $labels.toolset }} in 7 days, and the Service made runs of that row in that time. Read the Planner Tools row of the devops-cli Telemetry dashboard, and decide to change the tool description or to remove the tool (k8s/README.md, Roadmap service)."
+      # The Crawl4AI page-text service (#3893). The Service counts each fetch that reaches
+      # Crawl4AI in devops_cli_crawl4ai_fetches_total{result} (ok, an HTTP status, or error), so
+      # the alert reads that counter and not the /metrics of Crawl4AI, which needs the token. The
+      # counter comes over OTLP and starts a series at its first fetch, so each count of the last
+      # hour reads a series that starts in the hour as the group roadmap-service does (#2505). A
+      # fetch from a workstation has job="devops-cli" and never counts. With no crawl4ai.url the
+      # Service sends no fetch, so the counter has no series and the rule stays quiet. One failure
+      # alone does not fire: the rule needs 5 failed fetches and a failed share above one half.
+      - name: crawl4ai
+        rules:
+          - alert: Crawl4AIFetchesFailing
+            expr: >-
+              sum(
+              (last_over_time(devops_cli_crawl4ai_fetches_total{job="roadmap-service", result!="ok"}[1h])
+              unless last_over_time(devops_cli_crawl4ai_fetches_total{job="roadmap-service", result!="ok"}[1h] offset 1h))
+              or increase(devops_cli_crawl4ai_fetches_total{job="roadmap-service", result!="ok"}[1h])
+              )
+              / sum(
+              (last_over_time(devops_cli_crawl4ai_fetches_total{job="roadmap-service"}[1h])
+              unless last_over_time(devops_cli_crawl4ai_fetches_total{job="roadmap-service"}[1h] offset 1h))
+              or increase(devops_cli_crawl4ai_fetches_total{job="roadmap-service"}[1h])
+              ) > 0.5
+              and on () sum(
+              (last_over_time(devops_cli_crawl4ai_fetches_total{job="roadmap-service", result!="ok"}[1h])
+              unless last_over_time(devops_cli_crawl4ai_fetches_total{job="roadmap-service", result!="ok"}[1h] offset 1h))
+              or increase(devops_cli_crawl4ai_fetches_total{job="roadmap-service", result!="ok"}[1h])
+              ) >= 5
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'Crawl4AI failed {{ $value | humanizePercentage }} of the page fetches of the roadmap Service in the last hour'
+              description: "At least 5 page fetches of the roadmap Service through Crawl4AI failed in the last hour, and more than half of its fetches failed. The label `result` of devops_cli_crawl4ai_fetches_total tells why: 401 for a wrong token, 429 at the rate limit of the service, 504 when a page took too long, error when the service gave no answer or no page text. Read the warnings with kubectl -n devops logs deployment/roadmap-service, and the service with kubectl -n devops logs deployment/crawl4ai (k8s/README.md, Crawl4AI)."
+          # A Deployment that a person set to 0 replicas wants none, so it stays quiet. A first start
+          # pulls an image of 2.3 GB, which the wait of 15 minutes covers.
+          - alert: Crawl4AIUnavailable
+            expr: >-
+              max by (namespace, deployment) (kube_deployment_status_replicas_available{namespace="devops", deployment="crawl4ai"}) < 1
+              and on (namespace, deployment)
+              max by (namespace, deployment) (kube_deployment_spec_replicas{namespace="devops", deployment="crawl4ai"}) > 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Crawl4AI has no available replica"
+              description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} wants a replica and has had none available for 15 minutes, so the roadmap Service cannot read page text. Read the events with kubectl -n devops describe deployment/crawl4ai, and the log with kubectl -n devops logs deployment/crawl4ai (k8s/README.md, Crawl4AI)."
       - name: mattermost
         rules:
           - alert: MattermostUnavailable

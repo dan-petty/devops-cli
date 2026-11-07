@@ -1,0 +1,145 @@
+# promtool rule unit tests of the alert group crawl4ai in k8s/monitoring/prometheus-values.yaml
+# (#3893). Each alert fires on a sample series and stays quiet on a normal one. The series of a
+# workstation (job="devops-cli", from `devops ai fetch-page`) and of another Deployment are in
+# the quiet cases, and the rules must not count them.
+#
+# tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files`
+# names, beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts
+# each series at time 0, one sample each `interval`. A counter that grows by 1 each minute gives
+# 59 over the 59 minutes of samples in a 1h range, and increase() makes it 60 by extrapolation to
+# the range. A counter with no sample in the hour before the range started in the range, and the
+# rules give its last value (#2505).
+rule_files:
+  - crawl4ai.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: Half of the fetches failing for an hour fires, also when the failures have different results
+    interval: 1m
+    input_series:
+      # In the hour before 90m: 60 fetches ok, 60 with HTTP 504 and 60 with no answer. Two thirds fail.
+      - series: 'devops_cli_crawl4ai_fetches_total{job="roadmap-service", result="ok"}'
+        values: '0+1x90'
+      - series: 'devops_cli_crawl4ai_fetches_total{job="roadmap-service", result="504"}'
+        values: '0+1x90'
+      - series: 'devops_cli_crawl4ai_fetches_total{job="roadmap-service", result="error"}'
+        values: '0+1x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: Crawl4AIFetchesFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Crawl4AI failed 66.67% of the page fetches of the roadmap Service in the last hour"
+              description: "At least 5 page fetches of the roadmap Service through Crawl4AI failed in the last hour, and more than half of its fetches failed. The label `result` of devops_cli_crawl4ai_fetches_total tells why: 401 for a wrong token, 429 at the rate limit of the service, 504 when a page took too long, error when the service gave no answer or no page text. Read the warnings with kubectl -n devops logs deployment/roadmap-service, and the service with kubectl -n devops logs deployment/crawl4ai (k8s/README.md, Crawl4AI)."
+
+  - name: Failures that start in the hour count from their first value
+    interval: 1m
+    input_series:
+      # New series: the first flush at 60m holds 8 failed fetches and 2 that succeeded.
+      - series: 'devops_cli_crawl4ai_fetches_total{job="roadmap-service", result="error"}'
+        values: '_x60 8x30'
+      - series: 'devops_cli_crawl4ai_fetches_total{job="roadmap-service", result="ok"}'
+        values: '_x60 2x30'
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: Crawl4AIFetchesFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Crawl4AI failed 80% of the page fetches of the roadmap Service in the last hour"
+              description: "At least 5 page fetches of the roadmap Service through Crawl4AI failed in the last hour, and more than half of its fetches failed. The label `result` of devops_cli_crawl4ai_fetches_total tells why: 401 for a wrong token, 429 at the rate limit of the service, 504 when a page took too long, error when the service gave no answer or no page text. Read the warnings with kubectl -n devops logs deployment/roadmap-service, and the service with kubectl -n devops logs deployment/crawl4ai (k8s/README.md, Crawl4AI)."
+      # The hour after the last sample holds no new fetch, so the alert ends.
+      - eval_time: 155m
+        alertname: Crawl4AIFetchesFailing
+        exp_alerts: []
+
+  - name: Fewer than 5 failures stay quiet, also when all of the fetches failed
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_crawl4ai_fetches_total{job="roadmap-service", result="error"}'
+        values: '_x70 3x20'
+    alert_rule_test:
+      - eval_time: 85m
+        alertname: Crawl4AIFetchesFailing
+        exp_alerts: []
+
+  - name: A few failures among many fetches stay quiet
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_crawl4ai_fetches_total{job="roadmap-service", result="ok"}'
+        values: '0+10x90'
+      - series: 'devops_cli_crawl4ai_fetches_total{job="roadmap-service", result="504"}'
+        values: '0+1x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: Crawl4AIFetchesFailing
+        exp_alerts: []
+
+  - name: Fetches of a workstation, and a service with no series, stay quiet
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_crawl4ai_fetches_total{job="devops-cli", result="error"}'
+        values: '0+5x90'
+      - series: 'devops_cli_crawl4ai_fetches_total{job="devops-cli", result="ok"}'
+        values: '0+1x90'
+      - series: 'devops_cli_web_searches_total{job="roadmap-service", backend="firecrawl", result="402"}'
+        values: '0+5x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: Crawl4AIFetchesFailing
+        exp_alerts: []
+
+  - name: A Deployment with no available replica fires after 15 minutes
+    interval: 1m
+    input_series:
+      - series: 'kube_deployment_status_replicas_available{namespace="devops", deployment="crawl4ai"}'
+        values: '1x5 0x40'
+      - series: 'kube_deployment_spec_replicas{namespace="devops", deployment="crawl4ai"}'
+        values: '1x45'
+    alert_rule_test:
+      # The replica went at 5m: the wait of 15 minutes has not ended at 15m.
+      - eval_time: 15m
+        alertname: Crawl4AIUnavailable
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: Crawl4AIUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: devops
+              deployment: crawl4ai
+            exp_annotations:
+              summary: "Crawl4AI has no available replica"
+              description: "Deployment devops/crawl4ai wants a replica and has had none available for 15 minutes, so the roadmap Service cannot read page text. Read the events with kubectl -n devops describe deployment/crawl4ai, and the log with kubectl -n devops logs deployment/crawl4ai (k8s/README.md, Crawl4AI)."
+
+  - name: A replica that came back, a Deployment set to 0 replicas, and another Deployment stay quiet
+    interval: 1m
+    input_series:
+      - series: 'kube_deployment_status_replicas_available{namespace="devops", deployment="crawl4ai"}'
+        values: '0x20 1x20'
+      - series: 'kube_deployment_spec_replicas{namespace="devops", deployment="crawl4ai"}'
+        values: '1x40'
+      - series: 'kube_deployment_status_replicas_available{namespace="devops", deployment="roadmap-service"}'
+        values: '0x40'
+      - series: 'kube_deployment_spec_replicas{namespace="devops", deployment="roadmap-service"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: Crawl4AIUnavailable
+        exp_alerts: []
+
+  - name: A Deployment that a person set to 0 replicas stays quiet
+    interval: 1m
+    input_series:
+      - series: 'kube_deployment_status_replicas_available{namespace="devops", deployment="crawl4ai"}'
+        values: '0x40'
+      - series: 'kube_deployment_spec_replicas{namespace="devops", deployment="crawl4ai"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: Crawl4AIUnavailable
+        exp_alerts: []
