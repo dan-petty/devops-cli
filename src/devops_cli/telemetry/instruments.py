@@ -235,7 +235,7 @@ WEB_SEARCHES_TOTAL = Instrument(
     "provider that returned hits, empty for one that returned none, the HTTP status of a provider "
     "that refused the search, such as 402 when the account has no credits or 429 at its rate "
     "limit, degraded for a reply that the provider could not read, error for a provider that "
-    "did not answer, refused for a query that the guard stopped, and exhausted for a search that "
+    "did not answer, refused for a query that the guard stopped or an address that the egress check refused, and exhausted for a search that "
     "no provider answered. The backend of the last two is none",
 )
 CRAWL4AI_FETCHES_TOTAL = Instrument(

@@ -560,7 +560,7 @@ def test_each_provider_has_its_name_and_the_url_of_its_request() -> None:
 
 
 def test_the_registry_holds_a_provider_for_each_name_that_has_one() -> None:
-    assert sorted(chain.PROVIDERS) == ["duckduckgo", "firecrawl"]
+    assert sorted(chain.PROVIDERS) == ["duckduckgo", "firecrawl", "searxng"]
 
 
 def test_the_warning_level_is_the_only_level_of_a_failed_attempt(

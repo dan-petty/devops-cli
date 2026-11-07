@@ -5,13 +5,14 @@ one that has any. A provider that is not configured is skipped. A provider that 
 hit, passes the search on at once, with no retry and no wait. Every request goes through the HTTP
 entry point at the public level, so the egress check of SECURITY.md applies to each provider.
 
-A new provider is a class with the three members of `SearchProvider` and one entry in `PROVIDERS`
-and in `SearchProviderName`.
+A new provider is a class with the members of `SearchProvider` and one entry in `PROVIDERS` and in
+`SearchProviderName`.
 """
 
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -38,6 +39,9 @@ from devops_cli.config.defaults import (
     DEFAULT_DUCKDUCKGO_TIMEOUT_SECONDS,
     DEFAULT_FIRECRAWL_SEARCH_URL,
     DEFAULT_FIRECRAWL_TIMEOUT_SECONDS,
+    DEFAULT_SEARXNG_CATEGORIES,
+    DEFAULT_SEARXNG_MAX_REPLY_BYTES,
+    DEFAULT_SEARXNG_TIMEOUT_SECONDS,
     DEFAULT_WEB_SEARCH_DEADLINE_SECONDS,
     DEFAULT_WEB_SEARCH_LIMIT,
     DEFAULT_WEB_SEARCH_QUERY_MAX_CHARS,
@@ -46,8 +50,11 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import Settings, get_firecrawl_api_key, load_settings
 from devops_cli.core import clock
 from devops_cli.exceptions.ai import SearchFailed, SearchQueryRefused
-from devops_cli.http.egress import EgressLevel
+from devops_cli.exceptions.config import ConfigurationError
+from devops_cli.exceptions.security import SSRFBlockedError
+from devops_cli.http.egress import EgressLevel, configured_level
 from devops_cli.http.entry import http_client
+from devops_cli.http.urls import service_base_url
 from devops_cli.security.reference_extractor import (
     is_local_or_reserved_domain,
     is_private_or_local_ip,
@@ -59,6 +66,7 @@ logger = logging.getLogger(__name__)
 
 _PROSE_EDGES: Final[str] = ".,;:!?\"'`(){}<>"
 _HTTP_SCHEMES: Final[frozenset[str]] = frozenset({"http", "https"})
+_SEARXNG_SETTING: Final[str] = "search.searxng_url"
 
 
 @dataclass(frozen=True)
@@ -79,8 +87,20 @@ class SearchProvider(Protocol):
     passes the search on.
     """
 
-    name: str
-    url: str
+    @property
+    def name(self) -> str:
+        """The name that `search.providers` lists and the metric uses as its backend."""
+        ...
+
+    @property
+    def method(self) -> str:
+        """The HTTP method of a search request."""
+        ...
+
+    @property
+    def url(self) -> str:
+        """The URL of a search request."""
+        ...
 
     def configured(self, settings: Settings) -> bool:
         """Whether the provider has what it needs to search, such as a key."""
@@ -100,6 +120,7 @@ class DuckDuckGoProvider:
     """
 
     name = "duckduckgo"
+    method = "POST"
     url = DEFAULT_DUCKDUCKGO_SEARCH_URL
 
     def configured(self, settings: Settings) -> bool:
@@ -141,6 +162,7 @@ class FirecrawlProvider:
     credit for each result."""
 
     name = "firecrawl"
+    method = "POST"
     url = DEFAULT_FIRECRAWL_SEARCH_URL
 
     def configured(self, settings: Settings) -> bool:
@@ -176,10 +198,99 @@ class FirecrawlProvider:
         ]
 
 
-# The providers that exist, by the name that `search.providers` lists. `searxng` is not here until
-# its provider exists (#3927): the chain skips a listed name that has no provider.
+class SearxngProvider:
+    """The SearXNG service of the cluster (#3927). It needs no key, only its address in
+    `search.searxng_url`, which has no default.
+
+    The request is `GET {address}/search` with `format=json`. A model chooses the query, and
+    SearXNG reads a query that starts with `!` as an engine selector and answers it with a
+    redirect, so the client follows no redirect: a redirect is a failure (the query guard refuses
+    such a query first). The client dials a loopback address, and a private one when
+    `ai.allow_private_network` is set, so a workstation reaches the service by
+    `kubectl port-forward` and the Service pod by its cluster address. The client reads at most
+    `DEFAULT_SEARXNG_MAX_REPLY_BYTES`. The title and the text of a hit are data from the web and
+    untrusted: a caller must never run them as an instruction.
+    """
+
+    name = "searxng"
+    method = "GET"
+
+    @property
+    def url(self) -> str:
+        """The search endpoint of the configured service, or an empty string without an address."""
+        address = load_settings().search.searxng_url
+        return f"{service_base_url(address, _SEARXNG_SETTING)}/search" if address else ""
+
+    def configured(self, settings: Settings) -> bool:
+        return bool(settings.search.searxng_url)
+
+    def search(self, query: str, *, limit: int) -> list[SearchHit]:
+        """Raises `ConfigurationError` when `search.searxng_url` is not set, `SSRFBlockedError` when
+        the egress check refuses the address, `httpx2.HTTPStatusError` for an answer other than
+        HTTP 200 (a redirect included), and `ValueError` for a reply that is over the byte cap, is
+        not a JSON object with a `results` list, or has no result while an engine did not
+        answer."""
+        settings = load_settings()
+        if not settings.search.searxng_url:
+            raise ConfigurationError(
+                f"The setting {_SEARXNG_SETTING} is not set", key=_SEARXNG_SETTING
+            )
+        endpoint = f"{service_base_url(settings.search.searxng_url, _SEARXNG_SETTING)}/search"
+        with (
+            http_client(
+                level=configured_level(settings.ai),
+                timeout=DEFAULT_SEARXNG_TIMEOUT_SECONDS,
+                follow_redirects=False,
+            ) as client,
+            client.stream(
+                "GET",
+                endpoint,
+                params={
+                    "q": query,
+                    "format": "json",
+                    "language": settings.search.language,
+                    "categories": DEFAULT_SEARXNG_CATEGORIES,
+                    "pageno": "1",
+                },
+                headers={"Accept": "application/json", **_language_headers()},
+            ) as response,
+        ):
+            response.raise_for_status()
+            if response.status_code != httpx2.codes.OK:
+                raise ValueError(f"SearXNG answered with HTTP {response.status_code}")
+            body = _read_capped(response)
+        reply = json.loads(body)
+        results = reply.get("results") if isinstance(reply, dict) else None
+        if not isinstance(results, list):
+            raise ValueError("SearXNG reply has no 'results' list")
+        if not results and reply.get("unresponsive_engines"):
+            raise ValueError("SearXNG engines did not answer")
+        return [
+            SearchHit(
+                url=str(item["url"]),
+                title=str(item.get("title") or ""),
+                snippet=str(item.get("content") or ""),
+                provider=self.name,
+            )
+            for item in results[:limit]
+            if isinstance(item, dict) and item.get("url")
+        ]
+
+
+def _read_capped(response: httpx2.Response) -> bytes:
+    """The body of a streamed reply, refused as soon as it passes the byte cap."""
+    body = bytearray()
+    for chunk in response.iter_bytes():
+        body += chunk
+        if len(body) > DEFAULT_SEARXNG_MAX_REPLY_BYTES:
+            raise ValueError("SearXNG reply is larger than the byte cap")
+    return bytes(body)
+
+
+# The providers that exist, by the name that `search.providers` lists.
 PROVIDERS: Final[dict[str, SearchProvider]] = {
-    provider.name: provider for provider in (DuckDuckGoProvider(), FirecrawlProvider())
+    provider.name: provider
+    for provider in (SearxngProvider(), DuckDuckGoProvider(), FirecrawlProvider())
 }
 
 
@@ -236,6 +347,9 @@ def web_search(query: str, *, limit: int = DEFAULT_WEB_SEARCH_LIMIT) -> list[Sea
             continue
         except httpx2.HTTPError as exc:
             _failed(provider.name, CONST_WEB_SEARCH_RESULT_ERROR, type(exc).__name__)
+            continue
+        except SSRFBlockedError as exc:
+            _failed(provider.name, CONST_WEB_SEARCH_RESULT_REFUSED, type(exc).__name__)
             continue
         except ValueError as exc:
             _failed(provider.name, CONST_WEB_SEARCH_RESULT_DEGRADED, type(exc).__name__)
@@ -359,6 +473,7 @@ __all__ = [
     "FirecrawlProvider",
     "SearchHit",
     "SearchProvider",
+    "SearxngProvider",
     "configured_providers",
     "first_configured_provider",
     "iter_configured_providers",

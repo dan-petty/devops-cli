@@ -1,0 +1,53 @@
+{
+  "query": "pydantic ai agents",
+  "number_of_results": 0,
+  "results": [
+    {
+      "url": "https://example.com/pydantic-ai",
+      "title": "Pydantic AI",
+      "content": "Agents for Python.",
+      "engine": "duckduckgo",
+      "parsed_url": ["https", "example.com", "/pydantic-ai", "", "", ""],
+      "template": "default.html",
+      "engines": ["duckduckgo", "wikipedia"],
+      "positions": [1, 2],
+      "score": 9.0,
+      "category": "general",
+      "thumbnail": null,
+      "publishedDate": null
+    },
+    {
+      "url": "https://example.com/ruff",
+      "title": "Ruff",
+      "content": "A linter.",
+      "engine": "github",
+      "parsed_url": ["https", "example.com", "/ruff", "", "", ""],
+      "template": "default.html",
+      "engines": ["github"],
+      "positions": [1],
+      "score": 3.0,
+      "category": "it",
+      "thumbnail": null,
+      "publishedDate": null
+    },
+    {
+      "url": "https://example.com/mypy",
+      "title": "Mypy",
+      "content": "A type checker.",
+      "engine": "pypi",
+      "parsed_url": ["https", "example.com", "/mypy", "", "", ""],
+      "template": "default.html",
+      "engines": ["pypi"],
+      "positions": [1],
+      "score": 1.0,
+      "category": "it",
+      "thumbnail": null,
+      "publishedDate": null
+    }
+  ],
+  "answers": [],
+  "corrections": [],
+  "infoboxes": [],
+  "suggestions": [],
+  "unresponsive_engines": []
+}

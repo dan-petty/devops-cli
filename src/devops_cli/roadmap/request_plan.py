@@ -468,7 +468,7 @@ def alternatives_requests(
             PlannedRequest(
                 method=methods["search"].format(provider=provider.name),
                 target=texts.plan_targets["web_search"].format(subject=subject),
-                argv=("POST", provider.url),
+                argv=(provider.method, provider.url),
                 repeat=rep["search"].format(limit=CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES),
             )
         ]

@@ -1321,13 +1321,21 @@ class SearchConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
     providers: Annotated[list[SearchProviderName], Variable()] = Field(
-        description="The providers of web search, in the order that a search asks them: `searxng`, `duckduckgo` or `firecrawl`. A provider that is not configured is skipped, and `searxng` is skipped until its provider exists (#3927). A search goes to the next provider when one fails or returns no hit, and the first provider with a hit answers",
+        description="The providers of web search, in the order that a search asks them: `searxng`, `duckduckgo` or `firecrawl`. A provider that is not configured is skipped: `searxng` without `search.searxng_url`, and `firecrawl` without its key. A search goes to the next provider when one fails or returns no hit, and the first provider with a hit answers",
         default_factory=lambda: list(DEFAULT_SEARCH_PROVIDERS),
     )
     language: Annotated[str, Variable()] = Field(
         description="The language of a web search, as the `Accept-Language` of its request",
         default=DEFAULT_SEARCH_LANGUAGE,
         min_length=2,
+    )
+    searxng_url: Annotated[HttpUrlStr | None, Variable()] = Field(
+        default=None,
+        description="Address of the SearXNG service for web search, such as "
+        "`http://searxng.devops.svc.cluster.local:8080` in the cluster, or `http://127.0.0.1:8080` "
+        "on a workstation after `kubectl port-forward -n devops svc/searxng 8080:8080`. A cluster "
+        "address needs `ai.allow_private_network`. It has no default, and `searxng` is skipped "
+        "without it",
     )
 
 
