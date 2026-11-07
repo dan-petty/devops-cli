@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from devops_cli.roadmap.stage.stage import StagePlan, apply_stage, parse_filters, plan_stage
+from devops_cli.roadmap.stage.stage import StagePlan, parse_filters, plan_stage
 from devops_cli.roadmap.stores.store import GitHubState, ItemField, StageRecordKey
 from tests.support.fakes.github import API, github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo
+from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo, apply_stage
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake

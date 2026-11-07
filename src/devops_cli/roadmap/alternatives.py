@@ -1088,8 +1088,11 @@ def plan_alternatives(
     limit: int | None = None,
     now: datetime | None = None,
     investigator: Any = None,
+    writer: AlternativesWriter | None = None,
 ) -> AlternativesPlan:
-    """Plans the checks of the selected items without writing anything. `limit` replaces both
+    """Plans the checks of the selected items. It writes nothing unless the caller gives a
+    `writer`: the writer then gets the result of each item as soon as that item is checked, so a
+    kill of the worker loses at most the check in progress (#4034). `limit` replaces both
     `roadmap.alternatives.limit` and `roadmap.alternatives.first_pass_limit`.
     `investigator` is the pydantic-ai model of the runs,
     the `analysis` task's by default."""
@@ -1121,6 +1124,8 @@ def plan_alternatives(
     failures: list[CheckFailure] = []
     for item in selection.selected:
         outcome = _check_one(store, item, model=model, adrs=adrs, now=moment, fetch=web.fetch)
+        if writer is not None:
+            writer.settle(outcome)
         if isinstance(outcome, CheckFailure):
             failures.append(outcome)
         else:
@@ -1158,42 +1163,56 @@ def _unchanged_since_read(store: RoadmapStore, check: Check) -> bool:
     return False
 
 
-def apply_alternatives(store: RoadmapStore, plan: AlternativesPlan) -> int:
-    """Writes each check: the body block, the job record, then the comment, and counts it in
-    `devops_cli_roadmap_alternatives_total` by its verdict. It also observes the searches of the
-    check in `devops_cli_roadmap_alternatives_searches` by its verdict (#2950). Then records each failure in the job
-    record of its item: the time and the class of the error. Returns how many checks it wrote; a
-    check whose body a person changed since the read is left for the next run."""
-    written = 0
-    for check in plan.checks:
-        if not _unchanged_since_read(store, check):
-            continue
-        number = check.item.number
-        store.write_issue_body(number, check.new_body)
-        store.set_marks(
-            check.item,
+class AlternativesWriter:
+    """The writes of one alternatives round, made when each item is checked (#4034).
+
+    `plan_alternatives` gives it the result of each item. A kill of the worker then loses at most
+    the check in progress, and a write that a rate limit refuses ends the round with the checks
+    that are written. A check whose body a person changed since the read is left for the next
+    run.
+    """
+
+    def __init__(self, store: RoadmapStore) -> None:
+        self._store = store
+        self.written = 0
+
+    def settle(self, outcome: Check | CheckFailure) -> None:
+        """Write the result of one item. A check is counted in
+        `devops_cli_roadmap_alternatives_total` by its verdict, and its searches in
+        `devops_cli_roadmap_alternatives_searches` (#2950). A failure is recorded in the job record
+        of its item: the time and the class of the error."""
+        if isinstance(outcome, CheckFailure):
+            self._store.set_marks(
+                outcome.item,
+                {
+                    AlternativesRecordKey.FAILED_AT: outcome.failed_at.isoformat(),
+                    AlternativesRecordKey.FAILED_ERROR: outcome.error_class,
+                },
+            )
+            return
+        if not _unchanged_since_read(self._store, outcome):
+            return
+        number = outcome.item.number
+        self._store.write_issue_body(number, outcome.new_body)
+        self._store.set_marks(
+            outcome.item,
             {
-                AlternativesRecordKey.CHECKED_AT: check.checked_at.isoformat(),
-                AlternativesRecordKey.BODY_HASH: check.body_hash,
-                AlternativesRecordKey.VERDICT: check.verdict.value,
-                AlternativesRecordKey.TOOL: check.tool.url if check.tool else None,
+                AlternativesRecordKey.CHECKED_AT: outcome.checked_at.isoformat(),
+                AlternativesRecordKey.BODY_HASH: outcome.body_hash,
+                AlternativesRecordKey.VERDICT: outcome.verdict.value,
+                AlternativesRecordKey.TOOL: outcome.tool.url if outcome.tool else None,
                 AlternativesRecordKey.FAILED_AT: None,
                 AlternativesRecordKey.FAILED_ERROR: None,
             },
         )
-        store.comment(number, check.comment)
-        emit(ROADMAP_ALTERNATIVES_TOTAL, 1, {"verdict": check.verdict.value})
-        emit(ROADMAP_ALTERNATIVES_SEARCHES, len(check.searches), {"verdict": check.verdict.value})
-        written += 1
-    for failure in plan.failures:
-        store.set_marks(
-            failure.item,
-            {
-                AlternativesRecordKey.FAILED_AT: failure.failed_at.isoformat(),
-                AlternativesRecordKey.FAILED_ERROR: failure.error_class,
-            },
+        self._store.comment(number, outcome.comment)
+        emit(ROADMAP_ALTERNATIVES_TOTAL, 1, {"verdict": outcome.verdict.value})
+        emit(
+            ROADMAP_ALTERNATIVES_SEARCHES,
+            len(outcome.searches),
+            {"verdict": outcome.verdict.value},
         )
-    return written
+        self.written += 1
 
 
 def raise_for_failed_checks(plan: AlternativesPlan) -> None:
@@ -1266,6 +1285,7 @@ __all__ = [
     "AlternativesPlan",
     "AlternativesReply",
     "AlternativesTools",
+    "AlternativesWriter",
     "Check",
     "CheckFailure",
     "CheckedTool",
@@ -1274,7 +1294,6 @@ __all__ = [
     "Selection",
     "ToolFacts",
     "Verdict",
-    "apply_alternatives",
     "body_hash_of",
     "dry_run_alternatives",
     "plan_alternatives",

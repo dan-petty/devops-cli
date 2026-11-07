@@ -15,7 +15,6 @@ from devops_cli.roadmap.stage.stage import (
     StageApplied,
     StageFailure,
     StagePlan,
-    apply_stage,
     parse_filters,
     raise_for_failed_round,
     select_stageable,
@@ -23,7 +22,7 @@ from devops_cli.roadmap.stage.stage import (
 from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_implement import JobWorld
-from tests.support.roadmap_stage import STAGE_REPO, seed_stageable
+from tests.support.roadmap_stage import STAGE_REPO, apply_stage, seed_stageable
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 

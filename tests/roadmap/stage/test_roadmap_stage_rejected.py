@@ -21,7 +21,6 @@ from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.stage.stage import (
     StagePlan,
     StageSelection,
-    apply_stage,
     parse_filters,
     plan_stage,
     read_stage_selection,
@@ -41,6 +40,7 @@ from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    apply_stage,
     no_findings,
     seed_stageable,
     validate_args,

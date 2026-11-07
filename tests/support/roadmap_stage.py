@@ -12,11 +12,13 @@ import json
 import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
+from devops_cli.roadmap.stage.stage import StageApplied, StagePlan
 from devops_cli.roadmap.stage.stage_change import StageGroup
 from devops_cli.roadmap.stage.stage_verify import Verification
 from devops_cli.roadmap.stores.store import ItemField
@@ -259,3 +261,30 @@ def advance_origin(repo: StageRepo, root: Path, files: Mapping[str, str]) -> Non
         "advance main",
     )
     run_git(other, "push", "-q", "origin", "main")
+
+
+def apply_stage(
+    store: InMemoryRoadmapStore, plan: StagePlan, *, source: Path | str, now: datetime | None = None
+) -> StageApplied:
+    """Write a finished `plan` with the writer of the job: the removals and the rejections of the
+    items that the plan does not stage first, then the result of each item. A plan that
+    `plan_stage` made without a writer is written the way a round writes it, so a test can look at
+    the plan before it looks at the writes."""
+    # Imported here: this module loads as a pytest plugin, and the fail-to-pass replay loads it
+    # against a base tree that has no `StageWriter` yet.
+    from devops_cli.roadmap.stage.stage import StageWriter
+
+    writer = StageWriter(store, source, now=now)
+    selected = {
+        *(b.target.item.number for b in plan.blocked),
+        *(c.target.item.number for c in plan.ready),
+        *(o.target.item.number for o in plan.over_budget),
+    }
+    writer.begin(plan, selected)
+    for blocked in plan.blocked:
+        writer.settle(blocked.target, blocked)
+    for change in plan.ready:
+        writer.settle(change.target, change)
+    for stopped in plan.over_budget:
+        writer.settle(stopped.target, stopped)
+    return writer.applied()

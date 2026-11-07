@@ -13,7 +13,6 @@ from devops_cli.roadmap.stage.stage import (
     StagePlan,
     _label_needs_fix,
     _notes,
-    apply_stage,
     parse_filters,
     plan_stage,
 )
@@ -28,6 +27,7 @@ from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    apply_stage,
     seed_stageable,
     validate_args,
 )

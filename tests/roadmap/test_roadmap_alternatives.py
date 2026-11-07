@@ -42,7 +42,6 @@ from devops_cli.roadmap.alternatives import (
     AlternativesReply,
     AlternativesTools,
     Verdict,
-    apply_alternatives,
     body_hash_of,
     plan_alternatives,
     raise_for_failed_checks,
@@ -74,6 +73,7 @@ from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.roadmap_alternatives import apply_alternatives
 from tests.support.scripted_model import Script, call
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
