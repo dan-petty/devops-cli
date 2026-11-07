@@ -22,7 +22,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, Literal
 
 from pydantic import ValidationError
 
@@ -411,6 +411,20 @@ def _group(group: TaskGroup) -> StageGroup:
     )
 
 
+def _criterion(
+    line: str, criterion: str, group: int | Literal["pending-person"], reason: str | None = None
+) -> StageCriterion:
+    """The `StageCriterion` of a line of the criteria section. A line that the model refuses, such
+    as the group 0, raises `PlanReadError`."""
+    try:
+        return StageCriterion(criterion=criterion, group=group, reason=reason)
+    except ValidationError as exc:
+        reason = MESSAGES.roadmap.plan_read_bad_criterion_model.format(
+            text=line, reason=_reasons(exc)
+        )
+        raise PlanReadError(_TASKS, reason) from exc
+
+
 def _criteria(text: str) -> list[StageCriterion]:
     section = _section(text, _CRITERIA_TITLE)
     found: list[StageCriterion] = []
@@ -421,11 +435,7 @@ def _criteria(text: str) -> list[StageCriterion]:
                 raise PlanReadError(
                     _TASKS, MESSAGES.roadmap.plan_read_bad_criterion.format(text=line)
                 )
-            found.append(
-                StageCriterion(
-                    criterion=criterion.strip(), group="pending-person", reason=reason.strip()
-                )
-            )
+            found.append(_criterion(line, criterion.strip(), "pending-person", reason.strip()))
             continue
         group, separator, criterion = line.partition(": ")
         if (
@@ -434,9 +444,7 @@ def _criteria(text: str) -> list[StageCriterion]:
             or not group.removeprefix("Group ").isdigit()
         ):
             raise PlanReadError(_TASKS, MESSAGES.roadmap.plan_read_bad_criterion.format(text=line))
-        found.append(
-            StageCriterion(criterion=criterion.strip(), group=int(group.removeprefix("Group ")))
-        )
+        found.append(_criterion(line, criterion.strip(), int(group.removeprefix("Group "))))
     return found
 
 

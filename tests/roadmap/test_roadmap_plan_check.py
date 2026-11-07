@@ -269,6 +269,21 @@ def test_an_unreadable_tasks_file_is_reported(stage_repo: StageRepo) -> None:
     assert [(p.path, p.rule) for p in result.problems] == [("tasks.md", "read")]
 
 
+def test_a_criterion_of_group_zero_is_reported_as_a_read_problem(stage_repo: StageRepo) -> None:
+    files = _change(
+        make_stage_proposal(
+            criteria=[{"criterion": "The command prints one line for each problem", "group": 1}]
+        )
+    )
+    path = f"openspec/changes/{CHANGE}/tasks.md"
+    files[path] = files[path].replace("Group 1:", "Group 0:")
+    sha = _push(stage_repo, files)
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha))
+
+    assert [(p.path, p.rule) for p in result.problems] == [("tasks.md", "read")]
+
+
 @pytest.mark.parametrize(
     "changes",
     [

@@ -3737,6 +3737,9 @@ class RoadmapMessages:
     plan_read_bad_criterion: str = (
         "`tasks.md` holds a criterion that the reader cannot read: {text}"
     )
+    plan_read_bad_criterion_model: str = (
+        "`tasks.md` holds a criterion that breaks a rule of the plan: {text} ({reason})"
+    )
     plan_read_bad_requirement: str = (
         "`{path}` holds a requirement with no scenario, so the reader cannot read it."
     )
