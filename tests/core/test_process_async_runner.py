@@ -36,4 +36,5 @@ async def test_an_async_start_in_a_dry_run_plans_the_command_and_runs_nothing() 
     finally:
         set_dry_run(False)
 
-    assert (isinstance(result, PlannedRequest), result.returncode) == (True, 0)
+    assert isinstance(result, PlannedRequest)
+    assert result.returncode == 0

@@ -18,7 +18,7 @@
 
 ## 3. Repository state has public seams (behavior)
 
-- [x] 3.1 Delete the hand-attached `cache_clear` of `get_repo_origin_name` and call `reset_repo_caches` in the test that changes a remote
+- [x] 3.1 Add a test that `reset_repo_caches` makes the origin lookup read the remote again, delete the hand-attached `cache_clear` of `get_repo_origin_name`, and call `reset_repo_caches` in the test that changes a remote
   - Verification: `$ uv run devops ci test tests/commands/test_repos.py`
 - [x] 3.2 Add `install_own_source_dir` with its reset in `reset_repo_caches`, install it in the floor, and use it in the three review tests in place of a patch of `_own_source_dir`
   - Verification: `$ uv run devops ci test tests/review/test_review_untrusted_tree.py tests/invariants/test_hermetic_floor.py`

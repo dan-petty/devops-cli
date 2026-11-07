@@ -1156,6 +1156,33 @@ def test_repo_origin_lru_caching(tmp_path: Path, git_fake: GitFake) -> None:
     assert (res1, res2, len(remote_calls)) == ("org/cached-repo", "org/cached-repo", 1)
 
 
+def test_the_public_reset_makes_the_origin_lookup_read_the_remote_again(
+    tmp_path: Path, git_fake: GitFake
+) -> None:
+    """A test that changes a remote calls `reset_repo_caches`, as the floor does after each test."""
+    from devops_cli.core.repo import get_repo_origin_name, reset_repo_caches
+
+    (tmp_path / ".git").mkdir()
+    git_fake.answer(
+        ["git", "remote", "get-url", "origin"],
+        ProcessAnswer(stdout="git@github.com:org/first.git\n"),
+    )
+    before = get_repo_origin_name(tmp_path)
+    git_fake.answer(
+        ["git", "remote", "get-url", "origin"],
+        ProcessAnswer(stdout="git@github.com:org/second.git\n"),
+    )
+    stale = get_repo_origin_name(tmp_path)
+
+    reset_repo_caches()
+
+    assert (before, stale, get_repo_origin_name(tmp_path)) == (
+        "org/first",
+        "org/first",
+        "org/second",
+    )
+
+
 def test_list_repo_files_handles_spaces_non_ascii_and_renames(
     tmp_path: Path, git_fake: GitFake
 ) -> None:
