@@ -205,6 +205,23 @@ def test_a_group_that_changes_no_test_and_no_document_stays_a_new_plan_with_the_
     assert (recheck.unreadable, recheck.unverified) == (1, 1)
 
 
+def test_a_criterion_of_group_zero_is_a_new_plan_with_the_reader_error(
+    stage_repo: StageRepo, tool: OpenSpecTool
+) -> None:
+    criteria = [{"criterion": "The command prints one line for each problem", "group": 1}]
+    files = _plan(1, make_stage_proposal(groups=_proposal().groups, criteria=criteria))
+    path = TASKS.format(issue=1)
+    files[path] = files[path].replace("Group 1:", "Group 0:")
+    stage_repo.track(files)
+
+    recheck = recheck_plans(stage_repo.clone, _store(count=1), tool=tool)
+
+    (record,) = recheck.records
+    assert record.result is PlanResult.NEW_PLAN
+    assert [refusal.gate for refusal in record.refusals] == ["read"]
+    assert recheck.unreadable == 1
+
+
 def test_a_plan_that_passes_and_that_the_rewrite_does_not_change_is_ok(
     stage_repo: StageRepo, tool: OpenSpecTool
 ) -> None:

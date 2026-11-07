@@ -114,6 +114,31 @@ def test_the_reader_reads_each_kind_of_criterion() -> None:
     assert read_change(_files(original)).criteria == original.criteria
 
 
+def _with_criterion_group(number: int) -> dict[str, str]:
+    original = make_stage_proposal(
+        criteria=[{"criterion": "The command prints one line for each problem", "group": 1}]
+    )
+    files = _files(original)
+    path = f"openspec/changes/{CHANGE}/tasks.md"
+    files[path] = files[path].replace("Group 1:", f"Group {number}:")
+    return files
+
+
+def test_a_criterion_of_group_zero_is_a_read_error_that_names_the_line() -> None:
+    with pytest.raises(PlanReadError) as found:
+        read_change(_with_criterion_group(0))
+
+    assert found.value.path == "tasks.md"
+    assert "Group 0: The command prints one line for each problem" in found.value.reason
+    assert "group" in found.value.reason
+
+
+def test_a_criterion_of_group_one_reads_back_with_its_group() -> None:
+    (criterion,) = read_change(_with_criterion_group(1)).criteria
+
+    assert criterion.group == 1
+
+
 def test_the_reader_infers_the_kind_of_a_group_from_its_verification() -> None:
     original = make_stage_proposal(
         groups=[

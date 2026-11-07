@@ -26,8 +26,8 @@ commit, whatever the working tree of the checkout holds.
 - The stage gates: `check_proposal` and `validate_change`. The command reports each problem with
   the file and the words of the stage job.
 - The read: the reader reports each change file that it cannot read, each task group that the
-  model refuses and each `Verification:` command that the implement step cannot run, as a `read`
-  problem. It never ends in a traceback.
+  model refuses, each criterion that the model refuses (such as `Group 0`) and each
+  `Verification:` command that the implement step cannot run, as a `read` problem. It never ends in a traceback.
 - The size of each task group (#3499): the command measures each group with `measure_groups`, the
   function of the stage job, on the tracked files of the head commit. The item and the files of the
   change folder are the shared text, as in the stage job. It reports a `group-over-budget` problem
