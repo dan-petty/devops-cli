@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.76.1](https://github.com/dan-petty/devops-cli/compare/v0.76.0...v0.76.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* **ci:** Tests read no state of the host ([#3871](https://github.com/dan-petty/devops-cli/issues/3871)) ([f600ed4](https://github.com/dan-petty/devops-cli/commit/f600ed493429f73c08788b100a00df38f328c854)), closes [#3585](https://github.com/dan-petty/devops-cli/issues/3585)
+
 ## [0.76.0](https://github.com/dan-petty/devops-cli/compare/v0.75.0...v0.76.0) (2026-11-07)
 
 
