@@ -13,6 +13,7 @@
 - [SDLC Workflow](SDLC.md) — Software development lifecycle and branch governance policies.
 - [Testing Guide](TESTING.md) — Testing vocabulary, test doubles, and quality gate standards.
 - [AI and RAG Cheatsheet](cheatsheets/ai_and_rag.md) — Managed repository ingestion and semantic search reference.
+- [Dashboard Tabs Audit](DASHBOARD_TABS_AUDIT.md) — Audit of five dashboard tabs against open terminal tools.
 
 ## Architecture and Repository Governance
 
