@@ -202,6 +202,30 @@ def test_a_body_with_no_plan_reference_is_reported(stage_repo: StageRepo) -> Non
     assert [p.rule for p in result.problems] == ["body-plans"]
 
 
+def test_a_pull_request_that_is_no_longer_a_plan_is_no_problem(stage_repo: StageRepo) -> None:
+    """The implement job takes the plan pull request over and rewrites its title and body to the
+    form of a delivery. A run of that edit reads a pull request that is no longer a plan, so the
+    plan form no longer applies to it and the command reports no problem."""
+    sha = _push(stage_repo, _change())
+    body = (
+        "The check reports a plan that depends on an open issue.\n\n"
+        f"Closes #{ISSUE}\n\n"
+        f"Change: `openspec/changes/{CHANGE}/`"
+    )
+
+    result = _run(
+        stage_repo,
+        _facts(
+            stage_repo,
+            sha=sha,
+            title="feat(roadmap): record and check plan dependencies",
+            body=body,
+        ),
+    )
+
+    assert result.problems == ()
+
+
 def test_a_body_with_a_closing_keyword_is_reported(stage_repo: StageRepo) -> None:
     sha = _push(stage_repo, _change())
     body = f"{BODY}\n\nCloses #1"

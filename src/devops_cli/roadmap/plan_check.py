@@ -2,7 +2,9 @@
 
 `devops roadmap plan-check <pull-request>` reads the change folder at the head of the pull
 request, runs the stage gates with no model, and checks the pull request itself: the title, the
-body, the check `Semantic PR title`, and a base spec that moved since the plan.
+body, the check `Semantic PR title`, and a base spec that moved since the plan. A pull request that
+the implement job has taken over holds the title and body of a delivery, so it is no plan and the
+command reports no problem for it (#3224).
 
 The gates take a `StageProposal` and a `StagedTree`, so the command reads a checkout: it fetches
 `refs/pull/<number>/head` and reads the head files with `git show` and `git ls-tree`. The GitHub
@@ -66,6 +68,11 @@ _PLANS: Final[re.Pattern[str]] = re.compile(r"^Plans #(?P<issue>[0-9]+)$")
 _TITLE: Final[re.Pattern[str]] = re.compile(
     rf"^{re.escape(STAGING_TYPE)}: plan #(?P<issue>[0-9]+) (?P<summary>\S.*)$"
 )
+# A plan pull request holds the plan title, or the `Plans #<issue>` line of its body. The implement
+# job takes the plan pull request over and rewrites both to the form of a delivery (#2665), and the
+# run of that edit may read the delivery form: that pull request is no plan, and the plan form no
+# longer applies to it (#3224).
+_PLAN_TITLE: Final[str] = f"{STAGING_TYPE}: plan #"
 
 
 class PlanReads(Protocol):
@@ -145,6 +152,13 @@ def read_pull(client: PlanReads, repo: str, number: int) -> PullFacts:
         base_sha=pull.base.sha,
         base_ref=pull.base.ref,
     )
+
+
+def is_plan(facts: PullFacts) -> bool:
+    """Whether the pull request is a plan: its title holds the plan title, or its body holds the
+    `Plans #<issue>` line. A pull request that the implement job has taken over holds neither, so
+    it is a delivery and the plan form no longer applies to it (#3224)."""
+    return facts.title.strip().startswith(_PLAN_TITLE) or issue_number(facts.body) is not None
 
 
 def _pull_problems(facts: PullFacts, checks: CheckVerdictSummary) -> list[PlanProblem]:
@@ -437,6 +451,8 @@ def plan_check(
     """The problems of plan pull request `number` of `repo`, read in the checkout `source`."""
     reads = client or _session_client()
     facts = read_pull(reads, repo, number)
+    if not is_plan(facts):
+        return PlanCheckResult(())
     owner, name = repo.split("/", 1)
     checks = check_reader(owner, name, facts.head_sha)
     problems = _pull_problems(facts, checks)

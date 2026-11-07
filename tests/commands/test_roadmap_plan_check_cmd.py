@@ -109,6 +109,35 @@ def test_the_json_output_holds_each_problem_and_the_command_exits_one(
 
 
 @pytest.mark.usefixtures("openspec_fake")
+def test_a_pull_request_that_is_no_longer_a_plan_exits_zero_with_no_line(
+    stage_repo: StageRepo,
+    github_api,
+    openspec_fake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The implement job rewrites the title and body of the plan pull request to the form of a
+    delivery, and the check then reads no plan. It reports no problem and exits 0."""
+    head = _plan(stage_repo)
+    body = (
+        "The check reports a plan that depends on an open issue.\n\n"
+        f"Closes #{ISSUE}\n\n"
+        f"Change: `openspec/changes/{CHANGE}/`"
+    )
+    _routes(
+        github_api,
+        stage_repo,
+        head,
+        title="feat(roadmap): record and check plan dependencies",
+        body=body,
+    )
+    monkeypatch.chdir(stage_repo.clone)
+
+    result = runner.invoke(app, ["plan-check", str(PULL), "--repo", REPO], catch_exceptions=False)
+
+    assert (result.exit_code, result.output) == (0, "")
+
+
+@pytest.mark.usefixtures("openspec_fake")
 def test_the_dry_run_lists_the_reads_and_makes_none(
     stage_repo: StageRepo,
     github_api,
