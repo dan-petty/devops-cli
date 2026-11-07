@@ -964,8 +964,9 @@ def _validate_uncached_setup_uv_step(step: dict[str, object], source: str) -> No
 
 
 def test_github_workflows_caching_configuration() -> None:
-    """Every workflow caches uv, except release.yml: it publishes every artifact, so it restores
-    no cache that another run could have written (zizmor cache-poisoning, #1895)."""
+    """Every workflow caches uv, except release.yml, which publishes every artifact, and
+    release-merge.yml, which holds the write token of the release App: neither restores a cache
+    that another run could have written (zizmor cache-poisoning, #1895, #3921)."""
     import yaml
 
     workflows_dir = Path(".github/workflows")
@@ -983,7 +984,10 @@ def test_github_workflows_caching_configuration() -> None:
         for job_name, step in steps:
             uses = str(step.get("uses", ""))
             context_tag = f"{wf_file.name}:{job_name}:{step.get('name', 'unnamed')}"
-            if "astral-sh/setup-uv" in uses and wf_file.name == "release.yml":
+            if "astral-sh/setup-uv" in uses and wf_file.name in {
+                "release.yml",
+                "release-merge.yml",
+            }:
                 _validate_uncached_setup_uv_step(step, context_tag)
             elif "astral-sh/setup-uv" in uses:
                 _validate_setup_uv_step(step, context_tag)

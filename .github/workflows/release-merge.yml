@@ -1,0 +1,84 @@
+name: Release Merge
+
+# The release pull request of release-please merges by itself every 6 hours when it passes every
+# guard of `devops_cli.release.merge_candidate` (#3921, RELEASE_CYCLE.md). The module reads the
+# pull request and prints the one it may merge; this workflow then squash-merges that commit with
+# the release App token. It never edits the pull request, the tag, CHANGELOG.md or a version. The
+# App token merges, because a merge that GITHUB_TOKEN makes starts no workflow, and then no run of
+# `Release` creates the release. To hold a release, set the label `hold-release` on its pull
+# request. To stop the schedule, disable this workflow in the Actions tab.
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-merge
+  cancel-in-progress: false
+
+env:
+  DO_NOT_TRACK: "1"
+  # uv runs only its own CPython builds, never the runner image's Python (#1494).
+  UV_MANAGED_PYTHON: "1"
+
+jobs:
+  merge:
+    name: Merge the Release Pull Request
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    environment: release
+    # GITHUB_TOKEN only reads: the pull request, its files, the checks and the rules of main.
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+
+    steps:
+      - name: Mint the Release App Token
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # The merge needs only these two, which the release workflow's token already holds.
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          # This workflow holds a write token, so it restores no cache another run could have
+          # written (zizmor cache-poisoning).
+          enable-cache: false
+          version: "0.13.6"
+          python-version: "3.14"
+
+      # The step gets GITHUB_TOKEN and no App token. Its standard output holds only the lines
+      # `number=` and `sha=` of the pull request that may merge, or nothing.
+      - name: Pick the Release Pull Request
+        id: pick
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          APP_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]
+        run: |
+          uv run --locked --no-dev python -m devops_cli.release.merge_candidate \
+            --repo "$REPOSITORY" --app-login "$APP_LOGIN" >> "$GITHUB_OUTPUT"
+
+      # `--match-head-commit` makes the merge fail when release-please pushed to the pull request
+      # after the pick, so GitHub never merges a commit that the guards did not judge.
+      - name: Merge the Release Pull Request
+        if: steps.pick.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          NUMBER: ${{ steps.pick.outputs.number }}
+          HEAD_SHA: ${{ steps.pick.outputs.sha }}
+        run: gh pr merge "$NUMBER" --repo "$REPOSITORY" --squash --match-head-commit "$HEAD_SHA"

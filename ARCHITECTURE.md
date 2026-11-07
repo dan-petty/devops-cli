@@ -151,7 +151,7 @@ flowchart TD
 
 - **Structured Metrics & Telemetry**: Integrates with Prometheus query endpoints (`devops prometheus`) and Grafana dashboards (`devops grafana`) to monitor workstation and cluster health.
 - **Gated CI Quality Gate**: Automated enforcement of Python 3.14 runtime, Ruff formatting, Mypy strict typing, documentation freshness, test coverage, and static security scanning (`devops ci`).
-- **Releases by release-please**: release-please derives each version and the changelog from the Conventional Commit titles on `main`, and a person merges its release pull request ([`RELEASE_CYCLE.md`](RELEASE_CYCLE.md)). devops-cli holds no release code.
+- **Releases by release-please**: release-please derives each version and the changelog from the Conventional Commit titles on `main`, and a scheduled workflow merges its release pull request every 6 hours when it passes the guards ([`RELEASE_CYCLE.md`](RELEASE_CYCLE.md)). devops-cli holds no release code.
 
 ---
 

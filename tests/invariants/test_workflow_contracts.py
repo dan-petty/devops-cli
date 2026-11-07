@@ -188,6 +188,93 @@ def test_an_urgent_fix_turns_on_auto_merge_of_the_release_pull_request() -> None
     )
 
 
+RELEASE_MERGE_PATH = WORKFLOWS_DIR / "release-merge.yml"
+
+
+def test_the_release_pull_request_merges_every_6_hours_with_the_least_permissions() -> None:
+    """release-merge.yml runs on a schedule of every 6 hours and on dispatch, and on nothing else.
+    GITHUB_TOKEN only reads; the release App token, minted with the two permissions of a merge,
+    reaches only the step that merges; one concurrency group keeps two runs apart (#3921)."""
+    workflow = _load_workflow(RELEASE_MERGE_PATH)
+    job = workflow["jobs"]["merge"]
+    steps = {step["name"]: step for step in job["steps"]}
+    mint = steps["Mint the Release App Token"]
+    pick = steps["Pick the Release Pull Request"]
+    merge = steps["Merge the Release Pull Request"]
+
+    assert (
+        workflow["on"],
+        workflow["permissions"],
+        workflow["concurrency"],
+        list(workflow["jobs"]),
+        job["permissions"],
+        job["environment"],
+        {key: value for key, value in mint["with"].items() if key.startswith("permission-")},
+        mint["with"]["client-id"],
+        mint["with"]["private-key"],
+        pick["env"]["GH_TOKEN"],
+        "app.outputs.token" in str(pick),
+        merge["if"],
+        merge["env"],
+        merge["run"],
+    ) == (
+        {"schedule": [{"cron": "0 */6 * * *"}], "workflow_dispatch": None},
+        {},
+        {"group": "release-merge", "cancel-in-progress": False},
+        ["merge"],
+        {"contents": "read", "pull-requests": "read", "checks": "read"},
+        "release",
+        {"permission-contents": "write", "permission-pull-requests": "write"},
+        "${{ vars.RELEASE_APP_CLIENT_ID }}",
+        "${{ secrets.RELEASE_APP_PRIVATE_KEY }}",
+        "${{ secrets.GITHUB_TOKEN }}",
+        False,
+        "steps.pick.outputs.number != ''",
+        {
+            "GH_TOKEN": "${{ steps.app.outputs.token }}",
+            "REPOSITORY": "${{ github.repository }}",
+            "NUMBER": "${{ steps.pick.outputs.number }}",
+            "HEAD_SHA": "${{ steps.pick.outputs.sha }}",
+        },
+        'gh pr merge "$NUMBER" --repo "$REPOSITORY" --squash --match-head-commit "$HEAD_SHA"',
+    )
+
+
+def test_the_release_merge_only_merges_and_reads_no_untrusted_input_in_a_script() -> None:
+    """The workflow edits no branch, tag or release, runs no code of a pull request (it checks out
+    the default branch with no credentials), and puts no expression in a `run` script (#3921)."""
+    job = _load_workflow(RELEASE_MERGE_PATH)["jobs"]["merge"]
+    scripts = [step["run"] for step in job["steps"] if "run" in step]
+    checkout = next(step for step in job["steps"] if step.get("name") == "Check out repository")
+
+    assert (
+        [script for script in scripts if "${{" in script],
+        [
+            word
+            for script in scripts
+            for word in ("git push", "git tag", "gh release", "--admin", "--auto", "pr edit")
+            if word in script
+        ],
+        checkout["with"],
+        "ref" in checkout["with"],
+        [step["uses"] for step in job["steps"] if "uses" in step and "@" not in step["uses"]],
+    ) == ([], [], {"persist-credentials": False}, False, [])
+
+
+def test_a_person_holds_a_release_with_a_label_and_the_cycle_document_says_how() -> None:
+    """The label `hold-release` exists, and RELEASE_CYCLE.md names the workflow, the cadence, the
+    label and the way to turn the schedule off (#3921)."""
+    labels = yaml.safe_load(Path(".github/labels.yml").read_text(encoding="utf-8"))
+    cycle = Path("RELEASE_CYCLE.md").read_text(encoding="utf-8")
+
+    assert "hold-release" in {label["name"] for label in labels}
+    assert [
+        phrase
+        for phrase in ("`release-merge.yml`", "every 6 hours", "`hold-release`", "Disable workflow")
+        if phrase not in cycle
+    ] == []
+
+
 def test_every_publish_job_checks_out_the_commit_release_please_tagged() -> None:
     """A run that a later push starts can create the release of an earlier merge, so each job
     that checks out the repository builds the commit that the release tags, not the commit of

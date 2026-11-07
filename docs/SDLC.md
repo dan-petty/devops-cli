@@ -24,7 +24,7 @@ flowchart LR
 3. **Zero-Trust Security & Egress Safety**: No plaintext secrets anywhere in code, configuration, or logs (OS Keyring / Vault isolation); SSRF endpoint validation; bounded subprocess timeouts; least-privilege containers.
 4. **Supply Chain Integrity**: Locked dependency graph (`uv.lock`) audited by `uv audit`, and the `package-lock.json` of each Node tool in `tools.lock` audited by `npm audit`, in every `devops ci` run, hash-pinned tool downloads (`tools.lock`; `npm ci` checks the sha512 of every package of a Node tool), every remote GitHub Action pinned to a commit SHA and every workflow audited by `zizmor` (`devops scan workflows`, which fails on template injection, unpinned actions and excessive permissions; `devops scan report` publishes every zizmor finding to code scanning), build provenance attestations on release artifacts, and static security analysis (`bandit`, `detect-private-key`).
 5. **Automated Code Review & Fact Grounding**: Tool-anchored code review pipeline evaluates all changes across static security analyzers, vulnerability audits, and secret scanning, with bounded model analysis for admitted finding groups.
-6. **Branch Isolation & Human-in-the-Loop Governance**: Every change goes on a topic branch whose pull request targets `main`. AI agents cannot merge code autonomously; maintainers approve and squash-merge. release-please makes each release, and a person merges its pull request.
+6. **Branch Isolation & Human-in-the-Loop Governance**: Every change goes on a topic branch whose pull request targets `main`. AI agents cannot merge code autonomously; maintainers approve and squash-merge. release-please makes each release, and the scheduled workflow `release-merge.yml` or a person merges its pull request.
 7. **Production Telemetry & DORA Observability**: OpenTelemetry tracing spans and Prometheus metrics instrument every CLI subcommand, background runner, and review stage.
 
 ---
@@ -55,7 +55,7 @@ sequenceDiagram
     Git->>Maintainer: Notify CODEOWNERS for mandatory human review
     Maintainer->>Git: Approve & squash-merge PR into main
     Rel->>Git: Open or update the release pull request (version, CHANGELOG.md)
-    Maintainer->>Git: Merge the release pull request when a release is wanted
+    Maintainer->>Git: Merge the release pull request early, or hold it with the label hold-release
     Rel->>Rel: Create the GitHub release and tag, then publish the packages and images
 ```
 
@@ -290,7 +290,7 @@ gitGraph
 
 #### Branch Governance & Hierarchy
 - **Zero Direct Commits to `main`**: All work occurs on dedicated topic branches, named as [`CONTRIBUTING.md`](../CONTRIBUTING.md#5-naming) says.
-- **PR Base Branch Targeting**: Topic PRs and Renovate's PRs target `main`. release-please opens the one release pull request, and a person merges it. Agents change the release workflow and its configuration through ordinary pull requests ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)).
+- **PR Base Branch Targeting**: Topic PRs and Renovate's PRs target `main`. release-please opens the one release pull request, and the scheduled workflow `release-merge.yml` or a person merges it. Agents change the release workflow and its configuration through ordinary pull requests ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)).
 - **Required Checks Gate the Merge**: The `main` ruleset requires `Static Analysis`, `Tests & Coverage` and `Semantic PR title`. A pull request merges only when the three checks pass on the pull request. The release pull request runs the same checks on each new `main`, so its status shows a defect that two pull requests make together ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)). CI is the authoritative gate ([ADR 0004](adr/0004-ci-is-the-authoritative-gate.md)): the pre-push hook runs only the fast static checks (Phase 4), so these checks are the first run of the test suite on a branch, unless the author runs `uv run devops ci` by hand ([ADR 0014](adr/0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md)).
 - **Strict Remote Branch Lifecycle Governance**: Every remote branch on `origin` must have an associated open Pull Request targeting `main`. Remote branches must be deleted immediately upon PR merge or supersession (`git push origin --delete <branch>` and `git fetch --prune origin`). Orphan remote branches are strictly prohibited.
 - **Atomic Conventional Commits & PR Titles**: All commit messages and PR titles must follow Conventional Commits: `feat(scope): ...`, `fix(scope): ...`, `docs(scope): ...`, `refactor(scope): ...`, `chore(scope): ...`. The `Semantic PR title` check enforces the PR title, and its scope must be one that `.github/labels.yml` declares. The squash commit takes the title, and release-please writes it as the changelog line ([`CONTRIBUTING.md`](../CONTRIBUTING.md) lists the types that add a line).
@@ -384,7 +384,7 @@ flowchart TD
 | **4. Pre-Commit**    | Git Hook Interception | `uv run pre-commit run --all-files` | All pre-commit hooks passing |
 | **5. AI Review**     | Automated Code Review | `devops review branch <branch> --dry-run` | Zero high/critical unmitigated findings |
 | **6. PR Lifecycle**  | Branch Governance | `devops pr create` (opens a draft into `main`) | CODEOWNERS notified; remote CI checks green |
-| **6. Release**       | Release | A person merges the release-please pull request | Tag, GitHub Release, packages and images published |
+| **6. Release**       | Release | `release-merge.yml` (every 6 hours) or a person merges the release-please pull request | Tag, GitHub Release, packages and images published |
 | **7. Observability** | Telemetry Audit | `devops telemetry status` | Active trace spans and Prometheus counters |
 
 ---

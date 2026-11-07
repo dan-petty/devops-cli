@@ -73,11 +73,11 @@ A P0 item that fixes a defect, a security advisory or a regression (a defect who
 _Avoid_: hotfix, P0 item
 
 **Release**:
-A version that release-please publishes when a person merges its release pull request. It ships every change merged into `main` since the last release.
+A version that release-please publishes when its release pull request merges. It ships every change merged into `main` since the last release.
 _Avoid_: milestone, sprint, cut
 
 **Release pull request**:
-The one pull request that release-please opens and updates on `main`. It holds the next version and its changelog section, and only a person merges it.
+The one pull request that release-please opens and updates on `main`. It holds the next version and its changelog section, and the scheduled merge (every 6 hours, `release-merge.yml`) or a person merges it.
 _Avoid_: cut PR, release branch
 
 ## Roadmap jobs

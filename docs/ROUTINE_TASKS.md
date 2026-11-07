@@ -223,9 +223,9 @@ sequenceDiagram
 
 ---
 
-### Cadence C: Releases (a Person Merges)
+### Cadence C: Releases (a Scheduled Merge)
 
-release-please opens and updates the release pull request from the pull request titles on `main`. A person reads the version and the changelog in it, then squash-merges it. `release.yml` then creates the GitHub release and its tag, and publishes the packages and images. release-please writes `CHANGELOG.md`, `.release-please-manifest.json` and the version lines, so nobody edits those by hand. Agents change `release.yml` and the release-please configuration through ordinary pull requests, as any other file. [`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md) is the procedure.
+release-please opens and updates the release pull request from the pull request titles on `main`. The workflow `release-merge.yml` squash-merges it every 6 hours when it passes the guards, unless a person set the label `hold-release`. A person can read the version and the changelog in it and squash-merge it at any time. `release.yml` then creates the GitHub release and its tag, and publishes the packages and images. release-please writes `CHANGELOG.md`, `.release-please-manifest.json` and the version lines, so nobody edits those by hand. Agents change `release.yml` and the release-please configuration through ordinary pull requests, as any other file. [`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md) is the procedure.
 
 ---
 
