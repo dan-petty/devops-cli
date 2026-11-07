@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
@@ -40,15 +40,25 @@ class FakeEmbedder(EmbedderProtocol):
         self.dimension = dimension
         # The name the indexer records in each point as `embedding_model`.
         self.model = "fake-embed-model"
+        # How many texts the indexer sends in one request.
+        self.batch_size = 32
         self.failing = failing
         self.failure_message = failure_message
+        self.failure_is_transient = False
+        self.queued_failures: list[EmbeddingsError] = []
         self.calls: list[tuple[list[str], bool]] = []
         self.recorded_texts: list[tuple[str, bool]] = []
+        self.before_embed: Callable[[list[str], bool], None] | None = None
 
     def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
+        if self.before_embed is not None:
+            self.before_embed(list(texts), is_query)
+        if self.queued_failures:
+            raise self.queued_failures.pop(0)
         if self.failing:
             raise EmbeddingsError(
-                self.failure_message or "Embedding provider error", is_transient=False
+                self.failure_message or "Embedding provider error",
+                is_transient=self.failure_is_transient,
             )
         self.calls.append((list(texts), is_query))
         for t in texts:
@@ -65,9 +75,19 @@ class FakeEmbedder(EmbedderProtocol):
         """The vector of a search query, as `SemanticRetriever` asks for it."""
         return self.embed_texts([text], is_query=True)[0]
 
-    def fail(self, message: str | None = None) -> None:
+    def fail(self, message: str | None = None, *, transient: bool = False) -> None:
+        """Make every later call raise an `EmbeddingsError`, permanent unless `transient`."""
         self.failing = True
         self.failure_message = message
+        self.failure_is_transient = transient
+
+    def recover(self) -> None:
+        """Make later calls answer again."""
+        self.failing = False
+
+    def fail_next(self, *errors: EmbeddingsError) -> None:
+        """Make the next calls raise `errors` in order, and answer after them."""
+        self.queued_failures.extend(errors)
 
 
 @pytest.fixture
