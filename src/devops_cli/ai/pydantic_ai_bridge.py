@@ -164,7 +164,8 @@ def resolve_pydantic_ai_model(
 ) -> Any:
     """Resolve and configure native PydanticAI Model instance.
 
-    Supports OllamaProvider with dynamic cluster URLs, fallback cascade models, and automatic model inference across providers.
+    Supports OllamaProvider with dynamic cluster URLs, fallback cascade models, and
+    automatic model inference across providers.
     """
     if model is None:
         return None
