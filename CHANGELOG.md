@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.78.0](https://github.com/dan-petty/devops-cli/compare/v0.77.2...v0.78.0) (2026-11-07)
+
+
+### Features
+
+* **k8s:** add the Crawl4AI token to the cluster secrets ([#3937](https://github.com/dan-petty/devops-cli/issues/3937)) ([5e6eb59](https://github.com/dan-petty/devops-cli/commit/5e6eb59733d6efea4e4d346c4a1232a572962041))
+* **research:** list every pin of the project ([#3945](https://github.com/dan-petty/devops-cli/issues/3945)) ([cb65daa](https://github.com/dan-petty/devops-cli/commit/cb65daae249199dbe973b603382b94682f0bcf93)), closes [#3896](https://github.com/dan-petty/devops-cli/issues/3896)
+
+
+### Bug Fixes
+
+* **roadmap:** a fix step edits only the paths the plan names ([#3944](https://github.com/dan-petty/devops-cli/issues/3944)) ([7745fa8](https://github.com/dan-petty/devops-cli/commit/7745fa8ffbb6282033969b94d8201bf003ef4212))
+* **roadmap:** read only the marked code spans of a plan ([#3912](https://github.com/dan-petty/devops-cli/issues/3912)) ([72c52c6](https://github.com/dan-petty/devops-cli/commit/72c52c6f1bd1e2dd3ce1eca28a28cef10ccf13ba))
+* **service:** the request budget counts only what GitHub counts ([#3946](https://github.com/dan-petty/devops-cli/issues/3946)) ([b3f8793](https://github.com/dan-petty/devops-cli/commit/b3f8793fe0e1fcabfc0b28555d3c93a618200c79))
+
 ## [0.77.2](https://github.com/dan-petty/devops-cli/compare/v0.77.1...v0.77.2) (2026-11-07)
 
 
