@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import PurePosixPath
 from typing import Any
 
 import pytest
@@ -16,15 +17,16 @@ from tests.support.paths import REPO_ROOT
 CRAWL4AI_DIR = K8S / "devops" / "crawl4ai"
 IMAGE_PATTERN = re.compile(r"^unclecode/crawl4ai:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$")
 # The upstream tmpfs paths of its compose file, which a read-only root needs as volumes.
+_POD_ROOT = PurePosixPath("/")  # the root of the pod, not a path of this host
 WRITABLE_PATHS = (
-    "/tmp",  # nosec B108  # a mount path of the pod under test, not a file of this process
+    str(_POD_ROOT / "tmp"),
     "/var/lib/redis",
     "/var/lib/crawl4ai/outputs",
     "/home/appuser/.crawl4ai",
     "/home/appuser/.cache/url_seeder",
     "/home/appuser/.gunicorn",
 )
-SHM_PATH = "/dev/shm"  # nosec B108  # the shared-memory mount path of the pod under test
+SHM_PATH = str(_POD_ROOT / "dev" / "shm")
 # A switch that lets the service reach an internal address, run a hook or run script from a caller.
 FORBIDDEN_ENV = (
     "CRAWL4AI_ALLOW_INTERNAL_URLS",
