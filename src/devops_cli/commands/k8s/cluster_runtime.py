@@ -6,12 +6,9 @@ import json
 import subprocess
 from typing import Any
 
-import typer
-
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess as run_subprocess
 from devops_cli.core.validation import validate_k8s_name
-from devops_cli.output import print_error
 
 
 def _validate_k8s_identifier(val: str, label: str, *, namespace: bool = False) -> None:
@@ -22,17 +19,6 @@ def _validate_kubeconfig_context_name(val: str, label: str = "context name") -> 
     from devops_cli.core.validation import validate_k8s_context_name
 
     validate_k8s_context_name(val, label=label)
-
-
-def _k8s_clients() -> tuple[Any, Any]:
-    try:
-        from kubernetes import client as k8s_client  # type: ignore[import-untyped]
-        from kubernetes import config as k8s_config
-
-        return k8s_config, k8s_client
-    except ImportError as exc:
-        print_error("kubernetes package not installed. Run: pip install kubernetes", prefix=False)
-        raise typer.Exit(1) from exc
 
 
 def _run_cmd(

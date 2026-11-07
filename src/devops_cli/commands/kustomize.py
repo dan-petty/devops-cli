@@ -88,7 +88,7 @@ def apply(
 ) -> None:
     """Apply a kustomization (delegates to kubectl apply -k)."""
     if namespace:
-        from devops_cli.commands.k8s import _validate_k8s_identifier
+        from devops_cli.commands.k8s.cluster_runtime import _validate_k8s_identifier
 
         _validate_k8s_identifier(namespace, "namespace", namespace=True)
 

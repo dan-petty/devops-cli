@@ -45,9 +45,10 @@ def contexts(
 
         render_request_plan("devops k8s contexts", plan_k8s_contexts())
         return
-    k8s_config, _ = runtime._k8s_clients()
+    from devops_cli.k8s.service import KubernetesService
+
     try:
-        ctx_list, active = k8s_config.list_kube_config_contexts()
+        ctx_list, active = KubernetesService.get_instance().list_contexts()
     except Exception as exc:
         print_error(f"Failed to load kubeconfig: {exc}", prefix=False)
         raise typer.Exit(1) from exc
@@ -139,16 +140,15 @@ def status(
 
         render_request_plan("devops k8s status", plan_k8s_status())
         return
-    k8s_config, k8s_client = runtime._k8s_clients()
+    from devops_cli.k8s.service import KubernetesService
+
     try:
-        k8s_config.load_kube_config()
-        core_v1_api = k8s_client.CoreV1Api()
-        nodes = core_v1_api.list_node()
+        nodes = KubernetesService.get_instance().list_nodes()
     except Exception as exc:
         print_error(f"Failed to query cluster: {exc}", prefix=False)
         raise typer.Exit(1) from exc
 
-    print(format_k8s_nodes_table(nodes.items))
+    print(format_k8s_nodes_table(nodes))
 
 
 def _apply_template(

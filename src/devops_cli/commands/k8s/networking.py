@@ -45,6 +45,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_PORT,
 )
 from devops_cli.config.settings import load_settings, save_settings, setting_default
+from devops_cli.core.process import spawn_detached
 from devops_cli.core.validation import is_loopback_host
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
 from devops_cli.exceptions import ConfigurationError
@@ -1097,12 +1098,7 @@ def _launch_port_forwards(
             # Its own session, so the forward outlives the command that started it and does
             # not take a terminal's SIGINT along with the CLI. `devops k8s port-forward status`
             # lists these as background daemons, which is only true if they are detached.
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
+            proc = spawn_detached(cmd, isolate_env=False)
             active_forwards.append(
                 PortForwardInfo(
                     pid=proc.pid,
