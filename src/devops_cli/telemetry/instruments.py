@@ -288,6 +288,17 @@ ROADMAP_ALTERNATIVES_SEARCHES = Instrument(
     "each check that the alternatives job writes. A search that a provider refused counts. A check "
     "that the job skips for its item class runs no search and observes 0",
 )
+ROADMAP_PAGE_FETCHES_TOTAL = Instrument(
+    "devops_cli_roadmap_page_fetches_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Calls of the tool fetch_page in refine's investigation and in the alternatives check, by "
+    "toolset (refine or alternatives) and result: ok for a page whose text the tool returned, "
+    "refused for a URL that the tool refused before any request (not https, not named by a search "
+    "result or by the item text, or not on a public host), limit for a call over the limit of "
+    "fetches for one item, and error for a fetch that failed. The fetches that reach the Crawl4AI "
+    "service also count in devops_cli_crawl4ai_fetches_total",
+)
 ROADMAP_STAGE_TOTAL = Instrument(
     "devops_cli_roadmap_stage_total",
     InstrumentKind.COUNTER,
@@ -571,6 +582,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
     ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE,
     ROADMAP_ALTERNATIVES_SEARCHES,
+    ROADMAP_PAGE_FETCHES_TOTAL,
     ROADMAP_STAGE_TOTAL,
     ROADMAP_TOOL_CALLS_TOTAL,
     ROADMAP_TOOL_ANSWER_CHARS,
@@ -708,6 +720,7 @@ __all__ = [
     "ROADMAP_CLAIM_AGE",
     "ROADMAP_ITEM_AGE",
     "ROADMAP_OLDEST_ITEM",
+    "ROADMAP_PAGE_FETCHES_TOTAL",
     "ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL",
     "ROADMAP_STAGE_TOTAL",
     "ROADMAP_TOOL_ANSWER_CHARS",

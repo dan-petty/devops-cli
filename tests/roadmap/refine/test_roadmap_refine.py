@@ -460,6 +460,27 @@ def test_the_web_search_state_of_a_round_whose_visibility_read_fails(
     ) == (WebSearch(off_reason="the repository's visibility could not be read"), True)
 
 
+def test_page_fetch_needs_web_search_and_a_crawl4ai_url(
+    store: InMemoryRoadmapStore, config: Callable[..., Path]
+) -> None:
+    """The fetch of a page (#3890) is on for a public repository with a set `crawl4ai.url`. A
+    private repository, or an empty setting, leaves it off."""
+    url = "http://crawl4ai.devops.svc.cluster.local:11235"
+    store.seed_visibility(is_private=False)
+    config(crawl4ai={"url": None})
+    unset = web_search_of(store)
+    config(crawl4ai={"url": url})
+    public = web_search_of(store)
+    store.seed_visibility(is_private=True)
+    private = web_search_of(store)
+
+    assert (unset.fetch, public, private.fetch) == (
+        False,
+        WebSearch(on=True, fetch=True),
+        False,
+    )
+
+
 def test_a_public_repository_has_web_search_with_the_keyless_provider(
     store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
 ) -> None:

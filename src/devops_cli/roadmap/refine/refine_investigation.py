@@ -68,6 +68,7 @@ from devops_cli.roadmap.agent_run import (
     record_run_spend,
     run_error_message,
 )
+from devops_cli.roadmap.page_fetch import PageFetch
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,9 @@ class InvestigationTools:
     path outside the repository, a binary file, output that is not UTF-8, or a command that runs
     out of time. A failure is an `error_answer` and a call that finds nothing is an
     `empty_answer`, so the run can count each. `search_web` is a tool only when `web` is
-    set, and it runs at most `CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES` searches.
+    set, and it runs at most `CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES` searches. `fetch_page` is a
+    tool only when `pages` is set (#3890): it reads a page that a search of the run returned or that
+    the item text names, which `pages` holds.
     """
 
     source: Path
@@ -167,6 +170,7 @@ class InvestigationTools:
     allowed_urls: set[str] = field(default_factory=set)
     searches: int = 0
     searched: list[str] = field(default_factory=list)
+    pages: PageFetch | None = None
 
     def _git(self, *args: str) -> tuple[int, bytes]:
         """The exit code and the output of one git command; `GIT_TIMED_OUT` when it ran out of time.
@@ -294,14 +298,32 @@ class InvestigationTools:
         if self.searches >= CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES:
             return "The search limit for this item is reached."
         self.searches += 1
-        return cited_web_search(
+        answer = cited_web_search(
             query,
             self.allowed_urls,
             results=CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY,
         )
+        if self.pages is not None:
+            self.pages.offer(self.allowed_urls)
+        return answer
+
+    def fetch_page(self, url: str) -> ToolReturn:
+        """Read the text of a web page. Use a URL that `search_web` returned, or that the issue
+        names. Cite the source URL and the fetch date that the answer gives.
+
+        Args:
+            url: The https URL of the page.
+        """
+        self.searched.append(f"fetch_page {url!r}")
+        if self.pages is None:
+            return error_answer("Page fetch is off.")
+        answer = self.pages.fetch(url)
+        self.allowed_urls |= self.pages.fetched
+        return answer
 
     def tools(self) -> list[Tool[None]]:
-        """The tools of the run: the git tools, and the web search when the round allows it."""
+        """The tools of the run: the git tools, the web search when the round allows it, and the
+        page fetch when the round gives it."""
         methods: list[Callable[..., str | ToolReturn]] = [
             self.search_code,
             self.list_files,
@@ -309,6 +331,8 @@ class InvestigationTools:
         ]
         if self.web:
             methods.append(self.search_web)
+        if self.pages is not None:
+            methods.append(self.fetch_page)
         return [Tool(method, takes_ctx=False) for method in methods]
 
 
