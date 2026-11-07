@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.76.0](https://github.com/dan-petty/devops-cli/compare/v0.75.0...v0.76.0) (2026-11-07)
+
+
+### Features
+
+* **cli:** scaffold a command and a test to project form ([#3868](https://github.com/dan-petty/devops-cli/issues/3868)) ([ea216b7](https://github.com/dan-petty/devops-cli/commit/ea216b7f391dafa9890a413a6923fe00a669b3c2))
+* **telemetry:** Add alternatives coverage metrics and alert ([#3870](https://github.com/dan-petty/devops-cli/issues/3870)) ([46a3735](https://github.com/dan-petty/devops-cli/commit/46a37356c45b5c19cc5389ed2be1591f255274c5))
+
 ## [0.75.0](https://github.com/dan-petty/devops-cli/compare/v0.74.0...v0.75.0) (2026-11-06)
 
 
