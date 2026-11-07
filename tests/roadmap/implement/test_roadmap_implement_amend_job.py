@@ -26,14 +26,14 @@ WRONG_PATH_TASKS = """\
 Reads: `CONTEXT.md`. Changes: `src/devops_cli/shout.py` (new).
 
 - [ ] 1.1 Add `src/devops_cli/shout.py`
-  - Verification: `uv run devops ci test tests/commands/test_shout.py`
+  - Verification: `$ uv run devops ci test tests/commands/test_shout.py`
 
 ## 2. The second group
 
 Reads: `CONTEXT.md`. Changes: `CONTEXT.md`.
 
 - [ ] 2.1 Document the function in `CONTEXT.md`
-  - Verification: `uv run devops docs check`
+  - Verification: `$ uv run devops docs check`
 """
 
 TASKS_PATH = f"{CHANGE_DIR}/tasks.md"
@@ -205,7 +205,7 @@ def test_path_request_whose_old_is_only_in_criteria_changes_nothing(
 Reads: `CONTEXT.md`. Changes: `src/devops_cli/shout.py` (new).
 
 - [ ] 1.1 Add `src/devops_cli/shout.py`
-  - Verification: `uv run devops docs check`
+  - Verification: `$ uv run devops docs check`
 
 ## Criteria
 

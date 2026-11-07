@@ -27,6 +27,9 @@ from devops_cli.lang import MESSAGES
 MARKDOWN = MarkdownIt("commonmark")
 CHECKBOXES = ("[ ]", "[x]", "[X]")
 _VERIFICATION = "Verification:"
+# A code span of a `Verification:` line is a command only when it starts with this mark, as a
+# shell prompt marks a command in a document (#3596). Every other code span is prose.
+COMMAND_MARK = "$ "
 # The suffix of the `Verification:` line of a test that must fail on the base commit (the stage
 # template), and the `Kind:` line that a plan may write for a group (#3042).
 FAILS_ON_BASE = MESSAGES.roadmap.stage_task_test.rsplit("`", 1)[1].strip()
@@ -101,12 +104,19 @@ def _list_items(tokens: Sequence[Token]) -> Iterator[Sequence[Token]]:
 
 
 def _task_of(item: Sequence[Token]) -> GroupTask | None:
-    """The task a list item is, or None when its text starts with no checkbox."""
+    """The task a list item is, or None when its text starts with no checkbox. A code span of a
+    `Verification:` line is a command only when it starts with `$ `, and the task keeps the command
+    without the mark. Every other code span of the line is prose and gives no command (#3596)."""
     lines = [token for token in item if token.type == "inline"]
     if not lines or lines[0].content[:3] not in CHECKBOXES:
         return None
     checks = [line for line in lines[1:] if line.content.startswith(_VERIFICATION)]
-    verification = tuple(command for line in checks for command in _code_spans(line))
+    verification = tuple(
+        span.removeprefix(COMMAND_MARK)
+        for line in checks
+        for span in _code_spans(line)
+        if span.startswith(COMMAND_MARK)
+    )
     return GroupTask(
         text=lines[0].content,
         ticked=lines[0].content[:3] != CHECKBOXES[0],

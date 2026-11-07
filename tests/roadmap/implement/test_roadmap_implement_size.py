@@ -55,7 +55,7 @@ def test_a_file_is_counted_once_and_a_command_or_a_setting_is_no_file() -> None:
     tasks = (
         "# Tasks\n\n## 1. The work\n\n"
         "- [ ] 1.1 Change `src/devops_cli/a.py` and `tests/test_a.py`\n"
-        "  - Verification: `uv run devops ci test tests/test_a.py`\n"
+        "  - Verification: `$ uv run devops ci test tests/test_a.py`\n"
         "- [ ] 1.2 Change `src/devops_cli/a.py` again, set `roadmap.implement.max_memory_limit`, "
         "read `PYTEST_XDIST_AUTO_NUM_WORKERS` and `devops_cli.roadmap.implement.implement_size`\n"
         "- [ ] 1.3 Document it in `k8s/README.md` and `CONTEXT.md`\n"

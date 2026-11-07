@@ -34,7 +34,7 @@ from devops_cli.roadmap.implement.implement_shell_policy import shown, verificat
 from devops_cli.roadmap.implement.implement_test_names import defined_tests
 from devops_cli.roadmap.plan_read import PlanReadError, recorded_tests, weakened_checks
 from devops_cli.roadmap.stage.stage_change import GroupKind, render_change
-from devops_cli.roadmap.step_files import parse_task_groups
+from devops_cli.roadmap.step_files import COMMAND_MARK, parse_task_groups
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
 
@@ -185,7 +185,7 @@ _COMMAND_SHOWN_CHARS = 300
 def _line_of(lines: list[str], task_line: int, command: str) -> int:
     """The one-based line of the `Verification:` line that holds the code span `command` in the task
     that starts at the zero-based `task_line`. It is the line of the task when none holds it."""
-    span = f"`{command}`"
+    span = f"`{COMMAND_MARK}{command}`"
     for number in range(max(task_line, 0), len(lines)):
         stripped = lines[number].lstrip()
         if stripped.startswith(_VERIFICATION_LINE) and span in stripped:
@@ -478,7 +478,7 @@ def _plan(tmp_path: Path, name: str, verification: str) -> Path:
 
 def test_a_verification_command_that_the_step_accepts_is_no_problem(tmp_path: Path) -> None:
     changes = _plan(
-        tmp_path, "1900-widget-export", "`uv run devops ci test tests/test_widget.py` passes"
+        tmp_path, "1900-widget-export", "`$ uv run devops ci test tests/test_widget.py` passes"
     )
 
     assert verification_problems(changes) == []
@@ -488,7 +488,7 @@ def test_a_negative_search_with_word_boundaries_is_reported_with_path_line_and_c
     tmp_path: Path,
 ) -> None:
     """The grammar of the negative search has no `-E`, so the step refuses the line."""
-    changes = _plan(tmp_path, "1900-widget-export", r"`! git grep -n -E '\bfoo\b' src/`")
+    changes = _plan(tmp_path, "1900-widget-export", r"`$ ! git grep -n -E '\bfoo\b' src/`")
 
     [problem] = verification_problems(changes)
 
@@ -497,8 +497,8 @@ def test_a_negative_search_with_word_boundaries_is_reported_with_path_line_and_c
     assert "is refused: the option `-E` is not allowed" in problem
 
 
-def test_a_prose_code_span_in_a_verification_line_is_reported(tmp_path: Path) -> None:
-    changes = _plan(tmp_path, "1900-widget-export", "`the log is empty`")
+def test_a_marked_span_with_a_program_that_is_not_allowed_is_reported(tmp_path: Path) -> None:
+    changes = _plan(tmp_path, "1900-widget-export", "`$ the log is empty`")
 
     [problem] = verification_problems(changes)
 
@@ -509,7 +509,7 @@ def test_each_span_of_a_verification_line_is_read_not_only_the_first(tmp_path: P
     changes = _plan(
         tmp_path,
         "1900-widget-export",
-        "`uv run devops ci test tests/test_widget.py` passes, and `test -z x` holds",
+        "`$ uv run devops ci test tests/test_widget.py` passes, and `$ test -z x` holds",
     )
 
     [problem] = verification_problems(changes)
@@ -520,8 +520,8 @@ def test_each_span_of_a_verification_line_is_read_not_only_the_first(tmp_path: P
 def test_the_line_of_a_problem_is_the_verification_line_of_its_own_task(tmp_path: Path) -> None:
     tasks = (
         "## 1. Export\n\n"
-        "- [ ] 1.1 Write the file\n  - Verification: `uv run devops ci docs` passes\n"
-        "- [ ] 1.2 Document it\n  - Verification: `docker buildx` passes\n"
+        "- [ ] 1.1 Write the file\n  - Verification: `$ uv run devops ci docs` passes\n"
+        "- [ ] 1.2 Document it\n  - Verification: `$ docker buildx` passes\n"
     )
     changes = _folder(tmp_path, tasks=tasks).parent
 
@@ -531,19 +531,20 @@ def test_the_line_of_a_problem_is_the_verification_line_of_its_own_task(tmp_path
 
 
 def test_a_plan_under_the_archive_directory_is_not_read(tmp_path: Path) -> None:
-    changes = _plan(tmp_path, "1900-widget-export", "`uv run devops ci docs` passes")
+    changes = _plan(tmp_path, "1900-widget-export", "`$ uv run devops ci docs` passes")
     archived = changes / ARCHIVE_DIR_NAME / "2026-11-01-1901-old-plan"
     archived.mkdir(parents=True)
     (archived / "tasks.md").write_text(
-        "## 1. Old\n\n- [x] 1.1 Done\n  - Verification: `docker buildx` passes\n", encoding="utf-8"
+        "## 1. Old\n\n- [x] 1.1 Done\n  - Verification: `$ docker buildx` passes\n",
+        encoding="utf-8",
     )
 
     assert verification_problems(changes) == []
 
 
 def test_every_active_plan_is_read(tmp_path: Path) -> None:
-    _plan(tmp_path, "1900-widget-export", "`docker buildx` passes")
-    changes = _plan(tmp_path, "1901-widget-import", "`test -d src` passes")
+    _plan(tmp_path, "1900-widget-export", "`$ docker buildx` passes")
+    changes = _plan(tmp_path, "1901-widget-import", "`$ test -d src` passes")
 
     assert [problem.split(":")[0] for problem in verification_problems(changes)] == [
         "1900-widget-export/tasks.md",

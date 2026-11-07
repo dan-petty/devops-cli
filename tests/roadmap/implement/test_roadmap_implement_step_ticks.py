@@ -143,8 +143,8 @@ def test_the_extra_turn_that_ticks_a_later_group_is_restored(
 EDITS = {
     "text": EVERY_TICK.replace("Document the function", "Describe the function"),
     "command": EVERY_TICK.replace(
-        "Verification: `uv run devops docs check`\n\n## Workflow",
-        "Verification: `uv run devops docs check --all`\n\n## Workflow",
+        "Verification: `$ uv run devops docs check`\n\n## Workflow",
+        "Verification: `$ uv run devops docs check --all`\n\n## Workflow",
     ),
     "added group": EVERY_TICK.replace(
         "## Workflow follow-up", "## 3. A third group\n\n- [x] Do more\n\n## Workflow follow-up"

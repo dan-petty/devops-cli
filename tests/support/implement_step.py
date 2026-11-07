@@ -27,14 +27,14 @@ TASKS = """\
 ## 1. The first group
 
 - [ ] Add the failing test `tests/test_sample.py` for `src/sample.py`
-  - Verification: `uv run devops ci test tests/test_sample.py`
+  - Verification: `$ uv run devops ci test tests/test_sample.py`
 - [ ] Add `shout` to `src/sample.py`
-  - Verification: `uv run devops ci test tests/test_sample.py` and `uv run devops docs check`
+  - Verification: `$ uv run devops ci test tests/test_sample.py` and `$ uv run devops docs check`
 
 ## 2. The second group
 
 - [x] Document the function in `docs/SAMPLE.md`
-  - Verification: `uv run devops docs check`
+  - Verification: `$ uv run devops docs check`
 
 ## Workflow follow-up
 

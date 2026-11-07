@@ -268,9 +268,9 @@ def _two_tasks(second_verification: str) -> dict[str, str]:
         "## 1. Render the values\n\n"
         "Reads: `src/devops_cli/roadmap/stores/store.py`. Changes: `k8s/loki-values.yaml`.\n\n"
         "- [ ] 1.1 Change the values.\n"
-        "  - Verification: `uv run devops ci docs`\n"
+        "  - Verification: `$ uv run devops ci docs`\n"
         "- [ ] 1.2 Document the values.\n"
-        f"  - Verification: `{second_verification}`\n"
+        f"  - Verification: `$ {second_verification}`\n"
     )
 
 

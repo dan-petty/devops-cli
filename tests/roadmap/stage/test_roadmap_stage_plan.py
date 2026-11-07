@@ -931,7 +931,7 @@ def test_a_documentation_text_that_starts_with_a_path_gets_the_edit_verb(
 ) -> None:
     tasks = _tasks_of(_group(documentation=documentation))
 
-    assert f"- [ ] 1.3 {task}\n  - Verification: `uv run devops ci docs` passes" in tasks
+    assert f"- [ ] 1.3 {task}\n  - Verification: `$ uv run devops ci docs` passes" in tasks
 
 
 def test_a_rendered_group_has_no_double_stop_and_no_task_that_starts_with_a_comma() -> None:
@@ -1322,7 +1322,7 @@ def _open_plan_creating(path: str) -> str:
         "# Tasks\n\n## 1. The module\n\n"
         f"Reads: `src/devops_cli/shout.py`. Changes: `{path}` (new).\n\n"
         f"- [ ] Add `{path}`\n"
-        "  - Verification: `uv run devops ci test tests/roadmap/test_roadmap_stage_constants.py`\n"
+        "  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_stage_constants.py`\n"
     )
 
 

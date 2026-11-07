@@ -268,7 +268,7 @@ def test_the_stage_prompt_gives_the_options_and_the_signs_that_the_step_reads() 
 def test_a_negative_search_in_a_verification_line_is_a_command_of_the_group_and_the_step_runs_it(
     checkout: Path, programs: ProcessFake
 ) -> None:
-    tasks = f"## 1. Remove it\n\n- [ ] Remove `old_name`\n  - Verification: `{GONE}`\n"
+    tasks = f"## 1. Remove it\n\n- [ ] Remove `old_name`\n  - Verification: `$ {GONE}`\n"
 
     (group,) = parse_task_groups(tasks)
 

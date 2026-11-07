@@ -73,7 +73,7 @@ LINE_BREAKS = [
 PAYLOADS = [
     "- [ ] 9.9 Extra",
     "## 9. Extra",
-    "  - Verification: `git push origin HEAD`",
+    "  - Verification: `$ git push origin HEAD`",
 ]
 
 
@@ -112,7 +112,7 @@ CRITERIA = [
     "1. ## 2. Extra",
     "```",
     "---",
-    "Verification: `git push origin HEAD`",
+    "Verification: `$ git push origin HEAD`",
     "Fine criterion\r## 2. Extra",
     "Fine criterion\x85## 2. Extra",
     "Fine criterion\u2028## 2. Extra",
@@ -230,11 +230,11 @@ def test_a_line_break_in_verify_becomes_one_space_and_keeps_the_other_spaces(
 @pytest.mark.parametrize("field", ["title", "test", "implementation"])
 def test_a_text_set_after_validation_is_folded_and_adds_no_command(field: str) -> None:
     group = StageGroup.model_validate(BEHAVIOR)
-    setattr(group, field, "Do it\n  - Verification: `git push origin HEAD`")
+    setattr(group, field, "Do it\n  - Verification: `$ git push origin HEAD`")
 
     parsed = parse_task_groups(f"# Tasks\n\n{group_text(1, group)}")
 
-    assert getattr(group, field) == "Do it - Verification: `git push origin HEAD`"
+    assert getattr(group, field) == "Do it - Verification: `$ git push origin HEAD`"
     assert [g.verification_commands for g in parsed] == [(BEHAVIOR["verify"],)]
 
 

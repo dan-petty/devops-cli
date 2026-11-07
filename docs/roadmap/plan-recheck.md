@@ -54,8 +54,9 @@ Before it judges a plan, the command applies the rewrite to the files in memory.
 on the task groups that `parse_task_groups` gives, and it edits by line number. It makes three
 edits and no other:
 
-- **A `Verification:` line.** A group with no such line gets one under its first task. The command
-  comes from the plan: `uv run devops ci test` with the test files of the `Changes:` line of the
+- **A `Verification:` line.** A group with no marked command gets a line under its first task. A
+  marked command is a code span of the line that starts with `$ `; the step reads no other code span
+  as a command. The command comes from the plan: `uv run devops ci test` with the test files of the `Changes:` line of the
   group, or `uv run devops ci docs` when the group changes only documents. A group of the kind
   `behavior` gets the `fails on the base` form, and any other group gets the `passes` form. The
   rewrite writes no command that the implement step refuses. A group that changes no test file and
@@ -74,7 +75,7 @@ edits and no other:
 Then the command judges the rewritten plan with the plan reader, the stage gates and
 `openspec validate`. A plan gets `rewrite` only when the rewritten plan passes all three. A plan
 that the rewrite does not fix stays `new-plan`, and its refusals come from the rewritten plan. The
-counts of folders with no `Verification:` line and of folders that fail the plan reader still
+counts of folders with no marked `Verification:` command and of folders that fail the plan reader still
 describe the merged plan as it is.
 
 ## Write the rewrite with confirm
@@ -133,7 +134,7 @@ to `ProposalGate`, and the report then shows the hits of that gate under its nam
 
 A folder of a closed issue is in no count. The report prints these counts for the other folders:
 
-- how many folders have no `Verification:` line, so the implement step requires no plan command;
+- how many folders have no marked `Verification:` command, so the implement step requires no plan command;
 - how many folders the plan reader refuses;
 - the number of folders for each result.
 

@@ -52,21 +52,21 @@ THREE_GROUPS_TASKS = """\
 Reads: `CONTEXT.md`. Changes: `src/devops_cli/shout.py` (new).
 
 - [ ] 1.1 First task
-  - Verification: `uv run devops ci test tests/test_shout.py`
+  - Verification: `$ uv run devops ci test tests/test_shout.py`
 
 ## 2. The second group
 
 Reads: `src/devops_cli/heavy_0.py`, `src/devops_cli/heavy_1.py`, `src/devops_cli/heavy_2.py`, `src/devops_cli/heavy_3.py`, `src/devops_cli/heavy_4.py`, `src/devops_cli/heavy_5.py`. Changes: `src/devops_cli/shout.py`.
 
 - [ ] 2.1 Heavy task reading `src/devops_cli/heavy_0.py`, `src/devops_cli/heavy_1.py`, `src/devops_cli/heavy_2.py`, `src/devops_cli/heavy_3.py`, `src/devops_cli/heavy_4.py`, `src/devops_cli/heavy_5.py`
-  - Verification: `uv run devops ci test tests/test_shout.py`
+  - Verification: `$ uv run devops ci test tests/test_shout.py`
 
 ## 3. The third group
 
 Reads: `src/devops_cli/shout.py`. Changes: `CONTEXT.md`.
 
 - [ ] 3.1 Document the function in `CONTEXT.md`
-  - Verification: `uv run devops docs check`
+  - Verification: `$ uv run devops docs check`
 
 ## Criteria
 
@@ -333,21 +333,21 @@ def test_a_second_group_over_the_limit_stops_the_item_as_plan_defect(
 Reads: `CONTEXT.md`. Changes: `src/devops_cli/shout.py` (new).
 
 - [ ] 1.1 First task
-  - Verification: `uv run devops ci test tests/test_shout.py`
+  - Verification: `$ uv run devops ci test tests/test_shout.py`
 
 ## 2. The second group
 
 Reads: `src/devops_cli/heavy_0.py`, `src/devops_cli/heavy_1.py`, `src/devops_cli/heavy_2.py`, `src/devops_cli/heavy_3.py`, `src/devops_cli/heavy_4.py`, `src/devops_cli/heavy_5.py`. Changes: `src/devops_cli/shout.py`.
 
 - [ ] 2.1 Heavy task reading `src/devops_cli/heavy_0.py`, `src/devops_cli/heavy_1.py`, `src/devops_cli/heavy_2.py`, `src/devops_cli/heavy_3.py`, `src/devops_cli/heavy_4.py`, `src/devops_cli/heavy_5.py`
-  - Verification: `uv run devops ci test tests/test_shout.py`
+  - Verification: `$ uv run devops ci test tests/test_shout.py`
 
 ## 3. The third group
 
 Reads: `src/devops_cli/heavy_0.py`, `src/devops_cli/heavy_1.py`, `src/devops_cli/heavy_2.py`, `src/devops_cli/heavy_3.py`, `src/devops_cli/heavy_4.py`, `src/devops_cli/heavy_5.py`. Changes: `src/devops_cli/shout.py`.
 
 - [ ] 3.1 Another heavy task reading `src/devops_cli/heavy_0.py`, `src/devops_cli/heavy_1.py`, `src/devops_cli/heavy_2.py`, `src/devops_cli/heavy_3.py`, `src/devops_cli/heavy_4.py`, `src/devops_cli/heavy_5.py`
-  - Verification: `uv run devops ci test tests/test_shout.py`
+  - Verification: `$ uv run devops ci test tests/test_shout.py`
 
 ## Criteria
 

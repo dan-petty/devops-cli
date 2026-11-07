@@ -149,7 +149,7 @@ def test_a_command_that_the_model_rewrites_to_pass_does_not_run_and_the_original
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     head = git(checkout, "rev-parse", "HEAD")
-    weak = TICKED.replace(f"Verification: `{CHECK}`\n", f"Verification: `{DOCS}`\n", 1)
+    weak = TICKED.replace(f"Verification: `$ {CHECK}`\n", f"Verification: `$ {DOCS}`\n", 1)
     programs.answer(
         lambda call: command_text(call) == CHECK, ProcessAnswer(returncode=1, stdout="no test\n")
     )
@@ -182,8 +182,8 @@ def test_a_line_of_the_group_that_is_no_task_is_restored(
     )
 
 
-SECOND = f"- [x] Add `shout` to `src/sample.py`\n  - Verification: `{CHECK}` and `{DOCS}`\n"
-FIRST = f"- [x] {FIRST_TASK}\n  - Verification: `{CHECK}`\n"
+SECOND = f"- [x] Add `shout` to `src/sample.py`\n  - Verification: `$ {CHECK}` and `$ {DOCS}`\n"
+FIRST = f"- [x] {FIRST_TASK}\n  - Verification: `$ {CHECK}`\n"
 SWAPPED = TICKED.replace(FIRST + SECOND, SECOND + FIRST)
 ADDED = TICKED.replace(SECOND, SECOND + "- [x] Do more\n")
 REMOVED = TICKED.replace(SECOND, "")

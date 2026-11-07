@@ -172,7 +172,7 @@ class PlanRecheck:
 
     @property
     def unverified(self) -> int:
-        """How many live folders have no `Verification:` line."""
+        """How many live folders have no marked `Verification:` command."""
         return sum(1 for record in self.live if not record.verified)
 
     @property

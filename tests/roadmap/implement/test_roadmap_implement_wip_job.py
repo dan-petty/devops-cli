@@ -28,7 +28,7 @@ TASKS_OF_FIVE = (
     "# Tasks\n\n## 1. The five files\n\n"
     f"Reads: `CONTEXT.md`. Changes: {FILES_AND_TESTS}.\n\n"
     + "".join(
-        f"- [ ] 1.{i} Add `src/devops_cli/f{i}.py`\n  - Verification: `uv run devops ci test tests/test_f{i}.py`\n"
+        f"- [ ] 1.{i} Add `src/devops_cli/f{i}.py`\n  - Verification: `$ uv run devops ci test tests/test_f{i}.py`\n"
         for i in range(1, FILES + 1)
     )
     + "\n## Criteria\n\n- Group 1: The job keeps every comment.\n"

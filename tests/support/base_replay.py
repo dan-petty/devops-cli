@@ -20,16 +20,16 @@ BEHAVIOR_TASKS = """\
 Reads: `CONTEXT.md`. Changes: `tests/test_shout.py` (new), `src/devops_cli/shout.py` (new).
 
 - [ ] 1.1 Add the failing test `tests/test_shout.py` for `src/devops_cli/shout.py`
-  - Verification: `uv run devops ci test tests/test_shout.py` fails on the base
+  - Verification: `$ uv run devops ci test tests/test_shout.py` fails on the base
 - [ ] 1.2 Add `shout` to `src/devops_cli/shout.py`
-  - Verification: `uv run devops ci test tests/test_shout.py`
+  - Verification: `$ uv run devops ci test tests/test_shout.py`
 
 ## 2. The second group
 
 Reads: `CONTEXT.md`. Changes: `CONTEXT.md`.
 
 - [ ] 2.1 Document the function in `CONTEXT.md`
-  - Verification: `uv run devops docs check`
+  - Verification: `$ uv run devops docs check`
 
 ## Criteria
 

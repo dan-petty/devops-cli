@@ -93,8 +93,8 @@ def test_the_failing_test_task_says_on_its_verification_line_that_it_fails_on_th
     verification = [line for line in lines if "Verification:" in line]
 
     assert verification == [
-        "  - Verification: `uv run devops ci test tests/test_sample.py` fails on the base",
-        "  - Verification: `uv run devops ci test tests/test_sample.py` passes",
+        "  - Verification: `$ uv run devops ci test tests/test_sample.py` fails on the base",
+        "  - Verification: `$ uv run devops ci test tests/test_sample.py` passes",
     ]
 
 
