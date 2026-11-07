@@ -4,7 +4,7 @@
 
 Reads: `pyproject.toml`, `tests/invariants/test_agents_md_claims.py`. Changes: `pyproject.toml`, `tests/invariants/test_agents_md_claims.py`.
 
-- [ ] 1.1 Add `branch = true` to `[tool.coverage.run]` after `parallel = true` in `pyproject.toml`, and leave `fail_under = 85` and `data_file = ".data/.coverage"` as they are. In `tests/invariants/test_agents_md_claims.py`, next to the test that reads the coverage floor, add a test that loads `pyproject.toml` with `tomllib` and asserts the `[tool.coverage.run]` table equals `{"data_file": ".data/.coverage", "parallel": True, "branch": True}`. The test fails on the base because the table has no `branch` key
+- [x] 1.1 Add `branch = true` to `[tool.coverage.run]` after `parallel = true` in `pyproject.toml`, and leave `fail_under = 85` and `data_file = ".data/.coverage"` as they are. In `tests/invariants/test_agents_md_claims.py`, next to the test that reads the coverage floor, add a test that loads `pyproject.toml` with `tomllib` and asserts the `[tool.coverage.run]` table equals `{"data_file": ".data/.coverage", "parallel": True, "branch": True}`. The test fails on the base because the table has no `branch` key
   - Verification: `$ uv run devops ci test tests/invariants/test_agents_md_claims.py` passes
 
 ## 2. Upload the coverage XML from the aggregate job

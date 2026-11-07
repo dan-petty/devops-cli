@@ -234,6 +234,7 @@ filterwarnings = [
 [tool.coverage.run]
 data_file = ".data/.coverage"
 parallel = true
+branch = true
 
 [tool.coverage.report]
 # The floor of the whole tree (#2356). The changed lines of a pull request must be 90% covered:

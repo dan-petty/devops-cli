@@ -625,6 +625,14 @@ def _coverage_floors_stated(document: Path) -> list[int]:
     return [int(figure) for figure in _COVERAGE_FLOOR_STATEMENT.findall(text)]
 
 
+def test_the_coverage_run_table_measures_branches() -> None:
+    """`[tool.coverage.run]` measures both sides of each conditional in every row of the gate,
+    and it keeps the data file that the aggregate job combines (#2163)."""
+    run = tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))["tool"]["coverage"]["run"]
+
+    assert run == {"data_file": ".data/.coverage", "parallel": True, "branch": True}
+
+
 def test_the_contributor_guide_and_the_test_rules_state_the_coverage_floor_of_pyproject() -> None:
     """Two documents give the figure of the coverage floor, once each, and it is the
     `fail_under` of `pyproject.toml`. Every other document names the gate without a figure, so a
