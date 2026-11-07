@@ -124,7 +124,9 @@ def test_explain_names_the_effort_set_and_whether_the_fallback_applies(
     )
 
     assert (explained.implement, explained.implement_effort) == (JobVerdict(True), line)
-    assert render_explanation(explained).splitlines()[-1] == line
+    lines = render_explanation(explained).splitlines()
+    assert lines[-2] == line
+    assert lines[-1] == (f"Issue #{medium} has no recorded implement run, so it has no totals.")
 
 
 def test_a_medium_effort_item_waits_for_the_low_effort_item_that_the_run_takes(
@@ -376,6 +378,7 @@ def test_the_report_gives_yes_or_no_for_each_job_and_the_reason_of_a_no() -> Non
         "Refine job: no. The item waits on a person. Reply.",
         "Stage job: no. It is claimed by human.",
         "Implement job: yes.",
+        "Issue #7 has no recorded implement run, so it has no totals.",
     ]
 
 
@@ -510,3 +513,80 @@ def test_a_trace_read_reads_the_one_issue_once(
     read_trace(job_world.store, number)
 
     assert reads == [number]
+
+
+# ── The totals of the last run (#3217) ────────────────────────────────────────────────────
+
+
+def _totals_trace() -> ImplementTrace:
+    """The trace of a run with one model event and two attempts: a failed one that a repair
+    round follows, and a passed one that ends the step."""
+    trace = ImplementTrace(step="group 1")
+    trace.model_call("model-a", 1200, 300, 90.0)
+    trace.attempt(1, "standard", "check_failed", "ruff check . exited 1", repair=True)
+    trace.attempt(2, "standard", "", "", repair=False)
+    return trace
+
+
+def test_the_totals_of_the_last_run_sum_the_tokens_the_seconds_and_the_outcomes(
+    job_world: JobWorld,
+) -> None:
+    number = _seed(job_world)
+    _record_trace(job_world, number, _totals_trace().encode())
+
+    explained = _explain(job_world, number)
+
+    totals = getattr(explained, "totals", None)
+    assert totals is not None, "the explanation gives no totals of the last run"
+    assert (
+        totals.tokens_total,
+        totals.seconds_total,
+        totals.repair_rounds,
+        totals.outcomes,
+        totals.dropped,
+    ) == (1500, 90.0, 1, {"failed": 1, "passed": 1}, 0)
+
+
+def test_the_report_names_the_totals_of_the_last_run(job_world: JobWorld) -> None:
+    number = _seed(job_world)
+    _record_trace(job_world, number, _totals_trace().encode())
+
+    report = render_explanation(_explain(job_world, number))
+
+    assert report.splitlines()[-1] == (
+        "Last implement run: 1500 tokens, 90.0 s, 1 repair round(s), 1 failed and 1 passed "
+        "outcome(s)."
+    )
+    assert "1 repair round" in report
+
+
+def test_the_report_names_the_events_that_the_bound_dropped_beside_the_totals(
+    job_world: JobWorld,
+) -> None:
+    number = _seed(job_world)
+    _record_trace(job_world, number, '{"events":[],"dropped":12}')
+
+    report = render_explanation(_explain(job_world, number))
+
+    assert report.splitlines()[-1] == (
+        "12 earlier event(s) are not kept, so the totals leave them out."
+    )
+
+
+def test_an_item_with_no_recorded_run_says_so_and_gives_no_totals(job_world: JobWorld) -> None:
+    number = _seed(job_world)
+
+    explained = _explain(job_world, number)
+
+    assert getattr(explained, "totals", None) is None
+    assert render_explanation(explained).splitlines()[-1] == (
+        f"Issue #{number} has no recorded implement run, so it has no totals."
+    )
+
+
+def test_a_trace_that_is_not_json_stops_the_report_and_names_the_key(job_world: JobWorld) -> None:
+    number = _seed(job_world)
+    _record_trace(job_world, number, "not json")
+
+    with pytest.raises(RoadmapImplementError, match=r"implement\.trace"):
+        _explain(job_world, number)

@@ -2163,6 +2163,19 @@ class RoadmapMessages:
     explain_trace_unreadable: str = (
         "The value of implement.trace on issue #{number} is not a trace: {error}"
     )
+    # The totals of the last implement run in the report (#3217).
+    explain_totals_line: str = (
+        "Last implement run: {tokens_total} tokens, {seconds_total} s, {repair_rounds} repair "
+        "round(s), {failed} failed and {passed} passed outcome(s)."
+    )
+    explain_totals_dropped: str = (
+        "{count} earlier event(s) are not kept, so the totals leave them out."
+    )
+    explain_totals_none: str = "Issue #{number} has no recorded implement run, so it has no totals."
+    explain_json_with_trace: str = (
+        "The option --json gives the totals of the last implement run, and --trace prints the "
+        "trace of the run. Give one of them, not both."
+    )
     item_left_filter: str = "The filter takes {family} {wanted}. The item has {family} {have}."
     item_left_limit: str = (
         "It passes every rule, but a run takes {limit} item(s) and {limit} item(s) of higher "

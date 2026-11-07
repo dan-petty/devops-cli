@@ -6822,6 +6822,7 @@ devops roadmap explain [OPTIONS] <item>
 | `--filter` | `string` | - | A label filter in the form family=value, for both jobs, over the families status, priority, type, value and effort. Repeat the option. Without it, each job uses its own default filter. |
 | `--limit` | `integer` | - | Items a run takes, for both jobs. Without it, each job uses its own limit: the setting roadmap.stage.limit for stage, and 1 for implement. |
 | `--trace` | `boolean` | - | Print the trace of the last run of the implement job for the issue, oldest event first, and no verdict. The command reads the one issue, and no clone, and writes nothing. |
+| `--json` | `boolean` | - | Print the number and the totals of the last implement run of the issue as a JSON object: the tokens, the seconds, the repair rounds, the outcome counts and the count of dropped events. Each total is null when the record holds no trace of a run. The option cannot be used with --trace. |
 | `--dry-run` | `boolean` | - | Make no request: print the reads that a run makes, in order, with placeholders. |
 
 ### `devops roadmap inbox`
