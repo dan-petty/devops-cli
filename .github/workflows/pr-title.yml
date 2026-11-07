@@ -129,8 +129,24 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           uv run devops install-tools --tool openspec --only-missing
 
+      # The command counts tokens with the exact encoding and stops when the cache is missing.
+      # tiktoken names a cache file by the SHA-1 of its blob URL and does not download the file
+      # when the cache directory is empty, so the step copies the committed encodings there, as
+      # `tests/conftest.py` does for the tests. No network and no unpinned input is involved.
+      - name: Prepare the tiktoken cache
+        env:
+          TIKTOKEN_CACHE_DIR: ${{ runner.temp }}/tiktoken-cache
+        run: |
+          mkdir -p "$TIKTOKEN_CACHE_DIR"
+          for encoding in o200k_base cl100k_base; do
+            url="https://openaipublic.blob.core.windows.net/encodings/${encoding}.tiktoken"
+            key="$(printf '%s' "$url" | sha1sum | cut -d ' ' -f 1)"
+            cp "tests/fixtures/tiktoken/${encoding}.tiktoken" "$TIKTOKEN_CACHE_DIR/$key"
+          done
+
       - name: Check the Plan
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TIKTOKEN_CACHE_DIR: ${{ runner.temp }}/tiktoken-cache
         run: uv run devops roadmap plan-check "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"

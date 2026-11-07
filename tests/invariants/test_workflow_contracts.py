@@ -1639,6 +1639,8 @@ def test_only_a_file_of_an_active_change_folder_counts_as_plan_only(
 
 PR_TITLE_PATH = WORKFLOWS_DIR / "pr-title.yml"
 PLAN_CHECK_JOB = "plan-check"
+PLAN_CHECK_TIKTOKEN_CACHE_DIR = "${{ runner.temp }}/tiktoken-cache"
+PREPARE_CACHE_STEP = "Prepare the tiktoken cache"
 # The paths of the expressions that the condition of the job reads, and a path it must not read.
 EVENT_AUTHOR = "github.event.pull_request.user.login"
 EVENT_TITLE = "github.event.pull_request.title"
@@ -1800,6 +1802,37 @@ def test_the_plan_check_job_checks_out_the_history_and_runs_the_command_for_the_
         {
             "PR_NUMBER": "${{ github.event.pull_request.number }}",
             "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
+            "TIKTOKEN_CACHE_DIR": PLAN_CHECK_TIKTOKEN_CACHE_DIR,
         },
         'uv run devops roadmap plan-check "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"',
+    )
+
+
+def test_the_plan_check_job_fills_the_tiktoken_cache_from_the_committed_encodings() -> None:
+    """The command counts tokens with the exact encoding and raises `TokenCountError` when the
+    encoding cache is missing (`count_tokens`). A clean runner has no cache and tiktoken does not
+    download the files, so the job copies the committed `o200k_base` and `cl100k_base` files to
+    the cache directory, under the SHA-1 of their blob URL, as `tests/conftest.py` does, before
+    the step that runs the command. The two steps name the same directory (#3828)."""
+    steps = _plan_check_job()["steps"]
+    names = [step.get("name") for step in steps]
+    prepare = steps[names.index(PREPARE_CACHE_STEP)]
+    script = prepare["run"]
+
+    assert (
+        names.index("Check out repository")
+        < names.index(PREPARE_CACHE_STEP)
+        < names.index("Check the Plan"),
+        prepare["env"],
+        "for encoding in o200k_base cl100k_base" in script,
+        "tests/fixtures/tiktoken/${encoding}.tiktoken" in script,
+        "https://openaipublic.blob.core.windows.net/encodings/${encoding}.tiktoken" in script,
+        "sha1sum" in script,
+    ) == (
+        True,
+        {"TIKTOKEN_CACHE_DIR": PLAN_CHECK_TIKTOKEN_CACHE_DIR},
+        True,
+        True,
+        True,
+        True,
     )
