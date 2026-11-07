@@ -50,7 +50,7 @@ The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set the model o
 
 #### Scenario: The template is read
 - **WHEN** the template is validated as settings and the gateway config is read
-- **THEN** the model of the task `implement` and each tier of each step class are a hosted group in the `model_list` of the gateway config, and the four step classes have a ladder
+- **THEN** the model of the task `implement` and each tier of each step class are a hosted group in the `model_list` of the gateway config, and the two step classes have a ladder
 
 #### Scenario: The window fits
 - **WHEN** the window of the task `implement` is compared with the window of its group and with the step budget plus the turn reserve
