@@ -34,6 +34,6 @@ See proposal.md for the motivation and the scope (#3754, part 6 of #1335). The H
 - **Decision**: `tests/commands/test_promql_analysis.py` held the tests of `devops_cli.prometheus` and four command tests. The package tests move to `tests/prometheus/test_promql_analysis.py`, and the command tests move to `tests/commands/test_prometheus.py`.
 - **Rejected**: leave the file in `tests/commands/`. The folders under `tests/` mirror the packages under `src/devops_cli/`.
 
-### 8. Not changed
-- `tests/argo/test_argo_gitops.py::test_inspect_git_manifest_drift_handles_spaces_non_ascii_and_renames` starts the real `git`. It has no patch site. It checks the real output of `git status` for spaces, non-ASCII names and renames, and a transcript scenario for it is another item.
-- `tests/commands/test_grafana.py::test_grafana_client_args_masked_token_fallback` patches `get_grafana_token` and `get_or_mint_grafana_auth` and imports `_client_args`. It tests the credential step that stays in the command (decision 2).
+### 8. A command test proves the wiring of the command
+- **Decision**: a command test reads the requests that reached the `web` fake. The Grafana tests assert the bearer token on every request, the `query` of a search and the printed rows. The Prometheus tests assert the `time` of an instant query and the `step` and the window of `analyze`. The masked-token fallback runs as `grafana datasources` with the `keyring_store` fixture and the mint endpoints on `web`, so the test holds no patch and no private import. The drift test of `git status` replays a transcript of `git status --porcelain=v1 -z` through `process_fake`.
+- **Rejected**: test the wiring through the client tests alone. A command that passes the wrong headers or drops an option would pass every client test.

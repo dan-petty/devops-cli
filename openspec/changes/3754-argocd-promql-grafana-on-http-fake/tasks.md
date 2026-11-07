@@ -29,6 +29,8 @@
   - Verification: `! git grep -n -e unittest.mock -e monkeypatch.setattr -e CliRunner -e "import _" -- tests/argo/test_argo_fleet.py tests/argo/test_argo_gitops.py tests/prometheus/test_promql_analysis.py`
 - [x] 4.3 No command file builds a client, and the rollout gate holds no copy of the instant query
   - Verification: `! git grep -n -e new_http_client -e httpx2.Client -e http_client -e /api/v1/query -- src/devops_cli/commands/prometheus.py src/devops_cli/commands/grafana.py src/devops_cli/commands/argo.py src/devops_cli/argo/rollouts.py`
+- [x] 4.4 The command tests read the recorded requests: the Grafana token and search query, the `--time` of a query, the `step` and window of `analyze`, and the masked-token mint
+  - Verification: `uv run devops ci test tests/commands/test_grafana.py tests/commands/test_prometheus.py`
 
 ## 5. Documents
 
@@ -39,9 +41,3 @@
 
 - [ ] 6.1 Archive the change
   - Verification: `uv run devops openspec archive 3754-argocd-promql-grafana-on-http-fake`
-
-## Workflow follow-up
-
-- The `_client_args` test of `tests/commands/test_grafana.py` still patches two names. The patch sites in the other command test files belong to the finish of #1327. #1335 ("Found while measuring") says that a person decides whether to reopen #1327 or file a new item.
-- `test_inspect_git_manifest_drift_handles_spaces_non_ascii_and_renames` in `tests/argo/test_argo_gitops.py` starts the real `git`. A transcript scenario for it is a later item.
-- Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
