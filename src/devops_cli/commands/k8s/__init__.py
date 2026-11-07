@@ -66,6 +66,7 @@ from devops_cli.commands.k8s.networking import (
     port_forward_stop,
     service_url,
 )
+from devops_cli.commands.k8s.ollama import app as ollama_app
 from devops_cli.commands.k8s.security_audit import (
     k8s_audit,
     k8s_check_deprecated,
@@ -136,6 +137,7 @@ app.command(name="pods")(pods_cmd)
 app.command(name="security-stream")(security_stream_cmd)
 app.command(name="gpu-matrix")(gpu_matrix_cmd)
 app.command(name="doctor")(doctor_cmd)
+app.add_typer(ollama_app, name="ollama", help=HELP.k8s.ollama_app)
 app.add_typer(tunnel_app, name="tunnel", help=HELP.k8s.tunnel_app)
 app.add_typer(volume_app, name="volume", help=HELP.k8s.volume_app)
 
@@ -183,6 +185,7 @@ __all__ = [
     "k8s_lint",
     "k8s_validate",
     "logs",
+    "ollama_app",
     "pods_cmd",
     "port_forward",
     "push_secrets",

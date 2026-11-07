@@ -16,9 +16,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import urlsplit
 
 import yaml
+
+from devops_cli.config.defaults import DEFAULT_LLM_NAMESPACE
+from devops_cli.dry_run.requests import PlannedRequest
 
 
 @dataclass(frozen=True)
@@ -145,11 +149,63 @@ def plan_ollama_prune(
     )
 
 
+def read_ollama_pods(core: Any, namespace: str = DEFAULT_LLM_NAMESPACE) -> list[OllamaPod]:
+    """Read the Ollama pods in `namespace` with label `llm.devops.io/provider=ollama`."""
+    pods = core.list_namespaced_pod(
+        namespace=namespace, label_selector="llm.devops.io/provider=ollama"
+    )
+    items = pods.items if hasattr(pods, "items") else pods
+    result: list[OllamaPod] = []
+    for item in items:
+        metadata = getattr(item, "metadata", None)
+        spec = getattr(item, "spec", None)
+        name = getattr(metadata, "name", "") if metadata else ""
+        labels = getattr(metadata, "labels", {}) or {} if metadata else {}
+        node = getattr(spec, "node_name", "") if spec else ""
+        if isinstance(item, dict):
+            name = item.get("metadata", {}).get("name", "")
+            labels = item.get("metadata", {}).get("labels", {})
+            node = item.get("spec", {}).get("node_name", "")
+        result.append(OllamaPod(name=name, node=node, labels=labels))
+    return result
+
+
+def plan_ollama_prune_requests(
+    gateway_text: str, context: str | None = None
+) -> list[PlannedRequest]:
+    """Build the planned external kubectl exec requests for dry-run simulation."""
+    targets = gateway_targets(gateway_text)
+    requests: list[PlannedRequest] = []
+    for target in sorted(targets):
+        cmd = [
+            "kubectl",
+            "exec",
+            *(["--context", context] if context else []),
+            "-n",
+            DEFAULT_LLM_NAMESPACE,
+            f"<{target}-pod>",
+            "--",
+            "ollama",
+            "rm",
+            "<model>",
+        ]
+        requests.append(
+            PlannedRequest(
+                method="kubectl",
+                target=f"exec {target}",
+                argv=tuple(cmd),
+            )
+        )
+    return requests
+
+
 __all__ = [
     "NodePrune",
     "OllamaPod",
     "gateway_targets",
     "parse_ollama_list",
     "plan_ollama_prune",
+    "plan_ollama_prune_requests",
+    "read_ollama_pods",
     "service_selectors",
 ]

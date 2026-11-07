@@ -182,6 +182,8 @@ Ollama runs as one DaemonSet per total-VRAM tier (`ollama-16gib` … `ollama-128
 | `ollama-48gib-fast` | `qwen3.8:27b` |
 | `ollama-64gib-standard` | `qwen3.8:27b` |
 
+**Prune unused models.** `devops k8s ollama prune` removes the models that no tier of a node serves. `--plan` prints the models that each node would lose and removes none. `--dry-run` prints the `kubectl exec` commands of each gateway target and makes no request to the cluster. A node whose `ollama list` fails loses no model.
+
 **GPU thresholds.** `llm/profiles/gpu-thresholds.yaml` holds two values of `nvidia.com/gpu.architecture`, both `pascal`. Argo CD tracks `main`, so the values are in git and not in `config.yaml`. A tier in `llm/profiles/tier-templates/` is at or below a threshold when the newest architecture that it accepts is that architecture or an older one:
 
 - At or below `embedding_only`: the tier serves embedding models alone, keeps one model loaded and sets `LLAMA_ARG_THREADS: "1"`, because the model runs on the GPU. Each of its gateway deployments has order 1. Otherwise the tier runs as its template says: it is a chat tier, it loads one model, and the gateway sends it no embedding batch.

@@ -477,6 +477,11 @@ class K8sCommandHelp:
         "Move a local-path claim to a volume on another node, and reclaim orphaned "
         "PersistentVolumes."
     )
+    ollama_app: str = "Prune Ollama models that no tier serves from the cluster nodes."
+    ollama_prune: str = "Remove the Ollama models that no tier of a node serves."
+    ollama_prune_plan: str = "Print the models that each node would lose, and remove none."
+    ollama_prune_dry_run: str = "Preview execution plan without mutating external state."
+    ollama_prune_context: str = "Kubernetes context to target."
     tunnel_app: str = (
         "Keep the local end of the Kubernetes API route at k8s.<domain> running: one "
         "'cloudflared access tcp' forward, for the tunnel kubeconfig context off the home network."

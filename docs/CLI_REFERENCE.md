@@ -1521,6 +1521,30 @@ devops k8s doctor [OPTIONS]
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--stack` | `string` | - | Check one stack end to end in place of the cluster rules: gitea. The gitea checks read Applications gitea and gitea-manifests, the volume of claim gitea-shared-storage, the Pod Security of namespace gitea and the host of Ingress gitea-ingress. Through that host, they check the sign-in page, the refusal of an anonymous API read, the token challenge of the registry, and the clone URL of a temporary private repository, which they make as gitea_admin with keyring gitea_admin_password and then delete. Last, they check that the pod reaches no address outside the cluster. Exits 2 when a check fails. |
 
+### `devops k8s ollama`
+
+**Prune Ollama models that no tier serves from the cluster nodes.**
+
+```bash
+devops k8s ollama COMMAND [ARGS]...
+```
+
+#### `devops k8s ollama prune`
+
+**Remove the Ollama models that no tier of a node serves.**
+
+```bash
+devops k8s ollama prune [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--plan` | `boolean` | - | Print the models that each node would lose, and remove none. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+| `--context`, `-c` | `string` | - | Kubernetes context to target. |
+
 ### `devops k8s tunnel`
 
 **Keep the local end of the Kubernetes API route at k8s.\<domain\> running: one 'cloudflared access tcp' forward, for the tunnel kubeconfig context off the home network.**

@@ -814,6 +814,9 @@ class K8sMessages:
     volume_reclaimed: str = "PersistentVolume '{name}' {action} successfully."
     volume_reclaim_aborted: str = "PersistentVolume '{name}' reclaim aborted."
     volume_reclaim_dry_run_heading: str = "Planned Kubernetes Volume Reclaim API Requests:"
+    ollama_prune_dry_run_heading: str = "Planned Ollama Prune Requests:"
+    ollama_prune_node_failed: str = "Could not list Ollama models on node {node}."
+    ollama_prune_removed: str = "Removed model '{model}' from node {node}."
     volume_move_bad_ref: str = "Give the claim as NAMESPACE/CLAIM, not '{ref}'."
     volume_move_claim_missing: str = "Claim {namespace}/{claim} does not exist."
     volume_move_claim_not_bound: str = (
