@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import socket
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 import typer.main
 import valkey.client
 import yaml
 from fakeredis import FakeServer
-from typer.testing import CliRunner
 
 from devops_cli.ai.run_store import (
     Mechanism,
@@ -38,6 +38,7 @@ from devops_cli.valkey.endpoint import ValkeyEndpoint, parse_valkey_url
 from tests.support.certificates import LocalCa
 from tests.support.config_writes import written_keys
 from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.valkey import (
     bulk_reply,
     serving_valkey,
@@ -45,8 +46,6 @@ from tests.support.fakes.valkey import (
     valkey_endpoint,
 )
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
-
-runner = CliRunner()
 
 # =============================================================================
 # 1. ValkeyClient: destination check, commands, failures
@@ -712,307 +711,239 @@ class TestValkeyClientFailures:
 # =============================================================================
 
 
+@pytest.mark.usefixtures("keyring_store")
 class TestValkeyCliCommands:
-    """Tests for devops valkey CLI commands."""
+    """Tests for devops valkey CLI commands, run against a server that answers over a loopback
+    socket or against the in-memory server of the `valkey` fixture."""
 
-    @patch("devops_cli.commands.valkey._resolve_client")
-    def test_cli_ping_success(self, mock_resolve: MagicMock) -> None:
-        mock_client = MagicMock()
-        mock_client.ping.return_value = True
-        mock_resolve.return_value = mock_client
+    def test_cli_ping_success(self, cli: Callable[..., Any], config: Callable[..., Path]) -> None:
+        with serving_valkey({"PING": b"+PONG\r\n"}) as (port, received):
+            config(valkey={"url": f"valkey://127.0.0.1:{port}"})
+            res = cli("valkey", "ping")
+        assert (res.exit_code, "PONG" in res.output, received) == (0, True, [["PING"]])
 
-        res = runner.invoke(app, ["ping"])
-        assert res.exit_code == 0
-        assert "PONG" in res.output
+    def test_cli_ping_failure(self, cli: Callable[..., Any], refusing_port: int) -> None:
+        res = cli("valkey", "ping", "--url", f"valkey://127.0.0.1:{refusing_port}")
+        assert (
+            res.exit_code,
+            res.output.startswith(f"✗ Failed to connect to Valkey at 127.0.0.1:{refusing_port}: "),
+            "Connection refused" in res.output,
+        ) == (ValkeyConnectionError("").exit_code, True, True)
 
-    @patch("devops_cli.commands.valkey._resolve_client")
-    def test_cli_ping_failure(self, mock_resolve: MagicMock) -> None:
-        mock_client = MagicMock()
-        mock_client.ping.side_effect = ValkeyConnectionError("Connection refused")
-        mock_resolve.return_value = mock_client
-
-        res = runner.invoke(app, ["ping"])
-        assert (res.exit_code, res.output) == (
-            ValkeyConnectionError("").exit_code,
-            "✗ Connection refused\n",
+    def test_cli_info(self, cli: Callable[..., Any], config: Callable[..., Path]) -> None:
+        replies = {
+            "INFO": bulk_reply(b"# Server\r\nvalkey_version:8.0.0\r\nconnected_clients:1\r\n")
+        }
+        with serving_valkey(replies) as (port, received):
+            config(valkey={"url": f"valkey://127.0.0.1:{port}"})
+            res = cli("valkey", "info", "--section", "server")
+        assert (res.exit_code, "valkey_version" in res.output, received) == (
+            0,
+            True,
+            [["INFO", "server"]],
         )
 
-    @patch("devops_cli.commands.valkey._resolve_client")
-    def test_cli_info(self, mock_resolve: MagicMock) -> None:
-        mock_client = MagicMock()
-        mock_client.info.return_value = {"valkey_version": "8.0.0", "connected_clients": "1"}
-        mock_resolve.return_value = mock_client
-
-        res = runner.invoke(app, ["info", "--section", "server"])
-        assert res.exit_code == 0
-        assert "valkey_version" in res.output
-
-    @patch("devops_cli.commands.valkey._resolve_client")
-    def test_cli_stats(self, mock_resolve: MagicMock) -> None:
-        mock_client = MagicMock()
-        mock_client.info.return_value = {
-            "valkey_version": "8.0.0",
-            "uptime_in_seconds": 3600,
-            "connected_clients": 2,
-            "used_memory_human": "5M",
-            "used_memory_peak_human": "6M",
-            "total_connections_received": 100,
-            "total_commands_processed": 500,
+    def test_cli_stats(self, cli: Callable[..., Any], config: Callable[..., Path]) -> None:
+        replies = {
+            "INFO": bulk_reply(
+                b"# Server\r\nvalkey_version:8.0.0\r\nuptime_in_seconds:3600\r\n"
+                b"connected_clients:2\r\nused_memory_human:5M\r\n"
+            ),
+            "DBSIZE": b":15\r\n",
         }
-        mock_client.dbsize.return_value = 15
-        mock_client.host = "127.0.0.1"
-        mock_client.port = 6379
-        mock_resolve.return_value = mock_client
+        with serving_valkey(replies) as (port, received):
+            config(valkey={"url": f"valkey://127.0.0.1:{port}"})
+            res = cli("valkey", "stats")
+        assert (
+            res.exit_code,
+            "Valkey Server Diagnostic Statistics" in res.output,
+            "15" in res.output,
+            f"127.0.0.1:{port}" in res.output,
+            received,
+        ) == (0, True, True, True, [["INFO"], ["DBSIZE"]])
 
-        res = runner.invoke(app, ["stats"])
-        assert res.exit_code == 0
-        assert "Valkey Server Diagnostic Statistics" in res.output
-        assert "15" in res.output
+    def test_cli_keys(self, cli: Callable[..., Any], valkey: ValkeyClient) -> None:
+        valkey.set("session:1", "a")
+        valkey.set("session:2", "b")
+        valkey.set("other", "c")
+        res = cli("valkey", "keys", "session:*")
+        assert (
+            res.exit_code,
+            "session:1" in res.output,
+            "session:2" in res.output,
+            "other" in res.output,
+        ) == (0, True, True, False)
 
-    @patch("devops_cli.commands.valkey._resolve_client")
-    def test_cli_keys(self, mock_resolve: MagicMock) -> None:
-        mock_client = MagicMock()
-        mock_client.keys.return_value = ["session:1", "session:2"]
-        mock_resolve.return_value = mock_client
+    def test_cli_keys_empty(self, cli: Callable[..., Any], valkey: ValkeyClient) -> None:
+        res = cli("valkey", "keys", "nonexistent*")
+        assert (res.exit_code, "No keys matching" in res.output) == (0, True)
 
-        res = runner.invoke(app, ["keys", "session:*"])
-        assert res.exit_code == 0
-        assert "session:1" in res.output
-        assert "session:2" in res.output
+    def test_cli_get(self, cli: Callable[..., Any], valkey: ValkeyClient) -> None:
+        valkey.set("greeting", "hello-world")
+        res = cli("valkey", "get", "greeting")
+        assert (res.exit_code, "hello-world" in res.output) == (0, True)
 
-    @patch("devops_cli.commands.valkey._resolve_client")
-    def test_cli_keys_empty(self, mock_resolve: MagicMock) -> None:
-        mock_client = MagicMock()
-        mock_client.keys.return_value = []
-        mock_client.db = 0
-        mock_resolve.return_value = mock_client
+    def test_cli_get_not_found(self, cli: Callable[..., Any], valkey: ValkeyClient) -> None:
+        res = cli("valkey", "get", "missing")
+        assert (res.exit_code, "not found" in res.output) == (0, True)
 
-        res = runner.invoke(app, ["keys", "nonexistent*"])
-        assert res.exit_code == 0
-        assert "No keys matching" in res.output
-
-    @patch("devops_cli.commands.valkey._resolve_client")
-    def test_cli_get(self, mock_resolve: MagicMock) -> None:
-        mock_client = MagicMock()
-        mock_client.get.return_value = "hello-world"
-        mock_resolve.return_value = mock_client
-
-        res = runner.invoke(app, ["get", "greeting"])
-        assert res.exit_code == 0
-        assert "hello-world" in res.output
-
-    @patch("devops_cli.commands.valkey._resolve_client")
-    def test_cli_get_not_found(self, mock_resolve: MagicMock) -> None:
-        mock_client = MagicMock()
-        mock_client.get.return_value = None
-        mock_resolve.return_value = mock_client
-
-        res = runner.invoke(app, ["get", "missing"])
-        assert res.exit_code == 0
-        assert "not found" in res.output
-
-    def test_cli_set_stores_the_value_with_its_expiry(self, valkey_client: ValkeyClient) -> None:
-        with patch("devops_cli.commands.valkey._resolve_client", return_value=valkey_client):
-            res = runner.invoke(app, ["set", "k", "v", "--ex", "30"])
+    def test_cli_set_stores_the_value_with_its_expiry(
+        self, cli: Callable[..., Any], valkey: ValkeyClient
+    ) -> None:
+        res = cli("valkey", "set", "k", "v", "--ex", "30")
         assert (res.exit_code, "Set 'k' successfully (TTL: 30s)." in res.output) == (0, True)
-        assert (valkey_client.get("k"), 0 < valkey_client.execute("TTL", "k") <= 30) == ("v", True)
+        assert (valkey.get("k"), 0 < valkey.execute("TTL", "k") <= 30) == ("v", True)
 
-    def test_cli_set_dry_run(self) -> None:
-        res = runner.invoke(app, ["set", "k", "v", "--dry-run"])
+    def test_cli_set_dry_run(self, cli: Callable[..., Any]) -> None:
+        res = cli("valkey", "set", "k", "v", "--dry-run")
         assert res.exit_code == 0
         assert "valkey SET k <value>" in res.output
 
-    @patch("devops_cli.commands.valkey._resolve_client")
-    def test_cli_flush(self, mock_resolve: MagicMock) -> None:
-        mock_client = MagicMock()
-        mock_client.db = 0
-        mock_resolve.return_value = mock_client
-
-        res = runner.invoke(app, ["flush"])
-        assert res.exit_code == 0
-        assert "Flushed Valkey database 0" in res.output
-
-    @patch("devops_cli.commands.valkey._resolve_client")
-    def test_cli_flush_all_flushes_every_database(self, mock_resolve: MagicMock) -> None:
-        mock_client = MagicMock()
-        mock_resolve.return_value = mock_client
-
-        res = runner.invoke(app, ["flush", "--all"])
-
-        assert (
-            res.exit_code,
-            res.output,
-            mock_client.flushall.call_count,
-            mock_client.flushdb.call_count,
-        ) == (0, "✓ Flushed all Valkey databases.\n", 1, 0)
-
-    @patch("devops_cli.commands.valkey._resolve_client")
-    def test_cli_without_a_command_names_the_server_and_runs_nothing(
-        self, mock_resolve: MagicMock
-    ) -> None:
-        mock_client = MagicMock()
-        mock_client.host = "valkey.example.com"
-        mock_client.port = 6379
-        mock_resolve.return_value = mock_client
-
-        res = runner.invoke(app, ["cli"])
-
-        assert (
-            res.exit_code,
-            "valkey.example.com:6379" in res.output,
-            mock_client.execute.called,
-        ) == (
+    def test_cli_flush(self, cli: Callable[..., Any], valkey: ValkeyClient) -> None:
+        valkey.set("k", "v")
+        res = cli("valkey", "flush")
+        assert (res.exit_code, "Flushed Valkey database 0" in res.output, valkey.dbsize()) == (
             0,
             True,
-            False,
+            0,
         )
 
-    def test_cli_flush_dry_run(self) -> None:
-        res = runner.invoke(app, ["flush", "--dry-run"])
+    def test_cli_flush_all_flushes_every_database(
+        self, cli: Callable[..., Any], config: Callable[..., Path]
+    ) -> None:
+        with serving_valkey() as (port, received):
+            config(valkey={"url": f"valkey://127.0.0.1:{port}/2"})
+            res = cli("valkey", "flush", "--all")
+
+        assert (res.exit_code, res.output, received) == (
+            0,
+            "✓ Flushed all Valkey databases.\n",
+            [["SELECT", "2"], ["FLUSHALL"]],
+        )
+
+    def test_cli_without_a_command_names_the_server_and_runs_nothing(
+        self, cli: Callable[..., Any], config: Callable[..., Path]
+    ) -> None:
+        with serving_valkey() as (port, received):
+            config(valkey={"url": f"valkey://127.0.0.1:{port}"})
+            res = cli("valkey", "cli")
+
+        assert (res.exit_code, f"127.0.0.1:{port}" in res.output, received) == (0, True, [])
+
+    def test_cli_flush_dry_run(self, cli: Callable[..., Any]) -> None:
+        res = cli("valkey", "flush", "--dry-run")
         assert res.exit_code == 0
         assert "valkey FLUSHDB" in res.output
 
-    @patch("devops_cli.commands.valkey._resolve_client")
-    def test_cli_backup(self, mock_resolve: MagicMock) -> None:
-        mock_client = MagicMock()
-        mock_client.bgsave.return_value = "Background saving started"
-        mock_resolve.return_value = mock_client
+    def test_cli_backup(self, cli: Callable[..., Any], config: Callable[..., Path]) -> None:
+        with serving_valkey({"BGSAVE": b"+Background saving started\r\n"}) as (port, received):
+            config(valkey={"url": f"valkey://127.0.0.1:{port}"})
+            res = cli("valkey", "backup")
+        assert (res.exit_code, "Backup initiated" in res.output, received) == (
+            0,
+            True,
+            [["BGSAVE"]],
+        )
 
-        res = runner.invoke(app, ["backup"])
-        assert res.exit_code == 0
-        assert "Backup initiated" in res.output
-
-    def test_cli_backup_dry_run(self) -> None:
-        res = runner.invoke(app, ["backup", "--dry-run"])
+    def test_cli_backup_dry_run(self, cli: Callable[..., Any]) -> None:
+        res = cli("valkey", "backup", "--dry-run")
         assert res.exit_code == 0
         assert "valkey BGSAVE" in res.output
 
     def test_cli_raw_execution_prints_replies_as_the_server_sent_them(
-        self, valkey_client: ValkeyClient
+        self, cli: Callable[..., Any], valkey: ValkeyClient
     ) -> None:
-        with patch("devops_cli.commands.valkey._resolve_client", return_value=valkey_client):
-            outputs = [
-                runner.invoke(app, ["cli", *command]).output
-                for command in (
-                    ["PING"],
-                    ["SET", "greeting", "hello"],
-                    ["RPUSH", "mylist", "item1", "item2"],
-                    ["LRANGE", "mylist", "0", "1"],
-                )
-            ]
+        outputs = [
+            cli("valkey", "cli", *command).output
+            for command in (
+                ["PING"],
+                ["SET", "greeting", "hello"],
+                ["RPUSH", "mylist", "item1", "item2"],
+                ["LRANGE", "mylist", "0", "1"],
+            )
+        ]
         assert outputs == ["PONG\n", "OK\n", "2\n", "item1\nitem2\n"]
 
-    @patch("devops_cli.commands.valkey._resolve_client")
-    def test_cli_error_masks_credentials(self, mock_resolve: MagicMock) -> None:
-        mock_client = MagicMock()
-        from devops_cli.exceptions.valkey import ValkeyError
-
-        mock_client.ping.side_effect = ValkeyError(
-            "Connection failed with token=ghp_secretvalkey12345678901234567890123456"
-        )
-        mock_resolve.return_value = mock_client
-
-        res = runner.invoke(app, ["ping"])
+    def test_cli_error_masks_credentials(
+        self, cli: Callable[..., Any], config: Callable[..., Path]
+    ) -> None:
+        secret = "ghp_secretvalkey12345678901234567890123456"
+        failure = f"-ERR Connection failed with token={secret}\r\n".encode()
+        with serving_valkey({"PING": failure}) as (port, _received):
+            config(valkey={"url": f"valkey://127.0.0.1:{port}"})
+            res = cli("valkey", "ping")
         assert res.exit_code != 0
         assert "ghp_secretvalkey" not in res.output
         assert "<masked-github-token>" in res.output
 
 
-def test_valkey_cli_error_and_edge_cases() -> None:
+@pytest.mark.usefixtures("keyring_store")
+def test_valkey_cli_error_and_edge_cases(
+    cli: Callable[..., Any], config: Callable[..., Path]
+) -> None:
     """Verify error handlers and edge cases across Valkey CLI commands."""
-    from devops_cli.exceptions.valkey import ValkeyError
+    error_exit_code = ValkeyCommandError("").exit_code
+
+    def run(replies: dict[str, bytes], *argv: str) -> Any:
+        with serving_valkey(replies) as (port, _received):
+            config(valkey={"url": f"valkey://127.0.0.1:{port}"})
+            return cli("valkey", *argv)
 
     # 1. Ping returning False
-    with patch("devops_cli.commands.valkey._resolve_client") as mock_res:
-        mock_client = MagicMock()
-        mock_client.ping.return_value = False
-        mock_res.return_value = mock_client
-        res = runner.invoke(app, ["ping"])
-        assert res.exit_code == 0
-        assert "Server responded without PONG acknowledgment" in res.output
+    res = run({"PING": b"+OK\r\n"}, "ping")
+    assert (res.exit_code, "Server responded without PONG acknowledgment" in res.output) == (
+        0,
+        True,
+    )
 
     # 2. Info raising ValkeyError
-    with patch("devops_cli.commands.valkey._resolve_client") as mock_res:
-        mock_client = MagicMock()
-        mock_client.info.side_effect = ValkeyError("info failure", details={"code": 500})
-        mock_res.return_value = mock_client
-        res = runner.invoke(app, ["info"])
-        assert (res.exit_code, res.output) == (ValkeyError("").exit_code, "✗ info failure\n")
+    res = run({"INFO": b"-ERR info failure\r\n"}, "info")
+    assert (res.exit_code, res.output) == (error_exit_code, "✗ info failure\n")
 
     # 3. Stats raising ValkeyError
-    with patch("devops_cli.commands.valkey._resolve_client") as mock_res:
-        mock_client = MagicMock()
-        mock_client.info.side_effect = ValkeyError("stats failure", details={"cause": "err"})
-        mock_res.return_value = mock_client
-        res = runner.invoke(app, ["stats"])
-        assert (res.exit_code, res.output) == (ValkeyError("").exit_code, "✗ stats failure\n")
+    res = run({"INFO": b"-ERR stats failure\r\n"}, "stats")
+    assert (res.exit_code, res.output) == (error_exit_code, "✗ stats failure\n")
 
     # 4. Get raising ValkeyError
-    with patch("devops_cli.commands.valkey._resolve_client") as mock_res:
-        mock_client = MagicMock()
-        mock_client.get.side_effect = ValkeyError("get failure")
-        mock_res.return_value = mock_client
-        res = runner.invoke(app, ["get", "mykey"])
-        assert (res.exit_code, res.output) == (ValkeyError("").exit_code, "✗ get failure\n")
+    res = run({"GET": b"-ERR get failure\r\n"}, "get", "mykey")
+    assert (res.exit_code, res.output) == (error_exit_code, "✗ get failure\n")
 
     # 5. Set raising ValkeyError
-    with patch("devops_cli.commands.valkey._resolve_client") as mock_res:
-        mock_client = MagicMock()
-        mock_client.set.side_effect = ValkeyError("set failure")
-        mock_res.return_value = mock_client
-        res = runner.invoke(app, ["set", "mykey", "myval"])
-        assert (res.exit_code, res.output) == (ValkeyError("").exit_code, "✗ set failure\n")
+    res = run({"SET": b"-ERR set failure\r\n"}, "set", "mykey", "myval")
+    assert (res.exit_code, res.output) == (error_exit_code, "✗ set failure\n")
 
     # 6. Flush raising ValkeyError
-    with patch("devops_cli.commands.valkey._resolve_client") as mock_res:
-        mock_client = MagicMock()
-        mock_client.flushdb.side_effect = ValkeyError("flush failure")
-        mock_res.return_value = mock_client
-        res = runner.invoke(app, ["flush"])
-        assert (res.exit_code, res.output) == (ValkeyError("").exit_code, "✗ flush failure\n")
+    res = run({"FLUSHDB": b"-ERR flush failure\r\n"}, "flush")
+    assert (res.exit_code, res.output) == (error_exit_code, "✗ flush failure\n")
 
     # 7. Backup raising ValkeyError
-    with patch("devops_cli.commands.valkey._resolve_client") as mock_res:
-        mock_client = MagicMock()
-        mock_client.bgsave.side_effect = ValkeyError("backup failure")
-        mock_res.return_value = mock_client
-        res = runner.invoke(app, ["backup"])
-        assert (res.exit_code, res.output) == (ValkeyError("").exit_code, "✗ backup failure\n")
+    res = run({"BGSAVE": b"-ERR backup failure\r\n"}, "backup")
+    assert (res.exit_code, res.output) == (error_exit_code, "✗ backup failure\n")
 
 
 def test_ai_runs_connect_brackets_ipv6_host(
-    monkeypatch: pytest.MonkeyPatch, keyring_store: None
+    cli: Callable[..., Any], keyring_store: Any, process_fake: ProcessFake
 ) -> None:
     """Verify devops ai runs connect brackets IPv6 host in the Valkey index URL."""
-    from devops_cli.commands.ai_runs import app as ai_runs_app
+    service = {
+        "spec": {"type": "NodePort", "ports": [{"name": "valkey", "port": 6379, "nodePort": 30379}]}
+    }
+    answers = {
+        "service": json.dumps(service),
+        "secret": base64.b64encode(b"dummy-pass").decode(),
+    }
 
-    monkeypatch.setattr(
-        "devops_cli.commands.ai_runs.node_port_address",
-        lambda *args, **kwargs: ("2001:db8::1", 30379),
-    )
-    monkeypatch.setattr(
-        "devops_cli.commands.ai_runs.secret_value",
-        lambda *args, **kwargs: "dummy-pass",
-    )
-    connected_urls: list[str] = []
+    def kubectl(call: ProcessCall) -> ProcessAnswer:
+        for word, out in answers.items():
+            if word in call.argv:
+                return ProcessAnswer(stdout=out)
+        return ProcessAnswer(stdout="https://[2001:db8::1]:6443")
 
-    class MockRunIndex:
-        @classmethod
-        def connect(cls, url: str, password: str) -> MagicMock:
-            connected_urls.append(url)
-            mock = MagicMock()
-            mock.__enter__.return_value = mock
-            mock.__exit__.return_value = None
-            mock.put.return_value = 0
-            return mock
+    process_fake.answer("kubectl", kubectl)
 
-    monkeypatch.setattr("devops_cli.commands.ai_runs.RunIndex", MockRunIndex)
-    monkeypatch.setattr("devops_cli.commands.ai_runs.load_runs", lambda: [])
-    monkeypatch.setattr("devops_cli.config.settings.save_settings", lambda *args, **kwargs: None)
+    res = cli("ai", "runs", "connect")
 
-    res = runner.invoke(ai_runs_app, ["connect"])
-    assert res.exit_code == 0
-    assert connected_urls == ["valkey://[2001:db8::1]:30379"]
+    assert (res.exit_code, load_settings().runs.index_url) == (0, "valkey://[2001:db8::1]:30379")
 
 
 # =============================================================================

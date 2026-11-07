@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -22,8 +22,10 @@ from devops_cli.config.os_keyring import (
     keyring_write,
     store_keyring_secret,
 )
+from devops_cli.core.audit import record_audit_event
 from devops_cli.main import app as main_app
 from tests.support.fakes.keyring import FakeKeyring
+from tests.support.fakes.process import ProcessFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -292,33 +294,38 @@ def test_dotted_set_rejects_top_level_section_overwrite() -> None:
         dotted_set(settings, "github", "invalid_string_overwrite")
 
 
-def test_config_commands_comprehensive() -> None:
+def test_config_commands_comprehensive(process_fake: ProcessFake) -> None:
     """Verify config show, get, set, output, env, auth-headless, audit-stream subcommands."""
-    with patch("devops_cli.commands.config._gh_auth_status", return_value=True):
-        res_show = runner.invoke(main_app, ["config", "show"])
-        assert res_show.exit_code == 0
+    res_show = runner.invoke(main_app, ["config", "show"])
+    assert res_show.exit_code == 0
 
-        res_get = runner.invoke(main_app, ["config", "get", "ai.provider"])
-        assert res_get.exit_code == 0
+    res_get = runner.invoke(main_app, ["config", "get", "ai.provider"])
+    assert res_get.exit_code == 0
 
-        res_set = runner.invoke(main_app, ["config", "set", "ai.provider", "openai"])
-        assert res_set.exit_code == 0
+    res_set = runner.invoke(main_app, ["config", "set", "ai.provider", "openai"])
+    assert res_set.exit_code == 0
 
-        res_out = runner.invoke(main_app, ["config", "output"])
-        assert res_out.exit_code == 0
+    res_out = runner.invoke(main_app, ["config", "output"])
+    assert res_out.exit_code == 0
 
-        res_env = runner.invoke(main_app, ["config", "env"])
-        assert res_env.exit_code == 0
+    res_env = runner.invoke(main_app, ["config", "env"])
+    assert res_env.exit_code == 0
 
-        res_headless = runner.invoke(app, ["auth-headless", "grafana.token", "FAKE-token"])
-        assert res_headless.exit_code == 0
+    res_headless = runner.invoke(app, ["auth-headless", "grafana.token", "FAKE-token"])
+    assert res_headless.exit_code == 0
 
-        res_headless_bad = runner.invoke(app, ["auth-headless", "invalid_key", "val"])
-        assert res_headless_bad.exit_code == 1
+    res_headless_bad = runner.invoke(app, ["auth-headless", "invalid_key", "val"])
+    assert res_headless_bad.exit_code == 1
 
-        with patch("devops_cli.core.audit.stream_audit_records", return_value=5):
-            res_stream = runner.invoke(app, ["audit-stream", "https://example.com/ingest"])
-            assert res_stream.exit_code == 0
+    res_before = runner.invoke(app, ["audit-stream", "https://example.com/ingest"])
+    already = re.search(r"Streamed (\d+) audit", res_before.output)
+    assert already is not None
+    recorded = int(already.group(1))
+    for _ in range(5):
+        record_audit_event("config show")
+    res_stream = runner.invoke(app, ["audit-stream", "https://example.com/ingest"])
+    assert res_stream.exit_code == 0
+    assert f"Streamed {recorded + 5} audit record(s)" in res_stream.output
 
 
 @pytest.mark.parametrize(
