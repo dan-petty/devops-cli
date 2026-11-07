@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from devops_cli.roadmap.failure import FailureClass
-from devops_cli.roadmap.implement_step import (
+from devops_cli.roadmap.implement.implement_step import (
     FixRequest,
     StepOutcome,
     StepStatus,
@@ -73,7 +73,7 @@ def _fix(store: InMemoryRoadmapStore, checkout: Path, script: ModelScript) -> St
 
 
 def test_the_paths_of_the_reads_and_changes_lines_and_the_change_folder_are_planned() -> None:
-    from devops_cli.roadmap.implement_strays import unplanned_paths
+    from devops_cli.roadmap.implement.implement_strays import unplanned_paths
 
     changed = [
         "src/reads.py",
@@ -87,7 +87,7 @@ def test_the_paths_of_the_reads_and_changes_lines_and_the_change_folder_are_plan
 
 
 def test_a_path_that_no_line_of_the_plan_names_is_unplanned_whatever_its_directory() -> None:
-    from devops_cli.roadmap.implement_strays import unplanned_paths
+    from devops_cli.roadmap.implement.implement_strays import unplanned_paths
 
     changed = [
         "src/devops_cli/roadmap/plan_check.py",

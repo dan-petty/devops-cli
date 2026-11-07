@@ -27,7 +27,7 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/implement_step.py`, `src/devops_cli/roadmap/implement_strays.py`, `src/devops_cli/roadmap/failure.py`, `src/devops_cli/lang/en/messages.py`
+- Code: `src/devops_cli/roadmap/implement/implement_step.py`, `src/devops_cli/roadmap/implement/implement_strays.py`, `src/devops_cli/roadmap/failure.py`, `src/devops_cli/lang/en/messages.py`
 - Documents: `docs/ROADMAP_WORKFLOW.md`
 
 ## Feasibility
