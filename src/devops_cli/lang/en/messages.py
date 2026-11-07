@@ -4563,6 +4563,51 @@ class SurveyMessages:
 
 
 @dataclass(frozen=True)
+class ReleaseMessages:
+    """What the pick of the release pull request says (#3921). Each `refusal_*` text names one
+    guard that keeps the pull request from merging."""
+
+    refusal_not_open: str = "Pull request {number} is not open."
+    refusal_draft: str = "Pull request {number} is a draft."
+    refusal_author: str = (
+        "Pull request {number} was opened by {author}, not by the release App {app}."
+    )
+    refusal_branch: str = (
+        "Pull request {number} is not from a release-please branch of {base}: its head is {head}."
+    )
+    refusal_label: str = "Pull request {number} has no label `{label}`."
+    refusal_hold: str = "Pull request {number} has the label `{label}`: a person holds the release."
+    refusal_title: str = (
+        "The title of pull request {number} is not `chore(main): release <version>`."
+    )
+    refusal_file: str = (
+        "Pull request {number} changes `{path}`, which release-please does not write."
+    )
+    refusal_checks_unread: str = "The checks of {subject} could not be read: {reason}."
+    refusal_no_required: str = "The rules of {base} name no required check."
+    refusal_required_missing: str = (
+        "The required check `{name}` has not run on the head of pull request {number}."
+    )
+    refusal_required_state: str = (
+        "The required check `{name}` is {state} on the head of pull request {number}."
+    )
+    refusal_other_failed: str = "The check `{name}` failed on the head of pull request {number}."
+    refusal_base_red: str = "The required check `{name}` failed on the head of {base}."
+    refusal_mergeable: str = (
+        "GitHub does not report pull request {number} as mergeable (state: {state})."
+    )
+    subject_pull: str = "the head of pull request {number}"
+    subject_base: str = "the head of {base}"
+    picked: str = "Pull request {number} may merge at {sha}."
+    none_picked: str = "No release pull request may merge now."
+    no_release_pull: str = "No open pull request has the label `{label}`."
+    refused: str = "Pull request {number} does not merge: {reason}"
+    unread: str = "The release pull request could not be read: {reason}"
+    usage_repo: str = "The repository to read, as owner/name."
+    usage_app: str = "The login of the release App, as `<slug>[bot]`."
+
+
+@dataclass(frozen=True)
 class LanguageCatalog:
     persona_titles: PersonaTitles = field(default_factory=PersonaTitles)
     messages: GeneralMessages = field(default_factory=GeneralMessages)
@@ -4571,6 +4616,7 @@ class LanguageCatalog:
     review: ReviewMessages = field(default_factory=ReviewMessages)
     ai: AIMessages = field(default_factory=AIMessages)
     survey: SurveyMessages = field(default_factory=SurveyMessages)
+    release: ReleaseMessages = field(default_factory=ReleaseMessages)
     benchmark: BenchmarkMessages = field(default_factory=BenchmarkMessages)
     config: ConfigMessages = field(default_factory=ConfigMessages)
     install: InstallMessages = field(default_factory=InstallMessages)
