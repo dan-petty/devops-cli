@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated
 
@@ -57,7 +58,7 @@ def _list_node_models(
     return listed, pod_by_node
 
 
-def _display_prune_plan(prune_plan: list[NodePrune]) -> bool:
+def _display_prune_plan(prune_plan: Sequence[NodePrune]) -> bool:
     """Print the plan for each node. Return True if any node failed listing."""
     has_failed_node = False
     for np in prune_plan:
@@ -75,7 +76,7 @@ def _display_prune_plan(prune_plan: list[NodePrune]) -> bool:
 
 
 def _execute_prune(
-    prune_plan: list[NodePrune], pod_by_node: dict[str, str], context: str | None
+    prune_plan: Sequence[NodePrune], pod_by_node: dict[str, str], context: str | None
 ) -> None:
     """Run `ollama rm` on each removable model in the node's pod."""
     for np in prune_plan:
