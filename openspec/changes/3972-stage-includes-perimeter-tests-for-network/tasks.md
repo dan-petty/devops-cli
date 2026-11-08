@@ -31,9 +31,9 @@ Reads: `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/stage/st
 
 Reads: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/plan-check.md`, `src/devops_cli/roadmap/stage/stage_paths.py`. Changes: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/plan-check.md`.
 
-- [ ] 4.1 State the rule at the plan check of `docs/ROADMAP_WORKFLOW.md` and on the plan-check page of `docs/roadmap/plan-check.md`: a plan that changes a YAML manifest under `k8s/` lists every test file that references the manifest, and the `paths` gate refuses the plan that leaves one out
+- [x] 4.1 State the rule at the plan check of `docs/ROADMAP_WORKFLOW.md` and on the plan-check page of `docs/roadmap/plan-check.md`: a plan that changes a YAML manifest under `k8s/` lists every test file that references the manifest, and the `paths` gate refuses the plan that leaves one out
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 4.2 Edit `docs/ROADMAP_WORKFLOW.md` and `docs/roadmap/plan-check.md` with the rule of a manifest plan and the name of the `paths` gate that refuses it
+- [x] 4.2 Edit `docs/ROADMAP_WORKFLOW.md` and `docs/roadmap/plan-check.md` with the rule of a manifest plan and the name of the `paths` gate that refuses it
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
