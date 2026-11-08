@@ -106,7 +106,6 @@ from pydantic import ValidationError as InvalidLabelsError
 from devops_cli.config.constants import (
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_ROADMAP_CRITICAL_PRIORITY,
-    CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_EVIDENCE_PATTERNS,
     CONST_ROADMAP_INTAKE_REASON_MARKER,
     CONST_ROADMAP_LABELS_PATH,
@@ -165,7 +164,11 @@ from devops_cli.roadmap.stores.store import (
     item_of,
     select_items,
 )
-from devops_cli.roadmap.title_labels import declared_label_names, title_labels
+from devops_cli.roadmap.title_labels import (
+    declared_label_names,
+    declared_type_labels,
+    title_labels,
+)
 from devops_cli.security.sanitizer import redact_text
 
 logger = logging.getLogger(__name__)
@@ -569,11 +572,7 @@ class _Run:
     def types(self) -> tuple[str, ...]:
         """The `type/*` labels the file declares, `type/epic` aside. A file that declares none is
         a configuration error naming the repository (#1358)."""
-        types = tuple(
-            name
-            for name in self.declared
-            if name.startswith(CONST_ROADMAP_TYPE_LABEL_PREFIX) and name != CONST_ROADMAP_EPIC_LABEL
-        )
+        types = declared_type_labels(self.declared)
         if not types:
             texts = MESSAGES.roadmap
             untyped = texts.intake_labels_untyped.format(

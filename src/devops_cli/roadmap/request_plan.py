@@ -1011,6 +1011,37 @@ def repair_requests(
     return tuple(reads), tuple(writes)
 
 
+def onboard_requests(
+    repo: str,
+) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
+    """What `devops roadmap onboard` reads, in order, and the writes `--confirm` makes after
+    them (#1359). It reads the repository, the App installation listing when acting as the App,
+    .github/labels.yml, the repository labels, and .github/workflows/clear-status.yml.
+    With --confirm, it creates missing labels with POST."""
+    store = StoreRequests(repo)
+    texts = MESSAGES.roadmap
+    reads = [
+        planned_session_read(f"/repos/{repo}", repo),
+        planned_session_read(
+            "/installation/repositories",
+            repo,
+            condition=texts.plan_conditions["as_app"],
+        ),
+        *store.file(CONST_ROADMAP_LABELS_PATH, None),
+        *store.repository_labels(),
+        *store.file(".github/workflows/clear-status.yml", None),
+    ]
+    writes = [
+        PlannedRequest(
+            method=f"REST {texts.intake_request_write}",
+            target=texts.plan_targets["create_label"].format(label=_p("label")),
+            argv=("POST", f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/labels"),
+            repeat=texts.plan_repeat["missing_label"],
+        )
+    ]
+    return tuple(reads), tuple(writes)
+
+
 def render_dry_run(
     job: str,
     repo: str,
@@ -1042,6 +1073,7 @@ __all__ = [
     "milestones_edit_requests",
     "milestones_list_requests",
     "milestones_status_requests",
+    "onboard_requests",
     "plan_recheck_requests",
     "planned_gh",
     "planned_session_read",

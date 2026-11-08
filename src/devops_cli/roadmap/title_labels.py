@@ -16,7 +16,9 @@ from pydantic import TypeAdapter
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_COMMIT_TYPE_LABELS,
+    CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_SCOPE_LABEL_PREFIX,
+    CONST_ROADMAP_TYPE_LABEL_PREFIX,
 )
 from devops_cli.github.labels import LabelSpec
 from devops_cli.roadmap.commit_title import commit_scope, commit_type
@@ -49,6 +51,15 @@ def declared_label_names(text: str) -> tuple[str, ...]:
     """The names of the labels that the text of `.github/labels.yml` declares, with the errors of
     `declared_label_specs`."""
     return tuple(spec.name for spec in declared_label_specs(text))
+
+
+def declared_type_labels(declared: Collection[str]) -> tuple[str, ...]:
+    """The `type/*` labels that `declared` holds, `type/epic` aside."""
+    return tuple(
+        name
+        for name in declared
+        if name.startswith(CONST_ROADMAP_TYPE_LABEL_PREFIX) and name != CONST_ROADMAP_EPIC_LABEL
+    )
 
 
 def requested_labels(title: str) -> tuple[str | None, str | None]:

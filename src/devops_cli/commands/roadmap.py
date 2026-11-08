@@ -977,6 +977,51 @@ def _inbox_repos(repo: str | None, configured: Sequence[str]) -> list[str]:
     return list(configured)
 
 
+@app.command("onboard", help=HELP.roadmap.onboard)
+@dry_run_class("request-plan")
+def onboard_cmd(
+    repo: RepoOption = None,
+    plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.onboard_plan)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.onboard_dry_run)] = False,
+    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.onboard_confirm)] = False,
+) -> None:
+    """Check a repository against the roadmap prerequisites and create missing labels."""
+    from devops_cli.roadmap.onboard import (
+        apply_onboarding,
+        check_onboarding,
+        render_onboarding,
+    )
+    from devops_cli.roadmap.request_plan import onboard_requests
+
+    _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
+    target = _target(repo)
+    if dry_run or is_dry_run():
+        reads, writes = onboard_requests(target)
+        render_dry_run("onboard", target, reads, writes)
+        return
+
+    if not plan_only and not confirm:
+        print_info(MESSAGES.roadmap.onboard_plain_note)
+
+    with _exit_on_failure("Could not check onboarding"):
+        _, store = _open_store(target)
+        report = check_onboarding(store, target)
+
+    applied = None
+    if confirm and report.missing_labels:
+        with _exit_on_failure("Could not apply onboarding"):
+            applied = apply_onboarding(target, report)
+
+    write_stdout(render_onboarding(report, applied=applied) + "\n")
+    has_missing = (
+        any(r.state == "missing" for r in report.rows if r.number != 4)
+        if applied
+        else report.has_missing
+    )
+    if has_missing:
+        raise typer.Exit(1)
+
+
 @app.command("repair", help=HELP.roadmap.repair)
 @dry_run_class("request-plan")
 def repair_cmd(

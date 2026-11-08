@@ -6935,6 +6935,23 @@ devops roadmap inbox [OPTIONS]
 | `--kind` | `choice (plan|implement|release|blocked|refine|split|alternatives|failed|draft|claim|labels|queue|person)` | - | List only the lines of one class, such as refine, split, alternatives, failed or draft. The counts of every class stay complete. |
 | `--dry-run` | `boolean` | - | Make no request: print the reads that a run makes, in order, with placeholders. |
 
+### `devops roadmap onboard`
+
+**Check one repository against the roadmap prerequisites and create missing labels. Details: docs/roadmap/onboard.md.**
+
+```bash
+devops roadmap onboard [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--plan` | `boolean` | - | Check prerequisites, print the rows, and write nothing. |
+| `--dry-run` | `boolean` | - | Make no request: print the requests that a run makes, in order, with placeholders. |
+| `--confirm` | `boolean` | - | Create missing labels and print human steps. |
+
 ### `devops roadmap repair`
 
 **Find the items that a placeholder reply of a model stalled. A returned item goes back to Ready. A stub refine item loses its stub section and its refine block. An item that a person set or answered stays as it is. This command reads GitHub and calls no model. It writes only with --confirm. Details: docs/roadmap/repair.md.**
