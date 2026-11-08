@@ -662,6 +662,19 @@ def test_a_created_file_adds_32_tokens_for_each_estimated_line(stage_repo: Stage
     assert big.tokens - one.tokens == (1500 - 1) * CREATED_LINE_TOKENS
 
 
+def _half(heavy: StageGroup, title: str) -> StageGroup:
+    """One group of a split: it reads no file, and its test and task are its own, as the content
+    gate of a split requires (#4040)."""
+    return heavy.model_copy(
+        update={
+            "title": title,
+            **NO_FILES,
+            "test": f"Write `test_{title.lower().replace(' ', '_')}` in `tests/test_sample.py`",
+            "implementation": f"Keep the last comment for the step {title}",
+        }
+    )
+
+
 @pytest.mark.usefixtures("openspec")
 def test_a_group_over_the_budget_is_split_once(
     store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
@@ -669,8 +682,8 @@ def test_a_group_over_the_budget_is_split_once(
     big = make_stage_proposal()
     heavy = heavy_group(stage_repo)
     light = [
-        heavy.model_copy(update={"title": "First half", **NO_FILES}),
-        heavy.model_copy(update={"title": "Second half", **NO_FILES}),
+        _half(heavy, "First half"),
+        _half(heavy, "Second half"),
     ]
     model_fake.answer(big.model_copy(update={"groups": [heavy]}), StageSplit(groups=light))
 
@@ -2286,8 +2299,8 @@ def test_a_split_reply_brings_the_criteria_with_the_new_group_numbers(
     item = seed_stageable(store, body=THREE_CRITERIA)
     heavy = heavy_group(stage_repo)
     light = [
-        heavy.model_copy(update={"title": "First half", **NO_FILES}),
-        heavy.model_copy(update={"title": "Second half", **NO_FILES}),
+        _half(heavy, "First half"),
+        _half(heavy, "Second half"),
     ]
     texts = ("First criterion.", "Second criterion.", "Third criterion.")
     model_fake.answer(

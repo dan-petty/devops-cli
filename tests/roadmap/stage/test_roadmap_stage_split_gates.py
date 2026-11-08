@@ -97,10 +97,11 @@ def _eval_replay(group: StageGroup) -> list[StageGroup]:
 def _what_changes_first(group: StageGroup) -> dict[str, Any]:
     """The first plan: What Changes names a second source file, and the one group lists it."""
     return {
+        "groups": [group.model_copy(update={"changes": [*group.changes, OTHER_SOURCE]})],
         "what_changes": [
             "`src/devops_cli/sample.py` keeps the last comment.",
             f"`{OTHER_SOURCE}` keeps the last comment.",
-        ]
+        ],
     }
 
 
@@ -181,7 +182,7 @@ def _plans(case: SplitCase, stage_repo: StageRepo) -> tuple[StageProposal, Stage
     """The first plan, with one group over the budget, and the split of the case."""
     stage_repo.track(case.tracked)
     heavy = heavy_group(stage_repo)
-    first = make_stage_proposal(groups=[heavy], **case.first(heavy))
+    first = make_stage_proposal(**{"groups": [heavy], **case.first(heavy)})
     return first, StageSplit(groups=case.split(heavy))
 
 
