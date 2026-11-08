@@ -6,7 +6,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
     pass
 import httpx2
 import pytest
+import time_machine
 
 from devops_cli.ai.client.models import (
     AIClientError,
@@ -41,7 +43,6 @@ from tests.support.roadmap_refine import (
     CRITERION,
     CRITERION_JSON,
     FIRST,
-    GATEWAY_ATTEMPTS,
     NO_OPEN_TOOL,
     PLACED,
     REPO,
@@ -50,13 +51,21 @@ from tests.support.roadmap_refine import (
     BodyReadCountingStore,
     MockLLMClient,
     refine_round,
-    requests_per_item,
     require_item,
     run_refine_adapter,
     seed_new_items,
 )
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
+
+SIX_HOURS = timedelta(hours=6)
+
+
+@pytest.fixture
+def clock() -> Iterator[time_machine.Traveller]:
+    """Time stands still until a test moves it: a failed item waits for the time of its class."""
+    with time_machine.travel(datetime(2026, 11, 8, 12, 0, tzinfo=UTC), tick=False) as traveller:
+        yield traveller
 
 
 def test_too_big_needs_split(git_repo: Path, store: InMemoryRoadmapStore) -> None:
@@ -191,6 +200,7 @@ def test_two_replies_that_never_validate_on_the_same_body_settle_the_item(
     git_repo: Path,
     store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
+    clock: time_machine.Traveller,
 ) -> None:
     """A reply that never fits the schema is the item's doing: the first failure records the
     body it saw and settles nothing, the second on the same body settles the item to wait on a
@@ -200,6 +210,7 @@ def test_two_replies_that_never_validate_on_the_same_body_settle_the_item(
 
     refine_round(store, git_repo)
     after_first = (len(sent), _refine_record(store, first))
+    clock.shift(SIX_HOURS)
     refine_round(store, git_repo)
     after_second = (len(sent), _refine_record(store, first))
     third_round = refine_round(store, git_repo)
@@ -228,6 +239,7 @@ def test_a_failure_followed_by_a_success_refines_the_item_and_clears_the_failure
     git_repo: Path,
     store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
+    clock: time_machine.Traveller,
 ) -> None:
     """One reply that never fits the schema does not stop the item: the next round refines it,
     and its record no longer holds the failure (#1526, #1539)."""
@@ -238,6 +250,7 @@ def test_a_failure_followed_by_a_success_refines_the_item_and_clears_the_failure
     refine_round(store, git_repo)
     failed = _refine_record(store, first)
     del answers[first]
+    clock.shift(SIX_HOURS)
     refine_round(store, git_repo)
 
     item = require_item(store, first)
@@ -252,31 +265,6 @@ def test_a_failure_followed_by_a_success_refines_the_item_and_clears_the_failure
         (_FIRST_BODY_HASH, None),
         True,
         CONST_ROADMAP_STATUS_READY,
-    )
-
-
-def test_a_gateway_failure_records_nothing_and_the_next_round_selects_the_item_again(
-    git_repo: Path,
-    store: InMemoryRoadmapStore,
-    scripted_gateway: Callable[..., list[httpx2.Request]],
-) -> None:
-    """A timeout says nothing about the item, so however often it repeats, no record is written
-    and the item stays due (#1539)."""
-    first, second, third = seed_new_items(store)
-    sent = scripted_gateway({first: httpx2.Response(504, text="Gateway Timeout")})
-
-    rounds = [refine_round(store, git_repo), refine_round(store, git_repo)]
-
-    assert (
-        [[failure.item.number for failure in plan.failed_items] for plan in rounds],
-        requests_per_item(sent),
-        _writes_to(store, first),
-        _refine_record(store, first),
-    ) == (
-        [[first], [first]],
-        {first: 2 * GATEWAY_ATTEMPTS, second: 1, third: 1},
-        [],
-        (None, None, None),
     )
 
 
@@ -301,7 +289,11 @@ _TROUBLE_REPLIES = pytest.mark.parametrize(
         ),
         pytest.param(
             SCHEMA_MISS,
-            [(RefineRecordKey.FAILED_BODY_HASH.value, _FIRST_BODY_HASH)],
+            [
+                (RefineRecordKey.FAILED_BODY_HASH.value, _FIRST_BODY_HASH),
+                ("refine.failed_class", "parser"),
+                ("refine.failed_step", "investigate"),
+            ],
             1,
             id="schema-miss",
         ),
@@ -324,10 +316,12 @@ def test_a_round_whose_only_item_is_too_big_or_fails_still_records_it_through_th
     args = ["refine", "--repo", REPO, "--source", str(git_repo), "--confirm"]
     result = cli(["roadmap", *args])
 
-    assert (result.exit_code, _writes_to(store, first)) == (
-        exit_code,
-        [JobWrite("set_mark", first, key, value) for key, value in marks],
-    )
+    written = [
+        (write.key, write.value)
+        for write in _writes_to(store, first)
+        if write.key != "refine.failed_at"
+    ]
+    assert (result.exit_code, sorted(written, key=str)) == (exit_code, sorted(marks, key=str))
 
 
 def test_the_runs_refine_job_records_an_item_too_big_to_refine(
@@ -395,7 +389,7 @@ def test_a_body_edited_between_the_plan_and_the_apply_is_recorded_as_neither_too
 
 
 @pytest.mark.parametrize(
-    ("error", "recorded"),
+    ("error", "caused"),
     [
         pytest.param(
             StructuredOutputValidationError("never valid", violations=2), True, id="schema"
@@ -404,11 +398,12 @@ def test_a_body_edited_between_the_plan_and_the_apply_is_recorded_as_neither_too
         pytest.param(AIClientError("timed out"), False, id="transport"),
     ],
 )
-def test_only_a_failure_the_items_own_text_caused_is_recorded(
-    git_repo: Path, store: InMemoryRoadmapStore, error: AIClientError, recorded: bool
+def test_only_a_failure_the_items_own_text_caused_marks_the_item_as_at_fault(
+    git_repo: Path, store: InMemoryRoadmapStore, error: AIClientError, caused: bool
 ) -> None:
-    """A reply the model gave about the item that never validated or was refused is recorded; a
-    failure that says nothing about the item, such as a timeout, is not (#1539)."""
+    """A reply the model gave about the item that never validated or was refused records the
+    body it was about (#1539). A failure that says nothing about the item, such as a timeout,
+    records no body: it records its class, its step and its time, and the item waits (#4061)."""
     person = store.as_actor("alice")
     number = person.seed_issue("Item", body="Body", fields=PLACED)
     person.set_field(require_item(store, number), ItemField.STATUS, "New")
@@ -418,11 +413,15 @@ def test_only_a_failure_the_items_own_text_caused_is_recorded(
     )
     apply_refine(store, plan)
 
-    assert (plan.has_writes, _writes_to(store, number)) == (
-        recorded,
-        [JobWrite("set_mark", number, RefineRecordKey.FAILED_BODY_HASH.value, hash_text("Body"))]
-        if recorded
-        else [],
+    class_keys = {
+        RefineRecordKey.FAILED_AT.value,
+        RefineRecordKey.FAILED_STEP.value,
+        RefineRecordKey.FAILED_CLASS.value,
+    }
+    body_key = {RefineRecordKey.FAILED_BODY_HASH.value}
+    assert (plan.has_writes, {write.key for write in _writes_to(store, number)}) == (
+        True,
+        class_keys | body_key if caused else class_keys,
     )
 
 
