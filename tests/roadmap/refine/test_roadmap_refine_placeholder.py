@@ -283,7 +283,7 @@ def test_a_placeholder_failure_three_rounds_in_a_row_does_not_suspend_the_refine
             try:
                 _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
             except RoadmapRefineError as exc:
-                _count_failure(ledger, REPO, "refine", "input", exc)
+                _count_failure(ledger, REPO, "refine", "input", exc, NOW)
             else:
                 ledger.succeeded(REPO, "refine")
         return ledger

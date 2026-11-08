@@ -5,6 +5,10 @@ a job that failed a round holds the creation time of the newest comment of a per
 of its repository, so a person's answer starts the job again, and no other comment does. The
 rounds run over `InMemoryRoadmapStore`, which gives its comments newest first as the GitHub
 listing does, and over rows whose runners fail as the test says.
+
+A suspended row also runs one probe round after the wait of its failure class (#4065), and
+`test_roadmap_ledger_retry_after.py` tests that. Here the wait is 30 days, so that only the input
+of a round can end a suspension.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.exceptions import RoadmapRunError
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.roadmap import run
 from devops_cli.roadmap.run import FailureLedger, JobOutcome, build_stub_table, run_due_jobs
 from devops_cli.roadmap.stores.store import IssueComment
 from tests.support.fakes.roadmap_store import DEFAULT_ROADMAP_MEMORY_ACTOR, InMemoryRoadmapStore
@@ -35,6 +40,11 @@ WEBHOOK = {("webhook", "issues", "labeled"): 1}
 LIMIT = DEFAULT_SERVICE_MAX_FAILED_ROUNDS
 PERSON = ("alice", "OWNER")
 APP_BOT = ("devops-cli-service[bot]", "CONTRIBUTOR")
+
+
+@pytest.fixture(autouse=True)
+def _long_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(run, "retry_after", lambda _cause: timedelta(days=30))
 
 
 class _Clock:

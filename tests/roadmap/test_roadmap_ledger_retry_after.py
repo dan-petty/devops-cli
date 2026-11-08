@@ -119,9 +119,9 @@ class _World:
         return self.ran > before
 
     def suspend(self) -> None:
-        """The rounds that make the row fail its limit, and the one that the suspension skips."""
+        """The rounds that make the row fail its limit, one each `STEP`. The wait of the row runs
+        from the last of them."""
         assert [self.round() for _ in range(LIMIT)] == [True] * LIMIT
-        assert self.round() is False
 
     def minutes_until_run(self) -> int:
         """The minutes from now to the next round that runs the row, with a poll each `STEP`."""
@@ -456,6 +456,6 @@ def test_the_suspension_log_line_names_the_class_and_the_retry_time(
 
     assert (
         "provider" in line,
-        (START + (LIMIT - 1) * STEP + HOUR).isoformat() in line,
+        (START + LIMIT * STEP + HOUR).isoformat() in line,
         "until its input changes" in line,
     ) == (True, True, False)
