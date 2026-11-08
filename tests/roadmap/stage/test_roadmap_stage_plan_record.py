@@ -7,6 +7,12 @@ import json
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+
+from devops_cli.ai.client.models import AIClientError
+from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.exceptions.roadmap import RoadmapStageError
+from devops_cli.roadmap.stage import stage_plan_record
+from devops_cli.roadmap.stage.stage import StagePlan, parse_filters, plan_item, plan_stage
 from devops_cli.roadmap.stage.stage_plan_record import (
     StagePlanRecord,
     plan_key,
@@ -15,12 +21,6 @@ from devops_cli.roadmap.stage.stage_plan_record import (
     read_plan_record,
     write_plan_record,
 )
-
-from devops_cli.ai.client.models import AIClientError
-from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.exceptions.roadmap import RoadmapStageError
-from devops_cli.roadmap.stage import stage_plan_record
-from devops_cli.roadmap.stage.stage import StagePlan, parse_filters, plan_item, plan_stage
 from devops_cli.roadmap.stage.stage_request import StageRequest
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import Verification
@@ -227,7 +227,6 @@ def test_an_unreadable_plan_file_raises_an_error_that_names_the_file(text: str) 
     assert str(path) in str(raised.value)
 
 
-@pytest.mark.usefixtures("openspec")
 def test_an_unreadable_plan_file_fails_the_item_with_its_name_and_asks_the_planner_nothing(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
@@ -250,7 +249,6 @@ def test_an_unreadable_plan_file_fails_the_item_with_its_name_and_asks_the_plann
 # ── The planner reads the file ────────────────────────────────────────────────
 
 
-@pytest.mark.usefixtures("openspec")
 def test_a_failed_review_and_a_rerun_make_no_planner_request_on_the_rerun(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
 ) -> None:
@@ -270,7 +268,6 @@ def test_a_failed_review_and_a_rerun_make_no_planner_request_on_the_rerun(
     assert verifier.call_count == 1
 
 
-@pytest.mark.usefixtures("openspec")
 def test_a_plan_that_the_gates_refuse_twice_is_not_kept(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
@@ -285,7 +282,6 @@ def test_a_plan_that_the_gates_refuse_twice_is_not_kept(
     assert (plan.ready, len(plan.failed), _file().exists()) == ((), 1, False)
 
 
-@pytest.mark.usefixtures("openspec")
 def test_a_changed_item_body_gives_a_new_key_and_asks_the_planner_again(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
@@ -299,7 +295,6 @@ def test_a_changed_item_body_gives_a_new_key_and_asks_the_planner_again(
     assert (model_fake.call_count, _key_of_file() != before) == (2, True)
 
 
-@pytest.mark.usefixtures("openspec")
 def test_a_changed_prompt_text_gives_a_new_key_and_asks_the_planner_again(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, monkeypatch: Any
 ) -> None:
@@ -315,7 +310,6 @@ def test_a_changed_prompt_text_gives_a_new_key_and_asks_the_planner_again(
     assert (model_fake.call_count, _key_of_file() != before) == (2, True)
 
 
-@pytest.mark.usefixtures("openspec")
 def test_a_moved_staged_commit_keeps_the_key_and_runs_the_measure_again_on_the_new_commit(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
@@ -335,7 +329,6 @@ def test_a_moved_staged_commit_keeps_the_key_and_runs_the_measure_again_on_the_n
     assert second.ready[0].groups[0].tokens > first.ready[0].groups[0].tokens
 
 
-@pytest.mark.usefixtures("openspec")
 def test_plan_then_confirm_send_the_planner_one_request_and_the_plan_makes_no_github_write(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, github_api: Any
 ) -> None:
@@ -364,7 +357,6 @@ def test_plan_then_confirm_send_the_planner_one_request_and_the_plan_makes_no_gi
     assert (applied.staged, model_fake.call_count) == ((1,), 1)
 
 
-@pytest.mark.usefixtures("openspec")
 def test_the_golden_set_plan_keeps_no_file_and_asks_the_model_each_time(
     store: InMemoryRoadmapStore, stage_repo: StageRepo
 ) -> None:
@@ -388,7 +380,6 @@ def test_the_golden_set_plan_keeps_no_file_and_asks_the_model_each_time(
 # ── The file goes ─────────────────────────────────────────────────────────────
 
 
-@pytest.mark.usefixtures("openspec")
 def test_a_staged_item_deletes_its_plan_file(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, github_api: Any
 ) -> None:
@@ -402,7 +393,6 @@ def test_a_staged_item_deletes_its_plan_file(
     assert (applied.staged, _file().exists()) == ((1,), False)
 
 
-@pytest.mark.usefixtures("openspec")
 def test_a_write_that_fails_leaves_the_plan_file_for_the_next_run(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, github_api: Any
 ) -> None:
@@ -421,7 +411,6 @@ def test_a_write_that_fails_leaves_the_plan_file_for_the_next_run(
     )
 
 
-@pytest.mark.usefixtures("openspec")
 def test_an_item_that_changes_deletes_the_old_plan_file_before_the_new_plan(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:
@@ -440,7 +429,6 @@ def test_an_item_that_changes_deletes_the_old_plan_file_before_the_new_plan(
 # ── The counter ───────────────────────────────────────────────────────────────
 
 
-@pytest.mark.usefixtures("openspec")
 def test_a_miss_a_write_and_a_hit_each_add_one_to_the_counter_with_their_result(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, otlp: FakeCollector
 ) -> None:

@@ -111,8 +111,8 @@ devops roadmap stage [OPTIONS]
 | `--limit` | `integer` | - | Maximum number of items to stage in this run. The default is the setting roadmap.stage.limit. |
 | `--step-tokens` | `integer` | - | Most tokens that the inputs of one implementation step may hold. The default is the setting roadmap.stage.step_tokens. |
 | `--dry-run` | `boolean` | - | Make no request: print the requests and the git commands that a run makes, with placeholders. |
-| `--plan` | `boolean` | - | Read GitHub and call the model, and write nothing: print the changes that --confirm writes. This is the mode when no flag is given. |
-| `--confirm` | `boolean` | - | Plan as --plan does, then make the writes in git and on GitHub. |
+| `--plan` | `boolean` | - | Read GitHub and call the model, make no GitHub write and no git write, and keep each plan that passes the checks as one local file: print the changes that --confirm writes. --confirm reads that file and asks the model nothing for an item whose input did not change. This is the mode when no flag is given. |
+| `--confirm` | `boolean` | - | Plan as --plan does, then make the writes in git and on GitHub. A kept plan file of an item goes when the item is staged. |
 | `--why` | `boolean` | - | Also list the open items that the filter does not name, each with the family it misses, under 'Matched no filter'. Without it, the plan does not list them. |
 
 ---

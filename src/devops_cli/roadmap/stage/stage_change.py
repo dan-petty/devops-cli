@@ -571,6 +571,10 @@ class WeakenedCheck(_Reply):
     safeguard: Text
 
 
+# The prompt that asks the model for a `StageProposal`.
+CHANGE_TASK: Final[str] = "roadmap_stage_change.md"
+
+
 class StageProposal(_Reply):
     """The model's plan of the change. `summary` is the summary of the pull request title, and
     `pull_request_body` the what and why of its body. The scope and the type of the title are not

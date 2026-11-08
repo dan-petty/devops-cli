@@ -1475,10 +1475,15 @@ class RoadmapCommandHelp:
         "placeholders."
     )
     stage_plan: str = (
-        "Read GitHub and call the model, and write nothing: print the changes that --confirm "
-        "writes. This is the mode when no flag is given."
+        "Read GitHub and call the model, make no GitHub write and no git write, and keep each plan "
+        "that passes the checks as one local file: print the changes that --confirm writes. "
+        "--confirm reads that file and asks the model nothing for an item whose input did not "
+        "change. This is the mode when no flag is given."
     )
-    stage_confirm: str = "Plan as --plan does, then make the writes in git and on GitHub."
+    stage_confirm: str = (
+        "Plan as --plan does, then make the writes in git and on GitHub. A kept plan file of an "
+        "item goes when the item is staged."
+    )
     stage_why: str = (
         "Also list the open items that the filter does not name, each with the family it "
         "misses, under 'Matched no filter'. Without it, the plan does not list them."
