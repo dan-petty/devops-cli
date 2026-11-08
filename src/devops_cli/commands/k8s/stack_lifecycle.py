@@ -280,6 +280,7 @@ MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     ],
     "devops": [
         DEFAULT_K8S_DIR / "devops" / "networkpolicy.yaml",
+        DEFAULT_K8S_DIR / "devops" / "networkpolicy-rag-ingest.yaml",
         DEFAULT_K8S_DIR / "devops" / "serviceaccount.yaml",
         DEFAULT_K8S_DIR / "devops" / "cronjob.yaml",
         DEFAULT_K8S_DIR / "devops" / "cronjob-runner.yaml",
@@ -322,6 +323,10 @@ POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
     "infra": (Path("argo-workflows", "workflowtemplate-version.yaml"),),
     "llm": (Path("llm", "gateway-db.yaml"), Path("llm", "gateway", "servicemonitor.yaml")),
     "chat": (Path("mattermost"),),
+    "devops": (
+        Path("devops", "workflowtemplate-rag-ingest.yaml"),
+        Path("devops", "cronworkflow-rag-ingest.yaml"),
+    ),
 }
 
 

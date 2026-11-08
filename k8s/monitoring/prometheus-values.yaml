@@ -1040,3 +1040,15 @@ serverFiles:
             annotations:
               summary: "Mattermost CloudNativePG database is down"
               description: "Mattermost PostgreSQL database in namespace mattermost is unreachable or has no healthy instances for 5 minutes."
+      # Argo workflow for RAG ingestion (#1653).
+      - name: rag-ingest
+        rules:
+          - alert: RagIngestBehind
+            expr: >-
+              time() - max by (repo) (devops_cli_rag_ingest_last_success_timestamp_seconds) > 360
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: "RAG index for repository {{ $labels.repo }} is behind"
+              description: "No RAG ingestion run succeeded for repository {{ $labels.repo }} in the last two schedule periods (k8s/README.md, Alerting)."

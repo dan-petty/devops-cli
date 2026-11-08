@@ -1,0 +1,91 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: rag-ingest
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: rag-ingest
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  entrypoint: ingest
+  synchronization:
+    mutex:
+      name: rag-ingest
+  serviceAccountName: devops-cli
+  activeDeadlineSeconds: 7200
+  ttlStrategy:
+    secondsAfterCompletion: 3600
+  podGC:
+    strategy: OnWorkflowSuccess
+  podMetadata:
+    labels:
+      app.kubernetes.io/name: rag-ingest
+      app.kubernetes.io/part-of: devops-cli-stack
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  templates:
+    - name: ingest
+      metadata:
+        labels:
+          app.kubernetes.io/name: rag-ingest
+          app.kubernetes.io/part-of: devops-cli-stack
+      container:
+        image: ghcr.io/dan-petty/devops-cli/service
+        imagePullPolicy: IfNotPresent
+        command: [devops]
+        args: ["ai", "rag", "ingest"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        envFrom:
+          - secretRef:
+              name: devops-cli
+        env:
+          - name: DEVOPS_CLI_CONFIG
+            value: /config/devops-cli.yaml
+          - name: DEVOPS_CLI_DATA_DIR
+            value: /home/devops/.data
+          - name: OTEL_SERVICE_NAME
+            value: devops-cli-rag-ingest
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: http://otel-collector.otel.svc.cluster.local:4318
+          - name: DEVOPS_CLI_AI_GATEWAY_CONCURRENCY_EMBEDDING
+            value: "1"
+          - name: DEVOPS_CLI_QDRANT_URL
+            value: http://qdrant.llm.svc.cluster.local:6333
+          - name: DEVOPS_CLI_QDRANT_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: qdrant-api-key
+                key: api-key
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+          - name: home
+            mountPath: /home/devops
+          - name: config
+            mountPath: /config
+            readOnly: true
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 2Gi
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: home
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: devops-cli-config

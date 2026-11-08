@@ -1,0 +1,27 @@
+# Ingest pods in namespace devops reach Qdrant on TCP 6333 (#1653). This policy adds to
+# `devops-default-perimeter`, which gives devops pods no such port. Only the ingest pods
+# get this port, so a general Job or Service pod cannot call Qdrant directly.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rag-ingest-egress
+  namespace: devops
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: rag-ingest
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: llm
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: qdrant
+      ports:
+        - protocol: TCP
+          port: 6333

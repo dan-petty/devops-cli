@@ -41,6 +41,17 @@ spec:
           podSelector:
             matchLabels:
               app.kubernetes.io/name: traefik
+    # Allow ingress from rag-ingest in namespace devops to Qdrant on port 6333 (#1653)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: devops
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: rag-ingest
+      ports:
+        - protocol: TCP
+          port: 6333
   egress:
     # Allow intra-namespace pod communications
     - to:

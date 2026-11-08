@@ -401,6 +401,20 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         labels={"app.kubernetes.io/name": "devops-cli"},
     ),
     ClusterSecret(
+        namespace="devops",
+        name="qdrant-api-key",
+        stack="devops",
+        entries=(
+            SecretEntry(
+                "api-key",
+                KeyringSource.for_credential("qdrant.api_key"),
+                generator=SecretGenerator("urlsafe", 32),
+                adopt_from=SecretKeyRef("llm", "qdrant-api-key", "api-key"),
+            ),
+        ),
+        labels={"app.kubernetes.io/name": "rag-ingest"},
+    ),
+    ClusterSecret(
         namespace="monitoring",
         name="grafana-admin",
         stack="infra",

@@ -134,7 +134,7 @@ def test_open_webui_is_the_only_workload_that_names_qdrant() -> None:
         }
     )
 
-    assert files == ["llm/values-open-webui.yaml"]
+    assert files == ["devops/workflowtemplate-rag-ingest.yaml", "llm/values-open-webui.yaml"]
 
 
 def test_qdrant_helm_values_security() -> None:
@@ -321,6 +321,7 @@ def test_deploy_stack_pushes_devops_only_where_its_namespace_exists(
                 "devops/crawl4ai",
                 "devops/searxng",
                 "devops/devops-cli",
+                "devops/qdrant-api-key",
             ],
         ),
         APP_KEY,
